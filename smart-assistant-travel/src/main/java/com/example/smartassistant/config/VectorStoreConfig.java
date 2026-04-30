@@ -24,7 +24,7 @@ public class VectorStoreConfig {
     public PgVectorStore vectorStore(DataSource dataSource, EmbeddingModel embeddingModel) {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         return PgVectorStore.builder(jdbcTemplate, embeddingModel)
-                .dimensions(1024)  // DashScope text-embedding-v3 实际输出 1024 维
+                .dimensions(1024)  // DashScope text-embedding-v4 输出 1024 维
                 .initializeSchema(true)  // 自动初始化表结构
                 .build();
     }

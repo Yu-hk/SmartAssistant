@@ -87,7 +87,8 @@ spring:
       embedding:
         enabled: true
         options:
-          model: text-embedding-v2  # Embedding 模型（输出 1536 维向量）
+          model: text-embedding-v4   # 升级从 v2 → v4，输出 1024 维向量
+          dimensions: 1024
     
     # ⭐ MCP Server 配置（内嵌在 Consumer 中）
     mcp:
