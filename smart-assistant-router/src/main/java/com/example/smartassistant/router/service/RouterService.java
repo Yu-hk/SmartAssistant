@@ -229,8 +229,12 @@ public class RouterService {
                 }
                 
                 // Layer 2: Router 内联 ChatClient 终极兜底（Nacos/Agent 不可用时）
+                // ⭐ 使用安抚性 system prompt，缓释用户可能已有的挫败感
                 try {
                     String localReply = chatClient.prompt()
+                            .system("你是一个温暖、耐心的助手。用户可能已经尝试了多次，心情不太好。"
+                                  + "请用温和友善的语气回应，先安抚情绪，再尽量帮ta解决问题。"
+                                  + "如果确实无法回答，温柔地引导用户尝试美食或旅行相关的问题。")
                             .user(question)
                             .call()
                             .content();
