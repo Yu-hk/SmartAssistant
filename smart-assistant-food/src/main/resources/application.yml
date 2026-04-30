@@ -55,11 +55,13 @@ spring:
       api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek API Key
       chat:
         options:
-          model: deepseek-chat
+          model: deepseek-v4-flash  # 最新 V4 快闪模型，1M 上下文，支持思维链
           temperature: 0.1
           max-tokens: 512
           log-requests: true
           log-responses: true
+          # V4 思维链配置
+          reasoning-effort: max  # 思维强度：high | max
 
     # ⭐ DashScope Embedding 配置（用于向量检索）
     dashscope:
