@@ -1,23 +1,24 @@
 package com.example.smartassistant.general.config;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.example.smartassistant.general.tool.GeneralTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.List;
+
 /**
  * 通用对话 Agent 配置
  *
- * <p>创建纯对话 Agent（无工具），用于闲聊和通用问答的兜底处理。</p>
+ * <p>提供数学计算和单位转换工具，支持 ReAct 模式智能调用。</p>
  *
- * <p>无工具的 ReactAgent = 普通聊天机器人，不触发 ReAct 循环，
- * 只是直接调用 ChatModel 生成回复，零额外开销。</p>
- *
- * <p>⭐ 未来扩展：如需个性化回复风格，可在 systemPrompt 中
- * 通过上下文注入用户画像参数。</p>
+ * <p>⭐ 未来扩展：可基于用户画像调整回复风格。</p>
  */
 @Configuration
 @Slf4j
@@ -28,28 +29,64 @@ public class GeneralAgentConfig {
 
     /**
      * 通用对话 Agent Bean
-     * 纯 Chat 模式，无需工具调用，ReactAgent 仅作为 A2A 容器
+     * 注册数学计算和单位转换工具，支持 ReAct 模式
      */
     @Bean
     public ReactAgent generalChatAgent(
-            @Qualifier("deepSeekChatModel") ChatModel chatModel) {
+            @Qualifier("deepSeekChatModel") ChatModel chatModel,
+            GeneralTools generalTools) {
 
         log.info("[GeneralAgent] 初始化通用对话 Agent: agentName={}", agentName);
 
+        // 注册所有工具
+        MethodToolCallbackProvider toolProvider = MethodToolCallbackProvider.builder()
+                .toolObjects(generalTools)
+                .build();
+        List<ToolCallback> toolCallbacks = List.of(toolProvider.getToolCallbacks());
+
+        log.info("[GeneralAgent] 注册 {} 个工具", toolCallbacks.size());
+
         return ReactAgent.builder()
                 .name(agentName)
-                .description("通用对话智能体 - 闲聊、问答、帮助、情感陪伴"
-                        + "（无工具，纯 Chat 模式）")
+                .description("通用对话智能体 - 闲聊、问答、数学计算、单位转换")
                 .model(chatModel)
-                .systemPrompt("""
-                        你是一个友好的通用对话助手，适用于闲聊、问答和各种日常场景。
-
-                        行为准则：
-                        - 回复简洁自然，语气友善
-                        - 不知道就说不知道，不编造
-                        - 敏感话题礼貌拒绝
-                        - 如用户询问美食/旅行话题，引导使用相关专业服务
-                        """)
+                .systemPrompt(buildSystemPrompt())
+                .tools(toolCallbacks.toArray(new ToolCallback[0]))
                 .build();
+    }
+
+    private String buildSystemPrompt() {
+        return """
+                你是一个友好的通用对话助手，擅长闲聊、问答以及各类日常实用计算。
+
+                ═══════════════════════════════════════════════════════════════
+                🔧 可用工具
+                ═══════════════════════════════════════════════════════════════
+
+                1. calculate(expression) — 数学计算
+                   → 适用：加减乘除、平方根、幂运算
+                   → 示例："计算 3.14 * 5^2"、"sqrt(144) 等于多少"
+
+                2. convertTemperature(value, fromUnit, toUnit) — 温度转换
+                   → 单位：C(摄氏)、F(华氏)、K(开尔文)
+                   → 示例："100°F 等于多少摄氏度"
+
+                3. convertLength(value, fromUnit, toUnit) — 长度转换
+                   → 单位：m/km/cm/mm/ft/in/mi
+                   → 示例："5英尺是多少厘米"、"10公里等于多少英里"
+
+                4. convertWeight(value, fromUnit, toUnit) — 重量转换
+                   → 单位：kg/g/mg/lb/oz/t
+                   → 示例："10磅是多少千克"
+
+                ═══════════════════════════════════════════════════════════════
+                ⚠️ 行为规范
+                ═══════════════════════════════════════════════════════════════
+
+                - 回复简洁自然，语气友善
+                - 需要计算的场景先调用工具，再整合结果回复
+                - 不知道就说不知道，不编造
+                - 敏感话题礼貌拒绝
+                """;
     }
 }
