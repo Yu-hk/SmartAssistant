@@ -21,7 +21,6 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 @Service
 public class AgentDiscoveryService {
@@ -249,6 +248,37 @@ public class AgentDiscoveryService {
         }
     }
     
+    /**
+     * ⭐ 查找用作降级的 Agent（优先级最高的 agent，作为最后兜底）
+     * <p>
+     * 遍历所有已发现 Agent，选择 priority 值最大的作为降级 Agent。
+     * 当前 General Agent 的 priority=100，远高于 Food/Travel 的 priority=10。
+     */
+    public DiscoveredAgent findFallbackAgent() {
+        Collection<DiscoveredAgent> agents = getCachedAgents();
+        if (agents.isEmpty()) {
+            log.warn("[AgentDiscovery] 无可用 Agent，无法找到降级 Agent");
+            return null;
+        }
+
+        DiscoveredAgent fallback = null;
+        int maxPriority = Integer.MIN_VALUE;
+
+        for (DiscoveredAgent agent : agents) {
+            int priority = agent.getMetadata() != null ? agent.getMetadata().getPriority() : 0;
+            if (priority > maxPriority) {
+                maxPriority = priority;
+                fallback = agent;
+            }
+        }
+
+        if (fallback != null) {
+            log.info("[AgentDiscovery] 降级 Agent: {} (优先级: {})",
+                    fallback.getServiceName(), maxPriority);
+        }
+        return fallback;
+    }
+
     /**
      * 根据用户问题匹配最合适的 Agent
      */
