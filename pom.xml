@@ -24,8 +24,9 @@
         <module>smart-assistant-router</module>
         <module>smart-assistant-travel</module>
         <module>smart-assistant-food</module>
+        <module>smart-assistant-general</module>  <!-- ⭐ 通用对话模块 -->
         <module>smart-assistant-gateway</module>
-        <module>smart-assistant-user</module>  <!-- ⭐ 新增用户服务 -->
+        <module>smart-assistant-user</module>  <!-- ⭐ 用户服务 -->
     </modules>
 
     <properties>

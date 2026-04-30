@@ -209,15 +209,11 @@ public class RouterService {
                         .routingMethod("KEYWORD_FALLBACK")
                         .build();
             } else {
-                log.warn("[Router] 无专业 Agent 匹配，降级到通用对话 V4-Flash");
+                log.warn("[Router] 无专业 Agent 匹配，降级到通用对话 Agent");
                 try {
-                    String generalReply = chatClient.prompt()
-                            .user(u -> u.text("你是一个友好的通用对话助手。请根据用户的问题直接回答，保持自然友善的语气。\n\n用户问题：{question}")
-                                .param("question", question))
-                            .call()
-                            .content();
+                    String generalReply = agentCallerService.callAgent("general_chat", question, userId);
                     
-                    if (generalReply != null && !generalReply.isBlank()) {
+                    if (generalReply != null && !generalReply.isBlank() && !generalReply.startsWith("❌")) {
                         return RoutingResult.builder()
                                 .result(generalReply)
                                 .agentName("general_chat")
@@ -225,10 +221,10 @@ public class RouterService {
                                 .build();
                     }
                 } catch (Exception e) {
-                    log.warn("[Router] 通用对话降级失败: {}", e.getMessage());
+                    log.warn("[Router] 通用对话 Agent 调用失败: {}", e.getMessage());
                 }
                 
-                // LLM 也失败时的最终兜底
+                // Agent 也失败时的最终兜底
                 return RoutingResult.builder()
                         .result("抱歉，我暂时无法处理这个问题。您可以试试问问我关于美食或旅行的问题！")
                         .agentName("none")
