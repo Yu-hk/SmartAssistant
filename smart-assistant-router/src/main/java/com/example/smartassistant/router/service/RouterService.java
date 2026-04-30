@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -60,6 +61,15 @@ public class RouterService {
     
     @Value("${router.task-splitting.max-sub-tasks:3}")
     private int maxSubTasks;
+
+    // ⭐ 多套兜底说辞轮换
+    private static final List<String> FALLBACK_MESSAGES = List.of(
+            "😅 抱歉让你等了这么久，目前服务似乎遇到了一些临时问题。请稍后再试一下，或者联系技术支持看看。谢谢你的耐心！",
+            "🙏 不好意思让你久等了，系统这会儿有点忙不过来，暂时没办法回应你的问题。过一会儿再找我试试吧！",
+            "🤗 哎呀，好像出了点小岔子……你先别着急，我这边正在努力恢复中，等一小会儿再来找我聊聊好吗？",
+            "😊 真抱歉，刚才没能帮上忙。系统可能在打盹儿，你先去喝杯水，待会儿再来找我试试看？"
+    );
+    private final AtomicInteger fallbackIndex = new AtomicInteger(0);
 
     public RouterService(RoutingStrategyManager strategyManager,
                         AgentCallerService agentCallerService,
@@ -251,9 +261,10 @@ public class RouterService {
                     log.warn("[Router] 内联 ChatClient 兜底失败: {}", e.getMessage());
                 }
                 
-                // 所有兜底都失败时的最终提示
+                // 所有兜底都失败时的最终提示（多套说辞轮换）
+                int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
                 return RoutingResult.builder()
-                        .result("😅 抱歉让你等了这么久，目前服务似乎遇到了一些临时问题。请稍后再试一下，或者联系技术支持看看。谢谢你的耐心！")
+                        .result(FALLBACK_MESSAGES.get(idx))
                         .agentName("none")
                         .confidence(0.0)
                         .build();
