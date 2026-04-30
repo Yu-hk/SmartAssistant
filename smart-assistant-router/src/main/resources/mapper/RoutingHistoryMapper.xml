@@ -1,0 +1,93 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.example.smartassistant.router.mapper.RoutingHistoryMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="RoutingHistoryResultMap" type="com.example.smartassistant.router.model.RoutingHistory">
+        <id property="id" column="id"/>
+        <result property="question" column="question"/>
+        <result property="routedAgent" column="routed_agent"/>
+        <result property="routingMethod" column="routing_method"/>
+        <result property="confidenceScore" column="confidence_score"/>
+        <result property="isSuccess" column="is_success"/>
+        <result property="userFeedback" column="user_feedback"/>
+        <result property="responseTimeMs" column="response_time_ms"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <!-- 插入路由历史记录 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO routing_history (
+            question, routed_agent, routing_method, confidence_score, 
+            is_success, user_feedback, response_time_ms, created_at
+        ) VALUES (
+            #{question}, #{routedAgent}, #{routingMethod}, #{confidenceScore},
+            #{isSuccess}, #{userFeedback}, #{responseTimeMs}, NOW()
+        )
+    </insert>
+
+    <!-- 根据 ID 查询 -->
+    <select id="findById" resultMap="RoutingHistoryResultMap">
+        SELECT * FROM routing_history WHERE id = #{id}
+    </select>
+
+    <!-- 更新路由结果 -->
+    <update id="updateResult">
+        UPDATE routing_history 
+        SET is_success = #{success}, 
+            response_time_ms = #{responseTimeMs}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新用户反馈（自动判断成功/失败） -->
+    <update id="updateFeedback">
+        UPDATE routing_history 
+        SET user_feedback = #{feedback},
+            is_success = CASE 
+                WHEN #{feedback} LIKE '%满意%' OR #{feedback} LIKE '%正确%' OR #{feedback} LIKE '%好%' THEN true
+                WHEN #{feedback} LIKE '%错误%' OR #{feedback} LIKE '%不对%' OR #{feedback} LIKE '%差%' THEN false
+                ELSE is_success 
+            END
+        WHERE id = #{id}
+    </update>
+
+    <!-- 查询 Agent 成功率（最近 N 天） -->
+    <select id="getSuccessRate" resultType="java.lang.Double">
+        SELECT COUNT(CASE WHEN is_success = true THEN 1 END) * 100.0 / COUNT(*)
+        FROM routing_history
+        WHERE routed_agent = #{agentName} 
+          AND created_at >= #{since}
+    </select>
+
+    <!-- 查询 Agent 平均响应时间（最近 N 天，仅成功记录） -->
+    <select id="getAvgResponseTime" resultType="java.lang.Double">
+        SELECT AVG(response_time_ms) 
+        FROM routing_history
+        WHERE routed_agent = #{agentName} 
+          AND is_success = true 
+          AND created_at >= #{since}
+    </select>
+
+    <!-- 查询最近 N 条记录 -->
+    <select id="findRecent" resultMap="RoutingHistoryResultMap">
+        SELECT * FROM routing_history 
+        ORDER BY created_at DESC 
+        LIMIT #{limit}
+    </select>
+
+    <!-- 统计各 Agent 的路由次数（最近 N 天） -->
+    <select id="countByAgent" resultType="java.util.HashMap">
+        SELECT routed_agent, COUNT(*) as count 
+        FROM routing_history
+        WHERE created_at >= #{since} 
+        GROUP BY routed_agent
+    </select>
+
+    <!-- 查询总记录数 -->
+    <select id="totalCount" resultType="long">
+        SELECT COUNT(*) FROM routing_history
+    </select>
+
+</mapper>

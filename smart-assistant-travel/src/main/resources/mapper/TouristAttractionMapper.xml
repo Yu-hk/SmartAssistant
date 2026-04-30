@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.smartassistant.mapper.TouristAttractionMapper">
+
+    <!-- 根据城市查询景点 -->
+    <select id="findByCity" resultType="com.example.smartassistant.entity.TouristAttraction">
+        SELECT * FROM tourist_attractions WHERE city = #{city}
+    </select>
+
+    <!-- 根据省份查询景点 -->
+    <select id="findByProvince" resultType="com.example.smartassistant.entity.TouristAttraction">
+        SELECT * FROM tourist_attractions WHERE province = #{province}
+    </select>
+
+    <!-- 根据等级查询景点 -->
+    <select id="findByLevel" resultType="com.example.smartassistant.entity.TouristAttraction">
+        SELECT * FROM tourist_attractions WHERE level = #{level}
+    </select>
+
+    <!-- 根据名称模糊查询 -->
+    <select id="findByNameContaining" resultType="com.example.smartassistant.entity.TouristAttraction">
+        SELECT * FROM tourist_attractions WHERE name LIKE CONCAT('%', #{name}, '%')
+    </select>
+
+    <!-- 检查景点是否存在（按名称和城市） -->
+    <select id="findByNameAndCity" resultType="com.example.smartassistant.entity.TouristAttraction">
+        SELECT * FROM tourist_attractions WHERE name = #{name} AND city = #{city} LIMIT 1
+    </select>
+
+    <!-- 统计每个城市的景点数量 -->
+    <select id="countByCity" resultType="java.util.HashMap">
+        SELECT city, COUNT(*) as count FROM tourist_attractions GROUP BY city ORDER BY COUNT(*) DESC
+    </select>
+
+    <!-- 统计每个省份的景点数量 -->
+    <select id="countByProvince" resultType="java.util.HashMap">
+        SELECT province, COUNT(*) as count FROM tourist_attractions GROUP BY province ORDER BY COUNT(*) DESC
+    </select>
+
+    <!-- 查询所有不同的城市 -->
+    <select id="findAllCities" resultType="java.lang.String">
+        SELECT DISTINCT city FROM tourist_attractions ORDER BY city
+    </select>
+
+    <!-- 查询所有不同的省份 -->
+    <select id="findAllProvinces" resultType="java.lang.String">
+        SELECT DISTINCT province FROM tourist_attractions ORDER BY province
+    </select>
+
+    <!-- 根据标签查询景点 -->
+    <select id="findByTagsIn" resultType="com.example.smartassistant.entity.TouristAttraction">
+        SELECT DISTINCT t.* FROM tourist_attractions t
+        CROSS JOIN jsonb_array_elements_text(t.tags) AS tag
+        WHERE tag IN
+        <foreach collection="tags" item="t" open="(" separator="," close=")">
+            #{t}
+        </foreach>
+    </select>
+
+</mapper>

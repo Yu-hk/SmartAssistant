@@ -1,0 +1,88 @@
+# =====================================================
+# MCP 表访问白名单配置
+# 用途：集中管理各服务可访问的数据库表
+# 维护：新增表时只需在此文件中添加即可
+# =====================================================
+
+# Travel 服务白名单
+travel:
+  allowed-tables:
+    - tourist_attractions           # 景点表
+    - attraction_highlights         # 景点亮点
+    - attraction_tags               # 景点标签
+    - user_favorited_attractions    # 用户收藏
+    - user_viewed_attractions       # 用户浏览
+    - user_preferred_cities         # 用户偏好城市
+    - user_preferred_levels         # 用户偏好等级
+  
+  # 黑名单：明确禁止访问的表（其他服务的表）
+  forbidden-tables:
+    - users                         # Consumer 服务
+    - chat_messages                 # Consumer 服务
+    - chat_messages_partitioned     # Consumer 服务
+    - auth_chat_messages            # Consumer 服务
+    - user_sessions                 # Consumer 服务
+    - user_profiles                 # Consumer 服务
+    - routing_call_log              # Router 服务
+
+# Consumer 服务白名单
+consumer:
+  allowed-tables:
+    - users                         # 用户表
+    - chat_messages_partitioned     # 聊天消息分区表
+    - chat_messages                 # 兼容视图
+    - auth_chat_messages            # 认证聊天消息
+    - user_sessions                 # 用户会话
+    - user_profiles                 # 用户资料
+    - routing_call_log              # 路由日志
+  
+  # 黑名单：明确禁止访问的表（其他服务的表）
+  forbidden-tables:
+    - tourist_attractions           # Travel 服务
+    - attraction_highlights         # Travel 服务
+    - attraction_tags               # Travel 服务
+    - user_favorited_attractions    # Travel 服务
+    - user_viewed_attractions       # Travel 服务
+    - user_preferred_cities         # Travel 服务
+    - user_preferred_levels         # Travel 服务
+
+# Food 服务白名单（如果未来需要）
+food:
+  allowed-tables:
+    - restaurants                   # 餐厅表
+    - cuisines                      # 菜系表
+    - reviews                       # 评论表
+  
+  forbidden-tables:
+    - users                         # Consumer 服务
+    - tourist_attractions           # Travel 服务
+
+# =====================================================
+# 使用说明
+# =====================================================
+# 
+# 1. 新增表的步骤：
+#    a) 在对应服务的 allowed-tables 中添加表名
+#    b) 重启服务或调用 /actuator/refresh 端点热重载
+#    c) 运行单元测试验证权限
+#
+# 2. 移除表的步骤：
+#    a) 从 allowed-tables 中删除表名
+#    b) 可选：添加到 forbidden-tables 明确禁止
+#    c) 重启服务或调用 /actuator/refresh 端点
+#
+# 3. 权限控制机制：
+#    - ✅ 应用层控制：通过白名单配置实现细粒度的表访问控制
+#    - ✅ 服务级别：每个服务有独立的白名单和黑名单
+#    - ✅ 动态生效：支持运行时热重载，无需重启服务
+#    - ❌ 不依赖数据库用户权限：所有服务使用统一的应用用户
+#
+# 4. 验证权限：
+#    mvn test -Dtest=McpPermissionTest
+#
+# 5. 安全建议：
+#    - 生产环境使用环境变量管理数据库密码
+#    - 定期审查白名单配置，移除不必要的表访问
+#    - 监控 SQL 执行日志，及时发现异常访问
+#
+# =====================================================

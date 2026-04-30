@@ -1,0 +1,172 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: router-service
+  
+  # 禁用 Spring Cloud 兼容性检查（Spring Boot 3.4.x 需要）
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    # ⭐ 禁用 Nacos Config 导入检查
+    nacos:
+      config:
+        import-check:
+          enabled: false
+
+  # 数据源配置（PostgreSQL 统一数据库）
+  datasource:
+    url: jdbc:postgresql://localhost:5432/a2a_system
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 30000
+      connection-timeout: 20000
+
+  # Redis 配置（用于加载会话上下文）
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 2000ms
+
+  # MyBatis 配置
+  mybatis:
+    mapper-locations: classpath:mapper/*.xml
+    type-aliases-package: com.example.smartassistant.router.model
+    configuration:
+      map-underscore-to-camel-case: true  # 自动转换下划线到驼峰
+      log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl  # 启用 SQL 日志
+
+  # DashScope LLM 配置
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}  # 阿里云 DashScope API Key
+      chat:
+        options:
+          model: deepseek-v3  # 使用 DeepSeek V3 模型
+
+    alibaba:
+      a2a:
+        # Nacos 配置（服务发现）
+        nacos:
+          server-addr: 127.0.0.1:8848
+          discovery:
+            enabled: true
+            namespace: ""  # 使用默认 namespace (public)
+            group: DEFAULT_GROUP
+
+# JWT 配置（与 Consumer Service 保持一致）
+jwt:
+  secret: ${JWT_SECRET:a2a-demo-secret-key-for-jwt-token-generation-2026-very-long}  # ⭐ 优先从环境变量 JWT_SECRET 读取
+
+# Router 配置
+router:
+  # ⭐ Agent 发现配置（消除硬编码）
+  agent-discovery:
+    enabled: true  # 是否启用自动发现
+    
+    # 需要监听的服务列表（为空则使用动态发现模式）
+    watched-services:
+    
+    # 服务名称后缀过滤规则
+    service-name-suffixes:
+      - "-service"
+      - "-agent"
+    
+    # 需要排除的服务名称列表
+    excluded-services:
+      - router-service
+      - user-service
+      - consumer-service
+    
+    # Nacos 配置
+    namespace: ""
+    group: DEFAULT_GROUP
+    
+    # 超时配置
+    discovery-timeout: 5000           # 发现超时时间（毫秒）
+    cache-refresh-interval: 3600000   # 缓存刷新间隔（1小时）
+    heartbeat-timeout: 120000         # 心跳超时时间（2分钟）
+  
+  agent:
+    # 动态刷新配置
+    refresh:
+      enabled: true          # 启用定时刷新
+      interval: 10000       # 刷新间隔（毫秒），默认 5 分钟
+    
+    # RAG 增强配置
+    rag:
+      enabled: true  # ⭐ 启用 RAG 增强路由
+      top-k: 3
+      similarity-threshold: 0.7
+    
+    # 路由决策配置
+    routing:
+      confidence-threshold: 0.8  # 最低置信度阈值
+      max-retries: 2             # 最大重试次数
+    
+    # ⭐ 语义路由缓存配置
+    semantic-cache:
+      enabled: true              # 是否启用语义路由缓存
+    
+    # ⭐ 任务拆分配置
+    task-splitting:
+      enabled: true              # 是否启用多意图任务拆解
+      max-sub-tasks: 3           # 最大子任务数
+    keyword-extraction:
+      cache:
+        max-size: 1000  # 根据内存调整
+        ttl: 3600       # 可选：设置过期时间
+  
+  # ⭐ 中文分词器配置（IKAnalyzer）
+  tokenizer:
+    enabled: true              # 是否启用中文分词器增强
+    use-ik-analyzer: true      # 是否使用 IKAnalyzer
+
+# Actuator + Prometheus + Tracing 配置 ⭐
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    prometheus:
+      enabled: true
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  
+  # 分布式追踪配置 (Jaeger - Zipkin 兼容模式)
+  tracing:
+    sampling:
+      probability: 1.0  # ⭐ 启用全量采样，生产环境可调整为 0.1-0.3
+    zipkin:
+      tracing:
+        endpoint: http://localhost:9411/api/v2/spans  # ⭐ Jaeger 兼容 Zipkin 协议的端点
+
+# Logging 配置（输出到文件，供 Loki 收集）⭐
+logging:
+  charset:
+    file: UTF-8
+    console: UTF-8
+  file:
+    name: logs/${spring.application.name}.log
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 7
+      total-size-cap: 100MB

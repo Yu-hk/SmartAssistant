@@ -1,0 +1,121 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # A2A Consumer Service Logs
+  - job_name: a2a-consumer
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: a2a-logs
+          service: consumer-service
+          __path__: /var/log/services/consumer/*.log
+    pipeline_stages:
+      - multiline:
+          firstline: '^\d{4}-\d{2}-\d{2}'
+          max_wait_time: 3s
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{4})\s+\S+\s+(?P<level>\w+)\s+(?P<pid>\d+)\s+---\s+\[(?P<thread>[^\]]+)\]\s+(?P<logger>\S+)\s+:\s+(?P<message>.*)$'
+      - labels:
+          level:
+          logger:
+          thread:
+
+  # Router Service Logs
+  - job_name: a2a-router
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: a2a-logs
+          service: router-service
+          __path__: /var/log/services/router/*.log
+    pipeline_stages:
+      - multiline:
+          firstline: '^\d{4}-\d{2}-\d{2}'
+          max_wait_time: 3s
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{4})\s+\S+\s+(?P<level>\w+)\s+(?P<pid>\d+)\s+---\s+\[(?P<thread>[^\]]+)\]\s+(?P<logger>\S+)\s+:\s+(?P<message>.*)$'
+      - labels:
+          level:
+          logger:
+          thread:
+
+  # Food Service Logs
+  - job_name: a2a-food
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: a2a-logs
+          service: food-service
+          __path__: /var/log/services/food/*.log
+    pipeline_stages:
+      - multiline:
+          firstline: '^\d{4}-\d{2}-\d{2}'
+          max_wait_time: 3s
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{4})\s+\S+\s+(?P<level>\w+)\s+(?P<pid>\d+)\s+---\s+\[(?P<thread>[^\]]+)\]\s+(?P<logger>\S+)\s+:\s+(?P<message>.*)$'
+      - labels:
+          level:
+          logger:
+          thread:
+
+  # Travel Service Logs
+  - job_name: a2a-travel
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: a2a-logs
+          service: travel-service
+          __path__: /var/log/services/travel/*.log
+    pipeline_stages:
+      - multiline:
+          firstline: '^\d{4}-\d{2}-\d{2}'
+          max_wait_time: 3s
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{4})\s+\S+\s+(?P<level>\w+)\s+(?P<pid>\d+)\s+---\s+\[(?P<thread>[^\]]+)\]\s+(?P<logger>\S+)\s+:\s+(?P<message>.*)$'
+      - labels:
+          level:
+          logger:
+          thread:
+
+# ============================================
+# 添加新服务的步骤：
+# 1. 在此处复制下面的模板
+# 2. 修改 job_name, service, __path__
+# 3. 更新 docker-compose.yml 的 volumes
+# 4. 更新 sync-logs-realtime.ps1 的 $Services 数组
+# 5. 重启 Promtail: docker-compose restart promtail
+#
+# 模板示例（以 user-service 为例）：
+#
+#   # User Service Logs
+#   - job_name: a2a-user
+#     static_configs:
+#       - targets:
+#           - localhost
+#         labels:
+#           job: a2a-logs
+#           service: user-service
+#           __path__: /var/log/services/user/*.log
+#     pipeline_stages:
+#       - multiline:
+#           firstline: '^\d{4}-\d{2}-\d{2}'
+#           max_wait_time: 3s
+#       - regex:
+#           expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{4})\s+\S+\s+(?P<level>\w+)\s+(?P<pid>\d+)\s+---\s+\[(?P<thread>[^\]]+)\]\s+(?P<logger>\S+)\s+:\s+(?P<message>.*)$'
+#       - labels:
+#           level:
+#           logger:
+#           thread:
+# ============================================

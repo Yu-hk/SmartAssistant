@@ -1,0 +1,244 @@
+groups:
+  # ──────────────────────────────────────────
+  # Consumer Service 告警
+  # ──────────────────────────────────────────
+  - name: a2a_consumer_alerts
+    # 评估间隔（继承 global.evaluation_interval = 15s）
+    rules:
+      # 1. 高错误率
+      - alert: ConsumerHighErrorRate
+        expr: |
+          (
+            rate(a2a_consumer_requests_failed_total[5m])
+            /
+            rate(a2a_consumer_requests_total[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: consumer
+        annotations:
+          summary: "Consumer 高错误率"
+          description: "Consumer 错误率超过 5%，当前值: {{ printf \"%.2f\" $value }}"
+          runbook: "检查 Consumer 日志 (port 8082)，确认下游 Router 是否正常"
+
+      # 2. P95 高延迟
+      - alert: ConsumerHighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            rate(a2a_consumer_request_latency_bucket[5m])
+          ) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: consumer
+        annotations:
+          summary: "Consumer P95 延迟过高"
+          description: "P95 请求延迟超过 1000ms，当前值: {{ printf \"%.0f\" $value }}ms"
+          runbook: "检查 LLM 响应时间、Router 路由延迟，考虑扩容或优化 Prompt"
+
+      # 3. P99 高延迟（更严格）
+      - alert: ConsumerCriticalLatency
+        expr: |
+          histogram_quantile(
+            0.99,
+            rate(a2a_consumer_request_latency_bucket[5m])
+          ) > 3000
+        for: 2m
+        labels:
+          severity: critical
+          service: consumer
+        annotations:
+          summary: "Consumer P99 延迟严重超标"
+          description: "P99 请求延迟超过 3000ms，当前值: {{ printf \"%.0f\" $value }}ms"
+
+      # 4. 缓存命中率低
+      - alert: ConsumerLowCacheHitRate
+        expr: |
+          (
+            rate(a2a_consumer_cache_hits[5m])
+            /
+            (
+              rate(a2a_consumer_cache_hits[5m])
+              + rate(a2a_consumer_cache_misses[5m])
+            )
+          ) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          service: consumer
+        annotations:
+          summary: "Consumer 缓存命中率低"
+          description: "缓存命中率低于 50%，当前值: {{ printf \"%.4f\" $value }}"
+          runbook: "检查缓存配置，考虑增大缓存容量或调整缓存策略"
+
+      # 5. 活跃会话数异常（突增）
+      - alert: ConsumerSessionSpike
+        expr: |
+          a2a_consumer_active_sessions > 100
+        for: 3m
+        labels:
+          severity: warning
+          service: consumer
+        annotations:
+          summary: "Consumer 活跃会话数异常"
+          description: "活跃会话数超过 100，当前值: {{ $value }}"
+
+  # ──────────────────────────────────────────
+  # 缓存预热告警
+  # ──────────────────────────────────────────
+  - name: cache_preload_alerts
+    rules:
+      # 1. 预热失败率过高
+      - alert: HighPreloadFailureRate
+        expr: |
+          rate(cache_preload_failure_total[5m]) 
+          / 
+          rate(cache_preload_total_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: consumer
+          component: cache-preload
+        annotations:
+          summary: "缓存预热失败率过高 (>5%)"
+          description: "当前失败率: {{ printf \"%.2f\" $value | humanizePercentage }}"
+          runbook: "检查数据库连接、Redis 状态，查看 Consumer 日志中的 [UserProfileCache] 错误"
+
+      # 2. 预热耗时过长（P95）
+      - alert: HighPreloadDuration
+        expr: |
+          histogram_quantile(0.95, rate(cache_preload_duration_bucket[5m])) > 200
+        for: 5m
+        labels:
+          severity: warning
+          service: consumer
+          component: cache-preload
+        annotations:
+          summary: "缓存预热 P95 延迟过高 (>200ms)"
+          description: "当前 P95 延迟: {{ printf \"%.0f\" $value }}ms"
+          runbook: "检查 PostgreSQL 慢查询、网络延迟，考虑优化 SQL 或增加索引"
+
+      # 3. Redis 缓存完全失效
+      - alert: RedisCacheMiss
+        expr: |
+          rate(cache_preload_skipped_total[5m]) == 0
+          and
+          rate(cache_preload_total_total[5m]) > 10
+        for: 10m
+        labels:
+          severity: critical
+          service: consumer
+          component: cache-preload
+        annotations:
+          summary: "Redis 缓存完全失效"
+          description: "所有预热请求都未命中缓存，Redis 可能故障或配置错误"
+          runbook: "检查 Redis 连接状态、KEYS user_profile:* 是否存在，验证 TTL 设置"
+
+      # 4. 预热成功率过低
+      - alert: LowPreloadSuccessRate
+        expr: |
+          rate(cache_preload_success_total[5m]) 
+          / 
+          (rate(cache_preload_total_total[5m]) - rate(cache_preload_skipped_total[5m])) < 0.9
+        for: 10m
+        labels:
+          severity: warning
+          service: consumer
+          component: cache-preload
+        annotations:
+          summary: "缓存预热成功率过低 (<90%)"
+          description: "当前成功率: {{ printf \"%.2f\" $value | humanizePercentage }}"
+          runbook: "检查用户画像表数据完整性，确认 UserProfileMapper.findByUserId() 是否正常"
+
+  # ──────────────────────────────────────────
+  # Router Service 告警
+  # ──────────────────────────────────────────
+  - name: a2a_router_alerts
+    rules:
+      # 1. Router 高路由失败率
+      - alert: RouterHighFailureRate
+        expr: |
+          (
+            rate(a2a_router_routing_failed_total[5m])
+            /
+            rate(a2a_router_routing_requests_total[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: router
+        annotations:
+          summary: "Router 路由失败率过高"
+          description: "路由失败率超过 5%，当前值: {{ printf \"%.4f\" $value }}"
+          runbook: "检查 Router 日志 (port 8083)，确认 Agent 服务是否可达"
+
+      # 2. Router 高延迟
+      - alert: RouterHighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            rate(a2a_router_routing_latency_bucket[5m])
+          ) > 500
+        for: 5m
+        labels:
+          severity: warning
+          service: router
+        annotations:
+          summary: "Router P95 路由延迟过高"
+          description: "P95 路由延迟超过 500ms，当前值: {{ printf \"%.0f\" $value }}ms"
+
+      # 3. 活跃 Agent 数为 0
+      - alert: RouterNoActiveAgents
+        expr: |
+          a2a_router_active_agents == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: router
+        annotations:
+          summary: "Router 无活跃 Agent"
+          description: "Router 检测到 0 个活跃 Agent，所有下游服务可能已下线"
+          runbook: "检查 Travel Service (8084) 和 Food Service (8085) 是否在运行"
+
+  # ──────────────────────────────────────────
+  # 服务存活告警
+  # ──────────────────────────────────────────
+  - name: a2a_availability_alerts
+    rules:
+      # 1. Consumer 服务不可达
+      - alert: ConsumerServiceDown
+        expr: |
+          up{job="a2a-consumer"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: consumer
+        annotations:
+          summary: "Consumer Service 宕机"
+          description: "Prometheus 无法抓取 Consumer 指标，服务可能已停止 (port 8082)"
+
+      # 2. Router 服务不可达
+      - alert: RouterServiceDown
+        expr: |
+          up{job="a2a-router"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: router
+        annotations:
+          summary: "Router Service 宕机"
+          description: "Prometheus 无法抓取 Router 指标，服务可能已停止 (port 8083)"
+
+      # 3. Agent 服务不可达
+      - alert: AgentServiceDown
+        expr: |
+          up{job=~"a2a-travel|a2a-food"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: agent
+        annotations:
+          summary: "Agent Service 宕机 ({{ $labels.job }})"
+          description: "Prometheus 无法抓取 {{ $labels.job }} 指标，服务可能已停止"

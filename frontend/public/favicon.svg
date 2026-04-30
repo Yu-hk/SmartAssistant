@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#409EFF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#66b1ff;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- 背景圆形 -->
+  <circle cx="50" cy="50" r="45" fill="url(#grad)" />
+  
+  <!-- 机器人图标 -->
+  <g fill="white">
+    <!-- 头部 -->
+    <rect x="30" y="25" width="40" height="35" rx="8" ry="8" />
+    
+    <!-- 眼睛 -->
+    <circle cx="40" cy="40" r="4" />
+    <circle cx="60" cy="40" r="4" />
+    
+    <!-- 嘴巴 -->
+    <rect x="42" y="50" width="16" height="3" rx="1.5" ry="1.5" />
+    
+    <!-- 天线 -->
+    <line x1="50" y1="25" x2="50" y2="18" stroke="white" stroke-width="3" />
+    <circle cx="50" cy="15" r="3" />
+    
+    <!-- 身体 -->
+    <rect x="35" y="62" width="30" height="20" rx="5" ry="5" />
+  </g>
+</svg>

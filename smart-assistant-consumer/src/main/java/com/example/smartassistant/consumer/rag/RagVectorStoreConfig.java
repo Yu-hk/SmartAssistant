@@ -1,0 +1,36 @@
+package com.example.smartassistant.consumer.rag;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import javax.sql.DataSource;
+
+/**
+ * RAG 向量存储配置
+ * 使用 PostgreSQL pgvector 实现持久化向量存储
+ * 支持语义搜索、相似性检索等功能
+ */
+@Slf4j
+@Configuration
+public class RagVectorStoreConfig {
+    
+    /**
+     * 创建 PgVectorStore Bean
+     * 使用 PostgreSQL + pgvector 扩展实现向量存储
+     */
+    @Bean
+    public PgVectorStore vectorStore(DataSource dataSource, EmbeddingModel embeddingModel) {
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        
+        log.info("[RAG] 初始化 PgVectorStore...");
+        
+        return PgVectorStore.builder(jdbcTemplate, embeddingModel)
+                .dimensions(1536)  // DashScope embedding 维度
+                .initializeSchema(true)  // 自动初始化表结构
+                .build();
+    }
+}

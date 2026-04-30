@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.smartassistant.consumer.mapper.UserProfileMapper">
+
+    <!-- 根据用户 ID 查找画像 - 修复 character varying = bigint 类型不匹配 -->
+    <select id="findByUserId" resultType="com.example.smartassistant.consumer.entity.UserProfile">
+        SELECT id, user_id,
+               COALESCE(array_to_json(preferred_locations)::text, '[]') as preferred_locations,
+               COALESCE(array_to_json(food_preferences)::text, '[]') as food_preferences,
+               COALESCE(array_to_json(travel_preferences)::text, '[]') as travel_preferences,
+               COALESCE(array_to_json(dietary_restrictions)::text, '[]') as dietary_restrictions,
+               budget_range, preference_weights, additional_preferences, total_queries,
+               last_query_at, created_at, updated_at
+        FROM user_profiles WHERE user_id::text = #{userId}::text LIMIT 1
+    </select>
+
+    <!-- 检查用户画像是否存在 -->
+    <select id="existsByUserId" resultType="boolean">
+        SELECT COUNT(*) > 0 FROM user_profiles WHERE user_id::text = #{userId}::text
+    </select>
+
+    <!-- 自定义插入 - 使用 PostgreSQL 序列获取自增 ID -->
+    <insert id="insertProfile" parameterType="com.example.smartassistant.consumer.entity.UserProfile">
+        <selectKey keyProperty="id" resultType="long" order="BEFORE">
+            SELECT COALESCE(MAX(id), 0) + 1 FROM user_profiles
+        </selectKey>
+        INSERT INTO user_profiles (
+            id, user_id, preferred_locations, food_preferences, travel_preferences,
+            dietary_restrictions, budget_range, preference_weights, additional_preferences,
+            total_queries, last_query_at, created_at, updated_at
+        ) VALUES (
+            #{id},
+            #{userId},
+            <choose>
+                <when test="preferredLocations != null and preferredLocations != '' and preferredLocations != '[]'">
+                    string_to_array(replace(substring(#{preferredLocations} from 2 for greatest(0, length(#{preferredLocations}) - 2)), '"', ''), ',')
+                </when>
+                <otherwise>NULL</otherwise>
+            </choose>,
+            <choose>
+                <when test="foodPreferences != null and foodPreferences != '' and foodPreferences != '[]'">
+                    string_to_array(replace(substring(#{foodPreferences} from 2 for greatest(0, length(#{foodPreferences}) - 2)), '"', ''), ',')
+                </when>
+                <otherwise>NULL</otherwise>
+            </choose>,
+            <choose>
+                <when test="travelPreferences != null and travelPreferences != '' and travelPreferences != '[]'">
+                    string_to_array(replace(substring(#{travelPreferences} from 2 for greatest(0, length(#{travelPreferences}) - 2)), '"', ''), ',')
+                </when>
+                <otherwise>NULL</otherwise>
+            </choose>,
+            <choose>
+                <when test="dietaryRestrictions != null and dietaryRestrictions != '' and dietaryRestrictions != '[]'">
+                    string_to_array(replace(substring(#{dietaryRestrictions} from 2 for greatest(0, length(#{dietaryRestrictions}) - 2)), '"', ''), ',')
+                </when>
+                <otherwise>NULL</otherwise>
+            </choose>,
+            #{budgetRange}, #{preferenceWeights}, #{additionalPreferences}::jsonb,
+            #{totalQueries}, #{lastQueryAt}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <!-- 自定义更新 - 使用 PostgreSQL 数组构造函数 -->
+    <update id="updateProfile" parameterType="com.example.smartassistant.consumer.entity.UserProfile">
+        UPDATE user_profiles SET
+            preferred_locations = <choose>
+                <when test="preferredLocations != null and preferredLocations != '' and preferredLocations != '[]'">
+                    string_to_array(replace(substring(#{preferredLocations} from 2 for greatest(0, length(#{preferredLocations}) - 2)), '"', ''), ',')
+                </when>
+                <otherwise>NULL</otherwise>
+            </choose>,
+            food_preferences = <choose>
+                <when test="foodPreferences != null and foodPreferences != '' and foodPreferences != '[]'">
+                    string_to_array(replace(substring(#{foodPreferences} from 2 for greatest(0, length(#{foodPreferences}) - 2)), '"', ''), ',')
+                </when>
+                <otherwise>NULL</otherwise>
+            </choose>,
+            travel_preferences = <choose>
+                <when test="travelPreferences != null and travelPreferences != '' and travelPreferences != '[]'">
+                    string_to_array(replace(substring(#{travelPreferences} from 2 for greatest(0, length(#{travelPreferences}) - 2)), '"', ''), ',')
+                </when>
+                <otherwise>NULL</otherwise>
+            </choose>,
+            dietary_restrictions = <choose>
+                <when test="dietaryRestrictions != null and dietaryRestrictions != '' and dietaryRestrictions != '[]'">
+                    string_to_array(replace(substring(#{dietaryRestrictions} from 2 for greatest(0, length(#{dietaryRestrictions}) - 2)), '"', ''), ',')
+                </when>
+                <otherwise>NULL</otherwise>
+            </choose>,
+            budget_range = #{budgetRange},
+            preference_weights = #{preferenceWeights},
+            additional_preferences = #{additionalPreferences}::jsonb,
+            total_queries = #{totalQueries},
+            last_query_at = #{lastQueryAt},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+</mapper>

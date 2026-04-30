@@ -1,0 +1,56 @@
+# 测试环境配置
+server:
+  port: 0  # 随机端口
+
+spring:
+  application:
+    name: consumer-service-test
+
+  # H2内存数据库用于测试
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password: 
+    driver-class-name: org.h2.Driver
+
+  # JPA配置
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+  # DashScope配置(测试时使用mock)
+  ai:
+    dashscope:
+      api-key: test-api-key-for-testing
+      embedding:
+        options:
+          model: text-embedding-v3
+    
+    alibaba:
+      a2a:
+        nacos:
+          server-addr: 127.0.0.1:8848
+          registry:
+            enabled: false  # 测试时禁用注册
+          discovery:
+            enabled: false  # 测试时禁用的发现
+        server:
+          enabled: false  # 测试时禁用A2A服务
+
+  # 异步配置
+  task:
+    execution:
+      pool:
+        core-size: 2
+        max-size: 4
+        queue-capacity: 50
+      thread-name-prefix: test-async-
+
+# 路由服务配置
+routing:
+  min-match-score: 0.650
+  semantic-enabled: true

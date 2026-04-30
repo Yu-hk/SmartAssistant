@@ -1,0 +1,128 @@
+services:
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: a2a-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # 挂载告警规则目录（只读），新增 .yml 文件后执行 docker kill -s HUP 即可热重载
+      - ./rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      # 开启热重载（POST /-/reload 接口）
+      - '--web.enable-lifecycle'
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: a2a-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # 自动配置数据源和仪表盘（provisioning）
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      # 启用告警
+      - GF_ALERTING_ENABLED=true
+      - GF_UNIFIED_ALERTING_ENABLED=true
+    volumes:
+      - grafana-data:/var/lib/grafana
+      # 挂载整个 provisioning 目录，包含数据源、仪表盘和告警配置
+      - ./provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # Jaeger (分布式追踪)
+  jaeger:
+    image: quay.io/jaegertracing/all-in-one:1.58
+    container_name: a2a-jaeger
+    ports:
+      - "16686:16686"  # Web UI
+      - "14268:14268"  # Jaeger HTTP collector
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # Loki (日志聚合) - 使用 DaoCloud 镜像
+  loki:
+    image: docker.m.daocloud.io/grafana/loki:2.9.0
+    container_name: a2a-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # Promtail (日志收集器) - 使用 DaoCloud 镜像
+  promtail:
+    image: docker.m.daocloud.io/grafana/promtail:2.9.0
+    container_name: a2a-promtail
+    volumes:
+      # 挂载所有服务的父目录，Promtail 会递归扫描
+      # 添加新服务：在此处添加新的 volume 映射
+      - ../a2a-consumer/logs:/var/log/services/consumer:ro
+      - ../router-service/logs:/var/log/services/router:ro
+      - ../food-service/logs:/var/log/services/food:ro
+      - ../travel-service/logs:/var/log/services/travel:ro
+      # Example: - ../user-service/logs:/var/log/services/user:ro
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # PostgreSQL Exporter (数据库监控) - 使用 DaoCloud 镜像
+  postgres-exporter:
+    image: docker.m.daocloud.io/prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: a2a-postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@host.docker.internal:5432/a2a_system?sslmode=disable"
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # Redis Exporter (缓存监控) - 使用 DaoCloud 镜像
+  redis-exporter:
+    image: docker.m.daocloud.io/oliver006/redis_exporter:v1.58.0
+    container_name: a2a-redis-exporter
+    ports:
+      - "9121:9121"
+    command:
+      - "--redis.addr=redis://host.docker.internal:6379"
+      - "--web.listen-address=:9121"
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+
+networks:
+  monitoring:
+    driver: bridge

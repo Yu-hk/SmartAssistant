@@ -1,0 +1,104 @@
+server:
+  port: 8086  # User Service 端口
+
+spring:
+  application:
+    name: user-service
+
+  # Spring Cloud 配置
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    
+    # Nacos 服务发现配置
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+        namespace: ""
+        group: DEFAULT_GROUP
+        enabled: true
+
+  # 数据源配置（PostgreSQL）
+  datasource:
+    url: jdbc:postgresql://localhost:5432/a2a_system
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 30000
+      connection-timeout: 20000
+
+  # MyBatis Plus 配置
+  mybatis-plus:
+    mapper-locations: classpath*:/mapper/**/*.xml
+    type-aliases-package: com.example.smartassistant.user.model
+    configuration:
+      map-underscore-to-camel-case: true
+      log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+    global-config:
+      db-config:
+        id-type: auto
+
+  # Redis 配置（用于 Session 管理）
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+# JWT 配置
+jwt:
+  secret: ${JWT_SECRET:a2a-demo-secret-key-for-jwt-token-generation-2026-very-long}  # ⭐ 优先从环境变量 JWT_SECRET 读取
+  expiration: 3600000  # 1 小时（毫秒）
+  refresh-expiration: 86400000  # 24 小时（毫秒）
+
+# Session 配置（Redis）
+session:
+  ttl-days: 7  # Session 有效期（天）
+
+# Actuator + Prometheus + Tracing 配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    prometheus:
+      enabled: true
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  
+  # 分布式追踪配置 (Jaeger - Zipkin 兼容模式)
+  tracing:
+    sampling:
+      probability: 1.0  # 启用全量采样
+    zipkin:
+      tracing:
+        endpoint: http://localhost:9411/api/v2/spans
+
+# Logging 配置
+logging:
+  file:
+    name: logs/${spring.application.name}.log
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 7
+      total-size-cap: 100MB

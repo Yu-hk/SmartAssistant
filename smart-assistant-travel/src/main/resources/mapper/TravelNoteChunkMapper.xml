@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.smartassistant.mapper.TravelNoteChunkMapper">
+
+    <!-- 删除指定游记的所有分块 -->
+    <delete id="deleteByNoteId">
+        DELETE FROM travel_note_chunks WHERE note_id = #{noteId}
+    </delete>
+
+    <!-- 批量插入分块 -->
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT INTO travel_note_chunks (note_id, chunk_text, chunk_index, embedding, location_keywords, created_at)
+        VALUES
+        <foreach collection="chunks" item="chunk" separator=",">
+            (
+                #{chunk.noteId},
+                #{chunk.chunkText},
+                #{chunk.chunkIndex},
+                #{chunk.embedding}::vector,
+                #{chunk.locationKeywordsStr},
+                CURRENT_TIMESTAMP
+            )
+        </foreach>
+    </insert>
+
+    <!-- 单条插入分块（内存优化版） -->
+    <insert id="insertOne">
+        INSERT INTO travel_note_chunks (note_id, chunk_text, chunk_index, embedding, location_keywords, created_at)
+        VALUES (
+            #{chunk.noteId},
+            #{chunk.chunkText},
+            #{chunk.chunkIndex},
+            #{chunk.embedding}::vector,
+            #{chunk.locationKeywordsStr},
+            CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <!-- 向量相似度检索 -->
+    <select id="searchByEmbedding" resultType="com.example.smartassistant.entity.TravelNoteChunk">
+        SELECT
+            tnc.id,
+            tnc.note_id,
+            tnc.chunk_text,
+            tnc.chunk_index,
+            tnc.location_keywords AS locationKeywordsStr,
+            tnc.created_at,
+            tn.title AS note_title,
+            1 - (tnc.embedding &lt;=&gt; #{embedding}::vector) AS similarity
+        FROM travel_note_chunks tnc
+        JOIN user_travel_notes tn ON tnc.note_id = tn.id
+        WHERE tn.user_id = #{userId}
+          AND tn.status = 'active'
+          <if test="locationKeyword != null and locationKeyword != ''">
+            AND tnc.location_keywords LIKE CONCAT('%', #{locationKeyword}, '%')
+          </if>
+        ORDER BY tnc.embedding &lt;=&gt; #{embedding}::vector
+        LIMIT #{limit}
+    </select>
+
+    <!-- 根据地点关键词检索（不使用向量） -->
+    <select id="searchByLocation" resultType="com.example.smartassistant.entity.TravelNoteChunk">
+        SELECT
+            tnc.id,
+            tnc.note_id,
+            tnc.chunk_text,
+            tnc.chunk_index,
+            tnc.location_keywords AS locationKeywordsStr,
+            tnc.created_at,
+            tn.title AS note_title
+        FROM travel_note_chunks tnc
+        JOIN user_travel_notes tn ON tnc.note_id = tn.id
+        WHERE tn.user_id = #{userId}
+          AND tn.status = 'active'
+          AND tnc.location_keywords LIKE CONCAT('%', #{locationKeyword}, '%')
+        ORDER BY tn.created_at DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>
