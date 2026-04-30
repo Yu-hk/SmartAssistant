@@ -1,0 +1,111 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: general-agent-service
+
+  # 排除 Spring Security 自动配置 (内部服务无需认证)
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+
+  # Spring Cloud 配置
+  cloud:
+    compatibility-verifier:
+      enabled: false
+
+    # Nacos 服务发现
+    nacos:
+      config:
+        import-check:
+          enabled: false
+      discovery:
+        enabled: true
+        server-addr: 127.0.0.1:8848
+        namespace: ""
+        group: DEFAULT_GROUP
+        metadata:
+          agent-type: general_chat
+          capabilities: chat,qa,entertainment,companion
+          keywords: 闲聊,聊天,帮助,问答,解释,什么是,为什么,怎么,如何,你好,嗨,hello,心情
+          version: "1.0.0"
+          protocol-version: "v1"
+          min-client-version: "1.0.0"
+          supported-protocols: "a2a-v1"
+
+  # DeepSeek 模型配置（V4-Flash 最新模型）
+  ai:
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY:}
+      chat:
+        options:
+          model: deepseek-v4-flash
+          temperature: 0.7
+          max-tokens: 2048
+
+    # DashScope API（A2A 发现依赖）
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}
+
+    alibaba:
+      a2a:
+        # Nacos 注册中心
+        nacos:
+          server-addr: 127.0.0.1:8848
+          registry:
+            enabled: true
+            namespace: ""
+            group: DEFAULT_GROUP
+            metadata:
+              agent-type: general_chat
+              capabilities: chat,qa,entertainment,companion
+              keywords: 闲聊,聊天,帮助,问答,解释,什么是,为什么,怎么,如何,你好,嗨,hello,心情
+              priority: 100  # 最低优先级，作为兜底
+              version: "1.0.0"
+              protocol-version: "v1"
+              min-client-version: "1.0.0"
+              supported-protocols: "a2a-v1"
+        # A2A 服务端配置
+        server:
+          enabled: true
+          card:
+            name: general_chat
+            description: "通用对话智能体 - 闲聊、问答、帮助，当其他专业服务无法处理时作为兜底"
+            version: "1.0.0"
+
+# Actuator + Prometheus + Tracing 配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      environment: development
+
+  # 分布式追踪
+  tracing:
+    sampling:
+      probability: 1.0
+    zipkin:
+      tracing:
+        endpoint: http://localhost:9411/api/v2/spans
+
+# Logging 配置
+logging:
+  file:
+    name: logs/${spring.application.name}.log
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 7
+      total-size-cap: 100MB

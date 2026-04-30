@@ -15,7 +15,8 @@ $services = @(
     @{Name="Consumer";Port=8082; Jar="smart-assistant-consumer\target\smart-assistant-consumer-1.0.0-SNAPSHOT.jar"},
     @{Name="Router";  Port=8083; Jar="smart-assistant-router\target\smart-assistant-router-1.0.0-SNAPSHOT.jar"},
     @{Name="Travel";  Port=8085; Jar="smart-assistant-travel\target\smart-assistant-travel-1.0.0-SNAPSHOT.jar"},
-    @{Name="Food";    Port=8084; Jar="smart-assistant-food\target\smart-assistant-food-1.0.0-SNAPSHOT.jar"}
+    @{Name="Food";    Port=8084; Jar="smart-assistant-food\target\smart-assistant-food-1.0.0-SNAPSHOT.jar"},
+    @{Name="General"; Port=8087; Jar="smart-assistant-general\target\smart-assistant-general-1.0.0-SNAPSHOT.jar"}
 )
 
 foreach ($svc in $services) {

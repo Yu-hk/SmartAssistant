@@ -26,6 +26,7 @@ Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "D
 Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "D:\workspace\SmartAssistant\smart-assistant-router\target\smart-assistant-router-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden -RedirectStandardOutput "$pwd\logs\router-stdout.log" -RedirectStandardError "$pwd\logs\router-stderr.log"
 Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "D:\workspace\SmartAssistant\smart-assistant-travel\target\smart-assistant-travel-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden -RedirectStandardOutput "$pwd\logs\travel-stdout.log" -RedirectStandardError "$pwd\logs\travel-stderr.log"
 Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "D:\workspace\SmartAssistant\smart-assistant-food\target\smart-assistant-food-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden -RedirectStandardOutput "$pwd\logs\food-stdout.log" -RedirectStandardError "$pwd\logs\food-stderr.log"
+Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "D:\workspace\SmartAssistant\smart-assistant-general\target\smart-assistant-general-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden -RedirectStandardOutput "$pwd\logs\general-stdout.log" -RedirectStandardError "$pwd\logs\general-stderr.log"
 
 # 前端（通过 .NET Process 后台运行，无窗口）
 ```powershell
@@ -52,6 +53,7 @@ Start-Sleep -Seconds 5
 | Food | 8084 |
 | Travel | 8085 |
 | User | 8086 |
+| General | 8087 |
 | Frontend | 3001 |
 
 ## 查看日志
@@ -66,6 +68,7 @@ type D:\workspace\SmartAssistant\logs\travel-service.log -Tail 50
 type D:\workspace\SmartAssistant\logs\food-service.log -Tail 50
 type D:\workspace\SmartAssistant\logs\api-gateway.log -Tail 50
 type D:\workspace\SmartAssistant\logs\user-service.log -Tail 50
+type D:\workspace\SmartAssistant\logs\general-agent-service.log -Tail 50
 
 # 标准输出日志（包含启动横幅等）
 type D:\workspace\SmartAssistant\logs\Consumer-stdout.log -Tail 30
