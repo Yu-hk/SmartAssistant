@@ -207,7 +207,9 @@ public class RouterService {
                         .routingMethod("KEYWORD_FALLBACK")
                         .build();
             } else {
-                log.warn("[Router] 无专业 Agent 匹配，尝试动态发现降级 Agent");
+                log.warn("[Router] 无专业 Agent 匹配，尝试降级 Agent");
+                
+                // Layer 1: 通过 A2A 调用通用的降级 Agent（如 general_chat）
                 try {
                     DiscoveredAgent fallbackAgent = agentDiscoveryService.findFallbackAgent();
                     if (fallbackAgent != null) {
@@ -224,6 +226,24 @@ public class RouterService {
                     }
                 } catch (Exception e) {
                     log.warn("[Router] 降级 Agent 调用失败: {}", e.getMessage());
+                }
+                
+                // Layer 2: Router 内联 ChatClient 终极兜底（Nacos/Agent 不可用时）
+                try {
+                    String localReply = chatClient.prompt()
+                            .user(question)
+                            .call()
+                            .content();
+                    
+                    if (localReply != null && !localReply.isBlank()) {
+                        return RoutingResult.builder()
+                                .result(localReply)
+                                .agentName("builtin_fallback")
+                                .confidence(0.2)
+                                .build();
+                    }
+                } catch (Exception e) {
+                    log.warn("[Router] 内联 ChatClient 兜底失败: {}", e.getMessage());
                 }
                 
                 // 所有兜底都失败时的最终提示
