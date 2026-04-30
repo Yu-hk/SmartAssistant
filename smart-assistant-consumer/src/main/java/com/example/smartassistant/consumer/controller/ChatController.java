@@ -167,24 +167,30 @@ public class ChatController {
             dataResult.put("result", handleDataQuery(message));
             resultMono = Mono.just(dataResult);
         } else if (sessionId != null) {
-            // ⭐ 有 sessionId：直接调用带 session 的服务（缓存暂时禁用，排查 travel 回复问题）
+            // ⭐ 有 sessionId：使用带 session 的完整响应
             log.info("[交互式多意图] 使用 session 模式: sessionId={}", sessionId);
             resultMono = Mono.fromCallable(() -> mathService.calculateWithSession(userId, message, sessionId, finalRequestId))
                     .subscribeOn(Schedulers.boundedElastic())
-                    .map(reply -> {
+                    .map(routerMap -> {
+                        String resultText = (String) ((Map<String, Object>) routerMap).get("result");
+                        String agentName = (String) ((Map<String, Object>) routerMap).get("agentName");
                         Map<String, Object> map = new HashMap<>();
-                        map.put("result", reply);
+                        map.put("result", resultText != null ? resultText : "");
+                        map.put("agentName", agentName);
                         map.put("fromCache", false);
                         return map;
                     });
         } else {
-            // 4. 直接调用 LLM（缓存暂时禁用，排查 travel 回复问题）
-            log.info("[无Session] 直接调用 calculate（缓存已禁用）");
-            resultMono = Mono.fromCallable(() -> mathService.calculate(userId, message, finalRequestId))
+            // 4. 直接调用 LLM（无 session）
+            log.info("[无Session] 直接调用 calculate");
+            resultMono = Mono.fromCallable(() -> mathService.calculateWithSession(userId, message, null, finalRequestId))
                     .subscribeOn(Schedulers.boundedElastic())
-                    .map(reply -> {
+                    .map(routerMap -> {
+                        String resultText = (String) ((Map<String, Object>) routerMap).get("result");
+                        String agentName = (String) ((Map<String, Object>) routerMap).get("agentName");
                         Map<String, Object> map = new HashMap<>();
-                        map.put("result", reply);
+                        map.put("result", resultText != null ? resultText : "");
+                        map.put("agentName", agentName);
                         map.put("fromCache", false);
                         return map;
                     });
@@ -194,9 +200,11 @@ public class ChatController {
         return saveUserMessageMono.then(resultMono)
             .flatMap(routerResponse -> {
                 String reply = (String) routerResponse.get("result");
+                // ⭐ 从 Router 响应中获取 Agent 派发信息（辅助推理检测）
+                String routedAgent = (String) routerResponse.get("agentName");
 
                 // ⭐ 6. 智能建议：判断是否需要生成
-                List<String> suggestions = shouldSkipSuggestions(message, reply) 
+                List<String> suggestions = shouldSkipSuggestions(message, reply, routedAgent) 
                     ? List.of() 
                     : generateSmartSuggestionsLLM(userId, message, sessionId, reply);
 
@@ -382,23 +390,49 @@ public class ChatController {
 
     /**
      * ⭐ 判断是否需要跳过智能建议
+     * <p>
+     * 路径A：基于推理模式的建议生成控制。
+     * 当 DeepSeek V4-Flash 使用 reasoning_effort:max 时：
+     * - 简单问题产生短回复，未启动深度推理 → 跳过建议
+     * - 复杂问题产生长回复，启动了深度推理 → 生成建议
+     * - Agent 被派发(food/travel)说明问题复杂 → 不跳过
+     *
+     * @param message     用户消息
+     * @param reply       模型回复
+     * @param routedAgent Router 派发的 Agent 名称（可能为 null）
+     * @return true = 跳过建议生成
      */
-    private boolean shouldSkipSuggestions(String message, String reply) {
+    private boolean shouldSkipSuggestions(String message, String reply, String routedAgent) {
         if (message == null || message.isBlank()) return true;
         if (reply == null || reply.isBlank()) return true;
 
-        // 1. Agent 回复已自带建议（如 Travel/Food Agent 的 💡 智能建议）
+        // 1. Agent 回复已自带建议
         if (reply.contains("智能建议") || reply.contains("可以直接点击或回复序号")) {
             return true;
         }
 
-        // 2. 简短消息（问候、感谢、单字回答 Agent 反问）
+        // 2. Agent 回复包含错误信息
+        if (reply.startsWith("Exception:") || reply.startsWith("❌") || reply.contains("Authentication Fails")) {
+            return true;
+        }
+
+        // 3. 简短消息（问候、感谢、单字回答 Agent 反问）
         String trimmed = message.trim();
         if (trimmed.length() <= 4) return true;
 
-        // 3. 常见问候/感谢语
+        // 4. 常见问候/感谢语
         String lower = trimmed.toLowerCase();
         if (greetingPattern.matcher(lower).matches()) return true;
+
+        // ⭐ 5. 路径A：推理模式检测
+        //    reasoning_effort:max 下，复杂问题产生长回复
+        //    短回复 (< 150 字) → 简单问题，未启动深度推理 → 跳过建议
+        if (reply.length() < 150) return true;
+
+        // Agent 被派发 → 复杂问题，已启动深度推理 → 保留建议
+        if (routedAgent != null && !routedAgent.isBlank() && !"none".equals(routedAgent)) {
+            return false;
+        }
 
         return false;
     }
