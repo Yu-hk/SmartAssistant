@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>语音输入测试</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            background: #f5f7ff;
+            border-color: #764ba2;
+        }
+
+        .upload-area.dragover {
+            background: #e8ecff;
+            border-color: #764ba2;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .upload-text {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            color: #333;
+            font-weight: 500;
+            margin-bottom: 5px;
+        }
+
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f5f7ff;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .result.show {
+            display: block;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .result-title {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .result-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .result-text {
+            color: #333;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .file-info {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 语音输入测试</h1>
+        <p class="subtitle">上传音频文件进行语音识别</p>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">点击或拖拽音频文件到此处</div>
+            <div style="color: #999; font-size: 12px; margin-top: 5px;">
+                支持格式：WAV, MP3, M4A, FLAC, OGG（最大 10MB）
+            </div>
+        </div>
+
+        <input type="file" id="fileInput" class="file-input" accept="audio/*">
+
+        <div class="file-info" id="fileInfo" style="display: none;"></div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="language">语言选择</label>
+                <select id="language">
+                    <option value="zh-CN" selected>中文 (简体)</option>
+                    <option value="en-US">English (US)</option>
+                    <option value="ja-JP">日本語</option>
+                    <option value="ko-KR">한국어</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="btn" id="recognizeBtn" disabled>开始识别</button>
+        <button class="btn" id="chatBtn" disabled style="margin-top: 10px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">🎤 语音对话（智能处理）</button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div style="color: #666;">正在识别中...</div>
+        </div>
+
+        <div class="result" id="result">
+            <div class="result-header">
+                <span class="result-title">识别结果</span>
+                <span class="result-status" id="resultStatus"></span>
+            </div>
+            <div class="result-text" id="resultText"></div>
+        </div>
+
+        <div class="result" id="chatResult" style="margin-top: 20px; background: #fff5f7;">
+            <div class="result-header">
+                <span class="result-title" style="color: #f5576c;">💬 智能回复</span>
+                <span class="result-status" id="chatStatus"></span>
+            </div>
+            <div class="result-text" id="chatText"></div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const recognizeBtn = document.getElementById('recognizeBtn');
+        const chatBtn = document.getElementById('chatBtn');
+        const loading = document.getElementById('loading');
+        const result = document.getElementById('result');
+        const resultStatus = document.getElementById('resultStatus');
+        const resultText = document.getElementById('resultText');
+        const languageSelect = document.getElementById('language');
+        const chatResult = document.getElementById('chatResult');
+        const chatStatus = document.getElementById('chatStatus');
+        const chatText = document.getElementById('chatText');
+
+        let selectedFile = null;
+
+        // 点击上传区域
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // 文件选择
+        fileInput.addEventListener('change', (e) => {
+            handleFile(e.target.files[0]);
+        });
+
+        // 拖拽事件
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFile(e.dataTransfer.files[0]);
+        });
+
+        // 处理文件
+        function handleFile(file) {
+            if (!file) return;
+
+            // 验证文件类型
+            if (!file.type.startsWith('audio/')) {
+                alert('请选择音频文件！');
+                return;
+            }
+
+            // 验证文件大小（10MB）
+            if (file.size > 10 * 1024 * 1024) {
+                alert('文件大小不能超过 10MB！');
+                return;
+            }
+
+            selectedFile = file;
+            
+            // 显示文件信息
+            fileInfo.style.display = 'block';
+            fileInfo.innerHTML = `
+                <strong>文件名：</strong>${file.name}<br>
+                <strong>大小：</strong>${(file.size / 1024).toFixed(2)} KB<br>
+                <strong>类型：</strong>${file.type}
+            `;
+
+            // 启用按钮
+            recognizeBtn.disabled = false;
+            chatBtn.disabled = false;
+        }
+
+        // 识别按钮点击
+        recognizeBtn.addEventListener('click', async () => {
+            if (!selectedFile) {
+                alert('请先选择音频文件！');
+                return;
+            }
+
+            // 显示加载状态
+            loading.classList.add('show');
+            result.classList.remove('show');
+            recognizeBtn.disabled = true;
+
+            try {
+                // 构建 FormData
+                const formData = new FormData();
+                formData.append('audio', selectedFile);
+                formData.append('language', languageSelect.value);
+
+                // 发送请求
+                const response = await fetch('/api/speech/recognize', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                // 隐藏加载状态
+                loading.classList.remove('show');
+                recognizeBtn.disabled = false;
+
+                // 显示结果
+                result.classList.add('show');
+                
+                if (data.success) {
+                    resultStatus.textContent = '成功';
+                    resultStatus.className = 'result-status status-success';
+                    resultText.textContent = data.text || '未识别到内容';
+                } else {
+                    resultStatus.textContent = '失败';
+                    resultStatus.className = 'result-status status-error';
+                    resultText.textContent = data.message || '识别失败';
+                }
+
+            } catch (error) {
+                // 隐藏加载状态
+                loading.classList.remove('show');
+                recognizeBtn.disabled = false;
+
+                // 显示错误
+                result.classList.add('show');
+                resultStatus.textContent = '错误';
+                resultStatus.className = 'result-status status-error';
+                resultText.textContent = '网络错误：' + error.message;
+            }
+        });
+
+        // 语音对话按钮点击（端到端处理）
+        chatBtn.addEventListener('click', async () => {
+            if (!selectedFile) {
+                alert('请先选择音频文件！');
+                return;
+            }
+
+            // 显示加载状态
+            loading.classList.add('show');
+            result.classList.remove('show');
+            chatResult.classList.remove('show');
+            recognizeBtn.disabled = true;
+            chatBtn.disabled = true;
+
+            try {
+                // 构建 FormData
+                const formData = new FormData();
+                formData.append('audio', selectedFile);
+                formData.append('language', languageSelect.value);
+                formData.append('userId', 'test-user');
+                formData.append('requestId', 'speech-' + Date.now());
+
+                // 发送请求（SSE 流式）
+                const response = await fetch('/api/speech/chat', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('HTTP error! status: ' + response.status);
+                }
+
+                // 处理 SSE 流
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let currentEvent = '';
+                let chatContent = '';
+
+                chatResult.classList.add('show');
+                chatStatus.textContent = '处理中...';
+                chatStatus.className = 'result-status';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            currentEvent = line.substring(7).trim();
+                        } else if (line.startsWith('data: ')) {
+                            const data = line.substring(6).trim();
+                            
+                            // 根据不同事件类型更新 UI
+                            switch (currentEvent) {
+                                case 'thinking':
+                                    chatStatus.textContent = data;
+                                    break;
+                                case 'recognized':
+                                    chatText.innerHTML = '<strong>识别文本：</strong>' + data + '<br><br><strong>AI 回复：</strong><br>';
+                                    break;
+                                case 'routed':
+                                    chatStatus.textContent = '已路由到: ' + data;
+                                    break;
+                                case 'response':
+                                case 'content':
+                                    chatContent += data;
+                                    chatText.innerHTML = chatText.innerHTML.split('<br><br><strong>AI 回复：</strong><br>')[0] + 
+                                        '<br><br><strong>AI 回复：</strong><br>' + chatContent;
+                                    break;
+                                case 'error':
+                                    chatStatus.textContent = '错误';
+                                    chatStatus.className = 'result-status status-error';
+                                    chatText.textContent = data;
+                                    break;
+                                case 'done':
+                                    chatStatus.textContent = '完成';
+                                    chatStatus.className = 'result-status status-success';
+                                    loading.classList.remove('show');
+                                    recognizeBtn.disabled = false;
+                                    chatBtn.disabled = false;
+                                    return;
+                            }
+                        }
+                    }
+                }
+
+            } catch (error) {
+                loading.classList.remove('show');
+                recognizeBtn.disabled = false;
+                chatBtn.disabled = false;
+
+                chatResult.classList.add('show');
+                chatStatus.textContent = '错误';
+                chatStatus.className = 'result-status status-error';
+                chatText.textContent = '网络错误：' + error.message;
+            }
+        });
+    </script>
+</body>
+</html>

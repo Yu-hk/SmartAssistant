@@ -1,0 +1,74 @@
+# ========================================
+# Git Ignore Configuration
+# ========================================
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Build output
+target/
+build/
+dist/
+*.jar
+*.war
+*.class
+
+# Logs
+logs/
+*.log
+*.log.*
+*.gz
+
+# Environment variables (IMPORTANT!)
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Monitoring data
+monitoring/data/
+monitoring/logs/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# HanLP data (large binary files)
+hanlp-data/*.jar
+
+# Misplaced class files at root
+BOOT-INF/
+EmbeddingDebugTool.class
+
+# Build logs
+build.log
+consumer-build.log
+
+# Post result test files
+post_result*.json
+
+# WorkBuddy memory (session-specific, do not commit)
+.workbuddy/memory/
+
+# Lingma local config
+.lingma/

@@ -1,0 +1,57 @@
+version: '3.8'
+
+# SmartAssistant 项目 - 基础设施服务
+# 包含：Redis、Nacos、Zipkin（链路追踪）
+# 监控栈（Prometheus/Grafana/Jaeger/Loki）请参见 monitoring/docker-compose.yml
+
+services:
+  # Redis 缓存
+  redis:
+    image: redis:7.2.4
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nacos 服务注册与发现
+  nacos:
+    image: nacos/nacos-server:v3.1.0
+    container_name: nacos
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "8090:8080"
+    environment:
+      - MODE=standalone
+      - JVM_XMS=256m
+      - JVM_XMX=512m
+      - NACOS_AUTH_ENABLE=false
+    volumes:
+      - nacos-data:/home/nacos/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Zipkin 链路追踪（兼容 Jaeger Zipkin 协议）
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  nacos-data:

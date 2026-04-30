@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
+<properties>
+    <comment>IK Analyzer 扩展配置</comment>
+    
+    <!-- ⭐ 启用远程词典（可选） -->
+    <!-- <entry key="remote_ext_dict">http://example.com/dict/</entry> -->
+    
+    <!-- ⭐ 启用远程停止词典（可选） -->
+    <!-- <entry key="remote_ext_stopwords">http://example.com/stopwords/</entry> -->
+    
+</properties>

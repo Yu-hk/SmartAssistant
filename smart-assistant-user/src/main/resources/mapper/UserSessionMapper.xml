@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.smartassistant.user.mapper.UserSessionMapper">
+
+    <!-- 结果映射（用于查询时正确处理 JSONB） -->
+    <resultMap id="UserSessionResultMap" type="com.example.smartassistant.user.model.UserSession">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="tokenId" column="token_id"/>
+        <result property="deviceInfo" column="device_info" typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+        <result property="ipAddress" column="ip_address"/>
+        <result property="userAgent" column="user_agent"/>
+        <result property="isActive" column="is_active"/>
+        <result property="isRevoked" column="is_revoked"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="lastActiveAt" column="last_active_at"/>
+        <result property="expiresAt" column="expires_at"/>
+        <result property="revokedAt" column="revoked_at"/>
+    </resultMap>
+
+    <!-- 插入会话（显式处理 JSONB 类型） -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id" parameterType="com.example.smartassistant.user.model.UserSession">
+        INSERT INTO user_sessions (
+            user_id, token_id, device_info, ip_address, user_agent,
+            is_active, is_revoked, created_at, last_active_at, expires_at, revoked_at
+        ) VALUES (
+            #{userId},
+            #{tokenId},
+            CAST(#{deviceInfo, typeHandler=com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler} AS jsonb),
+            #{ipAddress},
+            #{userAgent},
+            #{isActive},
+            #{isRevoked},
+            #{createdAt},
+            #{lastActiveAt},
+            #{expiresAt},
+            #{revokedAt}
+        )
+    </insert>
+
+    <!-- 根据 ID 更新会话 -->
+    <update id="updateById" parameterType="com.example.smartassistant.user.model.UserSession">
+        UPDATE user_sessions
+        SET
+            is_active = #{isActive},
+            is_revoked = #{isRevoked},
+            last_active_at = #{lastActiveAt},
+            revoked_at = #{revokedAt}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 根据 Token ID 查找会话 -->
+    <select id="findByTokenId" resultMap="UserSessionResultMap">
+        SELECT * FROM user_sessions WHERE token_id = #{tokenId} LIMIT 1
+    </select>
+
+    <!-- 查找用户的所有活跃会话 -->
+    <select id="findByUserIdAndIsActiveTrue" resultMap="UserSessionResultMap">
+        SELECT * FROM user_sessions WHERE user_id = #{userId} AND is_active = true ORDER BY created_at DESC
+    </select>
+
+    <!-- 查找用户的所有会话（按时间降序） -->
+    <select id="findByUserIdOrderByCreatedAtDesc" resultMap="UserSessionResultMap">
+        SELECT * FROM user_sessions WHERE user_id = #{userId} ORDER BY created_at DESC
+    </select>
+
+    <!-- 检查 Token 是否有效 -->
+    <select id="existsByTokenIdAndIsActiveTrueAndIsRevokedFalse" resultType="boolean">
+        SELECT COUNT(*) > 0 FROM user_sessions 
+        WHERE token_id = #{tokenId} AND is_active = true AND is_revoked = false
+    </select>
+
+</mapper>

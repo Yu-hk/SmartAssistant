@@ -1,0 +1,90 @@
+global:
+  scrape_interval: 15s       # 每 15 秒采集一次指标
+  evaluation_interval: 15s   # 每 15 秒评估一次规则
+
+# ── 告警规则文件 ────────────────────────────────────────────────
+# 支持通配符，新增规则文件无需修改此处
+rule_files:
+  - "/etc/prometheus/rules/*.yml"
+
+scrape_configs:
+  # ⭐ API Gateway Service (新增)
+  - job_name: 'a2a-gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+        labels:
+          service: 'api-gateway'
+          environment: 'development'
+
+  # ⭐ User Service (新增 - 认证服务)
+  - job_name: 'a2a-user'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8086']
+        labels:
+          service: 'user-service'
+          environment: 'development'
+
+  # Consumer Service (Instance 1)
+  - job_name: 'a2a-consumer'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8082']
+        labels:
+          service: 'consumer-service'
+          instance: 'consumer-1'
+          environment: 'development'
+
+  # ⭐ Consumer Service (Instance 2 - 新增)
+  - job_name: 'a2a-consumer-2'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8087']
+        labels:
+          service: 'consumer-service'
+          instance: 'consumer-2'
+          environment: 'development'
+
+  # Router Service
+  - job_name: 'a2a-router'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8083']
+        labels:
+          service: 'router-service'
+          environment: 'development'
+
+  # Travel Service (Port 8085)
+  - job_name: 'a2a-travel'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8085']
+        labels:
+          service: 'travel-service'
+          environment: 'development'
+
+  # Food Service (Port 8084)
+  - job_name: 'a2a-food'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8084']
+        labels:
+          service: 'food-service'
+          environment: 'development'
+
+  # PostgreSQL Exporter (数据库监控)
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['host.docker.internal:9187']
+        labels:
+          service: 'postgresql'
+          environment: 'development'
+
+  # Redis Exporter (缓存监控)
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['host.docker.internal:9121']
+        labels:
+          service: 'redis'
+          environment: 'development'

@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.smartassistant.mapper.UserProfileMapper">
+
+    <!-- 根据用户ID查询 -->
+    <select id="findByUserId" resultType="com.example.smartassistant.entity.UserProfile">
+        SELECT * FROM user_profiles WHERE user_id = #{userId} LIMIT 1
+    </select>
+
+    <!-- 检查用户是否存在 -->
+    <select id="existsByUserId" resultType="boolean">
+        SELECT COUNT(*) > 0 FROM user_profiles WHERE user_id = #{userId}
+    </select>
+
+</mapper>

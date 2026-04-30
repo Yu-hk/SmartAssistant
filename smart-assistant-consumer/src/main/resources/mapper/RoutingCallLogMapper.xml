@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.smartassistant.consumer.mapper.RoutingCallLogMapper">
+
+    <!-- 查询最近 50 条日志 -->
+    <select id="findTop50ByOrderByCreatedAtDesc" resultType="com.example.smartassistant.consumer.entity.RoutingCallLog">
+        SELECT * FROM routing_call_log ORDER BY created_at DESC LIMIT 50
+    </select>
+
+    <!-- 按会话 ID 查询 -->
+    <select id="findBySessionIdOrderByCreatedAtDesc" resultType="com.example.smartassistant.consumer.entity.RoutingCallLog">
+        SELECT * FROM routing_call_log WHERE session_id = #{sessionId} ORDER BY created_at DESC
+    </select>
+
+    <!-- 按时间范围查询 -->
+    <select id="findByCreatedAtBetweenOrderByCreatedAtDesc" resultType="com.example.smartassistant.consumer.entity.RoutingCallLog">
+        SELECT * FROM routing_call_log 
+        WHERE created_at BETWEEN #{start} AND #{end}
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 统计某 Agent 的调用次数 -->
+    <select id="countByRoutedAgent" resultType="long">
+        SELECT COUNT(*) FROM routing_call_log WHERE routed_agent = #{agentName}
+    </select>
+
+    <!-- 统计失败次数 -->
+    <select id="countByStatus" resultType="long">
+        SELECT COUNT(*) FROM routing_call_log WHERE status = #{status}
+    </select>
+
+</mapper>

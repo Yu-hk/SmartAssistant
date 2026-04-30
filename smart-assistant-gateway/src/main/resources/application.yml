@@ -1,0 +1,150 @@
+server:
+  port: 8081  # Gateway 端口
+
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    # Spring Cloud Gateway 配置
+    gateway:
+      # 启用服务发现路由
+      discovery:
+        locator:
+          enabled: true  # 启用基于服务发现的路由
+          lower-case-service-id: true  # 服务ID转小写
+      
+      # ⭐ 使用 LoadBalancerClientFilter 而非 ReactiveLoadBalancerClientFilter
+      httpclient:
+        connect-timeout: 3000
+        response-timeout: 3600s  # ⭐ SSE 流式输出需要较长超时
+      
+      # 默认过滤器（应用到所有路由）
+      default-filters:
+        - AddResponseHeader=X-Gateway-Version, 1.0.0
+      
+      # 路由配置
+      routes:
+        # ⭐ User Service 路由（认证服务）
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/assistant/api/auth/**,/assistant/api/user/**
+          filters:
+            - StripPrefix=1  # 移除 /assistant，保留 /api/auth 或 /api/user
+        
+        # Consumer Service 路由（聊天业务）
+        - id: consumer-service
+          uri: lb://consumer-service
+          predicates:
+            - Path=/assistant/api/chat/**,/assistant/api/math/**
+          filters:
+            - StripPrefix=1  # 移除 /assistant，保留 /api/chat 或 /api/math → 匹配 Consumer 的 @RequestMapping("/api/math")
+        
+        # Router Service 路由（内部服务）
+        - id: router-service
+          uri: lb://router-service
+          predicates:
+            - Path=/assistant/api/router/**
+          filters:
+            - StripPrefix=1  # 移除 /assistant，保留 /api/router
+        
+        # Travel Service 路由（A2A Agent）
+        - id: travel-service
+          uri: lb://travel-service
+          predicates:
+            - Path=/assistant/api/travel/**
+          filters:
+            - StripPrefix=1  # 移除 /assistant，保留 /api/travel
+        
+        # Food Service 路由（A2A Agent）
+        - id: food-service
+          uri: lb://food-service
+          predicates:
+            - Path=/assistant/api/food/**
+          filters:
+            - StripPrefix=1  # 移除 /assistant，保留 /api/food
+
+    # Nacos 配置
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+        namespace: ""
+        group: DEFAULT_GROUP
+        # ⭐ 启用健康检查
+        watch:
+          enabled: true
+          delay: 10000
+    loadbalancer:
+      cache:
+        enabled: true
+        ttl: 10s  # 缓存 TTL
+        capacity: 256  # 缓存容量
+
+  # ⭐ Spring Cloud LoadBalancer 配置
+
+
+  # Redis 配置 (用于限流)
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+# JWT 配置
+jwt:
+  secret: ${JWT_SECRET:a2a-demo-secret-key-for-jwt-token-generation-2026-very-long}  # ⭐ 优先从环境变量 JWT_SECRET 读取
+  expiration: 86400000  # 24小时 (毫秒)
+  header: Authorization
+  prefix: "Bearer "
+
+# 白名单配置 (无需认证的路径)
+gateway:
+  security:
+    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/**,/assistant/api/router/agents/**
+  
+  # 限流配置
+  rate-limit:
+    enabled: true
+    default-replenish-rate: 10  # 默认每秒请求数
+    default-burst-capacity: 20  # 默认突发容量
+
+# Actuator + Prometheus 配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,gateway
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+    gateway:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      environment: development
+
+# Logging 配置
+logging:
+  file:
+    name: logs/${spring.application.name}.log
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 7
+      total-size-cap: 100MB
