@@ -209,16 +209,28 @@ public class RouterService {
                         .routingMethod("KEYWORD_FALLBACK")
                         .build();
             } else {
-                log.warn("[Router] 无法找到合适的 Agent 处理请求");
-                String fallbackResult = """
-                        ❌ 抱歉，当前没有可用的服务来处理您的请求。
-
-                        💡 您可以尝试以下功能：
-                        • 美食推荐：例如"北京有什么好吃的"
-                        • 旅行规划：例如"上海明天的天气怎么样"
-                        • 景点查询：例如"杭州有哪些旅游景点""";
+                log.warn("[Router] 无专业 Agent 匹配，降级到通用对话 V4-Flash");
+                try {
+                    String generalReply = chatClient.prompt()
+                            .user(u -> u.text("你是一个友好的通用对话助手。请根据用户的问题直接回答，保持自然友善的语气。\n\n用户问题：{question}")
+                                .param("question", question))
+                            .call()
+                            .content();
+                    
+                    if (generalReply != null && !generalReply.isBlank()) {
+                        return RoutingResult.builder()
+                                .result(generalReply)
+                                .agentName("general_chat")
+                                .confidence(0.3)
+                                .build();
+                    }
+                } catch (Exception e) {
+                    log.warn("[Router] 通用对话降级失败: {}", e.getMessage());
+                }
+                
+                // LLM 也失败时的最终兜底
                 return RoutingResult.builder()
-                        .result(fallbackResult)
+                        .result("抱歉，我暂时无法处理这个问题。您可以试试问问我关于美食或旅行的问题！")
                         .agentName("none")
                         .confidence(0.0)
                         .build();
