@@ -37,6 +37,9 @@ public class AgentDiscoveryService {
     private final Map<String, DiscoveredAgent> agentCache = new ConcurrentHashMap<>();
     private final Set<String> subscribedServices = ConcurrentHashMap.newKeySet();
     
+    // ⭐ 预计算的降级 Agent，每次 agentCache 变化时自动刷新
+    private volatile DiscoveredAgent fallbackAgent;
+    
     public AgentDiscoveryService(NamingService namingService, AgentDiscoveryConfig discoveryConfig,
                                   @Autowired(required = false) StringRedisTemplate redisTemplate) {
         this.namingService = namingService;
@@ -135,6 +138,9 @@ public class AgentDiscoveryService {
             log.info("[AgentDiscovery] 成功发现 {} 个 Agent: {}", 
                     discoveredAgents.size(), 
                     discoveredAgents.stream().map(DiscoveredAgent::getServiceName).toList());
+            
+            // ⭐ 发现完成后刷新降级 Agent
+            refreshFallbackAgent();
             
             return discoveredAgents;
             
@@ -255,28 +261,30 @@ public class AgentDiscoveryService {
      * 当前 General Agent 的 priority=100，远高于 Food/Travel 的 priority=10。
      */
     public DiscoveredAgent findFallbackAgent() {
-        Collection<DiscoveredAgent> agents = getCachedAgents();
-        if (agents.isEmpty()) {
-            log.warn("[AgentDiscovery] 无可用 Agent，无法找到降级 Agent");
-            return null;
-        }
+        return fallbackAgent;
+    }
 
-        DiscoveredAgent fallback = null;
+    /**
+     * ⭐ 刷新降级 Agent：遍历缓存，选择 priority 最大的 Agent
+     * <p>
+     * 每次 agentCache 变化后自动调用，确保降级 Agent 始终正确。
+     */
+    private void refreshFallbackAgent() {
+        DiscoveredAgent candidate = null;
         int maxPriority = Integer.MIN_VALUE;
 
-        for (DiscoveredAgent agent : agents) {
+        for (DiscoveredAgent agent : agentCache.values()) {
             int priority = agent.getMetadata() != null ? agent.getMetadata().getPriority() : 0;
             if (priority > maxPriority) {
                 maxPriority = priority;
-                fallback = agent;
+                candidate = agent;
             }
         }
 
-        if (fallback != null) {
-            log.info("[AgentDiscovery] 降级 Agent: {} (优先级: {})",
-                    fallback.getServiceName(), maxPriority);
-        }
-        return fallback;
+        this.fallbackAgent = candidate;
+        log.info("[AgentDiscovery] 降级 Agent 已刷新: {} (优先级: {})",
+                fallbackAgent != null ? fallbackAgent.getServiceName() : "none",
+                maxPriority == Integer.MIN_VALUE ? 0 : maxPriority);
     }
 
     /**
@@ -403,9 +411,10 @@ public class AgentDiscoveryService {
      */
     public void clearCache() {
         agentCache.clear();
+        this.fallbackAgent = null;  // ⭐ 同步清除降级 Agent
         if (redisTemplate != null) {
             redisTemplate.delete(SSE_URLS_REDIS_KEY);
-            log.info("[AgentDiscovery] 🗑️ Agent 缓存已清除，SSE URL 映射已删除");
+            log.info("[AgentDiscovery] 🗑️ Agent 缓存已清除，降级 Agent 已置空");
         }
     }
     
@@ -445,6 +454,7 @@ public class AgentDiscoveryService {
             
             if (newSubscribedCount > 0) {
                 log.info("[AgentDiscovery] 📊 本次新订阅 {} 个 Agent 服务", newSubscribedCount);
+                refreshFallbackAgent();  // ⭐ 刷新降级 Agent
                 saveSseUrlsToRedis();
             }
             
@@ -491,7 +501,7 @@ public class AgentDiscoveryService {
                     // 服务下线,从缓存中移除
                     agentCache.remove(serviceName);
                     log.info("[AgentDiscovery] ❌ 服务下线: {}", serviceName);
-                    // 更新 Redis（清除下线的 Agent）
+                    refreshFallbackAgent();  // ⭐ 刷新降级 Agent
                     saveSseUrlsToRedis();
                 } else {
                     // 服务上线或更新,重新发现
@@ -499,7 +509,7 @@ public class AgentDiscoveryService {
                     if (agent != null) {
                         agentCache.put(serviceName, agent);
                         log.info("[AgentDiscovery] ✅ 服务更新: {}", serviceName);
-                        // 更新 Redis（添加上线的 Agent）
+                        refreshFallbackAgent();  // ⭐ 刷新降级 Agent
                         saveSseUrlsToRedis();
                     }
                 }
