@@ -59,14 +59,14 @@ spring:
       api-key: ${DASHSCOPE_API_KEY:}  # 阿里云 DashScope API Key
       embedding:
         options:
-          model: text-embedding-v3  # 最新模型，支持多语言，输出 1024 维向量
+          model: text-embedding-v4  # 最新模型，支持多语言，输出 1024 维向量
     
     # DeepSeek 模型配置
     deepseek:
       api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek API Key，申请地址：https://platform.deepseek.com/
       chat:
         options:
-          model: deepseek-chat
+          model: deepseek-v4-flash  # 最新 V4 快闪模型，1M 上下文，支持思维链
           temperature: 0.5
           max-tokens: 512
           log-requests: false

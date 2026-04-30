@@ -195,8 +195,10 @@ public class ChatController {
             .flatMap(routerResponse -> {
                 String reply = (String) routerResponse.get("result");
 
-                // ⭐ 6. 智能建议：统一使用 LLM 生成（多意图/单意图均由 Consumer 层处理）
-                List<String> suggestions = generateSmartSuggestionsLLM(userId, message, sessionId, reply);
+                // ⭐ 6. 智能建议：判断是否需要生成
+                List<String> suggestions = shouldSkipSuggestions(message, reply) 
+                    ? List.of() 
+                    : generateSmartSuggestionsLLM(userId, message, sessionId, reply);
 
                 // 7. 格式化建议并拼接到回复
                 String formattedSuggestions = suggestionEngine.formatSuggestions(suggestions);
@@ -377,7 +379,34 @@ public class ChatController {
         
         return intentMap;
     }
-    
+
+    /**
+     * ⭐ 判断是否需要跳过智能建议
+     */
+    private boolean shouldSkipSuggestions(String message, String reply) {
+        if (message == null || message.isBlank()) return true;
+        if (reply == null || reply.isBlank()) return true;
+
+        // 1. Agent 回复已自带建议（如 Travel/Food Agent 的 💡 智能建议）
+        if (reply.contains("智能建议") || reply.contains("可以直接点击或回复序号")) {
+            return true;
+        }
+
+        // 2. 简短消息（问候、感谢、单字回答 Agent 反问）
+        String trimmed = message.trim();
+        if (trimmed.length() <= 4) return true;
+
+        // 3. 常见问候/感谢语
+        String lower = trimmed.toLowerCase();
+        if (greetingPattern.matcher(lower).matches()) return true;
+
+        return false;
+    }
+
+    private static final java.util.regex.Pattern greetingPattern = java.util.regex.Pattern.compile(
+        "^(你好|您好|hello|hi|hey|谢谢|感谢|好的|嗯|ok|好的吧|知道了|收到|再见|拜拜|bye)$"
+    );
+
     /**
      * 判断是否为数据查询请求
      * 通过关键词识别数据查询意图
