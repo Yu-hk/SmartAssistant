@@ -248,7 +248,7 @@ public class RouterService {
                 
                 // 所有兜底都失败时的最终提示
                 return RoutingResult.builder()
-                        .result("抱歉，我暂时无法处理这个问题。您可以试试问问我关于美食或旅行的问题！")
+                        .result("😅 啊哦，好像出了点小状况，我暂时没能好好回应你的问题。不过别担心，你可以试着问问关于美食或者旅行方面的问题，那些我可熟悉啦！")
                         .agentName("none")
                         .confidence(0.0)
                         .build();
