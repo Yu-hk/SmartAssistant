@@ -66,8 +66,8 @@ spring:
       api-key: ${DASHSCOPE_API_KEY:}  # 阿里云 DashScope API Key
       embedding:
         options:
-          model: text-embedding-v3
-          dimensions: 1536
+          model: text-embedding-v4
+          dimensions: 1024   # 与 DB vector(1024) 保持一致
 
     alibaba:
       a2a:
