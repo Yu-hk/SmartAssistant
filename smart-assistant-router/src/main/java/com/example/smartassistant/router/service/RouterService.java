@@ -229,12 +229,13 @@ public class RouterService {
                 }
                 
                 // Layer 2: Router 内联 ChatClient 终极兜底（Nacos/Agent 不可用时）
-                // ⭐ 使用安抚性 system prompt，缓释用户可能已有的挫败感
+                // ⭐ 使用安抚性 system prompt，缓释用户等待的焦虑
                 try {
                     String localReply = chatClient.prompt()
-                            .system("你是一个温暖、耐心的助手。用户可能已经尝试了多次，心情不太好。"
-                                  + "请用温和友善的语气回应，先安抚情绪，再尽量帮ta解决问题。"
-                                  + "如果确实无法回答，温柔地引导用户尝试美食或旅行相关的问题。")
+                            .system("你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
+                                  + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
+                                  + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
+                                  + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。")
                             .user(question)
                             .call()
                             .content();
@@ -252,7 +253,7 @@ public class RouterService {
                 
                 // 所有兜底都失败时的最终提示
                 return RoutingResult.builder()
-                        .result("😅 啊哦，好像出了点小状况，我暂时没能好好回应你的问题。不过别担心，你可以试着问问关于美食或者旅行方面的问题，那些我可熟悉啦！")
+                        .result("😅 抱歉让你等了这么久，目前服务似乎遇到了一些临时问题。请稍后再试一下，或者联系技术支持看看。谢谢你的耐心！")
                         .agentName("none")
                         .confidence(0.0)
                         .build();
