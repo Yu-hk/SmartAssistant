@@ -15,8 +15,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -44,7 +44,6 @@ public class RouterService {
     private final AgentCallerService agentCallerService;
     private final AgentDiscoveryService agentDiscoveryService;
     private final ChatClient chatClient;
-    private final Executor routerParallelAgentExecutor;
     private final StringRedisTemplate redisTemplate;
     private final RouterRagService ragService;
     private final SemanticRouteCacheService semanticCache;
@@ -74,7 +73,6 @@ public class RouterService {
         this.agentCallerService = agentCallerService;
         this.agentDiscoveryService = agentDiscoveryService;
         this.chatClient = chatClientBuilder.build();
-        this.routerParallelAgentExecutor = routerParallelAgentExecutor;
         this.redisTemplate = redisTemplate;
         this.ragService = ragService;
         this.semanticCache = semanticCache;
@@ -209,22 +207,26 @@ public class RouterService {
                         .routingMethod("KEYWORD_FALLBACK")
                         .build();
             } else {
-                log.warn("[Router] 无专业 Agent 匹配，降级到通用对话 Agent");
+                log.warn("[Router] 无专业 Agent 匹配，尝试动态发现降级 Agent");
                 try {
-                    String generalReply = agentCallerService.callAgent("general_chat", question, userId);
-                    
-                    if (generalReply != null && !generalReply.isBlank() && !generalReply.startsWith("❌")) {
-                        return RoutingResult.builder()
-                                .result(generalReply)
-                                .agentName("general_chat")
-                                .confidence(0.3)
-                                .build();
+                    DiscoveredAgent fallbackAgent = agentDiscoveryService.findFallbackAgent();
+                    if (fallbackAgent != null) {
+                        String fallbackReply = agentCallerService.callAgent(
+                                fallbackAgent.getAgentName(), question, userId);
+                        
+                        if (fallbackReply != null && !fallbackReply.isBlank() && !fallbackReply.startsWith("❌")) {
+                            return RoutingResult.builder()
+                                    .result(fallbackReply)
+                                    .agentName(fallbackAgent.getAgentName())
+                                    .confidence(0.3)
+                                    .build();
+                        }
                     }
                 } catch (Exception e) {
-                    log.warn("[Router] 通用对话 Agent 调用失败: {}", e.getMessage());
+                    log.warn("[Router] 降级 Agent 调用失败: {}", e.getMessage());
                 }
                 
-                // Agent 也失败时的最终兜底
+                // 所有兜底都失败时的最终提示
                 return RoutingResult.builder()
                         .result("抱歉，我暂时无法处理这个问题。您可以试试问问我关于美食或旅行的问题！")
                         .agentName("none")
