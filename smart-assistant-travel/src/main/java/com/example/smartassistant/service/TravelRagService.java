@@ -8,7 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Travel RAG 服务
@@ -31,6 +33,15 @@ public class TravelRagService {
 
     @Value("${travel.rag.similarity-threshold:0.5}")
     private double similarityThreshold;
+
+    // ⭐ 美食关键词集：用于识别 chunk 是否与美食相关
+    private static final Set<String> FOOD_INDICATORS = Set.of(
+            "吃", "美食", "餐厅", "饭", "菜", "火锅", "烧烤", "烤鱼",
+            "小吃", "味道", "好吃", "正宗", "辣", "鲜", "香",
+            "小龙虾", "烤鸭", "炸酱面", "川菜", "粤菜",
+            "推荐", "人均", "价格", "菜单", "点菜", "排队",
+            "簋街", "美食街", "夜宵", "晚餐", "午餐", "早餐",
+            "豆汁", "焦圈");
 
     /**
      * 判断是否需要 RAG 增强
@@ -102,29 +113,65 @@ public class TravelRagService {
     }
 
     /**
-     * 构建增强上下文
+     * 构建增强上下文（美食与旅行内容分离）
+     * 旅行内容放入正文，美食内容作为建议
      */
     public String buildRagContext(String location, List<TravelNoteChunk> chunks) {
         if (chunks == null || chunks.isEmpty()) {
             return "";
         }
 
+        List<TravelNoteChunk> travelChunks = new ArrayList<>();
+        List<TravelNoteChunk> foodChunks = new ArrayList<>();
+
+        for (TravelNoteChunk chunk : chunks) {
+            if (isFoodRelated(chunk.getChunkText())) {
+                foodChunks.add(chunk);
+            } else {
+                travelChunks.add(chunk);
+            }
+        }
+
         StringBuilder context = new StringBuilder();
         context.append("\n\n=== 用户历史攻略参考 ===\n");
 
-        for (int i = 0; i < chunks.size(); i++) {
-            TravelNoteChunk chunk = chunks.get(i);
-            context.append(String.format("\n【攻略 %d】%s\n", i + 1,
-                    chunk.getNoteTitle() != null ? chunk.getNoteTitle() : "未命名"));
-            context.append(chunk.getChunkText());
-            if (chunk.getSimilarity() != null) {
-                context.append(String.format("\n(相关度: %.2f)", chunk.getSimilarity()));
+        // 正文：旅行相关内容
+        if (!travelChunks.isEmpty()) {
+            for (int i = 0; i < travelChunks.size(); i++) {
+                TravelNoteChunk chunk = travelChunks.get(i);
+                context.append(String.format("\n【攻略 %d】%s\n", i + 1,
+                        chunk.getNoteTitle() != null ? chunk.getNoteTitle() : "未命名"));
+                context.append(chunk.getChunkText());
+                if (chunk.getSimilarity() != null) {
+                    context.append(String.format("\n(相关度: %.2f)", chunk.getSimilarity()));
+                }
+                context.append("\n");
             }
-            context.append("\n");
         }
 
         context.append("=========================\n");
+
+        // 建议：美食相关内容
+        if (!foodChunks.isEmpty()) {
+            context.append("\n💡 美食建议（你的游记中提到过以下美食，可作为参考）：\n");
+            for (int i = 0; i < foodChunks.size(); i++) {
+                TravelNoteChunk chunk = foodChunks.get(i);
+                context.append(String.format("  • %s\n", chunk.getChunkText().trim()));
+            }
+            context.append("如果用户想进一步了解美食信息，可以引导用户咨询美食服务。\n");
+            context.append("=========================\n");
+        }
+
         return context.toString();
+    }
+
+    /**
+     * 判断 chunk 文本是否与美食相关
+     */
+    private boolean isFoodRelated(String text) {
+        if (text == null || text.isEmpty()) return false;
+        String lower = text.toLowerCase();
+        return FOOD_INDICATORS.stream().anyMatch(lower::contains);
     }
 
     /**
