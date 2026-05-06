@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 1eKYzPrl6zpEfHzZiR1birXRPE0dXTbuI40yLFygd3thFa4FXDe8w1y8kBCv2HH
+\restrict 5Jg4RdYTgIaBcjfVE0HXmNWigHHmDT0a29UxxdrPHLzm1JZadRmMAynOd0GPbAV
 
 -- Dumped from database version 18.0
 -- Dumped by pg_dump version 18.0
@@ -345,8 +345,17 @@ SELECT pg_catalog.setval('public.tourist_attractions_id_seq', 42, true);
 
 
 --
+--
+-- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.users (id, username, password, email, created_at, updated_at, role) FROM stdin;
+8	admin	$2a$10$YSyDzcPmUjRcLSCKptA45u8h8tDJhC8pDC7hoRFptHlku7RZc1Ryu	\N	2026-04-21 13:50:02.000136	2026-04-21 13:50:02.000136	ROLE_USER
+\.
+
+--
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 1eKYzPrl6zpEfHzZiR1birXRPE0dXTbuI40yLFygd3thFa4FXDe8w1y8kBCv2HH
+\unrestrict 5Jg4RdYTgIaBcjfVE0HXmNWigHHmDT0a29UxxdrPHLzm1JZadRmMAynOd0GPbAV
 
