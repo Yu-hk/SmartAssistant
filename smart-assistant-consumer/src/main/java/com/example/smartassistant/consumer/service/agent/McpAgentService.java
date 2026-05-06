@@ -5,6 +5,7 @@ import com.example.smartassistant.consumer.config.McpTableWhitelistConfig;
 import com.example.smartassistant.consumer.service.cache.SqlQueryCache;
 import com.example.smartassistant.consumer.service.monitoring.SqlPerformanceMonitor;
 import com.example.smartassistant.consumer.service.monitoring.SqlReviewService;
+import com.example.smartassistant.consumer.tool.DataGifTool;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -16,9 +17,7 @@ import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
 
 /**
@@ -35,6 +34,7 @@ public class McpAgentService {
     private final SqlQueryCache sqlQueryCache;  // ⭐ SQL 查询缓存
     private final SqlReviewService sqlReviewService;  // ⭐ SQL 审查服务
     private final McpTableWhitelistConfig whitelistConfig;  // ⭐ 注入白名单配置
+    private final DataGifTool dataGifTool;  // ⭐ 注入 GIF 动图工具
     private ReactAgent mcpAgent;
     
     public McpAgentService(
@@ -43,13 +43,15 @@ public class McpAgentService {
             SqlPerformanceMonitor performanceMonitor,
             SqlQueryCache sqlQueryCache,
             SqlReviewService sqlReviewService,  // ⭐ 注入审查服务
-            McpTableWhitelistConfig whitelistConfig) {  // ⭐ 注入白名单配置
+            McpTableWhitelistConfig whitelistConfig,
+            DataGifTool dataGifTool) {  // ⭐ 注入 GIF 动图工具
         this.chatModel = chatModel;
         this.jdbcTemplate = jdbcTemplate;
         this.performanceMonitor = performanceMonitor;
         this.sqlQueryCache = sqlQueryCache;
         this.sqlReviewService = sqlReviewService;
         this.whitelistConfig = whitelistConfig;
+        this.dataGifTool = dataGifTool;
     }
     
     /**
@@ -62,28 +64,37 @@ public class McpAgentService {
         
         try {
             // ⭐ 关键解决：手动创建非代理的工具对象，避免 CGLIB 代理问题
-            // ⭐ 传入白名单配置，实现应用层表访问控制
-            DatabaseQueryTools tools = new DatabaseQueryTools(
+            DatabaseQueryTools dbTools = new DatabaseQueryTools(
                 jdbcTemplate, 
                 performanceMonitor,
                 sqlQueryCache,
                 sqlReviewService,
-                whitelistConfig  // ⭐ 传入白名单配置
+                whitelistConfig
             );
             
-            // ⭐ 使用 MethodToolCallbackProvider 扫描 @Tool 注解的方法
-            MethodToolCallbackProvider provider = MethodToolCallbackProvider.builder()
-                .toolObjects(tools)  // ⭐ 使用非代理对象
+            // ⭐ 注册数据库查询工具 + GIF 动图工具
+            MethodToolCallbackProvider dbProvider = MethodToolCallbackProvider.builder()
+                .toolObjects(dbTools)
+                .build();
+            MethodToolCallbackProvider gifProvider = MethodToolCallbackProvider.builder()
+                .toolObjects(dataGifTool)
                 .build();
             
-            ToolCallback[] toolCallbacks = provider.getToolCallbacks();
-            log.info("[McpAgentService] ✅ 发现 {} 个 MCP 工具", toolCallbacks.length);
+            // 合并所有工具
+            List<ToolCallback> allCallbacks = new java.util.ArrayList<>();
+            java.util.Collections.addAll(allCallbacks, dbProvider.getToolCallbacks());
+            java.util.Collections.addAll(allCallbacks, gifProvider.getToolCallbacks());
+            
+            log.info("[McpAgentService] ✅ 发现 {} 个工具 (DB: {}, GIF: {})",
+                    allCallbacks.size(),
+                    dbProvider.getToolCallbacks().length,
+                    gifProvider.getToolCallbacks().length);
             
             // ⭐ 使用 tools() 方法注册工具回调
             this.mcpAgent = ReactAgent.builder()
                 .name("database-query-agent")
                 .model(chatModel)
-                .tools(toolCallbacks)  // ⭐ 使用转换后的 ToolCallback
+                .tools(allCallbacks.toArray(new ToolCallback[0]))
                 .instruction("""
                     你是一个专业的数据库查询助手，通过生成并执行 SQL 来获取真实数据。
                     
