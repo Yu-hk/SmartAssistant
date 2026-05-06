@@ -145,9 +145,9 @@ travel:
     similarity-threshold: 0.5        # 相似度阈值
     chunk:
       strategy: semantic              # fixed | semantic（分块策略）
-      semantic-threshold: 0.6        # 语义分块相似度阈值
-      min-chunk-size: 50             # 最小分块长度（字符）
-      max-chunk-size: 500            # 最大分块长度（字符）
+      semantic-threshold: 0.45        # 语义分块相似度阈值（经实测调整）
+      min-chunk-size: 80             # 最小分块长度（字符）
+      max-chunk-size: 800            # 最大分块长度（字符）
 
 # Logging 配置（输出到文件，供 Loki 收集）⭐
 logging:

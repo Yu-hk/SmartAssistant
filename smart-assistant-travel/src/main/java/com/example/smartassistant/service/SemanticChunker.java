@@ -36,16 +36,16 @@ public class SemanticChunker {
     // ==================== 可配置参数 ====================
 
     /** 语义相似度阈值：低于此值认为话题变化，进行切分 */
-    @Value("${travel.rag.chunk.semantic-threshold:0.6}")
-    private double similarityThreshold = 0.6;
+    @Value("${travel.rag.chunk.semantic-threshold:0.45}")
+    private double similarityThreshold = 0.45;
 
     /** 最小分块长度（字符），低于此值尝试合并 */
-    @Value("${travel.rag.chunk.min-chunk-size:50}")
-    private int minChunkSize = 50;
+    @Value("${travel.rag.chunk.min-chunk-size:80}")
+    private int minChunkSize = 80;
 
     /** 最大分块长度（字符），超过此值强制切分 */
-    @Value("${travel.rag.chunk.max-chunk-size:500}")
-    private int maxChunkSize = 500;
+    @Value("${travel.rag.chunk.max-chunk-size:800}")
+    private int maxChunkSize = 800;
 
     /** 兜底硬切长度（单个句子过长时使用） */
     private static final int FALLBACK_CHUNK_SIZE = 300;
