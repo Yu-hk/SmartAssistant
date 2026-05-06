@@ -7,10 +7,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.math.RoundingMode;
-import java.util.ArrayDeque;
-import java.util.Deque;
 
 /**
  * 通用工具集 - 数学计算与单位转换
@@ -220,53 +217,53 @@ public class GeneralTools {
     // ==================== 单位转换辅助 ====================
 
     private double toMeters(double value, String unit) {
-        switch (unit.toLowerCase()) {
-            case "m":  return value;
-            case "km": return value * 1000;
-            case "cm": return value / 100;
-            case "mm": return value / 1000;
-            case "ft": case "英尺": return value * 0.3048;
-            case "in": case "英寸": return value * 0.0254;
-            case "mi": case "英里": return value * 1609.344;
-            default:   return Double.NaN;
-        }
+        return switch (unit.toLowerCase()) {
+            case "m" -> value;
+            case "km" -> value * 1000;
+            case "cm" -> value / 100;
+            case "mm" -> value / 1000;
+            case "ft", "英尺" -> value * 0.3048;
+            case "in", "英寸" -> value * 0.0254;
+            case "mi", "英里" -> value * 1609.344;
+            default -> Double.NaN;
+        };
     }
 
     private double fromMeters(double meters, String unit) {
-        switch (unit.toLowerCase()) {
-            case "m":  return meters;
-            case "km": return meters / 1000;
-            case "cm": return meters * 100;
-            case "mm": return meters * 1000;
-            case "ft": case "英尺": return meters / 0.3048;
-            case "in": case "英寸": return meters / 0.0254;
-            case "mi": case "英里": return meters / 1609.344;
-            default:   return Double.NaN;
-        }
+        return switch (unit.toLowerCase()) {
+            case "m" -> meters;
+            case "km" -> meters / 1000;
+            case "cm" -> meters * 100;
+            case "mm" -> meters * 1000;
+            case "ft", "英尺" -> meters / 0.3048;
+            case "in", "英寸" -> meters / 0.0254;
+            case "mi", "英里" -> meters / 1609.344;
+            default -> Double.NaN;
+        };
     }
 
     private double toKilograms(double value, String unit) {
-        switch (unit.toLowerCase()) {
-            case "kg": case "千克": return value;
-            case "g":  case "克":   return value / 1000;
-            case "mg": case "毫克": return value / 1_000_000;
-            case "lb": case "磅":   return value * 0.45359237;
-            case "oz": case "盎司": return value * 0.028349523125;
-            case "t":  case "吨":   return value * 1000;
-            default:   return Double.NaN;
-        }
+        return switch (unit.toLowerCase()) {
+            case "kg", "千克" -> value;
+            case "g", "克" -> value / 1000;
+            case "mg", "毫克" -> value / 1_000_000;
+            case "lb", "磅" -> value * 0.45359237;
+            case "oz", "盎司" -> value * 0.028349523125;
+            case "t", "吨" -> value * 1000;
+            default -> Double.NaN;
+        };
     }
 
     private double fromKilograms(double kg, String unit) {
-        switch (unit.toLowerCase()) {
-            case "kg": case "千克": return kg;
-            case "g":  case "克":   return kg * 1000;
-            case "mg": case "毫克": return kg * 1_000_000;
-            case "lb": case "磅":   return kg / 0.45359237;
-            case "oz": case "盎司": return kg / 0.028349523125;
-            case "t":  case "吨":   return kg / 1000;
-            default:   return Double.NaN;
-        }
+        return switch (unit.toLowerCase()) {
+            case "kg", "千克" -> kg;
+            case "g", "克" -> kg * 1000;
+            case "mg", "毫克" -> kg * 1_000_000;
+            case "lb", "磅" -> kg / 0.45359237;
+            case "oz", "盎司" -> kg / 0.028349523125;
+            case "t", "吨" -> kg / 1000;
+            default -> Double.NaN;
+        };
     }
 
     private String formatResult(double value) {
