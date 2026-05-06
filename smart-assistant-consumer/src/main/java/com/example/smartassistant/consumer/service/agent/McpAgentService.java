@@ -131,86 +131,70 @@ public class McpAgentService {
                     - 列表 → "前 N 个是：A, B, C"
                     - 表格 → 用文字描述关键信息
                     
-                    ## 📊 常见查询模式
+                    ## 📊 SQL 语法模式（纯格式参考，不绑定具体表名）
                     
                     ### 统计类
                     ```sql
-                    -- ✅ 总数（使用主键索引）
-                    SELECT COUNT(*) FROM users;
+                    -- 统计总数
+                    SELECT COUNT(*) FROM <表名>;
                     
-                    -- ✅ 按条件统计（利用索引字段）
-                    SELECT COUNT(*) FROM users WHERE is_active = true;
+                    -- 按条件统计
+                    SELECT COUNT(*) FROM <表名> WHERE <条件>;
                     
-                    -- ✅ 分组统计（避免 SELECT *）
-                    SELECT target_agent, COUNT(*) as count
-                    FROM routing_call_logs
-                    GROUP BY target_agent
-                    ORDER BY count DESC;
+                    -- 分组统计
+                    SELECT <分组字段>, COUNT(*) FROM <表名>
+                    GROUP BY <分组字段> ORDER BY count DESC;
                     ```
                     
                     ### 列表类
                     ```sql
-                    -- ✅ 最近 N 条记录（利用 created_at 索引）
-                    SELECT id, role, content, agent_name
-                    FROM chat_messages
-                    WHERE thread_id = 'xxx'
-                    ORDER BY created_at DESC
-                    LIMIT 10;
+                    -- 最近 N 条记录
+                    SELECT <字段1>, <字段2> FROM <表名>
+                    WHERE <条件> ORDER BY <时间字段> DESC LIMIT 10;
                     
-                    -- ✅ 分页查询（明确指定字段，避免 SELECT *）
-                    SELECT id, username, email, created_at
-                    FROM users
-                    ORDER BY id
-                    LIMIT 10 OFFSET 0;
+                    -- 分页查询
+                    SELECT <字段1>, <字段2> FROM <表名>
+                    ORDER BY <主键> LIMIT 10 OFFSET 0;
                     ```
                     
                     ### 时间范围查询
                     ```sql
-                    -- ✅ 最近 7 天（利用 created_at 索引）
-                    SELECT COUNT(*) FROM users
-                    WHERE created_at >= NOW() - INTERVAL '7 days';
+                    -- 最近 N 天
+                    SELECT COUNT(*) FROM <表名>
+                    WHERE <时间字段> >= NOW() - INTERVAL 'N days';
                     
-                    -- ✅ 今天的数据
-                    SELECT COUNT(*) FROM routing_call_logs
-                    WHERE created_at >= CURRENT_DATE;
+                    -- 今天的数据
+                    SELECT COUNT(*) FROM <表名>
+                    WHERE <时间字段> >= CURRENT_DATE;
                     ```
                     
-                    ### 趋势分析
+                    ### 趋势分析（动图常用）
                     ```sql
-                    -- ✅ 按天统计（限制时间范围）
-                    SELECT DATE(created_at) as date, COUNT(*) as count
-                    FROM chat_messages
-                    WHERE created_at >= NOW() - INTERVAL '30 days'
-                    GROUP BY DATE(created_at)
-                    ORDER BY date DESC
-                    LIMIT 30;
+                    -- 按天统计，适合 generateTrendGif 输入
+                    SELECT DATE(<时间字段>) as date, COUNT(*) as value
+                    FROM <表名>
+                    WHERE <时间字段> >= NOW() - INTERVAL 'N days'
+                    GROUP BY DATE(<时间字段>)
+                    ORDER BY date;
                     ```
                     
-                    ## ⚡ 性能优化最佳实践
+                    ## ⚡ SQL 编写建议
                     
                     ### 1. 只选择需要的字段
-                    - ❌ `SELECT * FROM users` （返回所有字段，浪费 I/O）
-                    - ✅ `SELECT id, username, email FROM users` （只返回需要的字段）
+                    - ❌ `SELECT * FROM <表名>` （浪费 I/O）
+                    - ✅ `SELECT <字段1>, <字段2> FROM <表名>` （明确指定字段）
                     
-                    ### 2. 利用索引字段
-                    - **users 表索引**: id (主键), username, email, created_at
-                    - **chat_messages 表索引**: id (主键), thread_id, user_id, agent_name, created_at, role
-                    - **routing_call_logs 表索引**: id (主键), routed_agent, status, session_id, created_at
-                    - ✅ 优先在 WHERE、ORDER BY 中使用这些字段
+                    ### 2. 使用 WHERE 条件缩小范围
+                    - 添加时间范围、状态等过滤条件，避免全表扫描
+                    - 利用索引字段（主键、外键、时间字段）
                     
                     ### 3. 添加合理的 LIMIT
-                    - 列表查询必须加 LIMIT，避免返回过多数据
+                    - 列表查询必须加 LIMIT
                     - 统计查询不需要 LIMIT
-                    - 示例：`LIMIT 10`, `LIMIT 50`, `LIMIT 100`
                     
-                    ### 4. 避免全表扫描
-                    - ❌ `SELECT * FROM chat_messages WHERE content LIKE '%keyword%'` （无法使用索引）
-                    - ✅ `SELECT id, role, content FROM chat_messages WHERE thread_id = 'xxx'` （使用索引）
-                    
-                    ### 5. 使用复合索引
-                    - 如果经常按 thread_id + created_at 查询，可以这样写：
-                    - ✅ `SELECT ... FROM chat_messages WHERE thread_id = 'xxx' ORDER BY created_at DESC LIMIT 10`
-                    - 数据库会自动使用复合索引 idx_chat_messages_thread_created
+                    ### 4. 不确定表结构时
+                    - 先调用 **getTableSchema()** 查询实际字段名
+                    - 不要根据猜测写 SQL
                     
                     ## 📋 可用工具
                     
