@@ -1,10 +1,7 @@
 package com.example.smartassistant.consumer.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.time.LocalDateTime;
 
@@ -24,6 +21,7 @@ public class UserPreferenceVector {
     /**
      * 向量类型枚举
      */
+    @Getter
     public enum VectorType {
         /** 美食偏好 */
         FOOD("food", "美食偏好"),
@@ -42,22 +40,6 @@ public class UserPreferenceVector {
             this.description = description;
         }
 
-        public String getCode() {
-            return code;
-        }
-
-        public String getDescription() {
-            return description;
-        }
-
-        public static VectorType fromCode(String code) {
-            for (VectorType type : values()) {
-                if (type.code.equals(code)) {
-                    return type;
-                }
-            }
-            throw new IllegalArgumentException("Unknown vector type: " + code);
-        }
     }
 
     @TableId(type = IdType.AUTO)
@@ -106,77 +88,4 @@ public class UserPreferenceVector {
         return userId + "_" + vectorType;
     }
 
-    /**
-     * 构建美食偏好向量
-     */
-    public static UserPreferenceVector buildFoodVector(Long userId, String[] foodPreferences) {
-        String content = foodPreferences != null && foodPreferences.length > 0
-            ? String.join("、", foodPreferences)
-            : "";
-        return UserPreferenceVector.builder()
-                .userId(userId)
-                .vectorType(VectorType.FOOD.getCode())
-                .content(content)
-                .embeddingId(generateEmbeddingId(userId, VectorType.FOOD.getCode()))
-                .build();
-    }
-
-    /**
-     * 构建旅行偏好向量
-     */
-    public static UserPreferenceVector buildTravelVector(Long userId, String[] travelPreferences) {
-        String content = travelPreferences != null && travelPreferences.length > 0
-            ? String.join("、", travelPreferences)
-            : "";
-        return UserPreferenceVector.builder()
-                .userId(userId)
-                .vectorType(VectorType.TRAVEL.getCode())
-                .content(content)
-                .embeddingId(generateEmbeddingId(userId, VectorType.TRAVEL.getCode()))
-                .build();
-    }
-
-    /**
-     * 构建饮食限制向量
-     */
-    public static UserPreferenceVector buildDietaryVector(Long userId, String[] dietaryRestrictions) {
-        String content = dietaryRestrictions != null && dietaryRestrictions.length > 0
-            ? String.join("、", dietaryRestrictions)
-            : "";
-        return UserPreferenceVector.builder()
-                .userId(userId)
-                .vectorType(VectorType.DIETARY.getCode())
-                .content(content)
-                .embeddingId(generateEmbeddingId(userId, VectorType.DIETARY.getCode()))
-                .build();
-    }
-
-    /**
-     * 构建综合偏好向量
-     */
-    public static UserPreferenceVector buildAllVector(Long userId, String[] foodPreferences,
-            String[] travelPreferences, String[] dietaryRestrictions, String budgetRange) {
-        StringBuilder sb = new StringBuilder();
-
-        if (foodPreferences != null && foodPreferences.length > 0) {
-            sb.append("我喜欢：").append(String.join("、", foodPreferences)).append("。");
-        }
-        if (travelPreferences != null && travelPreferences.length > 0) {
-            sb.append("旅行偏好：").append(String.join("、", travelPreferences)).append("。");
-        }
-        if (dietaryRestrictions != null && dietaryRestrictions.length > 0) {
-            sb.append("饮食限制：").append(String.join("、", dietaryRestrictions)).append("。");
-        }
-        if (budgetRange != null && !budgetRange.isBlank()) {
-            sb.append("预算范围：").append(budgetRange).append("。");
-        }
-
-        String content = sb.toString();
-        return UserPreferenceVector.builder()
-                .userId(userId)
-                .vectorType(VectorType.ALL.getCode())
-                .content(content)
-                .embeddingId(generateEmbeddingId(userId, VectorType.ALL.getCode()))
-                .build();
-    }
 }

@@ -84,10 +84,7 @@ public class StreamChatController {
         
         logger.info("[StreamChat] 收到流式请求: messageLength={}, requestId={}, showThinking={}", 
                 message != null ? message.length() : 0, requestId, showThinking);
-        
-        // 1. 从请求中获取用户信息
-        String userId = getUserIdFromRequest();
-        
+
         // 2. 初始化 SSE 响应
         try {
             response.setContentType("text/event-stream");
@@ -116,8 +113,8 @@ public class StreamChatController {
         // ⭐ 检查是否有任务拆解的 SSE 事件（多 Agent 推理过程）
         if (requestId != null) {
             String eventsKey = "routing:sse:events:" + requestId;
-            Long eventCount = redisTemplate != null ? redisTemplate.opsForList().size(eventsKey) : 0;
-            if (eventCount != null && eventCount > 0) {
+            long eventCount = redisTemplate != null ? redisTemplate.opsForList().size(eventsKey) : 0;
+            if (eventCount > 0) {
                 logger.info("[StreamChat] 发现多 Agent SSE 事件共 {} 条, 从 Redis 直接发送", eventCount);
                 forwardEventsFromRedis(response, eventsKey);
                 return;
@@ -147,7 +144,7 @@ public class StreamChatController {
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public void streamChatPost(
             @RequestBody Map<String, Object> request,
-            jakarta.servlet.http.HttpServletResponse httpResponse) {
+            HttpServletResponse httpResponse) {
         
         String message = (String) request.getOrDefault("message", request.get("question"));
         String requestId = (String) request.getOrDefault("requestId", null);
@@ -156,25 +153,6 @@ public class StreamChatController {
                 : true;
         
         streamChat(message, requestId, showThinking, httpResponse);
-    }
-    
-    /**
-     * ⭐ 获取用户 ID（从请求上下文）
-     */
-    private String getUserIdFromRequest() {
-        try {
-            ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attributes != null) {
-                HttpServletRequest request = attributes.getRequest();
-                String userIdHeader = request.getHeader("X-User-Id");
-                if (userIdHeader != null && !userIdHeader.isBlank()) {
-                    return userIdHeader;
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("[StreamChat] 获取请求上下文失败: {}", e.getMessage());
-        }
-        return "anonymous";
     }
 
     /**
@@ -188,7 +166,7 @@ public class StreamChatController {
      */
     private Map<String, Object> getRoutingDecisionFromRedis(
             String requestId,
-            jakarta.servlet.http.HttpServletResponse response) {
+            HttpServletResponse response) {
         try {
             // SSE 接口必须从 Redis 阻塞等待决策
             if (requestId == null || requestId.isBlank()) {
@@ -233,36 +211,7 @@ public class StreamChatController {
             logger.debug("[StreamChat] 发送等待事件失败: {}", e.getMessage());
         }
     }
-    
-    /**
-     * ⭐ 发送超时事件给前端（不再获取推理过程）
-     */
-    private void sendTimeoutEvent(jakarta.servlet.http.HttpServletResponse response, String message) {
-        try {
-            String event = String.format("event: timeout\ndata: {\"type\":\"timeout\",\"content\":\"%s\"}\n\n", 
-                    escapeForSSE(message));
-            response.getOutputStream().write(event.getBytes(StandardCharsets.UTF_8));
-            response.getOutputStream().flush();
-            
-            sendDoneEvent(response);
-        } catch (Exception e) {
-            logger.debug("[StreamChat] 发送超时事件失败: {}", e.getMessage());
-        }
-    }
-    
-    /**
-     * ⭐ 发送完成事件给前端
-     */
-    private void sendDoneEvent(jakarta.servlet.http.HttpServletResponse response) {
-        try {
-            String event = "event: done\ndata: {\"type\":\"done\"}\n\n";
-            response.getOutputStream().write(event.getBytes(StandardCharsets.UTF_8));
-            response.getOutputStream().flush();
-        } catch (Exception e) {
-            logger.debug("[StreamChat] 发送完成事件失败: {}", e.getMessage());
-        }
-    }
-    
+
     /**
      * ⭐ 发送错误事件给前端
      */
