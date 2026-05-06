@@ -18,6 +18,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -125,11 +126,19 @@ public class McpAgentService {
                     - 调用 executeQuery(sql) 执行生成的 SQL
                     - 检查返回结果
                     
-                    == 步骤 5：组织回答
+                    == 步骤 5：自主判断是否生成趋势动图
+                    - **自动决策，无需用户要求** —— 当以下条件满足时，必须调用 generateTrendGif()：
+                      * 查询结果包含「按时间维度」的数据（如按天/周/月统计），且数据点 ≥ 3 个
+                      * 查询意图涉及：趋势分析、增长/下降、变化走势、波动、对比、分布演化
+                    - 满足条件 → 调用 generateTrendGif 可视化
+                    - 不满足条件 → 直接进入步骤 6
+
+                    == 步骤 6：组织回答
                     - 将原始数据转化为用户友好的表达
                     - 数字 → "共有 X 个..."
                     - 列表 → "前 N 个是：A, B, C"
                     - 表格 → 用文字描述关键信息
+                    - 生成了动图 → 回答中先说明 "这是趋势动图，请查看：" 再附带 Base64 数据
                     
                     ## 📊 SQL 语法模式（纯格式参考，不绑定具体表名）
                     
@@ -223,8 +232,8 @@ public class McpAgentService {
                       1. 先调用 executeQuery 获取时间序列数据（必须有 date 和 value 字段）
                       2. 将结果构建为 dataJson 格式
                       3. 调用 generateTrendGif 生成动图
-                      4. 返回 data:image/gif;base64,... 前端可直接展示
-                    - **适用场景**：用户增长趋势、每日对话数趋势、Agent 调用趋势等
+                      4. 系统会自动将返回结果转换为前端可展示的 data:image/gif;base64,...
+                    - **无需用户明确要求动图**：只要查询结果含时间维度且数据点 ≥ 3 个，应主动调用
                     
                     ## 💡 最佳实践
                     
@@ -233,11 +242,7 @@ public class McpAgentService {
                     3. **处理空结果**：如果返回 0 行，如实告知用户
                     4. **格式化输出**：将技术术语转化为用户能理解的语言
                     5. **错误恢复**：SQL 执行失败时，检查语法并重试
-                    6. **动图生成流程**：
-                       - 先 executeQuery 查询时间序列数据（如用户增长趋势）
-                       - 将结果转换为 [{"date":"...","value":N}] JSON 格式
-                       - 调用 generateTrendGif 生成动图
-                       - 返回 Base64 data URI，前端可直接展示
+                    6. **主动判断动图**：查询结果含时间维度（按天/周/月统计）且数据点 ≥ 3 时，主动调用 generateTrendGif 展示趋势，无需用户要求
                     
                     ## ⚠️ 注意事项
                     
@@ -246,13 +251,13 @@ public class McpAgentService {
                     - ❌ 禁止执行 DDL 操作（CREATE/DROP/ALTER）
                     - ✅ 遇到不确定的表名或字段名，先查询元数据
                     - ✅ 对于复杂查询，可以分步执行
-                    - ✅ 用户要求"动图""趋势图""可视化"时，先用 executeQuery 拿到数据
-                    - ✅ 再调用 generateTrendGif 生成 GIF 返回
+                    - ✅ **主动生成动图**：查询结果含时间维度的序列数据（数据点 ≥ 3），自动调用 generateTrendGif
+                    - ❌ 不要只在用户说"动图"时才调用，趋势分析类问题应主动生成
                     
                     ## ⚠️ 回答格式（只说明格式，不能代替工具调用）
                     
                     - ✅ 统计结果：直接说数字，如 "当前共有 XXX 个用户。"
-                    - ✅ 趋势图：返回 Base64 GIF data URI
+                    - ✅ 趋势图：调用 generateTrendGif 后，系统会自动展示
                     - ❌ 直接说出具体数字或内容，必须先调用工具获取
                     - ❌ "根据我的分析..."（不要编造）
                     - ❌ "可能有大约..."（不要推测）
@@ -532,6 +537,9 @@ public class McpAgentService {
         }
     }
     
+    private static final Pattern GIF_CACHE_PATTERN = Pattern.compile("GIF_CACHE:([a-f0-9-]+)");
+    private static final int MAX_GIF_CACHE_AGE_MINUTES = 10; // 缓存自动过期时间
+
     /**
      * 执行自然语言查询
      * ReactAgent 会自动执行 Think-Act-Observe 循环
@@ -548,6 +556,11 @@ public class McpAgentService {
             // ⭐ ReactAgent 自动执行工具调用循环
             AssistantMessage response = mcpAgent.call(question);
             String result = response != null ? response.getText() : null;
+            
+            // ⭐ 后处理：将 GIF_CACHE:xxx 替换为真实 Base64 data URI
+            if (result != null) {
+                result = resolveGifCache(result);
+            }
             
             long duration = System.currentTimeMillis() - startTime;
             log.info("[MCP Agent] 查询完成 (耗时: {} ms): {}", duration, 
@@ -567,5 +580,41 @@ public class McpAgentService {
      */
     public boolean isAvailable() {
         return mcpAgent != null;
+    }
+    
+    /**
+     * ⭐ 后处理：将 Agent 返回文本中的 GIF_CACHE:xxx 替换为真实 Base64 data URI
+     */
+    private String resolveGifCache(String text) {
+        if (text == null || text.isBlank()) return text;
+        
+        StringBuffer sb = new StringBuffer();
+        Matcher matcher = GIF_CACHE_PATTERN.matcher(text);
+        boolean found = false;
+        
+        while (matcher.find()) {
+            found = true;
+            String cacheKey = matcher.group(1);
+            byte[] gifData = DataGifTool.getGifFromCache(cacheKey);
+            
+            if (gifData != null) {
+                String base64 = Base64.getEncoder().encodeToString(gifData);
+                String dataUri = "data:image/gif;base64," + base64;
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(dataUri));
+                log.info("[GIF Cache] 替换成功: cacheKey={}, size={} KB", cacheKey, gifData.length / 1024);
+            } else {
+                log.warn("[GIF Cache] 缓存未命中或已过期: cacheKey={}", cacheKey);
+                matcher.appendReplacement(sb, "[GIF 数据已过期]");
+            }
+        }
+        
+        if (found) {
+            matcher.appendTail(sb);
+            log.info("[GIF Cache] 完成 {} 个 GIF 替换", 
+                java.util.regex.Pattern.compile("GIF_CACHE:").split(text).length - 1);
+            return sb.toString();
+        }
+        
+        return text;
     }
 }

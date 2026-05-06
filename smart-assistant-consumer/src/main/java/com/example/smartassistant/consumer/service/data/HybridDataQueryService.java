@@ -346,8 +346,8 @@ public class HybridDataQueryService {
         // 移除多余的空行
         cleaned = cleaned.replaceAll("\n *\n", "\n");
         
-        // 如果回答太长，截取前200字符
-        if (cleaned.length() > 200) {
+        // 移除非 GIF 回答过长时的截断（保留 Base64 data URI 完整）
+        if (cleaned.length() > 200 && !cleaned.contains("data:image/gif;base64")) {
             cleaned = cleaned.substring(0, 200) + "...";
         }
         

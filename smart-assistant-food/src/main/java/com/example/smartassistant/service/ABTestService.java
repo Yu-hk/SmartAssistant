@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -110,28 +109,19 @@ public class ABTestService {
         
         log.info("[ABTest] 执行推荐: userId={}, group={}", userId, testGroup);
         
-        List<HybridRecommendationService.HybridRecommendation> recommendations;
-        
-        switch (testGroup) {
-            case "control":
+        List<HybridRecommendationService.HybridRecommendation> recommendations = switch (testGroup) {
+            case "control" ->
                 // 对照组：纯 RAG
-                recommendations = executeControlGroup(query, city, cuisineType, maxPrice, minRating);
-                break;
-                
-            case "variant_a":
+                    executeControlGroup(query, city, cuisineType, maxPrice, minRating);
+            case "variant_a" ->
                 // 实验组A：混合推荐（60/40）
-                recommendations = executeVariantA(userId, query, city, cuisineType, maxPrice, minRating);
-                break;
-                
-            case "variant_b":
+                    executeVariantA(userId, query, city, cuisineType, maxPrice, minRating);
+            case "variant_b" ->
                 // 实验组B：混合推荐（40/60）
-                recommendations = executeVariantB(userId, query, city, cuisineType, maxPrice, minRating);
-                break;
-                
-            default:
-                recommendations = executeControlGroup(query, city, cuisineType, maxPrice, minRating);
-        }
-        
+                    executeVariantB(userId, query, city, cuisineType, maxPrice, minRating);
+            default -> executeControlGroup(query, city, cuisineType, maxPrice, minRating);
+        };
+
         // 记录曝光事件
         recordImpression(userIdStr, testGroup, recommendations);
         
@@ -193,7 +183,7 @@ public class ABTestService {
         Map<String, TestMetrics> results = new HashMap<>();
         
         String sql = """
-            SELECT 
+            SELECT
                 test_group,
                 COUNT(DISTINCT CASE WHEN event_type = 'impression' THEN id END) as impressions,
                 COUNT(DISTINCT CASE WHEN event_type = 'click' THEN id END) as clicks,
@@ -338,12 +328,13 @@ public class ABTestService {
         
         public String formatToString() {
             return String.format(
-                "📊 测试组: %s\n" +
-                "   曝光量: %d\n" +
-                "   点击量: %d\n" +
-                "   转化量: %d\n" +
-                "   CTR: %.2f%%\n" +
-                "   转化率: %.2f%%",
+                    """
+                            📊 测试组: %s
+                               曝光量: %d
+                               点击量: %d
+                               转化量: %d
+                               CTR: %.2f%%
+                               转化率: %.2f%%""",
                 testGroup, impressions, clicks, conversions,
                 ctr * 100, conversionRate * 100
             );
