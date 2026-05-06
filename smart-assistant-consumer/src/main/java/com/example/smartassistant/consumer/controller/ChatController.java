@@ -18,7 +18,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /**
  * 智能对话 REST API - 纯代理模式
@@ -36,15 +35,10 @@ public class ChatController {
     private final SuggestionEngine suggestionEngine;
     private final LLMSuggestionService llmSuggestionService;  // ⭐ Phase 1: LLM 智能建议
     private final UserProfileService userProfileService;       // ⭐ 用于获取用户画像
-    private final ColdStartService coldStartService;
-    private final ContextualRecommendationService contextualService;
-    private final SuggestionPersonalizationService personalizationService;
     private final ChatMessageService chatMessageService;
     private final ChatClient chatClient;
 
     // ⭐ 建议数量限制配置
-    @org.springframework.beans.factory.annotation.Value("${suggestion.max-count:5}")
-    private int maxSuggestionCount;
 
     public ChatController(MathConsumerService mathService,
                          HybridDataQueryService hybridDataQueryService,
@@ -53,10 +47,7 @@ public class ChatController {
                          SuggestionEngine suggestionEngine,
                          LLMSuggestionService llmSuggestionService,
                          UserProfileService userProfileService,
-                         ColdStartService coldStartService,
-                         ContextualRecommendationService contextualService,
-                         SuggestionPersonalizationService personalizationService,
-                         ChatMessageService chatMessageService,
+                          ChatMessageService chatMessageService,
                          ChatClient.Builder chatClientBuilder) {
         this.mathService = mathService;
         this.hybridDataQueryService = hybridDataQueryService;
@@ -65,9 +56,6 @@ public class ChatController {
         this.suggestionEngine = suggestionEngine;
         this.llmSuggestionService = llmSuggestionService;
         this.userProfileService = userProfileService;
-        this.coldStartService = coldStartService;
-        this.contextualService = contextualService;
-        this.personalizationService = personalizationService;
         this.chatMessageService = chatMessageService;
         this.chatClient = chatClientBuilder.build();
     }
@@ -288,107 +276,6 @@ public class ChatController {
     }
 
     /**
-     * 智能建议生成(分层策略) - 保留作为 LLM 降级方案
-     */
-    private List<String> generateSmartSuggestions(String userId, String message, String sessionId) {
-        // ⭐ 如果是数据查询请求，使用专门的建议生成逻辑
-        if (isDataQueryRequest(message)) {
-            return generateDataQuerySuggestions(message);
-        }
-
-        List<String> suggestions;
-
-        // Step 1: 获取对话历史
-        List<Map<String, Object>> history = new ArrayList<>();
-        if (sessionId != null) {
-            history = chatMessageService.getRecentMessages(sessionId, 10);
-        }
-
-        // Step 2: 冷启动判断
-        if (coldStartService.isColdStart(userId, history.size())) {
-            log.debug("[Suggestion] 冷启动场景: userId={}", userId);
-            String location = extractLocation(message);
-            suggestions = coldStartService.generateColdStartSuggestions(location);
-        }
-        // Step 3: 上下文推荐(有历史对话)
-        else if (!history.isEmpty()) {
-            log.debug("[Suggestion] 上下文推荐: userId={}, historySize={}", userId, history.size());
-            List<Map<String, String>> stringHistory = new ArrayList<>();
-            for (Map<String, Object> msg : history) {
-                Map<String, String> stringMsg = new HashMap<>();
-                msg.forEach((k, v) -> stringMsg.put(k, v != null ? v.toString() : ""));
-                stringHistory.add(stringMsg);
-            }
-            suggestions = contextualService.generateContextualSuggestions(message, stringHistory);
-        }
-        // Step 4: 策略模式推荐(无历史)
-        else {
-            log.debug("[Suggestion] 策略模式推荐: userId={}", userId);
-            suggestions = suggestionEngine.generateSuggestions(message, "auto");
-        }
-
-        // Step 5: 个性化排序
-        if (!suggestions.isEmpty() && !"anonymous".equals(userId)) {
-            Map<String, String> intentMap = buildSuggestionIntentMap(suggestions);
-            suggestions = personalizationService.personalizeSuggestions(userId, suggestions, intentMap);
-        }
-
-        // Step 6: 限制最多返回配置数量的建议
-        if (suggestions.size() > maxSuggestionCount) {
-            suggestions = suggestions.subList(0, maxSuggestionCount);
-        }
-
-        return suggestions;
-    }
-    
-    /**
-     * 从问题中提取地点
-     */
-    private String extractLocation(String question) {
-        if (question == null) return null;
-        
-        Pattern pattern = Pattern.compile(
-                "(广州|深圳|成都|杭州|南京|武汉|西安|长沙|青岛|厦门|三亚|"
-                + "昆明|大理|丽江|桂林|苏州|无锡|宁波|哈尔滨|沈阳|大连|郑州|济南|"
-                + "合肥|福州|南昌|贵阳|南宁|海口|拉萨|乌鲁木齐|兰州|西宁|银川|呼和浩特|"
-                + "河北|河南|山东|山西|湖南|湖北|广东|广西|江苏|浙江|安徽|福建|江西|"
-                + "四川|贵州|云南|陕西|甘肃|青海|黑龙江|吉林|辽宁|海南|台湾|内蒙古|"
-                + "宁夏|新疆|西藏|北京|上海|天津|重庆)"
-        );
-        
-        var matcher = pattern.matcher(question);
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-        return null;
-    }
-    
-    /**
-     * 构建建议与意图的映射
-     */
-    private Map<String, String> buildSuggestionIntentMap(List<String> suggestions) {
-        Map<String, String> intentMap = new HashMap<>();
-        
-        for (String suggestion : suggestions) {
-            String lower = suggestion.toLowerCase();
-            
-            if (lower.contains("天气") || lower.contains("气温")) {
-                intentMap.put(suggestion, "WEATHER");
-            } else if (lower.contains("美食") || lower.contains("餐厅") || lower.contains("吃")) {
-                intentMap.put(suggestion, "FOOD");
-            } else if (lower.contains("旅游") || lower.contains("景点") || lower.contains("行程")) {
-                intentMap.put(suggestion, "TRAVEL");
-            } else if (lower.contains("交通") || lower.contains("地铁") || lower.contains("怎么去")) {
-                intentMap.put(suggestion, "TRANSPORT");
-            } else {
-                intentMap.put(suggestion, "GENERAL");
-            }
-        }
-        
-        return intentMap;
-    }
-
-    /**
      * ⭐ 判断是否需要跳过智能建议
      * <p>
      * 路径A：基于推理模式的建议生成控制。
@@ -511,49 +398,7 @@ public class ChatController {
         }
         return false;
     }
-    
-    /**
-     * 为数据查询生成相关建议
-     * 基于当前查询内容和常见数据分析场景
-     */
-    private List<String> generateDataQuerySuggestions(String currentQuery) {
-        log.info("[数据查询建议] 开始生成建议，查询内容: {}", currentQuery);
-        
-        List<String> suggestions = new ArrayList<>();
-        String query = currentQuery.toLowerCase();
-        
-        // 1. 基于关键词匹配提供相关建议
-        if (query.contains("用户") || query.contains("user")) {
-            suggestions.add("最近7天新增了多少用户？");
-            suggestions.add("用户的地区分布如何？");
-            suggestions.add("活跃用户占比多少？");
-        } else if (query.contains("消息") || query.contains("聊天") || query.contains("message")) {
-            suggestions.add("哪个时间段消息最多？");
-            suggestions.add("平均每个会话有多少条消息？");
-            suggestions.add("消息类型分布如何？");
-        } else if (query.contains("路由") || query.contains("route")) {
-            suggestions.add("各个 Agent 的调用次数统计");
-            suggestions.add("路由成功率是多少？");
-            suggestions.add("平均响应时间分析");
-        } else if (query.contains("统计") || query.contains("总数") || query.contains("多少")) {
-            suggestions.add("按时间维度查看趋势");
-            suggestions.add("与其他指标对比分析");
-            suggestions.add("查看详细信息 breakdown");
-        }
-        
-        // 2. 如果没有匹配到特定场景，提供通用建议
-        if (suggestions.isEmpty()) {
-            suggestions.add("查看数据库表结构");
-            suggestions.add("探索其他可查询的数据");
-            suggestions.add("尝试更具体的查询条件");
-        }
-        
-        // 3. 限制建议数量（数据查询建议更少但更精准）
 
-        log.debug("[数据查询建议] 生成了 {} 条建议", suggestions.size());
-        return suggestions;
-    }
-    
     /**
      * ⭐ Phase 1: 带缓存的答案获取（完全响应式）
      * 先检查 Redis 缓存，未命中再调用 LLM
