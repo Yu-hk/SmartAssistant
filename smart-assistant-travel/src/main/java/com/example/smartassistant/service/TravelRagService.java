@@ -34,14 +34,21 @@ public class TravelRagService {
     @Value("${travel.rag.similarity-threshold:0.5}")
     private double similarityThreshold;
 
-    // ⭐ 美食关键词集：用于识别 chunk 是否与美食相关
-    private static final Set<String> FOOD_INDICATORS = Set.of(
-            "吃", "美食", "餐厅", "饭", "菜", "火锅", "烧烤", "烤鱼",
-            "小吃", "味道", "好吃", "正宗", "辣", "鲜", "香",
-            "小龙虾", "烤鸭", "炸酱面", "川菜", "粤菜",
-            "推荐", "人均", "价格", "菜单", "点菜", "排队",
-            "簋街", "美食街", "夜宵", "晚餐", "午餐", "早餐",
-            "豆汁", "焦圈");
+    // ⭐ 美食判定：两级信号 + 积分制，减少误判
+    // 强信号：直接指向美食内容，命中1个即判定
+    private static final Set<String> FOOD_STRONG = Set.of(
+            "美食", "火锅", "烧烤", "烤鱼", "小吃",
+            "好吃", "正宗", "麻辣", "香辣", "入味",
+            "小龙虾", "烤鸭", "炸酱面", "酸菜鱼", "水煮鱼",
+            "川菜", "粤菜", "湘菜", "鲁菜",
+            "簋街", "美食街", "夜宵", "大排档",
+            "钵钵鸡", "兔头", "小龙坎", "全聚德",
+            "豆汁", "焦圈", "糌粑", "酥油茶");
+
+    // 弱信号：可能与美食相关，需累计 ≥2 个才判定
+    private static final Set<String> FOOD_WEAK = Set.of(
+            "吃", "餐厅", "点菜", "菜单", "排队",
+            "味道", "人均", "价位", "口感");
 
     /**
      * 判断是否需要 RAG 增强
@@ -166,12 +173,23 @@ public class TravelRagService {
     }
 
     /**
-     * 判断 chunk 文本是否与美食相关
+     * 判断 chunk 文本是否与美食相关（两级信号 + 积分制）
+     * 强信号命中 1 个 → 判定为美食
+     * 弱信号需累计 ≥ 2 个 → 判定为美食
+     * 其余 → 判定为非美食（景点、行程、住宿等）
      */
     private boolean isFoodRelated(String text) {
         if (text == null || text.isEmpty()) return false;
-        String lower = text.toLowerCase();
-        return FOOD_INDICATORS.stream().anyMatch(lower::contains);
+
+        long strong = FOOD_STRONG.stream()
+                .filter(kw -> text.contains(kw))
+                .count();
+        if (strong >= 1) return true;
+
+        long weak = FOOD_WEAK.stream()
+                .filter(kw -> text.contains(kw))
+                .count();
+        return weak >= 2;
     }
 
     /**
