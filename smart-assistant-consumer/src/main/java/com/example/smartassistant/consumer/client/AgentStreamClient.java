@@ -9,7 +9,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -108,13 +107,4 @@ public class AgentStreamClient {
                 .anyMatch(key -> agentName.contains(key) || key.contains(agentName));
     }
 
-    public Map<String, String> getSupportedAgents() {
-        ensureCacheFresh();
-        return Collections.unmodifiableMap(agentUrlCache);
-    }
-
-    public String getDefaultAgent() {
-        ensureCacheFresh();
-        return agentUrlCache.isEmpty() ? null : agentUrlCache.keySet().iterator().next();
-    }
 }

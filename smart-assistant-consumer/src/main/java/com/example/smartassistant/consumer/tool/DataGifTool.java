@@ -37,7 +37,7 @@ public class DataGifTool {
             @ToolParam(description = "图表标题，如'用户增长趋势'") String title,
             @ToolParam(description = "X 轴标签，如'日期'") String xLabel,
             @ToolParam(description = "Y 轴标签，如'用户数'") String yLabel,
-            @ToolParam(description = "时间序列数据，JSON 格式：[{\"date\":\"2026-01-01\",\"value\":10},{\"date\":\"2026-01-02\",\"value\":25},...]") String dataJson,
+            @ToolParam(description = "时间序列数据，JSON 格式：数组元素包含 date 和 value 字段") String dataJson,
             @ToolParam(description = "线条颜色（可选），如 blue/red/green/orange/purple/teal，默认 blue") String lineColor) {
 
         log.info("[DataGifTool] 开始生成趋势 GIF: title={}", title);
