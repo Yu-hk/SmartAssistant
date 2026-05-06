@@ -14,10 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * 智能对话 REST API - 纯代理模式
@@ -107,7 +104,7 @@ public class ChatController {
         // ⭐ 提取 requestId 供后续流程使用
         String requestId = request.getOrDefault("requestId", null);
         if (requestId == null || requestId.isBlank()) {
-            requestId = java.util.UUID.randomUUID().toString().replace("-", "");
+            requestId = UUID.randomUUID().toString().replace("-", "");
         }
         final String finalRequestId = requestId;
         
@@ -399,27 +396,6 @@ public class ChatController {
         return false;
     }
 
-    /**
-     * ⭐ Phase 1: 带缓存的答案获取（完全响应式）
-     * 先检查 Redis 缓存，未命中再调用 LLM
-     * 
-     * @param userId 用户ID
-     * @param message 消息
-     * @param isFirstFetch 是否是首次获取（用于标记来自语义缓存的结果）
-     */
-    private Mono<String> getAnswerWithCacheReactive(String userId, String message, boolean isFirstFetch) {
-        return answerCacheService.getAnswerWithCache(
-            userId,
-            message,
-            isFirstFetch,  // ⭐ 传递是否为首次获取
-            () -> {
-                // 缓存未命中时，调用 MathConsumerService
-                log.debug("[AnswerCache] 缓存未命中，调用 LLM, userId={}", userId);
-                return Mono.just(mathService.calculate(userId, message));
-            }
-        );
-    }
-    
     /**
      * ⭐ 缓存统计接口 - 查看命中率等指标（仅管理员）
      * POST /api/math/cache/stats

@@ -2,7 +2,6 @@ package com.example.smartassistant.consumer.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
@@ -129,11 +128,6 @@ public class GlobalExceptionHandler {
     }
 
     // ========== 工具方法 ==========
-
-    private String getTraceId() {
-        String traceId = MDC.get("traceId");
-        return traceId != null ? traceId : "unknown";
-    }
 
     private String extractServiceName(String message) {
         if (message == null) return null;

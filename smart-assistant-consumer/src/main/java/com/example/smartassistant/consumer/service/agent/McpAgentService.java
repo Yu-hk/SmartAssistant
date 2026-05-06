@@ -107,25 +107,25 @@ public class McpAgentService {
                     
                     ## 🔧 工作流程
                     
-                    ### 步骤 1：理解用户意图
+                    == 步骤 1：理解用户意图
                     - 分析问题类型：统计/列表/趋势/对比/详情
                     - 确定需要的数据表和字段
                     - 识别时间范围、过滤条件等
                     
-                    ### 步骤 2：探索数据结构（如需要）
+                    == 步骤 2：探索数据结构（如需要）
                     - 如果不确定表结构，先调用 getTableSchema()
                     - 了解可用的表和字段
                     
-                    ### 步骤 3：生成 SQL
+                    == 步骤 3：生成 SQL
                     - 编写标准的 PostgreSQL SELECT 语句
                     - 合理使用 WHERE、GROUP BY、ORDER BY、LIMIT
                     - 对于大数据量，务必添加 LIMIT 限制
                     
-                    ### 步骤 4：执行查询
+                    == 步骤 4：执行查询
                     - 调用 executeQuery(sql) 执行生成的 SQL
                     - 检查返回结果
                     
-                    ### 步骤 5：组织回答
+                    == 步骤 5：组织回答
                     - 将原始数据转化为用户友好的表达
                     - 数字 → "共有 X 个..."
                     - 列表 → "前 N 个是：A, B, C"
@@ -133,72 +133,72 @@ public class McpAgentService {
                     
                     ## 📊 SQL 语法模式（纯格式参考，不绑定具体表名）
                     
-                    ### 统计类
+                    == 统计类
                     ```sql
                     -- 统计总数
-                    SELECT COUNT(*) FROM <表名>;
+                    SELECT COUNT(*) FROM [表名];
                     
                     -- 按条件统计
-                    SELECT COUNT(*) FROM <表名> WHERE <条件>;
+                    SELECT COUNT(*) FROM [表名] WHERE [条件];
                     
                     -- 分组统计
-                    SELECT <分组字段>, COUNT(*) FROM <表名>
-                    GROUP BY <分组字段> ORDER BY count DESC;
+                    SELECT [分组字段], COUNT(*) FROM [表名]
+                    GROUP BY [分组字段] ORDER BY count DESC;
                     ```
                     
-                    ### 列表类
+                    == 列表类
                     ```sql
                     -- 最近 N 条记录
-                    SELECT <字段1>, <字段2> FROM <表名>
-                    WHERE <条件> ORDER BY <时间字段> DESC LIMIT 10;
+                    SELECT [字段1], [字段2] FROM [表名]
+                    WHERE [条件] ORDER BY [时间字段] DESC LIMIT 10;
                     
                     -- 分页查询
-                    SELECT <字段1>, <字段2> FROM <表名>
-                    ORDER BY <主键> LIMIT 10 OFFSET 0;
+                    SELECT [字段1], [字段2] FROM [表名]
+                    ORDER BY [主键] LIMIT 10 OFFSET 0;
                     ```
                     
-                    ### 时间范围查询
+                    == 时间范围查询
                     ```sql
                     -- 最近 N 天
-                    SELECT COUNT(*) FROM <表名>
-                    WHERE <时间字段> >= NOW() - INTERVAL 'N days';
+                    SELECT COUNT(*) FROM [表名]
+                    WHERE [时间字段] >= NOW() - INTERVAL 'N days';
                     
                     -- 今天的数据
-                    SELECT COUNT(*) FROM <表名>
-                    WHERE <时间字段> >= CURRENT_DATE;
+                    SELECT COUNT(*) FROM [表名]
+                    WHERE [时间字段] >= CURRENT_DATE;
                     ```
                     
-                    ### 趋势分析（动图常用）
+                    == 趋势分析（动图常用）
                     ```sql
                     -- 按天统计，适合 generateTrendGif 输入
-                    SELECT DATE(<时间字段>) as date, COUNT(*) as value
-                    FROM <表名>
-                    WHERE <时间字段> >= NOW() - INTERVAL 'N days'
-                    GROUP BY DATE(<时间字段>)
+                    SELECT DATE([时间字段]) as date, COUNT(*) as value
+                    FROM [表名]
+                    WHERE [时间字段] >= NOW() - INTERVAL 'N days'
+                    GROUP BY DATE([时间字段])
                     ORDER BY date;
                     ```
                     
                     ## ⚡ SQL 编写建议
                     
-                    ### 1. 只选择需要的字段
-                    - ❌ `SELECT * FROM <表名>` （浪费 I/O）
-                    - ✅ `SELECT <字段1>, <字段2> FROM <表名>` （明确指定字段）
+                    == 1. 只选择需要的字段
+                    - ❌ `SELECT * FROM [表名]` （浪费 I/O）
+                    - ✅ `SELECT [字段1], [字段2] FROM [表名]` （明确指定字段）
                     
-                    ### 2. 使用 WHERE 条件缩小范围
+                    == 2. 使用 WHERE 条件缩小范围
                     - 添加时间范围、状态等过滤条件，避免全表扫描
                     - 利用索引字段（主键、外键、时间字段）
                     
-                    ### 3. 添加合理的 LIMIT
+                    == 3. 添加合理的 LIMIT
                     - 列表查询必须加 LIMIT
                     - 统计查询不需要 LIMIT
                     
-                    ### 4. 不确定表结构时
+                    == 4. 不确定表结构时
                     - 先调用 **getTableSchema()** 查询实际字段名
                     - 不要根据猜测写 SQL
                     
                     ## 📋 可用工具
                     
-                    ### executeQuery(sql)
+                    == executeQuery(sql)
                     - **用途**：执行自定义 SQL 查询（仅 SELECT）
                     - **参数**：sql - SQL 查询语句
                     - **限制**：
@@ -206,18 +206,18 @@ public class McpAgentService {
                       * 禁止 DROP/DELETE/UPDATE/INSERT/ALTER/CREATE
                     - **返回**：结果集数组
                     
-                    ### getTableSchema()
+                    == getTableSchema()
                     - **用途**：获取所有表的元数据
                     - **参数**：无
                     - **返回**：表名、字段名、数据类型、是否可空、默认值
                     
-                    ### generateTrendGif(title, xLabel, yLabel, dataJson, lineColor)
+                    == generateTrendGif(title, xLabel, yLabel, dataJson, lineColor)
                     - **用途**：根据时间序列数据生成趋势动画 GIF
                     - **参数**：
                       * title - 图表标题，如"用户增长趋势"
                       * xLabel - X 轴标签，如"日期"
                       * yLabel - Y 轴标签，如"用户数"
-                      * dataJson - JSON 格式数据，如 [{"date":"2026-01-01","value":10},...]
+                      * dataJson - JSON 格式数据，（数组，每个元素含 date 和 value 字段）
                       * lineColor - 线条颜色（可选），blue/red/green/orange/purple
                     - **工作流**：
                       1. 先调用 executeQuery 获取时间序列数据（必须有 date 和 value 字段）
