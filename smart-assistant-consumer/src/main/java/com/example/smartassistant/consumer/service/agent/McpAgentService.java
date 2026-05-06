@@ -299,7 +299,7 @@ public class McpAgentService {
         
         @Tool(description = "执行只读 SQL 查询（仅支持 SELECT 语句）。这是核心工具，用于执行 Agent 生成的 SQL。")
         public java.util.List<java.util.Map<String, Object>> executeQuery(
-            @ToolParam(description = "SQL 查询语句（必须是 SELECT 语句）", required = true) String sql
+            @ToolParam(description = "SQL 查询语句（必须是 SELECT 语句）") String sql
         ) {
             // ⭐ 记录 Agent 生成的 SQL
             log.info("[executeQuery] Agent 生成的 SQL: {}", sql);

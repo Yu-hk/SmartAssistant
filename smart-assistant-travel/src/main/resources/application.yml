@@ -143,8 +143,11 @@ travel:
     enabled: true                     # 是否启用 RAG 功能
     top-k: 5                          # 返回最相关的 K 个结果（TopN 筛选数量）
     similarity-threshold: 0.5        # 相似度阈值
-    chunk-size: 300                   # 文本分块大小
-    chunk-overlap: 50                 # 分块重叠大小
+    chunk:
+      strategy: semantic              # fixed | semantic（分块策略）
+      semantic-threshold: 0.6        # 语义分块相似度阈值
+      min-chunk-size: 50             # 最小分块长度（字符）
+      max-chunk-size: 500            # 最大分块长度（字符）
 
 # Logging 配置（输出到文件，供 Loki 收集）⭐
 logging:
