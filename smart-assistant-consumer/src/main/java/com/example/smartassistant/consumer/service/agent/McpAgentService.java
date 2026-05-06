@@ -95,7 +95,7 @@ public class McpAgentService {
                 .name("database-query-agent")
                 .model(chatModel)
                 .tools(allCallbacks.toArray(new ToolCallback[0]))
-                .instruction("""
+                .systemPrompt("""
                     你是一个专业的数据库查询与数据可视化助手。可以查询数据库获取真实数据，
                     还能将时间序列数据生成动画趋势 GIF 进行可视化展示。
                     
@@ -460,14 +460,14 @@ public class McpAgentService {
             for (String tableName : tablesInSql) {
                 // 检查黑名单（明确禁止的表）
                 List<String> forbiddenTables = whitelistConfig.getForbiddenTables(CURRENT_SERVICE);
-                if (forbiddenTables.stream().anyMatch(t -> t.equalsIgnoreCase(tableName))) {
+                if (forbiddenTables != null && forbiddenTables.stream().anyMatch(t -> t.equalsIgnoreCase(tableName))) {
                     log.error("[executeQuery] ❌ 拒绝访问黑名单表: {}", tableName);
                     throw new SecurityException("无权访问表: " + tableName);
                 }
                 
                 // 检查白名单（如果配置了白名单）
                 List<String> allowedTables = whitelistConfig.getAllowedTables(CURRENT_SERVICE);
-                if (!allowedTables.isEmpty()) {
+                if (allowedTables != null && !allowedTables.isEmpty()) {
                     boolean isAllowed = allowedTables.stream()
                         .anyMatch(t -> t.equalsIgnoreCase(tableName));
                     
