@@ -1,6 +1,7 @@
 package com.example.smartassistant.consumer.service.monitoring;
 
 import lombok.Data;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -55,6 +56,7 @@ public class SqlReviewService {
         }
     }
     
+    @Getter
     public enum Severity {
         ERROR(30),      // 严重问题，必须修复
         WARNING(15),    // 警告，建议修复
@@ -65,10 +67,7 @@ public class SqlReviewService {
         Severity(int penalty) {
             this.penalty = penalty;
         }
-        
-        public int getPenalty() {
-            return penalty;
-        }
+
     }
     
     // 危险操作模式
@@ -162,9 +161,9 @@ public class SqlReviewService {
         
         // 8. 检查是否使用了聚合函数但没有 GROUP BY
         if ((upperSql.contains("COUNT(") || upperSql.contains("SUM(") || 
-             upperSql.contains("AVG(")) && 
-            upperSql.contains("GROUP BY") == false &&
-            upperSql.contains("FROM") == true) {
+             upperSql.contains("AVG(")) &&
+                !upperSql.contains("GROUP BY") &&
+                upperSql.contains("FROM")) {
             
             // 提取 SELECT 和 FROM 之间的部分
             int selectIndex = upperSql.indexOf("SELECT") + 6;
