@@ -231,8 +231,7 @@ public class McpAgentService {
                     - **工作流**：
                       1. 先调用 executeQuery 获取时间序列数据（必须有 date 和 value 字段）
                       2. 将结果构建为 dataJson 格式
-                      3. 调用 generateTrendGif 生成动图
-                      4. 系统会自动将返回结果转换为前端可展示的 data:image/gif;base64,...
+                      3. 调用 generateTrendGif 生成动图（系统会自动在回答末尾附加动图）
                     - **无需用户明确要求动图**：只要查询结果含时间维度且数据点 ≥ 3 个，应主动调用
                     
                     ## 💡 最佳实践
@@ -257,7 +256,7 @@ public class McpAgentService {
                     ## ⚠️ 回答格式（只说明格式，不能代替工具调用）
                     
                     - ✅ 统计结果：直接说数字，如 "当前共有 XXX 个用户。"
-                    - ✅ 趋势图：调用 generateTrendGif 后，系统会自动展示
+                    - ✅ 趋势图：调用 generateTrendGif 后，系统会自动追加动图数据
                     - ❌ 直接说出具体数字或内容，必须先调用工具获取
                     - ❌ "根据我的分析..."（不要编造）
                     - ❌ "可能有大约..."（不要推测）
@@ -538,7 +537,6 @@ public class McpAgentService {
     }
     
     private static final Pattern GIF_CACHE_PATTERN = Pattern.compile("GIF_CACHE:([a-f0-9-]+)");
-    private static final int MAX_GIF_CACHE_AGE_MINUTES = 10; // 缓存自动过期时间
 
     /**
      * 执行自然语言查询
@@ -560,6 +558,11 @@ public class McpAgentService {
             // ⭐ 后处理：将 GIF_CACHE:xxx 替换为真实 Base64 data URI
             if (result != null) {
                 result = resolveGifCache(result);
+            }
+            
+            // ⭐ 兜底：如果 Agent 未输出 GIF_CACHE token，但有缓存数据，追加到末尾
+            if (result != null && !result.contains("data:image/gif;base64,")) {
+                result = appendCachedGif(result);
             }
             
             long duration = System.currentTimeMillis() - startTime;
@@ -613,6 +616,28 @@ public class McpAgentService {
             log.info("[GIF Cache] 完成 {} 个 GIF 替换", 
                 java.util.regex.Pattern.compile("GIF_CACHE:").split(text).length - 1);
             return sb.toString();
+        }
+        
+        return text;
+    }
+    
+    /**
+     * ⭐ 兜底：当 Agent 未输出 GIF_CACHE token 时，从缓存中取最新 GIF 追加到回答末尾
+     */
+    private String appendCachedGif(String text) {
+        if (text == null || text.isBlank()) return text;
+        
+        java.util.Map<String, byte[]> allEntries = DataGifTool.getAllCacheEntries();
+        if (allEntries.isEmpty()) return text;
+        
+        String cacheKey = allEntries.keySet().iterator().next();
+        byte[] gifData = DataGifTool.getGifFromCache(cacheKey);
+        
+        if (gifData != null) {
+            String base64 = Base64.getEncoder().encodeToString(gifData);
+            String dataUri = "data:image/gif;base64," + base64;
+            log.info("[GIF Cache] 兜底追加 GIF: cacheKey={}, size={} KB", cacheKey, gifData.length / 1024);
+            return text + "\n\n" + dataUri;
         }
         
         return text;

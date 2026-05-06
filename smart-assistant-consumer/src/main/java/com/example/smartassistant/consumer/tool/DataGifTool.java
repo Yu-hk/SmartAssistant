@@ -47,6 +47,13 @@ public class DataGifTool {
         }
         return data;
     }
+    
+    /**
+     * 获取所有缓存条目（用于兜底追加）
+     */
+    public static java.util.Map<String, byte[]> getAllCacheEntries() {
+        return new java.util.HashMap<>(gifCache);
+    }
 
     @Tool(description = "根据时间序列数据生成趋势动画 GIF。输入需包含日期和数值两列，返回缓存 key（请勿在最终回答中暴露缓存 key）。先调用 executeQuery 获取数据后再调用此工具。")
     public String generateTrendGif(
