@@ -26,11 +26,10 @@ public class TravelNoteService {
     private final TravelNoteMapper travelNoteMapper;
     private final TravelNoteChunkMapper travelNoteChunkMapper;
     private final EmbeddingService embeddingService;
+    private final SemanticChunker semanticChunker;  // ⭐ 语义分块器
 
-    // 分块大小配置
-    private static final int CHUNK_SIZE = 300;  // 每块字符数
-    private static final int MAX_CONTENT_LENGTH = 50000;  // 最大内容长度（防止 OOM）
-    private static final int CHUNK_OVERLAP = 50; // 块重叠字符数
+    // 最大内容长度（防止 OOM）
+    private static final int MAX_CONTENT_LENGTH = 50000;
 
     /**
      * 创建游记
@@ -224,72 +223,25 @@ public class TravelNoteService {
     }
 
     /**
-     * 滑动窗口分块（内存优化版）
+     * ⭐ 语义分块：按语义边界切分，而非固定字数
      */
     private List<String> splitIntoChunks(String text) {
         log.info("[TravelNote] splitIntoChunks: textLength={}", text != null ? text.length() : "null");
         
         if (text == null || text.isEmpty()) {
-            log.info("[TravelNote] splitIntoChunks: text is null or empty");
             return List.of();
         }
-        
+
         // 限制内容长度，防止 OOM
         String content = text;
         if (text.length() > MAX_CONTENT_LENGTH) {
             log.warn("[TravelNote] 内容过长({}字符)，截断至{}字符", text.length(), MAX_CONTENT_LENGTH);
             content = text.substring(0, MAX_CONTENT_LENGTH);
         }
-        
-        log.info("[TravelNote] splitIntoChunks: contentLength={}, CHUNK_SIZE={}", content.length(), CHUNK_SIZE);
-        
-        if (content.length() <= CHUNK_SIZE) {
-            log.info("[TravelNote] splitIntoChunks: short content, returning single chunk");
-            return List.of(content);
-        }
 
-        log.info("[TravelNote] splitIntoChunks: starting chunking loop");
-        
-        List<String> chunks = new ArrayList<>();
-        int start = 0;
-        int iteration = 0;
-
-        while (start < content.length()) {
-            iteration++;
-            if (iteration % 100 == 0) {
-                log.info("[TravelNote] splitIntoChunks: iteration={}, start={}, contentLength={}", iteration, start, content.length());
-            }
-
-            int end = Math.min(start + CHUNK_SIZE, content.length());
-
-            // 尽量在句子边界切分
-            if (end < content.length()) {
-                int lastPeriod = content.lastIndexOf("。", end);
-                int lastNewline = content.lastIndexOf("\n", end);
-                int boundary = Math.max(lastPeriod, lastNewline);
-
-                // ⭐ 修复：仅当 boundary 能让 end 往前推（且仍超过 start + CHUNK_SIZE/2）时才采用
-                // 否则 end 过小会导致 start 倒退，引发无限重复分块
-                if (boundary > start + CHUNK_SIZE / 2) {
-                    end = boundary + 1;
-                }
-            }
-
-            String chunk = content.substring(start, end).trim();
-            if (!chunk.isEmpty()) {
-                chunks.add(chunk);
-            }
-
-            // ⭐ 修复核心：确保 nextStart 严格大于当前 start，防止死循环
-            int nextStart = end - CHUNK_OVERLAP;
-            if (nextStart <= start) {
-                // 句子边界回退过多导致 nextStart 没有推进，强制向前移动
-                nextStart = end;
-            }
-            start = nextStart;
-        }
-
-        log.info("[TravelNote] splitIntoChunks: completed, chunkCount={}", chunks.size());
+        // 调用语义分块器
+        List<String> chunks = semanticChunker.split(content);
+        log.info("[TravelNote] 语义分块完成: {}", chunks.size());
         return chunks;
     }
 
