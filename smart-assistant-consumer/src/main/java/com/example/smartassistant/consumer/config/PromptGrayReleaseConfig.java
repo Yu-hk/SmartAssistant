@@ -4,6 +4,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * Prompt 灰度发布配置
  */
@@ -27,13 +30,13 @@ public class PromptGrayReleaseConfig {
     /**
      * 白名单用户 ID 列表（始终使用新版本）
      */
-    private java.util.Set<Long> whitelistUsers = new java.util.HashSet<>();
+    private Set<Long> whitelistUsers = new HashSet<>();
     
     /**
      * 黑名单用户 ID 列表（始终使用旧版本）
      */
-    private java.util.Set<Long> blacklistUsers = new java.util.HashSet<>();
-    
+    private Set<Long> blacklistUsers = new HashSet<>();
+
     /**
      * 判断指定用户是否应该使用新版本（JSON 格式）
      */
