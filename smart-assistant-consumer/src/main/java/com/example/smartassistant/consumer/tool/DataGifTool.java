@@ -20,6 +20,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 数据动图生成工具
@@ -31,8 +32,23 @@ import java.util.List;
 public class DataGifTool {
 
     private static final Logger log = LoggerFactory.getLogger(DataGifTool.class);
+    
+    // ⭐ GIF 缓存：避免 400KB+ Base64 数据直接流过 LLM 上下文
+    private static final ConcurrentHashMap<String, byte[]> gifCache = new ConcurrentHashMap<>();
+    private static final String GIF_CACHE_PREFIX = "GIF_CACHE:";
 
-    @Tool(description = "根据时间序列数据生成趋势动画 GIF。输入需包含日期和数值两列，返回 Base64 编码的 GIF 图片。先调用 executeQuery 获取数据后再调用此工具。")
+    /**
+     * 从缓存中获取 GIF 数据并清理
+     */
+    public static byte[] getGifFromCache(String cacheKey) {
+        byte[] data = gifCache.remove(cacheKey);
+        if (data == null) {
+            log.warn("[DataGifTool] 缓存未命中: {}", cacheKey);
+        }
+        return data;
+    }
+
+    @Tool(description = "根据时间序列数据生成趋势动画 GIF。输入需包含日期和数值两列，返回缓存 key（请勿在最终回答中暴露缓存 key）。先调用 executeQuery 获取数据后再调用此工具。")
     public String generateTrendGif(
             @ToolParam(description = "图表标题，如'用户增长趋势'") String title,
             @ToolParam(description = "X 轴标签，如'日期'") String xLabel,
@@ -89,11 +105,13 @@ public class DataGifTool {
             }
 
             byte[] gifData = baos.toByteArray();
-            String base64 = Base64.getEncoder().encodeToString(gifData);
-            log.info("[DataGifTool] GIF 生成成功: {} 帧, {} KB",
-                    frames.size(), gifData.length / 1024);
+            // ⭐ 存入缓存，返回短 token 避免 400KB+ 数据流过 LLM 上下文
+            String cacheKey = UUID.randomUUID().toString();
+            gifCache.put(cacheKey, gifData);
+            log.info("[DataGifTool] GIF 生成成功: {} 帧, {} KB, cacheKey={}",
+                    frames.size(), gifData.length / 1024, cacheKey);
 
-            return "data:image/gif;base64," + base64;
+            return GIF_CACHE_PREFIX + cacheKey;
 
         } catch (Exception e) {
             log.error("[DataGifTool] GIF 生成失败: {}", e.getMessage(), e);
@@ -128,7 +146,7 @@ public class DataGifTool {
             int idx = (int) Math.round(d);
             return (idx >= 0 && idx < dates.size()
                     && (idx % step == 0 || idx == dates.size() - 1))
-                    ? dates.get(idx) : "";
+                    ? dates.get(idx) : " ";
         });
 
         double[] x = new double[values.size()];
