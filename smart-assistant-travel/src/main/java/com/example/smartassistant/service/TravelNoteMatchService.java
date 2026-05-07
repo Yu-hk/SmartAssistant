@@ -6,12 +6,11 @@ import com.example.smartassistant.mapper.TravelNoteChunkMapper;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -41,14 +40,14 @@ public class TravelNoteMatchService {
 
     // ==================== 配置常量 ====================
     private static final int DEFAULT_TOP_N = 5;           // 默认返回 Top 5
-
-    // ⭐ 不放回追踪：记录每个 userId 已推荐过的 note_id，避免重复
-    private final Map<Long, Set<Long>> seenNoteIds = new ConcurrentHashMap<>();
+    private static final String SEEN_KEY_PREFIX = "travel:seen:";  // Redis key 前缀
+    private static final int SEEN_KEY_TTL_MINUTES = 30;            // TTL 30 分钟
 
     // ==================== 依赖服务 ====================
     private final TravelRagService travelRagService;
     private final TravelNoteRankingService rankingService;
-    private final TravelNoteChunkMapper travelNoteChunkMapper;  // ⭐ 用于查询被筛游记的 chunk
+    private final TravelNoteChunkMapper travelNoteChunkMapper;
+    private final StringRedisTemplate redisTemplate;  // ⭐ Redis 不放回追踪
 
     // ==================== 配置 ====================
     @Value("${travel.rag.enabled:false}")
@@ -58,10 +57,12 @@ public class TravelNoteMatchService {
             TravelNoteService travelNoteService,
             TravelRagService travelRagService,
             TravelNoteRankingService rankingService,
-            TravelNoteChunkMapper travelNoteChunkMapper) {
+            TravelNoteChunkMapper travelNoteChunkMapper,
+            StringRedisTemplate redisTemplate) {
         this.travelRagService = travelRagService;
         this.rankingService = rankingService;
         this.travelNoteChunkMapper = travelNoteChunkMapper;
+        this.redisTemplate = redisTemplate;
     }
 
     /**
@@ -104,19 +105,20 @@ public class TravelNoteMatchService {
             log.info("[TravelNoteMatch] 规则评分筛选出 {} 篇候选游记", topNotes.size());
 
             // ⭐ 收集被筛掉的笔记 ID（排名 #6 及之后），提取碎片作为补充建议
-            // 遵循"不放回"策略：同一 userId 已推荐过的笔记不再重复推荐
+            // 遵循"不放回"策略：同一 userId+location 已推荐过的笔记不再重复推荐
+            // Redis key: travel:seen:{userId}:{location}, TTL 30 分钟
             List<String> tips = List.of();
             List<TravelNoteRankingService.ScoredNote> allScored = rankingResult.getRankedNotes();
-            Set<Long> seen = seenNoteIds.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet());
+            String seenKey = SEEN_KEY_PREFIX + userId + ":" + location.replaceAll("\\s+", "");
 
             if (allScored.size() > DEFAULT_TOP_N) {
                 List<Long> remainingIds = allScored.stream()
                         .skip(DEFAULT_TOP_N)
                         .map(sn -> sn.getNote().getId())
-                        .filter(id -> !seen.contains(id))  // ⭐ 跳过已推荐过的
+                        .filter(id -> !isNoteSeen(seenKey, id))
                         .collect(Collectors.toList());
                 log.info("[TravelNoteMatch] 剩余 {} 篇游记（已排除 {} 篇已推荐的），提取补充建议",
-                        remainingIds.size(), 
+                        remainingIds.size(),
                         allScored.size() - DEFAULT_TOP_N - remainingIds.size());
 
                 if (!remainingIds.isEmpty()) {
@@ -130,20 +132,18 @@ public class TravelNoteMatchService {
                                 return text + "（" + type + "）";
                             })
                             .collect(Collectors.toList());
-                    // ⭐ 标记已推荐：tips 涉及的笔记 + 最佳推荐 + 备选，全部加入已读集
-                    tipChunks.stream().map(TravelNoteChunk::getNoteId).forEach(seen::add);
+                    tipChunks.stream().map(TravelNoteChunk::getNoteId).forEach(id -> markNoteSeen(seenKey, id));
                     log.info("[TravelNoteMatch] 提取到 {} 条补充建议，已标记为已读", tips.size());
                 }
             }
 
-            // ⭐ 标记本轮的 bestNote 和 alternatives 为已读
             // 获取最佳推荐
             TravelNote bestNote = topNotes.get(0);
             List<TravelNote> alternatives = topNotes.stream().skip(1).collect(Collectors.toList());
 
-            // ⭐ 标记本轮所有推荐（best + alternatives + tips）为已读
-            seen.add(bestNote.getId());
-            topNotes.stream().skip(1).map(TravelNote::getId).forEach(seen::add);
+            // ⭐ 标记本轮 bestNote 和 alternatives 为已读
+            markNoteSeen(seenKey, bestNote.getId());
+            topNotes.stream().skip(1).map(TravelNote::getId).forEach(id -> markNoteSeen(seenKey, id));
 
             return MatchResult.success(
                     bestNote,
@@ -156,6 +156,27 @@ public class TravelNoteMatchService {
         } catch (Exception e) {
             log.error("[TravelNoteMatch] 匹配失败: {}", e.getMessage(), e);
             return MatchResult.error("匹配失败: " + e.getMessage());
+        }
+    }
+
+    // ==================== Redis 不放回追踪 ====================
+
+    private boolean isNoteSeen(String key, Long noteId) {
+        try {
+            return Boolean.TRUE.equals(
+                    redisTemplate.opsForSet().isMember(key, String.valueOf(noteId)));
+        } catch (Exception e) {
+            log.warn("[TravelNoteMatch] Redis 查询失败(seen)，默认返回未读: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private void markNoteSeen(String key, Long noteId) {
+        try {
+            redisTemplate.opsForSet().add(key, String.valueOf(noteId));
+            redisTemplate.expire(key, SEEN_KEY_TTL_MINUTES, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.warn("[TravelNoteMatch] Redis 写入失败(seen): {}", e.getMessage());
         }
     }
 
