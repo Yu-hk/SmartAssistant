@@ -101,4 +101,22 @@
         LIMIT #{limit}
     </select>
 
+    <!-- ⭐ 根据 note_id 列表随机检索 chunk（用于被筛游记的补充建议） -->
+    <select id="searchRandomByNoteIds" resultType="com.example.smartassistant.entity.TravelNoteChunk">
+        SELECT
+            tnc.id,
+            tnc.note_id,
+            tnc.chunk_text,
+            tnc.chunk_index,
+            tnc.content_type AS contentType,
+            tnc.created_at
+        FROM travel_note_chunks tnc
+        WHERE tnc.note_id IN
+        <foreach collection="noteIds" item="id" separator="," open="(" close=")">
+            #{id}
+        </foreach>
+        ORDER BY RANDOM()
+        LIMIT #{limit}
+    </select>
+
 </mapper>
