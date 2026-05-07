@@ -344,9 +344,16 @@ public class RouterService {
             log.warn("[Router] 动态匹配 Agent 失败: {}", e.getMessage());
         }
         
-        // 降级：返回第一个可用 Agent
+        // 降级：优先返回兜底 Agent（general_chat），否则返回第一个可用 Agent
         var agents = agentDiscoveryService.discoverAllAgents();
         if (!agents.isEmpty()) {
+            // 优先找 general_chat 作为兜底
+            for (DiscoveredAgent a : agents) {
+                if ("general_chat".equals(a.getAgentName())) {
+                    log.info("[Router] 关键词兜底匹配到 general_chat");
+                    return a.getAgentName();
+                }
+            }
             return agents.get(0).getAgentName();
         }
         
