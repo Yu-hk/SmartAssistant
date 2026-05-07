@@ -1,5 +1,7 @@
 package com.example.smartassistant.general.tool;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -8,6 +10,13 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 通用工具集 - 数学计算与单位转换
@@ -118,6 +127,182 @@ public class GeneralTools {
             log.warn("[GeneralTools] 重量转换失败: {}", e.getMessage());
             return "重量转换失败，请检查输入格式";
         }
+    }
+
+    // ==================== 新闻热点 ====================
+
+    @Tool(description = "获取当前网络热门新闻热点话题（微博热搜、百度热点等），无需参数，自动获取最新热点")
+    public String getHotNews() {
+        log.info("[GeneralTools] 获取热门新闻");
+        try {
+            // 方案1：尝试 JSON API
+            String json = fetchJson("https://tenapi.cn/v2/hotlist");
+            if (json != null) {
+                String formatted = formatHotNews(json);
+                if (formatted != null) return formatted;
+            }
+
+            // 方案2：降级到百度新闻 HTML 提取
+            String baidu = fetchBaiduNews();
+            if (baidu != null) return baidu;
+
+            return "暂时无法获取新闻热点，请稍后再试";
+        } catch (Exception e) {
+            log.warn("[GeneralTools] 获取新闻失败: {}", e.getMessage());
+            return "暂时无法获取新闻热点，请稍后再试";
+        }
+    }
+
+    /**
+     * 从 HTTP API 获取 JSON
+     */
+    private String fetchJson(String url) {
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .build();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(8))
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return response.body();
+            }
+        } catch (Exception e) {
+            log.warn("[GeneralTools] fetchJson 失败: {} - {}", url, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 降级方案：从百度新闻首页提取热点
+     */
+    private String fetchBaiduNews() {
+        String html = fetchJson("https://news.baidu.com/");
+        if (html == null) return null;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("📰 百度新闻热点\n\n");
+
+        // 提取 hotnews 区域
+        int idx = html.indexOf("hotnews");
+        if (idx > 0) {
+            int end = html.indexOf("</div>", idx);
+            String section = html.substring(idx, end > 0 ? end : idx + 5000);
+
+            // 提取每条新闻标题
+            int count = 0;
+            int pos = 0;
+            while (count < 15) {
+                int aStart = section.indexOf("<a", pos);
+                if (aStart < 0) break;
+                int titleStart = section.indexOf(">", aStart) + 1;
+                int titleEnd = section.indexOf("</a>", titleStart);
+                if (titleEnd < 0) break;
+                String title = stripHtmlTags(section.substring(titleStart, titleEnd)).trim();
+                if (title.length() > 4 && !title.contains("更多") && !title.contains("next")) {
+                    count++;
+                    sb.append("  ").append(count).append(". ").append(title).append("\n");
+                }
+                pos = titleEnd + 4;
+            }
+        }
+
+        if (countItems(sb.toString()) < 3) {
+            // 百度首页简单提取
+            return fetchBaiduSimple(html);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 最简降级：从百度首页 body 文本提取新闻相关词句
+     */
+    private String fetchBaiduSimple(String html) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("📰 百度热点\n\n");
+        String text = stripHtmlTags(html);
+        int count = 0;
+        for (String line : text.split("\n")) {
+            line = line.trim();
+            if (line.length() > 8 && line.length() < 50 && !line.startsWith("http") && !line.contains(" ")) {
+                count++;
+                sb.append("  ").append(count).append(". ").append(line).append("\n");
+                if (count >= 10) break;
+            }
+        }
+        return count >= 3 ? sb.toString() : null;
+    }
+
+    /**
+     * 格式化热点新闻（尝试解析 JSON，失败则直接当作文本）
+     */
+    private String formatHotNews(String json) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(json);
+
+            // 尝试解析 tenapi 格式: { code: 200, data: [ { name: "...", list: [...] } ] }
+            JsonNode data = root.get("data");
+            if (data != null && data.isArray() && data.size() > 0) {
+                StringBuilder sb = new StringBuilder();
+                for (JsonNode category : data) {
+                    String name = category.get("name").asText("热点");
+                    sb.append("🔥 ").append(name).append("\n\n");
+                    JsonNode list = category.get("list");
+                    if (list != null && list.isArray()) {
+                        int count = 0;
+                        for (JsonNode item : list) {
+                            if (count >= 10) break;
+                            String title = item.get("title").asText("");
+                            if (title.isEmpty()) continue;
+                            count++;
+                            sb.append("  ").append(count).append(". ").append(title).append("\n");
+                        }
+                    }
+                    sb.append("\n");
+                }
+                if (sb.length() > 0) return sb.toString();
+            }
+
+            // 尝试解析微博热榜格式: { data: { realtime: [...] } }
+            JsonNode realtime = root.at("/data/realtime");
+            if (realtime != null && realtime.isArray()) {
+                StringBuilder sb = new StringBuilder("🔥 微博热搜\n\n");
+                int count = 0;
+                for (JsonNode item : realtime) {
+                    if (count >= 15) break;
+                    String word = item.get("word").asText("");
+                    if (word.isEmpty()) continue;
+                    count++;
+                    sb.append("  ").append(count).append(". ").append(word).append("\n");
+                }
+                if (count > 0) return sb.toString();
+            }
+
+            // JSON 解析失败，直接当作文本返回摘要
+            if (json.length() > 200) {
+                return "📰 今日热点摘要\n\n" + json.substring(0, Math.min(json.length(), 1000)) + "\n...";
+            }
+        } catch (Exception e) {
+            log.warn("[GeneralTools] 解析新闻 JSON 失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private String stripHtmlTags(String html) {
+        return html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    private int countItems(String text) {
+        int count = 0;
+        for (String line : text.split("\n")) {
+            if (line.matches("\\s*\\d+\\.\\s.*")) count++;
+        }
+        return count;
     }
 
     // ==================== 内部实现 ====================
