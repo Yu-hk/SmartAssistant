@@ -1,6 +1,7 @@
 package com.example.smartassistant.consumer;
 
 import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration;
+import lombok.extern.slf4j.Slf4j;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -11,6 +12,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;  // ⭐ 启�
  * A2A Consumer 启动类 (MyBatis Plus)
  * 启动后，可通过 REST API 调用远程数学计算智能体
  */
+@Slf4j
 @SpringBootApplication(exclude = {
     DashScopeChatAutoConfiguration.class  // ⭐ Chat 已切换至 DeepSeek，排除 DashScope Chat
 })
@@ -26,10 +28,10 @@ public class A2aConsumerApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(A2aConsumerApplication.class, args);
-        System.out.println("==================================================");
-        System.out.println("  A2A Consumer 启动成功!");
-        System.out.println("  端口: 8082");
-        System.out.println("  监控面板: http://localhost:8082/dashboard");
-        System.out.println("==================================================");
+        log.info("==================================================");
+        log.info("  A2A Consumer 启动成功!");
+        log.info("  端口: 8082");
+        log.info("  监控面板: http://localhost:8082/dashboard");
+        log.info("==================================================");
     }
 }

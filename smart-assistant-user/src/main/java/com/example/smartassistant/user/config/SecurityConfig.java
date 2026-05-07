@@ -38,7 +38,7 @@ public class SecurityConfig {
     @Value("${cors.allowed-methods:GET,POST,PUT,DELETE,OPTIONS}")
     private List<String> allowedMethods;
     
-    @Value("${cors.allowed-headers:*}")
+    @Value("${cors.allowed-headers:Content-Type,Authorization,X-Requested-With,Accept,Origin}")
     private String allowedHeaders;
     
     @Value("${cors.allow-credentials:true}")

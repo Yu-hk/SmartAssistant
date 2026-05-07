@@ -18,6 +18,12 @@ public class NacosConfig {
     @Value("${spring.ai.alibaba.a2a.nacos.discovery.namespace:}")
     private String namespace;
     
+    @Value("${spring.ai.alibaba.a2a.nacos.discovery.username:${NACOS_USERNAME:nacos}}")
+    private String username;
+    
+    @Value("${spring.ai.alibaba.a2a.nacos.discovery.password:${NACOS_PASSWORD:nacos123}}")
+    private String password;
+    
     /**
      * 创建 Nacos NamingService Bean
      */
@@ -27,6 +33,8 @@ public class NacosConfig {
         java.util.Properties properties = new java.util.Properties();
         properties.put("serverAddr", serverAddr);
         properties.put("namespace", namespace);
+        properties.put("username", username);
+        properties.put("password", password);
         
         return NacosFactory.createNamingService(properties);
     }

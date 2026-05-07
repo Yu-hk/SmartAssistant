@@ -25,6 +25,8 @@ spring:
         server-addr: 127.0.0.1:8848
         namespace: ""
         group: DEFAULT_GROUP
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos123}
         # 注册时携带元数据（供 Router 使用）
         metadata:
           agent-type: food_recommendation
@@ -125,7 +127,7 @@ management:
   # 分布式追踪配置 (Jaeger - Zipkin 兼容模式)
   tracing:
     sampling:
-      probability: 1.0  # ⭐ 启用全量采样，生产环境可调整为 0.1-0.3
+      probability: 0.3  # ⭐ 采样率 30%（开发环境已足够，生产环境可调整为 0.1）
     zipkin:
       tracing:
         endpoint: http://localhost:9411/api/v2/spans  # ⭐ Jaeger 兼容 Zipkin 协议的端点
@@ -133,7 +135,7 @@ management:
 # Logging 配置（输出到文件，供 Loki 收集）⭐
 logging:
   file:
-    name: D:/workspace/SmartAssistant/logs/food-service-new.log
+    name: logs/${spring.application.name}.log
   pattern:
     file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
   logback:

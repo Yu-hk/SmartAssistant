@@ -12,7 +12,7 @@ scrape_configs:
   - job_name: 'a2a-gateway'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['host.docker.internal:8080']
+      - targets: ['host.docker.internal:8081']
         labels:
           service: 'api-gateway'
           environment: 'development'
@@ -36,14 +36,14 @@ scrape_configs:
           instance: 'consumer-1'
           environment: 'development'
 
-  # ⭐ Consumer Service (Instance 2 - 新增)
-  - job_name: 'a2a-consumer-2'
+  # General Agent Service (Port 8087)
+  - job_name: 'a2a-general'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['host.docker.internal:8087']
         labels:
-          service: 'consumer-service'
-          instance: 'consumer-2'
+          service: 'general-agent-service'
+          instance: 'general-1'
           environment: 'development'
 
   # Router Service

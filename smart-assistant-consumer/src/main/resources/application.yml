@@ -30,9 +30,9 @@ spring:
       enabled: true
       force: true
 
-  # 允许 Bean 定义覆盖（解决同名 Repository 冲突）
-  main:
-    allow-bean-definition-overriding: true
+  # 允许 Bean 定义覆盖（解决同名 Repository 冲突）- 已确认不再需要
+  # main:
+  #   allow-bean-definition-overriding: true
 
   # 禁用 Spring Cloud 兼容性检查（Spring Boot 3.4.x 需要）
   cloud:
@@ -45,6 +45,8 @@ spring:
         server-addr: 127.0.0.1:8848
         namespace: ""
         group: DEFAULT_GROUP
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos123}
         enabled: true
         metadata:
           instance-id: consumer-service-8082  # 实例标识
@@ -119,6 +121,7 @@ spring:
       host: localhost  # Docker 容器映射到 localhost
       port: 6379
       database: 0
+      password: ${REDIS_PASSWORD:redis123}
       timeout: 3000ms
       lettuce:
         pool:
@@ -210,11 +213,6 @@ prompt:
     whitelist-users: []         # 白名单用户 ID 列表
     blacklist-users: []         # 黑名单用户 ID 列表
 
-# ⭐ 建议配置（消除硬编码）
-suggestions:
-  max-count: 5                    # 最大推荐数量
-  min-confidence: 0.6             # 最小置信度
-
 # ⭐ 语音识别配置
 speech:
   recognition:
@@ -222,17 +220,6 @@ speech:
     language: zh-CN               # 默认语言：zh-CN, en-US, ja-JP, ko-KR
     max-file-size-mb: 10          # 最大音频文件大小（MB）
     supported-formats: wav,mp3,m4a,flac,ogg  # 支持的音频格式
-suggestion:
-  max-count: 5                              # 最大建议数量
-
-# ⭐ Travel RAG 配置
-travel:
-  rag:
-    enabled: false                          # 是否启用 Travel RAG
-    top-k: 3                               # 返回 Top-K 相关片段
-    similarity-threshold: 0.5               # 相似度阈值（低于此值过滤）
-    chunk-size: 300                         # 分块大小（字符数）
-    chunk-overlap: 50                       # 分块重叠字符数
 
 # ⭐ HanLP 配置
 hanlp:
@@ -297,14 +284,13 @@ resilience4j:
 
 # JWT 配置
 jwt:
-  secret: ${JWT_SECRET:a2a-demo-secret-key-for-jwt-token-generation-2026-very-long}  # ⭐ 优先从环境变量 JWT_SECRET 读取
+  secret: ${JWT_SECRET:a2a-demo-secret-key-for-jwt-token-generation-2026-very-long}  # ⭐ 优先从环境变量 JWT_SECRET 读取。⚠️ 生产环境务必通过环境变量 JWT_SECRET 设置独立密钥，不要使用默认值
   expiration: 3600000  # 1 小时（毫秒）
   refresh-expiration: 86400000  # 24 小时（毫秒）
 
 # Session 配置
 session:
   enabled: true  # 是否启用 Redis Session 验证（设为 false 可跳过 Redis）
-  ttl-days: 7    # Session 有效期（天）
   db-storage-enabled: true  # ⭐ 启用数据库存储（JSONB 问题已修复）
   timeout-ms: 1800000  # ⭐ 会话超时时间（毫秒），默认 30 分钟
 
@@ -321,7 +307,7 @@ cors:
     - PUT
     - DELETE
     - OPTIONS
-  allowed-headers: "*"
+  allowed-headers: Content-Type,Authorization,X-Requested-With,Accept,Origin
   allow-credentials: true
 
 # ⭐ Prompt 配置（监控 + 灰度发布）- 已合并到上方
@@ -366,7 +352,7 @@ management:
   # 分布式追踪配置 (Jaeger - Zipkin 兼容模式)
   tracing:
     sampling:
-      probability: 1.0  # ⭐ 启用全量采样，生产环境可调整为 0.1-0.3
+      probability: 0.3  # ⭐ 采样率 30%（开发环境已足够，生产环境可调整为 0.1）
     zipkin:
       tracing:
         endpoint: http://localhost:9411/api/v2/spans  # ⭐ Jaeger 兼容 Zipkin 协议的端点
