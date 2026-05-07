@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,10 +27,47 @@ public class TravelNoteService {
     private final TravelNoteMapper travelNoteMapper;
     private final TravelNoteChunkMapper travelNoteChunkMapper;
     private final EmbeddingService embeddingService;
-    private final SemanticChunker semanticChunker;  // ⭐ 语义分块器
+    private final SemanticChunker semanticChunker;
 
     // 最大内容长度（防止 OOM）
     private static final int MAX_CONTENT_LENGTH = 50000;
+
+    // ⭐ 内容类型分类关键词集 ========================================
+
+    // 美食 - 强信号（命中1个即判定）
+    private static final Set<String> FOOD_STRONG = Set.of(
+            "美食", "火锅", "烧烤", "烤鱼", "小吃",
+            "好吃", "正宗", "麻辣", "香辣", "入味",
+            "小龙虾", "烤鸭", "炸酱面", "酸菜鱼", "水煮鱼",
+            "川菜", "粤菜", "湘菜", "鲁菜",
+            "簋街", "美食街", "夜宵", "大排档",
+            "钵钵鸡", "兔头", "小龙坎", "全聚德",
+            "豆汁", "焦圈", "糌粑", "酥油茶");
+
+    // 美食 - 弱信号（需累计≥2个才判定）
+    private static final Set<String> FOOD_WEAK = Set.of(
+            "吃", "餐厅", "点菜", "菜单", "排队",
+            "味道", "人均", "价位", "口感");
+
+    // 住宿
+    private static final Set<String> ACCOMMODATION = Set.of(
+            "住", "民宿", "酒店", "房间", "入住",
+            "房东", "客栈", "青旅", "宾馆", "旅馆",
+            "床", "洗手间", "浴室", "空调", "wifi");
+
+    // 交通
+    private static final Set<String> TRANSPORT = Set.of(
+            "坐车", "打车", "公交", "地铁", "自驾",
+            "开车", "停车", "步行", "走路", "骑车",
+            "车程", "路程", "导航", "方向", "班车",
+            "缆车", "索道", "船", "飞机", "高铁");
+
+    // 景点/游玩
+    private static final Set<String> SCENIC = Set.of(
+            "景点", "门票", "开放", "参观", "游玩",
+            "游览", "拍照", "打卡", "风景", "壮观",
+            "建议", "推荐", "行程", "路线", "攻略",
+            "博物院", "博物馆", "公园", "寺庙", "古镇", "湖", "山");
 
     /**
      * 创建游记
@@ -207,6 +245,7 @@ public class TravelNoteService {
                         .chunkIndex(i)
                         .embedding(embedding)
                         .locationKeywordsStr(String.join(",", keywords))
+                        .contentType(classifyChunk(chunk))
                         .build();
                 
                 // 立即插入数据库，不保留在内存中
@@ -243,6 +282,34 @@ public class TravelNoteService {
         List<String> chunks = semanticChunker.split(content);
         log.info("[TravelNote] 语义分块完成: {}", chunks.size());
         return chunks;
+    }
+
+    /**
+     * ⭐ 分类 chunk 的内容类型：scenic / food / accommodation / transport / general
+     * 两级信号 + 积分制，不同类别有不同优先级
+     */
+    private String classifyChunk(String text) {
+        if (text == null || text.isEmpty()) return "general";
+
+        // 1. 美食判定（强信号 1 个或弱信号 ≥ 2 个）
+        long foodStrong = FOOD_STRONG.stream().filter(kw -> text.contains(kw)).count();
+        if (foodStrong >= 1) return "food";
+        long foodWeak = FOOD_WEAK.stream().filter(kw -> text.contains(kw)).count();
+        if (foodWeak >= 2) return "food";
+
+        // 2. 住宿判定
+        long accommodation = ACCOMMODATION.stream().filter(kw -> text.contains(kw)).count();
+        if (accommodation >= 2) return "accommodation";
+
+        // 3. 交通判定
+        long transport = TRANSPORT.stream().filter(kw -> text.contains(kw)).count();
+        if (transport >= 2) return "transport";
+
+        // 4. 景点/游玩判定
+        long scenic = SCENIC.stream().filter(kw -> text.contains(kw)).count();
+        if (scenic >= 1) return "scenic";
+
+        return "general";
     }
 
     /**

@@ -200,8 +200,9 @@ public class TravelRagTool {
                        "提示：用户可以通过上传游记来丰富攻略库";
             }
 
-            // 构建增强上下文
-            String context = travelRagService.buildRagContext(location, chunks);
+            // 构建增强上下文（按 contentType 分离正文和建议）
+            List<TravelNoteChunk> foodChunks = travelRagService.retrieveFoodSuggestions(location, userId);
+            String context = travelRagService.buildRagContext(location, chunks, foodChunks);
 
             return "📖 找到 " + chunks.size() + " 条相关攻略：\n" +
                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +

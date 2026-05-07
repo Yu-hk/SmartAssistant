@@ -50,6 +50,12 @@ public class TravelNoteChunk {
     private String locationKeywordsStr;
 
     /**
+     * 内容类型：scenic(景点) / food(美食) / accommodation(住宿) / transport(交通) / general(通用)
+     * ⭐ 在分块时由 classifyChunk() 自动判定并写入
+     */
+    private String contentType;
+
+    /**
      * 创建时间
      */
     @TableField(fill = FieldFill.INSERT)
