@@ -1,0 +1,749 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===================================================
+   🌌 Nova Design System — 科技感主题
+   =================================================== */
+
+/* ===== 主题变量 ===== */
+:root {
+  /* ---- 灯光主题 (Light) ---- */
+  --nova-bg-page: #f0f2f5;
+  --nova-bg-container: #ffffff;
+  --nova-bg-glass: rgba(255, 255, 255, 0.6);
+  --nova-bg-glass-hover: rgba(255, 255, 255, 0.8);
+  --nova-bg-elevated: #ffffff;
+  --nova-bg-component: #f5f6fa;
+  --nova-bg-component-hover: #eef0f6;
+
+  --nova-text-primary: #0f172a;
+  --nova-text-secondary: #64748b;
+  --nova-text-tertiary: #94a3b8;
+  --nova-text-placeholder: #cbd5e1;
+  --nova-text-anti: #ffffff;
+
+  --nova-border: rgba(0, 0, 0, 0.08);
+  --nova-border-light: rgba(0, 0, 0, 0.04);
+
+  /* 品牌色 — 靛蓝渐变 */
+  --nova-accent: #4f46e5;
+  --nova-accent-hover: #4338ca;
+  --nova-accent-light: rgba(79, 70, 229, 0.1);
+  --nova-accent-glow: rgba(79, 70, 229, 0.2);
+  --nova-secondary: #06b6d4;
+  --nova-secondary-hover: #0891b2;
+  --nova-warm: #f59e0b;
+
+  /* 语义色 */
+  --nova-success: #10b981;
+  --nova-success-bg: rgba(16, 185, 129, 0.1);
+  --nova-warning: #f59e0b;
+  --nova-warning-bg: rgba(245, 158, 11, 0.1);
+  --nova-error: #ef4444;
+  --nova-error-bg: rgba(239, 68, 68, 0.1);
+  --nova-info: #3b82f6;
+  --nova-info-bg: rgba(59, 130, 246, 0.1);
+
+  /* 阴影 */
+  --nova-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --nova-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --nova-shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.1);
+  --nova-shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.12);
+  --nova-shadow-glow: 0 0 24px var(--nova-accent-glow);
+}
+
+/* ---- 暗色主题 (Dark) — 核心科技感 ---- */
+.dark {
+  --nova-bg-page: #07070d;
+  --nova-bg-container: #0d0d17;
+  --nova-bg-glass: rgba(13, 13, 23, 0.65);
+  --nova-bg-glass-hover: rgba(13, 13, 23, 0.8);
+  --nova-bg-elevated: #14142a;
+  --nova-bg-component: #14142a;
+  --nova-bg-component-hover: #1e1e3a;
+
+  --nova-text-primary: #f1f5f9;
+  --nova-text-secondary: #94a3b8;
+  --nova-text-tertiary: #64748b;
+  --nova-text-placeholder: #475569;
+  --nova-text-anti: #ffffff;
+
+  --nova-border: rgba(255, 255, 255, 0.06);
+  --nova-border-light: rgba(255, 255, 255, 0.03);
+
+  --nova-accent: #6366f1;
+  --nova-accent-hover: #818cf8;
+  --nova-accent-light: rgba(99, 102, 241, 0.12);
+  --nova-accent-glow: rgba(99, 102, 241, 0.25);
+  --nova-secondary: #06b6d4;
+  --nova-secondary-hover: #22d3ee;
+
+  --nova-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --nova-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --nova-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --nova-shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.6);
+  --nova-shadow-glow: 0 0 24px var(--nova-accent-glow);
+}
+
+/* ===================================================
+   基础样式
+   =================================================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background-color: var(--nova-bg-page);
+  color: var(--nova-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 代码字体 */
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, Consolas, monospace;
+}
+
+/* ===================================================
+   自定义滚动条 — 科技感细滚动
+   =================================================== */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--nova-text-tertiary);
+  border-radius: 2px;
+  opacity: 0.5;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--nova-text-secondary);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* ===================================================
+   玻璃拟态核心组件 (Glassmorphism)
+   =================================================== */
+@layer components {
+  .glass {
+    background: var(--nova-bg-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--nova-border);
+  }
+
+  .glass-hover {
+    background: var(--nova-bg-glass-hover);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--nova-border);
+  }
+
+  .glass-card {
+    background: var(--nova-bg-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--nova-border);
+    box-shadow: var(--nova-shadow-md);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-card:hover {
+    box-shadow: var(--nova-shadow-lg);
+    border-color: var(--nova-accent-glow);
+    transform: translateY(-2px);
+  }
+
+  /* 霓虹按钮 */
+  .neon-btn {
+    background: linear-gradient(135deg, var(--nova-accent), var(--nova-secondary));
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 20px var(--nova-accent-glow);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .neon-btn:hover {
+    box-shadow: 0 0 40px var(--nova-accent-glow), 0 4px 16px rgba(0,0,0,0.2);
+    transform: translateY(-1px);
+  }
+
+  .neon-btn:active {
+    transform: translateY(0) scale(0.98);
+  }
+
+  .neon-btn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.15) 50%, transparent 60%);
+    transition: transform 0.6s;
+    transform: translateX(-100%);
+  }
+
+  .neon-btn:hover::after {
+    transform: translateX(100%);
+  }
+
+  /* 霓虹边框 (环绕按钮/卡片) */
+  .neon-border {
+    position: relative;
+    border-radius: 10px;
+  }
+
+  .neon-border::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 11px;
+    background: linear-gradient(135deg, var(--nova-accent), transparent, var(--nova-secondary));
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .neon-border:hover::before {
+    opacity: 1;
+  }
+
+  /* 发光文本 */
+  .text-glow {
+    text-shadow: 0 0 20px var(--nova-accent-glow);
+  }
+
+  /* 粒子背景容器 */
+  .particle-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  /* 网格线背景 */
+  .grid-bg {
+    background-image: 
+      linear-gradient(var(--nova-border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--nova-border) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+}
+
+/* ===================================================
+   动画系统
+   =================================================== */
+
+/* 淡入上移 */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 弹性进入 */
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* 流光 */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* 呼吸光晕 */
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 12px var(--nova-accent-glow); }
+  50% { box-shadow: 0 0 24px var(--nova-accent-glow), 0 0 48px rgba(99, 102, 241, 0.1); }
+}
+
+/* 脉冲边框 */
+@keyframes pulse-border {
+  0%, 100% { border-color: var(--nova-accent); }
+  50% { border-color: var(--nova-secondary); }
+}
+
+/* 浮动 */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+/* 旋转 */
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* 实用动画类 */
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-breathe {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255,255,255,0.05) 50%, 
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* 光标闪烁 (打字效果) */
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+  color: var(--nova-accent);
+  font-weight: 300;
+}
+
+/* ===================================================
+   TDesign CSS 变量覆盖 — 科技感适配
+   =================================================== */
+
+:root {
+  /* 品牌色 */
+  --td-brand-color: var(--nova-accent);
+  --td-brand-color-hover: var(--nova-accent-hover);
+  --td-brand-color-active: var(--nova-accent);
+  --td-brand-color-light: var(--nova-accent-light);
+  --td-brand-color-focus: var(--nova-accent-glow);
+  
+  /* 背景色 */
+  --td-bg-color-page: var(--nova-bg-page);
+  --td-bg-color-container: var(--nova-bg-container);
+  --td-bg-color-container-hover: var(--nova-bg-component-hover);
+  --td-bg-color-container-active: var(--nova-bg-component);
+  --td-bg-color-secondarycontainer: var(--nova-bg-component);
+  --td-bg-color-secondarycontainer-hover: var(--nova-bg-component-hover);
+  --td-bg-color-component: var(--nova-bg-component);
+  --td-bg-color-component-hover: var(--nova-bg-component-hover);
+  --td-bg-color-component-disabled: var(--nova-bg-component);
+  
+  /* 文字色 */
+  --td-text-color-primary: var(--nova-text-primary);
+  --td-text-color-secondary: var(--nova-text-secondary);
+  --td-text-color-placeholder: var(--nova-text-placeholder);
+  --td-text-color-disabled: var(--nova-text-tertiary);
+  --td-text-color-anti: var(--nova-text-anti);
+  
+  /* 边框色 */
+  --td-border-level-1-color: var(--nova-border);
+  --td-border-level-2-color: var(--nova-border);
+  --td-component-stroke: var(--nova-border);
+  --td-component-border: var(--nova-border);
+  
+  /* 遮罩 */
+  --td-mask-active: rgba(0, 0, 0, 0.6);
+  --td-mask-disabled: rgba(255, 255, 255, 0.1);
+  
+  /* 阴影 */
+  --td-shadow-1: var(--nova-shadow-sm);
+  --td-shadow-2: var(--nova-shadow-md);
+  --td-shadow-3: var(--nova-shadow-lg);
+  
+  /* 圆角 */
+  --td-radius-small: 6px;
+  --td-radius-default: 8px;
+  --td-radius-medium: 12px;
+  --td-radius-large: 16px;
+  --td-radius-extraLarge: 20px;
+}
+
+.dark {
+  --td-brand-color: var(--nova-accent);
+  --td-brand-color-hover: var(--nova-accent-hover);
+  --td-brand-color-active: var(--nova-accent);
+  --td-brand-color-light: var(--nova-accent-light);
+  --td-brand-color-focus: var(--nova-accent-glow);
+  
+  --td-bg-color-page: var(--nova-bg-page);
+  --td-bg-color-container: var(--nova-bg-container);
+  --td-bg-color-container-hover: var(--nova-bg-component-hover);
+  --td-bg-color-container-active: var(--nova-bg-component);
+  --td-bg-color-secondarycontainer: var(--nova-bg-component);
+  
+  --td-text-color-primary: var(--nova-text-primary);
+  --td-text-color-secondary: var(--nova-text-secondary);
+  --td-text-color-placeholder: var(--nova-text-placeholder);
+  
+  --td-border-level-1-color: var(--nova-border);
+  --td-component-stroke: var(--nova-border);
+  --td-component-border: var(--nova-border);
+  
+  --td-shadow-1: var(--nova-shadow-sm);
+  --td-shadow-2: var(--nova-shadow-md);
+  --td-shadow-3: var(--nova-shadow-lg);
+}
+
+/* ===================================================
+   TDesign 组件样式增强
+   =================================================== */
+
+/* Select 选择器 */
+.t-select__wrap {
+  background-color: var(--td-bg-color-component) !important;
+  border-color: var(--td-component-stroke) !important;
+  border-radius: var(--td-radius-default) !important;
+  transition: all 0.2s ease;
+}
+.t-select__wrap:hover {
+  border-color: var(--td-brand-color) !important;
+  box-shadow: 0 0 12px var(--nova-accent-glow);
+}
+.t-select__wrap.t-is-focused {
+  border-color: var(--td-brand-color) !important;
+  box-shadow: 0 0 16px var(--nova-accent-glow) !important;
+}
+
+/* Input 输入框 */
+.t-input {
+  background-color: var(--td-bg-color-component) !important;
+  border-color: var(--td-component-stroke) !important;
+  color: var(--td-text-color-primary) !important;
+  border-radius: var(--td-radius-default) !important;
+  transition: all 0.2s ease;
+}
+.t-input:hover {
+  border-color: var(--td-brand-color) !important;
+}
+.t-input.t-is-focused,
+.t-input:focus-within {
+  border-color: var(--td-brand-color) !important;
+  box-shadow: 0 0 16px var(--nova-accent-glow) !important;
+}
+.t-input__inner {
+  color: var(--td-text-color-primary) !important;
+  background: transparent !important;
+}
+.t-input__inner::placeholder {
+  color: var(--td-text-color-placeholder) !important;
+}
+
+/* Select 下拉弹窗 */
+.t-popup__content {
+  background-color: var(--td-bg-container) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--td-component-stroke) !important;
+  border-radius: var(--td-radius-medium) !important;
+  box-shadow: var(--td-shadow-2) !important;
+}
+.t-select__list {
+  background-color: transparent !important;
+  padding: 4px !important;
+}
+.t-select-option {
+  color: var(--td-text-color-primary) !important;
+  background-color: transparent !important;
+  border-radius: var(--td-radius-small) !important;
+  margin: 2px 0 !important;
+  transition: all 0.15s;
+}
+.t-select-option:hover,
+.t-select-option.t-is-hover {
+  background-color: var(--td-bg-color-component-hover) !important;
+}
+.t-select-option.t-is-selected {
+  background-color: var(--td-brand-color-light) !important;
+  color: var(--td-brand-color) !important;
+}
+
+/* Button 按钮 */
+.t-button--variant-outline {
+  border-color: var(--td-component-stroke) !important;
+  color: var(--td-text-color-primary) !important;
+  background-color: transparent !important;
+  transition: all 0.2s ease;
+}
+.t-button--variant-outline:hover {
+  border-color: var(--td-brand-color) !important;
+  color: var(--td-brand-color) !important;
+  background-color: var(--td-brand-color-light) !important;
+  box-shadow: 0 0 12px var(--nova-accent-glow);
+}
+.t-button--variant-text {
+  color: var(--td-text-color-secondary) !important;
+  background-color: transparent !important;
+}
+.t-button--variant-text:hover {
+  color: var(--td-text-color-primary) !important;
+  background-color: var(--td-bg-color-component-hover) !important;
+}
+.t-button--variant-base {
+  background-color: var(--td-bg-color-component) !important;
+  color: var(--td-text-color-primary) !important;
+  border-color: var(--td-component-stroke) !important;
+}
+.t-button--variant-base:hover {
+  background-color: var(--td-bg-color-component-hover) !important;
+}
+
+/* Tag 标签 */
+.t-tag {
+  background-color: var(--td-bg-color-component) !important;
+  color: var(--td-text-color-secondary) !important;
+  border-color: var(--td-component-stroke) !important;
+  border-radius: 100px !important;
+}
+.t-tag--variant-outline,
+.t-tag--variant-light-outline {
+  background-color: transparent !important;
+  border-color: var(--td-component-stroke) !important;
+  color: var(--td-text-color-secondary) !important;
+}
+
+/* ===================================================
+   Chat Sender 样式增强
+   =================================================== */
+t-chat-sender,
+.t-chat-sender {
+  --td-chat-sender-bg: var(--td-bg-color-component) !important;
+  --td-chat-sender-border-color: var(--td-component-stroke) !important;
+  --td-chat-sender-text-color: var(--td-text-color-primary) !important;
+  --td-chat-sender-placeholder-color: var(--td-text-color-placeholder) !important;
+  --td-chat-sender-btn-bg: var(--td-brand-color) !important;
+  --td-chat-sender-btn-color: #fff !important;
+  width: 100% !important;
+}
+
+t-chat-sender::part(container),
+.t-chat-sender .t-chat-sender__container {
+  background-color: var(--td-bg-color-component) !important;
+  border-color: var(--td-component-stroke) !important;
+  border-radius: 16px !important;
+  transition: all 0.2s ease;
+}
+
+t-chat-sender:focus-within::part(container),
+.t-chat-sender:focus-within .t-chat-sender__container {
+  border-color: var(--td-brand-color) !important;
+  box-shadow: 0 0 16px var(--nova-accent-glow);
+}
+
+t-chat-sender::part(textarea),
+.t-chat-sender textarea,
+.t-chat-sender .t-textarea__inner {
+  color: var(--td-text-color-primary) !important;
+  background: transparent !important;
+}
+
+t-chat-sender::part(send-btn),
+.t-chat-sender .t-chat-sender__send-btn {
+  background-color: var(--td-brand-color) !important;
+  color: #fff !important;
+  border-radius: 50% !important;
+  box-shadow: 0 0 12px var(--nova-accent-glow);
+  transition: all 0.2s ease;
+}
+
+t-chat-sender::part(send-btn):hover,
+.t-chat-sender .t-chat-sender__send-btn:not(:disabled):hover {
+  box-shadow: 0 0 24px var(--nova-accent-glow);
+  transform: scale(1.05);
+}
+
+t-chat-sender::part(send-btn):disabled,
+.t-chat-sender .t-chat-sender__send-btn:disabled {
+  background-color: var(--td-bg-color-component-disabled) !important;
+  color: var(--td-text-color-disabled) !important;
+  box-shadow: none !important;
+}
+
+/* ===================================================
+   Chat Markdown 样式增强
+   =================================================== */
+.chat-markdown {
+  color: var(--td-text-color-primary);
+  line-height: 1.75;
+  font-size: 14px;
+}
+
+.chat-markdown pre {
+  background-color: var(--td-bg-component) !important;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 12px;
+  padding: 16px;
+  overflow-x: auto;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.chat-markdown code {
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  color: var(--td-text-color-primary);
+}
+
+.chat-markdown :not(pre) > code {
+  background-color: var(--td-bg-color-component);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.dark .chat-markdown :not(pre) > code {
+  background-color: rgba(99, 102, 241, 0.15);
+  color: var(--nova-secondary);
+}
+
+.chat-markdown a {
+  color: var(--td-brand-color);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: all 0.15s;
+}
+.chat-markdown a:hover {
+  border-bottom-color: var(--td-brand-color);
+}
+
+.chat-markdown ul,
+.chat-markdown ol {
+  padding-left: 1.5em;
+  margin: 8px 0;
+}
+.chat-markdown li { margin: 4px 0; }
+
+.chat-markdown blockquote {
+  border-left: 3px solid var(--td-brand-color);
+  padding-left: 14px;
+  margin: 12px 0;
+  color: var(--td-text-color-secondary);
+  background: var(--nova-accent-light);
+  border-radius: 0 8px 8px 0;
+  padding: 8px 14px;
+}
+
+.chat-markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+}
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid var(--td-component-stroke);
+  padding: 8px 12px;
+  text-align: left;
+}
+.chat-markdown th {
+  background-color: var(--td-bg-color-component);
+}
+
+/* ===================================================
+   工具调用样式
+   =================================================== */
+.tool-collapse-bar {
+  transition: all 0.2s ease;
+  border: 1px solid var(--nova-border);
+}
+.tool-collapse-bar:hover {
+  border-color: var(--nova-accent-glow);
+  background: var(--nova-accent-light) !important;
+}
+
+.tool-detail-card {
+  border-left: 3px solid var(--td-brand-color);
+  transition: all 0.2s ease;
+}
+.tool-detail-card.is-running {
+  border-left-color: var(--nova-warm);
+  animation: pulse-border 1.5s ease-in-out infinite;
+}
+.tool-detail-card.is-completed {
+  border-left-color: var(--nova-success);
+}
+.tool-detail-card.is-error {
+  border-left-color: var(--nova-error);
+}
+
+.tool-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+.tool-icon-badge:hover {
+  transform: scale(1.05);
+}
+
+.step-counter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--td-brand-color-light);
+  color: var(--td-brand-color);
+}
+
+/* ===================================================
+   工具类
+   =================================================== */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
