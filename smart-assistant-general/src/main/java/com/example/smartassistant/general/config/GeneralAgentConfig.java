@@ -52,6 +52,7 @@ public class GeneralAgentConfig {
                 .model(chatModel)
                 .systemPrompt(buildSystemPrompt())
                 .tools(toolCallbacks.toArray(new ToolCallback[0]))
+                .outputKey("output")
                 .build();
     }
 
