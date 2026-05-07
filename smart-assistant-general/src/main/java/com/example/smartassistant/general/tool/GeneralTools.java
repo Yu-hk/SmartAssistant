@@ -17,6 +17,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 通用工具集 - 数学计算与单位转换
@@ -134,18 +136,26 @@ public class GeneralTools {
     @Tool(description = "获取当前网络热门新闻热点话题（微博热搜、百度热点等），无需参数，自动获取最新热点")
     public String getHotNews() {
         log.info("[GeneralTools] 获取热门新闻");
+        long start = System.currentTimeMillis();
         try {
-            // 方案1：尝试 JSON API
-            String json = fetchJson("https://tenapi.cn/v2/hotlist");
-            if (json != null) {
-                String formatted = formatHotNews(json);
-                if (formatted != null) return formatted;
-            }
+            // ⭐ 并行尝试多个来源，谁先返回就用谁
+            var future1 = CompletableFuture.supplyAsync(() -> {
+                String json = fetchJson("https://tenapi.cn/v2/hotlist");
+                if (json != null) return formatHotNews(json);
+                return null;
+            });
 
-            // 方案2：降级到百度新闻 HTML 提取
-            String baidu = fetchBaiduNews();
-            if (baidu != null) return baidu;
+            var future2 = CompletableFuture.supplyAsync(() -> {
+                return fetchBaiduNews();
+            });
 
+            // 先到先用，最多等 4 秒
+            String result = (String) CompletableFuture.anyOf(future1, future2)
+                    .completeOnTimeout(null, 4, TimeUnit.SECONDS)
+                    .get();
+
+            log.info("[GeneralTools] 新闻获取完成, 耗时={}ms", System.currentTimeMillis() - start);
+            if (result != null) return result;
             return "暂时无法获取新闻热点，请稍后再试";
         } catch (Exception e) {
             log.warn("[GeneralTools] 获取新闻失败: {}", e.getMessage());
