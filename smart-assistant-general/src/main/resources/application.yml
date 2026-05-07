@@ -37,12 +37,12 @@ spring:
   # DeepSeek 模型配置（V4-Flash 最新模型）
   ai:
     deepseek:
-      api-key: ${DEEPSEEK_API_KEY:}
+      api-key: sk-06a0e6f007614f8f90c4f2cc57401b46
       chat:
         options:
-          model: deepseek-chat  # ⭐ 非思考模式（deepseek-v4-flash 的别名）
+          model: deepseek-v4-flash  # ⭐ 非思考模式（官方已废弃 deepseek-chat）
           temperature: 0.7
-          max-tokens: 2048
+          max-tokens: 4096
 
     # DashScope API（A2A 发现依赖）
     dashscope:

@@ -5,9 +5,6 @@ import com.example.smartassistant.consumer.mapper.UserProfileMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.Arrays;
-import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -165,11 +162,10 @@ public class UserGroupingService {
         }
 
         // ---- 组合分组 ID ----
-        String groupId = "grp:food=" + foodGroup
+
+        return "grp:food=" + foodGroup
                 + "_budget=" + budgetGroup
                 + "_travel=" + travelGroup
                 + "_diet=" + dietGroup;
-
-        return groupId;
     }
 }
