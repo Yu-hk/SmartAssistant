@@ -28,7 +28,7 @@ spring:
         metadata:
           agent-type: general_chat
           capabilities: chat,qa,entertainment,companion
-          keywords: 闲聊,聊天,帮助,问答,解释,什么是,为什么,怎么,如何,你好,嗨,hello,心情
+          keywords: 闲聊,聊天,帮助,问答,解释,什么是,为什么,怎么,如何,你好,嗨,hello,心情,新闻,热点,资讯,热搜,最近发生了什么,今天有什么新闻
           version: "1.0.0"
           protocol-version: "v1"
           min-client-version: "1.0.0"
@@ -60,7 +60,7 @@ spring:
             metadata:
               agent-type: general_chat
               capabilities: chat,qa,entertainment,companion
-              keywords: 闲聊,聊天,帮助,问答,解释,什么是,为什么,怎么,如何,你好,嗨,hello,心情
+              keywords: 闲聊,聊天,帮助,问答,解释,什么是,为什么,怎么,如何,你好,嗨,hello,心情,新闻,热点,资讯,热搜,最近发生了什么,今天有什么新闻
               priority: 100  # 最低优先级，作为兜底
               version: "1.0.0"
               protocol-version: "v1"
