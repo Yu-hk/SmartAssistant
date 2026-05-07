@@ -4,7 +4,6 @@ import com.example.smartassistant.consumer.service.cache.AnswerCacheService;
 import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationService;
 import com.example.smartassistant.consumer.service.core.MathConsumerService;
 import com.example.smartassistant.consumer.service.data.HybridDataQueryService;
-import com.example.smartassistant.consumer.service.recommendation.*;
 import com.example.smartassistant.consumer.service.session.ChatMessageService;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
@@ -29,30 +28,19 @@ public class ChatController {
     private final HybridDataQueryService hybridDataQueryService;  // ⭐ 新增：混合数据查询服务
     private final AnswerCacheService answerCacheService;  // ⭐ Phase 1: 答案缓存服务
     private final AnswerPersonalizationService personalizationCacheService;  // ⭐ 方案E: 缓存预热
-    private final SuggestionEngine suggestionEngine;
-    private final LLMSuggestionService llmSuggestionService;  // ⭐ Phase 1: LLM 智能建议
-    private final UserProfileService userProfileService;       // ⭐ 用于获取用户画像
     private final ChatMessageService chatMessageService;
     private final ChatClient chatClient;
-
-    // ⭐ 建议数量限制配置
 
     public ChatController(MathConsumerService mathService,
                          HybridDataQueryService hybridDataQueryService,
                          AnswerCacheService answerCacheService,
                          AnswerPersonalizationService personalizationCacheService,
-                         SuggestionEngine suggestionEngine,
-                         LLMSuggestionService llmSuggestionService,
-                         UserProfileService userProfileService,
                           ChatMessageService chatMessageService,
                          ChatClient.Builder chatClientBuilder) {
         this.mathService = mathService;
         this.hybridDataQueryService = hybridDataQueryService;
         this.answerCacheService = answerCacheService;
         this.personalizationCacheService = personalizationCacheService;
-        this.suggestionEngine = suggestionEngine;
-        this.llmSuggestionService = llmSuggestionService;
-        this.userProfileService = userProfileService;
         this.chatMessageService = chatMessageService;
         this.chatClient = chatClientBuilder.build();
     }
