@@ -49,4 +49,17 @@ public interface TravelNoteChunkMapper extends BaseMapper<TravelNoteChunk> {
             @Param("locationKeyword") String locationKeyword,
             @Param("userId") Long userId,
             @Param("limit") int limit);
+
+    /**
+     * ⭐ 按内容类型检索攻略片段（纯文本查询，无需向量）
+     * @param locationKeyword 地点关键词
+     * @param userId 用户 ID
+     * @param contentType 内容类型（scenic/food/accommodation/transport/general）
+     * @param limit 返回数量
+     */
+    List<TravelNoteChunk> searchByLocationAndType(
+            @Param("locationKeyword") String locationKeyword,
+            @Param("userId") Long userId,
+            @Param("contentType") String contentType,
+            @Param("limit") int limit);
 }

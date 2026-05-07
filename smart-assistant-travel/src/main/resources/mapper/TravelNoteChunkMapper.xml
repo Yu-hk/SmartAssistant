@@ -9,7 +9,7 @@
 
     <!-- 批量插入分块 -->
     <insert id="batchInsert" parameterType="java.util.List">
-        INSERT INTO travel_note_chunks (note_id, chunk_text, chunk_index, embedding, location_keywords, created_at)
+        INSERT INTO travel_note_chunks (note_id, chunk_text, chunk_index, embedding, location_keywords, content_type, created_at)
         VALUES
         <foreach collection="chunks" item="chunk" separator=",">
             (
@@ -18,6 +18,7 @@
                 #{chunk.chunkIndex},
                 #{chunk.embedding}::vector,
                 #{chunk.locationKeywordsStr},
+                #{chunk.contentType},
                 CURRENT_TIMESTAMP
             )
         </foreach>
@@ -25,13 +26,14 @@
 
     <!-- 单条插入分块（内存优化版） -->
     <insert id="insertOne">
-        INSERT INTO travel_note_chunks (note_id, chunk_text, chunk_index, embedding, location_keywords, created_at)
+        INSERT INTO travel_note_chunks (note_id, chunk_text, chunk_index, embedding, location_keywords, content_type, created_at)
         VALUES (
             #{chunk.noteId},
             #{chunk.chunkText},
             #{chunk.chunkIndex},
             #{chunk.embedding}::vector,
             #{chunk.locationKeywordsStr},
+            #{chunk.contentType},
             CURRENT_TIMESTAMP
         )
     </insert>
@@ -44,6 +46,7 @@
             tnc.chunk_text,
             tnc.chunk_index,
             tnc.location_keywords AS locationKeywordsStr,
+            tnc.content_type AS contentType,
             tnc.created_at,
             tn.title AS note_title,
             1 - (tnc.embedding &lt;=&gt; #{embedding}::vector) AS similarity
@@ -66,12 +69,33 @@
             tnc.chunk_text,
             tnc.chunk_index,
             tnc.location_keywords AS locationKeywordsStr,
+            tnc.content_type AS contentType,
             tnc.created_at,
             tn.title AS note_title
         FROM travel_note_chunks tnc
         JOIN user_travel_notes tn ON tnc.note_id = tn.id
         WHERE tn.user_id = #{userId}
           AND tn.status = 'active'
+          AND tnc.location_keywords LIKE CONCAT('%', #{locationKeyword}, '%')
+        ORDER BY tn.created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- ⭐ 按内容类型检索攻略片段（纯文本查询，无需向量） -->
+    <select id="searchByLocationAndType" resultType="com.example.smartassistant.entity.TravelNoteChunk">
+        SELECT
+            tnc.id,
+            tnc.note_id,
+            tnc.chunk_text,
+            tnc.chunk_index,
+            tnc.content_type AS contentType,
+            tnc.created_at,
+            tn.title AS note_title
+        FROM travel_note_chunks tnc
+        JOIN user_travel_notes tn ON tnc.note_id = tn.id
+        WHERE tn.user_id = #{userId}
+          AND tn.status = 'active'
+          AND tnc.content_type = #{contentType}
           AND tnc.location_keywords LIKE CONCAT('%', #{locationKeyword}, '%')
         ORDER BY tn.created_at DESC
         LIMIT #{limit}

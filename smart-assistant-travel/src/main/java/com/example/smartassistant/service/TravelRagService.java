@@ -8,9 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Travel RAG 服务
@@ -33,22 +31,6 @@ public class TravelRagService {
 
     @Value("${travel.rag.similarity-threshold:0.5}")
     private double similarityThreshold;
-
-    // ⭐ 美食判定：两级信号 + 积分制，减少误判
-    // 强信号：直接指向美食内容，命中1个即判定
-    private static final Set<String> FOOD_STRONG = Set.of(
-            "美食", "火锅", "烧烤", "烤鱼", "小吃",
-            "好吃", "正宗", "麻辣", "香辣", "入味",
-            "小龙虾", "烤鸭", "炸酱面", "酸菜鱼", "水煮鱼",
-            "川菜", "粤菜", "湘菜", "鲁菜",
-            "簋街", "美食街", "夜宵", "大排档",
-            "钵钵鸡", "兔头", "小龙坎", "全聚德",
-            "豆汁", "焦圈", "糌粑", "酥油茶");
-
-    // 弱信号：可能与美食相关，需累计 ≥2 个才判定
-    private static final Set<String> FOOD_WEAK = Set.of(
-            "吃", "餐厅", "点菜", "菜单", "排队",
-            "味道", "人均", "价位", "口感");
 
     /**
      * 判断是否需要 RAG 增强
@@ -120,50 +102,68 @@ public class TravelRagService {
     }
 
     /**
-     * 构建增强上下文（美食与旅行内容分离）
-     * 旅行内容放入正文，美食内容作为建议
+     * ⭐ 按内容类型检索攻略片段（纯文本查询，无需向量）
+     * 用于获取美食建议等辅助内容
      */
-    public String buildRagContext(String location, List<TravelNoteChunk> chunks) {
-        if (chunks == null || chunks.isEmpty()) {
-            return "";
+    public List<TravelNoteChunk> retrieveByContentType(String location, Long userId, String contentType, int limit) {
+        if (!ragEnabled || location == null) {
+            return List.of();
         }
 
-        List<TravelNoteChunk> travelChunks = new ArrayList<>();
-        List<TravelNoteChunk> foodChunks = new ArrayList<>();
+        try {
+            List<TravelNoteChunk> chunks = travelNoteChunkMapper.searchByLocationAndType(
+                    location, userId, contentType, limit);
 
-        for (TravelNoteChunk chunk : chunks) {
-            if (isFoodRelated(chunk.getChunkText())) {
-                foodChunks.add(chunk);
-            } else {
-                travelChunks.add(chunk);
-            }
+            log.info("[TravelRag] 类型检索: location={}, userId={}, type={}, chunks={}",
+                    location, userId, contentType, chunks.size());
+
+            return chunks;
+        } catch (Exception e) {
+            log.warn("[TravelRag] 类型检索失败: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * 简写：获取美食建议
+     */
+    public List<TravelNoteChunk> retrieveFoodSuggestions(String location, Long userId) {
+        return retrieveByContentType(location, userId, "food", 3);
+    }
+
+    /**
+     * 构建增强上下文（按 contentType 分离正文和建议）
+     * 旅行内容放入正文，美食内容作为建议
+     */
+    public String buildRagContext(String location, List<TravelNoteChunk> chunks,
+                                   List<TravelNoteChunk> foodChunks) {
+        if (chunks == null || chunks.isEmpty()) {
+            return "";
         }
 
         StringBuilder context = new StringBuilder();
         context.append("\n\n=== 用户历史攻略参考 ===\n");
 
-        // 正文：旅行相关内容
-        if (!travelChunks.isEmpty()) {
-            for (int i = 0; i < travelChunks.size(); i++) {
-                TravelNoteChunk chunk = travelChunks.get(i);
-                context.append(String.format("\n【攻略 %d】%s\n", i + 1,
-                        chunk.getNoteTitle() != null ? chunk.getNoteTitle() : "未命名"));
-                context.append(chunk.getChunkText());
-                if (chunk.getSimilarity() != null) {
-                    context.append(String.format("\n(相关度: %.2f)", chunk.getSimilarity()));
-                }
-                context.append("\n");
+        // 正文：非美食内容
+        int idx = 0;
+        for (TravelNoteChunk chunk : chunks) {
+            idx++;
+            context.append(String.format("\n【攻略 %d】%s\n", idx,
+                    chunk.getNoteTitle() != null ? chunk.getNoteTitle() : "未命名"));
+            context.append(chunk.getChunkText());
+            if (chunk.getSimilarity() != null) {
+                context.append(String.format("\n(相关度: %.2f)", chunk.getSimilarity()));
             }
+            context.append("\n");
         }
 
         context.append("=========================\n");
 
         // 建议：美食相关内容
-        if (!foodChunks.isEmpty()) {
+        if (foodChunks != null && !foodChunks.isEmpty()) {
             context.append("\n💡 美食建议（你的游记中提到过以下美食，可作为参考）：\n");
             for (int i = 0; i < foodChunks.size(); i++) {
-                TravelNoteChunk chunk = foodChunks.get(i);
-                context.append(String.format("  • %s\n", chunk.getChunkText().trim()));
+                context.append(String.format("  • %s\n", foodChunks.get(i).getChunkText().trim()));
             }
             context.append("如果用户想进一步了解美食信息，可以引导用户咨询美食服务。\n");
             context.append("=========================\n");
@@ -173,37 +173,24 @@ public class TravelRagService {
     }
 
     /**
-     * 判断 chunk 文本是否与美食相关（两级信号 + 积分制）
-     * 强信号命中 1 个 → 判定为美食
-     * 弱信号需累计 ≥ 2 个 → 判定为美食
-     * 其余 → 判定为非美食（景点、行程、住宿等）
-     */
-    private boolean isFoodRelated(String text) {
-        if (text == null || text.isEmpty()) return false;
-
-        long strong = FOOD_STRONG.stream()
-                .filter(kw -> text.contains(kw))
-                .count();
-        if (strong >= 1) return true;
-
-        long weak = FOOD_WEAK.stream()
-                .filter(kw -> text.contains(kw))
-                .count();
-        return weak >= 2;
-    }
-
-    /**
-     * 生成增强 Prompt
+     * 生成增强 Prompt（兼容旧接口，使用 contentType 过滤）
      */
     public String enhancePrompt(String originalPrompt, String location, String query, Long userId) {
         List<TravelNoteChunk> chunks = retrieveRelevantChunks(location, query, userId);
 
         if (chunks.isEmpty()) {
-            // 降级：尝试仅使用地点检索
             chunks = retrieveByLocation(location, userId);
         }
 
-        String ragContext = buildRagContext(location, chunks);
+        // ⭐ 从检索结果中筛选非美食内容作为正文
+        List<TravelNoteChunk> travelChunks = chunks.stream()
+                .filter(c -> !"food".equals(c.getContentType()))
+                .toList();
+
+        // ⭐ 单独查询美食建议
+        List<TravelNoteChunk> foodChunks = retrieveFoodSuggestions(location, userId);
+
+        String ragContext = buildRagContext(location, travelChunks, foodChunks);
 
         if (ragContext.isEmpty()) {
             return originalPrompt;
