@@ -78,7 +78,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek API Key，申请地址：https://platform.deepseek.com/
       chat:
         options:
-          model: deepseek-chat  # ⭐ 使用非思考模式（deepseek-chat 是 deepseek-v4-flash 的非思考别名）
+          model: deepseek-v4-flash  # ⭐ 非思考模式（官方已废弃 deepseek-chat）
           temperature: 0.5
           max-tokens: 512
           log-requests: false

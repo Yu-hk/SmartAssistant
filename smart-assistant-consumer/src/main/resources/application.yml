@@ -91,7 +91,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY:}
       chat:
         options:
-          model: deepseek-chat  # ⭐ 使用非思考模式（deepseek-chat 是 deepseek-v4-flash 的非思考别名）
+          model: deepseek-v4-flash  # ⭐ 非思考模式（官方已废弃 deepseek-chat）
     
     # ⭐ MCP Server 配置（内嵌在 Consumer 中）
     mcp:
