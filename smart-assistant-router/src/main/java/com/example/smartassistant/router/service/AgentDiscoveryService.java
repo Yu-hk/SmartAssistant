@@ -405,7 +405,23 @@ public class AgentDiscoveryService {
     public Collection<DiscoveredAgent> getCachedAgents() {
         return agentCache.values();
     }
-    
+
+    /**
+     * ⭐ 更新 Agent 心跳时间
+     * @param serviceName Agent 服务名
+     * @return true 如果找到并更新成功
+     */
+    public boolean updateHeartbeat(String serviceName) {
+        DiscoveredAgent agent = agentCache.get(serviceName);
+        if (agent != null) {
+            agent.setLastHeartbeatAt(System.currentTimeMillis());
+            log.debug("[AgentDiscovery] ✅ 更新心跳: serviceName={}", serviceName);
+            return true;
+        }
+        log.warn("[AgentDiscovery] ❌ 心跳更新失败，未知 Agent: serviceName={}", serviceName);
+        return false;
+    }
+
     /**
      * 清除缓存
      */
