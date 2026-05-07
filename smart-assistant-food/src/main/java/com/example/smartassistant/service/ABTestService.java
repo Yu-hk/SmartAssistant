@@ -280,7 +280,8 @@ public class ABTestService {
             Long userId, String query, String city, String cuisineType, 
             Double maxPrice, Double minRating) {
         
-        // TODO: 调整权重为 RAG 40% + CF 60%
+        // ⚠️ 待 CollaborativeFilteringService 实现后调整权重：RAG 40% + CF 60%
+        // 当前 recommendHybrid() 仅执行 RAG，CF 功能尚未实现（见 HybridRecommendationService 注释）
         return hybridService.recommendHybrid(userId, query, city, cuisineType, maxPrice, minRating);
     }
     
