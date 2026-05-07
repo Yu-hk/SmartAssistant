@@ -23,6 +23,6 @@ public class WebSocketConfig implements WebSocketConfigurer {
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         // 注册 WebSocket 处理器
         registry.addHandler(conversationWebSocketHandler, "/ws/conversation")
-                .setAllowedOrigins("*");  // 允许所有来源（生产环境应限制）
+                .setAllowedOrigins("http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001");  // 限制为前端地址
     }
 }

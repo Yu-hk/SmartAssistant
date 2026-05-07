@@ -67,8 +67,8 @@ consumer-build.log
 # Post result test files
 post_result*.json
 
-# WorkBuddy memory (session-specific, do not commit)
-.workbuddy/memory/
+# WorkBuddy session data (do not commit)
+.workbuddy/
 
 # Lingma local config
 .lingma/

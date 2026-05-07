@@ -78,13 +78,8 @@ services:
     image: docker.m.daocloud.io/grafana/promtail:2.9.0
     container_name: a2a-promtail
     volumes:
-      # 挂载所有服务的父目录，Promtail 会递归扫描
-      # 添加新服务：在此处添加新的 volume 映射
-      - ../a2a-consumer/logs:/var/log/services/consumer:ro
-      - ../router-service/logs:/var/log/services/router:ro
-      - ../food-service/logs:/var/log/services/food:ro
-      - ../travel-service/logs:/var/log/services/travel:ro
-      # Example: - ../user-service/logs:/var/log/services/user:ro
+      # 挂载统一日志目录（所有服务日志写入 logs/ 下）
+      - ../logs:/var/log/services:ro
       - ./promtail-config.yml:/etc/promtail/config.yml:ro
     command: -config.file=/etc/promtail/config.yml
     depends_on:

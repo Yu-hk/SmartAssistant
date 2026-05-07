@@ -52,6 +52,13 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- ⭐ SQL 解析器（MCP 安全校验） -->
+        <dependency>
+            <groupId>com.github.jsqlparser</groupId>
+            <artifactId>jsqlparser</artifactId>
+            <version>4.9</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

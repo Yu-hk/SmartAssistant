@@ -16,7 +16,6 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -29,13 +28,13 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
 
     private final JwtUtil jwtUtil;
     private final ReactiveStringRedisTemplate redisTemplate;
+    private final List<String> whiteList;
 
-    @Value("${gateway.security.white-list}")
-    private String whiteListStr;
-
-    public GlobalJwtAuthFilter(JwtUtil jwtUtil, ReactiveStringRedisTemplate redisTemplate) {
+    public GlobalJwtAuthFilter(JwtUtil jwtUtil, ReactiveStringRedisTemplate redisTemplate,
+                               @Value("${gateway.security.white-list}") List<String> whiteList) {
         this.jwtUtil = jwtUtil;
         this.redisTemplate = redisTemplate;
+        this.whiteList = whiteList;
     }
 
     @Override
@@ -44,7 +43,6 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
         String path = request.getURI().getPath();
 
         // 检查是否在白名单中
-        List<String> whiteList = Arrays.asList(whiteListStr.split(","));
         if (isWhiteListPath(path, whiteList)) {
             log.debug("[JWT] 路径 {} 在白名单中，跳过认证", path);
             return chain.filter(exchange);
@@ -94,7 +92,7 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
 
         } catch (Exception e) {
             log.error("[JWT] 认证过程异常: {}", e.getMessage(), e);
-            return unauthorizedResponse(exchange, "Authentication error: " + e.getMessage());
+            return unauthorizedResponse(exchange, "认证服务异常，请稍后重试");
         }
     }
 
@@ -125,7 +123,9 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.UNAUTHORIZED);
 
-        String body = "{\"error\":\"Unauthorized\",\"message\":\"" + message + "\"}";
+        // 使用 JSON 序列化避免消息拼接导致的格式问题
+        String body = String.format("{\"error\":\"Unauthorized\",\"message\":\"%s\"}",
+                message.replace("\"", "\\\"").replace("\n", "\\n"));
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         
         response.getHeaders().add(HttpHeaders.CONTENT_TYPE, "application/json");
