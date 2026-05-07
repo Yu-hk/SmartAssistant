@@ -1,6 +1,8 @@
 package com.example.smartassistant.service;
 
 import com.example.smartassistant.entity.TravelNote;
+import com.example.smartassistant.entity.TravelNoteChunk;
+import com.example.smartassistant.mapper.TravelNoteChunkMapper;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,6 +42,7 @@ public class TravelNoteMatchService {
     // ==================== 依赖服务 ====================
     private final TravelRagService travelRagService;
     private final TravelNoteRankingService rankingService;
+    private final TravelNoteChunkMapper travelNoteChunkMapper;  // ⭐ 用于查询被筛游记的 chunk
 
     // ==================== 配置 ====================
     @Value("${travel.rag.enabled:false}")
@@ -48,9 +51,11 @@ public class TravelNoteMatchService {
     public TravelNoteMatchService(
             TravelNoteService travelNoteService,
             TravelRagService travelRagService,
-            TravelNoteRankingService rankingService) {
+            TravelNoteRankingService rankingService,
+            TravelNoteChunkMapper travelNoteChunkMapper) {
         this.travelRagService = travelRagService;
         this.rankingService = rankingService;
+        this.travelNoteChunkMapper = travelNoteChunkMapper;
     }
 
     /**
@@ -92,6 +97,29 @@ public class TravelNoteMatchService {
             List<TravelNote> topNotes = rankingResult.getTopNotes(DEFAULT_TOP_N);
             log.info("[TravelNoteMatch] 规则评分筛选出 {} 篇候选游记", topNotes.size());
 
+            // ⭐ 收集被筛掉的笔记 ID（排名 #6 及之后），提取碎片作为补充建议
+            List<String> tips = List.of();
+            List<TravelNoteRankingService.ScoredNote> allScored = rankingResult.getRankedNotes();
+            if (allScored.size() > DEFAULT_TOP_N) {
+                List<Long> remainingIds = allScored.stream()
+                        .skip(DEFAULT_TOP_N)
+                        .map(sn -> sn.getNote().getId())
+                        .collect(Collectors.toList());
+                log.info("[TravelNoteMatch] 剩余 {} 篇游记，提取补充建议", remainingIds.size());
+
+                List<TravelNoteChunk> tipChunks = travelNoteChunkMapper.searchRandomByNoteIds(remainingIds, 3);
+                tips = tipChunks.stream()
+                        .map(c -> {
+                            String type = c.getContentType() != null ? c.getContentType() : "general";
+                            String text = c.getChunkText().length() > 80
+                                    ? c.getChunkText().substring(0, 80) + "..."
+                                    : c.getChunkText();
+                            return text + "（" + type + "）";
+                        })
+                        .collect(Collectors.toList());
+                log.info("[TravelNoteMatch] 提取到 {} 条补充建议", tips.size());
+            }
+
             // 获取最佳推荐
             TravelNote bestNote = topNotes.get(0);
             List<TravelNote> alternatives = topNotes.stream().skip(1).collect(Collectors.toList());
@@ -100,7 +128,8 @@ public class TravelNoteMatchService {
                     bestNote,
                     rankingResult.toMcpText(),
                     userIntent,
-                    alternatives
+                    alternatives,
+                    tips
             );
 
         } catch (Exception e) {
@@ -134,7 +163,7 @@ public class TravelNoteMatchService {
         );
 
         String reason = "根据 RAG 向量检索找到 " + chunks.size() + " 个相关片段，已聚合成参考内容。";
-        return MatchResult.success(virtual, reason, userIntent, List.of());
+        return MatchResult.success(virtual, reason, userIntent, List.of(), List.of());
     }
 
     // ==================== MatchResult 内部类 ====================
@@ -149,10 +178,11 @@ public class TravelNoteMatchService {
         private final String reasoning;
         private final String userIntent;
         private final List<TravelNote> alternatives;
+        private final List<String> tips;  // ⭐ 被筛游记提取的补充建议
 
         private MatchResult(boolean success, boolean enabled, String errorMessage,
                            TravelNote bestNote, String reasoning, String userIntent,
-                           List<TravelNote> alternatives) {
+                           List<TravelNote> alternatives, List<String> tips) {
             this.success = success;
             this.enabled = enabled;
             this.errorMessage = errorMessage;
@@ -160,25 +190,27 @@ public class TravelNoteMatchService {
             this.reasoning = reasoning;
             this.userIntent = userIntent;
             this.alternatives = alternatives != null ? alternatives : List.of();
+            this.tips = tips != null ? tips : List.of();
         }
 
         public static MatchResult success(TravelNote bestNote, String reasoning,
-                                         String userIntent, List<TravelNote> alternatives) {
-            return new MatchResult(true, true, null, bestNote, reasoning, userIntent, alternatives);
+                                         String userIntent, List<TravelNote> alternatives,
+                                         List<String> tips) {
+            return new MatchResult(true, true, null, bestNote, reasoning, userIntent, alternatives, tips);
         }
 
         public static MatchResult disabled(String message) {
-            return new MatchResult(false, false, message, null, null, null, null);
+            return new MatchResult(false, false, message, null, null, null, null, null);
         }
 
         public static MatchResult error(String message) {
-            return new MatchResult(false, true, message, null, null, null, null);
+            return new MatchResult(false, true, message, null, null, null, null, null);
         }
 
         public static MatchResult empty(String location) {
             return new MatchResult(false, true,
                     "📝 暂无【" + location + "】相关的游记记录\n提示：用户可以通过上传游记来获得更个性化的推荐",
-                    null, null, null, null);
+                    null, null, null, null, null);
         }
 
         public String toMcpText() {
@@ -220,6 +252,14 @@ public class TravelNoteMatchService {
                         sb.append(" (").append(alt.getTags()).append(")");
                     }
                     sb.append("\n");
+                }
+            }
+
+            // ⭐ 补充建议：被筛游记中的碎片内容
+            if (tips != null && !tips.isEmpty()) {
+                sb.append("\n💡 其他游记还提到：\n");
+                for (String tip : tips) {
+                    sb.append("  • ").append(tip).append("\n");
                 }
             }
 
