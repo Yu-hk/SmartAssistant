@@ -185,24 +185,19 @@ public class ChatController {
         return saveUserMessageMono.then(resultMono)
             .flatMap(routerResponse -> {
                 String reply = (String) routerResponse.get("result");
-                // ⭐ 从 Router 响应中获取 Agent 派发信息（辅助推理检测）
-                String routedAgent = (String) routerResponse.get("agentName");
 
-                // ⭐ 6. 智能建议：判断是否需要生成
-                List<String> suggestions = shouldSkipSuggestions(message, reply, routedAgent) 
-                    ? List.of() 
-                    : generateSmartSuggestionsLLM(userId, message, sessionId, reply);
-
-                // 7. 格式化建议并拼接到回复
-                String formattedSuggestions = suggestionEngine.formatSuggestions(suggestions);
-                String fullReply = reply + formattedSuggestions;
-
-                // 8. 记录系统回复到对话历史(失败不影响主流程)
+                // ⭐ 6. 解析 Agent 回复中的建议（以 ⭐ 开头的行为建议）
+                List<String> suggestions = parseStarSuggestions(reply);
+                
+                // 从回复中移除建议行，避免重复展示
+                String cleanReply = removeStarSuggestions(reply);
+                
+                // 7. 记录系统回复到对话历史(失败不影响主流程)
                 if (sessionId != null) {
                     try {
-                        chatMessageService.saveAiMessage(sessionId, fullReply, null, null);
+                        chatMessageService.saveAiMessage(sessionId, cleanReply, null, null);
                     } catch (Exception e) {
-                        log.warn("[MathController] ⚠️ 保存 AI 回复失败，继续处理: {}", e.getMessage());
+                        log.warn("[ChatController] ⚠️ 保存 AI 回复失败，继续处理: {}", e.getMessage());
                     }
                 }
 
@@ -212,9 +207,9 @@ public class ChatController {
                         suggestions.size(),
                         endTime - startTime);
 
-                // 9. 构建响应
+                // 8. 构建响应
                 Map<String, Object> response = new HashMap<>();
-                response.put("reply", fullReply);
+                response.put("reply", cleanReply);
                 response.put("suggestions", suggestions);
                 response.put("sessionId", sessionId);
                 response.put("duration_ms", endTime - startTime);
@@ -227,103 +222,43 @@ public class ChatController {
      * ⭐ Phase 1: LLM 智能建议生成
      * 利用 ChatClient 根据对话上下文和用户画像生成语义化建议
      */
-    private List<String> generateSmartSuggestionsLLM(String userId, String message,
-                                                      String sessionId, String routerResult) {
-        // 获取对话历史
-        List<Map<String, String>> stringHistory = new ArrayList<>();
-        if (sessionId != null) {
-            List<Map<String, Object>> history = chatMessageService.getRecentMessages(sessionId, 10);
-            for (Map<String, Object> msg : history) {
-                Map<String, String> stringMsg = new HashMap<>();
-                msg.forEach((k, v) -> stringMsg.put(k, v != null ? v.toString() : ""));
-                stringHistory.add(stringMsg);
-            }
-        }
+    /**
+     * 从 Agent 回复中解析 ⭐ 开头的建议行
+     */
+    private List<String> parseStarSuggestions(String reply) {
+        if (reply == null || reply.isBlank()) return List.of();
 
-        // 获取用户画像（仅对已认证用户）
-        String userProfile = null;
-        if (!"anonymous".equals(userId) && userId != null) {
-            try {
-                Long userIdLong = parseUserId(userId);
-                if (userIdLong != null) {
-                    userProfile = userProfileService.buildUserProfilePrompt(userIdLong);
+        List<String> suggestions = new ArrayList<>();
+        String[] lines = reply.split("\n");
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("⭐")) {
+                String suggestion = trimmed.substring(1).trim();
+                if (!suggestion.isEmpty()) {
+                    suggestions.add(suggestion);
                 }
-            } catch (Exception e) {
-                log.debug("[LLMSuggestion] 获取用户画像失败: {}", e.getMessage());
             }
         }
 
-        // 调用 LLM 生成建议
-        return llmSuggestionService.generateSuggestions(
-                userId, message, stringHistory, userProfile, routerResult);
+        return suggestions.size() >= 3 ? suggestions : List.of();
     }
 
     /**
-     * 解析用户 ID（辅助方法）
+     * 移除回复中的 ⭐ 建议行，避免重复展示
      */
-    private Long parseUserId(String userId) {
-        if (userId == null || userId.isBlank() || "anonymous".equalsIgnoreCase(userId)) {
-            return null;
+    private String removeStarSuggestions(String reply) {
+        if (reply == null || reply.isBlank()) return reply;
+
+        StringBuilder sb = new StringBuilder();
+        String[] lines = reply.split("\n");
+        for (String line : lines) {
+            if (!line.trim().startsWith("⭐")) {
+                sb.append(line).append("\n");
+            }
         }
-        try {
-            return Long.parseLong(userId);
-        } catch (NumberFormatException e) {
-            return null;
-        }
+
+        return sb.toString().trim();
     }
-
-    /**
-     * ⭐ 判断是否需要跳过智能建议
-     * <p>
-     * 路径A：基于推理模式的建议生成控制。
-     * 当 DeepSeek V4-Flash 使用 reasoning_effort:max 时：
-     * - 简单问题产生短回复，未启动深度推理 → 跳过建议
-     * - 复杂问题产生长回复，启动了深度推理 → 生成建议
-     * - Agent 被派发(food/travel)说明问题复杂 → 不跳过
-     *
-     * @param message     用户消息
-     * @param reply       模型回复
-     * @param routedAgent Router 派发的 Agent 名称（可能为 null）
-     * @return true = 跳过建议生成
-     */
-    private boolean shouldSkipSuggestions(String message, String reply, String routedAgent) {
-        if (message == null || message.isBlank()) return true;
-        if (reply == null || reply.isBlank()) return true;
-
-        // 1. Agent 回复已自带建议
-        if (reply.contains("智能建议") || reply.contains("可以直接点击或回复序号")) {
-            return true;
-        }
-
-        // 2. Agent 回复包含错误信息
-        if (reply.startsWith("Exception:") || reply.startsWith("❌") || reply.contains("Authentication Fails")) {
-            return true;
-        }
-
-        // 3. 简短消息（问候、感谢、单字回答 Agent 反问）
-        String trimmed = message.trim();
-        if (trimmed.length() <= 4) return true;
-
-        // 4. 常见问候/感谢语
-        String lower = trimmed.toLowerCase();
-        if (greetingPattern.matcher(lower).matches()) return true;
-
-        // ⭐ 5. 路径A：推理模式检测
-        //    reasoning_effort:max 下，复杂问题产生长回复
-        //    短回复 (< 150 字) → 简单问题，未启动深度推理 → 跳过建议
-        if (reply.length() < 150) return true;
-
-        // Agent 被派发 → 复杂问题，已启动深度推理 → 保留建议
-        if (routedAgent != null && !routedAgent.isBlank() && !"none".equals(routedAgent)) {
-            return false;
-        }
-
-        return false;
-    }
-
-    private static final java.util.regex.Pattern greetingPattern = java.util.regex.Pattern.compile(
-        "^(你好|您好|hello|hi|hey|谢谢|感谢|好的|嗯|ok|好的吧|知道了|收到|再见|拜拜|bye)$"
-    );
 
     /**
      * 判断是否为数据查询请求
