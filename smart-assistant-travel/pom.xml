@@ -162,6 +162,12 @@
             <artifactId>smart-assistant-common</artifactId>
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
+
+        <!-- ⭐ Redis (seenNoteIds 不放回追踪) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

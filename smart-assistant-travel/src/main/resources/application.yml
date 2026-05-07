@@ -41,6 +41,18 @@ spring:
     init:
       mode: never
 
+  # Redis 配置（用于 seenNoteIds 不放回追踪等）
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+
   # 数据源配置（PostgreSQL + MyBatis Plus）
   datasource:
     url: jdbc:postgresql://localhost:5432/a2a_system
