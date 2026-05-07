@@ -62,4 +62,13 @@ public interface TravelNoteChunkMapper extends BaseMapper<TravelNoteChunk> {
             @Param("userId") Long userId,
             @Param("contentType") String contentType,
             @Param("limit") int limit);
+
+    /**
+     * ⭐ 根据 note_id 列表随机检索 chunk（用于被筛游记的补充建议）
+     * @param noteIds 游记 ID 列表
+     * @param limit 返回数量
+     */
+    List<TravelNoteChunk> searchRandomByNoteIds(
+            @Param("noteIds") List<Long> noteIds,
+            @Param("limit") int limit);
 }
