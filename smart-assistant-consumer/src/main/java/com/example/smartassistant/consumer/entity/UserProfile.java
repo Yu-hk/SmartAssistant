@@ -115,10 +115,8 @@ public class UserProfile {
             return new HashMap<>();
         }
         try {
-            @SuppressWarnings("unchecked")
-            Map<String, Integer> result = objectMapper.readValue(preferenceWeights,
+            return objectMapper.readValue(preferenceWeights,
                     objectMapper.getTypeFactory().constructMapType(HashMap.class, String.class, Integer.class));
-            return result;
         } catch (JsonProcessingException e) {
             return new HashMap<>();
         }

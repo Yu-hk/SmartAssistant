@@ -123,7 +123,9 @@ public class AgentCallerService {
                             // 从 toString() 格式中提取 textContent=xxx
                             if (strOutput.contains("textContent=")) {
                                 int startIdx = strOutput.indexOf("textContent=") + "textContent=".length();
-                                int endIdx = strOutput.indexOf(",", startIdx);  // 找第一个逗号结束
+                                // ⚠️ textContent 中可能包含中文逗号，不能用 indexOf(",")
+                                // 找 textContent 结束位置：下一个 ", fieldName=" 或 "]"
+                                int endIdx = findEndOfTextContent(strOutput, startIdx);
                                 if (endIdx > startIdx) {
                                     response = strOutput.substring(startIdx, endIdx);
                                     log.info("[AgentCaller] ✅ 从 AssistantMessage.toString() 中提取 textContent 成功, length={}", response.length());
@@ -415,6 +417,32 @@ public class AgentCallerService {
         }
 
         return response;
+    }
+
+    /**
+     * ⭐ 从 DeepSeekAssistantMessage.toString() 中准确定位 textContent 结束位置
+     * textContent 中可能包含中文逗号，不能用 indexOf(",") 查找结束
+     * 正确做法：找下一个 ", fieldName="（ASCII字段名）或字符串结尾
+     */
+    private int findEndOfTextContent(String str, int startIdx) {
+        int pos = startIdx;
+        while (true) {
+            int commaPos = str.indexOf(", ", pos);
+            if (commaPos < 0) {
+                // 没找到逗号，返回末尾
+                String trimmed = str.trim();
+                return trimmed.endsWith("]") ? trimmed.length() - 1 : str.length();
+            }
+            // 检查逗号后是否紧跟 ASCII 字段名（如 metadata=、reasoningContent=、prefix=）
+            int eqPos = str.indexOf("=", commaPos + 2);
+            if (eqPos > commaPos + 2) {
+                String between = str.substring(commaPos + 2, eqPos);
+                if (between.matches("[a-zA-Z]+")) {
+                    return commaPos; // 找到了下一个字段，textContent 到此结束
+                }
+            }
+            pos = commaPos + 2;
+        }
     }
 
     /**

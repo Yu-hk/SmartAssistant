@@ -42,7 +42,6 @@ public class ConversationCompressionCacheService {
      * @param threadId 会话 ID
      * @return 缓存条目（如果存在且有效）
      */
-    @SuppressWarnings("unchecked")
     public Optional<CompressionCacheEntry> get(String threadId) {
         if (!properties.isCacheEnabled() || threadId == null || threadId.isEmpty()) {
             return Optional.empty();
