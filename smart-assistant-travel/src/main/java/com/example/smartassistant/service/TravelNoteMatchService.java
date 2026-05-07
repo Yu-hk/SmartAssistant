@@ -9,6 +9,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -38,6 +41,9 @@ public class TravelNoteMatchService {
 
     // ==================== 配置常量 ====================
     private static final int DEFAULT_TOP_N = 5;           // 默认返回 Top 5
+
+    // ⭐ 不放回追踪：记录每个 userId 已推荐过的 note_id，避免重复
+    private final Map<Long, Set<Long>> seenNoteIds = new ConcurrentHashMap<>();
 
     // ==================== 依赖服务 ====================
     private final TravelRagService travelRagService;
@@ -98,31 +104,46 @@ public class TravelNoteMatchService {
             log.info("[TravelNoteMatch] 规则评分筛选出 {} 篇候选游记", topNotes.size());
 
             // ⭐ 收集被筛掉的笔记 ID（排名 #6 及之后），提取碎片作为补充建议
+            // 遵循"不放回"策略：同一 userId 已推荐过的笔记不再重复推荐
             List<String> tips = List.of();
             List<TravelNoteRankingService.ScoredNote> allScored = rankingResult.getRankedNotes();
+            Set<Long> seen = seenNoteIds.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet());
+
             if (allScored.size() > DEFAULT_TOP_N) {
                 List<Long> remainingIds = allScored.stream()
                         .skip(DEFAULT_TOP_N)
                         .map(sn -> sn.getNote().getId())
+                        .filter(id -> !seen.contains(id))  // ⭐ 跳过已推荐过的
                         .collect(Collectors.toList());
-                log.info("[TravelNoteMatch] 剩余 {} 篇游记，提取补充建议", remainingIds.size());
+                log.info("[TravelNoteMatch] 剩余 {} 篇游记（已排除 {} 篇已推荐的），提取补充建议",
+                        remainingIds.size(), 
+                        allScored.size() - DEFAULT_TOP_N - remainingIds.size());
 
-                List<TravelNoteChunk> tipChunks = travelNoteChunkMapper.searchRandomByNoteIds(remainingIds, 3);
-                tips = tipChunks.stream()
-                        .map(c -> {
-                            String type = c.getContentType() != null ? c.getContentType() : "general";
-                            String text = c.getChunkText().length() > 80
-                                    ? c.getChunkText().substring(0, 80) + "..."
-                                    : c.getChunkText();
-                            return text + "（" + type + "）";
-                        })
-                        .collect(Collectors.toList());
-                log.info("[TravelNoteMatch] 提取到 {} 条补充建议", tips.size());
+                if (!remainingIds.isEmpty()) {
+                    List<TravelNoteChunk> tipChunks = travelNoteChunkMapper.searchRandomByNoteIds(remainingIds, 3);
+                    tips = tipChunks.stream()
+                            .map(c -> {
+                                String type = c.getContentType() != null ? c.getContentType() : "general";
+                                String text = c.getChunkText().length() > 80
+                                        ? c.getChunkText().substring(0, 80) + "..."
+                                        : c.getChunkText();
+                                return text + "（" + type + "）";
+                            })
+                            .collect(Collectors.toList());
+                    // ⭐ 标记已推荐：tips 涉及的笔记 + 最佳推荐 + 备选，全部加入已读集
+                    tipChunks.stream().map(TravelNoteChunk::getNoteId).forEach(seen::add);
+                    log.info("[TravelNoteMatch] 提取到 {} 条补充建议，已标记为已读", tips.size());
+                }
             }
 
+            // ⭐ 标记本轮的 bestNote 和 alternatives 为已读
             // 获取最佳推荐
             TravelNote bestNote = topNotes.get(0);
             List<TravelNote> alternatives = topNotes.stream().skip(1).collect(Collectors.toList());
+
+            // ⭐ 标记本轮所有推荐（best + alternatives + tips）为已读
+            seen.add(bestNote.getId());
+            topNotes.stream().skip(1).map(TravelNote::getId).forEach(seen::add);
 
             return MatchResult.success(
                     bestNote,
