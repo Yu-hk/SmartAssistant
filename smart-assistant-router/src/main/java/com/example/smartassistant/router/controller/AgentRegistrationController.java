@@ -55,12 +55,15 @@ public class AgentRegistrationController {
     public ResponseEntity<Map<String, Object>> sendHeartbeat(@RequestBody HeartbeatRequest request) {
         log.debug("[AgentRegistry] 💓 收到心跳: {}", request.getServiceName());
         
-        // TODO: 更新最后心跳时间
-        // 当前版本依赖 Nacos 健康检查，此接口预留
+        // 更新最后心跳时间
+        boolean updated = agentDiscoveryService.updateHeartbeat(request.getServiceName());
+        if (!updated) {
+            log.warn("[AgentRegistry] ⚠️ 未知 Agent 心跳: {}", request.getServiceName());
+        }
         
         Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "心跳接收成功");
+        response.put("success", updated);
+        response.put("message", updated ? "心跳接收成功" : "未知 Agent，心跳未记录");
         response.put("timestamp", System.currentTimeMillis());
         
         return ResponseEntity.ok(response);

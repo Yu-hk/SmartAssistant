@@ -1,5 +1,6 @@
 package com.example.smartassistant.consumer.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -154,7 +155,14 @@ public class SpeechRecognitionService {
      */
     private String recognizeWithLocalEngine(MultipartFile audioFile, String language) {
         log.warn("[SpeechRecognition] 本地语音识别尚未实现，返回模拟文本");
-        // TODO: 集成 Vosk、Kaldi 或其他本地语音识别引擎
+        // TODO: 集成 Vosk 离线语音识别引擎
+        // 推荐方案：
+        // 1. pom.xml 添加 vosk:vosk-api:0.3.45
+        // 2. 下载中文模型 vosk-model-small-cn-0.22 到 resources/vosk-models/
+        // 3. 用 VoskRecognizer 实现识别：
+        //    InputStream ais = new AudioInputStream(...);
+        //    RecognitionResult result = recognizer.recognize(ais);
+        // 4. 阿里云 DashScope 作为主方案已可用，本地仅作降级
         return "[本地语音识别功能开发中，请使用 DashScope]";
     }
     
@@ -228,10 +236,14 @@ public class SpeechRecognitionService {
     }
     
     /**
-     * 转换为 JSON（简化版，实际应使用 Jackson）
+     * 转换为 JSON
      */
     private String convertToJson(Map<String, Object> map) {
-        // TODO: 使用 ObjectMapper 进行正确的 JSON 序列化
-        return "{}";  // 占位符
+        try {
+            return new ObjectMapper().writeValueAsString(map);
+        } catch (Exception e) {
+            log.warn("[SpeechRecognition] JSON 序列化失败: {}", e.getMessage());
+            return "{}";
+        }
     }
 }
