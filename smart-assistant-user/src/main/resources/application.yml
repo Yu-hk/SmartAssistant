@@ -16,6 +16,8 @@ spring:
         server-addr: 127.0.0.1:8848
         namespace: ""
         group: DEFAULT_GROUP
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos123}
         enabled: true
 
   # 数据源配置（PostgreSQL）
@@ -47,6 +49,7 @@ spring:
       host: localhost
       port: 6379
       database: 0
+      password: ${REDIS_PASSWORD:redis123}
       timeout: 3000ms
       lettuce:
         pool:
@@ -57,7 +60,7 @@ spring:
 
 # JWT 配置
 jwt:
-  secret: ${JWT_SECRET:a2a-demo-secret-key-for-jwt-token-generation-2026-very-long}  # ⭐ 优先从环境变量 JWT_SECRET 读取
+  secret: ${JWT_SECRET:a2a-demo-secret-key-for-jwt-token-generation-2026-very-long}  # ⭐ 优先从环境变量 JWT_SECRET 读取。⚠️ 生产环境务必通过环境变量 JWT_SECRET 设置独立密钥，不要使用默认值
   expiration: 3600000  # 1 小时（毫秒）
   refresh-expiration: 86400000  # 24 小时（毫秒）
 
@@ -86,7 +89,7 @@ management:
   # 分布式追踪配置 (Jaeger - Zipkin 兼容模式)
   tracing:
     sampling:
-      probability: 1.0  # 启用全量采样
+      probability: 0.3  # 采样率 30%（开发环境已足够）
     zipkin:
       tracing:
         endpoint: http://localhost:9411/api/v2/spans
