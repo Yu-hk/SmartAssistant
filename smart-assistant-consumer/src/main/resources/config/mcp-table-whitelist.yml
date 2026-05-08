@@ -18,22 +18,14 @@ travel:
   # 黑名单：明确禁止访问的表（其他服务的表）
   forbidden-tables:
     - users                         # Consumer 服务
-    - chat_messages                 # Consumer 服务
-    - chat_messages_partitioned     # Consumer 服务
-    - auth_chat_messages            # Consumer 服务
     - user_sessions                 # Consumer 服务
-    - user_profiles                 # Consumer 服务
     - routing_call_log              # Router 服务
 
 # Consumer 服务白名单
 consumer:
   allowed-tables:
     - users                         # 用户表
-    - chat_messages_partitioned     # 聊天消息分区表
-    - chat_messages                 # 兼容视图
-    - auth_chat_messages            # 认证聊天消息
     - user_sessions                 # 用户会话
-    - user_profiles                 # 用户资料
     - routing_call_log              # 路由日志
   
   # 黑名单：明确禁止访问的表（其他服务的表）
