@@ -4,7 +4,6 @@ import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.RouteDecision;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
-import com.example.smartassistant.router.strategy.RoutingStrategyManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -41,7 +40,6 @@ public class RouterService {
     
     private static final Logger log = LoggerFactory.getLogger(RouterService.class);
     
-    private final RoutingStrategyManager strategyManager;
     private final AgentCallerService agentCallerService;
     private final AgentDiscoveryService agentDiscoveryService;
     private final ChatClient chatClient;
@@ -71,15 +69,13 @@ public class RouterService {
     );
     private final AtomicInteger fallbackIndex = new AtomicInteger(0);
 
-    public RouterService(RoutingStrategyManager strategyManager,
-                        AgentCallerService agentCallerService,
+    public RouterService(AgentCallerService agentCallerService,
                         AgentDiscoveryService agentDiscoveryService,
                         ChatClient.Builder chatClientBuilder,
                         @Qualifier("routerParallelAgentExecutor") Executor routerParallelAgentExecutor,
                         @Autowired(required = false) StringRedisTemplate redisTemplate,
                         RouterRagService ragService,
                         SemanticRouteCacheService semanticCache) {
-        this.strategyManager = strategyManager;
         this.agentCallerService = agentCallerService;
         this.agentDiscoveryService = agentDiscoveryService;
         this.chatClient = chatClientBuilder.build();
@@ -198,120 +194,72 @@ public class RouterService {
     }
     
     /**
-     * 处理单意图场景（原有逻辑）
-     * ⭐ 复用 ReactAgent 已提取的结构化信息，避免二次解析
-     * @return RoutingResult 包含真实的 agentName、confidence 和 Agent 执行结果
+     * 处理单意图场景（纯关键词路由 + 兜底链路）
+     * 路由顺序：关键词匹配 → Fallback Agent(priority) → 内联 ChatClient → 最终提示
      */
     private RoutingResult handleSingleIntent(String question, Map<String, Object> context, Long userId) {
-        // 使用策略管理器进行路由决策
-        RouteDecision decision = strategyManager.executeRouting(question, context);
-
-        // 检查是否成功路由到 Agent
-        if (decision == null) {
-            log.warn("[Router] 策略路由失败，尝试关键词降级");
-            String keywordAgent = keywordBasedAgentSelection(question);
-            if (keywordAgent != null) {
-                log.info("[Router] 关键词降级成功: agent={}", keywordAgent);
-                decision = RouteDecision.builder()
-                        .agentName(keywordAgent)
-                        .confidence(0.5)
-                        .routingMethod("KEYWORD_FALLBACK")
-                        .build();
-            } else {
-                log.warn("[Router] 无专业 Agent 匹配，尝试降级 Agent");
-                
-                // Layer 1: 通过 A2A 调用通用的降级 Agent（如 general_chat）
-                try {
-                    DiscoveredAgent fallbackAgent = agentDiscoveryService.findFallbackAgent();
-                    if (fallbackAgent != null) {
-                        String fallbackReply = agentCallerService.callAgent(
-                                fallbackAgent.getAgentName(), question, userId);
-                        
-                        if (fallbackReply != null && !fallbackReply.isBlank() && !fallbackReply.startsWith("❌")) {
-                            return RoutingResult.builder()
-                                    .result(fallbackReply)
-                                    .agentName(fallbackAgent.getAgentName())
-                                    .confidence(0.3)
-                                    .build();
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("[Router] 降级 Agent 调用失败: {}", e.getMessage());
+        // Step 1: 基于 Agent 注册关键词匹配
+        String matchedAgent = keywordBasedAgentSelection(question);
+        if (matchedAgent != null) {
+            log.info("[Router] 关键词路由成功: agent={}", matchedAgent);
+            String result = agentCallerService.callAgent(matchedAgent, question, userId);
+            return RoutingResult.builder()
+                    .result(result)
+                    .agentName(matchedAgent)
+                    .confidence(0.5)
+                    .build();
+        }
+        
+        // Step 2: 无专业 Agent 匹配，尝试降级 Fallback Agent（基于 metadata priority）
+        DiscoveredAgent fallbackAgent = null;
+        try {
+            fallbackAgent = agentDiscoveryService.findFallbackAgent();
+        } catch (Exception e) {
+            log.warn("[Router] 查找 Fallback Agent 失败: {}", e.getMessage());
+        }
+        if (fallbackAgent != null) {
+            try {
+                String fallbackReply = agentCallerService.callAgent(
+                        fallbackAgent.getAgentName(), question, userId);
+                if (fallbackReply != null && !fallbackReply.isBlank() && !fallbackReply.startsWith("❌")) {
+                    return RoutingResult.builder()
+                            .result(fallbackReply)
+                            .agentName(fallbackAgent.getAgentName())
+                            .confidence(0.3)
+                            .build();
                 }
-                
-                // Layer 2: Router 内联 ChatClient 终极兜底（Nacos/Agent 不可用时）
-                // ⭐ 使用安抚性 system prompt，缓释用户等待的焦虑
-                try {
-                    String localReply = chatClient.prompt()
-                            .system("你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
-                                  + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
-                                  + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
-                                  + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。")
-                            .user(question)
-                            .call()
-                            .content();
-                    
-                    if (localReply != null && !localReply.isBlank()) {
-                        return RoutingResult.builder()
-                                .result(localReply)
-                                .agentName("builtin_fallback")
-                                .confidence(0.2)
-                                .build();
-                    }
-                } catch (Exception e) {
-                    log.warn("[Router] 内联 ChatClient 兜底失败: {}", e.getMessage());
-                }
-                
-                // 所有兜底都失败时的最终提示（多套说辞轮换）
-                int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
-                return RoutingResult.builder()
-                        .result(FALLBACK_MESSAGES.get(idx))
-                        .agentName("none")
-                        .confidence(0.0)
-                        .build();
+            } catch (Exception e) {
+                log.warn("[Router] Fallback Agent 调用失败: {}", e.getMessage());
             }
         }
-
-        log.info("[Router] 路由决策: agent={}, confidence={}, method={}",
-                decision.getAgentName(), decision.getConfidence(), decision.getRoutingMethod());
-
-        // ⭐ 将 ReactAgent 提取的结构化上下文注入到 context，供后续使用
-        if (decision.getExtractedContext() != null) {
-            var extracted = decision.getExtractedContext();
-            context.put("extractedLocation", extracted.getLocation());
-            context.put("extractedIntent", extracted.getIntent());
-            context.put("extractedTimeRange", extracted.getTimeRange());
-            log.debug("[Router] 复用 ReactAgent 提取结果: location={}, intent={}, timeRange={}",
-                    extracted.getLocation(), extracted.getIntent(), extracted.getTimeRange());
+        
+        // Layer 3: 内联 ChatClient 终极兜底
+        try {
+            String localReply = chatClient.prompt()
+                    .system("你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
+                          + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
+                          + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
+                          + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。")
+                    .user(question)
+                    .call()
+                    .content();
+            if (localReply != null && !localReply.isBlank()) {
+                return RoutingResult.builder()
+                        .result(localReply)
+                        .agentName("builtin_fallback")
+                        .confidence(0.2)
+                        .build();
+            }
+        } catch (Exception e) {
+            log.warn("[Router] 内联 ChatClient 兜底失败: {}", e.getMessage());
         }
-
-        // 调用目标 Agent
-        String result;
-        if (decision.getExtractedContext() != null) {
-            // 使用带上下文的调用
-            result = agentCallerService.callAgentWithContext(
-                    decision.getAgentName(),
-                    question,
-                    userId,
-                    decision.getExtractedContext()
-            );
-        } else {
-            // 使用普通调用
-            result = agentCallerService.callAgent(
-                    decision.getAgentName(),
-                    question,
-                    userId
-            );
-        }
-
-        log.info("[Router] 路由完成: agent={}, resultLength={}",
-                decision.getAgentName(), result != null ? result.length() : 0);
-
-        // ⭐ 返回包含真实 decision 信息的结果
+        
+        // 所有兜底都失败时的最终提示
+        int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
         return RoutingResult.builder()
-                .result(result)
-                .agentName(decision.getAgentName())
-                .confidence(decision.getConfidence())
+                .result(FALLBACK_MESSAGES.get(idx))
+                .agentName("none")
+                .confidence(0.0)
                 .build();
     }
     
