@@ -315,21 +315,6 @@ public class RouterService {
                 .build();
     }
     
-/**
-     * 为指定意图选择最佳 Agent
-     */
-    private String selectBestAgent(String question, Map<String, Object> context) {
-        // 复用现有的策略管理器
-        var decision = strategyManager.executeRouting(question, context);
-        
-        if (decision != null) {
-            return decision.getAgentName();
-        }
-        
-        // 降级：基于关键词匹配
-        return keywordBasedAgentSelection(question);
-    }
-    
     /**
      * 基于关键词的 Agent 选择（降级方案）
      */
@@ -345,16 +330,16 @@ public class RouterService {
             log.warn("[Router] 动态匹配 Agent 失败: {}", e.getMessage());
         }
         
-        // 降级：优先返回兜底 Agent（general_chat），否则返回第一个可用 Agent
+        // 降级：使用 fallback Agent（基于 metadata priority，不再硬编码 general_chat）
+        var fallbackAgent = agentDiscoveryService.findFallbackAgent();
+        if (fallbackAgent != null) {
+            log.info("[Router] 关键词兜底匹配到 fallback Agent: {}", fallbackAgent.getAgentName());
+            return fallbackAgent.getAgentName();
+        }
+        
+        // 最终降级：返回任意可用 Agent
         var agents = agentDiscoveryService.discoverAllAgents();
         if (!agents.isEmpty()) {
-            // 优先找 general_chat 作为兜底
-            for (DiscoveredAgent a : agents) {
-                if ("general_chat".equals(a.getAgentName())) {
-                    log.info("[Router] 关键词兜底匹配到 general_chat");
-                    return a.getAgentName();
-                }
-            }
             return agents.get(0).getAgentName();
         }
         
@@ -413,13 +398,12 @@ public class RouterService {
 
         for (String subTask : subTasks) {
             log.info("[Router] 🔀 执行子任务: {}", subTask);
-            // 存储 routed 事件
-            String detectedAgent = selectBestAgent(subTask, context);
-            storeSseEvent(eventsKey, "routed", "🎯 正在处理: " + subTask, detectedAgent);
-
+            // 直接用 handleSingleIntent 路由和执行，移除重复的 selectBestAgent
             RoutingResult subResult = handleSingleIntent(subTask, context, userId);
-            subResults.add(new SubTaskResult(subTask, subResult.getResult(), subResult.getAgentName()));
-            if (firstAgent == null) firstAgent = subResult.getAgentName();
+            String detectedAgent = subResult.getAgentName() != null ? subResult.getAgentName() : "unknown";
+            storeSseEvent(eventsKey, "routed", "🎯 正在处理: " + subTask, detectedAgent);
+            subResults.add(new SubTaskResult(subTask, subResult.getResult(), detectedAgent));
+            if (firstAgent == null) firstAgent = detectedAgent;
 
             // 存储 tool_call + response 事件
             storeSseEvent(eventsKey, "tool_call", subTask, subResult.getAgentName());
