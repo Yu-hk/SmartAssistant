@@ -45,11 +45,6 @@ spring:
     password: ${POSTGRES_PASSWORD:postgres123}
     driver-class-name: org.postgresql.Driver
 
-  # 高德地图 API 配置（用于搜索附近娱乐项目）
-  amap:
-    api:
-      key: ${AMAP_API_KEY:}  # 请替换为实际的高德地图 API Key，申请地址：https://lbs.amap.com/
-
   # AI 模型配置
   ai:
     # DeepSeek 模型配置
@@ -82,6 +77,8 @@ spring:
             enabled: true  # 启用 Nacos 注册（需要 Nacos 3.x 版本）
             namespace: ""  # 使用默认 namespace (public)
             group: DEFAULT_GROUP
+            username: ${NACOS_USERNAME:nacos}
+            password: ${NACOS_PASSWORD:nacos123}
             # Agent 特征元数据（用于 Router 智能路由）
             metadata:
               agent-type: food_recommendation
@@ -107,6 +104,11 @@ spring:
     mcp:
       server:
         enabled: true  # 启用 MCP Server
+
+# 高德地图 API 配置（用于搜索附近娱乐项目）
+amap:
+  api:
+    key: ${AMAP_API_KEY:}  # 请替换为实际的高德地图 API Key，申请地址：https://lbs.amap.com/
 
 # Actuator + Prometheus + Tracing 配置（监控端点）⭐
 management:
