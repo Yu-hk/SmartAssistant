@@ -72,3 +72,4 @@ post_result*.json
 
 # Lingma local config
 .lingma/
+cp.txt
