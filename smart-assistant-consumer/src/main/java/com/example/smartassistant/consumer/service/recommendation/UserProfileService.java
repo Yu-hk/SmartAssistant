@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
 
 /**
  * 用户画像服务（文件存储版）
- * 偏好存入 data/user-preferences/{userId}.json，不再依赖 DB
+ * 偏好存入 data/users/{userId}/preferences.json
  */
 @Service
 public class UserProfileService {
@@ -27,8 +27,8 @@ public class UserProfileService {
     private static final Logger log = LoggerFactory.getLogger(UserProfileService.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Value("${app.preferences.storage-path:data/user-preferences}")
-    private String storagePath;
+    @Value("${app.data.dir:data/users}")
+    private String basePath;
 
     private final LLMPreferenceExtractor llmExtractor;
 
@@ -196,7 +196,7 @@ public class UserProfileService {
     // ==================== 文件 I/O ====================
 
     private Path profilePath(Long userId) {
-        return Paths.get(storagePath, userId + ".json");
+        return Paths.get(basePath, String.valueOf(userId), "preferences.json");
     }
 
     private UserProfile loadProfile(Long userId) {
@@ -213,7 +213,7 @@ public class UserProfileService {
 
     private void saveProfile(UserProfile profile) {
         try {
-            Path dir = Paths.get(storagePath);
+            Path dir = Paths.get(basePath, String.valueOf(profile.getUserId()));
             Files.createDirectories(dir);
             profile.setUpdatedAt(LocalDateTime.now());
             String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(profile);
