@@ -4,7 +4,6 @@ import com.example.smartassistant.consumer.service.cache.AnswerCacheService;
 import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationService;
 import com.example.smartassistant.consumer.service.core.MathConsumerService;
 import com.example.smartassistant.consumer.service.data.HybridDataQueryService;
-import com.example.smartassistant.consumer.service.session.ChatMessageService;
 import com.example.smartassistant.consumer.service.session.ConversationDocumentService;
 import com.example.smartassistant.consumer.service.session.ConversationValueService;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
@@ -30,7 +29,6 @@ public class ChatController {
     private final HybridDataQueryService hybridDataQueryService;  // ⭐ 新增：混合数据查询服务
     private final AnswerCacheService answerCacheService;  // ⭐ Phase 1: 答案缓存服务
     private final AnswerPersonalizationService personalizationCacheService;  // ⭐ 方案E: 缓存预热
-    private final ChatMessageService chatMessageService;
     private final ConversationValueService conversationValueService;
     private final ConversationDocumentService conversationDocumentService;
     private final ChatClient chatClient;
@@ -39,7 +37,6 @@ public class ChatController {
                          HybridDataQueryService hybridDataQueryService,
                          AnswerCacheService answerCacheService,
                          AnswerPersonalizationService personalizationCacheService,
-                          ChatMessageService chatMessageService,
                           ConversationValueService conversationValueService,
                           ConversationDocumentService conversationDocumentService,
                          ChatClient.Builder chatClientBuilder) {
@@ -47,7 +44,6 @@ public class ChatController {
         this.hybridDataQueryService = hybridDataQueryService;
         this.answerCacheService = answerCacheService;
         this.personalizationCacheService = personalizationCacheService;
-        this.chatMessageService = chatMessageService;
         this.conversationValueService = conversationValueService;
         this.conversationDocumentService = conversationDocumentService;
         this.chatClient = chatClientBuilder.build();
@@ -113,17 +109,7 @@ public class ChatController {
                 );
         }
         
-        // 2. 记录用户消息到对话历史(可选，失败不影响主流程)
-        Mono<Void> saveUserMessageMono = Mono.empty();
-        if (sessionId != null) {
-            saveUserMessageMono = Mono.fromRunnable(() -> {
-                try {
-                    chatMessageService.saveUserMessage(sessionId, message);
-                } catch (Exception e) {
-                    log.warn("[MathController] ⚠️ 保存用户消息失败，继续处理: {}", e.getMessage());
-                }
-            });
-        }
+        // 2. 已无 DB 存储，直接处理
         
         // ⭐ 3. 智能判断是否为数据查询请求 / 交互式多意图
         Mono<Map<String, Object>> resultMono;
@@ -168,9 +154,9 @@ public class ChatController {
             resultMono = Mono.fromCallable(() -> mathService.calculateWithSession(userId, message, null, finalRequestId))
                     .subscribeOn(Schedulers.boundedElastic())
                     .map(routerMap -> {
-                        String resultText = (String) ((Map<String, Object>) routerMap).get("result");
-                        String agentName = (String) ((Map<String, Object>) routerMap).get("agentName");
-                        Boolean fromCache = (Boolean) ((Map<String, Object>) routerMap).getOrDefault("fromCache", false);
+                        String resultText = (String) routerMap.get("result");
+                        String agentName = (String) routerMap.get("agentName");
+                        Boolean fromCache = (Boolean) routerMap.getOrDefault("fromCache", false);
                         Map<String, Object> map = new HashMap<>();
                         map.put("result", resultText != null ? resultText : "");
                         map.put("agentName", agentName);
@@ -180,7 +166,7 @@ public class ChatController {
         }
 
         // 5. 组合所有异步操作
-        return saveUserMessageMono.then(resultMono)
+        return resultMono
             .flatMap(routerResponse -> {
                 String reply = (String) routerResponse.get("result");
 
@@ -189,24 +175,11 @@ public class ChatController {
                 
                 // 从回复中移除建议行，避免重复展示
                 String cleanReply = removeStarSuggestions(reply);
-                
-                // 7. 记录系统回复到对话历史(失败不影响主流程)
-                if (sessionId != null) {
-                    try {
-                        chatMessageService.saveAiMessage(sessionId, cleanReply, null, null);
-                    } catch (Exception e) {
-                        log.warn("[ChatController] ⚠️ 保存 AI 回复失败，继续处理: {}", e.getMessage());
-                    }
-                }
 
-                // ⭐ 7.5 对话价值评估：判断是否沉淀为用户个人文档（异步，不阻塞）
+                // ⭐ 7. 对话价值评估：判断是否沉淀为用户个人文档（异步，不阻塞）
                 if (sessionId != null && userId != null) {
                     String agentName = (String) routerResponse.get("agentName");
                     Boolean fromCache = (Boolean) routerResponse.getOrDefault("fromCache", false);
-                    long messageCount = 0;
-                    try {
-                        messageCount = chatMessageService.getMessageCount(sessionId);
-                    } catch (Exception ignored) {}
 
                     ConversationValueService.ConversationValueContext ctx =
                             new ConversationValueService.ConversationValueContext(
@@ -215,7 +188,7 @@ public class ChatController {
                                     message + "\n" + cleanReply,
                                     agentName,
                                     null,  // intentTag - 可从 Router 返回中获取
-                                    (int) (messageCount / 2) + 1,
+                                    1,    // turnCount - 简化处理，不再依赖 DB
                                     fromCache != null && fromCache,
                                     false  // hasToolCall - 暂缺此信号
                             );

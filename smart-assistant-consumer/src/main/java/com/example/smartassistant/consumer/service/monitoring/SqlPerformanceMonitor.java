@@ -185,7 +185,7 @@ public class SqlPerformanceMonitor {
      */
     @Scheduled(cron = "0 0 2 * * ?")
     public void analyzeTableStatistics() {
-        String[] tablesToAnalyze = {"users", "chat_messages", "routing_call_log"};
+        String[] tablesToAnalyze = {"users", "conversation_feedback", "routing_call_log"};
         
         for (String table : tablesToAnalyze) {
             try {

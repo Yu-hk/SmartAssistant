@@ -38,16 +38,16 @@ public class AnalyticsController {
         try {
             Map<String, Object> stats = new HashMap<>();
             
-            // 1. 活跃用户数（去重 session_id）
+            // 1. 活跃用户数（从 conversation_feedback 表获取）
             Long totalUsersObj = jdbcTemplate.queryForObject(
-                "SELECT COUNT(DISTINCT session_id) FROM chat_messages", 
+                "SELECT COUNT(DISTINCT user_id) FROM conversation_feedback", 
                 Long.class
             );
             stats.put("totalUsers", totalUsersObj != null ? totalUsersObj : 0L);
             
-            // 2. 对话总数
+            // 2. 反馈总数
             Long totalConversationsObj = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM chat_messages WHERE is_user = true", 
+                "SELECT COUNT(*) FROM conversation_feedback", 
                 Long.class
             );
             stats.put("totalConversations", totalConversationsObj != null ? totalConversationsObj : 0L);

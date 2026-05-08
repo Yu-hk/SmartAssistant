@@ -1,6 +1,5 @@
 package com.example.smartassistant.consumer.service.data;
 
-import com.example.smartassistant.consumer.mapper.ChatMessageMapper;
 import com.example.smartassistant.consumer.service.agent.McpAgentService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -27,8 +26,7 @@ public class HybridDataQueryService {
     private final ChatClient mcpChatClient;  // MCP Client（备用）
     private final McpAgentService mcpAgentService;  // ⭐ ReactAgent 服务
     private final SyncMcpToolCallbackProvider syncMcpToolCallbackProvider;  // ⭐ MCP 专用类型
-    private final ChatMessageMapper chatMessageMapper;  // ⭐ MyBatis Mapper
-    private final JdbcTemplate jdbcTemplate;  // ⭐ JdbcTemplate（用于 users 等跨表查询）
+    private final JdbcTemplate jdbcTemplate;  // ⭐ JdbcTemplate
     private volatile boolean mcpInitialized = false;  // MCP 初始化标志
 
     @Value("${spring.ai.mcp.server.enabled:true}")
@@ -41,12 +39,10 @@ public class HybridDataQueryService {
             ChatClient.Builder chatClientBuilder,
             @Autowired(required = false) SyncMcpToolCallbackProvider syncMcpToolCallbackProvider,
             McpAgentService mcpAgentService,
-            ChatMessageMapper chatMessageMapper,
             JdbcTemplate jdbcTemplate) {
 
         this.syncMcpToolCallbackProvider = syncMcpToolCallbackProvider;
         this.mcpAgentService = mcpAgentService;
-        this.chatMessageMapper = chatMessageMapper;
         this.jdbcTemplate = jdbcTemplate;
 
         // 构建备用的 ChatClient
@@ -301,17 +297,18 @@ public class HybridDataQueryService {
             return "当前系统中共有 " + (count != null ? count : 0) + " 个注册用户。";
         }
 
-        // 2. 聊天消息数量查询
+        // 2. 反馈数量查询
         if (lower.contains("消息") || lower.contains("聊天") || lower.contains("message")) {
-            long count = chatMessageMapper.selectCount(null);
-            return "当前系统中共有 " + count + " 条聊天消息。";
+            Long count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM conversation_feedback", Long.class);
+            return "当前系统中共有 " + (count != null ? count : 0) + " 条用户反馈。";
         }
 
         // 3. 会话数量查询
         if (lower.contains("会话") || lower.contains("session") || lower.contains("对话")) {
             Long count = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(DISTINCT session_id) FROM chat_messages", Long.class);
-            return "当前系统中共有 " + (count != null ? count : 0) + " 个活跃会话。";
+                    "SELECT COUNT(DISTINCT user_id) FROM conversation_feedback", Long.class);
+            return "当前系统中共有 " + (count != null ? count : 0) + " 条用户反馈。";
         }
 
         // 4. 路由调用日志数量
@@ -373,7 +370,7 @@ public class HybridDataQueryService {
             
         } catch (Exception e) {
             // 如果获取失败，返回基本的表名列表
-            return "可用表：users, chat_messages, routing_call_logs（详细结构获取失败）";
+            return "可用表：users, conversation_feedback, routing_call_logs（详细结构获取失败）";
         }
     }
 
