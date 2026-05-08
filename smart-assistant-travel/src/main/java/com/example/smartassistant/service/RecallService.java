@@ -4,7 +4,6 @@ import com.example.smartassistant.entity.TravelNoteChunk;
 import com.example.smartassistant.mapper.TravelNoteChunkMapper;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -14,8 +13,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -32,7 +29,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class RecallService {
 
     private final TravelNoteChunkMapper chunkMapper;
@@ -154,7 +150,7 @@ public class RecallService {
                         .map(String::trim)
                         .filter(line -> line.length() > 3)
                         .limit(MULTI_QUERY_COUNT)
-                        .collect(Collectors.toList());
+                        .toList();
 
                 queries.addAll(generated);
                 log.debug("[Recall] Multi-Query 生成: {} 个变体", generated.size());
@@ -181,7 +177,7 @@ public class RecallService {
             List<TravelNoteChunk> results = chunkMapper.searchByEmbedding(
                     queryVec, location, userId, candidatesPerPath);
             // 标记路径名包含查询摘要，便于调试
-            String pathName = "vector:" + abbreviate(searchText, 20);
+            String pathName = "vector:" + abbreviate(searchText);
             paths.add(new RecallPathResult(pathName, results));
         } catch (Exception e) {
             log.warn("[Recall] 向量检索失败: {}", e.getMessage());
@@ -192,7 +188,7 @@ public class RecallService {
             if (searchText != null && !searchText.isBlank()) {
                 List<TravelNoteChunk> results = chunkMapper.searchByFullText(
                         searchText, location, userId, candidatesPerPath);
-                paths.add(new RecallPathResult("fulltext:" + abbreviate(searchText, 20), results));
+                paths.add(new RecallPathResult("fulltext:" + abbreviate(searchText), results));
             }
         } catch (Exception e) {
             log.warn("[Recall] 全文检索失败: {}", e.getMessage());
@@ -214,9 +210,9 @@ public class RecallService {
     }
 
     /** 截断长文本用于日志 */
-    private static String abbreviate(String text, int maxLen) {
+    private static String abbreviate(String text) {
         if (text == null) return "";
-        return text.length() <= maxLen ? text : text.substring(0, maxLen) + "...";
+        return text.length() <= 20 ? text : text.substring(0, 20) + "...";
     }
 
     // ==================== RRF 融合 ====================
