@@ -1,7 +1,6 @@
 package com.example.smartassistant.consumer.websocket;
 
 import com.example.smartassistant.consumer.service.core.MathConsumerService;
-import com.example.smartassistant.consumer.service.session.ChatMessageService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
@@ -25,16 +24,13 @@ public class ConversationWebSocketHandler extends TextWebSocketHandler {
     private static final Logger log = LoggerFactory.getLogger(ConversationWebSocketHandler.class);
 
     private final MathConsumerService mathConsumerService;
-    private final ChatMessageService chatMessageService;
     private final ObjectMapper objectMapper;
 
     // 存储活跃的 WebSocket 会话：sessionId -> WebSocketSession
     private final Map<String, WebSocketSession> activeSessions = new ConcurrentHashMap<>();
 
-    public ConversationWebSocketHandler(MathConsumerService mathConsumerService,
-                                        ChatMessageService chatMessageService) {
+    public ConversationWebSocketHandler(MathConsumerService mathConsumerService) {
         this.mathConsumerService = mathConsumerService;
-        this.chatMessageService = chatMessageService;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -101,9 +97,6 @@ public class ConversationWebSocketHandler extends TextWebSocketHandler {
         // 注册会话
         activeSessions.put(sessionId, session);
 
-        // 保存用户消息
-        chatMessageService.saveUserMessage(sessionId, message);
-
         // 发送处理中状态
         sendTextMessage(session, Map.of(
             "type", "processing",
@@ -115,9 +108,6 @@ public class ConversationWebSocketHandler extends TextWebSocketHandler {
         long startTime = System.currentTimeMillis();
         String aiResponse = mathConsumerService.calculate(message);
         long duration = System.currentTimeMillis() - startTime;
-
-        // 保存 AI 回复
-        chatMessageService.saveAiMessage(sessionId, aiResponse, "router_service", null);
 
         // 发送结果
         sendTextMessage(session, Map.of(
