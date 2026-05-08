@@ -14,9 +14,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -145,9 +144,7 @@ public class GeneralTools {
                 return null;
             });
 
-            var future2 = CompletableFuture.supplyAsync(() -> {
-                return fetchBaiduNews();
-            });
+            var future2 = CompletableFuture.supplyAsync(this::fetchBaiduNews);
 
             // 先到先用，最多等 4 秒
             String result = (String) CompletableFuture.anyOf(future1, future2)
@@ -257,7 +254,7 @@ public class GeneralTools {
 
             // 尝试解析 tenapi 格式: { code: 200, data: [ { name: "...", list: [...] } ] }
             JsonNode data = root.get("data");
-            if (data != null && data.isArray() && data.size() > 0) {
+            if (data != null && data.isArray() && !data.isEmpty()) {
                 StringBuilder sb = new StringBuilder();
                 for (JsonNode category : data) {
                     String name = category.get("name").asText("热点");
@@ -275,7 +272,7 @@ public class GeneralTools {
                     }
                     sb.append("\n");
                 }
-                if (sb.length() > 0) return sb.toString();
+                if (!sb.isEmpty()) return sb.toString();
             }
 
             // 尝试解析微博热榜格式: { data: { realtime: [...] } }
@@ -467,7 +464,7 @@ public class GeneralTools {
         log.info("[GeneralTools] 联网搜索: query={}", query);
         try {
             // 使用 DuckDuckGo 搜索（无需 API Key）
-            String url = "https://html.duckduckgo.com/html/?q=" + java.net.URLEncoder.encode(query, "UTF-8");
+            String url = "https://html.duckduckgo.com/html/?q=" + java.net.URLEncoder.encode(query, StandardCharsets.UTF_8);
             String html = fetchJson(url);
             if (html == null) return "搜索失败，请稍后重试";
 
@@ -494,7 +491,6 @@ public class GeneralTools {
 
             int hrefStart = resultStart + 44;
             int hrefEnd = html.indexOf("\"", hrefStart);
-            String link = html.substring(hrefStart, hrefEnd);
 
             int titleStart = html.indexOf(">", hrefEnd) + 1;
             int titleEnd = html.indexOf("</a>", titleStart);

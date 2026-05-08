@@ -385,13 +385,13 @@ public class AgentCallerService {
 
         // 策略2：移除 [ModelThinking]...[/ModelThinking] 区块（如果还未被框架剥离）
         if (response.contains("[ModelThinking]")) {
-            response = response.replaceAll("(?s)\\[ModelThinking\\].*?\\[/ModelThinking\\]", "");
+            response = response.replaceAll("(?s)\\[ModelThinking].*?\\[/ModelThinking]", "");
             log.info("[AgentCaller] 清理 [ModelThinking] 区块，长度: {} -> {}", original.length(), response.length());
         }
 
         // 策略3：移除 [思考内容] 区块
         if (response.contains("[思考内容]")) {
-            response = response.replaceAll("(?s)\\[思考内容\\].*?\\[/思考内容\\]", "");
+            response = response.replaceAll("(?s)\\[思考内容].*?\\[/思考内容]", "");
             log.info("[AgentCaller] 清理 [思考内容] 区块，长度: {} -> {}", original.length(), response.length());
         }
 
