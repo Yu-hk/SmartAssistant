@@ -133,7 +133,7 @@ public class GeneralTools {
 
     // ==================== 新闻热点 ====================
 
-    @Tool(description = "获取当前网络热门新闻热点话题（微博热搜、百度热点等），无需参数，自动获取最新热点")
+    @Tool(description = "获取当前网络热门新闻热点话题（微博热搜、百度热点等），无需参数，自动获取最新热点。需要时政/综合热点时优先用此工具")
     public String getHotNews() {
         log.info("[GeneralTools] 获取热门新闻");
         long start = System.currentTimeMillis();
@@ -459,6 +459,67 @@ public class GeneralTools {
             case "t", "吨" -> kg / 1000;
             default -> Double.NaN;
         };
+    }
+
+    @Tool(description = "联网搜索信息，当用户问实时新闻、时事、百科知识或需要最新信息时调用")
+    public String searchWeb(
+            @ToolParam(description = "搜索关键词，如'2025年春节放假安排'") String query) {
+        log.info("[GeneralTools] 联网搜索: query={}", query);
+        try {
+            // 使用 DuckDuckGo 搜索（无需 API Key）
+            String url = "https://html.duckduckgo.com/html/?q=" + java.net.URLEncoder.encode(query, "UTF-8");
+            String html = fetchJson(url);
+            if (html == null) return "搜索失败，请稍后重试";
+
+            return parseDuckDuckGoResults(html, query);
+        } catch (Exception e) {
+            log.warn("[GeneralTools] 搜索异常: {}", e.getMessage());
+            return "搜索时发生错误: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 解析 DuckDuckGo HTML 搜索结果
+     */
+    private String parseDuckDuckGoResults(String html, String query) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("🔍 搜索结果：「").append(query).append("」\n\n");
+
+        int count = 0;
+        int pos = 0;
+        while (count < 8) {
+            // 查找结果块
+            int resultStart = html.indexOf("<a rel=\"nofollow\" class=\"result__a\" href=\"", pos);
+            if (resultStart < 0) break;
+
+            int hrefStart = resultStart + 44;
+            int hrefEnd = html.indexOf("\"", hrefStart);
+            String link = html.substring(hrefStart, hrefEnd);
+
+            int titleStart = html.indexOf(">", hrefEnd) + 1;
+            int titleEnd = html.indexOf("</a>", titleStart);
+            String title = stripHtmlTags(html.substring(titleStart, titleEnd)).trim();
+
+            // 查找摘要
+            int snippetStart = html.indexOf("<a class=\"result__snippet\"", resultStart);
+            if (snippetStart < 0) break;
+            int snippetTextStart = html.indexOf(">", snippetStart) + 1;
+            int snippetEnd = html.indexOf("</a>", snippetTextStart);
+            String snippet = stripHtmlTags(html.substring(snippetTextStart, snippetEnd)).trim();
+
+            count++;
+            sb.append(count).append(". ").append(title).append("\n");
+            sb.append("   ").append(snippet).append("\n\n");
+
+            pos = snippetEnd + 4;
+        }
+
+        if (count == 0) {
+            return "未找到「" + query + "」的相关结果，请尝试换个关键词。";
+        }
+
+        sb.append("--- 共找到 ").append(count).append(" 条结果（由 DuckDuckGo 提供）");
+        return sb.toString();
     }
 
     private String formatResult(double value) {
