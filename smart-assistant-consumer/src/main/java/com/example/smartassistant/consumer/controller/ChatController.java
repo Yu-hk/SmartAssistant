@@ -177,7 +177,7 @@ public class ChatController {
                 String cleanReply = removeStarSuggestions(reply);
 
                 // ⭐ 7. 对话价值评估：判断是否沉淀为用户个人文档（异步，不阻塞）
-                if (sessionId != null && userId != null) {
+                if (sessionId != null) {
                     String agentName = (String) routerResponse.get("agentName");
                     Boolean fromCache = (Boolean) routerResponse.getOrDefault("fromCache", false);
 

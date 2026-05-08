@@ -15,8 +15,9 @@ public class ConversationValueService {
 
     private static final Logger log = LoggerFactory.getLogger(ConversationValueService.class);
 
-    private static final Set<String> HIGH_VALUE_AGENTS = Set.of("travel_chat", "food_chat");
     private static final Set<String> HIGH_VALUE_INTENTS = Set.of("PREFERENCE", "PLAN", "DECISION", "RECOMMEND");
+
+    private static final Set<String> NO_VALUE_AGENTS = Set.of("builtin_fallback", "none");
 
     /**
      * 评估对话价值
@@ -28,16 +29,14 @@ public class ConversationValueService {
             log.debug("[ConvValue] 缓存命中，跳过: sessionId={}", ctx.sessionId);
             return false;
         }
-        if (ctx.agentName == null || "general_chat".equals(ctx.agentName) || "builtin_fallback".equals(ctx.agentName)) {
-            if (!ctx.hasToolCall) {
-                log.debug("[ConvValue] general/fallback + 无工具调用，跳过: sessionId={}", ctx.sessionId);
-                return false;
-            }
+        if (ctx.agentName != null && NO_VALUE_AGENTS.contains(ctx.agentName)) {
+            log.debug("[ConvValue] 终极兜底或无匹配，跳过: sessionId={}, agent={}", ctx.sessionId, ctx.agentName);
+            return false;
         }
 
-        // 正向评分
+        // 正向评分：agent 不再参与评分（travel/food/general 都不加分），
+        // 避免 general 因无工具调用而被排除
         int score = 0;
-        if (ctx.agentName != null && HIGH_VALUE_AGENTS.contains(ctx.agentName)) score += 2;
         if (ctx.intentTag != null && HIGH_VALUE_INTENTS.contains(ctx.intentTag.toUpperCase())) score += 2;
         if (ctx.hasToolCall) score += 1;
         if (ctx.turnCount >= 3) score += 1;
