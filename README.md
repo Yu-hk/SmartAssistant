@@ -3,10 +3,10 @@
 [![Java](https://img.shields.io/badge/Java-17%2B-blue)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.8-brightgreen)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-1.1.2-brightgreen)](https://docs.spring.io/spring-ai/reference/)
-[![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D)](https://vuejs.org/)
+[![Vue](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-> 基于 Spring AI Alibaba + A2A 协议的智能体对话平台，集成 DeepSeek 大模型，支持多 Agent 协同、动态路由、RAG 增强检索。
+> 基于 Spring AI Alibaba + A2A 协议的智能体对话平台，集成 DeepSeek V4-Flash 大模型，支持多 Agent 协同、关键词路由、文件级用户记忆。
 
 ---
 
@@ -50,13 +50,15 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 特性 | 说明 |
 |------|------|
 | 🧠 **A2A 协议** | 基于阿里 Spring AI Alibaba 的 Agent-to-Agent 通信协议，支持 Agent 自动发现和注册 |
-| 🚦 **智能路由** | 基于 HanLP 分词的意图识别 + Redis 语义缓存，支持多意图查询的分布式路由 |
-| 🔄 **三层兜底** | 语义缓存命中 → 向量检索 → LLM 生成，逐级降级，保证 SLA |
+| 🚦 **关键词路由** | 基于 Agent 注册元数据的 keywords 匹配，移除复杂的策略体系，修改职责只需改 Nacos Config |
+| 🔄 **三层兜底** | 关键词匹配 → Fallback Agent(priority) → 内联 ChatClient，逐级降级 |
+| 🗂️ **文件级用户记忆** | 偏好存 `data/users/{userId}/preferences.json`；有价值对话存 `memories/*.md`，零 DB 依赖 |
+| 💬 **回复风格切换** | General Agent 支持用户指定幽默/文言文/段子手等多种回复风格 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
 | 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
 | 🔐 **多层安全** | JWT 认证 + Redis 限流 + Nacos 服务认证 + CORS 白名单 |
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 |
-| 🌐 **前端支持** | Vue 3 管理界面，WebSocket 实时流式对话 |
+| 🌐 **前端支持** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
 
 ---
 
@@ -93,10 +95,11 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 ### 请求流程
 
 1. **前端请求** → Gateway (JWT 认证 + 限流)
-2. **Gateway 转发** → Router (意图识别 + 服务发现)
-3. **Router 路由** → Consumer (会话管理 + 上下文)
+2. **Gateway 转发** → Router (关键词匹配 + 意图识别)
+3. **Router 路由** → Consumer (会话管理 + 价值评估)
 4. **Consumer 调度** → 对应 Agent (Travel / Food / General)
 5. **Agent 响应** → 通过 SSE 流式返回给前端
+6. **价值评估** → 有价值对话 → `data/users/{userId}/memories/`（异步）
 
 详情参见 `AGENTS.md`。
 
@@ -111,10 +114,10 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 语言 | Java | 17+ |
 | 框架 | Spring Boot | 3.4.8 |
 | AI 框架 | Spring AI Alibaba | 1.1.2 |
-| 模型 | DeepSeek V4-Flash / DashScope (Embedding) | — |
-| 注册中心 | Nacos | 3.1.0 |
+| 模型 | DeepSeek V4-Flash / DashScope text-embedding-v4 | — |
+| 注册/配置中心 | Nacos（元数据支持动态管理） | 3.1.0 |
 | 缓存 | Redis | 7.2+ |
-| 数据库 | PostgreSQL | 16+/18+ (pgvector) |
+| 数据库 | PostgreSQL (pgvector) | 16+/18+ |
 | ORM | MyBatis-Plus | 3.5+ |
 | 分词 | HanLP | 1.8.4 |
 | SQL 解析 | jsqlparser | 4.9 |
@@ -123,7 +126,8 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 | 分类 | 技术 |
 |------|------|
-| 框架 | Vue 3 |
+| 框架 | React 18 + TypeScript |
+| UI 库 | TDesign |
 | 通信 | WebSocket / SSE |
 | 构建 | Vite |
 
@@ -145,12 +149,12 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 服务 | 端口 | 职责 |
 |------|------|------|
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
-| **Consumer** | 8082 | 对话聚合，会话管理，上下文维护，用户画像 |
-| **Router** | 8083 | 意图识别，Agent 调度，语义缓存，Nacos 服务发现 |
-| **Travel** | 8085 | 出行规划，地点查询，天气预报，景点信息 |
+| **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀 |
+| **Router** | 8083 | 关键词路由，Agent 调度，语义缓存，Nacos 服务发现 |
+| **Travel** | 8085 | 出行规划，地点查询，天气预报，景点信息（RAG） |
 | **Food** | 8084 | 美食推荐，菜系查询，附近餐厅搜索 |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
-| **General** | 8087 | 闲聊问答，新闻热点查询，通用工具（计算/单位转换） |
+| **General** | 8087 | 闲聊问答，新闻热点，单位转换，支持风格切换 |
 
 ---
 
@@ -195,7 +199,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 ```powershell
 # 从模板创建配置文件
 cd D:\workspace\SmartAssistant
-cp .env.example .env
+copy .env.example .env
 
 # 编辑 .env 填入真实 API Key（DeepSeek、DashScope 等）
 # ⚠️ .env 已加入 .gitignore，不会提交到版本控制
@@ -209,7 +213,8 @@ cp .env.example .env
 | `DASHSCOPE_API_KEY` | DashScope API Key（Embedding） | 必填 |
 | `AMAP_API_KEY` | 高德地图 API Key | 可选 |
 | `JWT_SECRET` | JWT 签名密钥 | 建议自行生成 |
-| `POSTGRES_PASSWORD` | PostgreSQL 密码 | 必填 |
+| `POSTGRES_PASSWORD` | PostgreSQL 密码 | `postgres123` |
+| `app.data.dir` | 用户数据存储目录 | `data/users` |
 
 ### 3. 构建项目
 
@@ -225,7 +230,7 @@ D:\maven\apache-maven-3.9.6\bin\mvn.cmd compile -DskipTests
 # 全量打包
 D:\maven\apache-maven-3.9.6\bin\mvn.cmd package -DskipTests -Dmaven.test.skip=true
 
-# 前端
+# 前端（React + TypeScript + TDesign）
 cd frontend && npm install && cd ..
 ```
 
@@ -285,6 +290,9 @@ psql -h 127.0.0.1 -U postgres -d a2a_system -c "CREATE EXTENSION IF NOT EXISTS v
 # 执行初始化脚本
 $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -U postgres -d a2a_system -f "docs/database/schema.sql"
 $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -U postgres -d a2a_system -f "docs/database/seed_data.sql"
+
+# ⚠️ chat_messages 相关表已废弃，由 data/users/{userId}/memories/ 替代
+# 如需删除旧表，执行：docs/database/cleanup_v20260508.sql
 ```
 
 ### 启用 pg_stat_statements（可选，SQL 性能监控）
@@ -336,7 +344,17 @@ smart-assistant-{service}/src/main/resources/
     └── mcp-table-whitelist.yml  # MCP 表访问白名单
 ```
 
-### 日志输出
+### 用户数据存储
+
+所有用户数据存储在 `data/users/{userId}/` 目录下，不再依赖数据库：
+
+```
+data/users/{userId}/
+├── preferences.json            # 用户偏好（权重、意图分布）
+└── memories/
+    ├── 2026-05-08_session_abc.md   # 有价值对话（YAML + Markdown）
+    └── 2026-05-08_session_def.md
+```
 
 所有服务的日志统一输出到 `logs/` 目录，格式为 `{spring.application.name}.log`：
 
@@ -387,6 +405,15 @@ type logs\travel-service.log -Tail 50
 ### Q: 服务启动失败 "DeepSeek API key must be set"
 
 检查 `.env` 文件是否存在且包含正确的 `DEEPSEEK_API_KEY`。如果以 IDE 启动，需在运行配置中设置环境变量。
+
+### Q: 服务启动失败 "DashScope API key must be set"
+
+检查 `.env` 中的 `DASHSCOPE_API_KEY`。DashScope 用于 Embedding 和 A2A 服务发现（Router 必须配置）。
+
+### Q: 模型生效
+
+当前使用 `deepseek-v4-flash`（非思考模式）。如果 DeepSeek 发布新模型，只需修改各服务 `application.yml` 中
+`spring.ai.deepseek.chat.options.model` 的值，无需改代码。
 
 ### Q: Nacos 连接失败 "unauthorized"
 
@@ -439,8 +466,12 @@ Gateway   Consumer    Router     Travel / Food / User / General
 
 1. 在 `smart-assistant-{agent}` 模块中实现 `@Tool` 方法
 2. 配置 `mcp-table-whitelist.yml` 中的表访问权限
-3. 在 `application.yml` 中注册 Agent 元数据（agent-type、capabilities、keywords）
+3. 在 `application.yml` 中配置基础 Nacos 注册信息
 4. Agent 启动后会自动通过 Nacos 注册到 Router 的服务发现列表
+5. 在 Nacos UI 中创建配置 `{serviceName}-metadata` (Group: `AGENT_META`) 设置 keywords/priority
+6. 后续修改 Agent 职责只需改 Nacos Config，无需重新部署
+
+详情参见 `AGENTS.md`。
 
 ### 运行测试
 
@@ -459,10 +490,10 @@ mvn test -pl smart-assistant-common -Dtest=SqlSecurityValidatorTest
 
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|---------|
-| common | 18 | SQL 安全校验器 |
+| common | 18 | SQL 安全校验器、Dotenv |
 | gateway | 27 | JWT 工具、白名单过滤 |
 | user | 9 | JWT 服务 |
-| general | 30 | 数学计算、单位转换 |
+| general | 30 | 数学计算、温度/长度/重量转换、边界条件 |
 
 ---
 
