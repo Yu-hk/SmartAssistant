@@ -5,7 +5,6 @@ import com.example.smartassistant.router.model.RouteResponse;
 import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.router.service.DistributedTracingService;
 import com.example.smartassistant.router.service.RouterService;
-import com.example.smartassistant.router.strategy.RoutingStrategyManager;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
@@ -27,14 +26,11 @@ public class RouterController {
     private static final Logger log = LoggerFactory.getLogger(RouterController.class);
 
     private final RouterService routerService;
-    private final RoutingStrategyManager strategyManager;
     private final DistributedTracingService tracingService;
 
     public RouterController(RouterService routerService,
-                           RoutingStrategyManager strategyManager,
                            DistributedTracingService tracingService) {
         this.routerService = routerService;
-        this.strategyManager = strategyManager;
         this.tracingService = tracingService;
     }
 
@@ -110,11 +106,12 @@ public class RouterController {
 
         try {
             var context = Map.<String, Object>of("userId", request.getUserId());
-            var decision = strategyManager.executeRouting(request.getQuestion(), context);
+            // 路由决策已合并到标准路由流程
+            RoutingResult routingResult = routerService.route(request);
 
             long latency = System.currentTimeMillis() - startTime;
 
-            if (decision == null) {
+            if (routingResult == null || routingResult.getAgentName() == null) {
                 Map<String, Object> errorResponse = new HashMap<>();
                 errorResponse.put("success", false);
                 errorResponse.put("error", "路由决策失败");
@@ -124,21 +121,18 @@ public class RouterController {
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
-            response.put("serviceName", decision.getAgentName());
-            response.put("confidence", decision.getConfidence());
-            response.put("reason", decision.getReason());
-            response.put("extractedInfo", decision.getExtractedContext());
-            response.put("routingMethod", decision.getRoutingMethod());
+            response.put("serviceName", routingResult.getAgentName());
+            response.put("confidence", routingResult.getConfidence());
             response.put("latency_ms", latency);
-            response.put("note", "这是路由决策结果，未调用远程 Agent");
+            response.put("note", "这是路由决策结果（含 Agent 回复）");
 
-            log.info("[ReactAgent Router API] ReactAgent 路由完成: serviceName={}, confidence={}, latency={}ms",
-                    decision.getAgentName(), decision.getConfidence(), latency);
+            log.info("[ReactAgent Router API] 路由完成: serviceName={}, latency={}ms",
+                    routingResult.getAgentName(), latency);
 
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            log.error("[ReactAgent Router API] ReactAgent 路由失败: {}", e.getMessage(), e);
+            log.error("[ReactAgent Router API] 路由失败: {}", e.getMessage(), e);
 
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
@@ -181,27 +175,25 @@ public class RouterController {
         long reactStart = System.currentTimeMillis();
         try {
             var context = Map.<String, Object>of("userId", request.getUserId());
-            var decision = strategyManager.executeRouting(request.getQuestion(), context);
+            RoutingResult routingResult = routerService.route(request);
             long reactLatency = System.currentTimeMillis() - reactStart;
 
-            if (decision != null) {
-                comparison.put("react_agent_routing", Map.of(
+            if (routingResult != null) {
+                comparison.put("keyword_routing", Map.of(
                         "success", true,
-                        "serviceName", decision.getAgentName(),
-                        "confidence", decision.getConfidence(),
-                        "reason", decision.getReason(),
+                        "agent", routingResult.getAgentName(),
+                        "result_length", routingResult.getResult() != null ? routingResult.getResult().length() : 0,
                         "latency_ms", reactLatency,
-                        "method", "REACT_AGENT_ROUTING"
+                        "method", "KEYWORD_ROUTING"
                 ));
             } else {
-                comparison.put("react_agent_routing", Map.of(
+                comparison.put("keyword_routing", Map.of(
                         "success", false,
-                        "error", "路由决策失败",
-                        "latency_ms", reactLatency
+                        "error", "路由决策为空"
                 ));
             }
         } catch (Exception e) {
-            comparison.put("react_agent_routing", Map.of(
+            comparison.put("keyword_routing", Map.of(
                     "success", false,
                     "error", e.getMessage()
             ));
