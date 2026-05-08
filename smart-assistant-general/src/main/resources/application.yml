@@ -59,6 +59,8 @@ spring:
             enabled: true
             namespace: ""
             group: DEFAULT_GROUP
+            username: ${NACOS_USERNAME:nacos}
+            password: ${NACOS_PASSWORD:nacos123}
             metadata:
               agent-type: general_chat
               capabilities: chat,qa,entertainment,companion

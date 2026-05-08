@@ -66,6 +66,8 @@ spring:
             enabled: true
             namespace: ""  # 使用默认 namespace (public)
             group: DEFAULT_GROUP
+            username: ${NACOS_USERNAME:nacos}
+            password: ${NACOS_PASSWORD:nacos123}
 
 # JWT 配置（与 Consumer Service 保持一致）
 jwt:
