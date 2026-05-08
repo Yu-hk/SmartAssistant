@@ -43,4 +43,10 @@ public class RouteResponse {
      * 错误信息（如果有）
      */
     private String error;
+
+    /**
+     * 是否命中了语义缓存（直接从缓存返回，无 Agent 执行）
+     */
+    @Builder.Default
+    private Boolean fromCache = false;
 }

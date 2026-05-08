@@ -129,6 +129,7 @@ public class RouterService {
                             .agentName(cached.agentName)
                             .confidence(cached.confidence)
                             .intentTag(cached.intentTag)  // ⭐ 从缓存中恢复 intentTag
+                            .fromCache(true)  // ⭐ 标记为缓存命中，Consumer 据此跳过文档沉淀
                             .build();
                 } else {
                     // 仅有路由决策无回复内容，仍需调用 Agent
