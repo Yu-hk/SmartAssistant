@@ -1,7 +1,7 @@
 package com.example.smartassistant.consumer.service.cache;
 
 import com.example.smartassistant.consumer.entity.UserProfile;
-import com.example.smartassistant.consumer.service.UserPreferenceVectorService;
+import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -38,7 +38,7 @@ public class AnswerPersonalizationService {
     
     private final ChatClient chatClient;
     private final ReactiveStringRedisTemplate redisTemplate;
-    private final UserPreferenceVectorService userPreferenceVectorService;
+    private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;  // ⭐ Micrometer 指标
     
@@ -57,12 +57,12 @@ public class AnswerPersonalizationService {
     
     public AnswerPersonalizationService(ChatClient.Builder chatClientBuilder,
                                         ReactiveStringRedisTemplate redisTemplate,
-                                        UserPreferenceVectorService userPreferenceVectorService,
+                                        UserProfileService userProfileService,
                                         ObjectMapper objectMapper,
                                         MeterRegistry meterRegistry) {
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
-        this.userPreferenceVectorService = userPreferenceVectorService;
+        this.userProfileService = userProfileService;
         this.objectMapper = objectMapper;
         this.meterRegistry = meterRegistry;  // ⭐
         
@@ -170,8 +170,8 @@ public class AnswerPersonalizationService {
                     }
                 })
                 .switchIfEmpty(
-                    // L1 未命中，查 L2: user_preference_vectors 表
-                    Mono.fromCallable(() -> userPreferenceVectorService.buildUserProfileFromVectors(uid))
+                    // L1 未命中，查 L2: 文件存储的用户画像
+                    Mono.fromCallable(() -> userProfileService.getProfile(uid))
                         .doOnNext(profile -> {
                             if (profile != null) {
                                 // 存入 L1 缓存
@@ -269,8 +269,8 @@ public class AnswerPersonalizationService {
                         return Mono.empty();
                     }
                     
-                    // 从 user_preference_vectors 表加载并缓存
-                    return Mono.fromCallable(() -> userPreferenceVectorService.buildUserProfileFromVectors(uid))
+                    // 从文件加载用户画像并缓存
+                    return Mono.fromCallable(() -> userProfileService.getProfile(uid))
                         .doOnNext(profile -> {
                             if (profile != null) {
                                 try {
