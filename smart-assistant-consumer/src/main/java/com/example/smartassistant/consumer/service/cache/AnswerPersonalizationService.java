@@ -145,7 +145,7 @@ public class AnswerPersonalizationService {
      * <p>缓存策略：</p>
      * <ul>
      *     <li>L1: Redis 缓存（TTL=1小时）</li>
-     *     <li>L2: PostgreSQL user_preference_vectors 表</li>
+     *     <li>L2: 文件存储的用户画像 data/users/{userId}/preferences.json</li>
      * </ul>
      */
     private Mono<UserProfile> getUserProfile(String userId) {
