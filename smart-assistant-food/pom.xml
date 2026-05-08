@@ -121,6 +121,13 @@
             <version>${spring-ai.version}</version>
         </dependency>
 
+        <!-- Common Module -->
+        <dependency>
+            <groupId>com.example.smartassistant</groupId>
+            <artifactId>smart-assistant-common</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+
         <!-- 测试依赖 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
