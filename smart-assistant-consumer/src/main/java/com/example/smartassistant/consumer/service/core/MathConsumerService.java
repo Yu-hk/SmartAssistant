@@ -5,7 +5,6 @@ import com.example.smartassistant.consumer.config.PromptGrayReleaseConfig;
 import com.example.smartassistant.consumer.dto.StructuredPrompt;
 import com.example.smartassistant.consumer.service.infrastructure.*;
 import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
-import com.example.smartassistant.consumer.service.session.ConversationHistoryService;
 import com.example.smartassistant.consumer.service.session.SessionManagementService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,11 +34,9 @@ public class MathConsumerService {
     private final SessionManagementService sessionManagementService;
     private final UserProfileService userProfileService; // ⭐ 用户画像服务
     private final RouterClient routerClient;
-    private final ConversationHistoryService conversationHistoryService;
     private final RoutingCallLogService routingCallLogService;
     private final PromptMonitoringService promptMonitoringService;
     private final DistributedTracingService tracingService; // ⭐ 分布式追踪
-    // ⭐ 智能压缩
     private final DataMaskingService maskingService; // ⭐ 数据脱敏
     private final PromptGrayReleaseConfig grayReleaseConfig; // ⭐ 灰度发布
 
@@ -47,7 +44,6 @@ public class MathConsumerService {
             SessionManagementService sessionManagementService,
             UserProfileService userProfileService, // ⭐ 用户画像服务
             RouterClient routerClient,
-            ConversationHistoryService conversationHistoryService,
             RoutingCallLogService routingCallLogService,
             PromptMonitoringService promptMonitoringService,
             DistributedTracingService tracingService,
@@ -56,7 +52,6 @@ public class MathConsumerService {
         this.sessionManagementService = sessionManagementService;
         this.userProfileService = userProfileService; // ⭐ 用户画像服务
         this.routerClient = routerClient;
-        this.conversationHistoryService = conversationHistoryService;
         this.routingCallLogService = routingCallLogService;
         this.promptMonitoringService = promptMonitoringService;
         this.tracingService = tracingService;
@@ -250,16 +245,6 @@ public class MathConsumerService {
             }
         }
         
-        // 添加历史对话
-        String userIdStr = userId != null ? userId.toString() : "anonymous";
-        String threadId = sessionManagementService.getOrCreateThreadId(userIdStr);
-        String history = conversationHistoryService.getRecentHistory(threadId, 5);
-        if (!history.isEmpty()) {
-            prompt.append("【历史对话】\n");
-            prompt.append(history);
-            prompt.append("\n\n");
-        }
-        
         // 添加当前问题
         prompt.append("【当前问题】\n");
         prompt.append(question);
@@ -269,7 +254,8 @@ public class MathConsumerService {
     
     /**
      * 构建完整 Prompt（JSON 格式 + 增强功能）
-     * 优势：
+     * 说明：历史上下文已由 Router 的语义缓存和文件记忆处理，
+     *       此处不再从 DB 读取。 
      * 1. 标准化结构，易于解析
      * 2. 类型安全，支持嵌套
      * 3. 版本控制，便于升级
@@ -288,13 +274,9 @@ public class MathConsumerService {
             }
         }
         
-        // Step 2: 构建历史对话列表（ConversationHistoryService 内部已自动压缩）⭐
+        // Step 2: 历史对话已由 Router 和文件记忆处理，此处不再从 DB 读取
         String userIdStr = userId != null ? userId.toString() : "anonymous";
         String threadId = sessionManagementService.getOrCreateThreadId(userIdStr);
-        List<StructuredPrompt.ConversationMessage> conversationHistory =
-                conversationHistoryService.getStructuredHistory(threadId);
-        boolean needsCompression = conversationHistory.stream()
-                .anyMatch(m -> m.getContent() != null && m.getContent().startsWith("[历史对话"));
         
         // Step 3: 构建元数据（从 MDC 中获取 requestId，保证一致性）⭐
         String mdcRequestId = tracingService.getCurrentContext().get("requestId");
@@ -311,9 +293,8 @@ public class MathConsumerService {
                 .version("1.1")
                 .metadata(metadata)
                 .userProfile(userProfile)
-                .conversationHistory(conversationHistory.isEmpty() ? null : conversationHistory)
                 .currentQuestion(question)
-                .compressed(needsCompression)
+                .compressed(false)
                 .build();
         
         // Step 6: 转换为 JSON 字符串
@@ -327,8 +308,8 @@ public class MathConsumerService {
         String maskedPrompt = maskingService.maskStructuredPrompt(jsonPrompt);
         log.debug("[Consumer] 构建 JSON Prompt (脱敏): {}", maskedPrompt.substring(0, Math.min(200, maskedPrompt.length())));
         
-        log.debug("[Consumer] 构建 JSON Prompt: userId={}, threadId={}, historySize={}, compressed={}, buildTime={}ms", 
-                userId, threadId, conversationHistory.size(), needsCompression, buildEnd - buildStart);
+        log.debug("[Consumer] 构建 JSON Prompt: userId={}, threadId={}, buildTime={}ms", 
+                userId, threadId, buildEnd - buildStart);
         log.debug("[Consumer] JSON Prompt 长度: {} 字符", jsonPrompt.length());
         
         return jsonPrompt;
