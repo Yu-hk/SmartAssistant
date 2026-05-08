@@ -38,7 +38,7 @@ public class TravelPlannerTool {
     /** ⭐ 中文分词器 */
     private final ChineseTokenizer tokenizer;
 
-    @Value("${spring.amap.api.key:}")
+    @Value("${amap.api.key:}")
     private String amapApiKey;
 
     public TravelPlannerTool(ChineseTokenizer tokenizer) {
