@@ -1,7 +1,7 @@
 package com.example.smartassistant.consumer.service.cache;
 
 import com.example.smartassistant.consumer.entity.UserProfile;
-import com.example.smartassistant.consumer.mapper.UserProfileMapper;
+import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -35,15 +35,15 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class UserGroupingService {
 
-    private final UserProfileMapper userProfileMapper;
+    private final UserProfileService userProfileService;
 
     // ⭐ 本地分组缓存（userId -> groupId），避免频繁查询 DB
     // key: userId, value: [groupId, expireTimestamp]
     private final ConcurrentHashMap<String, String[]> groupIdCache = new ConcurrentHashMap<>();
     private static final long GROUP_CACHE_TTL_MS = 5 * 60 * 1000L;  // 5 分钟
 
-    public UserGroupingService(UserProfileMapper userProfileMapper) {
-        this.userProfileMapper = userProfileMapper;
+    public UserGroupingService(UserProfileService userProfileService) {
+        this.userProfileService = userProfileService;
     }
 
     /**
@@ -68,7 +68,7 @@ public class UserGroupingService {
         UserProfile profile = null;
         try {
             Long userIdLong = Long.parseLong(userId);
-            profile = userProfileMapper.findByUserId(userIdLong);
+            profile = userProfileService.getProfile(userIdLong);
         } catch (NumberFormatException e) {
             // userId 是字符串（用户名）而非数字 ID，当前暂不支持按用户名查询画像
             log.debug("[UserGroup] userId 非数字，跳过画像查询: userId={}", userId);
