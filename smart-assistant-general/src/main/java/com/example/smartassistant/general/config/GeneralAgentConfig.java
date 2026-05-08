@@ -2,6 +2,7 @@ package com.example.smartassistant.general.config;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.example.smartassistant.general.tool.GeneralTools;
+import com.example.smartassistant.general.tool.ImageTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -29,22 +31,31 @@ public class GeneralAgentConfig {
 
     /**
      * 通用对话 Agent Bean
-     * 注册数学计算和单位转换工具，支持 ReAct 模式
+     * 注册通用工具和图像工具，支持 ReAct 模式
      */
     @Bean
     public ReactAgent generalChatAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
-            GeneralTools generalTools) {
+            GeneralTools generalTools,
+            ImageTools imageTools) {
 
         log.info("[GeneralAgent] 初始化通用对话 Agent: agentName={}", agentName);
 
-        // 注册所有工具
-        MethodToolCallbackProvider toolProvider = MethodToolCallbackProvider.builder()
+        // 注册所有工具（通用工具 + 图像工具）
+        MethodToolCallbackProvider generalToolProvider = MethodToolCallbackProvider.builder()
                 .toolObjects(generalTools)
                 .build();
-        List<ToolCallback> toolCallbacks = List.of(toolProvider.getToolCallbacks());
+        MethodToolCallbackProvider imageToolProvider = MethodToolCallbackProvider.builder()
+                .toolObjects(imageTools)
+                .build();
+        List<ToolCallback> toolCallbacks = new ArrayList<>();
+        toolCallbacks.addAll(List.of(generalToolProvider.getToolCallbacks()));
+        toolCallbacks.addAll(List.of(imageToolProvider.getToolCallbacks()));
 
-        log.info("[GeneralAgent] 注册 {} 个工具", toolCallbacks.size());
+        log.info("[GeneralAgent] 注册 {} 个工具（通用 {} + 图像 {}）",
+                toolCallbacks.size(),
+                generalToolProvider.getToolCallbacks().length,
+                imageToolProvider.getToolCallbacks().length);
 
         return ReactAgent.builder()
                 .name(agentName)
@@ -78,6 +89,19 @@ public class GeneralAgentConfig {
 
                 5. getHotNews() — 获取当前网络热门新闻热点话题
                    → 无需参数，自动获取最新热点（微博热搜、百度热点等）
+
+                6. searchWeb(query) — 联网搜索信息
+                   → 实时新闻、百科知识、最新信息时优先使用
+
+                7. 🆕 analyzeImage(imageUrl, question) — 图片解读
+                   → 分析图片内容、识别景点/菜品/物体等
+                   → 接收图片 URL 或 base64 data URI
+                   → 示例：用户发图片问"这是什么景点？"
+
+                8. 🆕 generateImage(prompt, size, n) — 文生图
+                   → 根据文字描述生成图片
+                   → 示例：用户说"画一张水墨风格的西湖"
+                   → 参数：prompt（描述）、size（尺寸）、n（数量）
 
                 ═══════════════════════════════════════════════════════════════
                 🎯 回复风格（默认 + 可切换）

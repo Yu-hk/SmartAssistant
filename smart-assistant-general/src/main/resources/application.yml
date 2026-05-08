@@ -4,11 +4,14 @@ server:
 spring:
   application:
     name: general-agent-service
+  main:
+    allow-bean-definition-overriding: true  # ⭐ 允许覆盖 auto-config 的 deepSeekChatModel
 
-  # 排除 Spring Security 自动配置 (内部服务无需认证)
+  # 排除 Spring Security 和 DeepSeek 自动配置
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration  # ⭐ 使用自定义 DeepSeekChatModel
 
   # Spring Cloud 配置
   cloud:
@@ -29,7 +32,7 @@ spring:
         password: ${NACOS_PASSWORD:nacos123}
         metadata:
           agent-type: general_chat
-          capabilities: chat,qa,entertainment,companion
+          capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
           priority: 100  # 最低优先级，作为兜底；无 keywords 约束，仅通过 fallback 匹配
           version: "1.0.0"
           protocol-version: "v1"
@@ -42,9 +45,12 @@ spring:
       api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek API Key，优先从环境变量读取
       chat:
         options:
-          model: deepseek-v4-flash  # ⭐ 非思考模式（官方已废弃 deepseek-chat）
+          model: deepseek-v4-flash  # V4-Flash 模型
           temperature: 0.7
           max-tokens: 4096
+          extra-body:
+            thinking:
+              type: disabled  # ⭐ 禁用思考模式，以支持工具调用（否则 reasoning_content 字段会导致 400 错误）
 
     # DashScope API（A2A 发现依赖）
     dashscope:
@@ -63,7 +69,7 @@ spring:
             password: ${NACOS_PASSWORD:nacos123}
             metadata:
               agent-type: general_chat
-              capabilities: chat,qa,entertainment,companion
+              capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
               keywords: ""  # ⭐ 无 keywords 约束，纯 fallback 兜底
               priority: 100  # 最低优先级，作为兜底
               version: "1.0.0"
