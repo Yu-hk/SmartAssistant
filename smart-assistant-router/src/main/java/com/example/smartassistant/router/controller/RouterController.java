@@ -67,6 +67,7 @@ public class RouterController {
                     .confidence(routingResult.getConfidence() != null ? routingResult.getConfidence() : 0.9)
                     .routingMethod("LLM_ROUTING")
                     .intentTag(routingResult.getIntentTag())  // ⭐ 传递意图标签
+                    .fromCache(routingResult.getFromCache() != null && routingResult.getFromCache())
                     .build();
 
             log.info("[Router API] 路由完成: latency={}ms, resultLength={}, agent={}",

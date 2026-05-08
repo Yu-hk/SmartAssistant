@@ -34,5 +34,10 @@ public class RoutingResult {
      */
     private String intentTag;
 
+    /**
+     * 是否命中了语义缓存（直接从缓存返回，无 Agent 执行）
+     */
+    @Builder.Default
+    private Boolean fromCache = false;
 
 }
