@@ -73,7 +73,7 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
+            <scope>compile</scope>
         </dependency>
 
         <!-- Spring AI Alibaba DashScope Starter (仅用于 Embedding, Chat 已切换至 DeepSeek) -->

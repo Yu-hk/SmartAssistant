@@ -5,6 +5,8 @@ import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationSe
 import com.example.smartassistant.consumer.service.core.MathConsumerService;
 import com.example.smartassistant.consumer.service.data.HybridDataQueryService;
 import com.example.smartassistant.consumer.service.session.ChatMessageService;
+import com.example.smartassistant.consumer.service.session.ConversationDocumentService;
+import com.example.smartassistant.consumer.service.session.ConversationValueService;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +31,8 @@ public class ChatController {
     private final AnswerCacheService answerCacheService;  // ⭐ Phase 1: 答案缓存服务
     private final AnswerPersonalizationService personalizationCacheService;  // ⭐ 方案E: 缓存预热
     private final ChatMessageService chatMessageService;
+    private final ConversationValueService conversationValueService;
+    private final ConversationDocumentService conversationDocumentService;
     private final ChatClient chatClient;
 
     public ChatController(MathConsumerService mathService,
@@ -36,12 +40,16 @@ public class ChatController {
                          AnswerCacheService answerCacheService,
                          AnswerPersonalizationService personalizationCacheService,
                           ChatMessageService chatMessageService,
+                          ConversationValueService conversationValueService,
+                          ConversationDocumentService conversationDocumentService,
                          ChatClient.Builder chatClientBuilder) {
         this.mathService = mathService;
         this.hybridDataQueryService = hybridDataQueryService;
         this.answerCacheService = answerCacheService;
         this.personalizationCacheService = personalizationCacheService;
         this.chatMessageService = chatMessageService;
+        this.conversationValueService = conversationValueService;
+        this.conversationDocumentService = conversationDocumentService;
         this.chatClient = chatClientBuilder.build();
     }
 
@@ -147,10 +155,11 @@ public class ChatController {
                     .map(routerMap -> {
                         String resultText = (String) ((Map<String, Object>) routerMap).get("result");
                         String agentName = (String) ((Map<String, Object>) routerMap).get("agentName");
+                        Boolean fromCache = (Boolean) ((Map<String, Object>) routerMap).getOrDefault("fromCache", false);
                         Map<String, Object> map = new HashMap<>();
                         map.put("result", resultText != null ? resultText : "");
                         map.put("agentName", agentName);
-                        map.put("fromCache", false);
+                        map.put("fromCache", fromCache);
                         return map;
                     });
         } else {
@@ -161,10 +170,11 @@ public class ChatController {
                     .map(routerMap -> {
                         String resultText = (String) ((Map<String, Object>) routerMap).get("result");
                         String agentName = (String) ((Map<String, Object>) routerMap).get("agentName");
+                        Boolean fromCache = (Boolean) ((Map<String, Object>) routerMap).getOrDefault("fromCache", false);
                         Map<String, Object> map = new HashMap<>();
                         map.put("result", resultText != null ? resultText : "");
                         map.put("agentName", agentName);
-                        map.put("fromCache", false);
+                        map.put("fromCache", fromCache);
                         return map;
                     });
         }
@@ -186,6 +196,36 @@ public class ChatController {
                         chatMessageService.saveAiMessage(sessionId, cleanReply, null, null);
                     } catch (Exception e) {
                         log.warn("[ChatController] ⚠️ 保存 AI 回复失败，继续处理: {}", e.getMessage());
+                    }
+                }
+
+                // ⭐ 7.5 对话价值评估：判断是否沉淀为用户个人文档（异步，不阻塞）
+                if (sessionId != null && userId != null) {
+                    String agentName = (String) routerResponse.get("agentName");
+                    Boolean fromCache = (Boolean) routerResponse.getOrDefault("fromCache", false);
+                    long messageCount = 0;
+                    try {
+                        messageCount = chatMessageService.getMessageCount(sessionId);
+                    } catch (Exception ignored) {}
+
+                    ConversationValueService.ConversationValueContext ctx =
+                            new ConversationValueService.ConversationValueContext(
+                                    Long.valueOf(userId),
+                                    sessionId,
+                                    message + "\n" + cleanReply,
+                                    agentName,
+                                    null,  // intentTag - 可从 Router 返回中获取
+                                    (int) (messageCount / 2) + 1,
+                                    fromCache != null && fromCache,
+                                    false  // hasToolCall - 暂缺此信号
+                            );
+
+                    try {
+                        if (conversationValueService.isValuable(ctx)) {
+                            conversationDocumentService.saveValuableConversation(ctx);
+                        }
+                    } catch (Exception e) {
+                        log.warn("[ChatController] ⚠️ 对话价值评估失败: {}", e.getMessage());
                     }
                 }
 
