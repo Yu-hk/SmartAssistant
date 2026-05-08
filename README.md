@@ -57,7 +57,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
 | 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
 | 🔐 **多层安全** | JWT 认证 + Redis 限流 + Nacos 服务认证 + CORS 白名单 |
-| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 |
+| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回管道 |
 | 🌐 **前端支持** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
 
 ---
@@ -141,6 +141,51 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | Loki | 日志聚合 | 3100 |
 | Promtail | 日志采集 | — |
 | Zipkin | 追踪兼容层 | 9411 |
+
+---
+
+## RAG 召回管道
+
+系统在 Travel 模块实现了完整的 RAG 召回管道，用于从用户游记中检索相关内容增强 LLM 回答。
+
+### 处理流程
+
+```text
+用户查询 (location + query)
+    │
+    ├── 查询改写
+    │     └── "北京 有什么好玩的" → searchText
+    │
+    ├── 多路并行检索 (候选数 = topK × 3)
+    │   ├── 向量检索  ─── pgvector HNSW 索引 ── 语义相似度
+    │   ├── 全文检索  ─── tsvector GIN 索引  ── 关键词精确匹配
+    │   └── 关键词降级 ─── B-tree LIKE 索引  ── 地点兜底
+    │
+    ├── RRF 融合 (Reciprocal Rank Fusion)
+    │     └── score = Σ(1 / (K + rank_i))，K=60
+    │
+    ├── 重排序
+    │     └── 按 RRF 分数降序 → 阈值过滤
+    │
+    └── Top-K 返回
+```
+
+### 数据库索引
+
+| 表 | 索引 | 类型 | 作用 |
+|----|------|------|------|
+| `travel_note_chunks` | `idx_chunks_embedding_hnsw` | HNSW (cosine) | 向量检索加速 |
+| `travel_note_chunks` | `idx_chunks_tsvector_gin` | GIN | 全文检索 |
+| `travel_note_chunks` | `idx_chunks_note_id` | B-tree | JOIN 加速 |
+| `restaurant_reviews_vector` | `idx_reviews_embedding_hnsw` | HNSW (cosine) | Food 向量加速 |
+| `restaurant_reviews_vector` | `idx_reviews_tsvector_gin` | GIN | Food 全文检索 |
+| `restaurant_reviews_vector` | `idx_reviews_city_cuisine` | B-tree | 多维过滤 |
+
+### 索引部署
+
+```powershell
+$env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -U postgres -d a2a_system -f "smart-assistant-travel/src/main/resources/sql/v20260508__add_rag_indexes.sql"
+```
 
 ---
 

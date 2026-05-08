@@ -38,6 +38,30 @@
         )
     </insert>
 
+    <!-- ⭐ 全文检索（tsvector @@ plainto_tsquery） -->
+    <select id="searchByFullText" resultType="com.example.smartassistant.entity.TravelNoteChunk">
+        SELECT
+            tnc.id,
+            tnc.note_id,
+            tnc.chunk_text,
+            tnc.chunk_index,
+            tnc.location_keywords AS locationKeywordsStr,
+            tnc.content_type AS contentType,
+            tnc.created_at,
+            tn.title AS note_title,
+            ts_rank(tnc.chunk_tsvector, plainto_tsquery('simple', #{queryText})) AS similarity
+        FROM travel_note_chunks tnc
+        JOIN user_travel_notes tn ON tnc.note_id = tn.id
+        WHERE tn.user_id = #{userId}
+          AND tn.status = 'active'
+          AND tnc.chunk_tsvector @@ plainto_tsquery('simple', #{queryText})
+          <if test="locationKeyword != null and locationKeyword != ''">
+            AND tnc.location_keywords LIKE CONCAT('%', #{locationKeyword}, '%')
+          </if>
+        ORDER BY similarity DESC
+        LIMIT #{limit}
+    </select>
+
     <!-- 向量相似度检索 -->
     <select id="searchByEmbedding" resultType="com.example.smartassistant.entity.TravelNoteChunk">
         SELECT

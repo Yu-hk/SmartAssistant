@@ -12,7 +12,10 @@ import java.util.List;
 
 /**
  * Travel RAG 服务
- * 基于用户游记的检索增强生成
+ * <p>
+ * 基于用户游记的检索增强生成。
+ * 核心检索委托给 {@link RecallService} 实现多路召回，
+ * 本服务负责 RAG 开关控制、上下文构建和 Prompt 增强。
  */
 @Service
 @Slf4j
@@ -21,16 +24,13 @@ public class TravelRagService {
 
     private final TravelNoteChunkMapper travelNoteChunkMapper;
     private final TravelNoteMapper travelNoteMapper;
-    private final EmbeddingService embeddingService;
+    private final RecallService recallService;
 
     @Value("${travel.rag.enabled:false}")
     private boolean ragEnabled;
 
     @Value("${travel.rag.top-k:3}")
     private int topK;
-
-    @Value("${travel.rag.similarity-threshold:0.5}")
-    private double similarityThreshold;
 
     /**
      * 判断是否需要 RAG 增强
@@ -43,39 +43,21 @@ public class TravelRagService {
         if (location == null || location.isEmpty()) {
             return false;
         }
-        // 检查用户是否有相关游记
         return !travelNoteMapper.selectByLocationKeywords(location, userId).isEmpty();
     }
 
     /**
-     * 检索相关攻略片段
+     * 多路召回相关攻略片段
+     * <p>
+     * 委托给 {@link RecallService#retrieve(String, String, Long)}，
+     * 实现向量 + 全文 + 关键词多路召回 + RRF 融合。
+     * 替代原有的单路向量检索。
      */
     public List<TravelNoteChunk> retrieveRelevantChunks(String location, String query, Long userId) {
         if (!ragEnabled || location == null) {
             return List.of();
         }
-
-        try {
-            // 1. 生成查询向量
-            String searchText = location + " " + query;
-            float[] queryEmbedding = embeddingService.embed(searchText);
-
-            // 2. 向量相似度检索
-            List<TravelNoteChunk> chunks = travelNoteChunkMapper.searchByEmbedding(
-                    queryEmbedding, location, userId, topK);
-
-            // 3. 过滤低相似度结果
-            chunks.removeIf(chunk ->
-                    chunk.getSimilarity() != null && chunk.getSimilarity() < similarityThreshold);
-
-            log.info("[TravelRag] 检索结果: location={}, query={}, userId={}, chunks={}",
-                    location, query, userId, chunks.size());
-
-            return chunks;
-        } catch (Exception e) {
-            log.warn("[TravelRag] 检索失败: {}", e.getMessage());
-            return List.of();
-        }
+        return recallService.retrieve(location, query, userId);
     }
 
     /**
@@ -102,7 +84,7 @@ public class TravelRagService {
     }
 
     /**
-     * ⭐ 按内容类型检索攻略片段（纯文本查询，无需向量）
+     * 按内容类型检索攻略片段（纯文本查询，无需向量）
      * 用于获取美食建议等辅助内容
      */
     public List<TravelNoteChunk> retrieveByContentType(String location, Long userId, String contentType, int limit) {
@@ -144,7 +126,6 @@ public class TravelRagService {
         StringBuilder context = new StringBuilder();
         context.append("\n\n=== 用户历史攻略参考 ===\n");
 
-        // 正文：非美食内容
         int idx = 0;
         for (TravelNoteChunk chunk : chunks) {
             idx++;
@@ -159,7 +140,6 @@ public class TravelRagService {
 
         context.append("=========================\n");
 
-        // 建议：美食相关内容
         if (foodChunks != null && !foodChunks.isEmpty()) {
             context.append("\n💡 美食建议（你的游记中提到过以下美食，可作为参考）：\n");
             for (int i = 0; i < foodChunks.size(); i++) {
@@ -182,12 +162,12 @@ public class TravelRagService {
             chunks = retrieveByLocation(location, userId);
         }
 
-        // ⭐ 从检索结果中筛选非美食内容作为正文
+        // 从检索结果中筛选非美食内容作为正文
         List<TravelNoteChunk> travelChunks = chunks.stream()
                 .filter(c -> !"food".equals(c.getContentType()))
                 .toList();
 
-        // ⭐ 单独查询美食建议
+        // 单独查询美食建议
         List<TravelNoteChunk> foodChunks = retrieveFoodSuggestions(location, userId);
 
         String ragContext = buildRagContext(location, travelChunks, foodChunks);
