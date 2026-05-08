@@ -66,7 +66,7 @@ public class KeywordRoutingStrategy implements RoutingStrategy {
     // ===================== 地点提取正则 =====================
 
     private static final Pattern CITY_PATTERN = Pattern.compile(
-            "(?:在|去|到|去|从)" +
+            "[在去到去从]" +
                     "(北京|上海|广州|深圳|杭州|南京|成都|重庆|西安|武汉|天津|苏州|郑州|" +
                     "长沙|东莞|青岛|沈阳|宁波|昆明|大连|厦门|福州|哈尔滨|长春|" +
                     "石家庄|南昌|合肥|济南|温州|南宁|贵阳|太原|嘉兴|惠州|" +
@@ -76,7 +76,7 @@ public class KeywordRoutingStrategy implements RoutingStrategy {
     );
 
     private static final Pattern PROVINCE_PATTERN = Pattern.compile(
-            "(?:在|去|到)" +
+            "[在去到]" +
                     "(河北|浙江|江苏|四川|广东|山东|河南|湖北|湖南|陕西|" +
                     "安徽|福建|江西|云南|辽宁|吉林|黑龙江|贵州|山西|海南)" +
                     "(?:省|有什么)?"
