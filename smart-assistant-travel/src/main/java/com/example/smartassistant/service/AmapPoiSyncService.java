@@ -21,7 +21,7 @@ public class AmapPoiSyncService {
 
     private static final Logger log = LoggerFactory.getLogger(AmapPoiSyncService.class);
 
-    @Value("${spring.amap.api.key}")
+    @Value("${amap.api.key}")
     private String apiKey;
 
     private final RestTemplate restTemplate;

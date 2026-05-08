@@ -23,7 +23,7 @@ import java.net.http.HttpResponse;
 @Component
 public class WeatherTool {
     
-    @Value("${spring.amap.api.key}")
+    @Value("${amap.api.key}")
     private String amapApiKey;
 
     /**

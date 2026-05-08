@@ -45,7 +45,7 @@ public class AttractionRealtimeTool {
 
     private final TouristAttractionMapper attractionMapper;
 
-    @Value("${spring.amap.api.key}")
+    @Value("${amap.api.key}")
     private String amapApiKey;
 
     private static final HttpClient httpClient = HttpClient.newHttpClient();
