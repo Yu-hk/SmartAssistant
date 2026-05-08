@@ -71,4 +71,17 @@ public interface TravelNoteChunkMapper extends BaseMapper<TravelNoteChunk> {
     List<TravelNoteChunk> searchRandomByNoteIds(
             @Param("noteIds") List<Long> noteIds,
             @Param("limit") int limit);
+
+    /**
+     * ⭐ 全文检索（基于 tsvector @@ plainto_tsquery）
+     * @param queryText 用户查询文本
+     * @param locationKeyword 地点关键词
+     * @param userId 用户 ID
+     * @param limit 返回数量
+     */
+    List<TravelNoteChunk> searchByFullText(
+            @Param("queryText") String queryText,
+            @Param("locationKeyword") String locationKeyword,
+            @Param("userId") Long userId,
+            @Param("limit") int limit);
 }
