@@ -57,7 +57,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
 | 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
 | 🔐 **多层安全** | JWT 认证 + Redis 限流 + Nacos 服务认证 + CORS 白名单 |
-| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回管道 |
+| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回管道 + Multi-Query 查询改写 |
 | 🌐 **前端支持** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
 
 ---
@@ -153,15 +153,17 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 ```text
 用户查询 (location + query)
     │
-    ├── 查询改写
-    │     └── "北京 有什么好玩的" → searchText
+    ├── Multi-Query 查询改写 (LLM)
+    │     ├── 原始查询："北京 有什么好玩的"
+    │     ├── 变体 1：  "北京热门景点 游玩攻略"
+    │     ├── 变体 2：  "北京旅游 必去地点 推荐"
+    │     └── 变体 3：  "北京 周末去哪儿 好玩的地方"
     │
-    ├── 多路并行检索 (候选数 = topK × 3)
+    ├── 每个变体独立执行多路检索 (候选数 = topK × 3)
     │   ├── 向量检索  ─── pgvector HNSW 索引 ── 语义相似度
-    │   ├── 全文检索  ─── tsvector GIN 索引  ── 关键词精确匹配
-    │   └── 关键词降级 ─── B-tree LIKE 索引  ── 地点兜底
+    │   └── 全文检索  ─── tsvector GIN 索引  ── 关键词精确匹配
     │
-    ├── RRF 融合 (Reciprocal Rank Fusion)
+    ├── RRF 融合 (所有变体 × 所有检索路径的结果合并)
     │     └── score = Σ(1 / (K + rank_i))，K=60
     │
     ├── 重排序
