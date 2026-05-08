@@ -7,17 +7,21 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
  * 多路召回服务
  * <p>
- * 实现完整的 RAG 召回管道：查询改写 → 多路并行检索 → RRF 融合 → 重排序 → Top-K。
- * 替代原有的单路向量检索方式，提升召回准确率和覆盖率。
+ * 实现完整的 RAG 召回管道：Multi-Query 查询改写 → 多路并行检索 → RRF 融合 → 重排序 → Top-K。
  * <p>
  * 召回路径：
  * <ol>
@@ -33,6 +37,7 @@ public class RecallService {
 
     private final TravelNoteChunkMapper chunkMapper;
     private final EmbeddingService embeddingService;
+    private final ChatClient chatClient;
 
     @Value("${travel.rag.top-k:5}")
     private int topK;
@@ -46,10 +51,20 @@ public class RecallService {
     /** 每条召回路径贡献的候选数（= topK * multiplier） */
     private static final int PATH_CANDIDATE_MULTIPLIER = 3;
 
+    /** Multi-Query 生成的查询变体数（不含原查询） */
+    private static final int MULTI_QUERY_COUNT = 3;
+
+    public RecallService(TravelNoteChunkMapper chunkMapper, EmbeddingService embeddingService,
+                         @Qualifier("deepSeekChatModel") ChatModel chatModel) {
+        this.chunkMapper = chunkMapper;
+        this.embeddingService = embeddingService;
+        this.chatClient = ChatClient.create(chatModel);
+    }
+
     // ==================== 对外接口 ====================
 
     /**
-     * 多路召回：查询改写 → 多路并行检索 → RRF 融合 → 重排序 → Top-K
+     * 多路召回：Multi-Query → 多路检索 → RRF 融合 → Top-K
      *
      * @param location 地点（如"北京"）
      * @param query    用户查询（如"有什么好玩的"）
@@ -59,86 +74,149 @@ public class RecallService {
     public List<TravelNoteChunk> retrieve(String location, String query, Long userId) {
         long start = System.currentTimeMillis();
 
-        // 1. 查询改写
-        ExpandedQuery expanded = expandQuery(location, query);
-        log.debug("[Recall] 查询改写: original='{}', expanded='{}'", query, expanded.getSearchText());
+        // 1. Multi-Query 查询改写：生成多个查询变体
+        List<String> searchQueries = generateSearchQueries(location, query);
+        log.info("[Recall] Multi-Query: 原始='{}', 变体={}", buildSearchText(location, query), searchQueries);
 
-        // 2. 多路召回
+        // 2. 对每个查询变体执行多路召回
         int candidatesPerPath = topK * PATH_CANDIDATE_MULTIPLIER;
         List<RecallPathResult> allPaths = new ArrayList<>();
 
-        // Path 1: 向量检索（主路径）
-        try {
-            float[] queryVec = embeddingService.embed(expanded.getSearchText());
-            List<TravelNoteChunk> vecResults = chunkMapper.searchByEmbedding(
-                    queryVec, location, userId, candidatesPerPath);
-            allPaths.add(new RecallPathResult("vector", vecResults));
-            log.debug("[Recall] 向量检索: {} 条结果", vecResults.size());
-        } catch (Exception e) {
-            log.warn("[Recall] 向量检索失败: {}", e.getMessage());
+        for (String searchText : searchQueries) {
+            allPaths.addAll(retrieveSingleQuery(searchText, location, userId, candidatesPerPath));
         }
 
-        // Path 2: 全文检索（tsvector）
-        try {
-            if (expanded.getSearchText() != null && !expanded.getSearchText().isBlank()) {
-                List<TravelNoteChunk> ftResults = chunkMapper.searchByFullText(
-                        expanded.getSearchText(), location, userId, candidatesPerPath);
-                allPaths.add(new RecallPathResult("fulltext", ftResults));
-                log.debug("[Recall] 全文检索: {} 条结果", ftResults.size());
-            }
-        } catch (Exception e) {
-            log.warn("[Recall] 全文检索失败: {}", e.getMessage());
-        }
-
-        // Path 3: 地点关键词降级（仅当其他路径无结果时）
-        boolean hasResults = allPaths.stream().anyMatch(p -> !p.getChunks().isEmpty());
-        if (!hasResults && location != null && !location.isBlank()) {
-            try {
-                List<TravelNoteChunk> locResults = chunkMapper.searchByLocation(
-                        location, userId, candidatesPerPath);
-                allPaths.add(new RecallPathResult("keyword", locResults));
-                log.debug("[Recall] 关键词降级: {} 条结果", locResults.size());
-            } catch (Exception e) {
-                log.warn("[Recall] 关键词检索失败: {}", e.getMessage());
-            }
-        }
-
-        // 无结果
         if (allPaths.isEmpty()) {
-            log.info("[Recall] 所有召回路径均无结果, location={}, query={}", location, query);
+            log.info("[Recall] 所有查询和路径均无结果, location={}, query={}", location, query);
             return List.of();
         }
 
-        // 3. RRF 融合
+        // 3. RRF 融合（所有查询变体、所有检索路径的结果一起融合）
         List<RankedChunk> fused = rrfFuse(allPaths);
 
         // 4. 重排序 + 阈值过滤
         List<TravelNoteChunk> finalResults = rerank(fused, topK);
 
-        log.info("[Recall] 完成: location={}, query={}, 召回路径={}, 最终结果={}, 耗时={}ms",
-                location, query, allPaths.size(), finalResults.size(),
+        log.info("[Recall] 完成: location={}, query={}, 查询变体={}, 召回路径={}, 最终结果={}, 耗时={}ms",
+                location, query, searchQueries.size(), allPaths.size(), finalResults.size(),
                 System.currentTimeMillis() - start);
 
         return finalResults;
     }
 
-    // ==================== 查询改写 ====================
+    // ==================== Multi-Query 生成 ====================
 
     /**
-     * 查询改写：将 location 和 query 拼接并做初步扩展
+     * 生成多个搜索查询变体
+     * <p>
+     * 使用 LLM 从原始查询生成不同角度的搜索词，覆盖语义、关键词、具体细节等维度。
+     * 包含原始查询本身，保证召回不降级。
      */
-    private ExpandedQuery expandQuery(String location, String query) {
-        String searchText;
+    private List<String> generateSearchQueries(String location, String query) {
+        String original = buildSearchText(location, query);
+        List<String> queries = new ArrayList<>();
+        queries.add(original); // 始终保持原始查询
+
+        if (original.isBlank()) {
+            return queries;
+        }
+
+        try {
+            String prompt = String.format("""
+                    你是一个搜索查询改写专家。请将用户的问题改写成%d个不同的搜索查询变体，用于从游记数据库中检索相关信息。
+                    
+                    要求：
+                    - 每个变体从不同角度表达用户的意图（语义、关键词、具体细节）
+                    - 使用简洁的搜索词风格，不要完整的句子
+                    - 每个查询一行，不要编号
+                    - 只输出查询内容，不要多余解释
+                    
+                    原始问题：%s
+                    """, MULTI_QUERY_COUNT, original);
+
+            String response = chatClient.prompt()
+                    .user(prompt)
+                    .call()
+                    .content();
+
+            if (response != null && !response.isBlank()) {
+                // 按行解析，过滤空行和明显非查询的行
+                List<String> generated = Arrays.stream(response.split("\n"))
+                        .map(String::trim)
+                        .filter(line -> !line.isEmpty())
+                        .filter(line -> !line.startsWith("#"))
+                        .filter(line -> !line.startsWith("-"))
+                        .filter(line -> !line.startsWith("```"))
+                        .filter(line -> !line.toLowerCase().startsWith("这里"))
+                        .filter(line -> !line.toLowerCase().startsWith("以下"))
+                        .map(line -> line.replaceAll("^\\d+[.、]\\s*", "")) // 去掉编号
+                        .map(line -> line.replaceAll("^[*-]\\s*", ""))    // 去掉列表符号
+                        .map(String::trim)
+                        .filter(line -> line.length() > 3)
+                        .limit(MULTI_QUERY_COUNT)
+                        .collect(Collectors.toList());
+
+                queries.addAll(generated);
+                log.debug("[Recall] Multi-Query 生成: {} 个变体", generated.size());
+            }
+        } catch (Exception e) {
+            log.warn("[Recall] Multi-Query 生成失败，使用原始查询: {}", e.getMessage());
+        }
+
+        return queries;
+    }
+
+    // ==================== 单查询检索 ====================
+
+    /**
+     * 对单个查询文本执行多路检索
+     */
+    private List<RecallPathResult> retrieveSingleQuery(String searchText, String location,
+                                                        Long userId, int candidatesPerPath) {
+        List<RecallPathResult> paths = new ArrayList<>();
+
+        // Path 1: 向量检索
+        try {
+            float[] queryVec = embeddingService.embed(searchText);
+            List<TravelNoteChunk> results = chunkMapper.searchByEmbedding(
+                    queryVec, location, userId, candidatesPerPath);
+            // 标记路径名包含查询摘要，便于调试
+            String pathName = "vector:" + abbreviate(searchText, 20);
+            paths.add(new RecallPathResult(pathName, results));
+        } catch (Exception e) {
+            log.warn("[Recall] 向量检索失败: {}", e.getMessage());
+        }
+
+        // Path 2: 全文检索
+        try {
+            if (searchText != null && !searchText.isBlank()) {
+                List<TravelNoteChunk> results = chunkMapper.searchByFullText(
+                        searchText, location, userId, candidatesPerPath);
+                paths.add(new RecallPathResult("fulltext:" + abbreviate(searchText, 20), results));
+            }
+        } catch (Exception e) {
+            log.warn("[Recall] 全文检索失败: {}", e.getMessage());
+        }
+
+        return paths;
+    }
+
+    // ==================== 辅助方法 ====================
+
+    private String buildSearchText(String location, String query) {
         if (location != null && !location.isBlank()) {
             if (query != null && !query.isBlank()) {
-                searchText = location + " " + query;
-            } else {
-                searchText = location;
+                return location + " " + query;
             }
-        } else {
-            searchText = query != null ? query : "";
+            return location;
         }
-        return new ExpandedQuery(searchText);
+        return query != null ? query : "";
+    }
+
+    /** 截断长文本用于日志 */
+    private static String abbreviate(String text, int maxLen) {
+        if (text == null) return "";
+        return text.length() <= maxLen ? text : text.substring(0, maxLen) + "...";
     }
 
     // ==================== RRF 融合 ====================
@@ -151,14 +229,13 @@ public class RecallService {
      * 同一 chunk 在不同路径中出现时分数累加。
      */
     private List<RankedChunk> rrfFuse(List<RecallPathResult> paths) {
-        // chunkId → { totalRrfScore, chunk }
         Map<Long, RankedChunk> fused = new LinkedHashMap<>();
 
         for (RecallPathResult path : paths) {
             List<TravelNoteChunk> chunks = path.getChunks();
             for (int i = 0; i < chunks.size(); i++) {
                 TravelNoteChunk chunk = chunks.get(i);
-                int rank = i + 1;  // 排序位置从 1 开始
+                int rank = i + 1;
                 double rrfScore = 1.0 / (rrfK + rank);
 
                 RankedChunk existing = fused.get(chunk.getId());
@@ -173,7 +250,6 @@ public class RecallService {
             }
         }
 
-        // 按 RRF 分数降序排列
         return fused.values().stream()
                 .sorted((a, b) -> Double.compare(b.getRrfScore(), a.getRrfScore()))
                 .collect(Collectors.toList());
@@ -181,16 +257,11 @@ public class RecallService {
 
     // ==================== 重排序 ====================
 
-    /**
-     * 重排序：按 RRF 分数降序取 Top-K，过滤低分结果
-     */
     private List<TravelNoteChunk> rerank(List<RankedChunk> ranked, int k) {
         return ranked.stream()
-                // 过滤低分：RRF 分数 < 阈值对应的参考值
                 .filter(rc -> rc.getRrfScore() >= minRrfScore())
                 .limit(k)
                 .peek(rc -> {
-                    // 将 RRF 分数映射到 similarity 字段（兼容上游消费代码）
                     TravelNoteChunk chunk = rc.getChunk();
                     chunk.setSimilarity(rc.getRrfScore());
                 })
@@ -198,25 +269,11 @@ public class RecallService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * RRF 最低分数阈值（近似等价于 similarityThreshold）
-     * 用于过滤极端低分结果
-     */
     private double minRrfScore() {
-        // 假设至少在某一路径中排进前 N 名
-        // 当 k=60, rank=topK*PATH_CANDIDATE_MULTIPLIER 时：
-        // minScore = 1/(60 + topK*3)
         return 1.0 / (rrfK + topK * PATH_CANDIDATE_MULTIPLIER);
     }
 
     // ==================== 内部类型 ====================
-
-    @Getter
-    @AllArgsConstructor
-    @ToString
-    private static class ExpandedQuery {
-        String searchText;
-    }
 
     @Getter
     @AllArgsConstructor
@@ -239,13 +296,8 @@ public class RecallService {
             this.rrfScore = rrfScore;
         }
 
-        void addScore(double score) {
-            this.rrfScore += score;
-        }
-
-        void addSource(String source) {
-            this.sources.add(source);
-        }
+        void addScore(double score) { this.rrfScore += score; }
+        void addSource(String source) { this.sources.add(source); }
 
         TravelNoteChunk getChunk() { return chunk; }
         double getRrfScore() { return rrfScore; }
