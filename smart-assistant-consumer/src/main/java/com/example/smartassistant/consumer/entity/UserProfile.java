@@ -12,7 +12,7 @@ import java.util.Map;
 
 /**
  * 用户画像（文件存储版，不再是 MyBatis 实体）
- * 存入 data/user-preferences/{userId}.json
+ * 存入 data/users/{userId}/preferences.json
  */
 @Data
 @NoArgsConstructor

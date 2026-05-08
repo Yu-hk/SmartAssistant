@@ -21,7 +21,7 @@ import java.util.stream.Stream;
  * 对话文档沉淀服务（文件存储版）
  * 将有价值的对话保存为用户专属的 Markdown 记忆文件
  * <p>
- * 目录结构：data/user-memories/{userId}/{yyyy-MM-dd}_{sessionId}.md
+ * 目录结构：data/users/{userId}/memories/{yyyy-MM-dd}_{sessionId}.md
  * 每个文件包含一次有价值对话的完整内容，附带 YAML 元信息。
  */
 @Service
@@ -32,8 +32,8 @@ public class ConversationDocumentService {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Value("${app.memory.storage-path:data/user-memories}")
-    private String storagePath;
+    @Value("${app.data.dir:data/users}")
+    private String basePath;
 
     /**
      * 异步保存有价值对话为用户记忆文件
@@ -41,7 +41,7 @@ public class ConversationDocumentService {
     @Async("taskExecutor")
     public void saveValuableConversation(ConversationValueService.ConversationValueContext ctx) {
         try {
-            Path userDir = Paths.get(storagePath, String.valueOf(ctx.userId()));
+            Path userDir = Paths.get(basePath, String.valueOf(ctx.userId()), "memories");
             Files.createDirectories(userDir);
 
             String filename = LocalDate.now().format(DATE_FMT) + "_" + sanitize(ctx.sessionId()) + ".md";
@@ -79,7 +79,7 @@ public class ConversationDocumentService {
      * @param limit 返回条数
      */
     public List<MemoryEntry> searchMemories(Long userId, List<String> keywords, int limit) {
-        Path userDir = Paths.get(storagePath, String.valueOf(userId));
+        Path userDir = Paths.get(basePath, String.valueOf(userId), "memories");
         if (!Files.isDirectory(userDir)) return List.of();
 
         List<MemoryEntry> results = new ArrayList<>();
@@ -123,7 +123,7 @@ public class ConversationDocumentService {
      * 获取用户记忆总数
      */
     public long countMemories(Long userId) {
-        Path userDir = Paths.get(storagePath, String.valueOf(userId));
+        Path userDir = Paths.get(basePath, String.valueOf(userId), "memories");
         if (!Files.isDirectory(userDir)) return 0;
         try (Stream<Path> files = Files.list(userDir)) {
             return files.filter(p -> p.toString().endsWith(".md")).count();
