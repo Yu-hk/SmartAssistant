@@ -32,7 +32,7 @@ public class FoodRecommendationTool {
 
     private static final Logger log = LoggerFactory.getLogger(FoodRecommendationTool.class);
 
-    @Value("${spring.amap.api.key:}")
+    @Value("${amap.api.key:}")
     private String amapApiKey;
 
     private final SpecialtyCuisineKnowledgeBase knowledgeBase;

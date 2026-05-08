@@ -28,7 +28,7 @@ public class LocationTool {
 
     private static final Logger log = LoggerFactory.getLogger(LocationTool.class);
 
-    @Value("${spring.amap.api.key:}")
+    @Value("${amap.api.key:}")
     private String amapApiKey;
 
     private final WeatherTool weatherTool;
