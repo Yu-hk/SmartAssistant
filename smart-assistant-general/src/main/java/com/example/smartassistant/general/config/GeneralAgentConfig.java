@@ -96,11 +96,9 @@ public class GeneralAgentConfig {
                 7. 🆕 analyzeImage(imageUrl, question) — 图片解读
                    → 分析图片内容、识别景点/菜品/物体等
                    → 接收图片 URL 或 base64 data URI
-                   → 示例：用户发图片问"这是什么景点？"
 
                 8. 🆕 generateImage(prompt, size, n) — 文生图
                    → 根据文字描述生成图片
-                   → 示例：用户说"画一张水墨风格的西湖"
                    → 参数：prompt（描述）、size（尺寸）、n（数量）
 
                 ═══════════════════════════════════════════════════════════════
