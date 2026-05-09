@@ -15,21 +15,21 @@ public class ConversationValueService {
 
     private static final Logger log = LoggerFactory.getLogger(ConversationValueService.class);
 
-    private static final Set<String> HIGH_VALUE_INTENTS = Set.of(
-            "PREFERENCE", "PLAN", "DECISION", "RECOMMEND",
-            // ⭐ 中文意图标签（Router 生成的实际值）
-            "旅游规划", "美食推荐", "天气查询", "图片生成", "绘画请求",
-            "搜索", "计算", "热门新闻", "出行规划", "景点推荐"
-    );
-
     private static final Set<String> NO_VALUE_AGENTS = Set.of("builtin_fallback", "none");
 
     /**
      * 评估对话价值
+     * <p>
+     * 能成功路由到 Travel/Food/General 本身就是一个价值信号，
+     * 无需额外判断 intentTag。只要满足以下任一条件即沉淀：
+     * <ul>
+     *   <li>多轮对话(≥3轮)</li>
+     *   <li>触发了工具调用</li>
+     * </ul>
      * @return true = 值得沉淀为个人文档
      */
     public boolean isValuable(ConversationValueContext ctx) {
-        // 排除条件（一票否决）
+        // 一票否决：缓存命中或终极兜底
         if (ctx.fromCache) {
             log.debug("[ConvValue] 缓存命中，跳过: sessionId={}", ctx.sessionId);
             return false;
@@ -39,22 +39,13 @@ public class ConversationValueService {
             return false;
         }
 
-        // ⭐ 正向评分
-        // - intentTag 匹配高价值意图 +2
-        // - 触发了工具调用 +1
-        // - 多轮对话(≥3轮) +1
-        // 阈值3→2：允许 3轮对话+工具调用(2分) 或 单次高价值意图(2分) 沉淀
-        int score = 0;
-        if (ctx.intentTag != null && HIGH_VALUE_INTENTS.contains(ctx.intentTag)) score += 2;
-        if (ctx.hasToolCall) score += 1;
-        if (ctx.turnCount >= 3) score += 1;
-
-        boolean valuable = score >= 2;
+        // 成功路由到专业 Agent：多轮互动或工具调用即有沉淀价值
+        boolean valuable = ctx.turnCount >= 3 || ctx.hasToolCall;
         if (valuable) {
-            log.info("[ConvValue] ✅ 有价值对话: sessionId={}, score={}, agent={}, intent={}",
-                    ctx.sessionId, score, ctx.agentName, ctx.intentTag);
+            log.info("[ConvValue] ✅ 有价值对话: sessionId={}, agent={}, turns={}, toolCall={}",
+                    ctx.sessionId, ctx.agentName, ctx.turnCount, ctx.hasToolCall);
         } else {
-            log.debug("[ConvValue] 评分不足: sessionId={}, score={}", ctx.sessionId, score);
+            log.debug("[ConvValue] 评分不足(单轮闲聊): sessionId={}, turns={}", ctx.sessionId, ctx.turnCount);
         }
         return valuable;
     }
