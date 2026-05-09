@@ -1,6 +1,5 @@
 package com.example.smartassistant.consumer.service.session;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,13 +13,37 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * 对话文档沉淀服务（文件存储版）
- * 将有价值的对话保存为用户专属的 Markdown 记忆文件
+ * 对话文档沉淀服务（文件存储版 — 增量追加模式）
+ * <p>
+ * 将每个有价值对话轮次追加到同一个记忆文件，保留完整 session 记忆。
  * <p>
  * 目录结构：data/users/{userId}/memories/{yyyy-MM-dd}_{sessionId}.md
- * 每个文件包含一次有价值对话的完整内容，附带 YAML 元信息。
+ * <p>
+ * 文件结构：
+ * <pre>
+ * ---
+ * created_at: 1746680000000
+ * session: session_abc
+ * turn_range: 3-5
+ * entries: 3
+ * ---
+ * 
+ * > Turn 3 | narrative | intent: 景点查询
+ * 
+ * 用户查询了北京景点推荐...
+ * 
+ * ---
+ * 
+ * > Turn 4 | raw | intent: 美食推荐
+ * 
+ * 用户：还有别的推荐吗？
+ * 助手：推荐东来顺...
+ * </pre>
  */
 @Service
 public class ConversationDocumentService {
@@ -28,11 +51,13 @@ public class ConversationDocumentService {
     private static final Logger log = LoggerFactory.getLogger(ConversationDocumentService.class);
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     // ★ 叙事摘要阈值：内容长度和轮数都达标才触发 LLM
     private static final int MIN_CONTENT_FOR_SUMMARIZE = 1000;
     private static final int MIN_TURN_FOR_SUMMARIZE = 3;
+
+    // ★ 文件锁缓存，按 sessionId 粒度同步
+    private final ConcurrentHashMap<String, Object> fileLocks = new ConcurrentHashMap<>();
 
     private final String basePath;
 
@@ -48,7 +73,11 @@ public class ConversationDocumentService {
     }
 
     /**
-     * 异步保存有价值对话为用户记忆文件
+     * 异步保存有价值对话为用户记忆文件（增量追加）
+     * <p>
+     * - 文件不存在时创建并写入第一个条目
+     * - 文件已存在时读取旧内容，追加新条目，更新 frontmatter
+     * - 通过 sessionId 粒度锁保证并发安全
      */
     @Async("taskExecutor")
     public void saveValuableConversation(ConversationValueService.ConversationValueContext ctx) {
@@ -59,8 +88,17 @@ public class ConversationDocumentService {
             String filename = LocalDate.now().format(DATE_FMT) + "_" + sanitize(ctx.sessionId()) + ".md";
             Path filePath = userDir.resolve(filename);
 
-            String content = buildMemoryFile(ctx);
-            Files.writeString(filePath, content, StandardCharsets.UTF_8);
+            // 生成本轮条目内容
+            String entryContent = buildEntryContent(ctx);
+
+            // ★ 同步写（session 粒度，防并发读-改-写冲突）
+            synchronized (getFileLock(ctx.sessionId())) {
+                if (Files.exists(filePath)) {
+                    appendToMemoryFile(filePath, ctx, entryContent);
+                } else {
+                    createMemoryFile(filePath, ctx, entryContent);
+                }
+            }
 
             log.info("[UserMemory] 记忆已保存: userId={}, file={}", ctx.userId(), filename);
 
@@ -69,13 +107,12 @@ public class ConversationDocumentService {
         }
     }
 
+    // ========== 条目构建 ==========
+
     /**
-     * 构建记忆文件内容（Markdown + YAML 元信息）
-     * <p>
-     * - 内容较短或轮数较少时，直接写入原文（LLM 性价比低）
-     * - 内容较长且轮数达标时，LLM 摘要为叙事形式
+     * 生成本轮对话的条目内容（摘要或原文）
      */
-    private String buildMemoryFile(ConversationValueService.ConversationValueContext ctx) {
+    private String buildEntryContent(ConversationValueService.ConversationValueContext ctx) {
         String content = ctx.content();
 
         // ★ 只有轮数和内容长度都达标才触发 LLM 摘要
@@ -97,20 +134,134 @@ public class ConversationDocumentService {
                     ctx.sessionId(), content.length(), ctx.turnCount());
         }
 
-        return "---\n" +
-                "created_at: " + System.currentTimeMillis() + "\n" +
-                "agent: " + ctx.agentName() + "\n" +
-                "intent: " + (ctx.intentTag() != null ? ctx.intentTag() : "") + "\n" +
-                "session: " + ctx.sessionId() + "\n" +
-                "turn_count: " + ctx.turnCount() + "\n" +
-                "format: " + format + "\n" +
-                "---\n\n" +
-                body + "\n";
+        // 条目头部：> Turn {n} | {format} | intent: {intentTag}
+        String intentTag = ctx.intentTag() != null ? ctx.intentTag() : "";
+        String fromCache = ctx.fromCache() ? " | fromCache: true" : "";
+
+        return "> Turn " + ctx.turnCount() + " | " + format + " | intent: " + intentTag + fromCache + "\n\n"
+                + body + "\n";
     }
 
+    // ========== 文件写入 ==========
+
+    /**
+     * 创建新的记忆文件（首个条目）
+     */
+    private void createMemoryFile(Path filePath,
+                                  ConversationValueService.ConversationValueContext ctx,
+                                  String entryContent) throws Exception {
+        String frontmatter = buildFrontmatter(
+                System.currentTimeMillis(),
+                ctx.sessionId(),
+                ctx.turnCount(),
+                ctx.turnCount(),
+                1
+        );
+        Files.writeString(filePath, frontmatter + entryContent, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 追加条目到已有记忆文件
+     * <p>
+     * 流程：读取 → 解析 frontmatter → 更新元信息 → 追加新条目 → 写回
+     */
+    private void appendToMemoryFile(Path filePath,
+                                    ConversationValueService.ConversationValueContext ctx,
+                                    String entryContent) throws Exception {
+        String existing = Files.readString(filePath, StandardCharsets.UTF_8);
+
+        // 解析 frontmatter：找到第二个 ---\n 的位置
+        int firstFm = existing.indexOf("---\n");
+        if (firstFm == -1) {
+            log.warn("[UserMemory] 文件格式异常，缺少开头的 ---: {}", filePath);
+            return;
+        }
+        int secondFm = existing.indexOf("---\n", firstFm + 4);
+        if (secondFm == -1) {
+            log.warn("[UserMemory] 文件格式异常，缺少结尾的 ---: {}", filePath);
+            return;
+        }
+        int frontmatterEnd = secondFm + 4; // 包含 ---\n
+
+        String oldFrontmatter = existing.substring(0, frontmatterEnd);
+        String oldBody = existing.substring(frontmatterEnd);
+
+        // 从旧 frontmatter 提取元信息
+        long createdAt = parseLongField(oldFrontmatter, "created_at:", System.currentTimeMillis());
+        int minTurn = parseIntField(oldFrontmatter, "turn_range:\\s*(\\d+)", ctx.turnCount());
+        int oldEntries = parseIntField(oldFrontmatter, "entries:\\s*(\\d+)", 1);
+
+        // 构建新 frontmatter（保留原有 created_at，更新 turn_range 和 entries）
+        String newFrontmatter = buildFrontmatter(
+                createdAt,
+                ctx.sessionId(),
+                minTurn,
+                ctx.turnCount(),
+                oldEntries + 1
+        );
+
+        // 新文件 = 新 frontmatter + 旧 body + 分隔符 + 新条目
+        String newContent = newFrontmatter + oldBody + "\n---\n\n" + entryContent;
+
+        Files.writeString(filePath, newContent, StandardCharsets.UTF_8);
+        log.info("[UserMemory] 追加条目: sessionId={}, turn={}, totalEntries={}",
+                ctx.sessionId(), ctx.turnCount(), oldEntries + 1);
+    }
+
+    // ========== Frontmatter 工具 ==========
+
+    /**
+     * 构建 YAML frontmatter
+     */
+    private String buildFrontmatter(long createdAt, String sessionId,
+                                    int turnMin, int turnMax, int entries) {
+        return "---\n"
+                + "created_at: " + createdAt + "\n"
+                + "session: " + sessionId + "\n"
+                + "turn_range: " + turnMin + "-" + turnMax + "\n"
+                + "entries: " + entries + "\n"
+                + "---\n\n";
+    }
+
+    /**
+     * 从 frontmatter 文本中解析整数字段
+     */
+    private int parseIntField(String frontmatter, String regex, int defaultValue) {
+        Matcher m = Pattern.compile(regex).matcher(frontmatter);
+        return m.find() ? Integer.parseInt(m.group(1)) : defaultValue;
+    }
+
+    /**
+     * 从 frontmatter 文本中解析长整数字段
+     */
+    private long parseLongField(String frontmatter, String prefix, long defaultValue) {
+        for (String line : frontmatter.split("\n")) {
+            if (line.startsWith(prefix)) {
+                String val = line.substring(prefix.length()).trim();
+                try {
+                    return Long.parseLong(val);
+                } catch (NumberFormatException e) {
+                    return defaultValue;
+                }
+            }
+        }
+        return defaultValue;
+    }
+
+    // ========== 工具方法 ==========
+
+    /**
+     * 获取 sessionId 粒度的同步锁对象
+     */
+    private Object getFileLock(String sessionId) {
+        return fileLocks.computeIfAbsent(sessionId, k -> new Object());
+    }
+
+    /**
+     * 文件名字符净化
+     */
     private String sanitize(String input) {
         if (input == null) return "unknown";
         return input.replaceAll("[^a-zA-Z0-9_\\-]", "_").substring(0, Math.min(50, input.length()));
     }
-
 }
