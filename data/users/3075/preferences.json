@@ -8,13 +8,13 @@
   "budgetRange" : null,
   "preferenceWeights" : { },
   "intentDistribution" : {
-    "builtinfallback" : 3
+    "general" : 3
   },
   "additionalPreferences" : "{\"location_weights\":{\"杭州\":2}}",
   "totalQueries" : 3,
-  "lastQueryAt" : [ 2026, 5, 9, 10, 39, 17, 847948000 ],
+  "lastQueryAt" : [ 2026, 5, 9, 11, 2, 12, 233316800 ],
   "createdAt" : null,
-  "updatedAt" : [ 2026, 5, 9, 10, 39, 26, 491453600 ],
+  "updatedAt" : [ 2026, 5, 9, 11, 2, 24, 810447100 ],
   "travelPreferencesArray" : [ ],
   "dietaryRestrictionsArray" : null,
   "foodPreferencesArray" : [ ],
