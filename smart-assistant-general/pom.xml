@@ -70,6 +70,12 @@
             <artifactId>zipkin-reporter-brave</artifactId>
         </dependency>
 
+        <!-- Micrometer Prometheus Registry (指标导出) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- Common Module -->
         <dependency>
             <groupId>com.example.smartassistant</groupId>
