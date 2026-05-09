@@ -15,7 +15,12 @@ public class ConversationValueService {
 
     private static final Logger log = LoggerFactory.getLogger(ConversationValueService.class);
 
-    private static final Set<String> HIGH_VALUE_INTENTS = Set.of("PREFERENCE", "PLAN", "DECISION", "RECOMMEND");
+    private static final Set<String> HIGH_VALUE_INTENTS = Set.of(
+            "PREFERENCE", "PLAN", "DECISION", "RECOMMEND",
+            // ⭐ 中文意图标签（Router 生成的实际值）
+            "旅游规划", "美食推荐", "天气查询", "图片生成", "绘画请求",
+            "搜索", "计算", "热门新闻", "出行规划", "景点推荐"
+    );
 
     private static final Set<String> NO_VALUE_AGENTS = Set.of("builtin_fallback", "none");
 
@@ -34,14 +39,17 @@ public class ConversationValueService {
             return false;
         }
 
-        // 正向评分：agent 不再参与评分（travel/food/general 都不加分），
-        // 避免 general 因无工具调用而被排除
+        // ⭐ 正向评分
+        // - intentTag 匹配高价值意图 +2
+        // - 触发了工具调用 +1
+        // - 多轮对话(≥3轮) +1
+        // 阈值3→2：允许 3轮对话+工具调用(2分) 或 单次高价值意图(2分) 沉淀
         int score = 0;
-        if (ctx.intentTag != null && HIGH_VALUE_INTENTS.contains(ctx.intentTag.toUpperCase())) score += 2;
+        if (ctx.intentTag != null && HIGH_VALUE_INTENTS.contains(ctx.intentTag)) score += 2;
         if (ctx.hasToolCall) score += 1;
         if (ctx.turnCount >= 3) score += 1;
 
-        boolean valuable = score >= 3;
+        boolean valuable = score >= 2;
         if (valuable) {
             log.info("[ConvValue] ✅ 有价值对话: sessionId={}, score={}, agent={}, intent={}",
                     ctx.sessionId, score, ctx.agentName, ctx.intentTag);
