@@ -3,19 +3,17 @@ package com.example.smartassistant.consumer.service.session;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * 对话文档沉淀服务（文件存储版）
@@ -32,8 +30,22 @@ public class ConversationDocumentService {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Value("${app.data.dir:data/users}")
-    private String basePath;
+    // ★ 叙事摘要阈值：内容长度和轮数都达标才触发 LLM
+    private static final int MIN_CONTENT_FOR_SUMMARIZE = 1000;
+    private static final int MIN_TURN_FOR_SUMMARIZE = 3;
+
+    private final String basePath;
+
+    // ★ 叙事摘要服务
+    private final ConversationSummarizationService summarizationService;
+
+    @Autowired
+    public ConversationDocumentService(
+            @Value("${app.data.dir:data/users}") String basePath,
+            ConversationSummarizationService summarizationService) {
+        this.basePath = basePath;
+        this.summarizationService = summarizationService;
+    }
 
     /**
      * 异步保存有价值对话为用户记忆文件
@@ -59,77 +71,41 @@ public class ConversationDocumentService {
 
     /**
      * 构建记忆文件内容（Markdown + YAML 元信息）
+     * <p>
+     * - 内容较短或轮数较少时，直接写入原文（LLM 性价比低）
+     * - 内容较长且轮数达标时，LLM 摘要为叙事形式
      */
     private String buildMemoryFile(ConversationValueService.ConversationValueContext ctx) {
-        return new StringBuilder()
-                .append("---\n")
-                .append("created_at: ").append(System.currentTimeMillis()).append("\n")
-                .append("agent: ").append(ctx.agentName()).append("\n")
-                .append("intent: ").append(ctx.intentTag() != null ? ctx.intentTag() : "").append("\n")
-                .append("session: ").append(ctx.sessionId()).append("\n")
-                .append("---\n\n")
-                .append(ctx.content()).append("\n")
-                .toString();
-    }
+        String content = ctx.content();
 
-    /**
-     * 检索用户记忆（关键词匹配）
-     * @param userId 用户 ID
-     * @param keywords 关键词列表（命中任一即返回）
-     * @param limit 返回条数
-     */
-    public List<MemoryEntry> searchMemories(Long userId, List<String> keywords, int limit) {
-        Path userDir = Paths.get(basePath, String.valueOf(userId), "memories");
-        if (!Files.isDirectory(userDir)) return List.of();
+        // ★ 只有轮数和内容长度都达标才触发 LLM 摘要
+        boolean shouldNarrate = content != null
+                && content.length() >= MIN_CONTENT_FOR_SUMMARIZE
+                && ctx.turnCount() >= MIN_TURN_FOR_SUMMARIZE;
 
-        List<MemoryEntry> results = new ArrayList<>();
-
-        try (Stream<Path> files = Files.list(userDir)) {
-            files.filter(p -> p.toString().endsWith(".md"))
-                    .forEach(file -> {
-                        try {
-                            String content = Files.readString(file, StandardCharsets.UTF_8);
-                            String lowerContent = content.toLowerCase();
-
-                            boolean matched = keywords.stream()
-                                    .anyMatch(kw -> kw != null && lowerContent.contains(kw.toLowerCase()));
-
-                            if (matched) {
-                                String filename = file.getFileName().toString();
-                                String summary = extractSummary(content);
-                                results.add(new MemoryEntry(filename, content, summary));
-                            }
-                        } catch (IOException e) {
-                            log.warn("[UserMemory] 读取失败: {}", file);
-                        }
-                    });
-        } catch (IOException e) {
-            log.warn("[UserMemory] 检索用户目录失败: userId={}", userId);
+        String body;
+        String format;
+        if (shouldNarrate) {
+            body = summarizationService.summarize(content);
+            format = "narrative";
+            log.debug("[UserMemory] 叙事摘要: sessionId={}, raw={}chars, summary={}chars",
+                    ctx.sessionId(), content.length(), body.length());
+        } else {
+            body = content;
+            format = "raw";
+            log.debug("[UserMemory] 原文保存(未达摘要阈值): sessionId={}, len={}, turns={}",
+                    ctx.sessionId(), content.length(), ctx.turnCount());
         }
 
-        // 按文件名排序（时间倒序）
-        results.sort((a, b) -> b.filename().compareTo(a.filename()));
-        return results.stream().limit(limit).collect(Collectors.toList());
-    }
-
-    /**
-     * 检索用户记忆（全文匹配，直接搜索文本）
-     */
-    public List<MemoryEntry> searchMemories(Long userId, String query, int limit) {
-        return searchMemories(userId, List.of(query), limit);
-    }
-
-    /**
-     * 获取用户记忆总数
-     */
-    public long countMemories(Long userId) {
-        Path userDir = Paths.get(basePath, String.valueOf(userId), "memories");
-        if (!Files.isDirectory(userDir)) return 0;
-        try (Stream<Path> files = Files.list(userDir)) {
-            return files.filter(p -> p.toString().endsWith(".md")).count();
-        } catch (IOException e) {
-            return 0;
-        }
+        return "---\n" +
+                "created_at: " + System.currentTimeMillis() + "\n" +
+                "agent: " + ctx.agentName() + "\n" +
+                "intent: " + (ctx.intentTag() != null ? ctx.intentTag() : "") + "\n" +
+                "session: " + ctx.sessionId() + "\n" +
+                "turn_count: " + ctx.turnCount() + "\n" +
+                "format: " + format + "\n" +
+                "---\n\n" +
+                body + "\n";
     }
 
     private String sanitize(String input) {
@@ -137,16 +113,4 @@ public class ConversationDocumentService {
         return input.replaceAll("[^a-zA-Z0-9_\\-]", "_").substring(0, Math.min(50, input.length()));
     }
 
-    private String extractSummary(String content) {
-        // 跳过 YAML frontmatter，取正文前 100 字
-        int bodyStart = content.indexOf("---\n", content.indexOf("---\n") + 4);
-        if (bodyStart < 0) bodyStart = 0;
-        String body = content.substring(bodyStart + 4).trim();
-        return body.length() > 100 ? body.substring(0, 100) + "..." : body;
-    }
-
-    /**
-     * 记忆条目
-     */
-    public record MemoryEntry(String filename, String content, String summary) {}
 }

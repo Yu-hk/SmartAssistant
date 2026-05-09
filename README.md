@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 > 基于 Spring AI Alibaba + A2A 协议的多智能体对话平台，集成 DeepSeek V4-Flash 大模型 + DashScope 多模态能力。
-> 支持多 Agent 协同、关键词路由、**图片解析/文生图**、语义缓存、全链路监控。
+> 支持多 Agent 协同、三层路由兜底、**图片解析/文生图**、LLM 叙事摘要、语义缓存、全链路监控。
 
 ---
 
@@ -53,7 +53,8 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🧠 **A2A 协议** | 基于阿里 Spring AI Alibaba 的 Agent-to-Agent 通信协议，支持 Agent 自动发现和注册 |
 | 🚦 **三层兜底路由** | 关键词匹配 → Fallback Agent(priority) → 内联 ChatClient，逐级降级，避免随机路由 |
 | 🖼️ **多模态 AI** | 集成图片解析(analyzeImage) + 文生图(generateImage)，基于 DashScope 通义万相 |
-| 🗂️ **文件级用户记忆** | 偏好存 `data/users/{userId}/preferences.json`；有价值对话存 `memories/*.md`，零 DB 依赖 |
+| 🗂️ **文件级用户记忆** | 偏好存 `data/users/{userId}/preferences.json`；有价值对话经 LLM 叙事摘要后存 `memories/*.md` |
+| 📝 **叙事摘要沉淀** | 轮数≥3 且内容≥1000 字符时自动触发 LLM 第三人称摘要，提取事实信息，去除对话填充语 |
 | 💬 **回复风格切换** | General Agent 支持用户指定幽默/文言文/段子手等多种回复风格 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
 | 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
@@ -99,7 +100,8 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 3. **Router 路由** → Consumer (会话管理 + 价值评估)
 4. **Consumer 调度** → 对应 Agent (Travel / Food / General)
 5. **Agent 响应** → 通过 SSE 流式返回给前端
-6. **价值评估** → 有价值对话 → `data/users/{userId}/memories/`（异步）
+6. **价值评估** → 轮数≥3 且内容≥1000 字符时触发 LLM 叙事摘要 → `data/users/{userId}/memories/`（异步）
+   - 摘要替代原对话内容（清空冗余），超长内容截断部分原文追加，信息零丢失
 
 详情参见 `AGENTS.md`。
 
@@ -401,6 +403,36 @@ data/users/{userId}/
     └── 2026-05-08_session_def.md
 ```
 
+记忆文件支持两种格式，通过 frontmatter 标识：
+
+**`format: raw`** — 内容未达摘要阈值，保存原文：
+```yaml
+---
+created_at: 1746680000000
+agent: travel
+intent: 景点查询
+session: session_abc
+turn_count: 2
+format: raw
+---
+用户: 故宫几点开门
+助手: 故宫博物院通常上午8:30开门...
+```
+
+**`format: narrative`** — 轮数≥3 且内容≥1000 字符，触发 LLM 叙事摘要：
+```yaml
+---
+created_at: 1746680000000
+agent: travel
+intent: 旅游规划
+session: session_def
+turn_count: 5
+format: narrative
+---
+用户咨询了北京三日游规划，系统推荐了故宫、天坛、长城等...
+（如果内容超 8000 字符，截断部分以 --- 分隔原文追加）
+```
+
 所有服务的日志统一输出到 `logs/` 目录，格式为 `{spring.application.name}.log`：
 
 ```powershell
@@ -457,7 +489,17 @@ type logs\travel-service.log -Tail 50
 
 ## 常见问题
 
-### Q: 服务启动失败 "DeepSeek API key must be set"
+### Q: 服务启动绑定到异常端口（如 63807）
+
+检查是否设置了 `SERVER__PORT` 环境变量（注意是双下划线）。该变量会覆盖 `server.port` 配置，需要在 shell 中清除：
+
+```powershell
+# PowerShell
+Remove-Item Env:SERVER__PORT
+
+# CMD
+set SERVER__PORT=
+```
 
 检查 `.env` 文件是否存在且包含正确的 `DEEPSEEK_API_KEY`。如果以 IDE 启动，需在运行配置中设置环境变量。
 
@@ -576,7 +618,9 @@ mvn test -pl smart-assistant-common -Dtest=SqlSecurityValidatorTest
 | common | 18 | SQL 安全校验器、Dotenv |
 | gateway | 27 | JWT 工具、白名单过滤 |
 | user | 9 | JWT 服务 |
+| consumer | 12 | 对话叙事摘要、文档沉淀服务 |
 | general | 30 | 数学计算、温度/长度/重量转换、边界条件 |
+| **总计** | **96** | **全模块覆盖** |
 
 ---
 
