@@ -16,11 +16,13 @@ import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
- * 对话文档沉淀服务（文件存储版 — 增量追加模式）
+ * 对话文档沉淀服务（文件存储版 — session 优先增量追加模式）
  * <p>
  * 将每个有价值对话轮次追加到同一个记忆文件，保留完整 session 记忆。
+ * session 始终追加到同一文件（跨天不换文件），文件名为首次创建的日期。
  * <p>
  * 目录结构：data/users/{userId}/memories/{yyyy-MM-dd}_{sessionId}.md
  * <p>
@@ -73,9 +75,10 @@ public class ConversationDocumentService {
     }
 
     /**
-     * 异步保存有价值对话为用户记忆文件（增量追加）
+     * 异步保存有价值对话为用户记忆文件（session 优先的增量追加）
      * <p>
-     * - 文件不存在时创建并写入第一个条目
+     * - session 优先：同 session 始终追加到同一文件，跨天不换文件
+     * - 文件不存在时创建并写入第一个条目（文件名带当天日期）
      * - 文件已存在时读取旧内容，追加新条目，更新 frontmatter
      * - 通过 sessionId 粒度锁保证并发安全
      */
@@ -85,22 +88,24 @@ public class ConversationDocumentService {
             Path userDir = Paths.get(basePath, String.valueOf(ctx.userId()), "memories");
             Files.createDirectories(userDir);
 
-            String filename = LocalDate.now().format(DATE_FMT) + "_" + sanitize(ctx.sessionId()) + ".md";
-            Path filePath = userDir.resolve(filename);
-
-            // 生成本轮条目内容
+            String sessionKey = sanitize(ctx.sessionId());
             String entryContent = buildEntryContent(ctx);
 
             // ★ 同步写（session 粒度，防并发读-改-写冲突）
             synchronized (getFileLock(ctx.sessionId())) {
-                if (Files.exists(filePath)) {
-                    appendToMemoryFile(filePath, ctx, entryContent);
+                // ★ session 优先：查找已有记忆文件（跨天不换文件）
+                Path existingFile = findExistingSessionFile(userDir, sessionKey);
+
+                if (existingFile != null) {
+                    appendToMemoryFile(existingFile, ctx, entryContent);
                 } else {
-                    createMemoryFile(filePath, ctx, entryContent);
+                    // 不存在则创建新文件（带当前日期）
+                    String filename = LocalDate.now().format(DATE_FMT) + "_" + sessionKey + ".md";
+                    createMemoryFile(userDir.resolve(filename), ctx, entryContent);
                 }
             }
 
-            log.info("[UserMemory] 记忆已保存: userId={}, file={}", ctx.userId(), filename);
+            log.info("[UserMemory] 记忆已保存: userId={}, sessionId={}", ctx.userId(), ctx.sessionId());
 
         } catch (Exception e) {
             log.warn("[UserMemory] 保存记忆失败: userId={}, error={}", ctx.userId(), e.getMessage());
@@ -249,6 +254,28 @@ public class ConversationDocumentService {
     }
 
     // ========== 工具方法 ==========
+
+    /**
+     * 查找 session 已有的记忆文件（按 sessionId 匹配，忽略日期前缀）
+     * <p>
+     * 匹配模式：{yyyy-MM-dd}_{sessionKey}.md
+     * 如果找到多个（不应发生），返回第一个。
+     *
+     * @return 匹配的文件路径，不存在时返回 null
+     */
+    private Path findExistingSessionFile(Path userDir, String sessionKey) {
+        Pattern pattern = Pattern.compile(
+                "^\\d{4}-\\d{2}-\\d{2}_" + Pattern.quote(sessionKey) + "\\.md$");
+        try (Stream<Path> stream = Files.list(userDir)) {
+            return stream
+                    .filter(p -> pattern.matcher(p.getFileName().toString()).matches())
+                    .findFirst()
+                    .orElse(null);
+        } catch (Exception e) {
+            // 目录首次使用尚不存在，或遍历异常
+            return null;
+        }
+    }
 
     /**
      * 获取 sessionId 粒度的同步锁对象
