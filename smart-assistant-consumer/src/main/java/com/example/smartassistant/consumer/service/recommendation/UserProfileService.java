@@ -3,6 +3,7 @@ package com.example.smartassistant.consumer.service.recommendation;
 import com.example.smartassistant.consumer.entity.UserProfile;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +26,8 @@ import java.util.stream.Collectors;
 public class UserProfileService {
 
     private static final Logger log = LoggerFactory.getLogger(UserProfileService.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule());
 
     @Value("${app.data.dir:data/users}")
     private String basePath;

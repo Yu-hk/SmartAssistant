@@ -15,6 +15,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 智能对话 REST API - 纯代理模式
@@ -32,6 +33,15 @@ public class ChatController {
     private final ConversationValueService conversationValueService;
     private final ConversationDocumentService conversationDocumentService;
     private final ChatClient chatClient;
+
+    // ⭐ 会话轮数追踪：sessionId -> turnCount
+    private final Map<String, Integer> turnCounts = new ConcurrentHashMap<>();
+
+    // ⭐ 工具调用相关的意图标签
+    private static final Set<String> TOOL_INTENTS = Set.of(
+            "图片生成", "绘画请求", "搜索", "计算", "热门新闻", "天气查询",
+            "CALCULATE", "SEARCH", "WEATHER", "IMAGE_GENERATION", "NEWS"
+    );
 
     public ChatController(MathConsumerService mathService,
                          HybridDataQueryService hybridDataQueryService,
@@ -142,10 +152,13 @@ public class ChatController {
                         String resultText = (String) ((Map<String, Object>) routerMap).get("result");
                         String agentName = (String) ((Map<String, Object>) routerMap).get("agentName");
                         Boolean fromCache = (Boolean) ((Map<String, Object>) routerMap).getOrDefault("fromCache", false);
+                        // ⭐ 提取 intentTag
+                        String intentTag = (String) ((Map<String, Object>) routerMap).get("intentTag");
                         Map<String, Object> map = new HashMap<>();
                         map.put("result", resultText != null ? resultText : "");
                         map.put("agentName", agentName);
                         map.put("fromCache", fromCache);
+                        map.put("intentTag", intentTag);  // ⭐ 透传 intentTag
                         return map;
                     });
         } else {
@@ -157,10 +170,12 @@ public class ChatController {
                         String resultText = (String) routerMap.get("result");
                         String agentName = (String) routerMap.get("agentName");
                         Boolean fromCache = (Boolean) routerMap.getOrDefault("fromCache", false);
+                        String intentTag = (String) routerMap.get("intentTag");
                         Map<String, Object> map = new HashMap<>();
                         map.put("result", resultText != null ? resultText : "");
                         map.put("agentName", agentName);
                         map.put("fromCache", fromCache);
+                        map.put("intentTag", intentTag);
                         return map;
                     });
         }
@@ -180,6 +195,12 @@ public class ChatController {
                 if (sessionId != null) {
                     String agentName = (String) routerResponse.get("agentName");
                     Boolean fromCache = (Boolean) routerResponse.getOrDefault("fromCache", false);
+                    // ⭐ 从透传的 intentTag 读取
+                    String intentTag = (String) routerResponse.get("intentTag");
+                    // ⭐ 计算当前轮数（session 粒度）
+                    int turnCount = turnCounts.merge(sessionId, 1, Integer::sum);
+                    // ⭐ 从 intentTag 推断是否触发了工具调用
+                    boolean hasToolCall = intentTag != null && TOOL_INTENTS.contains(intentTag);
 
                     ConversationValueService.ConversationValueContext ctx =
                             new ConversationValueService.ConversationValueContext(
@@ -187,10 +208,10 @@ public class ChatController {
                                     sessionId,
                                     message + "\n" + cleanReply,
                                     agentName,
-                                    null,  // intentTag - 可从 Router 返回中获取
-                                    1,    // turnCount - 简化处理，不再依赖 DB
+                                    intentTag,  // ⭐ 传递真实 intentTag
+                                    turnCount, // ⭐ 传递真实轮数
                                     fromCache != null && fromCache,
-                                    false  // hasToolCall - 暂缺此信号
+                                    hasToolCall  // ⭐ 传递真实工具调用信号
                             );
 
                     try {
