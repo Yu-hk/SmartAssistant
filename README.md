@@ -3,10 +3,11 @@
 [![Java](https://img.shields.io/badge/Java-17%2B-blue)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.8-brightgreen)](https://spring.io/projects/spring-boot)
 [![Spring AI](https://img.shields.io/badge/Spring%20AI-1.1.2-brightgreen)](https://docs.spring.io/spring-ai/reference/)
-[![Vue](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
+[![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-> 基于 Spring AI Alibaba + A2A 协议的智能体对话平台，集成 DeepSeek V4-Flash 大模型，支持多 Agent 协同、关键词路由、文件级用户记忆。
+> 基于 Spring AI Alibaba + A2A 协议的多智能体对话平台，集成 DeepSeek V4-Flash 大模型 + DashScope 多模态能力。
+> 支持多 Agent 协同、关键词路由、**图片解析/文生图**、语义缓存、全链路监控。
 
 ---
 
@@ -50,15 +51,14 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 特性 | 说明 |
 |------|------|
 | 🧠 **A2A 协议** | 基于阿里 Spring AI Alibaba 的 Agent-to-Agent 通信协议，支持 Agent 自动发现和注册 |
-| 🚦 **关键词路由** | 基于 Agent 注册元数据的 keywords 匹配，移除复杂的策略体系，修改职责只需改 Nacos Config |
-| 🔄 **三层兜底** | 关键词匹配 → Fallback Agent(priority) → 内联 ChatClient，逐级降级 |
+| 🚦 **三层兜底路由** | 关键词匹配 → Fallback Agent(priority) → 内联 ChatClient，逐级降级，避免随机路由 |
+| 🖼️ **多模态 AI** | 集成图片解析(analyzeImage) + 文生图(generateImage)，基于 DashScope 通义万相 |
 | 🗂️ **文件级用户记忆** | 偏好存 `data/users/{userId}/preferences.json`；有价值对话存 `memories/*.md`，零 DB 依赖 |
 | 💬 **回复风格切换** | General Agent 支持用户指定幽默/文言文/段子手等多种回复风格 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
 | 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
-| 🔐 **多层安全** | JWT 认证 + Redis 限流 + Nacos 服务认证 + CORS 白名单 |
-| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回管道 + Multi-Query 查询改写 |
-| 🌐 **前端支持** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
+| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回 |
+| 🌐 **前端** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
 
 ---
 
@@ -67,7 +67,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 ```text
 ┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
 │   Frontend  │────▶│   Gateway    │────▶│     Router      │
-│  Vue 3:3001 │     │  :8081 (JWT) │     │  :8083 (意图识别) │
+│  React:3001 │     │  :8081 (JWT) │     │  :8083 (意图识别) │
 └─────────────┘     └──────────────┘     └────────┬────────┘
                                                    │
                          ┌─────────────────────────┼──────────┐
@@ -75,9 +75,9 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
                    ┌─────▼──────┐          ┌───────▼──────┐   │
                    │  Consumer  │          │   General    │   │
                    │  :8082     │          │   :8087      │   │
-                   │ (会话管理)   │          │  (闲聊问答)    │   │
-                   └─────┬──────┘          └──────────────┘   │
-                         │                                     │
+                   │ (会话管理)   │          │  (闲聊+多模态)  │   │
+                   └─────┬──────┘          │  🖼️图解析/生图 │   │
+                         │                 └──────────────┘   │
               ┌──────────┼──────────┐                          │
          ┌────▼────┐ ┌──▼────┐ ┌───▼────┐                     │
          │  Travel │ │ Food  │ │  User  │                     │
@@ -201,7 +201,7 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 | **Travel** | 8085 | 出行规划，地点查询，天气预报，景点信息（RAG） |
 | **Food** | 8084 | 美食推荐，菜系查询，附近餐厅搜索 |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
-| **General** | 8087 | 闲聊问答，新闻热点，单位转换，支持风格切换 |
+| **General** | 8087 | 闲聊问答，新闻热点，单位转换，**图片解析/文生图**，支持风格切换 |
 
 ---
 
@@ -283,31 +283,29 @@ cd frontend && npm install && cd ..
 
 ### 4. 启动服务
 
-#### 方式一：一键启动（推荐）
+#### 方式一：一键启动（推荐，需更新脚本支持 --server.port）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File start-all.ps1
 ```
 
-> 脚本会自动加载 `.env` 环境变量，按顺序启动所有服务，并等待 Nacos 就绪。
-
 #### 方式二：手动逐个启动
 
 ```powershell
-# 每个服务单独启动（需要设置环境变量）
+# ⚠️ 当前需显式指定 --server.port 解决Nacos端口冲突
 $env:DEEPSEEK_API_KEY = "sk-xxx"
 $env:DASHSCOPE_API_KEY = "sk-xxx"
 
 # 先启动基础服务
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-gateway\target\smart-assistant-gateway-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-user\target\smart-assistant-user-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden
+Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-gateway\target\smart-assistant-gateway-1.0.0-SNAPSHOT.jar", "--server.port=8081" -WindowStyle Hidden
+Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-user\target\smart-assistant-user-1.0.0-SNAPSHOT.jar", "--server.port=8086" -WindowStyle Hidden
 
-# 等待 3-5 秒后启动其他服务
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-consumer\target\smart-assistant-consumer-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-router\target\smart-assistant-router-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-travel\target\smart-assistant-travel-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-food\target\smart-assistant-food-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-general\target\smart-assistant-general-1.0.0-SNAPSHOT.jar" -WindowStyle Hidden
+# 等待 10-15 秒后启动其他服务（等 General 注册到 Nacos）
+Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-consumer\target\smart-assistant-consumer-1.0.0-SNAPSHOT.jar", "--server.port=8082" -WindowStyle Hidden
+Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-router\target\smart-assistant-router-1.0.0-SNAPSHOT.jar", "--server.port=8083" -WindowStyle Hidden
+Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-travel\target\smart-assistant-travel-1.0.0-SNAPSHOT.jar", "--server.port=8085" -WindowStyle Hidden
+Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-food\target\smart-assistant-food-1.0.0-SNAPSHOT.jar", "--server.port=8084" -WindowStyle Hidden
+Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-general\target\smart-assistant-general-1.0.0-SNAPSHOT.jar", "--server.port=8087" -WindowStyle Hidden
 
 # 前端
 cd frontend && npm run dev
@@ -427,9 +425,19 @@ type logs\travel-service.log -Tail 50
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/assistant/api/chat/send` | 发送消息（流式 SSE 响应） |
-| GET | `/assistant/api/chat/history/{sessionId}` | 获取对话历史 |
+| POST | `/assistant/api/math/chat` | 发送消息（非流式，通过 Router 路由到对应 Agent） |
 | WebSocket | `/assistant/ws/conversation` | WebSocket 实时对话 |
+
+### 通用助手工具（General Agent）
+
+| 工具 | 说明 | 依赖 |
+|------|------|------|
+| `calculate(expression)` | 数学计算 | — |
+| `convertTemperature/Length/Weight` | 单位转换 | — |
+| `getHotNews()` | 网络热点新闻 | — |
+| `searchWeb(query)` | 联网搜索 | — |
+| `analyzeImage(imageUrl, question)` 🆕 | 图片解析 | DashScope API Key |
+| `generateImage(prompt, size, n)` 🆕 | 文生图 | DashScope API Key |
 
 ### 路由接口
 
@@ -456,6 +464,34 @@ type logs\travel-service.log -Tail 50
 ### Q: 服务启动失败 "DashScope API key must be set"
 
 检查 `.env` 中的 `DASHSCOPE_API_KEY`。DashScope 用于 Embedding 和 A2A 服务发现（Router 必须配置）。
+
+### Q: 中文请求返回"一串问号"
+
+Windows 终端（PowerShell/cmd）默认使用 GBK 编码发送 JSON，服务端只接收 UTF-8。PowerShell 中需强制 UTF-8 编码：
+
+```powershell
+$body = @{ message='你的中文问题' } | ConvertTo-Json
+$utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+Invoke-RestMethod -Uri 'http://localhost:8081/assistant/api/math/chat' -Method Post -Body $utf8Bytes -ContentType 'application/json; charset=utf-8' -Headers $headers
+```
+
+cmd 中先执行 `chcp 65001` 切换到 UTF-8 代码页。
+
+### Q: 文生图/图片解析功能如何测试？
+
+确保已设置 `DASHSCOPE_API_KEY` 环境变量，服务启动后调用 chat API：
+
+```powershell
+$headers = @{ 'X-User-Id' = '3075'; 'X-User-Role' = 'ROLE_USER' }
+$body = @{ message='作为通用助手，帮我画一张夕阳下的海滩风景图' } | ConvertTo-Json
+$utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+Invoke-RestMethod -Uri 'http://localhost:8082/api/math/chat' -Method Post -Body $utf8Bytes -ContentType 'application/json; charset=utf-8' -Headers $headers -TimeoutSec 120
+```
+
+也可直接运行测试脚本：
+```powershell
+powershell -ExecutionPolicy Bypass -File test-image.ps1
+```
 
 ### Q: 模型生效
 

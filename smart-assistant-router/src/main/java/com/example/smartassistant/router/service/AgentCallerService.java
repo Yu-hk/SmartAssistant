@@ -399,20 +399,23 @@ public class AgentCallerService {
         // 匹配：太好了！根据...我来为您整理...
         //      好的，我来为...整理...
         //      好的，信息都齐了！下面/现在/接下来...
+        // ⚠️ [^，,]+ 限制最多15字，避免贪婪匹配吞掉整个主句
         String[] leadPatterns = {
-            "^太好了！根据[^，,]+[，,]我来为您整理[^,，]+[,，]",
-            "^好的，我来为您整理[^,，]+[,，]",
+            "^太好了！根据[^，,]{1,15}[，,]我来为您整理[^,，]{1,15}[,，]",
+            "^好的，我来为您整理[^,，]{1,15}[,，]",
             "^好的，信息都齐了！",
-            "^根据[^，,]+，?(我|下面|现在|接下来)[^，,]+[,，]",
-            "^好的，?(我先?|下面|现在|接下来|首先)[^，,]+[,，]",
+            "^根据[^，,]{1,15}，?(我|下面|现在|接下来)[^，,]{1,15}[,，]",
+            "^好的，?(我先?|下面|现在|接下来|首先)[^，,]{1,15}[,，]",
         };
         for (String pattern : leadPatterns) {
             if (response.matches("(?s)" + pattern + ".*")) {
                 String cleaned = response.replaceFirst("(?s)" + pattern, "");
-                if (!cleaned.isEmpty()) {
-                    log.info("[AgentCaller] 清理引导语前缀（pattern={}），长度: {} -> {}", pattern, response.length(), cleaned.length());
+                // ⚠️ 清理后若少于30字说明误吞了正文，回退原文
+                if (!cleaned.isEmpty() && cleaned.length() >= 30) {
+                    log.info("[AgentCaller] 清理引导语前缀，长度: {} -> {}", response.length(), cleaned.length());
                     return cleaned;
                 }
+                log.debug("[AgentCaller] 引导语清理后过短({}字)，跳过", cleaned.length());
             }
         }
 

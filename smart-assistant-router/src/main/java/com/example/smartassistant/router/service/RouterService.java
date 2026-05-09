@@ -278,19 +278,16 @@ public class RouterService {
             log.warn("[Router] 动态匹配 Agent 失败: {}", e.getMessage());
         }
         
-        // 降级：使用 fallback Agent（基于 metadata priority，不再硬编码 general_chat）
+        // 降级：使用 fallback Agent（基于 metadata priority）
         var fallbackAgent = agentDiscoveryService.findFallbackAgent();
         if (fallbackAgent != null) {
             log.info("[Router] 关键词兜底匹配到 fallback Agent: {}", fallbackAgent.getAgentName());
             return fallbackAgent.getAgentName();
         }
         
-        // 最终降级：返回任意可用 Agent
-        var agents = agentDiscoveryService.discoverAllAgents();
-        if (!agents.isEmpty()) {
-            return agents.get(0).getAgentName();
-        }
-        
+        // ⚠️ 不降级到任意可用 Agent。matchAgent + fallbackAgent 均未匹配时，
+        // 返回 null 让 handleSingleIntent() 走自然兜底链（内联 ChatClient → 最终提示）
+        // 避免路由到不相关的 Agent 产生误导性回复
         return null;
     }
 
