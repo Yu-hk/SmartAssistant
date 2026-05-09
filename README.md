@@ -100,7 +100,9 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 3. **Router 路由** → Consumer (会话管理 + 价值评估)
 4. **Consumer 调度** → 对应 Agent (Travel / Food / General)
 5. **Agent 响应** → 通过 SSE 流式返回给前端
-6. **价值评估** → 轮数≥3 且内容≥1000 字符时触发 LLM 叙事摘要 → `data/users/{userId}/memories/`（异步）
+6. **价值评估** → 轮数≥3 或触发工具调用时触发 → `data/users/{userId}/memories/`（异步增量追加）
+   - 同 session 的记忆**追加到同一文件**，不覆盖，保留完整对话历史
+   - 轮数≥3 且内容≥1000 字符时触发 LLM 叙事摘要
    - 摘要替代原对话内容（清空冗余），超长内容截断部分原文追加，信息零丢失
 
 详情参见 `AGENTS.md`。
@@ -399,39 +401,42 @@ smart-assistant-{service}/src/main/resources/
 data/users/{userId}/
 ├── preferences.json            # 用户偏好（权重、意图分布）
 └── memories/
-    ├── 2026-05-08_session_abc.md   # 有价值对话（YAML + Markdown）
+    ├── 2026-05-08_session_abc.md   # 增量追加记忆文件
     └── 2026-05-08_session_def.md
 ```
 
-记忆文件支持两种格式，通过 frontmatter 标识：
+记忆文件采用**增量追加**模式，同 session 同天的多轮对话追加到同一文件：
 
-**`format: raw`** — 内容未达摘要阈值，保存原文：
 ```yaml
 ---
 created_at: 1746680000000
-agent: travel
-intent: 景点查询
 session: session_abc
-turn_count: 2
-format: raw
+turn_range: 3-5
+entries: 3
 ---
-用户: 故宫几点开门
-助手: 故宫博物院通常上午8:30开门...
+
+> Turn 3 | narrative | intent: 景点查询
+
+用户咨询了景点信息，系统推荐了故宫和天坛...
+
+---
+
+> Turn 4 | raw | intent: 美食推荐
+
+用户：有川菜推荐吗？
+助手：眉州东坡、辣婆婆...
+
+---
+
+> Turn 5 | narrative | intent: 旅游规划
+
+用户继续咨询三日游行程安排，系统制定了详细规划...
 ```
 
-**`format: narrative`** — 轮数≥3 且内容≥1000 字符，触发 LLM 叙事摘要：
-```yaml
----
-created_at: 1746680000000
-agent: travel
-intent: 旅游规划
-session: session_def
-turn_count: 5
-format: narrative
----
-用户咨询了北京三日游规划，系统推荐了故宫、天坛、长城等...
-（如果内容超 8000 字符，截断部分以 --- 分隔原文追加）
-```
+每个条目通过 `> Turn {n} | {format} | intent: {intentTag}` 标记轮次和格式：
+- **`narrative`** — LLM 第三人称叙事摘要（轮数≥3 且内容≥1000 字符时触发）
+- **`raw`** — 原文保存（内容不足摘要阈值）
+- 超 8000 字符时内容被安全截断，截断部分以 `---` 分隔直接原文追加
 
 所有服务的日志统一输出到 `logs/` 目录，格式为 `{spring.application.name}.log`：
 
