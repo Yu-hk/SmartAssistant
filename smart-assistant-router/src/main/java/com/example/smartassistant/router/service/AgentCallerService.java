@@ -411,7 +411,7 @@ public class AgentCallerService {
             if (response.matches("(?s)" + pattern + ".*")) {
                 String cleaned = response.replaceFirst("(?s)" + pattern, "");
                 // ⚠️ 清理后若少于30字说明误吞了正文，回退原文
-                if (!cleaned.isEmpty() && cleaned.length() >= 30) {
+                if (cleaned.length() >= 30) {
                     log.info("[AgentCaller] 清理引导语前缀，长度: {} -> {}", response.length(), cleaned.length());
                     return cleaned;
                 }
