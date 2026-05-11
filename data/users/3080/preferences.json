@@ -1,0 +1,23 @@
+{
+  "id" : null,
+  "userId" : 3080,
+  "preferredLocations" : null,
+  "foodPreferences" : [ ],
+  "travelPreferences" : [ ],
+  "dietaryRestrictions" : null,
+  "budgetRange" : null,
+  "preferenceWeights" : { },
+  "intentDistribution" : {
+    "builtinfallback" : 37
+  },
+  "additionalPreferences" : "{\"location_weights\":{\"颐和园\":8,\"成都\":8,\"成都大熊猫基地\":2}}",
+  "totalQueries" : 18,
+  "lastQueryAt" : [ 2026, 5, 11, 17, 12, 23, 8467400 ],
+  "createdAt" : null,
+  "updatedAt" : [ 2026, 5, 11, 17, 12, 33, 895457700 ],
+  "travelPreferencesArray" : [ ],
+  "dietaryRestrictionsArray" : null,
+  "foodPreferencesArray" : [ ],
+  "preferredLocationsArray" : null,
+  "preferenceWeightsMap" : { }
+}

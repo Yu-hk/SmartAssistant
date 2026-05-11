@@ -1,0 +1,23 @@
+{
+  "id" : null,
+  "userId" : 3079,
+  "preferredLocations" : null,
+  "foodPreferences" : [ ],
+  "travelPreferences" : [ ],
+  "dietaryRestrictions" : null,
+  "budgetRange" : null,
+  "preferenceWeights" : { },
+  "intentDistribution" : {
+    "builtinfallback" : 60
+  },
+  "additionalPreferences" : "{\"location_weights\":{\"北京\":8,\"杭州西湖\":8,\"西安\":6,\"广州塔\":1,\"深圳欢乐谷\":1,\"南京\":1,\"丽江古城\":1,\"北京故宫\":1,\"成都\":15,\"杭州\":6}}",
+  "totalQueries" : 48,
+  "lastQueryAt" : [ 2026, 5, 11, 17, 7, 44, 592471500 ],
+  "createdAt" : null,
+  "updatedAt" : [ 2026, 5, 11, 17, 8, 25, 430035300 ],
+  "travelPreferencesArray" : [ ],
+  "dietaryRestrictionsArray" : null,
+  "foodPreferencesArray" : [ ],
+  "preferredLocationsArray" : null,
+  "preferenceWeightsMap" : { }
+}
