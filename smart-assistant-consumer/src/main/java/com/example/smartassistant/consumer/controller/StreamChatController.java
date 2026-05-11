@@ -2,6 +2,7 @@ package com.example.smartassistant.consumer.controller;
 
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
+import com.example.smartassistant.consumer.service.core.RequestQueueService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -52,14 +53,17 @@ public class StreamChatController {
     private final RouterClient routerClient;
     private final AgentStreamClient agentStreamClient;
     private final StringRedisTemplate redisTemplate;
+    private final RequestQueueService requestQueueService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public StreamChatController(
             RouterClient routerClient,
             AgentStreamClient agentStreamClient,
+            RequestQueueService requestQueueService,
             @Autowired(required = false) StringRedisTemplate redisTemplate) {
         this.routerClient = routerClient;
         this.agentStreamClient = agentStreamClient;
+        this.requestQueueService = requestQueueService;
         this.redisTemplate = redisTemplate;
     }
     
@@ -120,12 +124,45 @@ public class StreamChatController {
                 return;
             }
         }
-        
-        // 4. 检查是否支持流式（仅单 Agent 时需要检查）
+
+        // ⭐ 4. 检查流式支持（单 Agent）
         if (!agentStreamClient.isStreamingSupported(agentName)) {
             logger.warn("[StreamChat] Agent 不支持流式: {}, 回退到非流式", agentName);
             sendErrorEvent(response, "Agent 不支持流式响应");
             return;
+        }
+        
+        // ⭐ 5. 排队等待 LLM 槽位（请求排队核心逻辑）
+        if (requestId != null && !requestId.isBlank()) {
+            RequestQueueService.SlotResult slotResult = requestQueueService.tryAcquireWithQueue(requestId);
+            
+            switch (slotResult) {
+                case QUEUE_FULL:
+                    logger.warn("[StreamChat] 队列已满，拒绝请求: requestId={}", requestId);
+                    sendErrorEvent(response, "系统繁忙，请稍后再试");
+                    return;
+                    
+                case QUEUED:
+                    // ⭐ 发送排队事件
+                    int pos = requestQueueService.getQueuePosition(requestId);
+                    long estWait = pos * 5000L; // 估计等待时间 ≈ 位置 × 5s
+                    sendQueueEvent(response, pos, estWait);
+                    
+                    // ⭐ 阻塞等待槽位（complete() 会按 FIFO 顺序唤醒）
+                    boolean acquired = requestQueueService.waitForSlot(requestId);
+                    if (acquired) {
+                        sendProcessingEvent(response);
+                    } else {
+                        sendTimeoutEvent(response, "排队超时，请稍后重试");
+                        return;
+                    }
+                    break;
+                    
+                case ACQUIRED:
+                    // 立即获取到槽位
+                    sendProcessingEvent(response);
+                    break;
+            }
         }
         
         // 6. 调用 Agent SSE 并实时转发
@@ -135,7 +172,14 @@ public class StreamChatController {
         // 添加 ?message=xxx&showThinking=true
         String fullUrl = agentUrl + "?message=" + encodeUrl(message) + "&showThinking=" + showThinking;
         
-        forwardSSE(response, fullUrl);
+        try {
+            forwardSSE(response, fullUrl);
+        } finally {
+            // ⭐ 释放 LLM 槽位（如果之前获取了槽位）
+            if (requestId != null && !requestId.isBlank()) {
+                requestQueueService.complete(requestId);
+            }
+        }
     }
     
     /**
@@ -227,6 +271,70 @@ public class StreamChatController {
             response.getOutputStream().flush();
         } catch (Exception e) {
             logger.error("[StreamChat] 发送错误事件失败: {}", e.getMessage());
+        }
+    }
+    
+    // ==================== 排队相关 SSE 事件 ====================
+    
+    /**
+     * ⭐ 发送排队事件
+     */
+    private void sendQueueEvent(HttpServletResponse response, int position, long estimatedWaitMs) {
+        try {
+            String json = String.format(
+                    "{\"type\":\"queued\",\"position\":%d,\"estimatedWaitMs\":%d}",
+                    position, estimatedWaitMs);
+            String event = "event: queued\ndata: " + json + "\n\n";
+            response.getOutputStream().write(event.getBytes(StandardCharsets.UTF_8));
+            response.getOutputStream().flush();
+            logger.info("[StreamChat] ⏳ 排队事件: position={}, estimatedWaitMs={}", position, estimatedWaitMs);
+        } catch (Exception e) {
+            logger.debug("[StreamChat] 发送排队事件失败: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * ⭐ 发送排队位置更新事件
+     */
+    private void sendQueuePositionEvent(HttpServletResponse response, int position, long estimatedWaitMs) {
+        try {
+            String json = String.format(
+                    "{\"type\":\"queue_position\",\"position\":%d,\"estimatedWaitMs\":%d}",
+                    position, estimatedWaitMs);
+            String event = "event: queue_position\ndata: " + json + "\n\n";
+            response.getOutputStream().write(event.getBytes(StandardCharsets.UTF_8));
+            response.getOutputStream().flush();
+        } catch (Exception e) {
+            logger.debug("[StreamChat] 发送位置更新事件失败: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * ⭐ 发送处理中事件（槽位已分配）
+     */
+    private void sendProcessingEvent(HttpServletResponse response) {
+        try {
+            String event = "event: processing\ndata: {\"type\":\"processing\"}\n\n";
+            response.getOutputStream().write(event.getBytes(StandardCharsets.UTF_8));
+            response.getOutputStream().flush();
+            logger.info("[StreamChat] ▶️ 处理中事件");
+        } catch (Exception e) {
+            logger.debug("[StreamChat] 发送处理中事件失败: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * ⭐ 发送超时事件
+     */
+    private void sendTimeoutEvent(HttpServletResponse response, String message) {
+        try {
+            String json = String.format(
+                    "{\"type\":\"timeout\",\"content\":\"%s\"}", escapeForSSE(message));
+            String event = "event: timeout\ndata: " + json + "\n\n";
+            response.getOutputStream().write(event.getBytes(StandardCharsets.UTF_8));
+            response.getOutputStream().flush();
+        } catch (Exception e) {
+            logger.debug("[StreamChat] 发送超时事件失败: {}", e.getMessage());
         }
     }
     
