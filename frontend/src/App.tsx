@@ -158,6 +158,7 @@ function AppContent() {
     handleTransferToHuman, handleSatisfaction,
     handlePermissionAllow, handlePermissionDeny,
     setShowSatisfaction, setTransferPending,
+    queuePosition, queueEstimatedWait,
   } = useChat({
     currentSession,
     currentSessionId,
@@ -288,6 +289,8 @@ function AppContent() {
               transferPending={transferPending}
               showSatisfaction={showSatisfaction}
               faqSuggestions={faqSuggestions}
+              queuePosition={queuePosition}
+              queueEstimatedWait={queueEstimatedWait}
               onSendMessage={sendMessage}
               onStop={handleStop}
               onInputChange={setInputValue}

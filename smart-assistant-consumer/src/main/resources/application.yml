@@ -24,6 +24,14 @@ spring:
     async:
       request-timeout: 120000  # 2 分钟
 
+# ⭐ 请求排队配置（基于压测：5 并发 P50<5s，10 并发 P50=8.8s）
+chat:
+  queue:
+    max-concurrent: 5          # 最大并发 LLM 请求数（超过则排队等待）
+    max-queue-size: 50         # 最大排队长度
+    queue-timeout-ms: 60000    # 排队等待超时（毫秒）
+    slot-timeout-ms: 120000    # 单次请求最长执行时间（毫秒）
+
   # ⭐ HTTP 编码配置
   http:
     encoding:

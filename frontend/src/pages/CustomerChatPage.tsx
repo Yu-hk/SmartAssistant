@@ -16,6 +16,8 @@ interface CustomerChatPageProps {
   transferPending: boolean;
   showSatisfaction: boolean;
   faqSuggestions: FaqItem[];
+  queuePosition: number | null;
+  queueEstimatedWait: number | null;
   onSendMessage: (message: string, sessionIdOverride?: string, onNavigate?: (path: string) => void) => void;
   onStop: () => void;
   onInputChange: (value: string) => void;
@@ -43,6 +45,8 @@ export function CustomerChatPage({
   transferPending,
   showSatisfaction,
   faqSuggestions,
+  queuePosition,
+  queueEstimatedWait,
   onSendMessage,
   onStop,
   onInputChange,
@@ -277,6 +281,8 @@ export function CustomerChatPage({
               permissionRequest={permissionRequest}
               onPermissionAllow={onPermissionAllow}
               onPermissionDeny={onPermissionDeny}
+              queuePosition={queuePosition}
+              queueEstimatedWait={queueEstimatedWait}
             />
           </div>
         )}
