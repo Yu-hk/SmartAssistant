@@ -504,6 +504,7 @@ type logs\travel-service.log -Tail 50
 | `searchWeb(query)` | 联网搜索 | — |
 | `analyzeImage(imageUrl, question)` 🆕 | 图片解析 | DashScope API Key |
 | `generateImage(prompt, size, n)` 🆕 | 文生图 | DashScope API Key |
+| `convertCurrency(value, from, to)` 🆕 | 货币汇率转换 | 实时汇率 API |
 
 ### 路由接口
 

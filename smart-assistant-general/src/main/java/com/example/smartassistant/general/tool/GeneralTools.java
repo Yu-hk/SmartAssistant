@@ -525,6 +525,52 @@ public class GeneralTools {
         return sb.toString();
     }
 
+    // ==================== 汇率转换 ====================
+
+    @Tool(description = "货币汇率转换，支持 CNY/USD/EUR/GBP/JPY/HKD/KRW/THB/AUD/CAD 等主流货币，基于实时汇率。适用于'100美元等于多少人民币'、'500欧元兑日元'等场景")
+    public String convertCurrency(
+            @ToolParam(description = "金额数值") double value,
+            @ToolParam(description = "源货币代码，如 USD、CNY、EUR、JPY 等") String fromCurrency,
+            @ToolParam(description = "目标货币代码，如 CNY、USD、EUR、GBP 等") String toCurrency) {
+        log.info("[GeneralTools] 汇率转换: {} {} → {}", value, fromCurrency, toCurrency);
+        try {
+            String from = fromCurrency.trim().toUpperCase();
+            String to = toCurrency.trim().toUpperCase();
+
+            // 相同货币直接返回
+            if (from.equals(to)) {
+                return formatResult(value) + " " + to;
+            }
+
+            // 获取源货币的实时汇率
+            String url = "https://open.er-api.com/v6/latest/" + from;
+            String json = fetchJson(url);
+            if (json == null) {
+                return "获取汇率失败，请稍后重试。也可使用 searchWeb 搜索最新汇率。";
+            }
+
+            // 解析 JSON 提取目标汇率
+            String searchKey = "\"" + to + "\":";
+            int idx = json.indexOf(searchKey);
+            if (idx == -1) {
+                return "不支持的货币代码: " + to + "，支持的货币：CNY/USD/EUR/GBP/JPY/HKD/KRW/THB/AUD/CAD";
+            }
+
+            int start = idx + searchKey.length();
+            int end = json.indexOf(",", start);
+            if (end == -1) end = json.indexOf("}", start);
+            if (end == -1) end = json.length();
+
+            double rate = Double.parseDouble(json.substring(start, end).trim());
+            double result = value * rate;
+
+            return formatResult(result) + " " + to + "（当前汇率: 1 " + from + " = " + formatResult(rate) + " " + to + "）";
+        } catch (Exception e) {
+            log.warn("[GeneralTools] 汇率转换失败: {}", e.getMessage());
+            return "汇率转换失败，请检查货币代码是否正确。也可使用 searchWeb 搜索最新汇率。";
+        }
+    }
+
     /**
      * 查询历史纠错记录
      */
