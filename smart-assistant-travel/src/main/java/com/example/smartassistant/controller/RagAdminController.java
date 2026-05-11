@@ -1,7 +1,7 @@
 package com.example.smartassistant.controller;
 
-import com.example.smartassistant.service.TravelNoteRankingService;
-import com.example.smartassistant.service.TravelNoteService;
+import com.example.smartassistant.service.rag.TravelNoteRankingService;
+import com.example.smartassistant.service.rag.TravelNoteService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;

@@ -22,7 +22,7 @@ public class JwtService {
     
     private static final Logger log = LoggerFactory.getLogger(JwtService.class);
     
-    @Value("${jwt.secret:a2a-demo-secret-key-for-jwt-token-generation-2026}")
+    @Value("${jwt.secret}")
     private String secret;
     
     @Value("${jwt.expiration:3600000}")  // 默认 1 小时

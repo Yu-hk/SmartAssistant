@@ -473,13 +473,160 @@ public class GeneralTools {
             // 使用 DuckDuckGo 搜索（无需 API Key）
             String url = "https://html.duckduckgo.com/html/?q=" + java.net.URLEncoder.encode(query, StandardCharsets.UTF_8);
             String html = fetchJson(url);
-            if (html == null) return "搜索失败，请稍后重试";
+            if (html == null) {
+                log.warn("[GeneralTools] DuckDuckGo 搜索失败，尝试备用搜索源");
+                return fallbackSearch(query);
+            }
 
-            return parseDuckDuckGoResults(html, query);
+            String result = parseDuckDuckGoResults(html, query);
+            // 如果 DuckDuckGo 返回空结果，尝试备用源
+            if (result.contains("未找到") || result.contains("共找到 0 条")) {
+                log.warn("[GeneralTools] DuckDuckGo 无结果，尝试备用搜索源");
+                return fallbackSearch(query);
+            }
+            return result;
         } catch (Exception e) {
-            log.warn("[GeneralTools] 搜索异常: {}", e.getMessage());
-            return "搜索时发生错误: " + e.getMessage();
+            log.warn("[GeneralTools] 搜索异常: {}, 尝试备用源", e.getMessage());
+            return fallbackSearch(query);
         }
+    }
+
+    /**
+     * 备用搜索源：当 DuckDuckGo 搜索失败时使用
+     * 调用 tenapi 获取结果（无需 API Key）
+     */
+    private String fallbackSearch(String query) {
+        try {
+            String encoded = java.net.URLEncoder.encode(query, StandardCharsets.UTF_8);
+            String url = "https://tenapi.cn/v2/search?keyword=" + encoded;
+            String json = fetchJson(url);
+            if (json == null) return fallbackBingSearch(query);
+
+            // 解析 JSON 结果
+            StringBuilder sb = new StringBuilder();
+            sb.append("🔍 搜索结果：「").append(query).append("」（备用源）\n\n");
+
+            // 提取 data 数组
+            int dataStart = json.indexOf("\"data\":[");
+            if (dataStart < 0) return fallbackBingSearch(query);
+
+            String dataSection = json.substring(dataStart + 7);
+            int count = 0;
+            int pos = 0;
+            while (count < 6) {
+                int itemStart = dataSection.indexOf("{", pos);
+                if (itemStart < 0) break;
+
+                // 提取 title
+                int titleKey = dataSection.indexOf("\"title\":\"", itemStart);
+                if (titleKey < 0) break;
+                int titleValStart = titleKey + 9;
+                int titleValEnd = dataSection.indexOf("\"", titleValStart);
+                String title = dataSection.substring(titleValStart, titleValEnd);
+
+                // 提取 desc
+                int descKey = dataSection.indexOf("\"desc\":\"", itemStart);
+                String snippet = "";
+                if (descKey >= 0) {
+                    int descValStart = descKey + 8;
+                    int descValEnd = dataSection.indexOf("\"", descValStart);
+                    snippet = dataSection.substring(descValStart, descValEnd);
+                }
+
+                count++;
+                sb.append(count).append(". ").append(unescapeJson(title)).append("\n");
+                if (!snippet.isEmpty()) {
+                    sb.append("   ").append(unescapeJson(snippet)).append("\n\n");
+                }
+                pos = itemStart + 1;
+            }
+
+            if (count > 0) {
+                sb.append("--- 共找到 ").append(count).append(" 条结果");
+                return sb.toString();
+            }
+            return fallbackBingSearch(query);
+        } catch (Exception e) {
+            log.warn("[GeneralTools] 备用搜索也失败: {}", e.getMessage());
+            return fallbackBingSearch(query);
+        }
+    }
+
+    /**
+     * 第三级降级：使用必应搜索（无需 API Key）
+     */
+    private String fallbackBingSearch(String query) {
+        try {
+            String encoded = java.net.URLEncoder.encode(query, StandardCharsets.UTF_8);
+            String url = "https://www.bing.com/search?q=" + encoded + "&mkt=zh-CN";
+            String html = fetchJson(url);
+            if (html == null) {
+                return "搜索服务暂时不可用，请稍后重试。";
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("🔍 搜索结果：「").append(query).append("」（备用源）\n\n");
+
+            int count = 0;
+            int pos = 0;
+            while (count < 6) {
+                // 必应搜索结果块：<li class="b_algo">
+                int resultStart = html.indexOf("<li class=\"b_algo\"", pos);
+                if (resultStart < 0) break;
+
+                // 提取标题：<h2><a href="..." ...>标题</a></h2>
+                int h2Start = html.indexOf("<h2>", resultStart);
+                if (h2Start < 0) { pos = resultStart + 1; continue; }
+                int aStart = html.indexOf("<a ", h2Start);
+                if (aStart < 0) { pos = resultStart + 1; continue; }
+                int hrefStart = html.indexOf("href=\"", aStart);
+                if (hrefStart < 0) { pos = resultStart + 1; continue; }
+                hrefStart += 6;
+                int hrefEnd = html.indexOf("\"", hrefStart);
+                if (hrefEnd < 0) { pos = resultStart + 1; continue; }
+
+                int titleTagEnd = html.indexOf("</a>", aStart);
+                int titleTextStart = html.indexOf(">", hrefEnd + 1) + 1;
+                if (titleTextStart > titleTagEnd || titleTextStart <= 0) { pos = resultStart + 1; continue; }
+                String title = stripHtmlTags(html.substring(titleTextStart, titleTagEnd)).trim();
+
+                // 提取摘要：<p class="b_lineclamp...">
+                int pStart = html.indexOf("<p", titleTagEnd);
+                if (pStart > 0) {
+                    int pTagEnd = html.indexOf(">", pStart) + 1;
+                    int pEnd = html.indexOf("</p>", pTagEnd);
+                    String snippet = pEnd > pTagEnd ? stripHtmlTags(html.substring(pTagEnd, pEnd)).trim() : "";
+
+                    count++;
+                    sb.append(count).append(". ").append(title).append("\n");
+                    if (!snippet.isEmpty()) {
+                        sb.append("   ").append(snippet).append("\n\n");
+                    }
+                }
+                pos = resultStart + 1;
+            }
+
+            if (count == 0) {
+                return "未找到「" + query + "」的相关结果，请尝试换个关键词。";
+            }
+            sb.append("--- 共找到 ").append(count).append(" 条结果");
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("[GeneralTools] Bing 搜索也失败: {}", e.getMessage());
+            return "搜索服务暂时不可用，请稍后重试。";
+        }
+    }
+
+    /**
+     * 简单的 JSON 转义字符还原
+     */
+    private String unescapeJson(String text) {
+        if (text == null) return "";
+        return text.replace("\\\"", "\"")
+                   .replace("\\n", "\n")
+                   .replace("\\t", "\t")
+                   .replace("\\/", "/")
+                   .replace("\\\\", "\\");
     }
 
     /**

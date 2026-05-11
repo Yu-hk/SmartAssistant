@@ -1,5 +1,7 @@
 package com.example.smartassistant.consumer.service.session;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -58,8 +60,11 @@ public class ConversationDocumentService {
     private static final int MIN_CONTENT_FOR_SUMMARIZE = 1000;
     private static final int MIN_TURN_FOR_SUMMARIZE = 3;
 
-    // ★ 文件锁缓存，按 sessionId 粒度同步
-    private final ConcurrentHashMap<String, Object> fileLocks = new ConcurrentHashMap<>();
+    // ★ 文件锁缓存，按 sessionId 粒度同步（使用 Caffeine 缓存，30 分钟自动过期，最大 5000 条目）
+    private final Cache<String, Object> fileLocks = Caffeine.newBuilder()
+            .expireAfterAccess(30, TimeUnit.MINUTES)
+            .maximumSize(5000)
+            .build();
 
     private final String basePath;
 
@@ -278,10 +283,10 @@ public class ConversationDocumentService {
     }
 
     /**
-     * 获取 sessionId 粒度的同步锁对象
+     * 获取 sessionId 粒度的同步锁对象（使用 Caffeine 缓存，自动过期）
      */
     private Object getFileLock(String sessionId) {
-        return fileLocks.computeIfAbsent(sessionId, k -> new Object());
+        return fileLocks.get(sessionId, k -> new Object());
     }
 
     /**
