@@ -180,14 +180,29 @@ public class SemanticRouteCacheService {
      * @param confidence 置信度
      * @param userId     用户ID（为 null 时不记录用户意图）
      */
+    /**
+     * 保存路由决策（自动生成 intentTag）
+     * @deprecated 推荐使用 {@link #saveDecision(String, String, String, double, Long, String)} 传入已生成的 intentTag
+     */
+    @Deprecated
     public void saveDecision(String requestId, String question, String agentName,
                            double confidence, Long userId) {
-        if (!cacheEnabled || redisTemplate == null || question == null || agentName == null) return;
+        String intentTag = generateIntentTag(question);
+        if (intentTag != null) {
+            saveDecision(requestId, question, agentName, confidence, userId, intentTag);
+        }
+    }
+
+    /**
+     * 保存路由决策（使用外部传入的 intentTag，避免 LLM 非确定性导致标签不一致）
+     * <p>
+     * 调用方应先生成 intentTag 并复用，确保 saveDecision 和 saveReply 使用相同的标签
+     */
+    public void saveDecision(String requestId, String question, String agentName,
+                           double confidence, Long userId, String intentTag) {
+        if (!cacheEnabled || redisTemplate == null || question == null || agentName == null || intentTag == null) return;
 
         try {
-            String intentTag = generateIntentTag(question);
-            if (intentTag == null) return;
-
             // 保存路由决策
             CachedRouteDecision decision = new CachedRouteDecision(intentTag, agentName, confidence, question);
             String json = objectMapper.writeValueAsString(decision);
@@ -262,13 +277,28 @@ public class SemanticRouteCacheService {
         }
     }
 
+    /**
+     * 保存回复内容缓存（自动生成 intentTag）
+     * @deprecated 推荐使用 {@link #saveReply(String, String, String, String)} 传入已生成的 intentTag
+     */
+    @Deprecated
     public void saveReply(String question, String reply, String agentName) {
-        if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank()) return;
+        String intentTag = generateIntentTag(question);
+        if (intentTag != null) {
+            saveReply(question, reply, agentName, intentTag);
+        }
+    }
+
+    /**
+     * 保存回复内容缓存（使用外部传入的 intentTag）
+     * <p>
+     * 高频问题（被问到 ≥HIGH_FREQUENCY_THRESHOLD 次）的回复会被缓存。
+     * 下次相同 intent 的请求直接返回缓存回复，不再调用 Agent。
+     */
+    public void saveReply(String question, String reply, String agentName, String intentTag) {
+        if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank() || intentTag == null) return;
 
         try {
-            String intentTag = generateIntentTag(question);
-            if (intentTag == null) return;
-
             // ⭐ 只缓存高频问题的回复
             if (!isHighFrequencyQuestion(intentTag)) {
                 log.debug("[SemanticCache] 跳过低频问题回复缓存: intent={}, agent={}", intentTag, agentName);
