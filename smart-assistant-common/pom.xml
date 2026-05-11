@@ -35,7 +35,7 @@
         <dependency>
             <groupId>com.github.magese</groupId>
             <artifactId>ik-analyzer</artifactId>
-            <version>8.4.0</version>
+            <!-- version managed by parent -->
         </dependency>
 
         <!-- ⭐ HanLP 词性标注和同义词扩展（Portable 版本自带数据文件） -->
@@ -56,7 +56,7 @@
         <dependency>
             <groupId>com.github.jsqlparser</groupId>
             <artifactId>jsqlparser</artifactId>
-            <version>4.9</version>
+            <!-- version managed by parent -->
         </dependency>
 
         <!-- Test -->

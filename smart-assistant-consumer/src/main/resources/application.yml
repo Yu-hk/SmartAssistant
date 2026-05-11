@@ -1,3 +1,4 @@
+server.shutdown: graceful  # ⭐ 优雅关闭，等待处理中的请求完成
 server:
   port: 8082
   # ⭐ Tomcat 线程池优化
