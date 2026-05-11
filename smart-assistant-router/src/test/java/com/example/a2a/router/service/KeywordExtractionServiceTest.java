@@ -1,5 +1,6 @@
-package com.example.smartassistant.router.service;
+package com.example.a2a.router.service;
 
+import com.example.smartassistant.router.service.extraction.KeywordExtractionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

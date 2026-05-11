@@ -163,19 +163,19 @@ public class RouterService {
             String intentTag = semanticCache.generateIntentTag(question);
             result.setIntentTag(intentTag);
             
-            // ⭐ 缓存路由决策（传入 requestId 写入审计日志）+ 异步缓存回复
+            // ⭐ 缓存路由决策 + 回复（使用已生成的 intentTag，确保标签一致）
             String agentName = result.getAgentName();
             String requestId = request.getRequestId();
             if (agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
                 // 缓存路由决策（含审计日志）
-                semanticCache.saveDecision(requestId, question, agentName, result.getConfidence(), userId);
+                semanticCache.saveDecision(requestId, question, agentName, result.getConfidence(), userId, intentTag);
 
                 // 缓存回复内容（Agent 返回后异步写入，不阻塞主流程）
                 String reply = result.getResult();
                 if (cached == null || cached.reply == null) {
                     // 首次路由或 Agent 重新调用：缓存回复原文
                     if (reply != null && !reply.isBlank() && !reply.startsWith("❌")) {
-                        semanticCache.saveReply(question, reply, agentName);
+                        semanticCache.saveReply(question, reply, agentName, intentTag);
                     }
                 }
                 // 缓存命中时已有回复缓存，无需重复写入
