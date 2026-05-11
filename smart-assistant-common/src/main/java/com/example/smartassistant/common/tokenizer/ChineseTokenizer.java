@@ -16,6 +16,10 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+// ⭐ 直接导入 IKAnalyzer 类型，替代反射调用
+import org.wltea.analyzer.core.IKSegmenter;
+import org.wltea.analyzer.core.Lexeme;
+
 /**
  * 中文分词器工具类
  * <p>
@@ -42,12 +46,8 @@ public class ChineseTokenizer {
             "一点", "一些", "这样", "那样", "如何", "为啥"
     );
     
-    /** IKAnalyzer 类名（延迟加载避免类找不到） */
-    private static final String SEGMENTER_CLASS = "org.wltea.analyzer.core.IKSegmenter";
-    private static final String LEXEME_CLASS = "org.wltea.analyzer.core.Lexeme";
-    
-    /** IKAnalyzer 是否可用 */
-    private boolean ikAvailable = false;
+    /** IKAnalyzer 是否可用（始终为 true，因 pom.xml 已声明依赖） */
+    private static final boolean IK_AVAILABLE = true;
     
     /** 分词结果缓存（防止重复分词） */
     private final Map<String, Set<String>> cache = new ConcurrentHashMap<>();
@@ -56,7 +56,7 @@ public class ChineseTokenizer {
     private static final int MAX_CACHE_SIZE = 10000;
     
     /** IKAnalyzer 实例（线程不安全，每个线程需单独创建） */
-    private volatile Object ikSegmenter;
+    private static final ThreadLocal<IKSegmenter> IK_SEGMENTER_HOLDER = ThreadLocal.withInitial(() -> null);
     
     /** HanLP 是否可用 */
     private boolean hanlpAvailable = false;
@@ -76,15 +76,8 @@ public class ChineseTokenizer {
     
     @PostConstruct
     public void init() {
-        // 初始化 IKAnalyzer
-        try {
-            Class.forName(SEGMENTER_CLASS);
-            log.info("[ChineseTokenizer] IKAnalyzer 8.4.0 初始化成功");
-            ikAvailable = true;
-        } catch (ClassNotFoundException e) {
-            log.warn("[ChineseTokenizer] IKAnalyzer 不可用，将使用基础分词: {}", e.getMessage());
-            ikAvailable = false;
-        }
+        // IKAnalyzer 已通过 pom.xml 声明依赖，直接可用
+        log.info("[ChineseTokenizer] IKAnalyzer 8.4.0 就绪（直接依赖模式）");
         
         // 加载同义词词典（独立于 HanLP）
         loadSynonymDictionary();
@@ -164,10 +157,10 @@ public class ChineseTokenizer {
     }
     
     /**
-     * 判断 IKAnalyzer 是否可用
+     * 判断 IKAnalyzer 是否可用（始终为 true）
      */
     public boolean isIkAvailable() {
-        return ikAvailable;
+        return IK_AVAILABLE;
     }
     
     /**
@@ -191,7 +184,7 @@ public class ChineseTokenizer {
         }
         
         Set<String> result;
-        if (ikAvailable) {
+        if (IK_AVAILABLE) {
             result = tokenizeWithIK(key);
         } else {
             result = tokenizeBasic(key);
@@ -206,24 +199,19 @@ public class ChineseTokenizer {
     }
     
     /**
-     * 使用 IKAnalyzer 分词
+     * 使用 IKAnalyzer 分词（直接调用模式，替代旧反射调用）
      */
     private Set<String> tokenizeWithIK(String text) {
         Set<String> words = new HashSet<>();
         
         try {
-            Class<?> segmenterClass = Class.forName(SEGMENTER_CLASS);
-            Class<?> lexemeClass = Class.forName(LEXEME_CLASS);
-            
-            // 创建 IKSegmenter 实例
             StringReader reader = new StringReader(text);
-            Object segmenter = segmenterClass.getConstructor(StringReader.class, boolean.class)
-                    .newInstance(reader, true);
+            IKSegmenter segmenter = new IKSegmenter(reader, true);
             
             // 遍历分词结果
-            Object lexeme;
-            while ((lexeme = segmenterClass.getMethod("next").invoke(segmenter)) != null) {
-                String word = (String) lexemeClass.getMethod("getLexemeText").invoke(lexeme);
+            Lexeme lexeme;
+            while ((lexeme = segmenter.next()) != null) {
+                String word = lexeme.getLexemeText();
                 String lower = word.toLowerCase();
                 
                 // 过滤停用词和单字符

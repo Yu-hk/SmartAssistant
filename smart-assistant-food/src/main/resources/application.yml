@@ -26,7 +26,7 @@ spring:
         namespace: ""
         group: DEFAULT_GROUP
         username: ${NACOS_USERNAME:nacos}
-        password: ${NACOS_PASSWORD:nacos123}
+        password: ${NACOS_PASSWORD}
         # 注册时携带元数据（供 Router 使用）
         metadata:
           agent-type: food_recommendation
@@ -42,7 +42,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/a2a_system
     username: postgres
-    password: ${POSTGRES_PASSWORD:postgres123}
+    password: ${POSTGRES_PASSWORD}  # ⚠️ 必须设置 POSTGRES_PASSWORD 环境变量
     driver-class-name: org.postgresql.Driver
 
   # AI 模型配置
@@ -78,7 +78,7 @@ spring:
             namespace: ""  # 使用默认 namespace (public)
             group: DEFAULT_GROUP
             username: ${NACOS_USERNAME:nacos}
-            password: ${NACOS_PASSWORD:nacos123}
+            password: ${NACOS_PASSWORD}
             # Agent 特征元数据（用于 Router 智能路由）
             metadata:
               agent-type: food_recommendation

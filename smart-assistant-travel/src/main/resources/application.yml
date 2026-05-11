@@ -26,7 +26,7 @@ spring:
         namespace: ""
         group: DEFAULT_GROUP
         username: ${NACOS_USERNAME:nacos}
-        password: ${NACOS_PASSWORD:nacos123}
+        password: ${NACOS_PASSWORD}
         # 注册时携带元数据（供 Router 使用）
         metadata:
           agent-type: location_weather
@@ -49,7 +49,7 @@ spring:
       host: localhost
       port: 6379
       database: 0
-      password: ${REDIS_PASSWORD:redis123}
+      password: ${REDIS_PASSWORD}  # ⚠️ 必须设置 REDIS_PASSWORD 环境变量
       timeout: 3000ms
       lettuce:
         pool:
@@ -61,7 +61,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/a2a_system
     username: postgres  # ⭐ 使用统一的应用用户，权限控制在应用层实现
-    password: ${POSTGRES_PASSWORD:postgres123}  # ⭐ 生产环境请使用环境变量或密钥管理服务
+    password: ${POSTGRES_PASSWORD}  # ⚠️ 必须设置 POSTGRES_PASSWORD 环境变量
     driver-class-name: org.postgresql.Driver
 
   # DashScope Embedding API 配置
@@ -94,7 +94,7 @@ spring:
             namespace: ""  # 使用默认 namespace (public)
             group: DEFAULT_GROUP
             username: ${NACOS_USERNAME:nacos}
-            password: ${NACOS_PASSWORD:nacos123}
+            password: ${NACOS_PASSWORD}
             # Agent 特征元数据（用于 Router 智能路由）
             metadata:
               agent-type: location_weather

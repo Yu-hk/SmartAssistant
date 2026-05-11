@@ -1,6 +1,6 @@
 package com.example.smartassistant.consumer.websocket;
 
-import com.example.smartassistant.consumer.service.core.MathConsumerService;
+import com.example.smartassistant.consumer.service.core.ChatConsumerService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
@@ -23,14 +23,14 @@ public class ConversationWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ConversationWebSocketHandler.class);
 
-    private final MathConsumerService mathConsumerService;
+    private final ChatConsumerService chatConsumerService;
     private final ObjectMapper objectMapper;
 
     // 存储活跃的 WebSocket 会话：sessionId -> WebSocketSession
     private final Map<String, WebSocketSession> activeSessions = new ConcurrentHashMap<>();
 
-    public ConversationWebSocketHandler(MathConsumerService mathConsumerService) {
-        this.mathConsumerService = mathConsumerService;
+    public ConversationWebSocketHandler(ChatConsumerService chatConsumerService) {
+        this.chatConsumerService = chatConsumerService;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -106,7 +106,7 @@ public class ConversationWebSocketHandler extends TextWebSocketHandler {
 
         // 调用 MathConsumerService 处理对话(包含完整的路由和 Agent 调用)
         long startTime = System.currentTimeMillis();
-        String aiResponse = mathConsumerService.calculate(message);
+        String aiResponse = chatConsumerService.calculate(message);
         long duration = System.currentTimeMillis() - startTime;
 
         // 发送结果

@@ -1,6 +1,6 @@
 package com.example.smartassistant.tool;
 
-import com.example.smartassistant.service.RestaurantReviewSearchService;
+import com.example.smartassistant.service.search.RestaurantReviewSearchService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;

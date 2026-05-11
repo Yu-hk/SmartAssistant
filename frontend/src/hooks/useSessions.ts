@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Session, Message, IntentType } from '../types';
+import { sessions as sessionApi } from '../api';
 
 export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -9,10 +10,11 @@ export function useSessions() {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const res = await fetch('/api/sessions');
-      const data = await res.json();
-      if (data.sessions) {
-        const loaded: Session[] = data.sessions.map((s: any) => ({
+      const data = await sessionApi.fetchSessions();
+      // 兼容 API 返回 { sessions: [...] } 或直接返回数组
+      const sessionList = Array.isArray(data) ? data : (data as any).sessions || [];
+      if (sessionList.length > 0) {
+        const loaded: Session[] = sessionList.map((s: any) => ({
           id: s.id,
           title: s.title,
           model: s.model,
@@ -34,10 +36,10 @@ export function useSessions() {
 
   const loadSessionMessages = useCallback(async (sessionId: string) => {
     try {
-      const res = await fetch(`/api/sessions/${sessionId}`);
-      const data = await res.json();
-      if (data.messages) {
-        const messages: Message[] = data.messages.map((m: any) => ({
+      const data = await sessionApi.fetchSession(sessionId);
+      const msgs = (data as any).messages || [];
+      if (msgs.length > 0) {
+        const messages: Message[] = msgs.map((m: any) => ({
           id: m.id,
           role: m.role,
           content: m.content,
@@ -48,14 +50,15 @@ export function useSessions() {
         }));
         setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, messages } : s));
       }
-      if (data.session) {
+      const sessionData = (data as any).session;
+      if (sessionData) {
         setSessions(prev => prev.map(s => {
           if (s.id === sessionId) {
             return {
               ...s,
-              intent: data.session.intent || s.intent,
-              status: data.session.status || s.status,
-              satisfaction: data.session.satisfaction ?? s.satisfaction,
+              intent: sessionData.intent || s.intent,
+              status: sessionData.status || s.status,
+              satisfaction: sessionData.satisfaction ?? s.satisfaction,
             };
           }
           return s;
@@ -66,7 +69,7 @@ export function useSessions() {
 
   const deleteSession = useCallback(async (sessionId: string): Promise<string | null> => {
     try {
-      await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+      await sessionApi.deleteSession(sessionId);
       let navigateTo: string | null = null;
       setSessions(prev => {
         const filtered = prev.filter(s => s.id !== sessionId);

@@ -1,8 +1,8 @@
 package com.example.smartassistant.tools;
 
 import com.example.smartassistant.annotation.AdminOnly;
-import com.example.smartassistant.service.AmapPoiSyncService;
-import com.example.smartassistant.service.AttractionDataImportService;
+import com.example.smartassistant.service.data.AmapPoiSyncService;
+import com.example.smartassistant.service.data.AttractionDataImportService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;

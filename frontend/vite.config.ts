@@ -20,5 +20,20 @@ export default defineConfig({
         javascriptEnabled: true
       }
     }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // ⭐ React 核心库单独打包（利用浏览器缓存）
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          // ⭐ TDesign UI 组件库单独打包
+          'vendor-tdesign': ['tdesign-react', '@tdesign-react/chat', '@tdesign-react/aigc', 'tdesign-icons-react'],
+          // ⭐ 图标库单独打包（减少主 chunk 体积）
+          'vendor-icons': ['lucide-react'],
+        }
+      }
+    },
+    chunkSizeWarningLimit: 600
   }
 });

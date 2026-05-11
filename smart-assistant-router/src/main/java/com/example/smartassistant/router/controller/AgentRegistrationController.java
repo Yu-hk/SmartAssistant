@@ -1,7 +1,7 @@
 package com.example.smartassistant.router.controller;
 
 import com.example.smartassistant.router.model.DiscoveredAgent;
-import com.example.smartassistant.router.service.AgentDiscoveryService;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;

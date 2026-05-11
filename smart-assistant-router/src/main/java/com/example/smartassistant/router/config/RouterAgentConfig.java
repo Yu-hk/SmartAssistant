@@ -2,7 +2,7 @@ package com.example.smartassistant.router.config;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.example.smartassistant.router.model.DiscoveredAgent;
-import com.example.smartassistant.router.service.AgentDiscoveryService;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;

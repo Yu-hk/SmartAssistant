@@ -61,6 +61,11 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回 |
 | 🌐 **前端** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
+| 🔧 **边界重构** | Consumer/Router 职责分离：`question` 回归纯文本，元数据通过独立字段传递；数据查询拆分独立端点 |
+| 🧩 **Service 层分类** | Router/Food/Travel 的 service 类按功能子包组织（core/agent/cache/rag/data 等） |
+| 🏷️ **工具调用信号** | Agent 真实检测工具调用（扫描 ToolResponseMessage），替代意图标签猜测 |
+| 🔐 **密码默认值清零** | 所有服务 PostgreSQL/Redis/Nacos 密码默认值移除，未配置时启动即报错 |
+| 🚦 **搜索级联降级** | DuckDuckGo → tenapi → Bing 三级搜索降级，无需 API Key |
 
 ---
 
@@ -201,10 +206,10 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 | 服务 | 端口 | 职责 |
 |------|------|------|
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
-| **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀 |
-| **Router** | 8083 | 关键词路由，Agent 调度，语义缓存，Nacos 服务发现 |
-| **Travel** | 8085 | 出行规划，地点查询，天气预报，景点信息（RAG） |
-| **Food** | 8084 | 美食推荐，菜系查询，附近餐厅搜索 |
+| **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀；提供 `/api/data/query` 数据查询独立端点 |
+| **Router** | 8083 | 关键词路由，Agent 调度，语义缓存，Nacos 服务发现；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
+| **Travel** | 8085 | 出行规划，地点查询，天气预报，景点信息（RAG）；`service/` 按 rag/data/infrastructure 子包组织 |
+| **Food** | 8084 | 美食推荐，菜系查询，附近餐厅搜索；`service/` 按 core/search/infrastructure 子包组织 |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
 | **General** | 8087 | 闲聊问答，新闻热点，单位转换，**图片解析/文生图**，支持风格切换 |
 
@@ -394,6 +399,45 @@ smart-assistant-{service}/src/main/resources/
     └── mcp-table-whitelist.yml  # MCP 表访问白名单
 ```
 
+### Service 包结构（2026-05-11 重组）
+
+```
+smart-assistant-router/.../service/
+├── core/          RouterService, SmartRoutingService
+├── agent/         AgentCallerService, AgentDiscoveryService, AgentHealthChecker, AgentVersionNegotiator
+├── cache/         SemanticRouteCacheService, RoutingDecisionStorageService
+├── infrastructure/ DistributedTracingService
+├── extraction/    KeywordExtractionService
+└── rag/           RouterRagService
+
+smart-assistant-food/.../service/
+├── core/          ABTestService, HybridRecommendationService, ReviewEmbeddingInitializer
+├── search/        RestaurantReviewSearchService
+├── infrastructure/ DistributedTracingService
+├── agent/         StreamingFoodAgentService
+└── monitoring/    FoodMetricsCollector
+
+smart-assistant-travel/.../service/
+├── rag/           TravelRagService, TravelNoteService, TravelNoteMatchService, TravelNoteRankingService,
+│                  SemanticChunker, EmbeddingService, RecallService, AttractionVectorService
+├── data/          DatabaseAttractionService, AttractionDataImportService, AmapPoiSyncService,
+│                  DataQualityValidator
+├── infrastructure/ DistributedTracingService
+├── agent/         McpAgentService, StreamingTravelAgentService
+└── monitoring/    TravelMetricsCollector
+```
+
+### ⚠️ 密码配置强制要求（2026-05-11）
+
+从 v1.0 起，以下密码不再有默认值，**必须通过环境变量设置**，未设置时服务启动即报错：
+
+| 变量 | 默认值（已移除） | 说明 |
+|------|:--------------:|------|
+| `JWT_SECRET` | `a2a-demo-secret-...` | JWT 签名密钥 |
+| `POSTGRES_PASSWORD` | `postgres123` | PostgreSQL 密码 |
+| `REDIS_PASSWORD` | `redis123` | Redis 密码 |
+| `NACOS_PASSWORD` | `nacos123` | Nacos 密码 |
+
 ### 用户数据存储
 
 所有用户数据存储在 `data/users/{userId}/` 目录下，不再依赖数据库：
@@ -492,6 +536,7 @@ type logs\travel-service.log -Tail 50
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/assistant/api/math/chat` | 发送消息（非流式，通过 Router 路由到对应 Agent） |
+| POST | `/assistant/api/data/query` | ⭐ 数据查询（仅 ADMIN，独立端点，不混入对话流） |
 | WebSocket | `/assistant/ws/conversation` | WebSocket 实时对话 |
 
 ### 通用助手工具（General Agent）
@@ -575,6 +620,18 @@ Invoke-RestMethod -Uri 'http://localhost:8082/api/math/chat' -Method Post -Body 
 ```powershell
 powershell -ExecutionPolicy Bypass -File test-image.ps1
 ```
+
+### Q: 编译报错"编码 UTF-8 的不可映射字符"
+
+这是由于使用 PowerShell 的 `Set-Content` 命令操作含中文的 Java 文件时，默认使用了系统 ANSI 编码（GBK），导致中文字符损坏。
+
+**修复方法**：使用 `git checkout -- <file>` 恢复原始文件，然后使用以下命令之一操作：
+- Bash: `sed -i`（正确处理 UTF-8）
+- PowerShell: `[System.IO.File]::WriteAllBytes($path, [System.Text.Encoding]::UTF8.GetBytes($content))`
+
+### Q: Consumer 与 Router 边界不清如何处理？
+
+2026-05-11 已重构：Consumer 不再将 JSON Prompt 塞入 `question` 字段，改为通过独立字段传递元数据（`userProfile`、`intentTag`、`requestId`、`sessionId`）。Router 不再需要 `extractRequestId()`/`extractThreadId()` 反解析。数据查询功能拆分为独立 `DataQueryController`。
 
 ### Q: 模型生效
 
@@ -662,12 +719,13 @@ mvn test -pl smart-assistant-common -Dtest=SqlSecurityValidatorTest
 
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|---------|
-| common | 18 | SQL 安全校验器、Dotenv |
-| gateway | 27 | JWT 工具、白名单过滤 |
+| common | 50 | SQL 安全校验器、中文分词器（IKAnalyzer/HanLP）、同义词、词性标注、意图识别、缓存 |
+| gateway | 29 | JWT 工具、白名单过滤、认证集成 |
 | user | 9 | JWT 服务 |
 | consumer | 12 | 对话叙事摘要、文档沉淀服务 |
+| router | 8 | Agent 调用消息清理、思考内容过滤 |
 | general | 30 | 数学计算、温度/长度/重量转换、边界条件 |
-| **总计** | **96** | **全模块覆盖** |
+| **总计** | **~138** | **全模块覆盖** |
 
 ---
 
