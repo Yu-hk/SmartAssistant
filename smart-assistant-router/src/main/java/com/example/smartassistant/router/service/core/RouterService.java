@@ -163,12 +163,17 @@ public class RouterService {
             String intentTag = semanticCache.generateIntentTag(question);
             result.setIntentTag(intentTag);
             
-            // ⭐ 缓存路由决策 + 回复（使用已生成的 intentTag，确保标签一致）
+            // ⭐ 提取原始问题（去除 Prompt 模板标记），用于缓存 key 生成
+            String rawQuestion = extractRawQuestion(question);
+            
+            // ⭐ 缓存路由决策 + 回复（使用原始问题 + 已生成的 intentTag）
             String agentName = result.getAgentName();
             String requestId = request.getRequestId();
             if (agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
                 // 缓存路由决策（含审计日志）
                 semanticCache.saveDecision(requestId, question, agentName, result.getConfidence(), userId, intentTag);
+                // 更新精确匹配为原始问题的 MD5（覆盖带历史计数的全 Prompt MD5）
+                semanticCache.saveExactMatch(rawQuestion, intentTag);
 
                 // 缓存回复内容（Agent 返回后异步写入，不阻塞主流程）
                 String reply = result.getResult();
@@ -578,8 +583,35 @@ public class RouterService {
             this.time = time;
         }
     }
+    /**
+     * ⭐ 从完整 Prompt 中提取原始问题
+     * <p>
+     * Router 接收到的 question 可能包含【用户历史信息】【用户画像】【当前问题】等模板标记。
+     * 提取【当前问题】后的文本作为缓存使用的原始问题，确保同一问题的 MD5 一致。
+     * <p>
+     * 格式示例：
+     * 【用户历史信息】
+     * - 历史查询: 3次
+     *
+     * 【当前问题】
+     * 故宫几点关门
+     * <p>
+     * 提取后返回: "故宫几点关门"
+     */
+    private String extractRawQuestion(String question) {
+        if (question == null || question.isBlank()) return question;
+        // 查找【当前问题】标记
+        int currentQuestionIdx = question.indexOf("【当前问题】");
+        if (currentQuestionIdx >= 0) {
+            String after = question.substring(currentQuestionIdx + "【当前问题】".length()).trim();
+            // 去除可能的前缀（如换行、编号等），取纯文本
+            return after.replaceAll("^[\\s\\n\\r]+", "").trim();
+        }
+        // 无标记直接返回完整文本
+        return question.trim();
+    }
     
-/**
+    /**
      * ⭐ 截断字符串（用于日志）
      * 已提升为 public static，供外部服务使用
      */
