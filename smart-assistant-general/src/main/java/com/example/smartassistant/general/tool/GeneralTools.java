@@ -1,5 +1,6 @@
 package com.example.smartassistant.general.tool;
 
+import com.example.smartassistant.common.correction.CorrectionService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -28,6 +29,12 @@ import java.util.concurrent.TimeUnit;
 public class GeneralTools {
 
     private static final Logger log = LoggerFactory.getLogger(GeneralTools.class);
+
+    private final CorrectionService correctionService;
+
+    public GeneralTools(CorrectionService correctionService) {
+        this.correctionService = correctionService;
+    }
 
     // ==================== 数学计算 ====================
 
@@ -516,6 +523,20 @@ public class GeneralTools {
 
         sb.append("--- 共找到 ").append(count).append(" 条结果（由 DuckDuckGo 提供）");
         return sb.toString();
+    }
+
+    /**
+     * 查询历史纠错记录
+     */
+    @Tool(description = "查询本 Agent 的历史纠错记录。在回答事实性问题前先调用此工具，检查是否有已被用户纠正过的信息，避免重复错误。")
+    public String queryCorrections(
+            @ToolParam(description = "查询主题，如'世界最高峰'、'中国人口'，空字符串则返回全部", required = false) String topic) {
+        log.info("[GeneralTools] 查询修正记录: topic={}", topic);
+        String result = correctionService.queryCorrections("general", topic != null ? topic : "");
+        if (result.isBlank()) {
+            return "未找到相关的修正记录，可以按正常流程回答。";
+        }
+        return result;
     }
 
     private String formatResult(double value) {
