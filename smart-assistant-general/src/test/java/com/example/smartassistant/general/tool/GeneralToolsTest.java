@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class GeneralToolsTest {
 
-    private final GeneralTools tools = new GeneralTools();
+    private final GeneralTools tools = new GeneralTools(null);
 
     // ========== 数学计算 ==========
 

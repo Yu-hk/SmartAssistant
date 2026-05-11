@@ -1,5 +1,6 @@
 package com.example.smartassistant.agent;
 
+import com.example.smartassistant.common.correction.CorrectionService;
 import com.example.smartassistant.tool.FoodRecommendationTool;
 import com.example.smartassistant.tool.PersonalizedRestaurantRecommendationTool;
 import com.example.smartassistant.tool.SmartRestaurantRecommendationTool;
@@ -19,14 +20,17 @@ public class FoodAgentTools {
     private final FoodRecommendationTool foodRecommendationTool;
     private final SmartRestaurantRecommendationTool smartRestaurantRecommendationTool;
     private final PersonalizedRestaurantRecommendationTool personalizedRestaurantRecommendationTool;
+    private final CorrectionService correctionService;
 
     public FoodAgentTools(
             FoodRecommendationTool foodRecommendationTool,
             SmartRestaurantRecommendationTool smartRestaurantRecommendationTool,
-            PersonalizedRestaurantRecommendationTool personalizedRestaurantRecommendationTool) {
+            PersonalizedRestaurantRecommendationTool personalizedRestaurantRecommendationTool,
+            CorrectionService correctionService) {
         this.foodRecommendationTool = foodRecommendationTool;
         this.smartRestaurantRecommendationTool = smartRestaurantRecommendationTool;
         this.personalizedRestaurantRecommendationTool = personalizedRestaurantRecommendationTool;
+        this.correctionService = correctionService;
     }
 
     /**
@@ -99,5 +103,19 @@ public class FoodAgentTools {
     public String getABTestResults(@ToolParam(description = "统计天数（默认7天）") Integer days) {
         log.info("[FoodAgentTools] 调用 getABTestResults: days={}", days);
         return personalizedRestaurantRecommendationTool.getABTestResults(days);
+    }
+
+    /**
+     * 查询历史纠错记录
+     */
+    @Tool(description = "查询本 Agent 的历史纠错记录。在回答事实性问题前先调用此工具，检查是否有已被用户纠正过的信息，避免重复错误。")
+    public String queryCorrections(
+            @ToolParam(description = "查询主题，如'北京烤鸭'、'川菜推荐'，空字符串则返回全部", required = false) String topic) {
+        log.info("[FoodAgent] 查询修正记录: topic={}", topic);
+        String result = correctionService.queryCorrections("food", topic != null ? topic : "");
+        if (result.isBlank()) {
+            return "未找到相关的修正记录，可以按正常流程回答。";
+        }
+        return result;
     }
 }
