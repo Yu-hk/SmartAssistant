@@ -57,7 +57,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 📝 **叙事摘要沉淀** | 轮数≥3 且内容≥1000 字符时自动触发 LLM 第三人称摘要，提取事实信息，去除对话填充语 |
 | 💬 **回复风格切换** | General Agent 支持用户指定幽默/文言文/段子手等多种回复风格 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
-| 🔄 **自纠错机制** | 各 Agent 内置 `queryCorrections(topic)` 工具，回答事实性问题前自动检索历史修正记录，避免重复错误 |
+| 🔄 **自纠错与实时核验** | `queryCorrections` 工具查询历史修正记录避免重复错误；Travel Agent 在检索游记后自动调用高德 API 核验门票、开放时间等时敏数据 |
 | 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回 |
 | 🌐 **前端** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |

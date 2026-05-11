@@ -102,8 +102,7 @@ public class GeneralAgentConfig {
                    → 参数：prompt（描述）、size（尺寸）、n（数量）
 
                 9. 🆕 convertCurrency(value, fromCurrency, toCurrency) — 货币汇率转换
-                   → 基于实时汇率转换，支持 CNY/USD/EUR/GBP/JPY 等主流货币
-                   → 适用场景：用户问"100美元等于多少人民币"、"500欧元兑日元"
+                   → 基于实时汇率转换主流货币，需要货币代码时直接使用 ISO 标准三字代码
 
                 ═══════════════════════════════════════════════════════════════
                 🎯 回复风格（默认 + 可切换）
