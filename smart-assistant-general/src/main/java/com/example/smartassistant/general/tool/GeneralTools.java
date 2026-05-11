@@ -3,6 +3,7 @@ package com.example.smartassistant.general.tool;
 import com.example.smartassistant.common.correction.CorrectionService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.objecthunter.exp4j.ExpressionBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -43,14 +44,16 @@ public class GeneralTools {
             @ToolParam(description = "数学表达式，如 '3.14 * 5^2'、'sqrt(144)'、'(12 + 8) * 3.5 / 2'") String expression) {
         log.info("[GeneralTools] 数学计算: expression={}", expression);
         try {
-            double result = eval(expression);
-            // 结果格式化：整数无小数，其他保留 6 位
+            double result = new ExpressionBuilder(expression)
+                    .implicitMultiplication(false)
+                    .build()
+                    .evaluate();
             String formatted = formatResult(result);
             log.info("[GeneralTools] 计算结果: {} = {}", expression, formatted);
             return formatted;
         } catch (Exception e) {
             log.warn("[GeneralTools] 计算失败: {}", e.getMessage());
-            return "无法计算该表达式，请检查格式是否正确。支持的运算符：+ - * / () ^ sqrt()";
+            return "无法计算该表达式，请检查格式是否正确。支持的运算符：+ - * / () ^ sqrt() abs() sin() cos() tan() log()";
         }
     }
 
@@ -317,100 +320,6 @@ public class GeneralTools {
             if (line.matches("\\s*\\d+\\.\\s.*")) count++;
         }
         return count;
-    }
-
-    // ==================== 内部实现 ====================
-
-    /**
-     * 安全计算数学表达式（支持 + - * / ^ () sqrt）
-     */
-    private double eval(String expr) {
-        return parseExpression(expr.replace(" ", ""));
-    }
-
-    private int pos;
-    private String expr;
-
-    private double parseExpression(String s) {
-        this.expr = s;
-        this.pos = 0;
-        double result = parseAddSub();
-        if (pos < expr.length()) {
-            throw new RuntimeException("无法识别的字符: " + expr.charAt(pos));
-        }
-        return result;
-    }
-
-    private double parseAddSub() {
-        double left = parseMulDiv();
-        while (pos < expr.length()) {
-            char c = expr.charAt(pos);
-            if (c == '+') { pos++; left += parseMulDiv(); }
-            else if (c == '-') { pos++; left -= parseMulDiv(); }
-            else break;
-        }
-        return left;
-    }
-
-    private double parseMulDiv() {
-        double left = parsePow();
-        while (pos < expr.length()) {
-            char c = expr.charAt(pos);
-            if (c == '*') { pos++; left *= parsePow(); }
-            else if (c == '/') { pos++; left /= parsePow(); }
-            else break;
-        }
-        return left;
-    }
-
-    private double parsePow() {
-        double left = parseUnary();
-        if (pos < expr.length() && expr.charAt(pos) == '^') {
-            pos++;
-            double right = parsePow(); // right-associative
-            left = Math.pow(left, right);
-        }
-        return left;
-    }
-
-    private double parseUnary() {
-        if (pos < expr.length() && expr.charAt(pos) == '-') {
-            pos++;
-            return -parseAtom();
-        }
-        return parseAtom();
-    }
-
-    private double parseAtom() {
-        // sqrt()
-        if (pos + 4 < expr.length() && expr.startsWith("sqrt", pos)) {
-            pos += 4;
-            expect('(');
-            double val = parseAddSub();
-            expect(')');
-            return Math.sqrt(val);
-        }
-        // 数字常量 pi/e
-        if (pos + 2 <= expr.length() && expr.startsWith("pi", pos)) { pos += 2; return Math.PI; }
-        if (pos < expr.length() && expr.charAt(pos) == 'e') { pos++; return Math.E; }
-        // 括号
-        if (pos < expr.length() && expr.charAt(pos) == '(') {
-            pos++;
-            double val = parseAddSub();
-            expect(')');
-            return val;
-        }
-        // 数字
-        int start = pos;
-        while (pos < expr.length() && (Character.isDigit(expr.charAt(pos)) || expr.charAt(pos) == '.')) pos++;
-        if (pos == start) throw new RuntimeException("期望数字，但遇到: " + (pos < expr.length() ? expr.charAt(pos) : "结束"));
-        return Double.parseDouble(expr.substring(start, pos));
-    }
-
-    private void expect(char c) {
-        if (pos >= expr.length() || expr.charAt(pos) != c)
-            throw new RuntimeException("期望 '" + c + "'，但遇到: " + (pos < expr.length() ? expr.charAt(pos) : "结束"));
-        pos++;
     }
 
     // ==================== 单位转换辅助 ====================

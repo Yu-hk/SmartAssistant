@@ -303,30 +303,52 @@ public class RouterService {
      */
     private List<String> trySplitIntents(String question) {
         if (question == null || question.isBlank()) return Collections.singletonList(question);
+        
+        // 常见疑问句分隔符 + 意图连接词
         List<String> parts = new ArrayList<>();
-        // 中文疑问句分隔符
-        String[] separators = {"？", "?", "  ", "。", "！"};
-        String current = question;
+        String[] separators = {"？", "?", "  ", "。", "！", "；", ";"};
+        
         for (String sep : separators) {
             List<String> split = new ArrayList<>();
-            for (String part : current.split(Pattern.quote(sep))) {
+            for (String part : question.split(Pattern.quote(sep))) {
                 String trimmed = part.trim();
                 if (!trimmed.isEmpty()) split.add(trimmed);
             }
             if (split.size() > 1) {
-                current = String.join(" ", split);
                 parts = split;
                 break;
             }
         }
-        // 尝试通过"和""以及"在意图关键词处分割
-        if (parts.size() <= 1 && question.matches(".*(天气|美食|旅游|景点).*(和|以及|与).*(天气|美食|旅游|景点).*")) {
-            String[] kwSplit = question.split("(和|以及|与)");
-            for (String s : kwSplit) {
-                String t = s.trim();
-                if (!t.isEmpty()) parts.add(t);
+        
+        // 如果分隔符未拆开，尝试在意图连接词处拆解
+        // 匹配模式如 "北京天气和杭州美食"、"天气查询与景点推荐"
+        if (parts.size() <= 1) {
+            // 先检测是否包含多个意图关键词（含连接词）
+            String[] intentKeywords = {"天气", "美食", "旅游", "景点", "新闻", "计算", "图片", "汇率"};
+            int intentCount = 0;
+            for (String kw : intentKeywords) {
+                if (question.contains(kw)) intentCount++;
+            }
+            // 含多个意图且中间有连接词 → 按连接词分割
+            if (intentCount >= 2) {
+                String[] connectWords = {" 和 ", " 以及 ", " 与 ", "和", "以及", "与"};
+                for (String conn : connectWords) {
+                    if (question.contains(conn)) {
+                        String[] kwSplit = question.split(Pattern.quote(conn));
+                        List<String> temp = new ArrayList<>();
+                        for (String s : kwSplit) {
+                            String t = s.trim();
+                            if (!t.isEmpty()) temp.add(t);
+                        }
+                        if (temp.size() > 1) {
+                            parts = temp;
+                            break;
+                        }
+                    }
+                }
             }
         }
+        
         if (parts.size() <= 1) return Collections.singletonList(question);
         return parts.stream().limit(maxSubTasks).toList();
     }

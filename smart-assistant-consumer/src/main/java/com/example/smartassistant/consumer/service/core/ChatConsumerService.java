@@ -2,7 +2,7 @@ package com.example.smartassistant.consumer.service.core;
 
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.infrastructure.DataMaskingService;
-import com.example.smartassistant.consumer.service.infrastructure.DistributedTracingService;
+import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
 import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import com.example.smartassistant.consumer.service.session.SessionManagementService;

@@ -3,7 +3,7 @@ package com.example.smartassistant.router.controller;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RouteResponse;
 import com.example.smartassistant.router.model.RoutingResult;
-import com.example.smartassistant.router.service.infrastructure.DistributedTracingService;
+import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.router.service.core.RouterService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
