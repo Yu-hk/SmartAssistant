@@ -57,6 +57,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 📝 **叙事摘要沉淀** | 轮数≥3 且内容≥1000 字符时自动触发 LLM 第三人称摘要，提取事实信息，去除对话填充语 |
 | 💬 **回复风格切换** | General Agent 支持用户指定幽默/文言文/段子手等多种回复风格 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
+| 🔄 **自纠错机制** | 各 Agent 内置 `queryCorrections(topic)` 工具，回答事实性问题前自动检索历史修正记录，避免重复错误 |
 | 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回 |
 | 🌐 **前端** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
@@ -263,9 +264,9 @@ copy .env.example .env
 | `DEEPSEEK_API_KEY` | DeepSeek 大模型 API Key | 必填 |
 | `DASHSCOPE_API_KEY` | DashScope API Key（Embedding） | 必填 |
 | `AMAP_API_KEY` | 高德地图 API Key | 可选 |
-| `JWT_SECRET` | JWT 签名密钥 | 建议自行生成 |
 | `POSTGRES_PASSWORD` | PostgreSQL 密码 | `postgres123` |
-| `app.data.dir` | 用户数据存储目录 | `data/users` |
+| `app.data.dir` | 数据存储根目录 | `data` |
+| `jwt.secret` | JWT 签名密钥 | 建议自行生成 |
 
 ### 3. 构建项目
 
@@ -438,6 +439,34 @@ entries: 3
 - **`raw`** — 原文保存（内容不足摘要阈值）
 - 超 8000 字符时内容被安全截断，截断部分以 `---` 分隔直接原文追加
 
+### 全局纠错记录
+
+Agent 的用户修正记录存储在 `data/corrections/` 目录，所有用户共享，用于避免重复错误：
+
+```
+data/
+├── users/{userId}/memories/       # 用户私人记忆（增量追加）
+└── corrections/
+    ├── travel.md                   # 出行修正记录（全局共享）
+    ├── food.md                     # 美食修正记录
+    └── general.md                  # 通用修正记录
+```
+
+修正记录格式：
+
+```markdown
+# Travel Agent 用户修正记录
+
+## 2026-05-11
+
+> 主题: 故宫开放时间
+> 错误: 故宫8:00开门
+> 正确: 故宫冬季8:30开门，夏季8:00开门
+> 来源: userId=123
+```
+
+各 Agent 的 system prompt 强制要求：回答事实性问题前先调用 `queryCorrections(topic)` 工具，有匹配修正时以修正信息为准。
+
 所有服务的日志统一输出到 `logs/` 目录，格式为 `{spring.application.name}.log`：
 
 ```powershell
@@ -481,6 +510,12 @@ type logs\travel-service.log -Tail 50
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/assistant/api/router/route` | 智能路由（意图识别 + Agent 调度） |
+
+### 智能纠错工具（所有 Agent）
+
+| 工具 | 适用 Agent | 说明 |
+|------|-----------|------|
+| `queryCorrections(topic)` | Travel / Food / General | 查询历史修正记录。Agent 在回答事实性问题前自动调用，检查是否有用户反馈过的修正信息并优先采用 |
 
 ### 健康检查
 
@@ -549,6 +584,12 @@ powershell -ExecutionPolicy Bypass -File test-image.ps1
 
 Nacos 默认开启了认证（`NACOS_AUTH_ENABLE=true`），初始化 Nacos 后需要先通过 Web 控制台（http://localhost:8848/nacos）使用默认账号 `nacos` / `nacos123` 登录。所有服务的 `application.yml` 已配置认证信息。
 
+### Q: Agent 回答明显错误如何修正？
+
+直接在对话中指出错误即可，例如"不对，故宫是8:30开门"或"你说错了"。目前修正需要手动追加到 `data/corrections/{agent}.md` 文件。参考文件头部注释的格式添加条目后，下次 Agent 回答相关问题时将自动参考修正记录。
+
+计划在后续版本中支持用户通过对话自动记录修正。
+
 ### Q: Redis 连接被拒绝
 
 Redis 默认启用了密码认证（`redis123`），所有服务已配置 `password: ${REDIS_PASSWORD:redis123}`。如需修改密码，需要同时更新 `docker-compose.yml` 和所有服务的 `application.yml`。
@@ -586,7 +627,7 @@ docker-compose restart nacos
 ### 模块依赖关系
 
 ```
-smart-assistant-common (核心工具：分词器、SQL 校验器、Dotenv)
+smart-assistant-common (核心工具：分词器、SQL 校验器、Dotenv、修正记录服务)
     ↑          ↑          ↑          ↑
 Gateway   Consumer    Router     Travel / Food / User / General
 (无common)   (common)   (common)   (common)
