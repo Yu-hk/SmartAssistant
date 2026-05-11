@@ -1,3 +1,4 @@
+server.shutdown: graceful  # ⭐ 优雅关闭，等待处理中的请求完成
 server:
   port: 8081  # Gateway 端口
 
@@ -111,7 +112,7 @@ jwt:
 # 白名单配置 (无需认证的路径)
 gateway:
   security:
-    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/**,/assistant/api/router/agents/**
+    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/health,/actuator/info,/assistant/api/router/agents/**
   
   # 限流配置
   rate-limit:
