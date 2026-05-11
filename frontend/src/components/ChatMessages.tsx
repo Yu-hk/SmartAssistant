@@ -11,6 +11,8 @@ interface ChatMessagesProps {
   permissionRequest?: PermissionRequest | null;
   onPermissionAllow?: () => void;
   onPermissionDeny?: () => void;
+  queuePosition?: number | null;
+  queueEstimatedWait?: number | null;
 }
 
 export function ChatMessages({ 
@@ -19,7 +21,9 @@ export function ChatMessages({
   messagesEndRef,
   permissionRequest,
   onPermissionAllow,
-  onPermissionDeny
+  onPermissionDeny,
+  queuePosition,
+  queueEstimatedWait
 }: ChatMessagesProps) {
   const formatModelName = (modelId: string) => {
     const model = models.find(m => m.modelId === modelId);
@@ -178,7 +182,7 @@ export function ChatMessages({
             {/* 助手消息 */}
             {message.role === 'assistant' && renderAssistantContent(message)}
             
-            {/* 思考中 */}
+            {/* 思考中 / 排队中 */}
             {message.role === 'assistant' && message.isStreaming && 
              !message.content && 
              (!message.contentBlocks || message.contentBlocks.length === 0) && 
@@ -189,12 +193,14 @@ export function ChatMessages({
                   padding: '10px 16px',
                   borderRadius: '12px',
                   background: 'var(--nova-bg-component)',
-                  border: '1px solid var(--nova-border)',
+                  border: queuePosition ? '1px solid var(--nova-accent)' : '1px solid var(--nova-border)',
                 }}
               >
                 <Loading size="small" />
                 <span style={{ fontSize: '13px', color: 'var(--nova-text-secondary)' }}>
-                  思考中...
+                  {queuePosition
+                    ? `⏳ 排队中，前面还有 ${queuePosition} 人` + (queueEstimatedWait ? `，预计等待 ${Math.ceil(queueEstimatedWait / 1000)} 秒` : '')
+                    : '思考中...'}
                 </span>
               </div>
             )}

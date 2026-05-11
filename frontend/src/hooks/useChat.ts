@@ -23,6 +23,9 @@ export function useChat(options: UseChatOptions) {
   const [showSatisfaction, setShowSatisfaction] = useState(false);
   // FAQ 建议
   const [faqSuggestions, setFaqSuggestions] = useState<FaqItem[]>([]);
+  // ⭐ 排队状态
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [queueEstimatedWait, setQueueEstimatedWait] = useState<number | null>(null);
 
   const sendMessage = useCallback(async (
     messageContent: string,
@@ -98,6 +101,9 @@ export function useChat(options: UseChatOptions) {
     setInputValue('');
     setIsLoading(true);
     setFaqSuggestions([]);
+    // ⭐ 清除排队状态
+    setQueuePosition(null);
+    setQueueEstimatedWait(null);
 
     try {
       const response = await fetch('/api/chat', {
@@ -253,13 +259,28 @@ export function useChat(options: UseChatOptions) {
                       ...s,
                       messages: s.messages.map(m =>
                         m.id === realAssistantMessageId
-                          ? { ...m, content: `⚠️ ${data.message}`, isStreaming: false }
+                          ? { ...m, content: `⚠️ ${data.content || data.message}`, isStreaming: false }
                           : m
                       ),
                     };
                   }
                   return s;
                 }));
+              }
+              
+              // ⭐ 排队事件处理
+              if (data.type === 'queued') {
+                setQueuePosition(data.position);
+                setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
+              } else if (data.type === 'queue_position') {
+                setQueuePosition(data.position);
+                setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
+              } else if (data.type === 'processing') {
+                setQueuePosition(null);
+                setQueueEstimatedWait(null);
+              } else if (data.type === 'timeout') {
+                setQueuePosition(null);
+                setQueueEstimatedWait(null);
               }
             } catch { /* ignore */ }
           }
@@ -332,6 +353,8 @@ export function useChat(options: UseChatOptions) {
     transferPending,
     showSatisfaction,
     faqSuggestions,
+    queuePosition,
+    queueEstimatedWait,
     sendMessage,
     handleStop,
     handleTransferToHuman,

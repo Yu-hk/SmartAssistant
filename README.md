@@ -66,6 +66,13 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🏷️ **工具调用信号** | Agent 真实检测工具调用（扫描 ToolResponseMessage），替代意图标签猜测 |
 | 🔐 **密码默认值清零** | 所有服务 PostgreSQL/Redis/Nacos 密码默认值移除，未配置时启动即报错 |
 | 🚦 **搜索级联降级** | DuckDuckGo → tenapi → Bing 三级搜索降级，无需 API Key |
+| 🐳 **Docker 容器化部署** | Dockerfile + docker-compose.deploy.yml，7 个服务一键容器化构建部署 |
+| 🔧 **Maven Wrapper** | `mvnw` 自动分发 Maven 3.9.6，无需本地安装，构建环境统一 |
+| 🚦 **优雅关闭** | 所有服务配置 `server.shutdown: graceful`，确保处理中请求完成再退出 |
+| 🛡️ **Actuator 安全加固** | Actuator 端点白名单收紧，仅暴露 `/health`、`/info`、`/prometheus` |
+| 🔐 **JWT 密钥强制配置** | JWT 签名密钥移除硬编码默认值，必须通过环境变量设置，未配置启动即报错 |
+| ✅ **全量验证脚本** | `verify-all.ps1` 一键运行编译 + 测试，提交前快速自检 |
+| ⏳ **请求排队 + SSE 通知** | Semaphore 限流 LLM 并发（默认 5），超出自动排队，SSE 实时推送排队位置 |
 
 ---
 
@@ -131,6 +138,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | ORM | MyBatis-Plus | 3.5+ |
 | 分词 | HanLP | 1.8.4 |
 | SQL 解析 | jsqlparser | 4.9 |
+| 构建 | Maven Wrapper | 3.9.6 |
 
 ### 前端
 
@@ -221,7 +229,7 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 
 - **操作系统**：Windows 10/11 或 macOS / Linux
 - **Java**：JDK 17+（推荐 Eclipse Temurin）
-- **Maven**：3.9+（推荐 3.9.6）
+- **Maven**：3.9+（可选，Maven Wrapper 可自动下载）
 - **Node.js**：18+（前端构建）
 - **Docker**：24+（基础设施服务）
 - **Git**：2.x（版本管理）
@@ -231,7 +239,7 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 ```powershell
 # 检查依赖
 java -version
-mvn -version
+.\mvnw.cmd --version   # Maven Wrapper 自动处理
 node -v
 docker --version
 ```
@@ -278,14 +286,14 @@ copy .env.example .env
 ```powershell
 cd D:\workspace\SmartAssistant
 
-# 安装 common 模块（Dotenv 等核心组件需先 install）
-D:\maven\apache-maven-3.9.6\bin\mvn.cmd install -pl smart-assistant-common -DskipTests
+# Maven Wrapper 自动下载指定版本 Maven，无需本地安装
+.\mvnw.cmd install -pl smart-assistant-common -DskipTests
 
 # 全量编译（跳过测试）
-D:\maven\apache-maven-3.9.6\bin\mvn.cmd compile -DskipTests
+.\mvnw.cmd compile -DskipTests
 
 # 全量打包
-D:\maven\apache-maven-3.9.6\bin\mvn.cmd package -DskipTests -Dmaven.test.skip=true
+.\mvnw.cmd package -DskipTests -Dmaven.test.skip=true
 
 # 前端（React + TypeScript + TDesign）
 cd frontend && npm install && cd ..
@@ -293,16 +301,24 @@ cd frontend && npm install && cd ..
 
 ### 4. 启动服务
 
-#### 方式一：一键启动（推荐，需更新脚本支持 --server.port）
+#### 方式一：一键启动（推荐）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File start-all.ps1
 ```
 
+提交前验证（编译 + 测试）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File verify-all.ps1
+```
+
 #### 方式二：手动逐个启动
 
 ```powershell
-# ⚠️ 当前需显式指定 --server.port 解决Nacos端口冲突
+# ⚠️ 清除 SERVER__PORT 环境变量（双下划线会覆盖 server.port）
+Remove-Item Env:SERVER__PORT
+
 $env:DEEPSEEK_API_KEY = "sk-xxx"
 $env:DASHSCOPE_API_KEY = "sk-xxx"
 
@@ -377,6 +393,37 @@ docker-compose -f docker-compose.yml up -d
 | Loki | http://localhost:3100 | 日志查询 |
 | Zipkin | http://localhost:9411 | 追踪兼容层 |
 
+### Docker 容器化部署
+
+项目提供完整的 Docker 容器化方案，支持一键构建部署全部 7 个服务：
+
+```powershell
+# 1. 从项目根目录构建
+cd D:\workspace\SmartAssistant
+
+# 2. 一键构建并启动所有服务
+docker compose -f docker-compose.deploy.yml build
+docker compose -f docker-compose.deploy.yml up -d
+
+# 3. 验证
+docker compose -f docker-compose.deploy.yml ps
+```
+
+各服务独立构建（适用于单独更新某个服务）：
+
+```powershell
+docker compose -f docker-compose.deploy.yml build gateway
+docker compose -f docker-compose.deploy.yml up -d gateway
+```
+
+部署文件说明：
+
+| 文件 | 用途 |
+|------|------|
+| `Dockerfile` | 多阶段构建（打包 → JRE 运行） |
+| `docker-compose.deploy.yml` | 编排全部 7 个服务 + 基础设施 |
+| `.dockerignore` | 排除本地配置和构建缓存 |
+
 ---
 
 ## 配置说明
@@ -388,6 +435,20 @@ docker-compose -f docker-compose.yml up -d
 3. **`.env` 文件**：项目根目录（自动加载）
 4. **`application.yml`**：各服务的配置文件
 5. **默认值**：`${VAR:defaultValue}` 语法
+
+### 优雅关闭
+
+所有服务已配置优雅关闭（2026-05-11），确保服务停止时处理中的请求完成后再退出：
+
+```yaml
+server:
+  shutdown: graceful
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: "30s"
+```
+
+无需额外操作，`kill` 或 `Ctrl+C` 时自动生效。
 
 ### 关键配置目录
 
@@ -518,6 +579,65 @@ data/
 type logs\router-service.log -Tail 50
 type logs\travel-service.log -Tail 50
 ```
+
+---
+
+## 请求排队
+
+系统基于压测数据实现了请求排队机制，在 LLM 并发槽位（默认 5）占满时自动排队，通过 SSE 实时通知用户排队状态。
+
+### 工作流程
+
+```
+用户发送消息
+  │
+  ├→ SSE 连接建立
+  │
+  ├→ [有槽位] event: processing → 正常 SSE 流 → event: done
+  │
+  └→ [无槽位] event: queued {position: 3, estimatedWaitMs: 15000}
+              │
+              ├→ Semaphore.tryAcquire(60s 超时) 阻塞等待
+              │
+              ├→ [获取到槽位] event: processing → 正常 SSE 流 → event: done
+              └→ [超时] event: timeout → 连接关闭
+```
+
+### SSE 事件类型
+
+| 事件 | 说明 | 数据 |
+|------|------|------|
+| `queued` | 进入排队 | `{position, estimatedWaitMs}` |
+| `processing` | 槽位分配，开始处理 | `{}` |
+| `timeout` | 排队超时 | `{content: "排队超时，请稍后重试"}` |
+| `waiting` | 等待路由决策 | `{content: "正在分析意图..."}` |
+| `thinking` | AI 思考过程 | `{type: "thinking", content: "..."}` |
+| `tool_call` | 工具调用 | `{type: "tool_call", name, input}` |
+| `tool_result` | 工具执行结果 | `{type: "tool_result", content}` |
+| `response` | 最终回复 | `{type: "response", content}` |
+| `done` | 完成信号 | `{type: "done"}` |
+
+### 配置项
+
+在 `smart-assistant-consumer/application.yml` 中：
+
+```yaml
+chat:
+  queue:
+    max-concurrent: 5          # 最大并发 LLM 请求数（基于压测数据）
+    max-queue-size: 50         # 最大排队长度
+    queue-timeout-ms: 60000    # 排队等待超时（毫秒）
+```
+
+### 前端表现
+
+排队中时，用户消息气泡下方显示：
+
+```
+⏳ 排队中，前面还有 3 人，预计等待 15 秒
+```
+
+槽位就绪后自动开始处理，用户无感知。
 
 ---
 
@@ -663,7 +783,7 @@ Redis 默认启用了密码认证（`redis123`），所有服务已配置 `passw
 ```powershell
 taskkill /F /IM java.exe
 # 然后重新编译
-mvn clean compile -DskipTests
+.\mvnw.cmd clean compile -DskipTests
 ```
 
 ### Q: 前端页面空白
@@ -706,13 +826,13 @@ Gateway   Consumer    Router     Travel / Food / User / General
 
 ```powershell
 # 全量测试
-mvn test -DskipTests=false
+.\mvnw.cmd test -DskipTests=false
 
 # 指定模块
-mvn test -pl smart-assistant-gateway
+.\mvnw.cmd test -pl smart-assistant-gateway
 
 # 指定测试类
-mvn test -pl smart-assistant-common -Dtest=SqlSecurityValidatorTest
+.\mvnw.cmd test -pl smart-assistant-common -Dtest=SqlSecurityValidatorTest
 ```
 
 当前测试覆盖：
@@ -720,12 +840,14 @@ mvn test -pl smart-assistant-common -Dtest=SqlSecurityValidatorTest
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|---------|
 | common | 50 | SQL 安全校验器、中文分词器（IKAnalyzer/HanLP）、同义词、词性标注、意图识别、缓存 |
-| gateway | 29 | JWT 工具、白名单过滤、认证集成 |
+| gateway | 33 | JWT 工具、白名单过滤、Filter 认证、Filter 集成测试 |
 | user | 9 | JWT 服务 |
-| consumer | 12 | 对话叙事摘要、文档沉淀服务 |
-| router | 8 | Agent 调用消息清理、思考内容过滤 |
-| general | 30 | 数学计算、温度/长度/重量转换、边界条件 |
-| **总计** | **~138** | **全模块覆盖** |
+| consumer | 25 | 对话叙事摘要、文档沉淀服务、DataGifTool、Chat 集成测试 |
+| router | 21 | Agent 调用消息清理、思考内容过滤、关键词提取 |
+| food | 34 | 美食推荐、菜系知识、餐厅搜索 |
+| travel | 36 | 天气/景点工具、RAG 召回匹配、MCP 权限测试 |
+| general | 30 | 数学计算、温度/长度/重量/货币转换、边界条件 |
+| **总计** | **238** | **23 个测试文件，全模块覆盖** |
 
 ---
 
