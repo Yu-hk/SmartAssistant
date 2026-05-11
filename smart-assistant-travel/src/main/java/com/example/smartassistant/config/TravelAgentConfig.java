@@ -138,8 +138,11 @@ public class TravelAgentConfig {
                 当用户同时提供了目的地和出行目的时：
                   第一步 → 必须优先调用 selectBestTravelNotes(userId, location, userIntent)
                     → 从游记库中筛选匹配度最高 TopN 游记，含评分明细和内容预览
-                  第二步 → 根据游记内容补充天气、景点等辅助信息
-                  第三步 → 整合游记内容+辅助信息给出最终推荐
+                  第二步 → 检查上一步结果中是否包含门票价格、开放时间等时敏信息
+                    ├── 包含 → 调用 getAttractionRealtimeInfo 获取实时数据进行核实
+                    └── 不包含 → 跳过核验步骤
+                  第三步 → 根据游记内容和核验后的实时数据补充天气信息
+                  第四步 → 整合所有信息给出最终推荐
 
                 当用户仅提供了目的地或仅提供了出行目的时：
                   → 先询问缺失的关键信息，再调用 selectBestTravelNotes
@@ -170,10 +173,12 @@ public class TravelAgentConfig {
                 - selectBestTravelNotes(userId, location, userIntent): ⭐【核心工具】从游记库中基于规则评分引擎筛选最佳 TopN 推荐
                   → 当用户目的地和出行目的都明确时，第一个必须调用的工具
 
-                【优先级 2 — 辅助信息补充】
+                【优先级 2 — 实时核验（游记含时敏数据时调用）】
+                - getAttractionRealtimeInfo(attractionName, city): 查询景点实时开放状态和门票价格，用于核验游记数据
+                - compareAttractions(attractions, city): 对比多个景点实时信息
+
+                【优先级 3 — 辅助信息补充】
                 - query(city): 查询天气
-                - getAttractionRealtimeInfo(attractionName, city): 查询景点实时开放信息
-                - compareAttractions(attractions, city): 对比多个景点
                 - getCurrentLocation(): 获取当前位置
                 - planSmartTrip(): 智能出行规划（当游记库无匹配时备选）
                 - recommendActivitiesByWeather(city): 根据天气推荐活动
