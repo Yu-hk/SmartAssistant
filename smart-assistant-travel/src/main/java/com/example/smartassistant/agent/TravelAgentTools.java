@@ -1,5 +1,6 @@
 package com.example.smartassistant.agent;
 
+import com.example.smartassistant.common.correction.CorrectionService;
 import com.example.smartassistant.tools.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
@@ -23,6 +24,7 @@ public class TravelAgentTools {
     private final LocationTool locationTool;
     private final TravelPlannerTool travelPlannerTool;
     private final SmartTravelPlannerTool smartTravelPlannerTool;
+    private final CorrectionService correctionService;
 
     public TravelAgentTools(
             AttractionRealtimeTool attractionRealtimeTool,
@@ -30,13 +32,15 @@ public class TravelAgentTools {
             WeatherTool weatherTool,
             LocationTool locationTool,
             TravelPlannerTool travelPlannerTool,
-            SmartTravelPlannerTool smartTravelPlannerTool) {
+            SmartTravelPlannerTool smartTravelPlannerTool,
+            CorrectionService correctionService) {
         this.attractionRealtimeTool = attractionRealtimeTool;
         this.travelGuideCrawlerTool = travelGuideCrawlerTool;
         this.weatherTool = weatherTool;
         this.locationTool = locationTool;
         this.travelPlannerTool = travelPlannerTool;
         this.smartTravelPlannerTool = smartTravelPlannerTool;
+        this.correctionService = correctionService;
     }
 
     /**
@@ -113,5 +117,20 @@ public class TravelAgentTools {
             @ToolParam(description = "当前用户ID", required = false) Long userId) {
         log.info("[TravelAgent] 爬取攻略: {}", url);
         return travelGuideCrawlerTool.crawlTravelGuide(url, userId != null ? userId : 1L);
+    }
+
+    /**
+     * 查询历史纠错记录
+     * 在回答事实性问题前调用，检查是否有用户反馈过的修正信息，避免重复错误
+     */
+    @Tool(description = "查询本 Agent 的历史纠错记录。在回答事实性问题前先调用此工具，检查是否有已被用户纠正过的信息，避免重复错误。")
+    public String queryCorrections(
+            @ToolParam(description = "查询主题，如'故宫开放时间'、'八达岭长城交通'，空字符串则返回全部", required = false) String topic) {
+        log.info("[TravelAgent] 查询修正记录: topic={}", topic);
+        String result = correctionService.queryCorrections("travel", topic != null ? topic : "");
+        if (result.isBlank()) {
+            return "未找到相关的修正记录，可以按正常流程回答。";
+        }
+        return result;
     }
 }
