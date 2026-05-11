@@ -1,0 +1,23 @@
+{
+  "id" : null,
+  "userId" : 3081,
+  "preferredLocations" : null,
+  "foodPreferences" : [ ],
+  "travelPreferences" : [ ],
+  "dietaryRestrictions" : null,
+  "budgetRange" : null,
+  "preferenceWeights" : { },
+  "intentDistribution" : {
+    "builtinfallback" : 12
+  },
+  "additionalPreferences" : "{\"location_weights\":{\"故宫\":11}}",
+  "totalQueries" : 12,
+  "lastQueryAt" : [ 2026, 5, 11, 17, 26, 31, 403461600 ],
+  "createdAt" : null,
+  "updatedAt" : [ 2026, 5, 11, 17, 26, 45, 519955900 ],
+  "travelPreferencesArray" : [ ],
+  "dietaryRestrictionsArray" : null,
+  "foodPreferencesArray" : [ ],
+  "preferredLocationsArray" : null,
+  "preferenceWeightsMap" : { }
+}

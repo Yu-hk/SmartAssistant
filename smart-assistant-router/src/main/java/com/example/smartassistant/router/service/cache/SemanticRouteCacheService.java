@@ -209,7 +209,8 @@ public class SemanticRouteCacheService {
             String key = CACHE_KEY_PREFIX + md5(intentTag);
             redisTemplate.opsForValue().set(key, json, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
 
-            // 保存精确映射
+            // 保存精确映射（使用原始问题，requestId 参数在此处仅用于审计）
+            // 注意：精确映射也会在 saveExactMatch 中重新覆盖为原始问题，此处保留全 Prompt 用于审计追溯
             String exactKey = EXACT_KEY_PREFIX + md5(question);
             redisTemplate.opsForValue().set(exactKey, intentTag, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
 
@@ -237,6 +238,24 @@ public class SemanticRouteCacheService {
                     intentTag, agentName, requestId);
         } catch (Exception e) {
             log.warn("[SemanticCache] 写入决策缓存失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * ⭐ 保存精确匹配映射（使用原始问题，覆盖带 Prompt 模板的完整文本）
+     * <p>
+     * Router 接收到的 question 包含【用户历史信息】【当前问题】等模板标记 + 动态历史计数，
+     * 导致每次请求的 MD5 都不同。调用方应在外部提取原始问题后调用此方法，
+     * 确保精确匹配 key 基于稳定的原始问题文本。
+     */
+    public void saveExactMatch(String rawQuestion, String intentTag) {
+        if (!cacheEnabled || redisTemplate == null || rawQuestion == null || rawQuestion.isBlank() || intentTag == null) return;
+        try {
+            String exactKey = EXACT_KEY_PREFIX + md5(rawQuestion);
+            redisTemplate.opsForValue().set(exactKey, intentTag, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+            log.debug("[SemanticCache] 精确匹配覆盖: rawQuestion={}, intent={}", rawQuestion, intentTag);
+        } catch (Exception e) {
+            log.warn("[SemanticCache] 保存精确匹配失败: {}", e.getMessage());
         }
     }
 
