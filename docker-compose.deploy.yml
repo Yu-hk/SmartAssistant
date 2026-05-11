@@ -1,0 +1,142 @@
+# SmartAssistant - 完整服务容器化部署
+# 构建：docker compose build
+# 启动：docker compose up -d
+#
+# 注意：需先创建 .env 文件并填入真实 API Key 和密码
+
+services:
+  # ========== 基础设施 ==========
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+
+  nacos:
+    extends:
+      file: docker-compose.yml
+      service: nacos
+
+  zipkin:
+    extends:
+      file: docker-compose.yml
+      service: zipkin
+
+  # ========== 后端服务 ==========
+  gateway:
+    build:
+      context: ./smart-assistant-gateway
+      args:
+        SERVICE_NAME: smart-assistant-gateway
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: 8081
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      NACOS_PASSWORD: ${NACOS_PASSWORD}
+    depends_on:
+      nacos:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+
+  user:
+    build:
+      context: ./smart-assistant-user
+      args:
+        SERVICE_NAME: smart-assistant-user
+    ports:
+      - "8086:8086"
+    environment:
+      PORT: 8086
+      JWT_SECRET: ${JWT_SECRET}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      NACOS_PASSWORD: ${NACOS_PASSWORD}
+    depends_on:
+      nacos: { condition: service_healthy }
+
+  consumer:
+    build:
+      context: ./smart-assistant-consumer
+      args:
+        SERVICE_NAME: smart-assistant-consumer
+    ports:
+      - "8082:8082"
+    environment:
+      PORT: 8082
+      JWT_SECRET: ${JWT_SECRET}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      NACOS_PASSWORD: ${NACOS_PASSWORD}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+    depends_on:
+      nacos: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  router:
+    build:
+      context: ./smart-assistant-router
+      args:
+        SERVICE_NAME: smart-assistant-router
+    ports:
+      - "8083:8083"
+    environment:
+      PORT: 8083
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      NACOS_PASSWORD: ${NACOS_PASSWORD}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+    depends_on:
+      nacos: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  travel:
+    build:
+      context: ./smart-assistant-travel
+      args:
+        SERVICE_NAME: smart-assistant-travel
+    ports:
+      - "8085:8085"
+    environment:
+      PORT: 8085
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      NACOS_PASSWORD: ${NACOS_PASSWORD}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+    depends_on:
+      nacos: { condition: service_healthy }
+
+  food:
+    build:
+      context: ./smart-assistant-food
+      args:
+        SERVICE_NAME: smart-assistant-food
+    ports:
+      - "8084:8084"
+    environment:
+      PORT: 8084
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      NACOS_PASSWORD: ${NACOS_PASSWORD}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    depends_on:
+      nacos: { condition: service_healthy }
+
+  general:
+    build:
+      context: ./smart-assistant-general
+      args:
+        SERVICE_NAME: smart-assistant-general
+    ports:
+      - "8087:8087"
+    environment:
+      PORT: 8087
+      NACOS_PASSWORD: ${NACOS_PASSWORD}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+    depends_on:
+      nacos: { condition: service_healthy }
