@@ -1,6 +1,6 @@
 package com.example.smartassistant.router.controller;
 
-import com.example.smartassistant.router.service.AgentDiscoveryService;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;

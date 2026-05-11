@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { admin as adminApi } from '../api';
 import { 
   Form, 
   Input, 
@@ -139,13 +140,12 @@ export function SettingsPage({
     setLoginStatus(prev => ({ ...prev, checking: true, error: undefined }));
     
     try {
-      const response = await fetch('/api/check-login');
-      const data = await response.json();
+      const data = await adminApi.checkLogin();
       
       setLoginStatus({
-        isLoggedIn: data.isLoggedIn,
+        isLoggedIn: data.loggedIn,
         checking: false,
-        method: data.method,
+        method: data.loggedIn ? '已登录' : '未登录',
         envConfigured: data.envConfigured,
         cliConfigured: data.cliConfigured,
         error: data.error,
@@ -172,18 +172,12 @@ export function SettingsPage({
     
     setSavingEnv(true);
     try {
-      const response = await fetch('/api/save-env-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apiKey: envConfig.apiKey.trim() || undefined,
-          authToken: envConfig.authToken.trim() || undefined,
-          internetEnv: envConfig.internetEnv || undefined,
-          baseUrl: envConfig.baseUrl.trim() || undefined,
-        }),
-      });
-      
-      const data = await response.json();
+      const data = await adminApi.saveEnvConfig({
+        apiKey: envConfig.apiKey.trim() || undefined,
+        authToken: envConfig.authToken.trim() || undefined,
+        internetEnv: envConfig.internetEnv || undefined,
+        baseUrl: envConfig.baseUrl.trim() || undefined,
+      } as Record<string, string>);
       
       if (data.success) {
         MessagePlugin.success(data.message);

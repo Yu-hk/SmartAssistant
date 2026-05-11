@@ -1,6 +1,6 @@
 package com.example.smartassistant.tools;
 
-import com.example.smartassistant.service.TravelNoteService;
+import com.example.smartassistant.service.rag.TravelNoteService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;

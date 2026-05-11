@@ -1,6 +1,6 @@
 package com.example.smartassistant.tool;
 
-import com.example.smartassistant.service.ABTestService;
+import com.example.smartassistant.service.core.ABTestService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;
@@ -61,7 +61,7 @@ public class PersonalizedRestaurantRecommendationTool {
                     userId, query, city, cuisineType, maxPrice, minRating
                 );
             
-            List<com.example.smartassistant.service.HybridRecommendationService.HybridRecommendation> recommendations = 
+            List<com.example.smartassistant.service.core.HybridRecommendationService.HybridRecommendation> recommendations = 
                 result.getRecommendations();
             
             if (recommendations.isEmpty()) {

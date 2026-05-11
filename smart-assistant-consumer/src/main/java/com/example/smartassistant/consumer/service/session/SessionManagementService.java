@@ -2,6 +2,8 @@ package com.example.smartassistant.consumer.service.session;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -23,7 +25,7 @@ public class SessionManagementService {
     private final Map<String, Long> sessionLastAccess = new ConcurrentHashMap<>();
     
     // ⭐ 会话超时时间（毫秒）：从配置文件读取，默认 30 分钟
-    @org.springframework.beans.factory.annotation.Value("${session.timeout-ms:1800000}")
+    @Value("${session.timeout-ms:1800000}")
     private long sessionTimeoutMs;
     
     /**
@@ -95,9 +97,10 @@ public class SessionManagementService {
     }
     
     /**
-     * 清理过期会话
+     * 清理过期会话（自动定时调度，每 60 秒执行一次）
      * 建议定期调用（如每分钟一次）
      */
+    @Scheduled(fixedDelay = 60000)
     public void cleanupExpiredSessions() {
         long now = System.currentTimeMillis();
         int cleanedCount = 0;

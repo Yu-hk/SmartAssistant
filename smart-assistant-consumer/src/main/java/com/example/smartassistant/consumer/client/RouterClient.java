@@ -68,20 +68,20 @@ public class RouterClient {
     /**
      * 调用 Router Service 并返回完整响应
      *
-     * @param question 用户问题
-     * @param userId 用户 ID
-     * @param sessionId 会话 ID
+     * @param question   用户问题（纯文本）
+     * @param userId     用户 ID
+     * @param sessionId  会话 ID
+     * @param requestId  请求 ID（可选）
+     * @param userProfile 用户画像文本（可选，独立字段）
+     * @param intentTag  意图标签（可选）
      * @return Router Service 返回的完整响应 Map
      */
     @CircuitBreaker(name = "routerService", fallbackMethod = "callRouterRawFallback")
     @RateLimiter(name = "routerRateLimiter")
     @Retry(name = "routerRetry")
-    public Map<String, Object> callRouterRaw(String question, String userId, String sessionId) {
-        return callRouterRaw(question, userId, sessionId, null);
-    }
-
-    public Map<String, Object> callRouterRaw(String question, String userId, String sessionId, String requestId) {
-        log.info("[RouterClient] 调用 Router Service(完整响应): userId={}, sessionId={}, questionLength={}",
+    public Map<String, Object> callRouterRaw(String question, String userId, String sessionId, String requestId,
+                                              String userProfile, String intentTag) {
+        log.info("[RouterClient] 调用 Router Service: userId={}, sessionId={}, questionLength={}",
                 userId, sessionId, question != null ? question.length() : 0);
 
         try {
@@ -92,6 +92,13 @@ public class RouterClient {
             requestBody.put("enableRag", false);
             if (requestId != null) {
                 requestBody.put("requestId", requestId);
+            }
+            // ⭐ 独立字段传输用户画像和意图标签，不再塞入 question
+            if (userProfile != null && !userProfile.isBlank()) {
+                requestBody.put("userProfile", userProfile);
+            }
+            if (intentTag != null && !intentTag.isBlank()) {
+                requestBody.put("intentTag", intentTag);
             }
 
             HttpHeaders headers = new HttpHeaders();

@@ -19,7 +19,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/a2a_system
     username: ${POSTGRES_USER:postgres}
-    password: ${POSTGRES_PASSWORD:postgres123}
+    password: ${POSTGRES_PASSWORD}  # ⚠️ 必须设置 POSTGRES_PASSWORD 环境变量
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -33,7 +33,7 @@ spring:
       host: localhost
       port: 6379
       database: 0
-      password: ${REDIS_PASSWORD:redis123}
+      password: ${REDIS_PASSWORD}  # ⚠️ 必须设置 REDIS_PASSWORD 环境变量
       timeout: 3000ms
       lettuce:
         pool:
@@ -70,11 +70,11 @@ spring:
             namespace: ""  # 使用默认 namespace (public)
             group: DEFAULT_GROUP
             username: ${NACOS_USERNAME:nacos}
-            password: ${NACOS_PASSWORD:nacos123}
+            password: ${NACOS_PASSWORD}
 
 # JWT 配置（与 Consumer Service 保持一致）
 jwt:
-  secret: ${JWT_SECRET:a2a-demo-secret-key-for-jwt-token-generation-2026-very-long}  # ⭐ 优先从环境变量 JWT_SECRET 读取。⚠️ 生产环境务必通过环境变量 JWT_SECRET 设置独立密钥，不要使用默认值
+  secret: ${JWT_SECRET}  # ⭐ 从环境变量 JWT_SECRET 读取。⚠️ 必须设置 JWT_SECRET 环境变量，启动失败即表示未配置
 
 # Router 配置
 router:

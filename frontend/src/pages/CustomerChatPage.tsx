@@ -6,6 +6,7 @@ import { TransferBanner } from '../components/TransferBanner';
 import { SatisfactionDialog } from '../components/SatisfactionDialog';
 import { FaqSuggestions } from '../components/FaqSuggestions';
 import { IntentBadge } from '../components/IntentBadge';
+import { sessions as sessionApi } from '../api';
 
 interface CustomerChatPageProps {
   currentSession: Session | undefined;
@@ -76,7 +77,7 @@ export function CustomerChatPage({
 
   const handleFaqSelect = useCallback((faq: FaqItem) => {
     onSendMessage(faq.question);
-    fetch(`/api/faq/${faq.id}/hit`, { method: 'POST' }).catch(() => {});
+    sessionApi.hitFaq(faq.id).catch(() => {});
   }, [onSendMessage]);
 
   const hasMessages = currentSession && currentSession.messages.length > 0;

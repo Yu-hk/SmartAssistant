@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AdminStats, IntentType, INTENT_LABELS, INTENT_COLORS, FaqItem } from '../types';
+import { sessions as sessionApi, admin as adminApi } from '../api';
 
 interface AdminSession {
   id: string;
@@ -39,17 +40,14 @@ export function AdminPage({ onBack }: AdminPageProps) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [statsRes, sessionsRes, faqsRes] = await Promise.all([
-        fetch('/api/stats'),
-        fetch('/api/sessions'),
-        fetch('/api/faq'),
+      const [statsData, sessionsData, faqsData] = await Promise.all([
+        adminApi.fetchAdminStats().catch(() => null),
+        sessionApi.fetchSessions().catch(() => []),
+        sessionApi.fetchFaqs().catch(() => []),
       ]);
-      const statsData = await statsRes.json();
-      const sessionsData = await sessionsRes.json();
-      const faqsData = await faqsRes.json();
-      setStats(statsData);
-      setSessions(sessionsData.sessions || []);
-      setFaqs(faqsData.faqs || []);
+      if (statsData) setStats(statsData);
+      setSessions(Array.isArray(sessionsData) ? sessionsData : (sessionsData as any).sessions || []);
+      setFaqs(Array.isArray(faqsData) ? faqsData : (faqsData as any).faqs || []);
     } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
@@ -58,44 +56,44 @@ export function AdminPage({ onBack }: AdminPageProps) {
 
   const loadSessionDetail = async (session: AdminSession) => {
     setSelectedSession(session);
-    const res = await fetch(`/api/sessions/${session.id}`);
-    const data = await res.json();
-    setSessionMessages(data.messages || []);
+    try {
+      const data = await sessionApi.fetchSession(session.id);
+      setSessionMessages((data as any).messages || []);
+    } catch (e) { console.error(e); }
   };
 
   const handleDeleteSession = async (id: string) => {
     if (!confirm('确认删除此对话记录？')) return;
-    await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
-    setSessions(prev => prev.filter(s => s.id !== id));
-    if (selectedSession?.id === id) setSelectedSession(null);
+    try {
+      await sessionApi.deleteSession(id);
+      setSessions(prev => prev.filter(s => s.id !== id));
+      if (selectedSession?.id === id) setSelectedSession(null);
+    } catch (e) { console.error(e); }
   };
 
   const handleSaveFaq = async () => {
     if (!faqForm.question || !faqForm.answer) return alert('请填写问题和答案');
-    if (faqEditItem) {
-      await fetch(`/api/faq/${faqEditItem.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(faqForm),
-      });
-    } else {
-      await fetch('/api/faq', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(faqForm),
-      });
-    }
+    try {
+      if (faqEditItem) {
+        await sessionApi.updateFaq(faqEditItem.id, faqForm);
+      } else {
+        await sessionApi.createFaq(faqForm);
+      }
+    } catch (e) { console.error(e); }
     setFaqEditItem(null);
     setFaqForm({ category: 'general', question: '', answer: '', keywords: '' });
-    const res = await fetch('/api/faq');
-    const data = await res.json();
-    setFaqs(data.faqs || []);
+    try {
+      const faqsData = await sessionApi.fetchFaqs();
+      setFaqs(Array.isArray(faqsData) ? faqsData : (faqsData as any).faqs || []);
+    } catch (e) { console.error(e); }
   };
 
   const handleDeleteFaq = async (id: string) => {
     if (!confirm('确认删除此 FAQ？')) return;
-    await fetch(`/api/faq/${id}`, { method: 'DELETE' });
-    setFaqs(prev => prev.filter(f => f.id !== id));
+    try {
+      await sessionApi.deleteFaq(id);
+      setFaqs(prev => prev.filter(f => f.id !== id));
+    } catch (e) { console.error(e); }
   };
 
   const filteredSessions = sessions.filter(s => {

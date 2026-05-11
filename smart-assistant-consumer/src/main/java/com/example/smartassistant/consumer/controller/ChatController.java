@@ -2,20 +2,20 @@ package com.example.smartassistant.consumer.controller;
 
 import com.example.smartassistant.consumer.service.cache.AnswerCacheService;
 import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationService;
-import com.example.smartassistant.consumer.service.core.MathConsumerService;
-import com.example.smartassistant.consumer.service.data.HybridDataQueryService;
+import com.example.smartassistant.consumer.service.core.ChatConsumerService;
 import com.example.smartassistant.consumer.service.session.ConversationDocumentService;
 import com.example.smartassistant.consumer.service.session.ConversationValueService;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 智能对话 REST API - 纯代理模式
@@ -26,37 +26,29 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ChatController {
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
-    private final MathConsumerService mathService;
-    private final HybridDataQueryService hybridDataQueryService;  // ⭐ 新增：混合数据查询服务
+    private final ChatConsumerService chatService;
     private final AnswerCacheService answerCacheService;  // ⭐ Phase 1: 答案缓存服务
     private final AnswerPersonalizationService personalizationCacheService;  // ⭐ 方案E: 缓存预热
     private final ConversationValueService conversationValueService;
     private final ConversationDocumentService conversationDocumentService;
-    private final ChatClient chatClient;
 
-    // ⭐ 会话轮数追踪：sessionId -> turnCount
-    private final Map<String, Integer> turnCounts = new ConcurrentHashMap<>();
+    // ⭐ 会话轮数追踪：sessionId -> turnCount（使用 Caffeine 缓存，1 小时自动过期，最大 10000 条目）
+    private final Cache<String, Integer> turnCounts = Caffeine.newBuilder()
+            .expireAfterWrite(1, TimeUnit.HOURS)
+            .maximumSize(10000)
+            .recordStats()
+            .build();
 
-    // ⭐ 工具调用相关的意图标签
-    private static final Set<String> TOOL_INTENTS = Set.of(
-            "图片生成", "绘画请求", "搜索", "计算", "热门新闻", "天气查询",
-            "CALCULATE", "SEARCH", "WEATHER", "IMAGE_GENERATION", "NEWS"
-    );
-
-    public ChatController(MathConsumerService mathService,
-                         HybridDataQueryService hybridDataQueryService,
+    public ChatController(ChatConsumerService chatService,
                          AnswerCacheService answerCacheService,
                          AnswerPersonalizationService personalizationCacheService,
                           ConversationValueService conversationValueService,
-                          ConversationDocumentService conversationDocumentService,
-                         ChatClient.Builder chatClientBuilder) {
-        this.mathService = mathService;
-        this.hybridDataQueryService = hybridDataQueryService;
+                          ConversationDocumentService conversationDocumentService) {
+        this.chatService = chatService;
         this.answerCacheService = answerCacheService;
         this.personalizationCacheService = personalizationCacheService;
         this.conversationValueService = conversationValueService;
         this.conversationDocumentService = conversationDocumentService;
-        this.chatClient = chatClientBuilder.build();
     }
 
     /**
@@ -121,32 +113,13 @@ public class ChatController {
         
         // 2. 已无 DB 存储，直接处理
         
-        // ⭐ 3. 智能判断是否为数据查询请求 / 交互式多意图
+        // ⭐ 3. 统一转发给 ChatConsumerService（不再拦截数据查询请求）
+        // 数据查询请求已由 DataQueryController 处理
         Mono<Map<String, Object>> resultMono;
-        if (isDataQueryRequest(message)) {
-            // ⭐ 权限校验：数据查询仅限 ADMIN
-            if (!isAdmin(role)) {
-                log.warn("[Auth] ⛔ 拒绝数据查询请求: userId={}, role={}", userId, role);
-                return Mono.just(buildForbiddenResponse("数据统计/查询功能仅限管理员使用"));
-            }
-            log.info("[数据查询] 检测到数据查询请求: {}", message);
-            Map<String, Object> dataResult = new HashMap<>();
-            dataResult.put("result", handleDataQuery(message));
-            resultMono = Mono.just(dataResult);
-        } else if (isDataQueryByLLM(message)) {
-            // ⭐ LLM 增强判断：关键词未匹配但 LLM 识别为数据查询
-            if (!isAdmin(role)) {
-                log.info("[数据查询] LLM 识别为数据查询请求，非管理员拒绝: userId={}", userId);
-                return Mono.just(buildForbiddenResponse("数据统计/查询功能仅限管理员使用"));
-            }
-            log.info("[数据查询] LLM 检测到数据查询请求: {}", message);
-            Map<String, Object> dataResult = new HashMap<>();
-            dataResult.put("result", handleDataQuery(message));
-            resultMono = Mono.just(dataResult);
-        } else if (sessionId != null) {
+        if (sessionId != null) {
             // ⭐ 有 sessionId：使用带 session 的完整响应
             log.info("[交互式多意图] 使用 session 模式: sessionId={}", sessionId);
-            resultMono = Mono.fromCallable(() -> mathService.calculateWithSession(userId, message, sessionId, finalRequestId))
+            resultMono = Mono.fromCallable(() -> chatService.calculateWithSession(userId, message, sessionId, finalRequestId))
                     .subscribeOn(Schedulers.boundedElastic())
                     .map(routerMap -> {
                         String resultText = (String) ((Map<String, Object>) routerMap).get("result");
@@ -154,28 +127,33 @@ public class ChatController {
                         Boolean fromCache = (Boolean) ((Map<String, Object>) routerMap).getOrDefault("fromCache", false);
                         // ⭐ 提取 intentTag
                         String intentTag = (String) ((Map<String, Object>) routerMap).get("intentTag");
+                        // ⭐ 提取工具调用信号（Router 根据实际执行链路设置）
+                        Boolean toolInvoked = (Boolean) ((Map<String, Object>) routerMap).getOrDefault("toolInvoked", false);
                         Map<String, Object> map = new HashMap<>();
                         map.put("result", resultText != null ? resultText : "");
                         map.put("agentName", agentName);
                         map.put("fromCache", fromCache);
                         map.put("intentTag", intentTag);  // ⭐ 透传 intentTag
+                        map.put("toolInvoked", toolInvoked);  // ⭐ 透传工具调用信号
                         return map;
                     });
         } else {
             // 4. 直接调用 LLM（无 session）
             log.info("[无Session] 直接调用 calculate");
-            resultMono = Mono.fromCallable(() -> mathService.calculateWithSession(userId, message, null, finalRequestId))
+            resultMono = Mono.fromCallable(() -> chatService.calculateWithSession(userId, message, null, finalRequestId))
                     .subscribeOn(Schedulers.boundedElastic())
                     .map(routerMap -> {
                         String resultText = (String) routerMap.get("result");
                         String agentName = (String) routerMap.get("agentName");
                         Boolean fromCache = (Boolean) routerMap.getOrDefault("fromCache", false);
                         String intentTag = (String) routerMap.get("intentTag");
+                        Boolean toolInvoked = (Boolean) routerMap.getOrDefault("toolInvoked", false);
                         Map<String, Object> map = new HashMap<>();
                         map.put("result", resultText != null ? resultText : "");
                         map.put("agentName", agentName);
                         map.put("fromCache", fromCache);
                         map.put("intentTag", intentTag);
+                        map.put("toolInvoked", toolInvoked);
                         return map;
                     });
         }
@@ -197,10 +175,10 @@ public class ChatController {
                     Boolean fromCache = (Boolean) routerResponse.getOrDefault("fromCache", false);
                     // ⭐ 从透传的 intentTag 读取
                     String intentTag = (String) routerResponse.get("intentTag");
-                    // ⭐ 计算当前轮数（session 粒度）
-                    int turnCount = turnCounts.merge(sessionId, 1, Integer::sum);
-                    // ⭐ 从 intentTag 推断是否触发了工具调用
-                    boolean hasToolCall = intentTag != null && TOOL_INTENTS.contains(intentTag);
+                    // ⭐ 计算当前轮数（session 粒度，使用 Caffeine asMap 的 merge 保证线程安全）
+                    int turnCount = turnCounts.asMap().merge(sessionId, 1, Integer::sum);
+                    // ⭐ 使用 Router 传来的 toolInvoked 信号（不再通过意图标签猜测）
+                    Boolean toolInvoked = (Boolean) routerResponse.getOrDefault("toolInvoked", false);
 
                     ConversationValueService.ConversationValueContext ctx =
                             new ConversationValueService.ConversationValueContext(
@@ -211,7 +189,7 @@ public class ChatController {
                                     intentTag,  // ⭐ 传递真实 intentTag
                                     turnCount, // ⭐ 传递真实轮数
                                     fromCache != null && fromCache,
-                                    hasToolCall  // ⭐ 传递真实工具调用信号
+                                    toolInvoked != null && toolInvoked  // ⭐ 使用 Router 传来的工具调用信号
                             );
 
                     try {
@@ -239,10 +217,10 @@ public class ChatController {
                 return Mono.just(response);
             });
     }
-    
-    /**
-     * ⭐ Phase 1: LLM 智能建议生成
-     * 利用 ChatClient 根据对话上下文和用户画像生成语义化建议
+
+    /*
+      ⭐ Phase 1: LLM 智能建议生成
+      利用 ChatClient 根据对话上下文和用户画像生成语义化建议
      */
     /**
      * 从 Agent 回复中解析 ⭐ 开头的建议行
@@ -283,77 +261,6 @@ public class ChatController {
     }
 
     /**
-     * 判断是否为数据查询请求
-     * 通过关键词识别数据查询意图
-     */
-    private boolean isDataQueryRequest(String message) {
-        if (message == null || message.trim().isEmpty()) {
-            return false;
-        }
-        
-        String lowerMessage = message.toLowerCase();
-        
-        // ⭐ 扩展数据查询关键词（覆盖更多场景）
-        String[] dataQueryKeywords = {
-            // 统计类（高置信度，明确表示数据查询）
-            "多少", "统计", "总数", "数量", "平均", "最大", "最小",
-            "增长", "趋势", "分布", "排名", "排行", "占比", "比例",
-            // SQL 关键词（明确表示数据查询）
-            "count", "sum", "avg", "max", "min", "group by", "order by",
-            "select", "from", "where"
-        };
-        
-        // 先检查高置信度关键词
-        for (String keyword : dataQueryKeywords) {
-            if (lowerMessage.contains(keyword)) {
-                return true;
-            }
-        }
-        
-        // ⭐ 对模糊匹配做二次验证：只有同时匹配多个指标关键词才认为是数据查询
-        String[] fuzzyKeywords = {"列表", "字段", "结构", "前", "详情", "显示", "查看", "所有"};
-        int fuzzyMatchCount = 0;
-        for (String keyword : fuzzyKeywords) {
-            if (lowerMessage.contains(keyword)) {
-                fuzzyMatchCount++;
-            }
-        }
-        // 需要至少命中 2 个模糊关键词才判定为数据查询
-        return fuzzyMatchCount >= 2;
-    }
-    
-    /**
-     * ⭐ LLM 增强：判断用户问题是否为数据查询意图
-     * <p>
-     * 当关键词匹配未能命中时，用 LLM 做二次判断。
-     * 仅对包含潜在数据查询关键词的问题调用，减少不必要的 LLM 调用。
-     */
-    private boolean isDataQueryByLLM(String message) {
-        // 只对可能涉及数据查询的问题调用 LLM（减少无意义的 LLM 调用）
-        if (message == null || message.length() < 4) return false;
-        String lower = message.toLowerCase();
-        if (!lower.contains("多少") && !lower.contains("用户") && !lower.contains("系统")
-                && !lower.contains("几个") && !lower.contains("人数") && !lower.contains("数据")
-                && !lower.contains("总数") && !lower.contains("所有") && !lower.contains("注册")
-                && !lower.contains("查询") && !lower.contains("列表") && !lower.contains("统计")) {
-            return false;
-        }
-        try {
-            String result = chatClient.prompt()
-                    .user("判断以下用户问题是查询系统数据（如用户数量、消息数量等），还是日常聊天。只回答 data_query 或 chat：\n" + message)
-                    .call()
-                    .content();
-            if (result != null && result.trim().toLowerCase().contains("data_query")) {
-                log.info("[LLM数据查询] 识别为数据查询: {}", message);
-                return true;
-            }
-        } catch (Exception e) {
-            log.warn("[LLM数据查询] LLM 判断失败: {}", e.getMessage());
-        }
-        return false;
-    }
-
-    /**
      * ⭐ 缓存统计接口 - 查看命中率等指标（仅管理员）
      * POST /api/math/cache/stats
      */
@@ -370,35 +277,7 @@ public class ChatController {
                 log.info("[AnswerCache] 📊 缓存统计: {}", stats);
             });
     }
-    
-    /**
-     * 处理数据查询请求
-     * 使用 HybridDataQueryService 智能选择 MyBatis 或 MCP
-     */
-    private String handleDataQuery(String message) {
-        try {
-            // 调用混合查询服务，自动选择最优方式
-            Map<String, Object> result = hybridDataQueryService.naturalLanguageQuery(message);
-            
-            if (Boolean.TRUE.equals(result.get("success"))) {
-                String answer = (String) result.get("answer");
-                String method = (String) result.get("method");
-                
-                log.info("[数据查询] 完成: method={}", method);
-                
-                // 直接返回答案，不添加调试信息
-                return answer;
-            } else {
-                log.warn("[数据查询] 失败: {}", result.get("error"));
-                return "抱歉，暂时无法完成数据查询。请稍后重试或使用其他方式查询。";
-            }
-            
-        } catch (Exception e) {
-            log.error("[数据查询] 异常", e);
-            return "数据查询出错：" + e.getMessage();
-        }
-    }
-    
+
     /**
      * ⭐ 权限校验：是否为管理员
      */

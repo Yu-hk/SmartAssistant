@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ToolCall, PermissionRequest, Session, ContentBlock, IntentType, FaqItem } from '../types';
+import { sessions as sessionApi } from '../api';
 
 interface UseChatOptions {
   currentSession: Session | undefined;
@@ -288,11 +289,7 @@ export function useChat(options: UseChatOptions) {
   const handleTransferToHuman = useCallback(async () => {
     if (!currentSessionId) return;
     try {
-      await fetch(`/api/sessions/${currentSessionId}/transfer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: '用户请求人工客服' }),
-      });
+      await sessionApi.transferToHuman(currentSessionId, { reason: '用户请求人工客服', agentId: '' });
       setSessions(prev => prev.map(s =>
         s.id === currentSessionId ? { ...s, status: 'human_transfer' } : s
       ));
@@ -304,11 +301,7 @@ export function useChat(options: UseChatOptions) {
   const handleSatisfaction = useCallback(async (score: number, comment?: string) => {
     if (!currentSessionId) return;
     try {
-      await fetch(`/api/sessions/${currentSessionId}/satisfaction`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score, comment }),
-      });
+      await sessionApi.submitSatisfaction(currentSessionId, { score, comment });
       setSessions(prev => prev.map(s =>
         s.id === currentSessionId ? { ...s, satisfaction: score, status: 'closed' } : s
       ));
@@ -319,21 +312,13 @@ export function useChat(options: UseChatOptions) {
   // 权限处理
   const handlePermissionAllow = useCallback(async () => {
     if (!permissionRequest) return;
-    await fetch('/api/permission-response', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestId: permissionRequest.requestId, behavior: 'allow' }),
-    });
+    await sessionApi.allowPermission(permissionRequest.requestId);
     setPermissionRequest(null);
   }, [permissionRequest]);
 
   const handlePermissionDeny = useCallback(async () => {
     if (!permissionRequest) return;
-    await fetch('/api/permission-response', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestId: permissionRequest.requestId, behavior: 'deny' }),
-    });
+    await sessionApi.denyPermission(permissionRequest.requestId);
     setPermissionRequest(null);
   }, [permissionRequest]);
 

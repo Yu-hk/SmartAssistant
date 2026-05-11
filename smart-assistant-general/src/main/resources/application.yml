@@ -29,7 +29,7 @@ spring:
         namespace: ""
         group: DEFAULT_GROUP
         username: ${NACOS_USERNAME:nacos}
-        password: ${NACOS_PASSWORD:nacos123}
+        password: ${NACOS_PASSWORD}
         metadata:
           agent-type: general_chat
           capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
@@ -66,7 +66,7 @@ spring:
             namespace: ""
             group: DEFAULT_GROUP
             username: ${NACOS_USERNAME:nacos}
-            password: ${NACOS_PASSWORD:nacos123}
+            password: ${NACOS_PASSWORD}
             metadata:
               agent-type: general_chat
               capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
