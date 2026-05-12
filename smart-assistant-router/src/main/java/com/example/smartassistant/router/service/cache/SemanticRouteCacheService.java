@@ -74,13 +74,12 @@ public class SemanticRouteCacheService {
     }
 
     /**
-     * 获取缓存决策：五层匹配
+     * 获取缓存决策：四层匹配
      * <p>
      * Tier 1: 精确匹配（MD5 快速路径）— 完全相同的字符串
-     * Tier 2: 关键词哈希匹配（分词 → 取关键名词 → MD5）— 跳过 LLM
-     * Tier 3: 本地 BGE 向量匹配（BGE-small-zh ONNX）— ~70ms，无需外部 API
-     * Tier 4: 语义匹配（LLM 生成意图标签）— 兜底方案
-     * Tier 5: 前缀匹配（前 8 字符）— 部分命中
+     * Tier 2: 关键词哈希匹配（分词 → 关键词 → MD5）— 无需 LLM
+     * Tier 3: TF 向量匹配（余弦相似度 ≥0.85）— 本地内存，零外部依赖
+     * Tier 4: 前缀匹配（前 8 字符）— 部分命中
      */
     public CachedRouteDecision getCachedDecision(String question) {
         if (!cacheEnabled || redisTemplate == null || question == null || question.isBlank()) {
@@ -95,18 +94,12 @@ public class SemanticRouteCacheService {
             CachedRouteDecision keyword = getByKeywordHash(question);
             if (keyword != null) return keyword;
 
-            // Tier 3: ⭐ 本地 BGE 向量匹配（~70ms，零外部依赖）
+            // Tier 3: ⭐ TF 向量匹配（余弦相似度，本地内存）
             CachedRouteDecision vector = getByVectorMatch(question);
             if (vector != null) return vector;
 
-            // Tier 4: 语义匹配（LLM 生成意图标签）
+            // Tier 4: 前缀匹配
             String intentTag = generateIntentTag(question);
-            if (intentTag != null) {
-                CachedRouteDecision semantic = getByIntentTag(intentTag);
-                if (semantic != null) return semantic;
-            }
-
-            // Tier 5: 前缀匹配
             if (intentTag != null) {
                 CachedRouteDecision prefixMatch = getByPrefixWithTag(question, intentTag);
                 if (prefixMatch != null) return prefixMatch;
