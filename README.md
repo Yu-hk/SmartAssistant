@@ -61,7 +61,6 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回 |
 | 🌐 **前端** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
-
 | 🧩 **Service 层分类** | Router/Food/Travel 的 service 类按功能子包组织（core/agent/cache/rag/data 等） |
 | 📝 **提示词外部化** | Travel/Food/General Agent 系统提示词独立为 `.txt` 文件，修改无需重新编译 |
 | 🏷️ **工具调用信号** | Agent 真实检测工具调用（扫描 ToolResponseMessage），替代意图标签猜测 |
