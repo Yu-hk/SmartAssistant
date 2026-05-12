@@ -86,7 +86,7 @@ class SemanticRouteCacheServiceTest {
         decision.firstCachedAt = System.currentTimeMillis() - 1000;
         decision.firstUserId = 1L;
 
-        String result = cacheService.wrapCachedReply("天气很好", decision, "上海天气", 1L, null);
+        String result = cacheService.wrapCachedReply("天气很好", decision, "上海天气", 1L);
         assertTrue(result.contains("再帮你查一次") || result.contains("跟上次查询") || result.contains("还是同样的结果"),
                 "同用户应使用个性化前缀，实际: " + result);
     }
@@ -100,7 +100,7 @@ class SemanticRouteCacheServiceTest {
         decision.firstCachedAt = System.currentTimeMillis() - 1000;
         decision.firstUserId = 1L;
 
-        String result = cacheService.wrapCachedReply("天气很好", decision, "上海天气", 2L, null);
+        String result = cacheService.wrapCachedReply("天气很好", decision, "上海天气", 2L);
         assertTrue(result.contains("查询结果如下") || result.contains("以下是相关信息") || result.contains("这是查询到的结果"),
                 "不同用户应使用中性前缀，实际: " + result);
     }
@@ -115,7 +115,7 @@ class SemanticRouteCacheServiceTest {
         decision.firstUserId = 1L;
 
         // 与前缀变化逻辑保持一致：不包含"再帮你查"、"之前查到"、"上次查询"等个性化用语
-        String result = cacheService.wrapCachedReply("天气很好", decision, "上海天气", 2L, null);
+        String result = cacheService.wrapCachedReply("天气很好", decision, "上海天气", 2L);
         assertFalse(result.contains("之前查到"), "不同用户不应包含个性化用语，实际: " + result);
         assertFalse(result.contains("上次查询"), "不同用户不应包含个性化用语，实际: " + result);
         assertFalse(result.contains("再帮你查"), "不同用户不应包含个性化用语，实际: " + result);
@@ -130,7 +130,7 @@ class SemanticRouteCacheServiceTest {
         decision.firstCachedAt = System.currentTimeMillis() - 1000;
         decision.firstUserId = 1L;
 
-        String result = cacheService.wrapCachedReply("天气很好", decision, "上海天气", 1L, null);
+        String result = cacheService.wrapCachedReply("天气很好", decision, "上海天气", 1L);
         assertTrue(result.contains("之前查到的") || result.contains("之前查询的") || result.contains("上次查询"),
                 "同用户应使用个性化前缀，实际: " + result);
     }
