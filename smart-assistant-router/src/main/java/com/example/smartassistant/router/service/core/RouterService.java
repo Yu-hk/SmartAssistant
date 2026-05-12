@@ -130,7 +130,7 @@ public class RouterService {
                 log.info("[Router] ⚡ 语义缓存命中: intent={}, agent={}, hit={}", cached.intentTag, cached.agentName, cached.hitCount);
                 if (cached.reply != null && !cached.reply.isBlank()) {
                     // ⭐ 有缓存回复，直接返回（加变化前缀避免重复）
-                    String wrapped = semanticCache.wrapCachedReply(cached.reply, cached, request.getQuestion(), request.getUserId());
+                    String wrapped = semanticCache.wrapCachedReply(cached.reply, cached, request.getQuestion(), request.getUserId(), request.getSessionId());
                     result = RoutingResult.builder()
                             .result(wrapped)
                             .agentName(cached.agentName)
@@ -178,7 +178,7 @@ public class RouterService {
             String requestId = request.getRequestId();
             if (agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
                 // 缓存路由决策（含审计日志）
-                semanticCache.saveDecision(requestId, question, agentName, result.getConfidence(), userId, intentTag);
+                semanticCache.saveDecision(requestId, question, agentName, result.getConfidence(), userId, intentTag, request.getSessionId());
                 // 更新精确匹配为原始问题的 MD5（覆盖带历史计数的全 Prompt MD5）
                 semanticCache.saveExactMatch(rawQuestion, intentTag);
 
