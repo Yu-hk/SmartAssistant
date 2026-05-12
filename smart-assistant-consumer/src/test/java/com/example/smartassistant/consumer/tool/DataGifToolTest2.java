@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025-2026 SmartAssistant Project. All rights reserved.
+ *
+ * Licensed under the MIT License. See LICENSE file in the project root for
+ * full license information.
+ */
+
 package com.example.smartassistant.consumer.tool;
 
 import org.knowm.xchart.*;
@@ -11,6 +18,15 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.util.*;
+import org.knowm.xchart.*;
+import javax.imageio.*;
+import java.awt.*;
+import java.io.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
 /**
  * DataGifTool 快速功能测试（独立可执行）

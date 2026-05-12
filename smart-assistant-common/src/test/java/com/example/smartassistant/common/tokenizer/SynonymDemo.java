@@ -1,6 +1,16 @@
+/*
+ * Copyright (c) 2025-2026 SmartAssistant Project. All rights reserved.
+ *
+ * Licensed under the MIT License. See LICENSE file in the project root for
+ * full license information.
+ */
+
 package com.example.smartassistant.common.tokenizer;
 
 import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 同义词匹配效果演示
