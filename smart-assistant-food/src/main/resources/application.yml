@@ -6,10 +6,11 @@ spring:
   application:
     name: food-service
 
-  # ⭐ 排除 Spring Security 自动配置 (内部服务无需认证)
+  # ⭐ 排除 Spring Security + DeepSeek 自动配置 (使用自定义 ChatModel 禁用 thinking_mode)
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration
 
   # Spring Cloud 配置
   cloud:
