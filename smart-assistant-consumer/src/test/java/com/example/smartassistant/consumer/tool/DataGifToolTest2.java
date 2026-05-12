@@ -1,3 +1,5 @@
+package com.example.smartassistant.consumer.tool;
+
 import org.knowm.xchart.*;
 import org.knowm.xchart.style.Styler;
 import org.knowm.xchart.style.markers.SeriesMarkers;

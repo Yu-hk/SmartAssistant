@@ -74,13 +74,17 @@ public class TravelStreamController {
                                 emitter.send(SseEmitter.event()
                                     .name("error")
                                     .data("{\"type\":\"error\",\"content\":\"" + escapeJson(errMsg) + "\"}"));
-                                emitter.complete();
-                            } catch (IOException ignored) {}
+                                    emitter.complete();
+                            } catch (IOException e) {
+                                log.debug("[TravelStream] 发送 error 事件后关闭 emitter 异常: {}", e.getMessage());
+                            }
                         },
                         () -> {
                             try {
                                 emitter.complete();
-                            } catch (Exception ignored) {}
+                            } catch (Exception e) {
+                                log.debug("[TravelStream] 完成 emitter 异常: {}", e.getMessage());
+                            }
                         }
                     );
             } catch (Exception e) {
@@ -90,7 +94,9 @@ public class TravelStreamController {
                         .name("error")
                         .data("{\"type\":\"error\",\"content\":\"" + escapeJson(e.getMessage()) + "\"}"));
                     emitter.complete();
-                } catch (IOException ignored) {}
+                } catch (IOException e2) {
+                    log.debug("[TravelStream] 发送错误事件后关闭 emitter 异常: {}", e2.getMessage());
+                }
             }
         });
 

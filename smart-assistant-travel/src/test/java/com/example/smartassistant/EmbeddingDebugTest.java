@@ -26,7 +26,8 @@ import java.util.*;
 @Slf4j
 public class EmbeddingDebugTest {
 
-    private static final String DASHSCOPE_API_KEY = "${DASHSCOPE_API_KEY:}";
+    // ⚠️ 使用前请设置环境变量 DASHSCOPE_API_KEY，不要硬编码 API Key
+    private static final String DASHSCOPE_API_KEY = System.getenv("DASHSCOPE_API_KEY");
     private static final String DASHSCOPE_EMBEDDING_URL =
             "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding";
 
