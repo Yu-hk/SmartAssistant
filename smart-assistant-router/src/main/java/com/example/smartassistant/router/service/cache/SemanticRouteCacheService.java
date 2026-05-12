@@ -544,13 +544,13 @@ public class SemanticRouteCacheService {
     /**
      * ⭐ 包装缓存回复：前缀变化 + LLM 改写 + 前缀匹配
      * <p>
-     * 语义相同但表述不同的 LLM 改写仅在同一会话内生效，
-     * 跨会话时复用前缀变化（LLM 改写仅匹配当前会话连贯性，而非通用逻辑）。
+     * 缓存回复是对原问题的回答。当新表述与原问题不同时（关键词/语义匹配命中），
+     * 无论是否同一会话，都需要 LLM 改写将回复适配到新表述。
+     * 仅当新表述已通过精确匹配出现过（精确 key 已存在），才跳过 LLM 走前缀变化。
      */
     public String wrapCachedReply(String reply, CachedRouteDecision cached, String userQuestion, Long userId, String sessionId) {
         boolean isNewPhrasing = false;
-        if (userQuestion != null && cached != null && !userQuestion.equals(cached.originalQuestion)
-                && sessionId != null && sessionId.equals(cached.firstSessionId)) {
+        if (userQuestion != null && cached != null && !userQuestion.equals(cached.originalQuestion)) {
             try {
                 var valueOps = redisTemplate != null ? redisTemplate.opsForValue() : null;
                 if (valueOps != null) {
