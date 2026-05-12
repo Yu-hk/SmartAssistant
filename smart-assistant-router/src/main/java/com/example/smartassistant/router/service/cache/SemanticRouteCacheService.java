@@ -50,7 +50,6 @@ public class SemanticRouteCacheService {
     private final ChatClient chatClient;
     private final ObjectMapper objectMapper;
     private final ChineseTokenizer tokenizer;
-    private final AgentDiscoveryService agentDiscoveryService;
     private final ReplyFormatter replyFormatter;
 
     @Value("${router.semantic-cache.enabled:true}")
@@ -65,7 +64,6 @@ public class SemanticRouteCacheService {
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.tokenizer = tokenizer;
-        this.agentDiscoveryService = agentDiscoveryService;
         this.replyFormatter = new ReplyFormatter(chatClient, agentDiscoveryService);
     }
 
@@ -493,11 +491,11 @@ public class SemanticRouteCacheService {
         }
     }
 
-    /**
-     * 保存回复内容缓存（使用外部传入的 intentTag）
-     * <p>
-     * 高频问题（被问到 ≥HIGH_FREQUENCY_THRESHOLD 次）的回复会被缓存。
-     * 下次相同 intent 的请求直接返回缓存回复，不再调用 Agent。
+    /*
+      保存回复内容缓存（使用外部传入的 intentTag）
+      <p>
+      高频问题（被问到 ≥HIGH_FREQUENCY_THRESHOLD 次）的回复会被缓存。
+      下次相同 intent 的请求直接返回缓存回复，不再调用 Agent。
      */
     /**
      * 保存回复内容缓存（自动计算 TTL）
@@ -548,7 +546,7 @@ public class SemanticRouteCacheService {
      * 无论是否同一会话，都需要 LLM 改写将回复适配到新表述。
      * 仅当新表述已通过精确匹配出现过（精确 key 已存在），才跳过 LLM 走前缀变化。
      */
-    public String wrapCachedReply(String reply, CachedRouteDecision cached, String userQuestion, Long userId, String sessionId) {
+    public String wrapCachedReply(String reply, CachedRouteDecision cached, String userQuestion, Long userId) {
         boolean isNewPhrasing = false;
         if (userQuestion != null && cached != null && !userQuestion.equals(cached.originalQuestion)) {
             try {
