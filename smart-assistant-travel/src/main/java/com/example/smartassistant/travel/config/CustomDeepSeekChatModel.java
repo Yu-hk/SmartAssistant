@@ -1,7 +1,8 @@
 package com.example.smartassistant.travel.config;
 
+import com.example.smartassistant.common.config.DeepSeekApiClient;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,163 +13,76 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.*;
 
 @Component("deepSeekChatModel")
 public class CustomDeepSeekChatModel implements ChatModel {
 
     private static final Logger log = LoggerFactory.getLogger(CustomDeepSeekChatModel.class);
+    private final DeepSeekApiClient apiClient;
 
-    private static final String API_URL = "https://api.deepseek.com/v1/chat/completions";
-
-    private final String apiKey;
-    private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
-
-    public CustomDeepSeekChatModel(
-            @org.springframework.beans.factory.annotation.Value("${spring.ai.deepseek.api-key}") String apiKey) {
-        this.apiKey = apiKey;
-        this.objectMapper = new ObjectMapper();
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
-        log.info("[CustomDeepSeek] 初始化自定义 DeepSeek ChatModel (thinking_mode=disabled)");
+    public CustomDeepSeekChatModel(@Value("${spring.ai.deepseek.api-key}") String apiKey) {
+        this.apiClient = new DeepSeekApiClient(apiKey);
+        log.info("[CustomDeepSeek] initialized (thinking_mode=disabled)");
     }
 
-    @Override
-    public ChatResponse call(Prompt prompt) {
+    @Override public ChatResponse call(Prompt prompt) {
         try {
-            String requestJson = buildRequestJson(prompt);
-            log.debug("[CustomDeepSeek] Request: {}", requestJson.substring(0, Math.min(200, requestJson.length())));
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(API_URL))
-                    .header("Authorization", "Bearer " + apiKey)
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(60))
-                    .POST(HttpRequest.BodyPublishers.ofString(requestJson))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                log.error("[CustomDeepSeek] API error: status={}, body={}", response.statusCode(), response.body());
-                throw new RuntimeException("DeepSeek API error: HTTP " + response.statusCode() + " - " + response.body());
-            }
-
-            return parseResponse(response.body());
-        } catch (Exception e) {
-            log.error("[CustomDeepSeek] Call failed: {}", e.getMessage(), e);
-            throw new RuntimeException("DeepSeek call failed: " + e.getMessage(), e);
-        }
+            String requestJson = apiClient.buildRequestJson("deepseek-v4-flash", 0.7, 4096, buildMessages(prompt));
+            return parseResponse(apiClient.sendRequest(requestJson));
+        } catch (Exception e) { throw new RuntimeException("DeepSeek call failed: " + e.getMessage(), e); }
     }
+    @Override public Flux<ChatResponse> stream(Prompt prompt) { return Flux.just(call(prompt)); }
 
-    @Override
-    public Flux<ChatResponse> stream(Prompt prompt) {
-        return Flux.just(call(prompt));
-    }
-
-    private String buildRequestJson(Prompt prompt) throws Exception {
-        ObjectNode root = objectMapper.createObjectNode();
-        root.put("model", "deepseek-v4-flash");
-        root.put("temperature", 0.7);
-        root.put("max_tokens", 4096);
-        root.put("stream", false);
-
-        ObjectNode thinking = objectMapper.createObjectNode();
-        thinking.put("type", "disabled");
-        root.set("extra_body", objectMapper.createObjectNode().set("thinking", thinking));
-
-        var messages = root.putArray("messages");
-        for (var instruction : prompt.getInstructions()) {
-            ObjectNode msg = messages.addObject();
-
-            if (instruction.getMessageType() == MessageType.USER) {
-                msg.put("role", "user");
-                msg.put("content", instruction.getText());
-            } else if (instruction.getMessageType() == MessageType.SYSTEM) {
-                msg.put("role", "system");
-                msg.put("content", instruction.getText());
-            } else if (instruction.getMessageType() == MessageType.ASSISTANT) {
-                AssistantMessage assistantMsg = (AssistantMessage) instruction;
-                msg.put("role", "assistant");
-                msg.put("content", assistantMsg.getText() != null ? assistantMsg.getText() : "");
-
-                if (!assistantMsg.getToolCalls().isEmpty()) {
-                    var toolCalls = msg.putArray("tool_calls");
-                    for (var tc : assistantMsg.getToolCalls()) {
-                        ObjectNode tcNode = toolCalls.addObject();
-                        tcNode.put("id", tc.id());
-                        tcNode.put("type", "function");
-                        ObjectNode func = tcNode.putObject("function");
-                        func.put("name", tc.name());
-                        func.put("arguments", tc.arguments());
+    private ArrayNode buildMessages(Prompt prompt) {
+        var om = apiClient.getObjectMapper();
+        var msgs = om.createArrayNode();
+        for (var inst : prompt.getInstructions()) {
+            var msg = msgs.addObject();
+            if (inst.getMessageType() == MessageType.USER) msg.put("role", "user").put("content", inst.getText());
+            else if (inst.getMessageType() == MessageType.SYSTEM) msg.put("role", "system").put("content", inst.getText());
+            else if (inst.getMessageType() == MessageType.ASSISTANT) {
+                AssistantMessage am = (AssistantMessage) inst;
+                msg.put("role", "assistant").put("content", am.getText() != null ? am.getText() : "");
+                if (!am.getToolCalls().isEmpty()) {
+                    var tools = msg.putArray("tool_calls");
+                    for (var tc : am.getToolCalls()) {
+                        var t = tools.addObject();
+                        t.put("id", tc.id()).put("type", "function");
+                        t.putObject("function").put("name", tc.name()).put("arguments", tc.arguments());
                     }
                 }
-            } else if (instruction.getMessageType() == MessageType.TOOL) {
-                ToolResponseMessage toolMsg = (ToolResponseMessage) instruction;
-                for (var response : toolMsg.getResponses()) {
-                    ObjectNode toolResult = messages.addObject();
-                    toolResult.put("role", "tool");
-                    toolResult.put("tool_call_id", response.id());
-                    toolResult.put("content", response.responseData());
-                }
+            } else if (inst.getMessageType() == MessageType.TOOL) {
+                for (var r : ((ToolResponseMessage) inst).getResponses())
+                    msgs.addObject().put("role", "tool").put("tool_call_id", r.id()).put("content", r.responseData());
             }
         }
-
-        return objectMapper.writeValueAsString(root);
+        return msgs;
     }
 
-    private ChatResponse parseResponse(String responseBody) throws Exception {
-        JsonNode root = objectMapper.readTree(responseBody);
+    private ChatResponse parseResponse(String body) throws Exception {
+        JsonNode root = apiClient.parseResponse(body);
         JsonNode choices = root.get("choices");
-
-        if (choices == null || !choices.isArray() || choices.isEmpty()) {
-            return new ChatResponse(List.of());
+        if (choices == null || !choices.isArray() || choices.isEmpty()) return new ChatResponse(List.of());
+        List<Generation> gens = new ArrayList<>();
+        for (JsonNode c : choices) {
+            JsonNode m = c.get("message");
+            if (m == null) continue;
+            String content = m.has("content") && !m.get("content").isNull() ? m.get("content").asText() : "";
+            List<AssistantMessage.ToolCall> tcs = new ArrayList<>();
+            JsonNode tcN = m.get("tool_calls");
+            if (tcN != null && tcN.isArray()) for (JsonNode tc : tcN)
+                tcs.add(new AssistantMessage.ToolCall(tc.get("id").asText(), tc.get("type").asText(),
+                        tc.at("/function/name").asText(), tc.at("/function/arguments").asText()));
+            var b = AssistantMessage.builder().content(content);
+            if (!tcs.isEmpty()) b.toolCalls(tcs);
+            gens.add(new Generation(b.build()));
         }
-
-        List<Generation> generations = new ArrayList<>();
-        for (JsonNode choice : choices) {
-            JsonNode message = choice.get("message");
-            if (message == null) continue;
-
-            String content = message.has("content") && !message.get("content").isNull()
-                    ? message.get("content").asText() : "";
-
-            List<AssistantMessage.ToolCall> toolCalls = new ArrayList<>();
-            JsonNode toolCallsNode = message.get("tool_calls");
-            if (toolCallsNode != null && toolCallsNode.isArray()) {
-                for (JsonNode tc : toolCallsNode) {
-                    String id = tc.get("id").asText();
-                    String type = tc.get("type").asText();
-                    String name = tc.at("/function/name").asText();
-                    String arguments = tc.at("/function/arguments").asText();
-                    toolCalls.add(new AssistantMessage.ToolCall(id, type, name, arguments));
-                }
-            }
-
-            var msgBuilder = AssistantMessage.builder()
-                    .content(content);
-            if (!toolCalls.isEmpty()) {
-                msgBuilder.toolCalls(toolCalls);
-            }
-            Generation generation = new Generation(msgBuilder.build());
-            generations.add(generation);
-        }
-
-        return new ChatResponse(generations);
+        return new ChatResponse(gens);
     }
-
-    @Override
-    public org.springframework.ai.chat.prompt.ChatOptions getDefaultOptions() {
-        return null;
-    }
+    @Override public org.springframework.ai.chat.prompt.ChatOptions getDefaultOptions() { return null; }
 }
