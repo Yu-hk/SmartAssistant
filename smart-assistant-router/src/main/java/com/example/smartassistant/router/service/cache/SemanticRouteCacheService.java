@@ -51,6 +51,8 @@ public class SemanticRouteCacheService {
     private final ObjectMapper objectMapper;
     private final ChineseTokenizer tokenizer;
     private final ReplyFormatter replyFormatter;
+    private final TfEmbeddingService tfEmbedding;
+    private final VectorCacheStore vectorCache;
 
     @Value("${router.semantic-cache.enabled:true}")
     private boolean cacheEnabled;
@@ -59,43 +61,52 @@ public class SemanticRouteCacheService {
             ChatClient.Builder chatClientBuilder,
             StringRedisTemplate redisTemplate,
             ChineseTokenizer tokenizer,
-            AgentDiscoveryService agentDiscoveryService) {
+            AgentDiscoveryService agentDiscoveryService,
+            TfEmbeddingService tfEmbedding,
+            VectorCacheStore vectorCache) {
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.tokenizer = tokenizer;
         this.replyFormatter = new ReplyFormatter(chatClient, agentDiscoveryService);
+        this.tfEmbedding = tfEmbedding;
+        this.vectorCache = vectorCache;
     }
 
     /**
-     * 获取缓存决策：四层匹配
+     * 获取缓存决策：五层匹配
      * <p>
      * Tier 1: 精确匹配（MD5 快速路径）— 完全相同的字符串
      * Tier 2: 关键词哈希匹配（分词 → 取关键名词 → MD5）— 跳过 LLM
-     * Tier 3: 语义匹配（LLM 生成意图标签）— 兜底方案
-     * Tier 4: 前缀匹配（前 8 字符）— 部分命中
+     * Tier 3: 本地 BGE 向量匹配（BGE-small-zh ONNX）— ~70ms，无需外部 API
+     * Tier 4: 语义匹配（LLM 生成意图标签）— 兜底方案
+     * Tier 5: 前缀匹配（前 8 字符）— 部分命中
      */
     public CachedRouteDecision getCachedDecision(String question) {
         if (!cacheEnabled || redisTemplate == null || question == null || question.isBlank()) {
             return null;
         }
         try {
-            // Tier 1: 精确匹配快速路径（跳过 LLM）
+            // Tier 1: 精确匹配
             CachedRouteDecision exact = getByExactQuestion(question);
             if (exact != null) return exact;
 
-            // Tier 2: ⭐ 关键词哈希匹配（分词 → 排序 → MD5，无需 LLM）
+            // Tier 2: 关键词哈希匹配
             CachedRouteDecision keyword = getByKeywordHash(question);
             if (keyword != null) return keyword;
 
-            // Tier 3: 语义匹配（LLM 生成意图标签）
+            // Tier 3: ⭐ 本地 BGE 向量匹配（~70ms，零外部依赖）
+            CachedRouteDecision vector = getByVectorMatch(question);
+            if (vector != null) return vector;
+
+            // Tier 4: 语义匹配（LLM 生成意图标签）
             String intentTag = generateIntentTag(question);
             if (intentTag != null) {
                 CachedRouteDecision semantic = getByIntentTag(intentTag);
                 if (semantic != null) return semantic;
             }
 
-            // Tier 4: ⭐ 前缀匹配：前半段命中缓存（需验证意图一致）
+            // Tier 5: 前缀匹配
             if (intentTag != null) {
                 CachedRouteDecision prefixMatch = getByPrefixWithTag(question, intentTag);
                 if (prefixMatch != null) return prefixMatch;
@@ -105,6 +116,43 @@ public class SemanticRouteCacheService {
             log.warn("[SemanticCache] 读取缓存失败: {}", e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Tier 3: 本地 BGE 向量匹配
+     * <p>
+     * 将问题向量化后，在 VectorCacheStore 中查找余弦相似度最高的缓存问题。
+     * 相似度 ≥ 0.85 时视为语义匹配，返回对应缓存决策。
+     * 无需外部 API，无需 LLM 调用。
+     */
+    private CachedRouteDecision getByVectorMatch(String question) {
+        try {
+            float[] queryVec = tfEmbedding.embed(question);
+            if (queryVec == null) return null;
+
+            var bestMatch = vectorCache.findBestMatch(queryVec);
+            if (bestMatch == null) {
+                log.debug("[SemanticCache] 向量匹配未命中: question={}", question);
+                return null;
+            }
+
+            String matchedQuestion = bestMatch.getKey();
+            double score = bestMatch.getValue();
+            log.info("[SemanticCache] ✅ 向量缓存命中: question={}, matched={}, score={}",
+                    question, matchedQuestion, String.format("%.4f", score));
+
+            // 通过精确 key 获取缓存决策
+            String exactKey = EXACT_KEY_PREFIX + md5(matchedQuestion);
+            String intentTag = redisTemplate.opsForValue().get(exactKey);
+            if (intentTag == null) {
+                log.debug("[SemanticCache] 向量命中但精确 key 不存在: {}", matchedQuestion);
+                return null;
+            }
+            return getByIntentTag(intentTag);
+        } catch (Exception e) {
+            log.warn("[SemanticCache] 向量匹配异常: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -346,6 +394,9 @@ public class SemanticRouteCacheService {
             // ⭐ 保存关键词哈希映射（分词 → 排序 → MD5，使同类问题共享缓存）
             saveKeywordHash(question, intentTag);
 
+            // ⭐ 保存向量缓存（本地 BGE 嵌入，用于 T3 语义匹配）
+            saveVectorCache(question);
+
             // ⭐ 记录用户意图分布（写入 Redis Hash: user:intent:{userId}）
             if (userId != null) {
                 saveUserIntent(userId, intentTag);
@@ -387,6 +438,19 @@ public class SemanticRouteCacheService {
             log.debug("[SemanticCache] 精确匹配覆盖: rawQuestion={}, intent={}", rawQuestion, intentTag);
         } catch (Exception e) {
             log.warn("[SemanticCache] 保存精确匹配失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * ⭐ 保存向量缓存（本地 BGE 嵌入）
+     */
+    private void saveVectorCache(String question) {
+        if (question == null || question.isBlank()) return;
+        try {
+            float[] vec = tfEmbedding.embed(question);
+            if (vec != null) vectorCache.put(question, vec);
+        } catch (Exception e) {
+            log.debug("[SemanticCache] 保存向量缓存失败: {}", e.getMessage());
         }
     }
 
