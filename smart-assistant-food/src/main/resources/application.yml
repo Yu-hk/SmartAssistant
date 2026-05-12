@@ -34,6 +34,7 @@ spring:
           agent-type: food_recommendation
           capabilities: cuisine_query,restaurant_recommendation,nearby_search
           keywords: 美食,餐厅,菜系,特色菜,吃什么,附近美食,推荐餐厅
+          cache-ttl-seconds: "43200"    # ⭐ 回复缓存 TTL（秒），美食类 12h
           # ⭐ 版本管理
           version: "1.0.0"
           protocol-version: "v1"
@@ -89,6 +90,7 @@ spring:
               cuisine-types: 川菜,粤菜,鲁菜,苏菜,浙菜,闽菜,湘菜,徽菜,火锅,烧烤,日料,韩餐,西餐
               support-location: true
               priority: 10
+              cache-ttl-seconds: "43200"    # ⭐ 回复缓存 TTL（秒）
               # ⭐ 版本管理
               version: "1.0.0"
               protocol-version: "v1"

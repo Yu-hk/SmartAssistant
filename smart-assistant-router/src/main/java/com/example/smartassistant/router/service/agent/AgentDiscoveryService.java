@@ -395,6 +395,16 @@ public class AgentDiscoveryService {
         metadata.setProtocolVersion(nacosMetadata.getOrDefault("protocol-version", "v1"));
         metadata.setMinClientVersion(nacosMetadata.getOrDefault("min-client-version", "1.0.0"));
         metadata.setSupportedProtocols(nacosMetadata.getOrDefault("supported-protocols", "a2a-v1"));
+
+        // ⭐ 读取 Agent 声明的回复缓存 TTL
+        String ttlStr = nacosMetadata.get("cache-ttl-seconds");
+        if (ttlStr != null) {
+            try {
+                metadata.setCacheTtlSeconds(Long.parseLong(ttlStr));
+            } catch (NumberFormatException e) {
+                log.warn("[AgentDiscovery] 解析 cache-ttl-seconds 失败: {}", ttlStr);
+            }
+        }
         
         return metadata;
     }
@@ -404,6 +414,28 @@ public class AgentDiscoveryService {
      */
     public Collection<DiscoveredAgent> getCachedAgents() {
         return agentCache.values();
+    }
+
+    /**
+     * ⭐ 获取 Agent 声明的回复缓存 TTL（秒）
+     * <p>
+     * 由各 Agent 在 application.yml 的 metadata 中通过 cache-ttl-seconds 声明。
+     * Router 直接读取，无需硬编码各 Agent 的时效性逻辑。
+     *
+     * @param agentName Agent 名称（如 location_weather, food_recommendation）
+     * @return TTL（秒），null 表示未设置（使用 Router 默认值）
+     */
+    public Long getAgentTtl(String agentName) {
+        if (agentName == null) return null;
+        for (DiscoveredAgent agent : agentCache.values()) {
+            if (agent.getAgentName() != null && agent.getAgentName().equals(agentName)) {
+                AgentMetadata meta = agent.getMetadata();
+                if (meta != null) {
+                    return meta.getCacheTtlSeconds();
+                }
+            }
+        }
+        return null;
     }
 
     /**

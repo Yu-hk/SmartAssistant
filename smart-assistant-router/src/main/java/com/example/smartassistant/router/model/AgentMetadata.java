@@ -76,6 +76,13 @@ public class AgentMetadata {
     private String minClientVersion = "1.0.0";
     
     /**
+     * 回复缓存 TTL（秒）
+     * 由各 Agent 在 metadata 中声明，Router 直接读取。
+     * 为 null 时使用 Router 默认值（3600s）。
+     */
+    private Long cacheTtlSeconds;
+
+    /**
      * 支持的协议列表 (逗号分隔)
      * 例如: a2a-v1,a2a-v2
      */
