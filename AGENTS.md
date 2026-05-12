@@ -1,12 +1,36 @@
-# 项目启动方式
+# SmartAssistant 快速参考
 
-## 一键启动（推荐）
-
-使用 `start-all.ps1` 脚本一键后台启动所有服务：
+## 一键启动
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File D:\workspace\SmartAssistant\start-all.ps1
+powershell -ExecutionPolicy Bypass -File start-all.ps1
 ```
+
+## 服务端口
+
+| 服务 | 端口 |
+|------|------|
+| API Gateway | 8081 |
+| Consumer | 8082 |
+| Router | 8083 |
+| Food | 8084 |
+| Travel | 8085 |
+| User | 8086 |
+| General | 8087 |
+| Frontend | 3001 |
+
+## 查看日志
+
+```powershell
+# 应用日志（推荐，含纯净 Spring Boot 输出）
+type logs\router-service.log -Tail 50
+type logs\travel-service.log -Tail 50
+
+# 标准输出日志（含启动横幅）
+type logs\Router-stdout.log -Tail 30
+```
+
+完整文档参见 [README.md](README.md)。
 
 ## Maven 仓库
 
