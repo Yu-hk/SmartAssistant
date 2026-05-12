@@ -554,6 +554,24 @@ smart-assistant-travel/.../service/
 └── monitoring/    TravelMetricsCollector
 ```
 
+### 查看日志
+
+所有服务的日志统一输出到 `logs/` 目录，格式为 `{spring.application.name}.log`：
+
+```powershell
+# 应用日志（纯净 Spring Boot 输出，推荐优先查看）
+type logs\router-service.log -Tail 50
+type logs\travel-service.log -Tail 50
+type logs\food-service.log -Tail 50
+type logs\consumer-service.log -Tail 50
+type logs\api-gateway.log -Tail 50
+type logs\user-service.log -Tail 50
+
+# 标准输出日志（含启动横幅等）
+type logs\Router-stdout.log -Tail 30
+type logs\Travel-stdout.log -Tail 30
+```
+
 ### ⚠️ 密码配置强制要求（2026-05-11）
 
 从 v1.0 起，以下密码不再有默认值，**必须通过环境变量设置**，未设置时服务启动即报错：
@@ -638,13 +656,7 @@ data/
 
 各 Agent 的 system prompt 强制要求：回答事实性问题前先调用 `queryCorrections(topic)` 工具，有匹配修正时以修正信息为准。
 
-所有服务的日志统一输出到 `logs/` 目录，格式为 `{spring.application.name}.log`：
 
-```powershell
-# 查看特定服务的日志
-type logs\router-service.log -Tail 50
-type logs\travel-service.log -Tail 50
-```
 
 ---
 
