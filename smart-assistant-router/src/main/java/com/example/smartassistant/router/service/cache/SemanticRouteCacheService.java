@@ -36,7 +36,7 @@ public class SemanticRouteCacheService {
     private static final String CACHE_KEY_PREFIX = "a2a:route:semantic:";
     private static final String REPLY_KEY_PREFIX = "a2a:route:reply:";
     private static final String EXACT_KEY_PREFIX = "a2a:route:exact:";
-    private static final String PREFIX_KEY_PREFIX = "a2a:route:prefix:";
+
     private static final String KEYWORD_KEY_PREFIX = "a2a:route:keyword:";
     private static final String KEYWORD_REPLY_KEY_PREFIX = "a2a:route:keyword:reply:";  // ⭐ 关键词级别回复缓存
     private static final String DECISION_AUDIT_KEY_PREFIX = "a2a:route:decision:";
@@ -74,12 +74,11 @@ public class SemanticRouteCacheService {
     }
 
     /**
-     * 获取缓存决策：四层匹配
+     * 获取缓存决策：三层匹配
      * <p>
-     * Tier 1: 精确匹配（MD5 快速路径）— 完全相同的字符串
-     * Tier 2: 关键词哈希匹配（分词 → 关键词 → MD5）— 无需 LLM
-     * Tier 3: TF 向量匹配（余弦相似度 ≥0.85）— 本地内存，零外部依赖
-     * Tier 4: 前缀匹配（前 8 字符）— 部分命中
+     * Tier 1: 精确匹配（MD5 快速路径）
+     * Tier 2: 关键词哈希匹配（分词 → MD5）
+     * Tier 3: TF 向量匹配（余弦相似度 ≥0.70，覆盖前缀扩展场景）
      */
     public CachedRouteDecision getCachedDecision(String question) {
         if (!cacheEnabled || redisTemplate == null || question == null || question.isBlank()) {
@@ -94,16 +93,9 @@ public class SemanticRouteCacheService {
             CachedRouteDecision keyword = getByKeywordHash(question);
             if (keyword != null) return keyword;
 
-            // Tier 3: ⭐ TF 向量匹配（余弦相似度，本地内存）
+            // Tier 3: ⭐ TF 向量匹配（余弦相似度 ≥0.70，覆盖前缀扩展场景）
             CachedRouteDecision vector = getByVectorMatch(question);
             if (vector != null) return vector;
-
-            // Tier 4: 前缀匹配
-            String intentTag = generateIntentTag(question);
-            if (intentTag != null) {
-                CachedRouteDecision prefixMatch = getByPrefixWithTag(question, intentTag);
-                if (prefixMatch != null) return prefixMatch;
-            }
 
         } catch (Exception e) {
             log.warn("[SemanticCache] 读取缓存失败: {}", e.getMessage());
@@ -294,40 +286,6 @@ public class SemanticRouteCacheService {
     }
 
     /*
-      ⭐ 前缀匹配：用户提问的前半段是否命中缓存
-     */
-    /**
-     * ⭐ 前缀匹配：前半段命中缓存
-     * <p>
-     * 即使后半段意图不同，也返回缓存回复 + 过渡建议。
-     * 例如用户问"北京天气的美食推荐"，缓存有"北京天气"的回复，
-     * 则返回天气信息 + "说到美食，你想了解北京的什么美食呢？"
-     */
-    private CachedRouteDecision getByPrefixWithTag(String question, String userIntentTag) {
-        if (question == null || question.length() < 4) return null;
-        try {
-            String prefix = question.substring(0, Math.min(8, question.length()));
-            String prefixKey = PREFIX_KEY_PREFIX + md5(prefix);
-            String cachedTag = redisTemplate.opsForValue().get(prefixKey);
-            if (cachedTag == null) return null;
-
-            CachedRouteDecision decision = getByIntentTag(cachedTag);
-            if (decision != null && decision.originalQuestion != null
-                    && question.startsWith(decision.originalQuestion)) {
-                decision._isPrefixMatch = true;
-                // 标记意图是否一致
-                decision._intentMismatch = userIntentTag != null && !userIntentTag.equals(cachedTag);
-                log.info("[SemanticCache] 🔍 前缀匹配命中: prefix={}, cachedQ={}, intentMatch={}",
-                        prefix, decision.originalQuestion, !decision._intentMismatch);
-                return decision;
-            }
-        } catch (Exception e) {
-            log.debug("[SemanticCache] 前缀匹配异常: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    /*
       保存路由决策（不含回复内容）+ 写入决策审计日志
       @param requestId  请求ID（用于审计日志，可为 null）
      * @param question   用户问题
@@ -378,11 +336,6 @@ public class SemanticRouteCacheService {
             // 注意：精确映射也会在 saveExactMatch 中重新覆盖为原始问题，此处保留全 Prompt 用于审计追溯
             String exactKey = EXACT_KEY_PREFIX + md5(question);
             redisTemplate.opsForValue().set(exactKey, intentTag, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
-
-            // 保存前缀映射（前 8 个字符 → intentTag）
-            String prefix = question.substring(0, Math.min(8, question.length()));
-            String prefixKey = PREFIX_KEY_PREFIX + md5(prefix);
-            redisTemplate.opsForValue().set(prefixKey, intentTag, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
 
             // ⭐ 保存关键词哈希映射（分词 → 排序 → MD5，使同类问题共享缓存）
             saveKeywordHash(question, intentTag);
