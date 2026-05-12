@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.service.cache;
 
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +53,7 @@ public class SemanticRouteCacheService {
     private final ObjectMapper objectMapper;
     private final Random random = new Random();
     private final ChineseTokenizer tokenizer;
+    private final AgentDiscoveryService agentDiscoveryService;
 
     @Value("${router.semantic-cache.enabled:true}")
     private boolean cacheEnabled;
@@ -59,11 +61,13 @@ public class SemanticRouteCacheService {
     public SemanticRouteCacheService(
             ChatClient.Builder chatClientBuilder,
             StringRedisTemplate redisTemplate,
-            ChineseTokenizer tokenizer) {
+            ChineseTokenizer tokenizer,
+            AgentDiscoveryService agentDiscoveryService) {
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.tokenizer = tokenizer;
+        this.agentDiscoveryService = agentDiscoveryService;
     }
 
     /**
@@ -677,53 +681,34 @@ public class SemanticRouteCacheService {
         }
     }
 
-    /**
-     * Phase 3: 动态 TTL（天气类短，美食/旅行类长）
+    /*
+      Phase 3: 动态 TTL（天气类短，美食/旅行类长）
      */
     /**
-     * Phase 3: 动态 TTL（按 Agent 类型 + 问题类型）
+     * Phase 3: 动态 TTL（优先读取 Agent 声明的缓存时间）
      * <p>
-     * 同一 Agent 内不同查询类型时效性不同：
-     * - 天气查询 → 短 TTL（20min）
-     * - 景点/推荐类 → 较长 TTL（12h）
-     * - 美食推荐 → 中 TTL（12h）
-     * - 通用闲聊 → 长 TTL（2h）
-     * - 今天/今日 → 比同类型更短
+     * 各 Agent 在 application.yml 的 metadata 中通过 {@code cache-ttl-seconds} 声明自己的回复缓存 TTL。
+     * Router 直接读取，无需硬编码各 Agent 的时效性逻辑。
+     * 如 Agent 未声明，则使用以下默认值：
+     * - builtin_fallback → 2h
+     * - 其他 → 1h
      */
     private long getTtlForReply(String agentName, String originalQuestion) {
+        // 优先读取 Agent 声明的 TTL
+        if (agentName != null && agentDiscoveryService != null) {
+            Long agentTtl = agentDiscoveryService.getAgentTtl(agentName);
+            if (agentTtl != null && agentTtl > 0) {
+                return agentTtl;
+            }
+        }
+
+        // 兜底默认值
         if (agentName == null) return 3600;
         String lower = agentName.toLowerCase();
-
-        // Weather / location — 强时效性
-        if (lower.contains("weather") || lower.contains("location") || lower.contains("天气")) {
-            if (originalQuestion != null && !originalQuestion.isBlank()) {
-                // 非天气类查询（景点、推荐、去哪等）→ 较长 TTL
-                if (originalQuestion.contains("景点") || originalQuestion.contains("推荐")
-                        || originalQuestion.contains("好玩") || originalQuestion.contains("去哪")
-                        || originalQuestion.contains("哪里") || originalQuestion.contains("附近")) {
-                    return 43200; // 12h
-                }
-            }
-            return 1200; // 20min
+        if (lower.contains("builtin") || lower.contains("fallback")) {
+            return 7200;
         }
-
-        // Food / restaurant — 中等时效性
-        if (lower.contains("food") || lower.contains("美食")) {
-            if (originalQuestion != null && !originalQuestion.isBlank()) {
-                // 今日推荐 → 更短 TTL
-                if (originalQuestion.contains("今天") || originalQuestion.contains("今日")) {
-                    return 7200; // 2h
-                }
-            }
-            return 43200; // 12h
-        }
-
-        // General chat — 弱时效性
-        if (lower.contains("general") || lower.contains("chat") || lower.contains("builtin") || lower.contains("fallback")) {
-            return 7200; // 2h
-        }
-
-        return 3600; // 默认 1h
+        return 3600;
     }
 
     /**
@@ -771,8 +756,6 @@ public class SemanticRouteCacheService {
         public transient boolean _isPrefixMatch;
         public transient boolean _intentMismatch;
 
-        public CachedRouteDecision() {}  // ⭐ Jackson 反序列化需要无参构造
-
         public CachedRouteDecision(String intentTag, String agentName, double confidence, String originalQuestion) {
             this.intentTag = intentTag;
             this.agentName = agentName;
@@ -790,8 +773,6 @@ public class SemanticRouteCacheService {
         public String originalQuestion;
         public long firstCachedAt;
         public int hitCount;
-
-        public CachedReply() {}
 
         public CachedReply(String reply, String agentName, String originalQuestion) {
             this.reply = reply;
