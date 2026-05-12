@@ -777,6 +777,8 @@ public class SemanticRouteCacheService {
         public transient boolean _isPrefixMatch;
         public transient boolean _intentMismatch;
 
+        public CachedRouteDecision() {}  // ⭐ Jackson 反序列化需要无参构造
+
         public CachedRouteDecision(String intentTag, String agentName, double confidence, String originalQuestion) {
             this.intentTag = intentTag;
             this.agentName = agentName;
