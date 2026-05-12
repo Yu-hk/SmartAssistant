@@ -408,7 +408,9 @@ public class StreamChatController {
         } finally {
             // 清理资源
             if (inputStream != null) {
-                try { inputStream.close(); } catch (Exception ignored) {}
+                try { inputStream.close(); } catch (Exception e) {
+                    log.debug("[StreamChat] 关闭 inputStream 异常: {}", e.getMessage());
+                }
             }
             if (connection != null) {
                 connection.disconnect();
