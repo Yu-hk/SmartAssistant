@@ -63,6 +63,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🌐 **前端** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
 
 | 🧩 **Service 层分类** | Router/Food/Travel 的 service 类按功能子包组织（core/agent/cache/rag/data 等） |
+| 📝 **提示词外部化** | Travel/Food/General Agent 系统提示词独立为 `.txt` 文件，修改无需重新编译 |
 | 🏷️ **工具调用信号** | Agent 真实检测工具调用（扫描 ToolResponseMessage），替代意图标签猜测 |
 | 🔐 **密码默认值清零** | 所有服务 PostgreSQL/Redis/Nacos 密码默认值移除，未配置时启动即报错 |
 | 🚦 **搜索级联降级** | DuckDuckGo → tenapi → Bing 三级搜索降级，无需 API Key |
@@ -520,11 +521,28 @@ spring:
 smart-assistant-{service}/src/main/resources/
 ├── application.yml           # 服务配置
 ├── logback-spring.xml        # 日志配置
+├── prompts/                  # 系统提示词（外部化，改提示词无需重新编译）
+│   ├── travel-system-prompt.txt
+│   ├── food-system-prompt.txt
+│   └── general-system-prompt.txt
 └── config/
     └── mcp-table-whitelist.yml  # MCP 表访问白名单
 ```
 
-### Service 包结构（2026-05-11 重组）
+### 系统提示词外部化
+
+各 Agent 服务的系统提示词已从 Java 代码中提取到独立的资源文件，修改无需重新编译：
+
+```
+smart-assistant-{service}/src/main/resources/prompts/
+├── travel-system-prompt.txt    # 出行规划助手
+├── food-system-prompt.txt      # 美食推荐助手
+└── general-system-prompt.txt   # 通用对话助手
+```
+
+加载方式：`@Value("classpath:prompts/{service}-system-prompt.txt")`，IO 异常时自动降级为默认提示词，不影响服务启动。
+
+### Service 包结构
 
 ```
 smart-assistant-router/.../service/
@@ -917,11 +935,11 @@ Gateway   Consumer    Router     Travel / Food / User / General
 | gateway | 33 | JWT 工具、白名单过滤、Filter 认证、Filter 集成测试 |
 | user | 9 | JWT 服务 |
 | consumer | 25 | 对话叙事摘要、文档沉淀服务、DataGifTool、Chat 集成测试 |
-| router | 21 | Agent 调用消息清理、思考内容过滤、关键词提取 |
+| router | 29 | Agent 调用消息清理、思考内容过滤、关键词提取、语义缓存（4 层缓存 + 前缀个性化） |
 | food | 34 | 美食推荐、菜系知识、餐厅搜索 |
-| travel | 36 | 天气/景点工具、RAG 召回匹配、MCP 权限测试 |
+| travel | 43 | 天气/景点工具、智能行程规划、RAG 召回匹配、MCP 权限测试 |
 | general | 30 | 数学计算、温度/长度/重量/货币转换、边界条件 |
-| **总计** | **238** | **23 个测试文件，全模块覆盖** |
+| **总计** | **238+** | **26 个测试文件，全模块覆盖** |
 
 ---
 
