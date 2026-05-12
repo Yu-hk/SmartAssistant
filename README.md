@@ -51,7 +51,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 特性 | 说明 |
 |------|------|
 | 🧠 **A2A 多 Agent 协作** | 基于 Spring AI Alibaba A2A 协议，8 个微服务通过 Nacos 自动发现与注册，Router 统一分发 |
-| 🧠 **四层语义缓存** | 精确匹配 → 关键词哈希(分词→MD5) → LLM 语义标签 → 前缀匹配，动态 TTL 按 Agent+问题内容自适应 |
+| 🧠 **四层语义缓存** | 精确匹配 → 关键词哈希(分词→MD5) → TF 向量匹配(余弦相似度) → 前缀匹配，全部本地内存无需外部 API |
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + 多路召回(RRF融合)，覆盖出行/美食领域 |
 | 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
@@ -194,27 +194,26 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 
 ## 语义缓存
 
-系统在 Router 模块实现了四层语义缓存，显著降低 Agent 调用压力和 LLM 成本。
+系统在 Router 模块实现了四层语义缓存，全部本地执行无需外部 API 调用。
 
 ### 缓存架构
 
 ```
 getCachedDecision(question)
-├── Tier 1: 精确匹配 MD5(question)          → ~1ms    Redis 查询
-│   └── 命中后如果 reply 不存在，兜底检查 keyword reply
+├── Tier 1: 精确匹配 MD5(question)         → ~1ms    Redis GET
+│   └── 命中后如果 reply 不存在，兜底 keyword reply
 │
-├── Tier 2: 关键词哈希匹配(分词→排序→MD5)   → ~5ms    无需 LLM
-│   └── 使用 ChineseTokenizer(IKAnalyzer+HanLP) 提取关键词
+├── Tier 2: 关键词哈希(分词→排序→MD5)     → ~5ms    Redis GET（无需 LLM）
 │   └── "上海天气怎么样" 和 "上海天气如何" → 相同 hash
-│   └── 回复缓存首次执行后立即保存（无阈值限制）
+│   └── 回复缓存首次执行后立即保存
 │
-├── Tier 3: LLM 语义标签生成 + MD5(tag) 匹配 → 1-3s   LLM 兜底
-│   └── 仅同用户 + 不同表述时调用 LLM 改写回复
+├── Tier 3: TF 向量匹配(余弦相似度≥0.85)   → ~5ms    本地内存（零外部依赖）
+│   └── 基于 ChineseTokenizer 分词构建词频向量
+│   └── VectorCacheStore 内存索引，自适应词典
+│   └── 完全替代原 LLM 语义匹配（1-3s → 5ms）
 │
-└── Tier 4: 前缀匹配(前8字符)               → ~1ms    Redis 查询
+└── Tier 4: 前缀匹配(前8字符)              → ~1ms    Redis GET
 ```
-
-### 缓存写入时机
 
 | 缓存类型 | Key | 写入时机 | TTL |
 |---------|-----|---------|:---:|
@@ -250,8 +249,8 @@ getCachedDecision(question)
 |:----|:-------:|:---------:|
 | 冷启动（无缓存） | 5-18s | ✅ 执行 |
 | 路由缓存命中（Tier 1/2 无回复） | 3-15s | ✅ 执行 |
-| **全缓存命中（Tier 2 + 回复）** | **1-5ms** | **❌ 跳过** |
-| LLM 语义匹配命中（同用户改写） | 1-3s | ❌ 跳过 |
+| **全缓存命中（Tier 1/2/3 + 回复）** | **1-5ms** | **❌ 跳过** |
+| TF 向量匹配命中（Tier 3） | **5ms** | ❌ 跳过 |
 
 每意图仅需 **1-2 次 Agent 执行**（改前需 5 次），缓存命中时延迟从 5-18s 降至 **1-5ms**。
 
@@ -263,7 +262,7 @@ getCachedDecision(question)
 |------|------|------|
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
 | **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀；提供 `/api/data/query` 数据查询独立端点 |
-| **Router** | 8083 | 关键词路由，Agent 调度，**四层语义缓存**（精确→关键词→LLM→前缀，动态 TTL），Nacos 服务发现；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
+| **Router** | 8083 | 关键词路由，Agent 调度，**四层语义缓存**（精确→关键词→TF向量→前缀，全部本地），Nacos 服务发现；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
 | **Travel** | 8085 | 出行规划，地点查询，天气预报，景点信息（RAG）；`service/` 按 rag/data/infrastructure 子包组织 |
 | **Food** | 8084 | 美食推荐，菜系查询，附近餐厅搜索；`service/` 按 core/search/infrastructure 子包组织 |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
