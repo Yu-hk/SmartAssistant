@@ -104,11 +104,11 @@ public class SemanticRouteCacheService {
     }
 
     /**
-     * Tier 3: 本地 BGE 向量匹配
+     * Tier 3: TF 向量匹配
      * <p>
-     * 将问题向量化后，在 VectorCacheStore 中查找余弦相似度最高的缓存问题。
-     * 相似度 ≥ 0.85 时视为语义匹配，返回对应缓存决策。
-     * 无需外部 API，无需 LLM 调用。
+     * 余弦相似度 ≥ 0.70 时视为语义匹配。当匹配到的问题是用���当前问题的前缀扩展时
+     * （如缓存"北京天气"→用户问"北京天气的美食推荐"），标记前缀匹配标志，
+     * 使 ReplyFormatter 追加过渡建议而非直接返回。
      */
     private CachedRouteDecision getByVectorMatch(String question) {
         try {
@@ -133,7 +133,23 @@ public class SemanticRouteCacheService {
                 log.debug("[SemanticCache] 向量命中但精确 key 不存在: {}", matchedQuestion);
                 return null;
             }
-            return getByIntentTag(intentTag);
+
+            CachedRouteDecision decision = getByIntentTag(intentTag);
+            if (decision == null) return null;
+
+            // ⭐ 检测前缀扩展场景：用户问题以缓存问题开头
+            // 如缓存"北京天气"，用户问"北京天气的美食推荐"
+            if (matchedQuestion != null && question.startsWith(matchedQuestion)
+                    && question.length() > matchedQuestion.length()) {
+                decision._isPrefixMatch = true;
+                // 意图是否匹配取决于后半部分是否与缓存的 intentTag 一致
+                String remaining = question.substring(matchedQuestion.length()).trim();
+                decision._intentMismatch = remaining.length() > 2;
+                log.info("[SemanticCache] 🔀 向量命中含前缀扩展: base={}, extension={}, mismatch={}",
+                        matchedQuestion, remaining, decision._intentMismatch);
+            }
+
+            return decision;
         } catch (Exception e) {
             log.warn("[SemanticCache] 向量匹配异常: {}", e.getMessage());
             return null;
