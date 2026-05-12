@@ -130,7 +130,7 @@ public class RouterService {
                 log.info("[Router] ⚡ 语义缓存命中: intent={}, agent={}, hit={}", cached.intentTag, cached.agentName, cached.hitCount);
                 if (cached.reply != null && !cached.reply.isBlank()) {
                     // ⭐ 有缓存回复，直接返回（加变化前缀避免重复）
-                    String wrapped = semanticCache.wrapCachedReply(cached.reply, cached, request.getQuestion(), request.getUserId(), request.getSessionId());
+                    String wrapped = semanticCache.wrapCachedReply(cached.reply, cached, request.getQuestion(), request.getUserId());
                     result = RoutingResult.builder()
                             .result(wrapped)
                             .agentName(cached.agentName)
