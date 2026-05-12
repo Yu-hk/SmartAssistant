@@ -35,6 +35,7 @@ spring:
           agent-type: general_chat
           capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
           priority: 100  # 最低优先级，作为兜底；无 keywords 约束，仅通过 fallback 匹配
+          cache-ttl-seconds: "7200"    # ⭐ 回复缓存 TTL（秒），闲聊类 2h
           version: "1.0.0"
           protocol-version: "v1"
           min-client-version: "1.0.0"
@@ -73,6 +74,7 @@ spring:
               capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
               keywords: ""  # ⭐ 无 keywords 约束，纯 fallback 兜底
               priority: 100  # 最低优先级，作为兜底
+              cache-ttl-seconds: "7200"    # ⭐ 回复缓存 TTL（秒）
               version: "1.0.0"
               protocol-version: "v1"
               min-client-version: "1.0.0"
