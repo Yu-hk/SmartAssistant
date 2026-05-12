@@ -66,6 +66,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🏷️ **工具调用信号** | Agent 真实检测工具调用（扫描 ToolResponseMessage），替代意图标签猜测 |
 | 🔐 **密码默认值清零** | 所有服务 PostgreSQL/Redis/Nacos 密码默认值移除，未配置时启动即报错 |
 | 🚦 **搜索级联降级** | DuckDuckGo → tenapi → Bing 三级搜索降级，无需 API Key |
+| 🧠 **四层语义缓存** | 精确匹配 → 关键词哈希匹配(分词→MD5) → LLM 语义标签 → 前缀匹配；回复缓存按 Agent 类型+问题内容动态 TTL（天气20min/景点12h/美食12h） |
 | 🐳 **Docker 容器化部署** | Dockerfile + docker-compose.deploy.yml，7 个服务一键容器化构建部署 |
 | 🔧 **Maven Wrapper** | `mvnw` 自动分发 Maven 3.9.6，无需本地安装，构建环境统一 |
 | 🚦 **优雅关闭** | 所有服务配置 `server.shutdown: graceful`，确保处理中请求完成再退出 |
@@ -209,13 +210,78 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 
 ---
 
+## 语义缓存
+
+系统在 Router 模块实现了四层语义缓存，显著降低 Agent 调用压力和 LLM 成本。
+
+### 缓存架构
+
+```
+getCachedDecision(question)
+├── Tier 1: 精确匹配 MD5(question)          → ~1ms    Redis 查询
+│   └── 命中后如果 reply 不存在，兜底检查 keyword reply
+│
+├── Tier 2: 关键词哈希匹配(分词→排序→MD5)   → ~5ms    无需 LLM
+│   └── 使用 ChineseTokenizer(IKAnalyzer+HanLP) 提取关键词
+│   └── "上海天气怎么样" 和 "上海天气如何" → 相同 hash
+│   └── 回复缓存首次执行后立即保存（无阈值限制）
+│
+├── Tier 3: LLM 语义标签生成 + MD5(tag) 匹配 → 1-3s   LLM 兜底
+│   └── 仅同用户 + 不同表述时调用 LLM 改写回复
+│
+└── Tier 4: 前缀匹配(前8字符)               → ~1ms    Redis 查询
+```
+
+### 缓存写入时机
+
+| 缓存类型 | Key | 写入时机 | TTL |
+|---------|-----|---------|:---:|
+| 路由决策 | `a2a:route:semantic:{md5(intentTag)}` | 每次路由后 | 24h |
+| 精确映射 | `a2a:route:exact:{md5(question)}` | 每次路由后 | 24h |
+| 关键词路由 | `a2a:route:keyword:{md5(keywords)}` | 每次路由后 | 24h |
+| **关键词回复** | `a2a:route:keyword:reply:{md5(keywords)}` | **每次 Agent 执行后立即** | 动态 |
+| 意图回复 | `a2a:route:reply:{md5(intentTag)}` | 被问到 ≥2 次后 | 动态 |
+
+### 动态 TTL（按 Agent 类型 + 问题内容）
+
+| Agent | 场景 | TTL | 说明 |
+|:-----|------|:---:|------|
+| location_weather | 纯天气查询 | **20min** | 气温/降水实时更新 |
+| location_weather | 景点/推荐/去哪 | **12h** | 景区信息几乎不变 |
+| food_recommendation | 今日推荐 | **2h** | 每日特价更新 |
+| food_recommendation | 一般美食查询 | **12h** | 餐厅信息稳定 |
+| general_chat / builtin | 闲聊/问答 | **2h** | 事实性回答稳定 |
+
+### 回复前缀个性化
+
+根据提问者是否为同一用户，自动选择不同前缀：
+
+| hitCount | 同用户 | 不同用户 |
+|:--------:|--------|----------|
+| == 2 | `再帮你查一次，结果和之前一样～` | `查询结果如下：` |
+| ≥ 3 | `（以下是我之前查到的信息）` | `（以下是根据历史查询获取的信息）` |
+| > 6h | `📅 根据6小时前查询的信息` | `📅 以下信息来源于6小时前的数据` |
+
+### 性能效果
+
+| 场景 | 典型耗时 | Agent 调用 |
+|:----|:-------:|:---------:|
+| 冷启动（无缓存） | 5-18s | ✅ 执行 |
+| 路由缓存命中（Tier 1/2 无回复） | 3-15s | ✅ 执行 |
+| **全缓存命中（Tier 2 + 回复）** | **1-5ms** | **❌ 跳过** |
+| LLM 语义匹配命中（同用户改写） | 1-3s | ❌ 跳过 |
+
+每意图仅需 **1-2 次 Agent 执行**（改前需 5 次），缓存命中时延迟从 5-18s 降至 **1-5ms**。
+
+---
+
 ## 服务说明
 
 | 服务 | 端口 | 职责 |
 |------|------|------|
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
 | **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀；提供 `/api/data/query` 数据查询独立端点 |
-| **Router** | 8083 | 关键词路由，Agent 调度，语义缓存，Nacos 服务发现；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
+| **Router** | 8083 | 关键词路由，Agent 调度，**四层语义缓存**（精确→关键词→LLM→前缀，动态 TTL），Nacos 服务发现；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
 | **Travel** | 8085 | 出行规划，地点查询，天气预报，景点信息（RAG）；`service/` 按 rag/data/infrastructure 子包组织 |
 | **Food** | 8084 | 美食推荐，菜系查询，附近餐厅搜索；`service/` 按 core/search/infrastructure 子包组织 |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |

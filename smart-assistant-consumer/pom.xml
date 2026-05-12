@@ -208,6 +208,19 @@
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
+        <!-- ⭐ IKAnalyzer 中文分词器（common 中为 optional，需显式引入） -->
+        <dependency>
+            <groupId>com.github.magese</groupId>
+            <artifactId>ik-analyzer</artifactId>
+        </dependency>
+
+        <!-- ⭐ HanLP 中文自然语言处理（common 中为 transitive，显式引入避免打包遗漏） -->
+        <dependency>
+            <groupId>com.hankcs</groupId>
+            <artifactId>hanlp</artifactId>
+            <version>portable-1.8.4</version>
+        </dependency>
+
         <!-- XChart: 轻量级 Java 图表渲染库 -->
         <dependency>
             <groupId>org.knowm.xchart</groupId>
