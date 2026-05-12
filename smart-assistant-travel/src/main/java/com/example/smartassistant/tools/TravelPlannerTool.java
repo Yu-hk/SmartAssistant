@@ -143,35 +143,12 @@ public class TravelPlannerTool {
         }
             
         // 为每个活动类型搜索具体场所并生成推荐
-        appendActivityRecommendations(recommendation, recommendedActivities, city, latitude, longitude);
+        appendActivityRecommendations(recommendation, recommendedActivities, latitude, longitude);
             
         long endTime = System.currentTimeMillis();
         log.info("[TravelPlanner] 总耗时: {} ms", endTime - startTime);
             
         return recommendation.toString();
-    }
-
-    /**
-     * 生成晴朗天气的推荐
-     */
-    private String generateSunnyRecommendations(WeatherCondition condition, String city) {
-        StringBuilder rec = new StringBuilder();
-        
-        // 天气描述
-        rec.append("天气：晴，温度：").append(condition.temperature).append("°C\n");
-        
-        // 衣物建议
-        rec.append("衣物：").append(getClothingAdvice(condition.temperature)).append("\n");
-        
-        // 推荐户外活动
-        rec.append("推荐活动：");
-        List<String> activities = selectRandomActivities(OUTDOOR_ACTIVITIES);
-        for (int i = 0; i < activities.size(); i++) {
-            if (i > 0) rec.append(", ");
-            rec.append((i + 1)).append(".").append(activities.get(i));
-        }
-        
-        return rec.toString();
     }
 
     /**
@@ -234,8 +211,8 @@ public class TravelPlannerTool {
     /**
      * 为每个活动搜索具体场所并生成推荐
      */
-    private void appendActivityRecommendations(StringBuilder rec, List<String> activities, 
-                                               String city, double latitude, double longitude) {
+    private void appendActivityRecommendations(StringBuilder rec, List<String> activities,
+                                               double latitude, double longitude) {
         // 随机选择 3 个活动
         List<String> selectedActivities = selectRandomActivities(activities);
         

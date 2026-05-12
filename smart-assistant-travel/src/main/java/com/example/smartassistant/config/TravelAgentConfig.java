@@ -180,7 +180,7 @@ public class TravelAgentConfig {
                 【优先级 3 — 辅助信息补充】
                 - query(city): 查询天气
                 - getCurrentLocation(): 获取当前位置
-                - planSmartTrip(): 智能出行规划（当游记库无匹配时备选）
+                - smartPlan(destination, days, preference): 智能行程规划（含天气+景点）
                 - recommendActivitiesByWeather(city): 根据天气推荐活动
                 - findNearbyEntertainment(radius): 查找附近娱乐设施
 
