@@ -316,12 +316,21 @@ public class SemanticRouteCacheService {
      */
     public void saveDecision(String requestId, String question, String agentName,
                            double confidence, Long userId, String intentTag) {
+        saveDecision(requestId, question, agentName, confidence, userId, intentTag, null);
+    }
+
+    /**
+     * 保存路由决策（含会话 ID，用于同会话内 LLM 改写适配）
+     */
+    public void saveDecision(String requestId, String question, String agentName,
+                           double confidence, Long userId, String intentTag, String sessionId) {
         if (!cacheEnabled || redisTemplate == null || question == null || agentName == null || intentTag == null) return;
 
         try {
             // 保存路由决策
             CachedRouteDecision decision = new CachedRouteDecision(intentTag, agentName, confidence, question);
-            decision.firstUserId = userId;  // ⭐ 记录首次提问用户，用于前缀个性化
+            decision.firstUserId = userId;  // ⭐ 记录首次提问用户
+            decision.firstSessionId = sessionId;  // ⭐ 记录首次提问会话（同会话内做 LLM 改写）
             String json = objectMapper.writeValueAsString(decision);
             String key = CACHE_KEY_PREFIX + md5(intentTag);
             redisTemplate.opsForValue().set(key, json, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
@@ -535,14 +544,13 @@ public class SemanticRouteCacheService {
     /**
      * ⭐ 包装缓存回复：前缀变化 + LLM 改写 + 前缀匹配
      * <p>
-     * 语义相同但表述不同的情况（关键词/语义匹配命中）：
-     * - 首次出现的新表述 → LLM 改写适配回复
-     * - 已见过的表述（精确 key 已存在）→ 前缀变化，零 LLM 成本
+     * 语义相同但表述不同的 LLM 改写仅在同一会话内生效，
+     * 跨会话时复用前缀变化（LLM 改写仅匹配当前会话连贯性，而非通用逻辑）。
      */
-    public String wrapCachedReply(String reply, CachedRouteDecision cached, String userQuestion, Long userId) {
-        // 判断当前问题表述是否曾以精确匹配出现过
+    public String wrapCachedReply(String reply, CachedRouteDecision cached, String userQuestion, Long userId, String sessionId) {
         boolean isNewPhrasing = false;
-        if (userQuestion != null && cached != null && !userQuestion.equals(cached.originalQuestion)) {
+        if (userQuestion != null && cached != null && !userQuestion.equals(cached.originalQuestion)
+                && sessionId != null && sessionId.equals(cached.firstSessionId)) {
             try {
                 var valueOps = redisTemplate != null ? redisTemplate.opsForValue() : null;
                 if (valueOps != null) {
@@ -601,7 +609,8 @@ public class SemanticRouteCacheService {
         public int hitCount;
         public long firstCachedAt;
         public String reply;
-        public Long firstUserId;  // ⭐ 首次提问的用户ID，用于判断同/不同用户
+        public Long firstUserId;  // ⭐ 首次提问的用户ID
+        public String firstSessionId;  // ⭐ 首次提问的会话ID，仅同会话内做 LLM 改写
         public transient boolean _isPrefixMatch;
         public transient boolean _intentMismatch;
 
