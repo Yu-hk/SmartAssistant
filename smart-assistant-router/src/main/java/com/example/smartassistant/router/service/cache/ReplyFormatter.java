@@ -37,11 +37,15 @@ public class ReplyFormatter {
 
     public String wrapCachedReply(String reply, SemanticRouteCacheService.CachedRouteDecision cached,
                                    String userQuestion, Long userId) {
+        return wrapCachedReply(reply, cached, userQuestion, userId, false);
+    }
+
+    public String wrapCachedReply(String reply, SemanticRouteCacheService.CachedRouteDecision cached,
+                                   String userQuestion, Long userId, boolean isNewPhrasing) {
         if (reply == null || reply.isBlank()) return reply;
         reply = stripPrefixes(reply);
 
         boolean sameUser = userId != null && userId.equals(cached.firstUserId);
-        // ⭐ 是否完全相同的表述（精确匹配命中），用于区分"重复提问"和"相似问题"
         boolean exactPhrasing = userQuestion != null && userQuestion.equals(cached.originalQuestion);
         long elapsed = System.currentTimeMillis() - (cached.firstCachedAt > 0 ? cached.firstCachedAt : cached.cachedAt);
         long elapsedHours = elapsed / 3600000;
@@ -63,14 +67,13 @@ public class ReplyFormatter {
             }
         }
 
-        // Phase 2: 高命中次数 — 仅同用户的不同表述做 LLM 改写
-        if (cached.hitCount >= 3 && sameUser) {
-            if (userQuestion != null && !userQuestion.equals(cached.originalQuestion)) {
-                String adapted = rewriteForPrefixMatch(reply, cached.originalQuestion, userQuestion);
-                if (adapted != null && !adapted.isBlank()) {
-                    log.info("[SemanticCache] Phase2 rewrite: question={}", userQuestion);
-                    return adapted;
-                }
+        // Phase 2: 语义相同但表述不同的新问题 → LLM 改写适配（不区分用户）
+        // 后续相同表述通过精确匹配命中 → 走前缀变化，零 LLM 成本
+        if (isNewPhrasing && !exactPhrasing && userQuestion != null) {
+            String adapted = rewriteForPrefixMatch(reply, cached.originalQuestion, userQuestion);
+            if (adapted != null && !adapted.isBlank()) {
+                log.info("[SemanticCache] Phrase-adapt rewrite: question={}", userQuestion);
+                return adapted;
             }
         }
 
