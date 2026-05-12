@@ -111,7 +111,7 @@ class RouterRoutingIntegrationTest {
     }
 
     @Test
-    @DisplayName("前缀个性化：同用户 vs 不同用户")
+    @DisplayName("同用户精确匹配用个性化前缀，不同表述用中性前缀")
     void testWrapCachedReplyUserAware() {
         var d = new SemanticRouteCacheService.CachedRouteDecision("tag", "agent", 0.5, "上海天气");
         d.reply = "天气很好";
@@ -119,13 +119,28 @@ class RouterRoutingIntegrationTest {
         d.firstCachedAt = System.currentTimeMillis() - 1000;
         d.firstUserId = 1L;
 
+        // 同用户 + 相同表述 → 个性化前缀
         String same = cacheService.wrapCachedReply("天气很好", d, "上海天气", 1L);
         assertTrue(same.contains("再帮你查一次") || same.contains("跟上次查询") || same.contains("还是同样的结果"),
-                "同用户应使用个性化前缀: " + same);
+                "同用户+相同表述应使用个性化前缀: " + same);
 
+        // 不同用户 → 中性前缀
         String diff = cacheService.wrapCachedReply("天气很好", d, "上海天气", 2L);
-        assertTrue(diff.contains("查询结果如下") || diff.contains("以下是相关信息"),
+        assertTrue(diff.contains("查询结果如下") || diff.contains("以下是相关信息") || diff.contains("这是查询到的结果"),
                 "不同用户应使用中性前缀: " + diff);
+
+        // 同用户 + 不同表述（关键词匹配命中）→ 中性前缀，不应说"再帮你查一次"
+        var d2 = new SemanticRouteCacheService.CachedRouteDecision("tag", "agent", 0.5, "上海天气怎么样");
+        d2.reply = "天气很好";
+        d2.hitCount = 2;
+        d2.firstCachedAt = System.currentTimeMillis() - 1000;
+        d2.firstUserId = 1L;
+
+        String sameDiffQ = cacheService.wrapCachedReply("天气很好", d2, "上海天气如何", 1L);
+        assertTrue(sameDiffQ.contains("查询结果如下") || sameDiffQ.contains("以下是相关信息") || sameDiffQ.contains("这是查询到的结果"),
+                "同用户+不同表述应使用中性前缀而非个性化: " + sameDiffQ);
+        assertFalse(sameDiffQ.contains("再帮你查"),
+                "同用户+不同表述不应包含'再帮你查': " + sameDiffQ);
     }
 
     @Test
@@ -138,8 +153,22 @@ class RouterRoutingIntegrationTest {
         d.firstUserId = 1L;
 
         String result = cacheService.wrapCachedReply("天气不错", d, "上海天气", 2L);
-        assertFalse(result.contains("之前查") && result.contains("上次查询"),
+        assertFalse(result.contains("之前查") || result.contains("上次查询"),
                 "不同用户不应包含个性化用语: " + result);
+    }
+
+    @Test
+    @DisplayName("同用户不同表述 hitCount>=3 也不应使用'我'字前缀")
+    void testDifferentPhrasingHighHit() {
+        var d = new SemanticRouteCacheService.CachedRouteDecision("tag", "agent", 0.5, "上海天气怎么样");
+        d.reply = "天气不错";
+        d.hitCount = 5;
+        d.firstCachedAt = System.currentTimeMillis() - 1000;
+        d.firstUserId = 1L;
+
+        String result = cacheService.wrapCachedReply("天气不错", d, "上海天气如何", 1L);
+        // 同用户但不同表述，不应出现"我之前"等个性化用语
+        assertFalse(result.contains("我之前"), "不同表述不应包含'我之前': " + result);
     }
 
     private String md5(String str) {

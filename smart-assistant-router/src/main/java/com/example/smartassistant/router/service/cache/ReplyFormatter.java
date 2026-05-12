@@ -40,7 +40,9 @@ public class ReplyFormatter {
         if (reply == null || reply.isBlank()) return reply;
         reply = stripPrefixes(reply);
 
-        boolean sameUser = userId != null && cached.firstUserId != null && userId.equals(cached.firstUserId);
+        boolean sameUser = userId != null && userId.equals(cached.firstUserId);
+        // ⭐ 是否完全相同的表述（精确匹配命中），用于区分"重复提问"和"相似问题"
+        boolean exactPhrasing = userQuestion != null && userQuestion.equals(cached.originalQuestion);
         long elapsed = System.currentTimeMillis() - (cached.firstCachedAt > 0 ? cached.firstCachedAt : cached.cachedAt);
         long elapsedHours = elapsed / 3600000;
 
@@ -72,33 +74,38 @@ public class ReplyFormatter {
             }
         }
 
-        // 前缀变化
         String prefix;
         if (cached.hitCount >= 3) {
-            List<String> tips = sameUser ? Arrays.asList(
-                    "（以下是我之前查到的信息，可能已有变化哦）",
-                    "（这条信息是之前查询的，建议重新问一下获取最新数据）",
-                    "（按上次查询的结果来看，可能会有些出入～）"
-            ) : Arrays.asList(
-                    "（以下是根据历史查询获取的信息）",
-                    "（这条信息是此前查询得到的）",
-                    "（以上信息来源于此前缓存的数据）"
-            );
+            List<String> tips;
+            if (sameUser && exactPhrasing) {
+                tips = Arrays.asList(
+                        "（以下是我之前查到的信息，可能已有变化哦）",
+                        "（这条信息是之前查询的，建议重新问一下获取最新数据）",
+                        "（按上次查询的结果来看，可能会有些出入～）");
+            } else {
+                tips = Arrays.asList(
+                        "（以下是根据历史查询获取的信息）",
+                        "（这条信息是此前查询得到的）",
+                        "（以上信息来源于此前缓存的数据）");
+            }
             prefix = tips.get(random.nextInt(tips.size())) + "\n\n";
         } else if (elapsedHours > 6) {
-            prefix = sameUser
+            prefix = (sameUser && exactPhrasing)
                     ? "根据" + (elapsedHours > 24 ? "之前" : elapsedHours + "小时前") + "查询的信息：\n\n"
                     : "以下信息来源于" + (elapsedHours > 24 ? "之前的" : elapsedHours + "小时前的") + "数据：\n\n";
         } else if (cached.hitCount == 2) {
-            List<String> msgs = sameUser ? Arrays.asList(
-                    "再帮你查一次，结果和之前一样～\n\n",
-                    "跟上次查询的结果一致：\n\n",
-                    "还是同样的结果：\n\n"
-            ) : Arrays.asList(
-                    "查询结果如下：\n\n",
-                    "以下是相关信息：\n\n",
-                    "这是查询到的结果：\n\n"
-            );
+            List<String> msgs;
+            if (sameUser && exactPhrasing) {
+                msgs = Arrays.asList(
+                        "再帮你查一次，结果和之前一样～\n\n",
+                        "跟上次查询的结果一致：\n\n",
+                        "还是同样的结果：\n\n");
+            } else {
+                msgs = Arrays.asList(
+                        "查询结果如下：\n\n",
+                        "以下是相关信息：\n\n",
+                        "这是查询到的结果：\n\n");
+            }
             prefix = msgs.get(random.nextInt(msgs.size()));
         } else {
             prefix = "";
