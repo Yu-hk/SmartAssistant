@@ -46,21 +46,12 @@ public class SemanticRouteCacheService {
     private static final long DECISION_AUDIT_TTL_SECONDS = 604800; // 7天
     private static final int HIGH_FREQUENCY_THRESHOLD = 2;  // ⭐ 被问到 >= 2次视为高频（降至2使第二次起全缓存命中，大幅减少 Agent 压力）
 
-    // ⭐ 关键词缓存专用停用词（补充 ChineseTokenizer 的停用词表）
-    private static final Set<String> KEYWORD_STOP_WORDS = Set.of(
-            "怎么样", "如何", "怎么", "什么", "为啥", "为何",
-            "请问", "能", "可以", "需要", "想要", "想去",
-            "吗", "呢", "吧", "啊", "哦", "么",
-            "这个", "那个", "哪些", "这些", "那些",
-            "有没有", "是不是", "会不会", "能不能", "要不要"
-    );
-
     private final StringRedisTemplate redisTemplate;
     private final ChatClient chatClient;
     private final ObjectMapper objectMapper;
-    private final Random random = new Random();
     private final ChineseTokenizer tokenizer;
     private final AgentDiscoveryService agentDiscoveryService;
+    private final ReplyFormatter replyFormatter;
 
     @Value("${router.semantic-cache.enabled:true}")
     private boolean cacheEnabled;
@@ -75,6 +66,7 @@ public class SemanticRouteCacheService {
         this.objectMapper = new ObjectMapper();
         this.tokenizer = tokenizer;
         this.agentDiscoveryService = agentDiscoveryService;
+        this.replyFormatter = new ReplyFormatter(chatClient, agentDiscoveryService);
     }
 
     /**
@@ -184,7 +176,7 @@ public class SemanticRouteCacheService {
             if (tokens.isEmpty()) return Collections.emptyList();
 
             return tokens.stream()
-                    .filter(t -> t.length() >= 2 && !t.matches("\\d+") && !KEYWORD_STOP_WORDS.contains(t))
+                    .filter(t -> t.length() >= 2 && !t.matches("\\d+") && !ReplyFormatter.KEYWORD_STOP_WORDS.contains(t))
                     .sorted()
                     .collect(Collectors.toList());
         } catch (Exception e) {
@@ -546,197 +538,11 @@ public class SemanticRouteCacheService {
      * 根据 userId 判断是否为同一用户，不同用户时使用中性前缀。
      */
     public String wrapCachedReply(String reply, CachedRouteDecision cached, String userQuestion, Long userId) {
-        if (reply == null || reply.isBlank()) return reply;
-
-        // ⭐ 清理缓存回复中可能残留的旧前缀（避免嵌套）
-        reply = stripPrefixes(reply);
-
-        boolean sameUser = userId != null && userId.equals(cached.firstUserId);
-
-        long elapsed = System.currentTimeMillis() - (cached.firstCachedAt > 0 ? cached.firstCachedAt : cached.cachedAt);
-        long elapsedHours = elapsed / 3600000;
-
-        // ⭐ 前缀匹配：先回复已命中部分，再用过渡语引导用户到实际意图
-        if (cached._isPrefixMatch && userQuestion != null && !userQuestion.equals(cached.originalQuestion)) {
-            if (cached._intentMismatch) {
-                String extra = cached.originalQuestion + "方面的信息如上所述。"
-                        + "关于你提到的其他内容，你可以试试这样问我：";
-                log.info("[SemanticCache] 🔀 前缀命中意图不匹配，追加过渡建议");
-                return stripPrefixes(reply) + "\n\n---\n💡 " + extra;
-            }
-            // 仅同用户调用 LLM 改写，不同用户直接返回缓存内容
-            if (sameUser) {
-                String adapted = rewriteForPrefixMatch(reply, cached.originalQuestion, userQuestion);
-                if (adapted != null && !adapted.isBlank()) {
-                    log.info("[SemanticCache] 🎯 前缀匹配针对性改写: question={}", userQuestion);
-                    return adapted;
-                }
-            }
-        }
-
-        // Phase 2: 高命中次数（≥3）→ 仅对同用户的不同表述做 LLM 改写
-        // 不同用户 → 直接走前缀变化（中性前缀，零 LLM 成本）
-        // 相同问题 → 直接走前缀变化（用户极少重复提问，前缀变化已足够）
-        if (cached.hitCount >= 3 && sameUser) {
-            if (userQuestion != null && !userQuestion.equals(cached.originalQuestion)) {
-                String adapted = rewriteForPrefixMatch(reply, cached.originalQuestion, userQuestion);
-                if (adapted != null && !adapted.isBlank()) {
-                    log.info("[SemanticCache] ✏️ 语义命中针对性改写: question={}", userQuestion);
-                    return adapted;
-                }
-            }
-        }
-
-        // 前缀变化（仅当 Phase 2 未命中或改写失败时）
-        String prefix;
-        if (cached.hitCount >= 3) {
-            List<String> tips;
-            if (sameUser) {
-                tips = Arrays.asList(
-                        "（以下是我之前查到的信息，可能已有变化哦）",
-                        "（这条信息是之前查询的，建议重新问一下获取最新数据）",
-                        "（按上次查询的结果来看，可能会有些出入～）"
-                );
-            } else {
-                tips = Arrays.asList(
-                        "（以下是根据历史查询获取的信息）",
-                        "（这条信息是此前查询得到的）",
-                        "（以上信息来源于此前缓存的数据）"
-                );
-            }
-            prefix = tips.get(random.nextInt(tips.size())) + "\n\n";
-        } else if (elapsedHours > 6) {
-            if (sameUser) {
-                prefix = "📅 根据" + (elapsedHours > 24 ? "之前" : elapsedHours + "小时前") + "查询的信息：\n\n";
-            } else {
-                prefix = "📅 以下信息来源于" + (elapsedHours > 24 ? "之前的" : elapsedHours + "小时前的") + "数据：\n\n";
-            }
-        } else if (cached.hitCount == 2) {
-            if (sameUser) {
-                List<String> greetings = Arrays.asList(
-                        "再帮你查一次，结果和之前一样～\n\n",
-                        "跟上次查询的结果一致：\n\n",
-                        "还是同样的结果：\n\n"
-                );
-                prefix = greetings.get(random.nextInt(greetings.size()));
-            } else {
-                List<String> neutral = Arrays.asList(
-                        "查询结果如下：\n\n",
-                        "以下是相关信息：\n\n",
-                        "这是查询到的结果：\n\n"
-                );
-                prefix = neutral.get(random.nextInt(neutral.size()));
-            }
-        } else {
-            prefix = "";
-        }
-
-        return prefix + reply;
+        return replyFormatter.wrapCachedReply(reply, cached, userQuestion, userId);
     }
 
-    /**
-     * ⭐ 清理缓存回复中可能残留的旧前缀
-     */
-    private String stripPrefixes(String reply) {
-        if (reply == null) return null;
-        String[] knownPrefixes = {
-                "再帮你查一次，结果和之前一样～\n\n",
-                "跟上次查询的结果一致：\n\n",
-                "还是同样的结果：\n\n",
-                "（以下是我之前查到的信息，可能已有变化哦）\n\n",
-                "（这条信息是之前查询的，建议重新问一下获取最新数据）\n\n",
-                "（按上次查询的结果来看，可能会有些出入～）\n\n",
-                "（以下是根据历史查询获取的信息）\n\n",
-                "（这条信息是此前查询得到的）\n\n",
-                "（以上信息来源于此前缓存的数据）\n\n",
-                "查询结果如下：\n\n",
-                "以下是相关信息：\n\n",
-                "这是查询到的结果：\n\n"
-        };
-        for (String prefix : knownPrefixes) {
-            while (reply.startsWith(prefix)) {
-                reply = reply.substring(prefix.length()).trim();
-            }
-        }
-        // 清理 LLM 变体格式的前缀（如 "1. 温馨提示...\n\n" 或 "1. 北京4月29日天气预报...\n\n" 等）
-        reply = reply.replaceAll("^\\d+\\.\\s*[^\\n]+\\n\\n", "");
-        return reply;
-    }
-
-    /**
-     * Phase 2: LLM 改写回复（保持事实，改变语气和表达）
-     */
-    private String rewriteReply(String reply) {
-        try {
-            String result = chatClient.prompt()
-                    .user("用不同语气重写，保持所有事实信息（温度、地点、数字、日期等）完全不变。"
-                            + "不添加额外说明，直接输出重写结果：\n" + reply)
-                    .call()
-                    .content();
-            if (result != null) {
-                result = result.trim();
-                int idx = result.indexOf("\n\n");
-                if (idx > 0 && result.length() > idx + 50) {
-                    String firstLine = result.substring(0, idx).trim();
-                    if (firstLine.length() > 5 && !firstLine.contains(":") && !firstLine.contains("：")) {
-                        result = result.substring(idx + 2).trim();
-                    }
-                }
-            }
-            return result;
-        } catch (Exception e) {
-            log.warn("[SemanticCache] LLM 改写失败: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * ⭐ 前缀匹配针对性改写：根据用户后半段提问，从缓存回复中提取并组织相关信息
-     */
-    private String rewriteForPrefixMatch(String cachedReply, String cachedQuestion, String userQuestion) {
-        try {
-            String result = chatClient.prompt()
-                    .user("以下是一条已有的" + cachedQuestion + "回复。用户现在问的是：\"" + userQuestion + "\"。"
-                            + "请基于已有回复中的事实数据，回答用户的完整问题。"
-                            + "保持所有事实信息（温度、地点、数字）不变，直接输出回答：\n"
-                            + cachedReply)
-                    .call()
-                    .content();
-            return result != null ? result.trim() : null;
-        } catch (Exception e) {
-            log.warn("[SemanticCache] 前缀匹配改写失败: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /*
-      Phase 3: 动态 TTL（天气类短，美食/旅行类长）
-     */
-    /**
-     * Phase 3: 动态 TTL（优先读取 Agent 声明的缓存时间）
-     * <p>
-     * 各 Agent 在 application.yml 的 metadata 中通过 {@code cache-ttl-seconds} 声明自己的回复缓存 TTL。
-     * Router 直接读取，无需硬编码各 Agent 的时效性逻辑。
-     * 如 Agent 未声明，则使用以下默认值：
-     * - builtin_fallback → 2h
-     * - 其他 → 1h
-     */
-    private long getTtlForReply(String agentName, String originalQuestion) {
-        // 优先读取 Agent 声明的 TTL
-        if (agentName != null && agentDiscoveryService != null) {
-            Long agentTtl = agentDiscoveryService.getAgentTtl(agentName);
-            if (agentTtl != null && agentTtl > 0) {
-                return agentTtl;
-            }
-        }
-
-        // 兜底默认值
-        if (agentName == null) return 3600;
-        String lower = agentName.toLowerCase();
-        if (lower.contains("builtin") || lower.contains("fallback")) {
-            return 7200;
-        }
-        return 3600;
+    long getTtlForReply(String agentName, String originalQuestion) {
+        return replyFormatter.getTtlForReply(agentName, originalQuestion);
     }
 
     /**
@@ -803,6 +609,8 @@ public class SemanticRouteCacheService {
         public String originalQuestion;
         public long firstCachedAt;
         public int hitCount;
+
+        public CachedReply() {}  // ⭐ Jackson 反序列化需要无参构造
 
         public CachedReply(String reply, String agentName, String originalQuestion) {
             this.reply = reply;
