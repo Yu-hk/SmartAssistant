@@ -117,9 +117,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 6. **价值评估** → 轮数≥3 或触发工具调用时触发 → `data/users/{userId}/memories/`（异步增量追加）
    - 同 session 的记忆**追加到同一文件**，不覆盖，保留完整对话历史
    - 轮数≥3 且内容≥1000 字符时触发 LLM 叙事摘要
-   - 摘要替代原对话内容（清空冗余），超长内容截断部分原文追加，信息零丢失
-
-详情参见 `AGENTS.md`。
+    - 摘要替代原对话内容（清空冗余），超长内容截断部分原文追加，信息零丢失
 
 ---
 
@@ -897,8 +895,6 @@ Gateway   Consumer    Router     Travel / Food / User / General
 4. Agent 启动后会自动通过 Nacos 注册到 Router 的服务发现列表
 5. 在 Nacos UI 中创建配置 `{serviceName}-metadata` (Group: `AGENT_META`) 设置 keywords/priority
 6. 后续修改 Agent 职责只需改 Nacos Config，无需重新部署
-
-详情参见 `AGENTS.md`。
 
 ### 运行测试
 
