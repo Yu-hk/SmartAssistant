@@ -50,30 +50,14 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 | 特性 | 说明 |
 |------|------|
-| 🧠 **A2A 协议** | 基于阿里 Spring AI Alibaba 的 Agent-to-Agent 通信协议，支持 Agent 自动发现和注册 |
-| 🚦 **三层兜底路由** | 关键词匹配 → Fallback Agent(priority) → 内联 ChatClient，逐级降级，避免随机路由 |
-| 🖼️ **多模态 AI** | 集成图片解析(analyzeImage) + 文生图(generateImage)，基于 DashScope 通义万相 |
-| 🗂️ **文件级用户记忆** | 偏好存 `data/users/{userId}/preferences.json`；有价值对话经 LLM 叙事摘要后存 `memories/*.md` |
-| 📝 **叙事摘要沉淀** | 轮数≥3 且内容≥1000 字符时自动触发 LLM 第三人称摘要，提取事实信息，去除对话填充语 |
-| 💬 **回复风格切换** | General Agent 支持用户指定幽默/文言文/段子手等多种回复风格 |
+| 🧠 **A2A 多 Agent 协作** | 基于 Spring AI Alibaba A2A 协议，8 个微服务通过 Nacos 自动发现与注册，Router 统一分发 |
+| 🧠 **四层语义缓存** | 精确匹配 → 关键词哈希(分词→MD5) → LLM 语义标签 → 前缀匹配，动态 TTL 按 Agent+问题内容自适应 |
+| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + 多路召回(RRF融合)，覆盖出行/美食领域 |
+| 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
-| 🔄 **自纠错与实时核验** | `queryCorrections` 工具查询历史修正记录避免重复错误；Travel Agent 在检索游记后自动调用高德 API 核验门票、开放时间等时敏数据 |
-| 📊 **全栈可观测** | Prometheus 指标 + Grafana 仪表盘 + Jaeger 链路追踪 + Loki 日志聚合 |
-| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + Corrective RAG + pgvector 语义检索 + 多路召回 |
-| 🌐 **前端** | React + TypeScript + TDesign 管理界面，WebSocket 实时流式对话 |
-| 🧩 **Service 层分类** | Router/Food/Travel 的 service 类按功能子包组织（core/agent/cache/rag/data 等） |
-| 📝 **提示词外部化** | Travel/Food/General Agent 系统提示词独立为 `.txt` 文件，修改无需重新编译 |
-| 🏷️ **工具调用信号** | Agent 真实检测工具调用（扫描 ToolResponseMessage），替代意图标签猜测 |
-| 🔐 **密码默认值清零** | 所有服务 PostgreSQL/Redis/Nacos 密码默认值移除，未配置时启动即报错 |
-| 🚦 **搜索级联降级** | DuckDuckGo → tenapi → Bing 三级搜索降级，无需 API Key |
-| 🧠 **四层语义缓存** | 精确匹配 → 关键词哈希匹配(分词→MD5) → LLM 语义标签 → 前缀匹配；回复缓存按 Agent 类型+问题内容动态 TTL（天气20min/景点12h/美食12h） |
-| 🐳 **Docker 容器化部署** | Dockerfile + docker-compose.deploy.yml，7 个服务一键容器化构建部署 |
-| 🔧 **Maven Wrapper** | `mvnw` 自动分发 Maven 3.9.6，无需本地安装，构建环境统一 |
-| 🚦 **优雅关闭** | 所有服务配置 `server.shutdown: graceful`，确保处理中请求完成再退出 |
-| 🛡️ **Actuator 安全加固** | Actuator 端点白名单收紧，仅暴露 `/health`、`/info`、`/prometheus` |
-| 🔐 **JWT 密钥强制配置** | JWT 签名密钥移除硬编码默认值，必须通过环境变量设置，未配置启动即报错 |
-| ✅ **全量验证脚本** | `verify-all.ps1` 一键运行编译 + 测试，提交前快速自检 |
-| ⏳ **请求排队 + SSE 通知** | Semaphore 限流 LLM 并发（默认 5），超出自动排队，SSE 实时推送排队位置 |
+| 📊 **全栈可观测** | Micrometer + Prometheus + Grafana 指标，Jaeger 链路追踪，Loki 日志聚合，8 个自定义仪表盘 |
+| ⏳ **请求排队 + SSE 流式** | Semaphore 限流 LLM 并发(默认5)，排队时 SSE 实时推送位置，支持 thinking/tool_call/response 事件 |
+| 🐳 **容器化部署** | Dockerfile + docker-compose.deploy.yml，7 个服务一键构建部署 |
 
 ---
 
