@@ -20,7 +20,7 @@ public class VectorCacheStore {
     private static final Logger log = LoggerFactory.getLogger(VectorCacheStore.class);
 
     private static final int MAX_ENTRIES = 10000;
-    private static final double SIMILARITY_THRESHOLD = 0.85;
+    private static final double SIMILARITY_THRESHOLD = 0.70;
 
     private final Map<String, Entry> store = new ConcurrentHashMap<>();
     private final LinkedList<String> accessOrder = new LinkedList<>();
