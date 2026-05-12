@@ -533,12 +533,27 @@ public class SemanticRouteCacheService {
     }
 
     /**
-     * ⭐ 包装缓存回复：前缀变化 + Phase 2 LLM 改写 + 前缀匹配针对性改写
+     * ⭐ 包装缓存回复：前缀变化 + LLM 改写 + 前缀匹配
      * <p>
-     * 根据 userId 判断是否为同一用户，不同用户时使用中性前缀。
+     * 语义相同但表述不同的情况（关键词/语义匹配命中）：
+     * - 首次出现的新表述 → LLM 改写适配回复
+     * - 已见过的表述（精确 key 已存在）→ 前缀变化，零 LLM 成本
      */
     public String wrapCachedReply(String reply, CachedRouteDecision cached, String userQuestion, Long userId) {
-        return replyFormatter.wrapCachedReply(reply, cached, userQuestion, userId);
+        // 判断当前问题表述是否曾以精确匹配出现过
+        boolean isNewPhrasing = false;
+        if (userQuestion != null && cached != null && !userQuestion.equals(cached.originalQuestion)) {
+            try {
+                var valueOps = redisTemplate != null ? redisTemplate.opsForValue() : null;
+                if (valueOps != null) {
+                    String exactKey = EXACT_KEY_PREFIX + md5(userQuestion);
+                    isNewPhrasing = valueOps.get(exactKey) == null;
+                }
+            } catch (Exception e) {
+                log.debug("[SemanticCache] 检查新表述时异常: {}", e.getMessage());
+            }
+        }
+        return replyFormatter.wrapCachedReply(reply, cached, userQuestion, userId, isNewPhrasing);
     }
 
     long getTtlForReply(String agentName, String originalQuestion) {
