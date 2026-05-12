@@ -5,6 +5,8 @@ import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.core.RouterService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
+import com.example.smartassistant.router.service.cache.TfEmbeddingService;
+import com.example.smartassistant.router.service.cache.VectorCacheStore;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +41,8 @@ class RouterRoutingIntegrationTest {
     @Mock private RouterRagService ragService;
     @Mock private ChineseTokenizer tokenizer;
     @Mock private ValueOperations<String, String> valueOps;
+    private TfEmbeddingService tfEmbedding;
+    private VectorCacheStore vectorCache;
 
     private SemanticRouteCacheService cacheService;
 
@@ -51,7 +55,10 @@ class RouterRoutingIntegrationTest {
         lenient().when(requestSpec.call()).thenReturn(responseSpec);
         lenient().when(responseSpec.content()).thenReturn("fallback reply");
 
-        cacheService = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer, agentDiscoveryService);
+        tfEmbedding = new TfEmbeddingService(tokenizer);
+        vectorCache = new VectorCacheStore();
+        cacheService = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
+                agentDiscoveryService, tfEmbedding, vectorCache);
         ReflectionTestUtils.setField(cacheService, "cacheEnabled", true);
         new RouterService(agentCallerService, agentDiscoveryService, chatClientBuilder,
                 Runnable::run, redisTemplate, ragService, cacheService);

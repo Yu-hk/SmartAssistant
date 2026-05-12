@@ -127,6 +127,7 @@
             <artifactId>smart-assistant-common</artifactId>
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
+
     </dependencies>
 
     <build>
