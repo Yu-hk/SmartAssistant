@@ -69,6 +69,7 @@ public class AuthController {
             AuthResponse response = authService.login(request, ipAddress, userAgent);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            log.warn("[Auth] 登录失败: username={}, error={}", request.getUsername(), e.getMessage());
             return ResponseEntity.status(401).body(Map.of(
                     "error", "用户名或密码错误"
             ));
@@ -89,6 +90,7 @@ public class AuthController {
             User user = authService.getCurrentUser(token);
             return ResponseEntity.ok(user);
         } catch (Exception e) {
+            log.warn("[Auth] Token 验证失败: error={}", e.getMessage());
             return ResponseEntity.status(401).body(Map.of("error", "Token无效或已过期"));
         }
     }
