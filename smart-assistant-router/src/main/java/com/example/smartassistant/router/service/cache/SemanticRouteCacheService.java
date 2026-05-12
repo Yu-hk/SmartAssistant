@@ -414,6 +414,10 @@ public class SemanticRouteCacheService {
      * 在第一次 Agent 执行后，后续同类问题直接命中回复缓存，无需再调 Agent。
      */
     private void saveKeywordReply(String question, String reply, String agentName) {
+        saveKeywordReply(question, reply, agentName, null);
+    }
+
+    private void saveKeywordReply(String question, String reply, String agentName, Long ttlOverride) {
         if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank()) return;
         try {
             List<String> keywords = extractKeywords(question);
@@ -424,9 +428,9 @@ public class SemanticRouteCacheService {
 
             CachedReply cachedReply = new CachedReply(reply, agentName, question);
             String replyJson = objectMapper.writeValueAsString(cachedReply);
-            long ttl = getTtlForReply(agentName, question);
+            long ttl = ttlOverride != null ? ttlOverride : getTtlForReply(agentName, question);
             redisTemplate.opsForValue().set(replyKey, replyJson, ttl, TimeUnit.SECONDS);
-            log.info("[SemanticCache] 💾 关键词级别回复已缓存: keywords={}, agent={}", keywords, agentName);
+            log.info("[SemanticCache] 💾 关键词级别回复已缓存: keywords={}, agent={}, ttl={}", keywords, agentName, ttl);
         } catch (Exception e) {
             log.warn("[SemanticCache] 保存关键词回复缓存失败: {}", e.getMessage());
         }
@@ -487,12 +491,29 @@ public class SemanticRouteCacheService {
      * 高频问题（被问到 ≥HIGH_FREQUENCY_THRESHOLD 次）的回复会被缓存。
      * 下次相同 intent 的请求直接返回缓存回复，不再调用 Agent。
      */
+    /**
+     * 保存回复内容缓存（自动计算 TTL）
+     * <p>
+     * TTL 优先级：ttlOverride 参数 > Agent 声明 metadata > Router 默认值
+     */
     public void saveReply(String question, String reply, String agentName, String intentTag) {
+        saveReply(question, reply, agentName, intentTag, null);
+    }
+
+    /**
+     * 保存回复内容缓存（指定 TTL 覆写）
+     *
+     * @param ttlOverride 显式 TTL（秒），为 null 时自动计算。
+     *                    由调用方（如 AgentCallerService）根据实际调用的工具集
+     *                    计算有效 TTL（取所有工具 TTL 的最小值），
+     *                    遵循"木板效应"：整个回答的时效性取决于所用数据中最短的那个。
+     */
+    public void saveReply(String question, String reply, String agentName, String intentTag, Long ttlOverride) {
         if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank() || intentTag == null) return;
 
         try {
             // ⭐ 无论是否高频，都保存关键词级别回复缓存（使同类问题共享回复）
-            saveKeywordReply(question, reply, agentName);
+            saveKeywordReply(question, reply, agentName, ttlOverride);
 
             // ⭐ 高频问题额外保存意图维度回复缓存（精确匹配命中时用）
             if (!isHighFrequencyQuestion(intentTag)) {
@@ -503,10 +524,10 @@ public class SemanticRouteCacheService {
             CachedReply cachedReply = new CachedReply(reply, agentName, question);
             String replyJson = objectMapper.writeValueAsString(cachedReply);
             String replyKey = REPLY_KEY_PREFIX + md5(intentTag);
-            long ttl = getTtlForReply(agentName, question);
+            long ttl = ttlOverride != null ? ttlOverride : getTtlForReply(agentName, question);
             redisTemplate.opsForValue().set(replyKey, replyJson, ttl, TimeUnit.SECONDS);
 
-            log.info("[SemanticCache] 💾 已缓存回复(高频问题): intent={}, agent={}", intentTag, agentName);
+            log.info("[SemanticCache] 💾 已缓存回复(高频问题): intent={}, agent={}, ttl={}", intentTag, agentName, ttl);
         } catch (Exception e) {
             log.warn("[SemanticCache] 写入回复缓存失败: {}", e.getMessage());
         }
