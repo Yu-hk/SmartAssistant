@@ -1,6 +1,6 @@
-server.shutdown: graceful  # ⭐ 优雅关闭，等待处理中的请求完成
 server:
   port: 8082
+  shutdown: graceful  # ⭐ 优雅关闭，等待处理中的请求完成
   # ⭐ Tomcat 线程池优化
   tomcat:
     threads:
@@ -19,18 +19,15 @@ spring:
   application:
     name: consumer-service
 
+  # ⭐ 排除 DeepSeek 自动配置 (使用自定义 ChatModel 禁用 thinking_mode)
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration
+
   # ⭐ MVC 异步请求超时（任务拆解需要更长时间）
   mvc:
     async:
       request-timeout: 120000  # 2 分钟
-
-# ⭐ 请求排队配置（基于压测：5 并发 P50<5s，10 并发 P50=8.8s）
-chat:
-  queue:
-    max-concurrent: 5          # 最大并发 LLM 请求数（超过则排队等待）
-    max-queue-size: 50         # 最大排队长度
-    queue-timeout-ms: 60000    # 排队等待超时（毫秒）
-    slot-timeout-ms: 120000    # 单次请求最长执行时间（毫秒）
 
   # ⭐ HTTP 编码配置
   http:
@@ -138,6 +135,14 @@ chat:
           max-idle: 8
           min-idle: 0
           max-wait: -1ms
+
+# ⭐ 请求排队配置（基于压测：5 并发 P50<5s，10 并发 P50=8.8s）
+chat:
+  queue:
+    max-concurrent: 5          # 最大并发 LLM 请求数（超过则排队等待）
+    max-queue-size: 50         # 最大排队长度
+    queue-timeout-ms: 60000    # 排队等待超时（毫秒）
+    slot-timeout-ms: 120000    # 单次请求最长执行时间（毫秒）
 
 # ⭐ Spring Cache 配置
 cache:

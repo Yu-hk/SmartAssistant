@@ -1,5 +1,6 @@
 package com.example.smartassistant.router.service.cache;
 
+import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * 语义路由缓存服务（Phase 2 + Phase 3）
@@ -27,49 +29,72 @@ public class SemanticRouteCacheService {
     private static final String REPLY_KEY_PREFIX = "a2a:route:reply:";
     private static final String EXACT_KEY_PREFIX = "a2a:route:exact:";
     private static final String PREFIX_KEY_PREFIX = "a2a:route:prefix:";
+    private static final String KEYWORD_KEY_PREFIX = "a2a:route:keyword:";
+    private static final String KEYWORD_REPLY_KEY_PREFIX = "a2a:route:keyword:reply:";  // ⭐ 关键词级别回复缓存
     private static final String DECISION_AUDIT_KEY_PREFIX = "a2a:route:decision:";
     private static final String FULL_DECISION_KEY_PREFIX = "a2a:route:full-decision:";  // ⭐ 供 Consumer 读取的完整决策（独立 key）
     private static final String GLOBAL_INTENT_COUNT_PREFIX = "intent:global:count:";  // ⭐ 全局意图计数（判断高频问题）
     private static final long CACHE_TTL_SECONDS = 86400;
     private static final long DECISION_AUDIT_TTL_SECONDS = 604800; // 7天
-    private static final int HIGH_FREQUENCY_THRESHOLD = 10;  // ⭐ 被问到 >= 10次视为高频
+    private static final int HIGH_FREQUENCY_THRESHOLD = 2;  // ⭐ 被问到 >= 2次视为高频（降至2使第二次起全缓存命中，大幅减少 Agent 压力）
+
+    // ⭐ 关键词缓存专用停用词（补充 ChineseTokenizer 的停用词表）
+    private static final Set<String> KEYWORD_STOP_WORDS = Set.of(
+            "怎么样", "如何", "怎么", "什么", "为啥", "为何",
+            "请问", "能", "可以", "需要", "想要", "想去",
+            "吗", "呢", "吧", "啊", "哦", "么",
+            "这个", "那个", "哪些", "这些", "那些",
+            "有没有", "是不是", "会不会", "能不能", "要不要"
+    );
 
     private final StringRedisTemplate redisTemplate;
     private final ChatClient chatClient;
     private final ObjectMapper objectMapper;
     private final Random random = new Random();
+    private final ChineseTokenizer tokenizer;
 
     @Value("${router.semantic-cache.enabled:true}")
     private boolean cacheEnabled;
 
     public SemanticRouteCacheService(
             ChatClient.Builder chatClientBuilder,
-            StringRedisTemplate redisTemplate) {
+            StringRedisTemplate redisTemplate,
+            ChineseTokenizer tokenizer) {
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
+        this.tokenizer = tokenizer;
     }
 
     /**
-     * 获取缓存决策：先精确匹配，再语义匹配
+     * 获取缓存决策：四层匹配
+     * <p>
+     * Tier 1: 精确匹配（MD5 快速路径）— 完全相同的字符串
+     * Tier 2: 关键词哈希匹配（分词 → 取关键名词 → MD5）— 跳过 LLM
+     * Tier 3: 语义匹配（LLM 生成意图标签）— 兜底方案
+     * Tier 4: 前缀匹配（前 8 字符）— 部分命中
      */
     public CachedRouteDecision getCachedDecision(String question) {
         if (!cacheEnabled || redisTemplate == null || question == null || question.isBlank()) {
             return null;
         }
         try {
-            // 1. 精确匹配快速路径（跳过 LLM）
+            // Tier 1: 精确匹配快速路径（跳过 LLM）
             CachedRouteDecision exact = getByExactQuestion(question);
             if (exact != null) return exact;
 
-            // 2. 语义匹配（LLM 生成意图标签）
+            // Tier 2: ⭐ 关键词哈希匹配（分词 → 排序 → MD5，无需 LLM）
+            CachedRouteDecision keyword = getByKeywordHash(question);
+            if (keyword != null) return keyword;
+
+            // Tier 3: 语义匹配（LLM 生成意图标签）
             String intentTag = generateIntentTag(question);
             if (intentTag != null) {
                 CachedRouteDecision semantic = getByIntentTag(intentTag);
                 if (semantic != null) return semantic;
             }
 
-            // 3. ⭐ 前缀匹配：前半段命中缓存（需验证意图一致）
+            // Tier 4: ⭐ 前缀匹配：前半段命中缓存（需验证意图一致）
             if (intentTag != null) {
                 CachedRouteDecision prefixMatch = getByPrefixWithTag(question, intentTag);
                 if (prefixMatch != null) return prefixMatch;
@@ -82,7 +107,86 @@ public class SemanticRouteCacheService {
     }
 
     /**
+     * ⭐ 关键词哈希匹配：分词 → 提取关键词 → 排序去重 → MD5
+     * <p>
+     * 无需 LLM 调用，使用 ChineseTokenizer 进行中文分词，
+     * 提取名词性关键词后排序拼接，计算 MD5 作为缓存 key。
+     * 语义相近的问题如"上海天气怎么样"和"上海今天气温多少度"
+     * 会提取出 {"上海", "天气"} 这样相同的关键词集合 → 命中同一缓存。
+     */
+    private CachedRouteDecision getByKeywordHash(String question) {
+        try {
+            List<String> keywords = extractKeywords(question);
+            if (keywords.isEmpty()) return null;
+
+            String keywordHash = md5(String.join(",", keywords));
+
+            // 第一步：查关键词回复缓存（直接命中回复，无需再调 Agent）
+            String keywordReplyKey = KEYWORD_REPLY_KEY_PREFIX + keywordHash;
+            String replyJson = redisTemplate.opsForValue().get(keywordReplyKey);
+            if (replyJson != null) {
+                try {
+                    CachedReply cachedReply = objectMapper.readValue(replyJson, CachedReply.class);
+                    String intentTagKey = KEYWORD_KEY_PREFIX + keywordHash;
+                    String intentTag = redisTemplate.opsForValue().get(intentTagKey);
+                    if (intentTag != null) {
+                        CachedRouteDecision decision = getByIntentTag(intentTag);
+                        if (decision != null) {
+                            decision.reply = cachedReply.reply;
+                            decision.hitCount = cachedReply.hitCount;
+                            log.info("[SemanticCache] ✅ 关键词+回复全缓存命中: intent={}, agent={}", intentTag, decision.agentName);
+                            return decision;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("[SemanticCache] 关键词回复缓存解析失败: {}", e.getMessage());
+                }
+            }
+
+            // 第二步：查关键词路由缓存（仅命中路由决策，仍需 Agent 执行）
+            String keywordKey = KEYWORD_KEY_PREFIX + keywordHash;
+            String cachedIntentTag = redisTemplate.opsForValue().get(keywordKey);
+
+            if (cachedIntentTag != null) {
+                log.debug("[SemanticCache] 关键词哈希命中: keywords={}, intent={}", keywords, cachedIntentTag);
+                CachedRouteDecision decision = getByIntentTag(cachedIntentTag);
+                if (decision != null) {
+                    log.info("[SemanticCache] ✅ 关键词路由缓存命中: intent={}, agent={}", cachedIntentTag, decision.agentName);
+                    return decision;
+                }
+            } else {
+                log.debug("[SemanticCache] 关键词哈希未命中: keywords={}", keywords);
+            }
+        } catch (Exception e) {
+            log.warn("[SemanticCache] 关键词匹配异常: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 提取问题中的关键词（统一逻辑，供查询和保存共用）
+     */
+    private List<String> extractKeywords(String question) {
+        if (question == null || question.isBlank()) return Collections.emptyList();
+        try {
+            Set<String> tokens = tokenizer.tokenize(question);
+            if (tokens.isEmpty()) return Collections.emptyList();
+
+            return tokens.stream()
+                    .filter(t -> t.length() >= 2 && !t.matches("\\d+") && !KEYWORD_STOP_WORDS.contains(t))
+                    .sorted()
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("[SemanticCache] 关键词提取失败: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
      * 精确匹配：按问题原文 MD5 直接查
+     * <p>
+     * 如果路由决策命中但回复未缓存，兜底检查关键词回复缓存，
+     * 使精确匹配也能享受 keyword reply cache 的收益。
      */
     private CachedRouteDecision getByExactQuestion(String question) {
         String exactKey = EXACT_KEY_PREFIX + md5(question);
@@ -91,7 +195,16 @@ public class SemanticRouteCacheService {
             log.debug("[SemanticCache] 精确匹配命中: {}", intentTag);
             CachedRouteDecision decision = getByIntentTag(intentTag);
             if (decision != null) {
-                log.info("[SemanticCache] ✅ 精确缓存命中: intent={}, agent={}", intentTag, decision.agentName);
+                // 路由决策命中但回复未缓存时，兜底关键词回复缓存
+                if (decision.reply == null || decision.reply.isBlank()) {
+                    CachedRouteDecision keywordFallback = getByKeywordHash(question);
+                    if (keywordFallback != null && keywordFallback.reply != null && !keywordFallback.reply.isBlank()) {
+                        decision.reply = keywordFallback.reply;
+                        log.info("[SemanticCache] ✅ 精确匹配+关键词回复兜底: intent={}, agent={}", intentTag, decision.agentName);
+                    }
+                } else {
+                    log.info("[SemanticCache] ✅ 精确缓存命中: intent={}, agent={}", intentTag, decision.agentName);
+                }
             }
             return decision;
         }
@@ -121,7 +234,7 @@ public class SemanticRouteCacheService {
                 decision.firstCachedAt = cachedReply.firstCachedAt;
 
                 cachedReply.hitCount = decision.hitCount;
-                long ttl = getTtlForReply(decision.agentName);
+                long ttl = getTtlForReply(decision.agentName, decision.originalQuestion);
 
                 if (decision.hitCount >= 3) {
                     ttl = Math.max(ttl, 7200);
@@ -172,9 +285,9 @@ public class SemanticRouteCacheService {
         return null;
     }
 
-    /**
-     * 保存路由决策（不含回复内容）+ 写入决策审计日志
-     * @param requestId  请求ID（用于审计日志，可为 null）
+    /*
+      保存路由决策（不含回复内容）+ 写入决策审计日志
+      @param requestId  请求ID（用于审计日志，可为 null）
      * @param question   用户问题
      * @param agentName  路由目标 Agent
      * @param confidence 置信度
@@ -205,6 +318,7 @@ public class SemanticRouteCacheService {
         try {
             // 保存路由决策
             CachedRouteDecision decision = new CachedRouteDecision(intentTag, agentName, confidence, question);
+            decision.firstUserId = userId;  // ⭐ 记录首次提问用户，用于前缀个性化
             String json = objectMapper.writeValueAsString(decision);
             String key = CACHE_KEY_PREFIX + md5(intentTag);
             redisTemplate.opsForValue().set(key, json, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
@@ -218,6 +332,9 @@ public class SemanticRouteCacheService {
             String prefix = question.substring(0, Math.min(8, question.length()));
             String prefixKey = PREFIX_KEY_PREFIX + md5(prefix);
             redisTemplate.opsForValue().set(prefixKey, intentTag, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+
+            // ⭐ 保存关键词哈希映射（分词 → 排序 → MD5，使同类问题共享缓存）
+            saveKeywordHash(question, intentTag);
 
             // ⭐ 记录用户意图分布（写入 Redis Hash: user:intent:{userId}）
             if (userId != null) {
@@ -253,9 +370,61 @@ public class SemanticRouteCacheService {
         try {
             String exactKey = EXACT_KEY_PREFIX + md5(rawQuestion);
             redisTemplate.opsForValue().set(exactKey, intentTag, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+
+            // 同时也保存关键词哈希，新问题即使不精确匹配也能命中
+            saveKeywordHash(rawQuestion, intentTag);
+
             log.debug("[SemanticCache] 精确匹配覆盖: rawQuestion={}, intent={}", rawQuestion, intentTag);
         } catch (Exception e) {
             log.warn("[SemanticCache] 保存精确匹配失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * ⭐ 保存关键词哈希映射（分词 → 排序去重 → MD5）
+     * <p>
+     * 使语义相近的问题共享同一缓存 key。
+     * 例如："上海天气怎么样" 和 "上海今天气温多少度"
+     * → tokenize → {"上海", "天气"} → sorted → "上海,天气" → md5
+     * 两问题共享同一 intentTag，后续同类问题无需 LLM 即可命中。
+     */
+    private void saveKeywordHash(String question, String intentTag) {
+        if (!cacheEnabled || redisTemplate == null || question == null || question.isBlank() || intentTag == null) return;
+        try {
+            List<String> keywords = extractKeywords(question);
+            if (keywords.isEmpty()) return;
+
+            String keywordHash = md5(String.join(",", keywords));
+            String keywordKey = KEYWORD_KEY_PREFIX + keywordHash;
+            redisTemplate.opsForValue().set(keywordKey, intentTag, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+            log.debug("[SemanticCache] 关键词哈希已保存: keywords={}, key={}", keywords, keywordKey);
+        } catch (Exception e) {
+            log.warn("[SemanticCache] 保存关键词哈希失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * ⭐ 保存关键词级别回复缓存
+     * <p>
+     * 使共享相同关键词的问题（如"上海天气怎么样"和"上海天气如何"）
+     * 在第一次 Agent 执行后，后续同类问题直接命中回复缓存，无需再调 Agent。
+     */
+    private void saveKeywordReply(String question, String reply, String agentName) {
+        if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank()) return;
+        try {
+            List<String> keywords = extractKeywords(question);
+            if (keywords.isEmpty()) return;
+
+            String keywordHash = md5(String.join(",", keywords));
+            String replyKey = KEYWORD_REPLY_KEY_PREFIX + keywordHash;
+
+            CachedReply cachedReply = new CachedReply(reply, agentName, question);
+            String replyJson = objectMapper.writeValueAsString(cachedReply);
+            long ttl = getTtlForReply(agentName, question);
+            redisTemplate.opsForValue().set(replyKey, replyJson, ttl, TimeUnit.SECONDS);
+            log.info("[SemanticCache] 💾 关键词级别回复已缓存: keywords={}, agent={}", keywords, agentName);
+        } catch (Exception e) {
+            log.warn("[SemanticCache] 保存关键词回复缓存失败: {}", e.getMessage());
         }
     }
 
@@ -318,16 +487,19 @@ public class SemanticRouteCacheService {
         if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank() || intentTag == null) return;
 
         try {
-            // ⭐ 只缓存高频问题的回复
+            // ⭐ 无论是否高频，都保存关键词级别回复缓存（使同类问题共享回复）
+            saveKeywordReply(question, reply, agentName);
+
+            // ⭐ 高频问题额外保存意图维度回复缓存（精确匹配命中时用）
             if (!isHighFrequencyQuestion(intentTag)) {
-                log.debug("[SemanticCache] 跳过低频问题回复缓存: intent={}, agent={}", intentTag, agentName);
+                log.debug("[SemanticCache] 跳过低频问题意图回复缓存: intent={}, agent={}", intentTag, agentName);
                 return;
             }
 
             CachedReply cachedReply = new CachedReply(reply, agentName, question);
             String replyJson = objectMapper.writeValueAsString(cachedReply);
             String replyKey = REPLY_KEY_PREFIX + md5(intentTag);
-            long ttl = getTtlForReply(agentName);
+            long ttl = getTtlForReply(agentName, question);
             redisTemplate.opsForValue().set(replyKey, replyJson, ttl, TimeUnit.SECONDS);
 
             log.info("[SemanticCache] 💾 已缓存回复(高频问题): intent={}, agent={}", intentTag, agentName);
@@ -338,12 +510,16 @@ public class SemanticRouteCacheService {
 
     /**
      * ⭐ 包装缓存回复：前缀变化 + Phase 2 LLM 改写 + 前缀匹配针对性改写
+     * <p>
+     * 根据 userId 判断是否为同一用户，不同用户时使用中性前缀。
      */
-    public String wrapCachedReply(String reply, CachedRouteDecision cached, String userQuestion) {
+    public String wrapCachedReply(String reply, CachedRouteDecision cached, String userQuestion, Long userId) {
         if (reply == null || reply.isBlank()) return reply;
 
         // ⭐ 清理缓存回复中可能残留的旧前缀（避免嵌套）
         reply = stripPrefixes(reply);
+
+        boolean sameUser = userId != null && userId.equals(cached.firstUserId);
 
         long elapsed = System.currentTimeMillis() - (cached.firstCachedAt > 0 ? cached.firstCachedAt : cached.cachedAt);
         long elapsedHours = elapsed / 3600000;
@@ -351,33 +527,30 @@ public class SemanticRouteCacheService {
         // ⭐ 前缀匹配：先回复已命中部分，再用过渡语引导用户到实际意图
         if (cached._isPrefixMatch && userQuestion != null && !userQuestion.equals(cached.originalQuestion)) {
             if (cached._intentMismatch) {
-                // 意图不匹配：给出缓存回复 + 过渡建议（不强行改写）
                 String extra = cached.originalQuestion + "方面的信息如上所述。"
                         + "关于你提到的其他内容，你可以试试这样问我：";
                 log.info("[SemanticCache] 🔀 前缀命中意图不匹配，追加过渡建议");
                 return stripPrefixes(reply) + "\n\n---\n💡 " + extra;
             }
-            // 意图一致：用 LLM 针对性改写
-            String adapted = rewriteForPrefixMatch(reply, cached.originalQuestion, userQuestion);
-            if (adapted != null && !adapted.isBlank()) {
-                log.info("[SemanticCache] 🎯 前缀匹配针对性改写: question={}", userQuestion);
-                return adapted;
+            // 仅同用户调用 LLM 改写，不同用户直接返回缓存内容
+            if (sameUser) {
+                String adapted = rewriteForPrefixMatch(reply, cached.originalQuestion, userQuestion);
+                if (adapted != null && !adapted.isBlank()) {
+                    log.info("[SemanticCache] 🎯 前缀匹配针对性改写: question={}", userQuestion);
+                    return adapted;
+                }
             }
         }
 
-        // Phase 2: 高命中次数（≥3）→ 针对用户问题改写
-        if (cached.hitCount >= 3) {
+        // Phase 2: 高命中次数（≥3）→ 仅对同用户的不同表述做 LLM 改写
+        // 不同用户 → 直接走前缀变化（中性前缀，零 LLM 成本）
+        // 相同问题 → 直接走前缀变化（用户极少重复提问，前缀变化已足够）
+        if (cached.hitCount >= 3 && sameUser) {
             if (userQuestion != null && !userQuestion.equals(cached.originalQuestion)) {
                 String adapted = rewriteForPrefixMatch(reply, cached.originalQuestion, userQuestion);
                 if (adapted != null && !adapted.isBlank()) {
                     log.info("[SemanticCache] ✏️ 语义命中针对性改写: question={}", userQuestion);
                     return adapted;
-                }
-            } else if (cached.hitCount <= 10) {
-                String rewritten = rewriteReply(reply);
-                if (rewritten != null && !rewritten.isBlank()) {
-                    log.info("[SemanticCache] ✏️ LLM 改写缓存回复: hit={}", cached.hitCount);
-                    return rewritten;
                 }
             }
         }
@@ -385,21 +558,43 @@ public class SemanticRouteCacheService {
         // 前缀变化（仅当 Phase 2 未命中或改写失败时）
         String prefix;
         if (cached.hitCount >= 3) {
-            List<String> tips = Arrays.asList(
-                    "（以下是我之前查到的信息，可能已有变化哦）",
-                    "（这条信息是之前查询的，建议重新问一下获取最新数据）",
-                    "（按上次查询的结果来看，可能会有些出入～）"
-            );
+            List<String> tips;
+            if (sameUser) {
+                tips = Arrays.asList(
+                        "（以下是我之前查到的信息，可能已有变化哦）",
+                        "（这条信息是之前查询的，建议重新问一下获取最新数据）",
+                        "（按上次查询的结果来看，可能会有些出入～）"
+                );
+            } else {
+                tips = Arrays.asList(
+                        "（以下是根据历史查询获取的信息）",
+                        "（这条信息是此前查询得到的）",
+                        "（以上信息来源于此前缓存的数据）"
+                );
+            }
             prefix = tips.get(random.nextInt(tips.size())) + "\n\n";
         } else if (elapsedHours > 6) {
-            prefix = "📅 根据" + (elapsedHours > 24 ? "之前" : elapsedHours + "小时前") + "查询的信息：\n\n";
+            if (sameUser) {
+                prefix = "📅 根据" + (elapsedHours > 24 ? "之前" : elapsedHours + "小时前") + "查询的信息：\n\n";
+            } else {
+                prefix = "📅 以下信息来源于" + (elapsedHours > 24 ? "之前的" : elapsedHours + "小时前的") + "数据：\n\n";
+            }
         } else if (cached.hitCount == 2) {
-            List<String> greetings = Arrays.asList(
-                    "再帮你查一次，结果和之前一样～\n\n",
-                    "跟上次查询的结果一致：\n\n",
-                    "还是同样的结果：\n\n"
-            );
-            prefix = greetings.get(random.nextInt(greetings.size()));
+            if (sameUser) {
+                List<String> greetings = Arrays.asList(
+                        "再帮你查一次，结果和之前一样～\n\n",
+                        "跟上次查询的结果一致：\n\n",
+                        "还是同样的结果：\n\n"
+                );
+                prefix = greetings.get(random.nextInt(greetings.size()));
+            } else {
+                List<String> neutral = Arrays.asList(
+                        "查询结果如下：\n\n",
+                        "以下是相关信息：\n\n",
+                        "这是查询到的结果：\n\n"
+                );
+                prefix = neutral.get(random.nextInt(neutral.size()));
+            }
         } else {
             prefix = "";
         }
@@ -418,7 +613,13 @@ public class SemanticRouteCacheService {
                 "还是同样的结果：\n\n",
                 "（以下是我之前查到的信息，可能已有变化哦）\n\n",
                 "（这条信息是之前查询的，建议重新问一下获取最新数据）\n\n",
-                "（按上次查询的结果来看，可能会有些出入～）\n\n"
+                "（按上次查询的结果来看，可能会有些出入～）\n\n",
+                "（以下是根据历史查询获取的信息）\n\n",
+                "（这条信息是此前查询得到的）\n\n",
+                "（以上信息来源于此前缓存的数据）\n\n",
+                "查询结果如下：\n\n",
+                "以下是相关信息：\n\n",
+                "这是查询到的结果：\n\n"
         };
         for (String prefix : knownPrefixes) {
             while (reply.startsWith(prefix)) {
@@ -479,16 +680,50 @@ public class SemanticRouteCacheService {
     /**
      * Phase 3: 动态 TTL（天气类短，美食/旅行类长）
      */
-    private long getTtlForReply(String agentName) {
+    /**
+     * Phase 3: 动态 TTL（按 Agent 类型 + 问题类型）
+     * <p>
+     * 同一 Agent 内不同查询类型时效性不同：
+     * - 天气查询 → 短 TTL（20min）
+     * - 景点/推荐类 → 较长 TTL（12h）
+     * - 美食推荐 → 中 TTL（12h）
+     * - 通用闲聊 → 长 TTL（2h）
+     * - 今天/今日 → 比同类型更短
+     */
+    private long getTtlForReply(String agentName, String originalQuestion) {
         if (agentName == null) return 3600;
         String lower = agentName.toLowerCase();
+
+        // Weather / location — 强时效性
         if (lower.contains("weather") || lower.contains("location") || lower.contains("天气")) {
-            return 1800;
+            if (originalQuestion != null && !originalQuestion.isBlank()) {
+                // 非天气类查询（景点、推荐、去哪等）→ 较长 TTL
+                if (originalQuestion.contains("景点") || originalQuestion.contains("推荐")
+                        || originalQuestion.contains("好玩") || originalQuestion.contains("去哪")
+                        || originalQuestion.contains("哪里") || originalQuestion.contains("附近")) {
+                    return 43200; // 12h
+                }
+            }
+            return 1200; // 20min
         }
+
+        // Food / restaurant — 中等时效性
         if (lower.contains("food") || lower.contains("美食")) {
-            return 86400;
+            if (originalQuestion != null && !originalQuestion.isBlank()) {
+                // 今日推荐 → 更短 TTL
+                if (originalQuestion.contains("今天") || originalQuestion.contains("今日")) {
+                    return 7200; // 2h
+                }
+            }
+            return 43200; // 12h
         }
-        return 3600;
+
+        // General chat — 弱时效性
+        if (lower.contains("general") || lower.contains("chat") || lower.contains("builtin") || lower.contains("fallback")) {
+            return 7200; // 2h
+        }
+
+        return 3600; // 默认 1h
     }
 
     /**
@@ -532,8 +767,11 @@ public class SemanticRouteCacheService {
         public int hitCount;
         public long firstCachedAt;
         public String reply;
+        public Long firstUserId;  // ⭐ 首次提问的用户ID，用于判断同/不同用户
         public transient boolean _isPrefixMatch;
         public transient boolean _intentMismatch;
+
+        public CachedRouteDecision() {}  // ⭐ Jackson 反序列化需要无参构造
 
         public CachedRouteDecision(String intentTag, String agentName, double confidence, String originalQuestion) {
             this.intentTag = intentTag;
