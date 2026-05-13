@@ -128,6 +128,18 @@
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
+        <!-- ⭐ ONNX Runtime（BGE 向量推理，网络受限时从 repo1.maven.org 下载后手动 install）
+             下载: https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.18.0/onnxruntime-1.18.0.jar
+             安装: mvn install:install-file -Dfile=onnxruntime-1.18.0.jar -DgroupId=com.microsoft.onnxruntime -DartifactId=onnxruntime -Dversion=1.18.0 -Dpackaging=jar
+             启用: 取消注释下方 dependency 并执行上一步安装即可 -->
+        <!--
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>1.18.0</version>
+        </dependency>
+        -->
+
     </dependencies>
 
     <build>
@@ -147,4 +159,6 @@
             </plugin>
         </plugins>
     </build>
+
+
 </project>
