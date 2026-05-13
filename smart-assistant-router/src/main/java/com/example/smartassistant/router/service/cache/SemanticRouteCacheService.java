@@ -42,6 +42,7 @@ public class SemanticRouteCacheService {
     private static final String DECISION_AUDIT_KEY_PREFIX = "a2a:route:decision:";
     private static final String FULL_DECISION_KEY_PREFIX = "a2a:route:full-decision:";  // ⭐ 供 Consumer 读取的完整决策（独立 key）
     private static final String GLOBAL_INTENT_COUNT_PREFIX = "intent:global:count:";  // ⭐ 全局意图计数（判断高频问题）
+    private static final String ADMIN_OP_REDIS_KEY = "admin:tool:called:latest";
     private static final long CACHE_TTL_SECONDS = 86400;
     private static final long DECISION_AUDIT_TTL_SECONDS = 604800; // 7天
     private static final int HIGH_FREQUENCY_THRESHOLD = 2;
@@ -613,6 +614,13 @@ public class SemanticRouteCacheService {
         if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank() || intentTag == null) return;
 
         try {
+            // ⭐ 检查 Redis 中是否有管理员工具操作的标记（由 Agent 端的 AdminPermissionAspect 写入）
+            if (!adminOperation && redisTemplate.hasKey(ADMIN_OP_REDIS_KEY)) {
+                adminOperation = true;
+                redisTemplate.delete(ADMIN_OP_REDIS_KEY);
+                log.debug("[SemanticCache] Redis 检测到管理员操作标记，跳过回复缓存");
+            }
+
             // ⭐ 管理员工具操作（如知识库同步）的回复不缓存
             if (adminOperation) {
                 log.debug("[SemanticCache] 管理员工具操作跳过回复缓存: agent={}", agentName);
