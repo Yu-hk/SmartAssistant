@@ -29,17 +29,6 @@ spring:
         group: DEFAULT_GROUP
         username: ${NACOS_USERNAME:nacos}
         password: ${NACOS_PASSWORD}
-        # 注册时携带元数据（供 Router 使用）
-        metadata:
-          agent-type: location_weather
-          capabilities: location_query,weather_forecast,travel_planning,nearby_entertainment
-          keywords: "天气,出行,旅游,位置,附近,景点,规划,周末活动,在哪里,怎么去,好玩,哪里,推荐,城市,周末去哪,游玩"
-          # ⭐ 版本管理
-          cache-ttl-seconds: "1200"     # ⭐ 回复缓存 TTL（秒），天气类短，Router 直接读取
-          version: "1.0.0"
-          protocol-version: "v1"
-          min-client-version: "1.0.0"
-          supported-protocols: "a2a-v1"
 
   # 禁用 SQL 初始化依赖检测（解决 MyBatis Plus 兼容性问题）
   sql:
@@ -67,14 +56,7 @@ spring:
     password: ${POSTGRES_PASSWORD}  # ⚠️ 必须设置 POSTGRES_PASSWORD 环境变量
     driver-class-name: org.postgresql.Driver
 
-  # DashScope Embedding API 配置
   ai:
-    dashscope:
-      api-key: ${DASHSCOPE_API_KEY:}  # 阿里云 DashScope API Key
-      embedding:
-        options:
-          model: text-embedding-v4  # 最新模型，支持多语言，输出 1024 维向量
-    
     # DeepSeek 模型配置
     deepseek:
       api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek API Key，申请地址：https://platform.deepseek.com/

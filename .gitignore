@@ -80,3 +80,7 @@ models/*.onnx
 # Test model output
 **/models/*.onnx
 **/models/onnx/
+
+# BGE cloned model repos (git LFS, not part of the project source)
+**/models/bge-large-zh-v1.5/
+**/models/bge-small-zh-v1.5/

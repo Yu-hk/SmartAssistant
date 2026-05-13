@@ -85,15 +85,7 @@ spring:
       db-config:
         id-type: auto
 
-  # DashScope Chat API 配置 (仅用于 Embedding, Chat 已切换至 DeepSeek)
   ai:
-    dashscope:
-      api-key: ${DASHSCOPE_API_KEY:}  # 阿里云 DashScope API Key，申请地址：https://dashscope.console.aliyun.com/
-      embedding:
-        enabled: true
-        options:
-          model: text-embedding-v4   # 升级从 v2 → v4，输出 1024 维向量
-    
     # ⭐ DeepSeek 原生配置 (Chat 模型)
     deepseek:
       api-key: ${DEEPSEEK_API_KEY:}
@@ -227,14 +219,6 @@ prompt:
     whitelist-users: []         # 白名单用户 ID 列表
     blacklist-users: []         # 黑名单用户 ID 列表
 
-# ⭐ 语音识别配置
-speech:
-  recognition:
-    provider: dashscope           # 语音识别提供商：dashscope | local
-    language: zh-CN               # 默认语言：zh-CN, en-US, ja-JP, ko-KR
-    max-file-size-mb: 10          # 最大音频文件大小（MB）
-    supported-formats: wav,mp3,m4a,flac,ogg  # 支持的音频格式
-
 # ⭐ HanLP 配置
 hanlp:
   data-path: ${HANLP_DATA_PATH:}           # HanLP 数据文件目录（可选，不填则使用默认）
@@ -323,8 +307,6 @@ cors:
     - OPTIONS
   allowed-headers: Content-Type,Authorization,X-Requested-With,Accept,Origin
   allow-credentials: true
-
-# ⭐ Prompt 配置（监控 + 灰度发布）- 已合并到上方
 
 # ⭐ 对话上下文压缩配置
 conversation:
