@@ -103,15 +103,7 @@ public class SemanticRouteCacheService {
         return null;
     }
 
-    // ⭐ 前缀扩展白名单：剩余部分仅含天气衍生关键词时可走缓存命中
-    // 其余情况一律走 Agent（确保多意图/跨领域问题被正确处理）
-    private static final Set<String> WEATHER_EXTENSION_SAFE = Set.of(
-            "多穿", "少穿", "衣服", "穿衣", "穿什么",
-            "冷不冷", "热不热", "暖不暖", "冷吗", "热吗",
-            "带伞", "带雨伞", "下雨", "下雪", "刮风",
-            "温度", "气温", "度数",
-            "冷不", "热不", "冷", "热", "暖", "凉"
-    );
+    private static final double EXTENSION_SIMILARITY_THRESHOLD = 0.30;
 
     /**
      * Tier 3: TF 向量匹配
@@ -132,35 +124,40 @@ public class SemanticRouteCacheService {
             double score = bestMatch.getValue();
 
             // ⭐ 检测前缀扩展：用户问题以缓存问题开头且更长
-            // 例如"北京天气，多穿点衣服"扩���自缓存"北京天气"
-            // 仅当剩余部分包含天气衍生词时才走缓存命中，否则视为新意图交 Agent
+            // 利用 TF 向量比较"剩余部分"和"缓存回复"的语义相似度
+            // "多穿点衣服"→语义接近天气回复 → 缓存命中
+            // "有什么好吃的"→语义远离天气回复 → 缓存未命中，交 Agent
             if (matchedQuestion != null && question.startsWith(matchedQuestion)
                     && question.length() > matchedQuestion.length()) {
                 String remaining = question.substring(matchedQuestion.length()).trim();
+                if (remaining.isEmpty()) return proceedWithPrefixHit(question, matchedQuestion, score);
 
-                // 空/去"的"后很短 → 直接命中
-                if (remaining.isEmpty() || remaining.replaceAll("[的，,、]", "").length() <= 2) {
-                    return proceedWithPrefixHit(question, matchedQuestion, score);
+                // 先获取缓存回复，再比较剩余部分和回复的语义
+                String exactKey = EXACT_KEY_PREFIX + md5(matchedQuestion);
+                String intentTag = redisTemplate.opsForValue().get(exactKey);
+                if (intentTag == null) return null;
+                CachedRouteDecision decision = getByIntentTag(intentTag);
+                if (decision == null || decision.reply == null) return null;
+
+                // 双方都 TF 向量化后算余弦相似度
+                float[] extVec = tfEmbedding.embed(remaining);
+                float[] repVec = tfEmbedding.embed(decision.reply);
+                if (extVec == null || repVec == null) return proceedWithPrefixHit(question, matchedQuestion, score);
+
+                double extSim = cosineSimilarity(extVec, repVec);
+                log.info("[SemanticCache] 🔀 前缀扩展语义比对: extension={}, replySim={}",
+                        remaining, String.format("%.4f", extSim));
+
+                if (extSim >= EXTENSION_SIMILARITY_THRESHOLD) {
+                    // 扩展语义接近缓存回复（如"多穿点衣服"≈天气数据）
+                    decision._isPrefixMatch = true;
+                    decision._intentMismatch = remaining.length() > 2;
+                    return decision;
                 }
 
-                // 检查是否仅含天气衍生词（如"多穿点衣服"、"冷不冷"）
-                boolean isWeatherDerived = false;
-                for (String safe : WEATHER_EXTENSION_SAFE) {
-                    if (remaining.contains(safe)) {
-                        isWeatherDerived = true;
-                        break;
-                    }
-                }
-
-                if (isWeatherDerived) {
-                    log.info("[SemanticCache] ✅ 向量命中(天气衍生扩展): base={}, extension={}",
-                            matchedQuestion, remaining);
-                    return proceedWithPrefixHit(question, matchedQuestion, score);
-                }
-
-                // 非天气衍生 → 可能是美食/出行/景点等其他意图 → 缓存未命中，交 Agent
-                log.info("[SemanticCache] 🔀 向量命中但扩展非天气衍生, 走 Agent: base={}, extension={}",
-                        matchedQuestion, remaining);
+                // 扩展语义远离缓存回复（如"有什么好吃的"≠天气数据）→ 交 Agent
+                log.info("[SemanticCache] 🔀 前缀扩展语义不匹配, 走 Agent: extension={}, sim={}",
+                        remaining, String.format("%.4f", extSim));
                 return null;
             }
 
@@ -635,6 +632,18 @@ public class SemanticRouteCacheService {
 
     long getTtlForReply(String agentName, String originalQuestion) {
         return replyFormatter.getTtlForReply(agentName, originalQuestion);
+    }
+
+    private static double cosineSimilarity(float[] a, float[] b) {
+        if (a == null || b == null || a.length != b.length) return 0;
+        double dot = 0, normA = 0, normB = 0;
+        for (int i = 0; i < a.length; i++) {
+            dot += (double) a[i] * b[i];
+            normA += (double) a[i] * a[i];
+            normB += (double) b[i] * b[i];
+        }
+        double denom = Math.sqrt(normA) * Math.sqrt(normB);
+        return denom == 0 ? 0 : dot / denom;
     }
 
     /**
