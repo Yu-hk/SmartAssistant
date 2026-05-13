@@ -48,12 +48,7 @@ spring:
       map-underscore-to-camel-case: true  # 自动转换下划线到驼峰
       log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl  # 启用 SQL 日志
 
-  # AI 模型配置
   ai:
-    # DashScope 配置（用于 A2A 服务发现）
-    dashscope:
-      api-key: ${DASHSCOPE_API_KEY:}  # 阿里云 DashScope API Key，优先从环境变量读取
-    
     # DeepSeek 配置（聊天模型）
     deepseek:
       api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek API Key，优先从环境变量读取
