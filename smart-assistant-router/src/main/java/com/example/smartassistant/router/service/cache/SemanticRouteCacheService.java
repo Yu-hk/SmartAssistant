@@ -73,6 +73,10 @@ public class SemanticRouteCacheService {
         this.vectorCache = vectorCache;
     }
 
+    private float[] embed(String text) {
+        return tfEmbedding.embed(text);
+    }
+
     /**
      * 获取缓存决策：三层匹配
      * <p>
@@ -114,7 +118,7 @@ public class SemanticRouteCacheService {
      */
     private CachedRouteDecision getByVectorMatch(String question) {
         try {
-            float[] queryVec = tfEmbedding.embed(question);
+            float[] queryVec = embed(question);
             if (queryVec == null) return null;
 
             var bestMatch = vectorCache.findBestMatch(queryVec);
@@ -140,8 +144,8 @@ public class SemanticRouteCacheService {
                 if (decision == null || decision.reply == null) return null;
 
                 // 双方都 TF 向量化后算余弦相似度
-                float[] extVec = tfEmbedding.embed(remaining);
-                float[] repVec = tfEmbedding.embed(decision.reply);
+                float[] extVec = embed(remaining);
+                float[] repVec = embed(decision.reply);
                 if (extVec == null || repVec == null) return proceedWithPrefixHit(question, matchedQuestion, score);
 
                 double extSim = cosineSimilarity(extVec, repVec);
@@ -451,7 +455,7 @@ public class SemanticRouteCacheService {
     private void saveVectorCache(String question) {
         if (question == null || question.isBlank()) return;
         try {
-            float[] vec = tfEmbedding.embed(question);
+            float[] vec = embed(question);
             if (vec != null) vectorCache.put(question, vec);
         } catch (Exception e) {
             log.debug("[SemanticCache] 保存向量缓存失败: {}", e.getMessage());
