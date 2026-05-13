@@ -51,7 +51,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 特性 | 说明 |
 |------|------|
 | 🧠 **A2A 多 Agent 协作** | 基于 Spring AI Alibaba A2A 协议，8 个微服务通过 Nacos 自动发现与注册，Router 统一分发 |
-| 🧠 **三层语义缓存 + BGE ONNX** | 精确匹配 → 关键词哈希(分词→MD5) → BGE/TF 向量匹配(余弦≥0.70)，BGE-small-zh(512d) ONNX 本地推理，零外部 API |
+| 🧠 **三层语义缓存 + BGE ONNX + 智能跳过** | 精确匹配 → 关键词哈希 → BGE 向量匹配。短时效 Agent(TTL<1h)回复自动跳过缓存，管理员工具操作通过 Redis 标记跳过，均保留路由决策加速 |
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + 多路召回(RRF融合)，覆盖出行/美食领域 |
 | 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
@@ -214,19 +214,34 @@ getCachedDecision(question)
     └── 阈值 0.70 覆盖前缀扩展（"北京天气"→"北京天气冷不冷"）
 ```
 
+### 回复缓存策略
+
+系统在 `saveReply()` 时按以下顺序判断是否跳过回复缓存（路由决策始终缓存）：
+
+```
+saveReply() 时
+├── 管理员工具执行标记存在? (Redis admin:tool:called:latest)
+│   └── ✅ 是 → 跳过回复缓存（Agent 端 @AdminOnly 工具触发后写入）
+│
+├── Agent 声明 cache-ttl-seconds < 3600 ?
+│   └── ✅ 是 → 跳过回复缓存（天气类 ttl=1200，每次拿最新数据）
+│
+└── 通过 → 按正常流程缓存回复
+```
+
 | 缓存类型 | Key | 写入时机 | TTL |
 |---------|-----|---------|:---:|
 | 路由决策 | `a2a:route:semantic:{md5(intentTag)}` | 每次路由后 | 24h |
 | 精确映射 | `a2a:route:exact:{md5(question)}` | 每次路由后 | 24h |
 | 关键词路由 | `a2a:route:keyword:{md5(keywords)}` | 每次路由后 | 24h |
-| **关键词回复** | `a2a:route:keyword:reply:{md5(keywords)}` | **每次 Agent 执行后立即** | 动态 |
-| 意图回复 | `a2a:route:reply:{md5(intentTag)}` | 被问到 ≥2 次后 | 动态 |
+| **关键词回复** | `a2a:route:keyword:reply:{md5(keywords)}` | **Agent 执行后（TTL≥1h 时）** | 动态 |
+| 意图回复 | `a2a:route:reply:{md5(intentTag)}` | 被问到 ≥2 次后（TTL≥1h 时） | 动态 |
 
 ### 动态 TTL（按 Agent 类型 + 问题内容）
 
 | Agent | 场景 | TTL | 说明 |
 |:-----|------|:---:|------|
-| location_weather | 纯天气查询 | **20min** | 气温/降水实时更新 |
+| location_weather | 纯天气查询 | **20min** → 低于 1h 阈值，回复不缓存 | 气温/降水实时更新 |
 | location_weather | 景点/推荐/去哪 | **12h** | 景区信息几乎不变 |
 | food_recommendation | 今日推荐 | **2h** | 每日特价更新 |
 | food_recommendation | 一般美食查询 | **12h** | 餐厅信息稳定 |
@@ -249,7 +264,7 @@ getCachedDecision(question)
 | 冷启动（无缓存） | 5-18s | ✅ 执行 |
 | 路由缓存命中（Tier 1/2 无回复） | 3-15s | ✅ 执行 |
 | **全缓存命中（Tier 1/2/3）** | **1-5ms** | **❌ 跳过** |
-| TF 向量匹配命中（前缀扩展兜底） | **5ms** | ❌ 跳过 |
+| BGE 向量匹配命中（前缀扩展兜底） | **5ms** | ❌ 跳过 |
 
 每意图仅需 **1-2 次 Agent 执行**（改前需 5 次），缓存命中时延迟从 5-18s 降至 **1-5ms**。
 
