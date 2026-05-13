@@ -103,7 +103,7 @@ public class SemanticRouteCacheService {
         return null;
     }
 
-    private static final double EXTENSION_SIMILARITY_THRESHOLD = 0.30;
+    private static final double EXTENSION_SIMILARITY_THRESHOLD = 0.15;
 
     /**
      * Tier 3: TF 向量匹配
