@@ -38,6 +38,7 @@ class SemanticRouteCacheServiceTest {
     @Mock private ValueOperations<String, String> valueOps;
     private TfEmbeddingService tfEmbedding;
     private VectorCacheStore vectorCache;
+    private BgeOnnxEmbeddingService bgeEmbedding;
 
     private SemanticRouteCacheService cacheService;
 
@@ -46,8 +47,9 @@ class SemanticRouteCacheServiceTest {
         when(chatClientBuilder.build()).thenReturn(chatClient);
         tfEmbedding = new TfEmbeddingService(tokenizer);
         vectorCache = new VectorCacheStore();
+        bgeEmbedding = new BgeOnnxEmbeddingService();
         cacheService = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
-                agentDiscoveryService, tfEmbedding, vectorCache);
+                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding);
         ReflectionTestUtils.setField(cacheService, "cacheEnabled", true);
     }
 
@@ -55,7 +57,7 @@ class SemanticRouteCacheServiceTest {
     @DisplayName("禁用缓存时返回 null")
     void testDisabled() {
         cacheService = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
-                agentDiscoveryService, tfEmbedding, vectorCache) {
+                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding) {
             @Override public String generateIntentTag(String q) { return null; }
         };
         assertNull(cacheService.getCachedDecision("test"));

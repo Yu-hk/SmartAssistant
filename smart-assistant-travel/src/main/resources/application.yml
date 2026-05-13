@@ -171,6 +171,13 @@ travel:
       min-chunk-size: 80             # 最小分块长度（字符）
       max-chunk-size: 800            # 最大分块长度（字符）
 
+# ⭐ BGE embedding 配置（1.2GB 模型从项目级共享目录加载）
+bge:
+  model:
+    path: ${BGE_MODEL_PATH:D:\\workspace\\SmartAssistant\\models\\bge-large-zh-v1.5.onnx}
+  vocab:
+    path: ${BGE_VOCAB_PATH:D:\\workspace\\SmartAssistant\\models\\tokenizer.json}
+
 # Logging 配置（输出到文件，供 Loki 收集）⭐
 logging:
   file:

@@ -5,6 +5,7 @@ import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.core.RouterService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
+import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
 import com.example.smartassistant.router.service.cache.TfEmbeddingService;
 import com.example.smartassistant.router.service.cache.VectorCacheStore;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
@@ -43,6 +44,7 @@ class RouterRoutingIntegrationTest {
     @Mock private ValueOperations<String, String> valueOps;
     private TfEmbeddingService tfEmbedding;
     private VectorCacheStore vectorCache;
+    private BgeOnnxEmbeddingService bgeEmbedding;
 
     private SemanticRouteCacheService cacheService;
 
@@ -57,8 +59,9 @@ class RouterRoutingIntegrationTest {
 
         tfEmbedding = new TfEmbeddingService(tokenizer);
         vectorCache = new VectorCacheStore();
+        bgeEmbedding = new BgeOnnxEmbeddingService();
         cacheService = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
-                agentDiscoveryService, tfEmbedding, vectorCache);
+                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding);
         ReflectionTestUtils.setField(cacheService, "cacheEnabled", true);
         new RouterService(agentCallerService, agentDiscoveryService, chatClientBuilder,
                 Runnable::run, redisTemplate, ragService, cacheService);

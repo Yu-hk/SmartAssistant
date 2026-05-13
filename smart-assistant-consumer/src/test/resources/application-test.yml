@@ -28,7 +28,7 @@ spring:
       api-key: test-api-key-for-testing
       embedding:
         options:
-          model: text-embedding-v3
+          model: text-embedding-v4
     
     alibaba:
       a2a:
