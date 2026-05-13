@@ -103,12 +103,20 @@ public class SemanticRouteCacheService {
         return null;
     }
 
+    // ⭐ 需要新数据源的扩展关键词（命中时视作缓存未命中，交 Agent 处理）
+    private static final Set<String> EXTENSION_INTENT_WORDS = Set.of(
+            "出行", "规划", "攻略", "行程", "路线", "方案", "计划",
+            "推荐", "好玩", "景点", "游玩", "去哪", "哪里", "怎么去",
+            "预订", "门票", "价格", "多少钱", "营业", "电话",
+            "酒店", "住宿", "交通", "机票", "火车"
+    );
+
     /**
      * Tier 3: TF 向量匹配
      * <p>
-     * 余弦相似度 ≥ 0.70 时视为语义匹配。当匹配到的问题是用���当前问题的前缀扩展时
-     * （如缓存"北京天气"→用户问"北京天气的美食推荐"），标记前缀匹配标志，
-     * 使 ReplyFormatter 追加过渡建议而非直接返回。
+     * 余弦相似度 ≥ 0.70 时视为语义匹配。当匹配到的问题是用户当前问题的前缀扩展时：
+     * - 扩展部分仅需缓存数据即可回答（如"多穿点衣服"→天气数据可推导）→ 缓存命中
+     * - 扩展部分需要新数据源（如"出行规划"→需要旅行数据）→ 缓存未命中,交 Agent
      */
     private CachedRouteDecision getByVectorMatch(String question) {
         try {
@@ -116,40 +124,47 @@ public class SemanticRouteCacheService {
             if (queryVec == null) return null;
 
             var bestMatch = vectorCache.findBestMatch(queryVec);
-            if (bestMatch == null) {
-                log.debug("[SemanticCache] 向量匹配未命中: question={}", question);
-                return null;
-            }
+            if (bestMatch == null) return null;
 
             String matchedQuestion = bestMatch.getKey();
             double score = bestMatch.getValue();
-            log.info("[SemanticCache] ✅ 向量缓存命中: question={}, matched={}, score={}",
-                    question, matchedQuestion, String.format("%.4f", score));
 
-            // 通过精确 key 获取缓存决策
-            String exactKey = EXACT_KEY_PREFIX + md5(matchedQuestion);
-            String intentTag = redisTemplate.opsForValue().get(exactKey);
-            if (intentTag == null) {
-                log.debug("[SemanticCache] 向量命中但精确 key 不存在: {}", matchedQuestion);
-                return null;
-            }
-
-            CachedRouteDecision decision = getByIntentTag(intentTag);
-            if (decision == null) return null;
-
-            // ⭐ 检测前缀扩展场景：用户问题以缓存问题开头
-            // 如缓存"北京天气"，用户问"北京天气的美食推荐"
+            // ⭐ 检测前缀扩展：用户问题以缓存问题开头且更长
             if (matchedQuestion != null && question.startsWith(matchedQuestion)
                     && question.length() > matchedQuestion.length()) {
-                decision._isPrefixMatch = true;
-                // 意图是否匹配取决于后半部分是否与缓存的 intentTag 一致
                 String remaining = question.substring(matchedQuestion.length()).trim();
-                decision._intentMismatch = remaining.length() > 2;
-                log.info("[SemanticCache] 🔀 向量命中含前缀扩展: base={}, extension={}, mismatch={}",
-                        matchedQuestion, remaining, decision._intentMismatch);
+
+                // 扩展部分包含需要新数据源的关键词 → 缓存未命中，交 Agent 处理
+                for (String kw : EXTENSION_INTENT_WORDS) {
+                    if (remaining.contains(kw)) {
+                        log.info("[SemanticCache] 🔀 向量命中但扩展需要新数据源({}), 走 Agent: base={}, extension={}",
+                                kw, matchedQuestion, remaining);
+                        return null; // ← 关键：返回 null 让 Router 调 Agent
+                    }
+                }
+
+                // 扩展部分仅需缓存数据（如"多穿点衣服"→天气可推导）→ 缓存命中
+                log.info("[SemanticCache] ✅ 向量缓存命中(前缀扩展): question={}, matched={}, score={}",
+                        question, matchedQuestion, String.format("%.4f", score));
+                String exactKey = EXACT_KEY_PREFIX + md5(matchedQuestion);
+                String intentTag = redisTemplate.opsForValue().get(exactKey);
+                if (intentTag == null) return null;
+
+                CachedRouteDecision decision = getByIntentTag(intentTag);
+                if (decision != null) {
+                    decision._isPrefixMatch = true;
+                    decision._intentMismatch = remaining.length() > 2;
+                }
+                return decision;
             }
 
-            return decision;
+            // 普通向量匹配（非前缀扩展）
+            log.info("[SemanticCache] ✅ 向量缓存命中: question={}, matched={}, score={}",
+                    question, matchedQuestion, String.format("%.4f", score));
+            String exactKey = EXACT_KEY_PREFIX + md5(matchedQuestion);
+            String intentTag = redisTemplate.opsForValue().get(exactKey);
+            if (intentTag == null) return null;
+            return getByIntentTag(intentTag);
         } catch (Exception e) {
             log.warn("[SemanticCache] 向量匹配异常: {}", e.getMessage());
             return null;
