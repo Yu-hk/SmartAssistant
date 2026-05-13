@@ -44,7 +44,13 @@ public class SemanticRouteCacheService {
     private static final String GLOBAL_INTENT_COUNT_PREFIX = "intent:global:count:";  // ⭐ 全局意图计数（判断高频问题）
     private static final long CACHE_TTL_SECONDS = 86400;
     private static final long DECISION_AUDIT_TTL_SECONDS = 604800; // 7天
-    private static final int HIGH_FREQUENCY_THRESHOLD = 2;  // ⭐ 被问到 >= 2次视为高频（降至2使第二次起全缓存命中，大幅减少 Agent 压力）
+    private static final int HIGH_FREQUENCY_THRESHOLD = 2;
+    /**
+     * Agent 声明 cache-ttl-seconds 低于此阈值时，回复内容不缓存。
+     * 仅缓存路由决策（T1/T2/T3 仍可快速路由），但回复始终从 Agent 获取最新数据。
+     * Agent 管理员可通过 Nacos 调整 cache-ttl-seconds 控制缓存行为，无需修改代码。
+     */
+    private static final long MIN_CACHE_TTL_SECONDS = 3600;  // 1 小时
 
     private final StringRedisTemplate redisTemplate;
     private final ChatClient chatClient;
@@ -562,9 +568,13 @@ public class SemanticRouteCacheService {
      */
     @Deprecated
     public void saveReply(String question, String reply, String agentName) {
+        saveReply(question, reply, agentName, false);
+    }
+
+    public void saveReply(String question, String reply, String agentName, boolean adminOperation) {
         String intentTag = generateIntentTag(question);
         if (intentTag != null) {
-            saveReply(question, reply, agentName, intentTag);
+            saveReply(question, reply, agentName, intentTag, null, adminOperation);
         }
     }
 
@@ -580,7 +590,11 @@ public class SemanticRouteCacheService {
      * TTL 优先级：ttlOverride 参数 > Agent 声明 metadata > Router 默认值
      */
     public void saveReply(String question, String reply, String agentName, String intentTag) {
-        saveReply(question, reply, agentName, intentTag, null);
+        saveReply(question, reply, agentName, intentTag, null, false);
+    }
+
+    public void saveReply(String question, String reply, String agentName, String intentTag, boolean adminOperation) {
+        saveReply(question, reply, agentName, intentTag, null, adminOperation);
     }
 
     /**
@@ -592,11 +606,29 @@ public class SemanticRouteCacheService {
      *                    遵循"木板效应"：整个回答的时效性取决于所用数据中最短的那个。
      */
     public void saveReply(String question, String reply, String agentName, String intentTag, Long ttlOverride) {
+        saveReply(question, reply, agentName, intentTag, ttlOverride, false);
+    }
+
+    public void saveReply(String question, String reply, String agentName, String intentTag, Long ttlOverride, boolean adminOperation) {
         if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank() || intentTag == null) return;
 
         try {
+            // ⭐ 管理员工具操作（如知识库同步）的回复不缓存
+            if (adminOperation) {
+                log.debug("[SemanticCache] 管理员工具操作跳过回复缓存: agent={}", agentName);
+                return;
+            }
+
+            long ttl = ttlOverride != null ? ttlOverride : getTtlForReply(agentName, question);
+            // ⭐ Agent 声明的 TTL 低于阈值时不缓存回复内容，仅缓存路由决策
+            // 例如天气类 cache-ttl-seconds=1200(<3600) → 每次从 Agent 拿最新数据
+            if (ttl < MIN_CACHE_TTL_SECONDS) {
+                log.debug("[SemanticCache] 短时效 Agent 跳过回复缓存: agent={}, ttl={}", agentName, ttl);
+                return;
+            }
+
             // ⭐ 无论是否高频，都保存关键词级别回复缓存（使同类问题共享回复）
-            saveKeywordReply(question, reply, agentName, ttlOverride);
+            saveKeywordReply(question, reply, agentName, ttl);
 
             // ⭐ 高频问题额外保存意图维度回复缓存（精确匹配命中时用）
             if (!isHighFrequencyQuestion(intentTag)) {
@@ -607,7 +639,6 @@ public class SemanticRouteCacheService {
             CachedReply cachedReply = new CachedReply(reply, agentName, question);
             String replyJson = objectMapper.writeValueAsString(cachedReply);
             String replyKey = REPLY_KEY_PREFIX + md5(intentTag);
-            long ttl = ttlOverride != null ? ttlOverride : getTtlForReply(agentName, question);
             redisTemplate.opsForValue().set(replyKey, replyJson, ttl, TimeUnit.SECONDS);
 
             log.info("[SemanticCache] 💾 已缓存回复(高频问题): intent={}, agent={}, ttl={}", intentTag, agentName, ttl);
