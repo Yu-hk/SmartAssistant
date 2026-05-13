@@ -6,7 +6,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-> 基于 Spring AI Alibaba + A2A 协议的多智能体对话平台，集成 DeepSeek V4-Flash 大模型 + DashScope 多模态能力。
+> 基于 Spring AI Alibaba + A2A 协议的多智能体对话平台，集成 DeepSeek V4-Flash 大模型 + BGE 本地中文 Embedding。
 > 支持多 Agent 协同、三层路由兜底、**图片解析/文生图**、LLM 叙事摘要、语义缓存、全链路监控。
 
 ---
@@ -51,7 +51,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 特性 | 说明 |
 |------|------|
 | 🧠 **A2A 多 Agent 协作** | 基于 Spring AI Alibaba A2A 协议，8 个微服务通过 Nacos 自动发现与注册，Router 统一分发 |
-| 🧠 **三层语义缓存** | 精确匹配 → 关键词哈希(分词→MD5) → TF 向量匹配(余弦相似度≥0.70)，全部本地内存无需外部 API |
+| 🧠 **三层语义缓存 + BGE ONNX** | 精确匹配 → 关键词哈希(分词→MD5) → BGE/TF 向量匹配(余弦≥0.70)，BGE-small-zh(512d) ONNX 本地推理，零外部 API |
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + 多路召回(RRF融合)，覆盖出行/美食领域 |
 | 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
@@ -114,7 +114,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 语言 | Java | 17+ |
 | 框架 | Spring Boot | 3.4.8 |
 | AI 框架 | Spring AI Alibaba | 1.1.2 |
-| 模型 | DeepSeek V4-Flash / DashScope text-embedding-v4 | — |
+| 模型 | DeepSeek V4-Flash / BGE-large-zh ONNX (1024d RAG) / BGE-small-zh ONNX (512d Cache) | — |
 | 注册/配置中心 | Nacos（元数据支持动态管理） | 3.1.0 |
 | 缓存 | Redis | 7.2+ |
 | 数据库 | PostgreSQL (pgvector) | 16+/18+ |
@@ -194,7 +194,7 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 
 ## 语义缓存
 
-系统在 Router 模块实现了三层语义缓存，全部本地执行无需外部 API 调用。
+系统在 Router 模块实现了三层语义缓存，全部本地执行无需外部 API 调用。Tier 3 使用 **BGE-small-zh ONNX(512d)** 本地模型，零网络依赖。
 
 ### 缓存架构
 
@@ -207,11 +207,11 @@ getCachedDecision(question)
 │   └── "上海天气怎么样" 和 "上海天气如何" → 相同 hash
 │   └── 回复缓存首次执行后立即保存
 │
-└── Tier 3: TF 向量匹配(余弦相似度≥0.70)   → ~5ms    本地内存（零外部依赖）
-    └── 基于 ChineseTokenizer 分词构建词频向量
-    └── VectorCacheStore 内存索引，自适应词典
-    └── 完全替代原 LLM 语义匹配（1-3s → 5ms）
-    └── 阈值 0.70 覆盖前缀扩展场景（"北京天气"→"北京天气冷不冷"）
+└── Tier 3: BGE ONNX 向量匹配(余弦≥0.70)   → ~5ms    本地 ONNX Runtime
+    └── BGE-small-zh-v1.5 ONNX (512d)，BERT 标准 tokenization
+    └── 自动降级 TF 向量（模型文件缺失时）
+    └── VectorCacheStore 内存索引，最大 10k 条
+    └── 阈值 0.70 覆盖前缀扩展（"北京天气"→"北京天气冷不冷"）
 ```
 
 | 缓存类型 | Key | 写入时机 | TTL |
@@ -321,7 +321,7 @@ copy .env.example .env
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `DEEPSEEK_API_KEY` | DeepSeek 大模型 API Key | 必填 |
-| `DASHSCOPE_API_KEY` | DashScope API Key（Embedding） | 必填 |
+| `DASHSCOPE_API_KEY` | DashScope API Key（图片解析/文生图） | 选填（不填则多模态不可用） |
 | `AMAP_API_KEY` | 高德地图 API Key | 可选 |
 | `POSTGRES_PASSWORD` | PostgreSQL 密码 | `postgres123` |
 | `app.data.dir` | 数据存储根目录 | `data` |
@@ -473,6 +473,17 @@ docker compose -f docker-compose.deploy.yml up -d gateway
 ---
 
 ## 配置说明
+
+### 模型文件
+
+系统使用两个 BGE ONNX 模型文件（不随代码提交，需单独放置）：
+
+| 模型 | 用途 | 路径 | 大小 |
+|------|------|------|:----:|
+| BGE-small-zh-v1.5 | Router Cache T3 语义匹配 | `models/bge-small-zh-v1.5.onnx` | 95 MB |
+| BGE-large-zh-v1.5 | Travel/Food/Consumer RAG 检索 | `models/bge-large-zh-v1.5.onnx` | 1.2 GB (FP32) |
+
+模型路径通过 `bge.model.path` 配置（支持环境变量 `BGE_MODEL_PATH` 覆盖），首次加载约 4-5 秒。BGE-large 替换了原有的 DashScope text-embedding-v4 API 调用，纯本地推理 30-50ms/次。
 
 ### 配置层级（优先级从高到低）
 

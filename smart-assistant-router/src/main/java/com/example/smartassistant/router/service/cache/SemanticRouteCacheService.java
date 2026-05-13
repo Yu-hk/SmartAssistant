@@ -51,6 +51,7 @@ public class SemanticRouteCacheService {
     private final ObjectMapper objectMapper;
     private final ChineseTokenizer tokenizer;
     private final ReplyFormatter replyFormatter;
+    private final BgeOnnxEmbeddingService bgeEmbedding;
     private final TfEmbeddingService tfEmbedding;
     private final VectorCacheStore vectorCache;
 
@@ -63,17 +64,21 @@ public class SemanticRouteCacheService {
             ChineseTokenizer tokenizer,
             AgentDiscoveryService agentDiscoveryService,
             TfEmbeddingService tfEmbedding,
-            VectorCacheStore vectorCache) {
+            VectorCacheStore vectorCache,
+            BgeOnnxEmbeddingService bgeEmbedding) {
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.tokenizer = tokenizer;
         this.replyFormatter = new ReplyFormatter(chatClient, agentDiscoveryService);
+        this.bgeEmbedding = bgeEmbedding;
         this.tfEmbedding = tfEmbedding;
         this.vectorCache = vectorCache;
     }
 
+    /** BGE > TF > null */
     private float[] embed(String text) {
+        if (bgeEmbedding.isAvailable()) return bgeEmbedding.embed(text);
         return tfEmbedding.embed(text);
     }
 

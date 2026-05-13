@@ -181,7 +181,7 @@ public class EmbeddingDebugTest {
 
         // 构建请求体
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", "text-embedding-v3");
+        requestBody.put("model", "text-embedding-v4");
 
         Map<String, String> input = new HashMap<>();
         input.put("text", text);
