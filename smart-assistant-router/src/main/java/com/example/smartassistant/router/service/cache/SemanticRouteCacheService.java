@@ -635,15 +635,17 @@ public class SemanticRouteCacheService {
                 return;
             }
 
-            // ⭐ 无论是否高频，都保存关键词级别回复缓存（使同类问题共享回复）
-            saveKeywordReply(question, reply, agentName, ttl);
-
-            // ⭐ 高频问题额外保存意图维度回复缓存（精确匹配命中时用）
+            // ⭐ 仅高频问题（被问到 ≥2 次）才缓存回复内容
+            // 低频问题即使缓存也几乎不会命中，节省 Redis 内存
             if (!isHighFrequencyQuestion(intentTag)) {
-                log.debug("[SemanticCache] 跳过低频问题意图回复缓存: intent={}, agent={}", intentTag, agentName);
+                log.debug("[SemanticCache] 跳过低频问题回复缓存: intent={}, agent={}", intentTag, agentName);
                 return;
             }
 
+            // ⭐ 高频问题：保存关键词级别回复缓存（使同类问题共享回复）
+            saveKeywordReply(question, reply, agentName, ttl);
+
+            // ⭐ 高频问题：保存意图维度回复缓存（精确匹配命中时用）
             CachedReply cachedReply = new CachedReply(reply, agentName, question);
             String replyJson = objectMapper.writeValueAsString(cachedReply);
             String replyKey = REPLY_KEY_PREFIX + md5(intentTag);
