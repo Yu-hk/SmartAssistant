@@ -103,12 +103,14 @@ public class SemanticRouteCacheService {
         return null;
     }
 
-    // ⭐ 需要新数据源的扩展关键词（命中时视作缓存未命中，交 Agent 处理）
-    private static final Set<String> EXTENSION_INTENT_WORDS = Set.of(
-            "出行", "规划", "攻略", "行程", "路线", "方案", "计划",
-            "推荐", "好玩", "景点", "游玩", "去哪", "哪里", "怎么去",
-            "预订", "门票", "价格", "多少钱", "营业", "电话",
-            "酒店", "住宿", "交通", "机票", "火车"
+    // ⭐ 前缀扩展白名单：剩余部分仅含天气衍生关键词时可走缓存命中
+    // 其余情况一律走 Agent（确保多意图/跨领域问题被正确处理）
+    private static final Set<String> WEATHER_EXTENSION_SAFE = Set.of(
+            "多穿", "少穿", "衣服", "穿衣", "穿什么",
+            "冷不冷", "热不热", "暖不暖", "冷吗", "热吗",
+            "带伞", "带雨伞", "下雨", "下雪", "刮风",
+            "温度", "气温", "度数",
+            "冷不", "热不", "冷", "热", "暖", "凉"
     );
 
     /**
@@ -130,32 +132,36 @@ public class SemanticRouteCacheService {
             double score = bestMatch.getValue();
 
             // ⭐ 检测前缀扩展：用户问题以缓存问题开头且更长
+            // 例如"北京天气，多穿点衣服"扩���自缓存"北京天气"
+            // 仅当剩余部分包含天气衍生词时才走缓存命中，否则视为新意图交 Agent
             if (matchedQuestion != null && question.startsWith(matchedQuestion)
                     && question.length() > matchedQuestion.length()) {
                 String remaining = question.substring(matchedQuestion.length()).trim();
 
-                // 扩展部分包含需要新数据源的关键词 → 缓存未命中，交 Agent 处理
-                for (String kw : EXTENSION_INTENT_WORDS) {
-                    if (remaining.contains(kw)) {
-                        log.info("[SemanticCache] 🔀 向量命中但扩展需要新数据源({}), 走 Agent: base={}, extension={}",
-                                kw, matchedQuestion, remaining);
-                        return null; // ← 关键：返回 null 让 Router 调 Agent
+                // 空/去"的"后很短 → 直接命中
+                if (remaining.isEmpty() || remaining.replaceAll("[的，,、]", "").length() <= 2) {
+                    return proceedWithPrefixHit(question, matchedQuestion, score);
+                }
+
+                // 检查是否仅含天气衍生词（如"多穿点衣服"、"冷不冷"）
+                boolean isWeatherDerived = false;
+                for (String safe : WEATHER_EXTENSION_SAFE) {
+                    if (remaining.contains(safe)) {
+                        isWeatherDerived = true;
+                        break;
                     }
                 }
 
-                // 扩展部分仅需缓存数据（如"多穿点衣服"→天气可推导）→ 缓存命中
-                log.info("[SemanticCache] ✅ 向量缓存命中(前缀扩展): question={}, matched={}, score={}",
-                        question, matchedQuestion, String.format("%.4f", score));
-                String exactKey = EXACT_KEY_PREFIX + md5(matchedQuestion);
-                String intentTag = redisTemplate.opsForValue().get(exactKey);
-                if (intentTag == null) return null;
-
-                CachedRouteDecision decision = getByIntentTag(intentTag);
-                if (decision != null) {
-                    decision._isPrefixMatch = true;
-                    decision._intentMismatch = remaining.length() > 2;
+                if (isWeatherDerived) {
+                    log.info("[SemanticCache] ✅ 向量命中(天气衍生扩展): base={}, extension={}",
+                            matchedQuestion, remaining);
+                    return proceedWithPrefixHit(question, matchedQuestion, score);
                 }
-                return decision;
+
+                // 非天气衍生 → 可能是美食/出行/景点等其他意图 → 缓存未命中，交 Agent
+                log.info("[SemanticCache] 🔀 向量命中但扩展非天气衍生, 走 Agent: base={}, extension={}",
+                        matchedQuestion, remaining);
+                return null;
             }
 
             // 普通向量匹配（非前缀扩展）
@@ -167,6 +173,30 @@ public class SemanticRouteCacheService {
             return getByIntentTag(intentTag);
         } catch (Exception e) {
             log.warn("[SemanticCache] 向量匹配异常: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 前缀扩展命中：设置 prefix match 标记后返回缓存决策
+     */
+    private CachedRouteDecision proceedWithPrefixHit(String question, String matchedQuestion, double score) {
+        log.info("[SemanticCache] ✅ 向量缓存命中(前缀扩展): question={}, matched={}, score={}",
+                question, matchedQuestion, String.format("%.4f", score));
+        try {
+            String exactKey = EXACT_KEY_PREFIX + md5(matchedQuestion);
+            String intentTag = redisTemplate.opsForValue().get(exactKey);
+            if (intentTag == null) return null;
+
+            CachedRouteDecision decision = getByIntentTag(intentTag);
+            if (decision != null) {
+                decision._isPrefixMatch = true;
+                String remaining = question.substring(matchedQuestion.length()).trim();
+                decision._intentMismatch = remaining.length() > 0;
+            }
+            return decision;
+        } catch (Exception e) {
+            log.warn("[SemanticCache] 前缀扩展命中异常: {}", e.getMessage());
             return null;
         }
     }
