@@ -12,11 +12,15 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * 管理员权限检查切面
@@ -29,6 +33,13 @@ public class AdminPermissionAspect {
 
     private static final String ADMIN_ONLY_ERROR = "⚠️ 此操作需要管理员权限，请联系管理员或确认账号已升级为管理员身份";
     private static final String ADMIN_ROLE = "ROLE_ADMIN";
+    private static final String ADMIN_OP_REDIS_KEY = "admin:tool:called:latest";
+
+    private final StringRedisTemplate redisTemplate;
+
+    public AdminPermissionAspect(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
 
     @Around("@annotation(com.example.smartassistant.annotation.AdminOnly)")
     public Object checkAdminPermission(ProceedingJoinPoint joinPoint) throws Throwable {
@@ -45,13 +56,21 @@ public class AdminPermissionAspect {
             String userId = getUserId();
             log.warn("[AdminPermission] 用户 {} (角色: {}) 尝试访问管理员功能: {}.{}",
                     userId, getUserRole(), className, methodName);
-
-            // 返回错误信息而非抛出异常，避免 Tool 调用失败
             return ADMIN_ONLY_ERROR;
         }
 
         log.info("[AdminPermission] 管理员权限校验通过: {}.{}", className, methodName);
-        return joinPoint.proceed();
+        Object result = joinPoint.proceed();
+
+        // ⭐ 管理员工具执行成功后写入 Redis 标记，Router 据此跳过缓存
+        try {
+            redisTemplate.opsForValue().set(ADMIN_OP_REDIS_KEY, "true", 30, TimeUnit.SECONDS);
+            log.debug("[AdminPermission] Redis 已标记管理员操作: class={}, method={}", className, methodName);
+        } catch (Exception e) {
+            log.warn("[AdminPermission] Redis 写入失败: {}", e.getMessage());
+        }
+
+        return result;
     }
 
     /**
