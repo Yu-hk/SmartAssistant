@@ -189,7 +189,7 @@ public class SemanticRouteCacheService {
             if (decision != null) {
                 decision._isPrefixMatch = true;
                 String remaining = question.substring(matchedQuestion.length()).trim();
-                decision._intentMismatch = remaining.length() > 0;
+                decision._intentMismatch = !remaining.isEmpty();
             }
             return decision;
         } catch (Exception e) {
