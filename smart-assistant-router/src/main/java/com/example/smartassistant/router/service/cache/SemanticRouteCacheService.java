@@ -43,6 +43,14 @@ public class SemanticRouteCacheService {
     private static final String FULL_DECISION_KEY_PREFIX = "a2a:route:full-decision:";  // ⭐ 供 Consumer 读取的完整决策（独立 key）
     private static final String GLOBAL_INTENT_COUNT_PREFIX = "intent:global:count:";  // ⭐ 全局意图计数（判断高频问题）
     private static final String ADMIN_OP_REDIS_KEY = "admin:tool:called:latest";
+    /** 会话复述类提问的关键词——这类提问仅对当前会话有意义，不缓存回复 */
+    private static final Set<String> META_QUESTION_KEYWORDS = Set.of(
+            "刚刚", "刚才", "上一", "前一句", "之前说",
+            "重复", "复述", "再讲", "再说一遍",
+            "我说了什么", "我问了", "我刚刚", "回答过",
+            "你说了什么", "你刚才", "你刚刚", "你回答",
+            "我的话", "我的问题");
+
     private static final long CACHE_TTL_SECONDS = 86400;
     private static final long DECISION_AUDIT_TTL_SECONDS = 604800; // 7天
     private static final int HIGH_FREQUENCY_THRESHOLD = 2;
@@ -497,16 +505,6 @@ public class SemanticRouteCacheService {
         }
     }
 
-    /**
-     * ⭐ 保存关键词级别回复缓存
-     * <p>
-     * 使共享相同关键词的问题（如"上海天气怎么样"和"上海天气如何"）
-     * 在第一次 Agent 执行后，后续同类问题直接命中回复缓存，无需再调 Agent。
-     */
-    private void saveKeywordReply(String question, String reply, String agentName) {
-        saveKeywordReply(question, reply, agentName, null);
-    }
-
     private void saveKeywordReply(String question, String reply, String agentName, Long ttlOverride) {
         if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank()) return;
         try {
@@ -614,6 +612,12 @@ public class SemanticRouteCacheService {
         if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank() || intentTag == null) return;
 
         try {
+            // ⭐ 会话复述类提问（"我刚刚问了什么"、"再说一遍"）仅对当前会话有意义，不缓存回复
+            if (isMetaQuestion(question)) {
+                log.debug("[SemanticCache] 复述类提问跳过回复缓存: question={}", question);
+                return;
+            }
+
             // ⭐ 检查 Redis 中是否有管理员工具操作的标记（由 Agent 端的 AdminPermissionAspect 写入）
             if (!adminOperation && redisTemplate.hasKey(ADMIN_OP_REDIS_KEY)) {
                 adminOperation = true;
@@ -682,6 +686,19 @@ public class SemanticRouteCacheService {
 
     long getTtlForReply(String agentName, String originalQuestion) {
         return replyFormatter.getTtlForReply(agentName, originalQuestion);
+    }
+
+    /**
+     * 判断是否为会话复述类提问（"我刚刚问了什么"、"把你刚才的回答再讲一遍"）。
+     * 这类提问的回答仅对当前会话有效，不应纳入全局缓存。
+     */
+    private boolean isMetaQuestion(String question) {
+        if (question == null) return false;
+        String q = question.toLowerCase();
+        for (String kw : META_QUESTION_KEYWORDS) {
+            if (q.contains(kw)) return true;
+        }
+        return false;
     }
 
     private static double cosineSimilarity(float[] a, float[] b) {
