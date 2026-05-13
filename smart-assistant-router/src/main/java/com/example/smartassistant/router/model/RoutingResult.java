@@ -47,4 +47,10 @@ public class RoutingResult {
     @Builder.Default
     private Boolean fromCache = false;
 
+    /**
+     * 是否使用了管理员工具（如知识库同步），回复不应纳入缓存
+     */
+    @Builder.Default
+    private Boolean adminOperation = false;
+
 }

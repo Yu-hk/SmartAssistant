@@ -186,8 +186,8 @@ public class RouterService {
                 String reply = result.getResult();
                 if (cached == null || cached.reply == null) {
                     // 首次路由或 Agent 重新调用：缓存回复原文
-                    if (reply != null && !reply.isBlank() && !reply.startsWith("❌")) {
-                        semanticCache.saveReply(question, reply, agentName, intentTag);
+                    if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")) {
+                        semanticCache.saveReply(question, reply, agentName, intentTag, Boolean.TRUE.equals(result.getAdminOperation()));
                     }
                 }
                 // 缓存命中时已有回复缓存，无需重复写入
