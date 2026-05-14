@@ -33,7 +33,7 @@ public class TaskPlannerService {
     /**
      * 将问题分解为子任务。单意图返回单个子任务，多意图返回多个。
      */
-    public List<SubTask> plan(String question, Long userId) {
+    public List<SubTask> plan(String question) {
         String agentList = buildAgentList();
         if (agentList.isEmpty()) {
             log.warn("[TaskPlanner] 无可用 Agent，使用整句");
