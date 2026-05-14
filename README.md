@@ -50,7 +50,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 | 特性 | 说明 |
 |------|------|
-| 🧠 **A2A 多 Agent 协作** | 基于 Spring AI Alibaba A2A 协议，8 个微服务通过 Nacos 自动发现与注册，Router 统一分发 |
+| 🧠 **A2A 多 Agent 协作** | 基于 Spring AI Alibaba A2A 协议，8 个微服务通过 Nacos 自动发现与注册。Router 支持任务分解 → 并行调用 → 结果合并，跨域问题自动分配多个 Agent |
 | 🧠 **三层语义缓存 + BGE ONNX + 智能跳过** | 精确匹配 → 关键词哈希 → BGE 向量匹配。短时效 Agent(TTL<1h)回复自动跳过缓存，管理员工具操作通过 Redis 标记跳过，均保留路由决策加速 |
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + 多路召回(RRF融合)，覆盖出行/美食领域 |
 | 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
@@ -94,14 +94,38 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 ### 请求流程
 
 1. **前端请求** → Gateway (JWT 认证 + 限流)
-2. **Gateway 转发** → Router (关键词匹配 + 意图识别)
+2. **Gateway 转发** → Router (多 Agent 协作路由)
 3. **Router 路由** → Consumer (会话管理 + 价值评估)
-4. **Consumer 调度** → 对应 Agent (Travel / Food / General)
+4. **Consumer 调度** → 对应 Agent(s) (通过 A2A 协议)
 5. **Agent 响应** → 通过 SSE 流式返回给前端
 6. **价值评估** → 轮数≥3 或触发工具调用时触发 → `data/users/{userId}/memories/`（异步增量追加）
    - 同 session 的记忆**追加到同一文件**，不覆盖，保留完整对话历史
    - 轮数≥3 且内容≥1000 字符时触发 LLM 叙事摘要
     - 摘要替代原对话内容（清空冗余），超长内容截断部分原文追加，信息零丢失
+
+### 多 Agent 协作
+
+复杂问题（如"推荐北京景点和川菜"）自动分解为子任务并行执行：
+
+```
+用户: "周末去北京玩，推荐景点和川菜馆"
+  │
+  Router.executeCollaborative()
+  ├─ TaskPlannerService.plan()
+  │   ├─ AgentDiscoveryService.getCachedAgents()  ← 动态发现
+  │   └─ LLM 分解:
+  │      t1|北京热门景点|location_weather
+  │      t2|北京川菜餐厅|food_recommendation
+  │
+  ├─ parallelExecute()
+  │   ├─ [定位] callAgent("location_weather", 景点查询)
+  │   └─ [美食] callAgent("food_recommendation", 川菜查询)
+  │
+  ├─ ResultMerger.merge()
+  │   └─ LLM 整合: "综合景点和美食推荐..."
+  │
+  └─ 全部失败 → inlineFallback() ← 内联 ChatClient 终极兜底
+```
 
 ---
 
@@ -299,7 +323,7 @@ saveReply() 时
 |------|------|------|
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
 | **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀；提供 `/api/data/query` 数据查询独立端点 |
-| **Router** | 8083 | 关键词路由，Agent 调度，**三层语义缓存**（精确→关键词→TF向量），Nacos 服务发现；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
+| **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分解→并行执行→结果合并，Nacos 服务发现；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
 | **Travel** | 8085 | 出行规划，地点查询，天气预报，景点信息（RAG）；`service/` 按 rag/data/infrastructure 子包组织 |
 | **Food** | 8084 | 美食推荐，菜系查询，附近餐厅搜索；`service/` 按 core/search/infrastructure 子包组织 |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
