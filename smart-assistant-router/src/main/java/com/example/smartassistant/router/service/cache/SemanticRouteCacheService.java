@@ -45,7 +45,7 @@ public class SemanticRouteCacheService {
     private static final String ADMIN_OP_REDIS_KEY = "admin:tool:called:latest";
     /** 会话复述类提问的关键词——这类提问仅对当前会话有意义，不缓存回复 */
     private static final Set<String> META_QUESTION_KEYWORDS = Set.of(
-            "刚刚", "刚才", "上一", "前一句", "之前说",
+            "刚刚", "刚才", "上一", "前一句", "之前",
             "重复", "复述", "再讲", "再说一遍",
             "我说了什么", "我问了", "我刚刚", "回答过",
             "你说了什么", "你刚才", "你刚刚", "你回答",
