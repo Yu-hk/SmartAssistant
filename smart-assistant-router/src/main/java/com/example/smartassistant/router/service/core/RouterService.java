@@ -258,6 +258,14 @@ public class RouterService {
         String merged = resultMerger.merge(question, results);
 
         long elapsed = System.currentTimeMillis() - start;
+
+        // Step 5: 兜底 — 所有 Agent 均失败或结果为空时走 handleSingleIntent 终极兜底链
+        boolean allFailed = results.isEmpty() || results.stream().noneMatch(SubTaskResult::isSuccess);
+        if (allFailed || merged == null || merged.isBlank()) {
+            log.warn("[Collaborative] 所有子任务均失败，降级到 handleSingleIntent 兜底链");
+            return handleSingleIntent(question, new HashMap<>(), userId);
+        }
+
         log.info("[Collaborative] 协作完成: {} 个子任务, 耗时={}ms, 结果长度={}",
                 results.size(), elapsed, merged.length());
 
