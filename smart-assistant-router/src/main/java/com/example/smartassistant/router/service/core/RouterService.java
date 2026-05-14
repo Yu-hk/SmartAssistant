@@ -254,20 +254,22 @@ public class RouterService {
     }
 
     /**
-     * 并行执行多个子任务（无依赖关系的任务并发执行）。
+     * 带共享上下文的顺序执行。
+     * <p>
+     * 每个子任务执行前，将已完成的 Agent 结果（共享上下文）注入到描述中，
+     * 使后续 Agent 能感知前面 Agent 的发现。
+     * 例如 Food Agent 看到 Travel Agent 找到的景点后，可推荐附近的餐厅。
      */
     private List<SubTaskResult> parallelExecute(List<SubTask> tasks, Long userId, String eventsKey) {
         List<SubTaskResult> results = new ArrayList<>();
-        Map<String, String> cache = new HashMap<>(); // agent-level cache: agentName → lastResult
+        StringBuilder sharedContext = new StringBuilder();
 
         for (SubTask task : tasks) {
-            // 检查是否有相同 Agent 的最近结果可复用
-            String cachedResult = cache.get(task.getTargetAgent());
-            if (cachedResult != null) {
-                log.debug("[Collaborative] 复用 Agent {} 的缓存结果", task.getTargetAgent());
-                results.add(new SubTaskResult(task.getId(), task.getDescription(),
-                        task.getTargetAgent(), cachedResult, true));
-                continue;
+            // 将已有共享上下文附加到子任务描述中
+            String enrichedDesc = task.getDescription();
+            if (!sharedContext.isEmpty()) {
+                enrichedDesc = task.getDescription() + "\n\n[已知信息]\n" + sharedContext.toString().trim()
+                        + "\n\n请结合以上已知信息回答，避免重复，侧重补充新内容。";
             }
 
             storeSseEvent(eventsKey, "routed",
@@ -275,9 +277,11 @@ public class RouterService {
 
             try {
                 String agentResult = agentCallerService.callAgent(
-                        task.getTargetAgent(), task.getDescription(), userId);
+                        task.getTargetAgent(), enrichedDesc, userId);
                 if (agentResult != null && !agentResult.isBlank()) {
-                    cache.put(task.getTargetAgent(), agentResult);
+                    // 将结果加入共享上下文，供后续 Agent 使用
+                    sharedContext.append("【").append(task.getTargetAgent()).append("】")
+                            .append(agentResult).append("\n\n");
                     results.add(new SubTaskResult(task.getId(), task.getDescription(),
                             task.getTargetAgent(), agentResult, true));
                     storeSseEvent(eventsKey, "response",
@@ -290,7 +294,7 @@ public class RouterService {
             } catch (Exception e) {
                 log.warn("[Collaborative] 子任务失败: task={}, error={}", task.getId(), e.getMessage());
                 results.add(new SubTaskResult(task.getId(), task.getDescription(),
-                        task.getTargetAgent(), "❌ " + task.getDescription() + " 处理失败", false));
+                        task.getTargetAgent(), "", false));
             }
         }
         return results;
