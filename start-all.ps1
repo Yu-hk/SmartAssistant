@@ -62,7 +62,8 @@ $envVarsToPass = @(
     "POSTGRES_PASSWORD", "REDIS_PASSWORD", "JWT_SECRET",
     "NACOS_SERVER_ADDR", "NACOS_USERNAME", "NACOS_PASSWORD",
     "ZIPKIN_ENDPOINT", "HANLP_DATA_PATH", "POSTGRES_USER",
-    "POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB"
+    "POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB",
+    "BGE_MODEL_PATH", "BGE_VOCAB_PATH"
 )
 
 function Get-JavaArgs {
@@ -75,6 +76,11 @@ function Get-JavaArgs {
         if (-not [string]::IsNullOrEmpty($val)) {
             $ja += "-D$key=$val"
         }
+    }
+    # DashScope 自动配置需要 spring.ai.dashscope.api-key 系统属性
+    $dashScopeKey = [Environment]::GetEnvironmentVariable("DASHSCOPE_API_KEY", "Process")
+    if (-not [string]::IsNullOrEmpty($dashScopeKey)) {
+        $ja += "-Dspring.ai.dashscope.api-key=$dashScopeKey"
     }
     $jwtSecret = [Environment]::GetEnvironmentVariable("JWT_SECRET", "Process")
     if ([string]::IsNullOrEmpty($jwtSecret)) {

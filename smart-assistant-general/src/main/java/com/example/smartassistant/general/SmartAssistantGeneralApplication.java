@@ -9,8 +9,13 @@ package com.example.smartassistant.general;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.ComponentScan;
 
 @SpringBootApplication
+@ComponentScan({
+    "com.example.smartassistant.general",
+    "com.example.smartassistant.common"
+})
 public class SmartAssistantGeneralApplication {
 
     public static void main(String[] args) {

@@ -31,7 +31,14 @@ public class BgeEmbeddingConfig {
         return new EmbeddingModel() {
             @Override
             public EmbeddingResponse call(EmbeddingRequest request) {
-                return embedForResponse(request.getInstructions());
+                var results = new ArrayList<org.springframework.ai.embedding.Embedding>();
+                for (int i = 0; i < request.getInstructions().size(); i++) {
+                    float[] vec = bge.embedding(request.getInstructions().get(i));
+                    if (vec != null) {
+                        results.add(new org.springframework.ai.embedding.Embedding(vec, i));
+                    }
+                }
+                return new EmbeddingResponse(results);
             }
 
             @Override
