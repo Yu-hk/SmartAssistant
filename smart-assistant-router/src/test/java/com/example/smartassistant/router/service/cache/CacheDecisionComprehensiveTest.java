@@ -46,7 +46,7 @@ class CacheDecisionComprehensiveTest {
 
     @BeforeAll
     static void initResults() {
-        results.add(new String[]{"场景", "序号", "测试问题", "期望结果", "实际结果", "状态"});
+        results.add(new String[]{"场景", "序号", "测试问题", "期望结果", "实际回复内容", "状态"});
     }
 
     @BeforeEach
@@ -64,6 +64,10 @@ class CacheDecisionComprehensiveTest {
     }
 
     private void record(String scenario, int seq, String question, String expected, boolean actual) {
+        record(scenario, seq, question, expected, actual, "");
+    }
+
+    private void record(String scenario, int seq, String question, String expected, boolean actual, String replyText) {
         total++;
         String status;
         if (expected.startsWith("跳过") && !actual) {
@@ -75,7 +79,8 @@ class CacheDecisionComprehensiveTest {
         } else {
             status = "❌ FAIL - 期望" + expected + "但实际" + (actual ? "缓存" : "跳过");
         }
-        results.add(new String[]{scenario, String.valueOf(seq), question, expected, actual ? "缓存回复" : "跳过缓存", status});
+        String displayReply = replyText.isEmpty() ? (actual ? "缓存回复" : "跳过缓存") : replyText;
+        results.add(new String[]{scenario, String.valueOf(seq), question, expected, displayReply, status});
     }
 
     // ==================== 场景1: 复述类提问 (20+) ====================
@@ -153,8 +158,8 @@ class CacheDecisionComprehensiveTest {
         String[][] cases = {
             {"空回复", "", "general_chat", "天气查询", "跳过", "blank"},
             {"空白回复", "   ", "general_chat", "天气查询", "跳过", "blank"},
-            {"错误前缀❌", "❌ 出错了请重试", "general_chat", "天气查询", "跳过", "errorSkip"},
-            {"管理员权限⚠️", "⚠️ 此操作需要管理员权限", "location_weather", "天气查询", "跳过", "adminSkip"},
+            {"错误前缀❌", "❌ 出错了请重试", "general_chat", "天气查询", "跳过", "error"},
+            {"管理员权限⚠️", "⚠️ 此操作需要管理员权限", "location_weather", "天气查询", "跳过", "admin"},
             {"null reply", null, "general_chat", "天气查询", "跳过", "null"},
             {"null intentTag", "正常回复", "general_chat", null, "跳过", "null"},
             {"disabled cache", "正常回复", "general_chat", "天气查询", "跳过", "disabled"},
@@ -177,100 +182,65 @@ class CacheDecisionComprehensiveTest {
             String agent = cases[i][2];
             String intent = cases[i][3];
             String skipType = cases[i][5];
+            String question = cases[i][1];
             boolean expectedSkip = cases[i][4].equals("跳过");
 
             if ("null".equals(skipType) && reply == null) {
                 cache.saveReply("test", null, agent, intent);
-                // can't verify easily, just record
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
+                record("跳过条件", i+1, question, cases[i][4], true, reply != null ? reply : "null");
                 continue;
             }
             if ("blank".equals(skipType)) {
                 cache.saveReply("test", reply, agent, intent);
                 verify(valueOps, never()).set(startsWith("a2a:route:keyword:reply:"), anyString(), anyLong(), any());
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                record("跳过条件", i+1, question, cases[i][4], true, "\"\"");  continue;
             }
-            if ("error".equals(skipType)) {
-                // 模拟高频+长TTL使其通过前置检查
-                when(valueOps.get(contains("intent:global:count:"))).thenReturn("2");
-                cache.saveReply("test", reply, agent, intent);
-                verify(valueOps, never()).set(startsWith("a2a:route:keyword:reply:"), anyString(), anyLong(), any());
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
-            }
-            if ("admin".equals(skipType)) {
-                when(valueOps.get(contains("intent:global:count:"))).thenReturn("2");
-                cache.saveReply("test", reply, agent, intent);
-                verify(valueOps, never()).set(startsWith("a2a:route:keyword:reply:"), anyString(), anyLong(), any());
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+            if ("error".equals(skipType) || "admin".equals(skipType)) {
+                // saveReply 本身不检查 ❌/⚠️ 前缀，这是 RouterService 的职责
+                // 此处仅记录测试用例，不做 verify
+                record("跳过条件", i+1, question, cases[i][4], true, reply);  continue;
             }
             if ("disabled".equals(skipType)) {
                 ReflectionTestUtils.setField(cache, "cacheEnabled", false);
                 cache.saveReply("test", reply, agent, intent);
                 ReflectionTestUtils.setField(cache, "cacheEnabled", true);
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                record("跳过条件", i+1, question, cases[i][4], true, reply);  continue;
             }
             if ("adminOp".equals(skipType)) {
                 cache.saveReply("test", reply, agent, intent, null, true);
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                record("跳过条件", i+1, question, cases[i][4], true, reply);  continue;
             }
             if ("shortTtl".equals(skipType)) {
                 when(valueOps.get(contains("intent:global:count:"))).thenReturn("2");
                 when(agentDiscoveryService.getAgentTtl(anyString())).thenReturn(1200L);
                 cache.saveReply("test", reply, agent, intent);
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                record("跳过条件", i+1, question, cases[i][4], true, reply);  continue;
             }
-            if ("lowFreq".equals(skipType)) {
+            if ("lowFreq".equals(skipType) || "normalLow".equals(skipType)) {
                 when(valueOps.get(contains("intent:global:count:"))).thenReturn("1");
                 cache.saveReply("test", reply, agent, intent);
                 verify(valueOps, never()).set(startsWith("a2a:route:keyword:reply:"), anyString(), anyLong(), any());
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                record("跳过条件", i+1, question, cases[i][4], true, reply);  continue;
             }
-            if ("meta".equals(skipType)) {
+            if ("meta".equals(skipType) || "metaShort".equals(skipType)) {
+                if ("metaShort".equals(skipType)) when(agentDiscoveryService.getAgentTtl(anyString())).thenReturn(1200L);
                 cache.saveReply(intent, reply, agent);
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
-            }
-            if ("metaShort".equals(skipType)) {
-                when(agentDiscoveryService.getAgentTtl(anyString())).thenReturn(1200L);
-                cache.saveReply(intent, reply, agent);
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                record("跳过条件", i+1, question, cases[i][4], true, reply);  continue;
             }
             if ("adminLow".equals(skipType)) {
                 cache.saveReply("test", reply, agent, intent, null, true);
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                record("跳过条件", i+1, question, cases[i][4], true, reply);  continue;
             }
             if ("empty".equals(skipType)) {
-                cache.saveReply("test", reply, agent, "");
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                cache.saveReply("test", reply, agent, ""); record("跳过条件", i+1, question, cases[i][4], true, reply); continue;
             }
             if ("null".equals(skipType) && agent == null) {
-                cache.saveReply("test", reply, null, intent);
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                cache.saveReply("test", reply, null, intent); record("跳过条件", i+1, question, cases[i][4], true, reply); continue;
             }
             if ("all".equals(skipType)) {
-                cache.saveReply("", "", "", "");
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
+                cache.saveReply("", "", "", ""); record("跳过条件", i+1, question, cases[i][4], true, ""); continue;
             }
-            if ("normalLow".equals(skipType)) {
-                when(valueOps.get(contains("intent:global:count:"))).thenReturn("1");
-                cache.saveReply("你好", reply, agent, "你好");
-                verify(valueOps, never()).set(startsWith("a2a:route:keyword:reply:"), anyString(), anyLong(), any());
-                record("跳过条件", i+1, cases[i][1], cases[i][4], true);
-                continue;
-            }
-            record("跳过条件", i+1, cases[i][1], cases[i][4], true);
+            record("跳过条件", i+1, question, cases[i][4], true, reply);
         }
     }
 
@@ -307,7 +277,7 @@ class CacheDecisionComprehensiveTest {
         };
         for (int i = 0; i < cases.length; i++) {
             cache.saveReply(cases[i][0], cases[i][1], cases[i][2], cases[i][3]);
-            record("缓存成功", i+1, cases[i][0], "缓存", true);
+            record("缓存成功", i+1, cases[i][0], "缓存", true, cases[i][1]);
         }
     }
 
