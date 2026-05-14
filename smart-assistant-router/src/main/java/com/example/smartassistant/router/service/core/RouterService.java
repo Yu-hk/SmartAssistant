@@ -7,8 +7,6 @@
 
 package com.example.smartassistant.router.service.core;
 
-import com.example.smartassistant.router.model.DiscoveredAgent;
-import com.example.smartassistant.router.model.RouteDecision;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.router.model.SubTask;
@@ -30,8 +28,6 @@ import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Router Service - 核心路由服务（单意图路由）
@@ -54,7 +50,6 @@ public class RouterService {
     private static final Logger log = LoggerFactory.getLogger(RouterService.class);
     
     private final AgentCallerService agentCallerService;
-    private final AgentDiscoveryService agentDiscoveryService;
     private final ChatClient chatClient;
     private final StringRedisTemplate redisTemplate;
     private final RouterRagService ragService;
@@ -67,17 +62,6 @@ public class RouterService {
 
     @Value("${router.context.history.max-messages:10}")
     private int maxHistoryMessages;
-
-    // ⭐ 任务拆分配置
-    @Value("${router.task-splitting.enabled:true}")
-    private boolean taskSplittingEnabled;
-
-    // ⭐ 多 Agent 协作配置
-    @Value("${router.agent.collaboration.enabled:true}")
-    private boolean collaborationEnabled;
-    
-    @Value("${router.task-splitting.max-sub-tasks:3}")
-    private int maxSubTasks;
 
     // ⭐ 多套兜底说辞轮换
     private static final List<String> FALLBACK_MESSAGES = List.of(
@@ -98,7 +82,6 @@ public class RouterService {
                          TaskPlannerService taskPlanner,
                          ResultMerger resultMerger) {
         this.agentCallerService = agentCallerService;
-        this.agentDiscoveryService = agentDiscoveryService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
         this.ragService = ragService;
@@ -165,23 +148,12 @@ public class RouterService {
                         }
                     }
                 }
-            } else if (collaborationEnabled) {
+            } else {
                 // ⭐ 多 Agent 协作（所有提问均走规划→执行→合并）
                 // 简单问题 plan() 返回单个子任务，merge() 直接返回
                 // 复杂问题自动分解为多个子任务并行执行
                 log.info("[Router] 🤝 启动多 Agent 协作: question={}", truncate(enhancedQuestion, 80));
                 result = executeCollaborative(enhancedQuestion, userId, request.getRequestId());
-            } else if (taskSplittingEnabled) {
-                // ⭐ 任务拆解（旧方案，兼容保留）
-                List<String> subTasks = trySplitIntents(enhancedQuestion);
-                if (subTasks.size() > 1) {
-                    log.info("[Router] 🔀 检测到多意图，拆分为 {} 个子任务: {}", subTasks.size(), subTasks);
-                    result = executeMultiIntent(subTasks, context, userId, request.getRequestId());
-                } else {
-                    result = handleSingleIntent(enhancedQuestion, context, userId);
-                }
-            } else {
-                result = handleSingleIntent(enhancedQuestion, context, userId);
             }
 
             // ⭐ 生成意图标签（用于用户画像统计），设置到 result
@@ -239,7 +211,7 @@ public class RouterService {
         long start = System.currentTimeMillis();
 
         // Step 1: 任务分解
-        List<SubTask> tasks = taskPlanner.plan(question, userId);
+        List<SubTask> tasks = taskPlanner.plan(question);
         if (tasks.isEmpty()) {
             log.warn("[Collaborative] 任务分解为空，降级到内联 ChatClient 兜底");
             return inlineFallback(question);
@@ -270,8 +242,8 @@ public class RouterService {
                 results.size(), elapsed, merged.length());
 
         String firstAgent = results.stream()
-                .filter(r -> r.getAgentName() != null)
                 .map(SubTaskResult::getAgentName)
+                .filter(Objects::nonNull)
                 .findFirst().orElse("none");
 
         return RoutingResult.builder()
@@ -325,75 +297,6 @@ public class RouterService {
     }
 
     /**
-     * 单意图路由 + Agent 调用（走完整兜底链）
-     */
-    private RoutingResult handleSingleIntent(String question, Map<String, Object> context, Long userId) {
-        // Step 1: 基于 Agent 注册关键词匹配
-        String matchedAgent = keywordBasedAgentSelection(question);
-        if (matchedAgent != null) {
-            log.info("[Router] 关键词路由成功: agent={}", matchedAgent);
-            String result = agentCallerService.callAgent(matchedAgent, question, userId);
-            return RoutingResult.builder()
-                    .result(result)
-                    .agentName(matchedAgent)
-                    .confidence(0.5)
-                    .build();
-        }
-
-        // Step 2: 无专业 Agent 匹配，尝试降级 Fallback Agent
-        DiscoveredAgent fallbackAgent = null;
-        try {
-            fallbackAgent = agentDiscoveryService.findFallbackAgent();
-        } catch (Exception e) {
-            log.warn("[Router] 查找 Fallback Agent 失败: {}", e.getMessage());
-        }
-        if (fallbackAgent != null) {
-            try {
-                String fallbackReply = agentCallerService.callAgent(
-                        fallbackAgent.getAgentName(), question, userId);
-                if (fallbackReply != null && !fallbackReply.isBlank() && !fallbackReply.startsWith("❌")) {
-                    return RoutingResult.builder()
-                            .result(fallbackReply)
-                            .agentName(fallbackAgent.getAgentName())
-                            .confidence(0.3)
-                            .build();
-                }
-            } catch (Exception e) {
-                log.warn("[Router] Fallback Agent 调用失败: {}", e.getMessage());
-            }
-        }
-
-        // Layer 3: 内联 ChatClient 终极兜底
-        try {
-            String localReply = chatClient.prompt()
-                    .system("你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
-                          + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
-                          + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
-                          + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。")
-                    .user(question)
-                    .call()
-                    .content();
-            if (localReply != null && !localReply.isBlank()) {
-                return RoutingResult.builder()
-                        .result(localReply)
-                        .agentName("builtin_fallback")
-                        .confidence(0.2)
-                        .build();
-            }
-        } catch (Exception e) {
-            log.warn("[Router] 内联 ChatClient 兜底失败: {}", e.getMessage());
-        }
-
-        // 所有兜底都失败时的最终提示
-        int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
-        return RoutingResult.builder()
-                .result(FALLBACK_MESSAGES.get(idx))
-                .agentName("none")
-                .confidence(0.0)
-                .build();
-    }
-
-    /**
      * 内联 ChatClient 兜底（handleSingleIntent 的第三、四层），
      * 当所有 Agent 调用失败时的终极回应方案。
      */
@@ -426,136 +329,8 @@ public class RouterService {
                 .build();
     }
 
-    /**
-     * 基于关键词的 Agent 选择（降级方案）
-     */
-    private String keywordBasedAgentSelection(String question) {
-        try {
-            DiscoveredAgent matched = agentDiscoveryService.matchAgent(question);
-            if (matched != null) {
-                log.info("[Router] 动态发现匹配 Agent: {} (类型: {})", 
-                        matched.getServiceName(), matched.getAgentName());
-                return matched.getAgentName();
-            }
-        } catch (Exception e) {
-            log.warn("[Router] 动态匹配 Agent 失败: {}", e.getMessage());
-        }
-        
-        // 降级：使用 fallback Agent（基于 metadata priority）
-        var fallbackAgent = agentDiscoveryService.findFallbackAgent();
-        if (fallbackAgent != null) {
-            log.info("[Router] 关键词兜底匹配到 fallback Agent: {}", fallbackAgent.getAgentName());
-            return fallbackAgent.getAgentName();
-        }
-        
-        // ⚠️ 不降级到任意可用 Agent。matchAgent + fallbackAgent 均未匹配时，
-        // 返回 null 让 handleSingleIntent() 走自然兜底链（内联 ChatClient → 最终提示）
-        // 避免路由到不相关的 Agent 产生误导性回复
-        return null;
-    }
-
-    /**
-     * ⭐ 任务拆解：检测多意图并拆分为子任务
-     * <p>
-     * 用分隔符（？?和以及,等）分割用户问题。
-     * 每个子任务独立路由和执行，最后用 LLM 汇总。
-     */
-    private List<String> trySplitIntents(String question) {
-        if (question == null || question.isBlank()) return Collections.singletonList(question);
-        
-        // 常见疑问句分隔符 + 意图连接词
-        List<String> parts = new ArrayList<>();
-        String[] separators = {"？", "?", "  ", "。", "！", "；", ";"};
-        
-        for (String sep : separators) {
-            List<String> split = new ArrayList<>();
-            for (String part : question.split(Pattern.quote(sep))) {
-                String trimmed = part.trim();
-                if (!trimmed.isEmpty()) split.add(trimmed);
-            }
-            if (split.size() > 1) {
-                parts = split;
-                break;
-            }
-        }
-        
-        // 如果分隔符未拆开，尝试在意图连接词处拆解
-        // 匹配模式如 "北京天气和杭州美食"、"天气查询与景点推荐"
-        if (parts.size() <= 1) {
-            // 先检测是否包含多个意图关键词（含连接词）
-            String[] intentKeywords = {"天气", "美食", "旅游", "景点", "新闻", "计算", "图片", "汇率"};
-            int intentCount = 0;
-            for (String kw : intentKeywords) {
-                if (question.contains(kw)) intentCount++;
-            }
-            // 含多个意图且中间有连接词 → 按连接词分割
-            if (intentCount >= 2) {
-                String[] connectWords = {" 和 ", " 以及 ", " 与 ", "和", "以及", "与"};
-                for (String conn : connectWords) {
-                    if (question.contains(conn)) {
-                        String[] kwSplit = question.split(Pattern.quote(conn));
-                        List<String> temp = new ArrayList<>();
-                        for (String s : kwSplit) {
-                            String t = s.trim();
-                            if (!t.isEmpty()) temp.add(t);
-                        }
-                        if (temp.size() > 1) {
-                            parts = temp;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        
-        if (parts.size() <= 1) return Collections.singletonList(question);
-        return parts.stream().limit(maxSubTasks).toList();
-    }
-
     private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
     private static final long SSE_EVENTS_TTL_SECONDS = 120;
-
-    /**
-     * ⭐ 多意图顺序执行 + SSE 事件存储
-     * <p>
-     * 顺序执行每个子任务，同时将推理过程写入 Redis（供 Consumer SSE 接口读取）。
-     * 支持前端依次展示每个 Agent 的推理过程。
-     */
-    private RoutingResult executeMultiIntent(List<String> subTasks, Map<String, Object> context, Long userId, String requestId) {
-        List<InnerSubTaskResult> subResults = new ArrayList<>();
-        String firstAgent = null;
-        String eventsKey = requestId != null ? SSE_EVENTS_KEY_PREFIX + requestId : null;
-
-        for (String subTask : subTasks) {
-            log.info("[Router] 🔀 执行子任务: {}", subTask);
-            // 直接用 handleSingleIntent 路由和执行，移除重复的 selectBestAgent
-            RoutingResult subResult = handleSingleIntent(subTask, context, userId);
-            String detectedAgent = subResult.getAgentName() != null ? subResult.getAgentName() : "unknown";
-            storeSseEvent(eventsKey, "routed", "🎯 正在处理: " + subTask, detectedAgent);
-            subResults.add(new InnerSubTaskResult(subTask, subResult.getResult(), detectedAgent));
-            if (firstAgent == null) firstAgent = detectedAgent;
-
-            // 存储 tool_call + response 事件
-            storeSseEvent(eventsKey, "tool_call", subTask, subResult.getAgentName());
-            if (subResult.getResult() != null && !subResult.getResult().isBlank()) {
-                storeSseEvent(eventsKey, "response",
-                        subResult.getResult().substring(0, Math.min(200, subResult.getResult().length())),
-                        subResult.getAgentName());
-            }
-        }
-
-        // 存储 summarizing 事件
-        storeSseEvent(eventsKey, "summarizing", "正在汇总多源信息...", null);
-
-        String aggregated = aggregateResults(subTasks.get(0), subResults);
-        log.info("[Router] 🔀 任务拆解完成: {} 个子任务, 汇总长度={}", subResults.size(), aggregated.length());
-
-        return RoutingResult.builder()
-                .result(aggregated)
-                .agentName(firstAgent != null ? firstAgent : "none")
-                .confidence(0.7)
-                .build();
-    }
 
     /**
      * ⭐ 存储 SSE 事件到 Redis（供 Consumer 读取并转发给前端）
@@ -585,97 +360,9 @@ public class RouterService {
                 .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
-    /**
-     * ⭐ 用 LLM 汇总多个子任务的结果
+    /*
+      子任务结果
      */
-    private String aggregateResults(String originalQuestion, List<InnerSubTaskResult> subResults) {
-        if (subResults.isEmpty()) return "";
-        if (subResults.size() == 1) return subResults.get(0).result;
-
-        try {
-            StringBuilder prompt = new StringBuilder("用户同时问了以下问题，请综合这些信息给出一个完整的回复：\n\n");
-            for (int i = 0; i < subResults.size(); i++) {
-                InnerSubTaskResult sub = subResults.get(i);
-                prompt.append("问题").append(i + 1).append("：").append(sub.question).append("\n");
-                prompt.append("回答").append(i + 1).append("：").append(sub.result).append("\n\n");
-            }
-            prompt.append("请将以上信息整合成一段通顺自然的回复，不要分段列出各个问题。");
-            return chatClient.prompt().user(prompt.toString()).call().content();
-        } catch (Exception e) {
-            log.warn("[Router] LLM 汇总失败，降级到拼接: {}", e.getMessage());
-            StringBuilder fallback = new StringBuilder();
-            for (InnerSubTaskResult sub : subResults) {
-                if (sub.result != null && !sub.result.isBlank()) {
-                    fallback.append(sub.result).append("\n\n");
-                }
-            }
-            return fallback.toString().trim();
-        }
-    }
-
-    /**
-     * 子任务结果
-     */
-    /** @deprecated 使用 model.SubTaskResult */
-    @Deprecated
-    private static class InnerSubTaskResult {
-        final String question;
-        final String result;
-        final String agentName;
-        InnerSubTaskResult(String question, String result, String agentName) {
-            this.question = question; this.result = result; this.agentName = agentName;
-        }
-    }
-
-    /**
-     * 提取共享上下文
-     * ⭐ 优先复用 ReactAgent 已提取的结构化信息，避免二次解析
-     */
-    private RouteDecision.ExtractedContext extractSharedContext(String userInput, Map<String, Object> context) {
-        // 优先从 context 中获取 ReactAgent 已提取的信息
-        String location = (String) context.get("extractedLocation");
-        String time = (String) context.get("extractedTimeRange");
-
-        // 如果 ReactAgent 没有提取到，才降级到正则提取
-        if (location == null) {
-            location = extractLocationFallback(userInput);
-        }
-        if (time == null) {
-            time = extractTimeFallback(userInput);
-        }
-
-        return new RouteDecision.ExtractedContext(location, time, null, null);
-    }
-
-    /**
-     * 提取地点信息（降级方案）
-     * 仅当 ReactAgent 未提取到地点时使用
-     */
-    private String extractLocationFallback(String text) {
-        // 简单实现：匹配常见城市名
-        Pattern pattern = Pattern.compile("(北京|上海|广州|深圳|杭州|南京|成都|重庆|西安|武汉)");
-        Matcher matcher = pattern.matcher(text);
-
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-
-        return null;
-    }
-
-    /**
-     * 提取时间信息（降级方案）
-     * 仅当 ReactAgent 未提取到时间时使用
-     */
-    private String extractTimeFallback(String text) {
-        if (text.contains("明天")) return "明天";
-        if (text.contains("后天")) return "后天";
-        if (text.contains("周末")) return "周末";
-        if (text.contains("下周")) return "下周";
-
-        return null;
-    }
-    
     /**
      * 构建上下文
      * ⭐ 从 Redis 加载会话历史，提升多轮对话的路由准确性
