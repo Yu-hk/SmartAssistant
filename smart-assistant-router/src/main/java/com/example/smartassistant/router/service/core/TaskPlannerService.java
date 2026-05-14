@@ -37,14 +37,15 @@ public class TaskPlannerService {
         String agentList = buildAgentList();
         if (agentList.isEmpty()) {
             log.warn("[TaskPlanner] 无可用 Agent，使用整句");
-            return List.of(new SubTask("t1", question, "general_chat"));
+            return List.of(new SubTask("t1", question, findFallbackAgent()));
         }
 
+        String fallback = findFallbackAgent();
         String prompt = String.format("""
                 你是一个任务规划专家。请将用户的问题拆解为多个独立的子任务。
                 每个子任务交给最合适的专业助理处理。
 
-                可用专业助理（从服务发现动态获取）：
+                可用专业助理（从服务发现动态获取，含关键词和能力描述）：
                 %s
 
                 要求：
@@ -54,21 +55,10 @@ public class TaskPlannerService {
                 - 如果用户的问题只涉及一个领域，只输出一个子任务
                 - 不要合并不同领域的查询到同一个子任务中
                 - 只输出任务列表，不要多余解释
-                - 尽量使用 keywords/capabilities 匹配的专业助理。如果都不匹配，使用兜底助理
-
-                示例：
-                用户：周末去北京玩，推荐景点和川菜馆，天气如何
-                输出：
-                t1|北京热门景点和三日游攻略|location_weather
-                t2|北京正宗川菜餐厅推荐|food_recommendation
-                t3|北京这个周末的天气预报|location_weather
-
-                用户：北京天气怎么样
-                输出：
-                t1|北京天气预报|location_weather
+                - 优先根据助理的关键词和能力进行匹配。当用户意图与任何助理均不匹配时，使用兜底助理：%s
 
                 用户：%s
-                """, agentList, question);
+                """, agentList, fallback, question);
 
         try {
             String response = chatClient.prompt().user(prompt).call().content();
@@ -107,13 +97,11 @@ public class TaskPlannerService {
 
     /**
      * 动态查找兜底 Agent（metadata.priority 最高即数值最大的）。
+     * 无兜底时返回 null，由调用方处理。
      */
     private String findFallbackAgent() {
         DiscoveredAgent fallback = agentDiscovery.findFallbackAgent();
-        if (fallback != null && fallback.getAgentName() != null) {
-            return fallback.getAgentName();
-        }
-        return "general_chat";
+        return fallback != null ? fallback.getAgentName() : null;
     }
 
     private List<SubTask> parseTasks(String response) {
