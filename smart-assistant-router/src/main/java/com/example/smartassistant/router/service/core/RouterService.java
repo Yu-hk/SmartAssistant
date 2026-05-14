@@ -165,8 +165,14 @@ public class RouterService {
                         }
                     }
                 }
+            } else if (collaborationEnabled) {
+                // ⭐ 多 Agent 协作（所有提问均走规划→执行→合并）
+                // 简单问题 plan() 返回单个子任务，merge() 直接返回
+                // 复杂问题自动分解为多个子任务并行执行
+                log.info("[Router] 🤝 启动多 Agent 协作: question={}", truncate(enhancedQuestion, 80));
+                result = executeCollaborative(enhancedQuestion, userId, request.getRequestId());
             } else if (taskSplittingEnabled) {
-                // ⭐ 任务拆解：检测并执行多意图
+                // ⭐ 任务拆解（旧方案，兼容保留）
                 List<String> subTasks = trySplitIntents(enhancedQuestion);
                 if (subTasks.size() > 1) {
                     log.info("[Router] 🔀 检测到多意图，拆分为 {} 个子任务: {}", subTasks.size(), subTasks);
@@ -174,10 +180,6 @@ public class RouterService {
                 } else {
                     result = handleSingleIntent(enhancedQuestion, context, userId);
                 }
-            } else if (collaborationEnabled && taskPlanner.isComplexQuestion(enhancedQuestion)) {
-                // ⭐ 多 Agent 协作：任务分解 → 并行执行 → 结果合并
-                log.info("[Router] 🤝 检测到复杂问题，启动多 Agent 协作: {}", truncate(enhancedQuestion, 80));
-                result = executeCollaborative(enhancedQuestion, userId, request.getRequestId());
             } else {
                 result = handleSingleIntent(enhancedQuestion, context, userId);
             }
