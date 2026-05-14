@@ -11,6 +11,8 @@ import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.RouteDecision;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
+import com.example.smartassistant.router.model.SubTask;
+import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
@@ -57,6 +59,8 @@ public class RouterService {
     private final StringRedisTemplate redisTemplate;
     private final RouterRagService ragService;
     private final SemanticRouteCacheService semanticCache;
+    private final TaskPlannerService taskPlanner;
+    private final ResultMerger resultMerger;
 
     @Value("${router.agent.rag.enabled:false}")
     private boolean ragEnabled;
@@ -67,6 +71,10 @@ public class RouterService {
     // ⭐ 任务拆分配置
     @Value("${router.task-splitting.enabled:true}")
     private boolean taskSplittingEnabled;
+
+    // ⭐ 多 Agent 协作配置
+    @Value("${router.agent.collaboration.enabled:true}")
+    private boolean collaborationEnabled;
     
     @Value("${router.task-splitting.max-sub-tasks:3}")
     private int maxSubTasks;
@@ -81,18 +89,22 @@ public class RouterService {
     private final AtomicInteger fallbackIndex = new AtomicInteger(0);
 
     public RouterService(AgentCallerService agentCallerService,
-                        AgentDiscoveryService agentDiscoveryService,
-                        ChatClient.Builder chatClientBuilder,
-                        @Qualifier("routerParallelAgentExecutor") Executor routerParallelAgentExecutor,
-                        @Autowired(required = false) StringRedisTemplate redisTemplate,
-                        RouterRagService ragService,
-                        SemanticRouteCacheService semanticCache) {
+                         AgentDiscoveryService agentDiscoveryService,
+                         ChatClient.Builder chatClientBuilder,
+                         @Qualifier("routerParallelAgentExecutor") Executor routerParallelAgentExecutor,
+                         @Autowired(required = false) StringRedisTemplate redisTemplate,
+                         RouterRagService ragService,
+                         SemanticRouteCacheService semanticCache,
+                         TaskPlannerService taskPlanner,
+                         ResultMerger resultMerger) {
         this.agentCallerService = agentCallerService;
         this.agentDiscoveryService = agentDiscoveryService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
         this.ragService = ragService;
         this.semanticCache = semanticCache;
+        this.taskPlanner = taskPlanner;
+        this.resultMerger = resultMerger;
     }
     
     /**
@@ -162,6 +174,10 @@ public class RouterService {
                 } else {
                     result = handleSingleIntent(enhancedQuestion, context, userId);
                 }
+            } else if (collaborationEnabled && taskPlanner.isComplexQuestion(enhancedQuestion)) {
+                // ⭐ 多 Agent 协作：任务分解 → 并行执行 → 结果合并
+                log.info("[Router] 🤝 检测到复杂问题，启动多 Agent 协作: {}", truncate(enhancedQuestion, 80));
+                result = executeCollaborative(enhancedQuestion, userId, request.getRequestId());
             } else {
                 result = handleSingleIntent(enhancedQuestion, context, userId);
             }
@@ -205,13 +221,101 @@ public class RouterService {
             log.error("[Router] 路由失败: {}", e.getMessage(), e);
             return RoutingResult.builder()
                     .result("❌ 路由失败: " + e.getMessage())
-                    .build();
+                .build();
         }
     }
-    
+
+    // ==================== 多 Agent 协作 ====================
+
     /**
-     * 处理单意图场景（纯关键词路由 + 兜底链路）
-     * 路由顺序：关键词匹配 → Fallback Agent(priority) → 内联 ChatClient → 最终提示
+     * 多 Agent 协作：任务分解 → 并行执行 → 结果合并。
+     * <p>
+     * 处理跨领域复杂问题，如"推荐北京景点和川菜馆"，
+     * 分别发给 location_weather 和 food_recommendation 后合并。
+     */
+    private RoutingResult executeCollaborative(String question, Long userId, String requestId) {
+        long start = System.currentTimeMillis();
+
+        // Step 1: 任务分解
+        List<SubTask> tasks = taskPlanner.plan(question, userId);
+        if (tasks.isEmpty()) {
+            log.warn("[Collaborative] 任务分解为空，降级到单 Agent");
+            return handleSingleIntent(question, new HashMap<>(), userId);
+        }
+        log.info("[Collaborative] 任务分解: {} 个子任务", tasks.size());
+
+        String eventsKey = requestId != null ? SSE_EVENTS_KEY_PREFIX + requestId : null;
+
+        // Step 2: 并行执行子任务
+        List<SubTaskResult> results = parallelExecute(tasks, userId, eventsKey);
+
+        // Step 3: SSE — 汇总中
+        storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);
+
+        // Step 4: 合并结果
+        String merged = resultMerger.merge(question, results);
+
+        long elapsed = System.currentTimeMillis() - start;
+        log.info("[Collaborative] 协作完成: {} 个子任务, 耗时={}ms, 结果长度={}",
+                results.size(), elapsed, merged.length());
+
+        String firstAgent = results.stream()
+                .filter(r -> r.getAgentName() != null)
+                .map(SubTaskResult::getAgentName)
+                .findFirst().orElse("none");
+
+        return RoutingResult.builder()
+                .result(merged)
+                .agentName(firstAgent)
+                .confidence(0.8)
+                .build();
+    }
+
+    /**
+     * 并行执行多个子任务（无依赖关系的任务并发执行）。
+     */
+    private List<SubTaskResult> parallelExecute(List<SubTask> tasks, Long userId, String eventsKey) {
+        List<SubTaskResult> results = new ArrayList<>();
+        Map<String, String> cache = new HashMap<>(); // agent-level cache: agentName → lastResult
+
+        for (SubTask task : tasks) {
+            // 检查是否有相同 Agent 的最近结果可复用
+            String cachedResult = cache.get(task.getTargetAgent());
+            if (cachedResult != null) {
+                log.debug("[Collaborative] 复用 Agent {} 的缓存结果", task.getTargetAgent());
+                results.add(new SubTaskResult(task.getId(), task.getDescription(),
+                        task.getTargetAgent(), cachedResult, true));
+                continue;
+            }
+
+            storeSseEvent(eventsKey, "routed",
+                    "🎯 正在处理: " + task.getDescription(), task.getTargetAgent());
+
+            try {
+                String agentResult = agentCallerService.callAgent(
+                        task.getTargetAgent(), task.getDescription(), userId);
+                if (agentResult != null && !agentResult.isBlank()) {
+                    cache.put(task.getTargetAgent(), agentResult);
+                    results.add(new SubTaskResult(task.getId(), task.getDescription(),
+                            task.getTargetAgent(), agentResult, true));
+                    storeSseEvent(eventsKey, "response",
+                            agentResult.substring(0, Math.min(200, agentResult.length())),
+                            task.getTargetAgent());
+                } else {
+                    results.add(new SubTaskResult(task.getId(), task.getDescription(),
+                            task.getTargetAgent(), "", false));
+                }
+            } catch (Exception e) {
+                log.warn("[Collaborative] 子任务失败: task={}, error={}", task.getId(), e.getMessage());
+                results.add(new SubTaskResult(task.getId(), task.getDescription(),
+                        task.getTargetAgent(), "❌ " + task.getDescription() + " 处理失败", false));
+            }
+        }
+        return results;
+    }
+
+    /**
+     * 单意图路由 + Agent 调用（走完整兜底链）
      */
     private RoutingResult handleSingleIntent(String question, Map<String, Object> context, Long userId) {
         // Step 1: 基于 Agent 注册关键词匹配
@@ -225,8 +329,8 @@ public class RouterService {
                     .confidence(0.5)
                     .build();
         }
-        
-        // Step 2: 无专业 Agent 匹配，尝试降级 Fallback Agent（基于 metadata priority）
+
+        // Step 2: 无专业 Agent 匹配，尝试降级 Fallback Agent
         DiscoveredAgent fallbackAgent = null;
         try {
             fallbackAgent = agentDiscoveryService.findFallbackAgent();
@@ -248,7 +352,7 @@ public class RouterService {
                 log.warn("[Router] Fallback Agent 调用失败: {}", e.getMessage());
             }
         }
-        
+
         // Layer 3: 内联 ChatClient 终极兜底
         try {
             String localReply = chatClient.prompt()
@@ -269,7 +373,7 @@ public class RouterService {
         } catch (Exception e) {
             log.warn("[Router] 内联 ChatClient 兜底失败: {}", e.getMessage());
         }
-        
+
         // 所有兜底都失败时的最终提示
         int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
         return RoutingResult.builder()
@@ -278,7 +382,7 @@ public class RouterService {
                 .confidence(0.0)
                 .build();
     }
-    
+
     /**
      * 基于关键词的 Agent 选择（降级方案）
      */
@@ -375,7 +479,7 @@ public class RouterService {
      * 支持前端依次展示每个 Agent 的推理过程。
      */
     private RoutingResult executeMultiIntent(List<String> subTasks, Map<String, Object> context, Long userId, String requestId) {
-        List<SubTaskResult> subResults = new ArrayList<>();
+        List<InnerSubTaskResult> subResults = new ArrayList<>();
         String firstAgent = null;
         String eventsKey = requestId != null ? SSE_EVENTS_KEY_PREFIX + requestId : null;
 
@@ -385,7 +489,7 @@ public class RouterService {
             RoutingResult subResult = handleSingleIntent(subTask, context, userId);
             String detectedAgent = subResult.getAgentName() != null ? subResult.getAgentName() : "unknown";
             storeSseEvent(eventsKey, "routed", "🎯 正在处理: " + subTask, detectedAgent);
-            subResults.add(new SubTaskResult(subTask, subResult.getResult(), detectedAgent));
+            subResults.add(new InnerSubTaskResult(subTask, subResult.getResult(), detectedAgent));
             if (firstAgent == null) firstAgent = detectedAgent;
 
             // 存储 tool_call + response 事件
@@ -441,14 +545,14 @@ public class RouterService {
     /**
      * ⭐ 用 LLM 汇总多个子任务的结果
      */
-    private String aggregateResults(String originalQuestion, List<SubTaskResult> subResults) {
+    private String aggregateResults(String originalQuestion, List<InnerSubTaskResult> subResults) {
         if (subResults.isEmpty()) return "";
         if (subResults.size() == 1) return subResults.get(0).result;
 
         try {
             StringBuilder prompt = new StringBuilder("用户同时问了以下问题，请综合这些信息给出一个完整的回复：\n\n");
             for (int i = 0; i < subResults.size(); i++) {
-                SubTaskResult sub = subResults.get(i);
+                InnerSubTaskResult sub = subResults.get(i);
                 prompt.append("问题").append(i + 1).append("：").append(sub.question).append("\n");
                 prompt.append("回答").append(i + 1).append("：").append(sub.result).append("\n\n");
             }
@@ -457,7 +561,7 @@ public class RouterService {
         } catch (Exception e) {
             log.warn("[Router] LLM 汇总失败，降级到拼接: {}", e.getMessage());
             StringBuilder fallback = new StringBuilder();
-            for (SubTaskResult sub : subResults) {
+            for (InnerSubTaskResult sub : subResults) {
                 if (sub.result != null && !sub.result.isBlank()) {
                     fallback.append(sub.result).append("\n\n");
                 }
@@ -469,11 +573,13 @@ public class RouterService {
     /**
      * 子任务结果
      */
-    private static class SubTaskResult {
+    /** @deprecated 使用 model.SubTaskResult */
+    @Deprecated
+    private static class InnerSubTaskResult {
         final String question;
         final String result;
         final String agentName;
-        SubTaskResult(String question, String result, String agentName) {
+        InnerSubTaskResult(String question, String result, String agentName) {
             this.question = question; this.result = result; this.agentName = agentName;
         }
     }
