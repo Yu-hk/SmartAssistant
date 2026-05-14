@@ -7,6 +7,8 @@
 
 package com.example.smartassistant;
 
+import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration;
+import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
@@ -18,7 +20,10 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  * 启动后，位置与出行规划智能体将自动注册到 Nacos
  */
 @Slf4j
-@SpringBootApplication
+@SpringBootApplication(exclude = {
+    DashScopeChatAutoConfiguration.class,   // Chat 已切换至 DeepSeek
+    DashScopeAgentAutoConfiguration.class   // Embedding 已切换至 BGE
+})
 @MapperScan("com.example.smartassistant.mapper")
 @EnableDiscoveryClient  // ⭐ 启用 Nacos 服务发现
 public class TravelServiceApplication {

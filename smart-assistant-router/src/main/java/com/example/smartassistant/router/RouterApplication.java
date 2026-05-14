@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.router;
 
+import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration;
+import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -19,7 +21,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;  // ⭐ 启�
  * 智能路由服务 - 负责意图识别和 Agent 调度
  */
 @Slf4j
-@SpringBootApplication
+@SpringBootApplication(exclude = {
+    DashScopeChatAutoConfiguration.class,   // Chat 已切换至 DeepSeek
+    DashScopeAgentAutoConfiguration.class   // 缓存使用 BGE-small，无需 DashScope
+})
 @EnableDiscoveryClient  // 启用 Nacos 服务发现
 @EnableScheduling       // ⭐ 启用定时任务调度（用于健康检查）
 @ComponentScan({
