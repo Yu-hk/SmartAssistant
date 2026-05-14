@@ -241,8 +241,8 @@ public class RouterService {
         // Step 1: 任务分解
         List<SubTask> tasks = taskPlanner.plan(question, userId);
         if (tasks.isEmpty()) {
-            log.warn("[Collaborative] 任务分解为空，降级到单 Agent");
-            return handleSingleIntent(question, new HashMap<>(), userId);
+            log.warn("[Collaborative] 任务分解为空，降级到内联 ChatClient 兜底");
+            return inlineFallback(question);
         }
         log.info("[Collaborative] 任务分解: {} 个子任务", tasks.size());
 
@@ -259,11 +259,11 @@ public class RouterService {
 
         long elapsed = System.currentTimeMillis() - start;
 
-        // Step 5: 兜底 — 所有 Agent 均失败或结果为空时走 handleSingleIntent 终极兜底链
+        // Step 5: 终极兜底 — 所有 Agent 均失败或结果为空时走内联 ChatClient
         boolean allFailed = results.isEmpty() || results.stream().noneMatch(SubTaskResult::isSuccess);
         if (allFailed || merged == null || merged.isBlank()) {
-            log.warn("[Collaborative] 所有子任务均失败，降级到 handleSingleIntent 兜底链");
-            return handleSingleIntent(question, new HashMap<>(), userId);
+            log.warn("[Collaborative] 所有子任务均失败，降级到内联 ChatClient 兜底");
+            return inlineFallback(question);
         }
 
         log.info("[Collaborative] 协作完成: {} 个子任务, 耗时={}ms, 结果长度={}",
@@ -385,6 +385,39 @@ public class RouterService {
         }
 
         // 所有兜底都失败时的最终提示
+        int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
+        return RoutingResult.builder()
+                .result(FALLBACK_MESSAGES.get(idx))
+                .agentName("none")
+                .confidence(0.0)
+                .build();
+    }
+
+    /**
+     * 内联 ChatClient 兜底（handleSingleIntent 的第三、四层），
+     * 当所有 Agent 调用失败时的终极回应方案。
+     */
+    private RoutingResult inlineFallback(String question) {
+        try {
+            String localReply = chatClient.prompt()
+                    .system("你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
+                          + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
+                          + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
+                          + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。")
+                    .user(question)
+                    .call()
+                    .content();
+            if (localReply != null && !localReply.isBlank()) {
+                return RoutingResult.builder()
+                        .result(localReply)
+                        .agentName("builtin_fallback")
+                        .confidence(0.2)
+                        .build();
+            }
+        } catch (Exception e) {
+            log.warn("[Router] 内联 ChatClient 兜底失败: {}", e.getMessage());
+        }
+
         int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
         return RoutingResult.builder()
                 .result(FALLBACK_MESSAGES.get(idx))
