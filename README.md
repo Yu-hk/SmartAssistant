@@ -105,7 +105,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 ### 多 Agent 协作
 
-复杂问题（如"推荐北京景点和川菜"）自动分解为子任务并行执行：
+复杂问题（如"推荐北京景点和川菜"）自动分解为子任务，顺序执行带共享上下文：
 
 ```
 用户: "周末去北京玩，推荐景点和川菜馆"
@@ -117,15 +117,25 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
   │      t1|北京热门景点|location_weather
   │      t2|北京川菜餐厅|food_recommendation
   │
-  ├─ parallelExecute()
-  │   ├─ [定位] callAgent("location_weather", 景点查询)
-  │   └─ [美食] callAgent("food_recommendation", 川菜查询)
+  ├─ parallelExecute() [带共享上下文]
+  │   ├─ callAgent("location_weather", "北京景点")
+  │   │   └─ 结果: 故宫、天坛、颐和园...
+  │   │   └─ 存入 sharedContext
+  │   │
+  │   ├─ callAgent("food_recommendation",
+  │   │     "北京川菜" + sharedContext)     ← 注入前序结果
+  │   │   └─ 结果: 眉州东坡(近故宫)、...
+  │   │   └─ 存入 sharedContext
+  │   │
+  │   └─ (若有更多维度以此类推)
   │
   ├─ ResultMerger.merge()
-  │   └─ LLM 整合: "综合景点和美食推荐..."
+  │   └─ LLM 整合: "游览故宫后可去眉州东坡用餐..."
   │
   └─ 全部失败 → inlineFallback() ← 内联 ChatClient 终极兜底
 ```
+
+**共享上下文**：子任务顺序执行，后执行的 Agent 能看到前面 Agent 的输出（如美食 Agent 推荐故宫附近的餐厅），无需 Agent 端改造。
 
 ---
 
