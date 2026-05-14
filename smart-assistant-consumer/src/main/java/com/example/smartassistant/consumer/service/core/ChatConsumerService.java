@@ -11,6 +11,7 @@ import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.infrastructure.DataMaskingService;
 import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
+import com.example.smartassistant.common.memory.EntityProfileService;
 import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import com.example.smartassistant.consumer.service.session.SessionManagementService;
 import org.slf4j.Logger;
@@ -45,6 +46,7 @@ public class ChatConsumerService {
     private final RoutingCallLogService routingCallLogService;
     private final DistributedTracingService tracingService; // ⭐ 分布式追踪
     private final DataMaskingService maskingService; // ⭐ 数据脱敏
+    private final EntityProfileService entityProfileService;
 
     public ChatConsumerService(
             SessionManagementService sessionManagementService,
@@ -52,13 +54,15 @@ public class ChatConsumerService {
             RouterClient routerClient,
             RoutingCallLogService routingCallLogService,
             DistributedTracingService tracingService,
-            DataMaskingService maskingService) {
+            DataMaskingService maskingService,
+            EntityProfileService entityProfileService) {
         this.sessionManagementService = sessionManagementService;
         this.userProfileService = userProfileService; // ⭐ 用户画像服务
         this.routerClient = routerClient;
         this.routingCallLogService = routingCallLogService;
         this.tracingService = tracingService;
         this.maskingService = maskingService;
+        this.entityProfileService = entityProfileService;
     }
 
     /**
@@ -114,7 +118,12 @@ public class ChatConsumerService {
         String routedAgent = (String) routeResponse.getOrDefault("agentName", null);
         String intentTag = (String) routeResponse.get("intentTag");  // ⭐ 读取意图标签
 
-        // Step 3.5: 更新意图分布（优先使用 intentTag，降级到 agentName）
+        // Step 3.5: 实体画像提取（异步，不阻塞主流程）
+        if (userIdLong != null) {
+            entityProfileService.extractAndStore(userIdLong, question, response);
+        }
+
+        // Step 3.6: 更新意图分布（优先使用 intentTag，降级到 agentName）
         if (userIdLong != null && intentTag != null && !intentTag.isBlank()) {
             userProfileService.updateIntentDistribution(userIdLong, intentTag);
         } else if (userIdLong != null && routedAgent != null && !routedAgent.isBlank() && !"none".equals(routedAgent)) {
