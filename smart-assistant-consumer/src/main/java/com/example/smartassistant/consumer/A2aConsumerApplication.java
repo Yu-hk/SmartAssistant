@@ -8,6 +8,7 @@
 package com.example.smartassistant.consumer;
 
 import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration;
+import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
@@ -21,7 +22,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;  // ⭐ 启�
  */
 @Slf4j
 @SpringBootApplication(exclude = {
-    DashScopeChatAutoConfiguration.class  // ⭐ Chat 已切换至 DeepSeek，排除 DashScope Chat
+    DashScopeChatAutoConfiguration.class,  // ⭐ Chat 已切换至 DeepSeek
+    DashScopeAgentAutoConfiguration.class  // ⭐ Embedding 已切换至 BGE，排除 DashScope Agent
 })
 @EnableScheduling  // ⭐ 启用定时任务调度
 @MapperScan({
