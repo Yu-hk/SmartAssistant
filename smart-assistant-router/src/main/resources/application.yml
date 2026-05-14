@@ -122,10 +122,7 @@ router:
     semantic-cache:
       enabled: true              # 是否启用语义路由缓存
     
-    # ⭐ 任务拆分配置
-    task-splitting:
-      enabled: true              # 是否启用多意图任务拆解
-      max-sub-tasks: 3           # 最大子任务数
+    # ⭐ 关键词提取缓存（已被多 Agent 协作替代）
     keyword-extraction:
       cache:
         max-size: 1000  # 根据内存调整
