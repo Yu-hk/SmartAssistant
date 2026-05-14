@@ -714,23 +714,14 @@ public class SemanticRouteCacheService {
     }
 
     /**
-     * 用 LLM 生成意图标签（3-5个字），语义相近的问题归一化到同一标签
+     * 生成意图标签：提取问题关键词，排序后以逗号连接。
+     * 语义相近的问题（如"北京天气怎么样"和"北京天气如何"）会提取出相同的关键词集合，
+     * 从而归一到同一标签，确定性远高于 LLM 生成方式。
      */
     public String generateIntentTag(String question) {
-        try {
-            String tag = chatClient.prompt()
-                    .user("用3-5个字概括这个问题的意图，只输出标签，不要解释：\n" + question)
-                    .call()
-                    .content();
-            if (tag != null) {
-                tag = tag.trim().replaceAll("[\"'\\n\\r]", "");
-                if (tag.length() > 10) tag = tag.substring(0, 10);
-                return tag;
-            }
-        } catch (Exception e) {
-            log.warn("[SemanticCache] LLM 意图标签生成失败: {}", e.getMessage());
-        }
-        return null;
+        List<String> keywords = extractKeywords(question);
+        if (keywords.isEmpty()) return null;
+        return String.join(",", keywords);
     }
 
     private String md5(String str) {
