@@ -97,8 +97,9 @@ public class RecallService {
         // 3. RRF 融合（所有查询变体、所有检索路径的结果一起融合）
         List<RankedChunk> fused = rrfFuse(allPaths);
 
-        // 4. 重排序 + 阈值过滤
-        List<TravelNoteChunk> finalResults = rerank(fused, topK);
+        // 4. BGE 语义重排序（替代纯 RRF）+ Lost in the Middle 优化
+        String searchText = buildSearchText(location, query);
+        List<TravelNoteChunk> finalResults = rerank(fused, topK, searchText);
 
         log.info("[Recall] 完成: location={}, query={}, 查询变体={}, 召回路径={}, 最终结果={}, 耗时={}ms",
                 location, query, searchQueries.size(), allPaths.size(), finalResults.size(),
@@ -260,16 +261,82 @@ public class RecallService {
 
     // ==================== 重排序 ====================
 
-    private List<TravelNoteChunk> rerank(List<RankedChunk> ranked, int k) {
-        return ranked.stream()
+    /**
+     * BGE 语义重排序 + Lost in the Middle 优化。
+     * <p>
+     * 1. 候选池粗过滤（RRF 阈值）
+     * 2. 计算 query 与每个 chunk 的 BGE 余弦相似度
+     * 3. 综合评分 = RRF×0.3 + BGE×0.7
+     * 4. 按综合分排序取 Top-K
+     * 5. Lost in the Middle: 首尾放置最相关文档，中间放次相关
+     */
+    private List<TravelNoteChunk> rerank(List<RankedChunk> ranked, int k, String queryText) {
+        // 粗过滤
+        List<RankedChunk> candidates = ranked.stream()
                 .filter(rc -> rc.getRrfScore() >= minRrfScore())
-                .limit(k)
-                .peek(rc -> {
-                    TravelNoteChunk chunk = rc.getChunk();
-                    chunk.setSimilarity(rc.getRrfScore());
-                })
+                .collect(Collectors.toList());
+        if (candidates.isEmpty()) return Collections.emptyList();
+
+        // BGE query embedding
+        float[] queryVec = embeddingService.embed(queryText);
+
+        // BGE 重打分
+        for (RankedChunk rc : candidates) {
+            String chunkText = rc.getChunk().getChunkText();
+            float[] chunkVec = chunkText != null ? embeddingService.embed(chunkText) : null;
+            double bgeSim = (queryVec != null && chunkVec != null)
+                    ? cosineSimilarity(queryVec, chunkVec) : 0;
+            rc.setBgeScore(bgeSim);
+        }
+
+        // 综合评分排序：RRF×0.3 + BGE×0.7
+        candidates.sort((a, b) -> Double.compare(
+                b.getRrfScore() * 0.3 + b.getBgeScore() * 0.7,
+                a.getRrfScore() * 0.3 + a.getBgeScore() * 0.7));
+
+        // Lost in the Middle: 首尾放置最高分文档
+        List<RankedChunk> reordered = lostInTheMiddle(candidates, k);
+        if (reordered.size() > k) reordered = reordered.subList(0, k);
+
+        return reordered.stream()
+                .peek(rc -> rc.getChunk().setSimilarity(rc.getRrfScore()))
                 .map(RankedChunk::getChunk)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Lost in the Middle 优化：将最相关的文档放在 prompt 首尾位置。
+     * 大模型对中间位置的文档关注度最低 (Liu et al. 2023)。
+     */
+    private List<RankedChunk> lostInTheMiddle(List<RankedChunk> ranked, int k) {
+        List<RankedChunk> result = new ArrayList<>(k);
+        int n = Math.min(ranked.size(), k);
+        if (n <= 2) return ranked.subList(0, n);
+
+        // 首尾交替放置：最高分放开头，次高分放结尾，第三高分放开头第二个...
+        int left = 0, right = n - 1;
+        boolean head = true;
+        for (int i = 0; i < n && left <= right; i++) {
+            if (head) {
+                result.add(ranked.get(left++));
+            } else {
+                result.add(ranked.get(right--));
+            }
+            head = !head;
+        }
+        return result;
+    }
+
+    private double cosineSimilarity(float[] a, float[] b) {
+        if (a == null || b == null || a.length != b.length) return 0;
+        double dot = 0, nA = 0, nB = 0;
+        for (int i = 0; i < a.length; i++) {
+            dot += (double) a[i] * b[i];
+            nA += (double) a[i] * a[i];
+            nB += (double) b[i] * b[i];
+        }
+        double denom = Math.sqrt(nA) * Math.sqrt(nB);
+        return denom == 0 ? 0 : dot / denom;
     }
 
     private double minRrfScore() {
@@ -292,6 +359,7 @@ public class RecallService {
     private static class RankedChunk {
         private final TravelNoteChunk chunk;
         private double rrfScore;
+        private double bgeScore;
         private final List<String> sources = new ArrayList<>();
 
         RankedChunk(TravelNoteChunk chunk, double rrfScore) {
@@ -301,9 +369,11 @@ public class RecallService {
 
         void addScore(double score) { this.rrfScore += score; }
         void addSource(String source) { this.sources.add(source); }
+        void setBgeScore(double score) { this.bgeScore = score; }
 
         TravelNoteChunk getChunk() { return chunk; }
         double getRrfScore() { return rrfScore; }
+        double getBgeScore() { return bgeScore; }
         List<String> getSources() { return sources; }
     }
 }

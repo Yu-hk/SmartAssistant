@@ -62,7 +62,6 @@ public class SemanticRouteCacheService {
     private static final long MIN_CACHE_TTL_SECONDS = 3600;  // 1 小时
 
     private final StringRedisTemplate redisTemplate;
-    private final ChatClient chatClient;
     private final ObjectMapper objectMapper;
     private final ChineseTokenizer tokenizer;
     private final ReplyFormatter replyFormatter;
@@ -81,7 +80,7 @@ public class SemanticRouteCacheService {
             TfEmbeddingService tfEmbedding,
             VectorCacheStore vectorCache,
             BgeOnnxEmbeddingService bgeEmbedding) {
-        this.chatClient = chatClientBuilder.build();
+        ChatClient chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.tokenizer = tokenizer;
