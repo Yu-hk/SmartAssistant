@@ -86,11 +86,6 @@ spring:
         id-type: auto
 
   ai:
-    # DashScope API Key（A2A Agent 自动配置需要）
-    dashscope:
-      api-key: ${DASHSCOPE_API_KEY:}
-      agent:
-        api-key: ${DASHSCOPE_API_KEY:}
     # ⭐ DeepSeek 原生配置 (Chat 模型)
     deepseek:
       api-key: ${DEEPSEEK_API_KEY:}
