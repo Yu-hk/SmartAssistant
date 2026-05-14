@@ -47,13 +47,6 @@
             <version>${spring-ai.version}</version>
         </dependency>
 
-        <!-- ⭐ DashScope Embedding 支持（向量检索必需） -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
-        </dependency>
-
         <!-- A2A 与 Nacos 集成（已包含 nacos-client 和 nacos-api） -->
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>

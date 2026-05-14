@@ -30,9 +30,12 @@ Start-Svc 'gateway' 8081 20
 Start-Svc 'user' 8086 15
 Start-Svc 'consumer' 8082 55
 Start-Svc 'router' 8083 30
+Start-Svc 'travel' 8085 15
+Start-Svc 'food' 8084 15
+Start-Svc 'general' 8087 15
 
 Write-Host "`n=== Health Check ==="
-foreach ($p in @(8081,8086,8082,8083)) {
+foreach ($p in @(8081,8086,8082,8083,8085,8084,8087)) {
     try { $r = Invoke-WebRequest -Uri "http://localhost:$p/actuator/health" -TimeoutSec 5 -UseBasicParsing; Write-Host "Port $p : $($r.StatusCode) UP" }
     catch { Write-Host "Port $p : DOWN" }
 }

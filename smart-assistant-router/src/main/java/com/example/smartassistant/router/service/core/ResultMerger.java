@@ -38,7 +38,8 @@ public class ResultMerger {
         StringBuilder context = new StringBuilder();
         for (var r : results) {
             if (r.getResult() == null || r.getResult().isBlank()) continue;
-            context.append("【").append(r.getDescription()).append("】\n");
+            String source = r.getAgentName() != null ? r.getAgentName() : "unknown";
+            context.append("【").append(source).append("】").append(r.getDescription()).append("\n");
             context.append(r.getResult()).append("\n\n");
         }
 
@@ -51,7 +52,7 @@ public class ResultMerger {
                 - 保留每个回答中的关键信息（景点名称、餐厅推荐、价格、天气等）
                 - 去掉重复内容
                 - 语言自然流畅，像一个人在回答
-                - 不要提及"助理A说"、"助理B说"这类描述
+                - 在引用特定信息时标注来源，如"根据景点攻略的推荐"、"美食助理提到"
                 - 只需要输出整合后的回答，不要多余解释
 
                 用户问题：%s
