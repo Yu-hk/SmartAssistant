@@ -22,8 +22,11 @@ import org.springframework.scheduling.annotation.EnableScheduling;  // ⭐ 启�
  */
 @Slf4j
 @SpringBootApplication(exclude = {
-    DashScopeChatAutoConfiguration.class,  // ⭐ Chat 已切换至 DeepSeek
-    DashScopeAgentAutoConfiguration.class  // ⭐ Embedding 已切换至 BGE，排除 DashScope Agent
+    DashScopeChatAutoConfiguration.class,   // Chat 已切换至 DeepSeek
+    DashScopeAgentAutoConfiguration.class    // Embedding 已切换至 BGE
+}, excludeName = {
+    "com.alibaba.cloud.ai.autoconfigure.dashscope.audio.DashScopeAudioSpeechAutoConfiguration",
+    "com.alibaba.cloud.ai.autoconfigure.dashscope.audio.DashScopeAudioTranscriptionAutoConfiguration"
 })
 @EnableScheduling  // ⭐ 启用定时任务调度
 @MapperScan({

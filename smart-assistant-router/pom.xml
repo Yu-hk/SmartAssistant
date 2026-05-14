@@ -158,7 +158,6 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
-                    <excludeGroupIds>com.microsoft.onnxruntime</excludeGroupIds>
                     <jvmArguments>-Dfile.encoding=UTF-8 -Dconsole.encoding=UTF-8</jvmArguments>
                 </configuration>
             </plugin>
@@ -170,6 +169,10 @@
         <repository>
             <id>huaweicloud</id>
             <url>https://repo.huaweicloud.com/repository/maven</url>
+        </repository>
+        <repository>
+            <id>maven-central</id>
+            <url>https://repo1.maven.org/maven2</url>
         </repository>
     </repositories>
 </project>
