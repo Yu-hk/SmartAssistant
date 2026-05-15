@@ -30,8 +30,8 @@ Start-Svc 'gateway' 8081 20
 Start-Svc 'user' 8086 15
 Start-Svc 'consumer' 8082 55
 Start-Svc 'router' 8083 30
-Start-Svc 'travel' 8085 15
-Start-Svc 'food' 8084 15
+Start-Svc 'order' 8085 15
+Start-Svc 'product' 8084 15
 Start-Svc 'general' 8087 15
 
 Write-Host "`n=== Health Check ==="
