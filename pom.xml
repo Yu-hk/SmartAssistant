@@ -22,8 +22,8 @@
         <module>smart-assistant-common</module>  <!-- ⭐ 公共模块 -->
         <module>smart-assistant-consumer</module>
         <module>smart-assistant-router</module>
-        <module>smart-assistant-travel</module>
-        <module>smart-assistant-food</module>
+        <module>smart-assistant-order</module>
+        <module>smart-assistant-product</module>
         <module>smart-assistant-general</module>  <!-- ⭐ 通用对话模块 -->
         <module>smart-assistant-gateway</module>
         <module>smart-assistant-user</module>  <!-- ⭐ 用户服务 -->

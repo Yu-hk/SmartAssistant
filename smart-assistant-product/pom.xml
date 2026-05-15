@@ -9,9 +9,9 @@
         <version>1.0.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>smart-assistant-food</artifactId>
-    <name>Smart Assistant Food - 美食智能体</name>
-    <description>Smart Assistant 美食推荐服务 - 基于 AI 的智能美食推荐</description>
+    <artifactId>smart-assistant-product</artifactId>
+    <name>Smart Assistant Product - 商品咨询服务</name>
+    <description>Smart Assistant 商品咨询服务 - 商品查询、库存查询、价格查询</description>
 
     <dependencies>
         <!-- Spring Boot Web -->
