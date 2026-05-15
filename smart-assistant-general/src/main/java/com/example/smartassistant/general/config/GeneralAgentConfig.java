@@ -10,6 +10,7 @@ package com.example.smartassistant.general.config;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.example.smartassistant.general.tool.ImageTools;
 import com.example.smartassistant.general.tool.GeneralTools;
+import com.example.smartassistant.general.tool.WeatherTool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
@@ -48,25 +49,31 @@ public class GeneralAgentConfig {
     public ReactAgent generalChatAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
             GeneralTools generalTools,
-            ImageTools imageTools) {
+            ImageTools imageTools,
+            WeatherTool weatherTool) {
 
         log.info("[GeneralAgent] 初始化通用对话 Agent: agentName={}", agentName);
 
-        // 注册所有工具（通用工具 + 图像工具）
+        // 注册所有工具（通用工具 + 图像工具 + 天气工具）
         MethodToolCallbackProvider generalToolProvider = MethodToolCallbackProvider.builder()
                 .toolObjects(generalTools)
                 .build();
         MethodToolCallbackProvider imageToolProvider = MethodToolCallbackProvider.builder()
                 .toolObjects(imageTools)
                 .build();
+        MethodToolCallbackProvider weatherToolProvider = MethodToolCallbackProvider.builder()
+                .toolObjects(weatherTool)
+                .build();
         List<ToolCallback> toolCallbacks = new ArrayList<>();
         toolCallbacks.addAll(List.of(generalToolProvider.getToolCallbacks()));
         toolCallbacks.addAll(List.of(imageToolProvider.getToolCallbacks()));
+        toolCallbacks.addAll(List.of(weatherToolProvider.getToolCallbacks()));
 
-        log.info("[GeneralAgent] 注册 {} 个工具（通用 {} + 图像 {}）",
+        log.info("[GeneralAgent] 注册 {} 个工具（通用 {} + 图像 {} + 天气 {}）",
                 toolCallbacks.size(),
                 generalToolProvider.getToolCallbacks().length,
-                imageToolProvider.getToolCallbacks().length);
+                imageToolProvider.getToolCallbacks().length,
+                weatherToolProvider.getToolCallbacks().length);
 
         return ReactAgent.builder()
                 .name(agentName)

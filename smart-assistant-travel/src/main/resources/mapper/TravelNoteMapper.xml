@@ -5,15 +5,14 @@
     <select id="selectByUserId" resultType="com.example.smartassistant.entity.TravelNote">
         SELECT id, user_id, title, content, source_type, source_url, location, tags, status, created_at, updated_at
         FROM user_travel_notes
-        WHERE user_id = #{userId} AND status = 'active'
+        WHERE status = 'active'
         ORDER BY created_at DESC
     </select>
 
     <select id="selectByLocationKeywords" resultType="com.example.smartassistant.entity.TravelNote">
         SELECT id, user_id, title, content, source_type, source_url, location, tags, status, created_at, updated_at
         FROM user_travel_notes
-        WHERE user_id = #{userId}
-          AND status = 'active'
+        WHERE status = 'active'
           AND (
               location ILIKE '%' || #{location} || '%'
               OR EXISTS (

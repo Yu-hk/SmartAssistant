@@ -4,7 +4,7 @@ server:
 
 spring:
   application:
-    name: travel-service
+    name: order-service
 
   # ⭐ 排除 Spring Security + DeepSeek 自动配置
   autoconfigure:
@@ -82,12 +82,12 @@ spring:
             password: ${NACOS_PASSWORD}
             # Agent 特征元数据（用于 Router 智能路由）
             metadata:
-              agent-type: location_weather
-              capabilities: location_query,weather_forecast,travel_planning,nearby_entertainment
-              keywords: "天气,出行,旅游,位置,附近,景点,规划,周末活动,在哪里,怎么去,好玩,哪里,推荐,城市,周末去哪,游玩"
-              support-location: true
-              support-weather: true
-              support-planning: true
+              agent-type: order_agent
+              capabilities: order_query,refund,logistics
+              keywords: "订单,退款,退货,物流,快递,取消,换货,售后,投诉,赔偿,发货,收货,查单"
+              support-order: true
+              support-refund: true
+              support-logistics: true
               priority: 10
               cache-ttl-seconds: "1200"     # ⭐ 回复缓存 TTL（秒），Router 直接读取
               # ⭐ 版本管理
@@ -99,8 +99,8 @@ spring:
         server:
           enabled: true
           card:
-            name: location_weather  # ⭐ 与路由规则中的 agent_name 保持一致
-            description: "地理位置、天气与出行规划智能体 - 提供位置信息、天气预报和根据天气的出行建议"
+            name: order_agent
+            description: "订单客服智能体 - 订单查询、退款处理、物流跟踪"
             version: "1.0.0"
     
     # ⭐ MCP Server 配置（内嵌模式）

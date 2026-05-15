@@ -12,7 +12,7 @@ import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
-import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
+
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import org.slf4j.Logger;
@@ -73,7 +73,6 @@ public class RouterService {
     private final AtomicInteger fallbackIndex = new AtomicInteger(0);
 
     public RouterService(AgentCallerService agentCallerService,
-                         AgentDiscoveryService agentDiscoveryService,
                          ChatClient.Builder chatClientBuilder,
                          @Qualifier("routerParallelAgentExecutor") Executor routerParallelAgentExecutor,
                          @Autowired(required = false) StringRedisTemplate redisTemplate,
@@ -268,7 +267,7 @@ public class RouterService {
             // 将已有共享上下文附加到子任务描述中
             String enrichedDesc = task.getDescription();
             if (!sharedContext.isEmpty()) {
-                enrichedDesc = task.getDescription() + "\n\n[已知信息]\n" + sharedContext.toString().trim()
+                enrichedDesc = enrichedDesc + "\n\n[已知信息]\n" + sharedContext.toString().trim()
                         + "\n\n请结合以上已知信息回答，避免重复，侧重补充新内容。";
             }
 
@@ -276,20 +275,21 @@ public class RouterService {
                     "🎯 正在处理: " + task.getDescription(), task.getTargetAgent());
 
             try {
-                String agentResult = agentCallerService.callAgent(
+                var agentResult = agentCallerService.callAgentAndExtractTitles(
                         task.getTargetAgent(), enrichedDesc, userId);
-                if (agentResult != null && !agentResult.isBlank()) {
+                String resultText = agentResult.getResponse();
+                if (resultText != null && !resultText.isBlank()) {
                     // 将结果加入共享上下文，供后续 Agent 使用
                     sharedContext.append("【").append(task.getTargetAgent()).append("】")
-                            .append(agentResult).append("\n\n");
+                            .append(resultText).append("\n\n");
                     results.add(new SubTaskResult(task.getId(), task.getDescription(),
-                            task.getTargetAgent(), agentResult, true));
+                            task.getTargetAgent(), resultText, true, agentResult.getRealTitles(), agentResult.getTagsByTitle()));
                     storeSseEvent(eventsKey, "response",
-                            agentResult.substring(0, Math.min(200, agentResult.length())),
+                            resultText.substring(0, Math.min(200, resultText.length())),
                             task.getTargetAgent());
                 } else {
                     results.add(new SubTaskResult(task.getId(), task.getDescription(),
-                            task.getTargetAgent(), "", false));
+                            task.getTargetAgent(), "", false, agentResult.getRealTitles()));
                 }
             } catch (Exception e) {
                 log.warn("[Collaborative] 子任务失败: task={}, error={}", task.getId(), e.getMessage());
@@ -465,4 +465,5 @@ public class RouterService {
         if (str == null) return "";
         return str.length() > maxLength ? str.substring(0, maxLength) + "..." : str;
     }
+
 }

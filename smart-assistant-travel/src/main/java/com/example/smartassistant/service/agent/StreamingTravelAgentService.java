@@ -38,10 +38,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class StreamingTravelAgentService {
 
-    private final ReactAgent locationWeatherAgent;
+    private final ReactAgent orderAgent;
 
-    public StreamingTravelAgentService(ReactAgent locationWeatherAgent) {
-        this.locationWeatherAgent = locationWeatherAgent;
+    public StreamingTravelAgentService(ReactAgent orderAgent) {
+        this.orderAgent = orderAgent;
     }
 
     /**
@@ -56,7 +56,7 @@ public class StreamingTravelAgentService {
 
         Flux<NodeOutput> outputFlux;
         try {
-            outputFlux = locationWeatherAgent.stream(userMessage);
+            outputFlux = orderAgent.stream(userMessage);
         } catch (Exception e) {
             log.error("[StreamingAgent] 启动流式推理失败: {}", e.getMessage(), e);
             return Flux.just(ThinkingEvent.error("启动流式推理失败: " + e.getMessage()), ThinkingEvent.done());

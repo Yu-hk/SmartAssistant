@@ -46,7 +46,6 @@ public interface TravelNoteChunkMapper extends BaseMapper<TravelNoteChunk> {
     List<TravelNoteChunk> searchByEmbedding(
             @Param("embedding") float[] embedding,
             @Param("locationKeyword") String locationKeyword,
-            @Param("userId") Long userId,
             @Param("limit") int limit);
 
     /**
@@ -54,7 +53,6 @@ public interface TravelNoteChunkMapper extends BaseMapper<TravelNoteChunk> {
      */
     List<TravelNoteChunk> searchByLocation(
             @Param("locationKeyword") String locationKeyword,
-            @Param("userId") Long userId,
             @Param("limit") int limit);
 
     /**
@@ -66,7 +64,6 @@ public interface TravelNoteChunkMapper extends BaseMapper<TravelNoteChunk> {
      */
     List<TravelNoteChunk> searchByLocationAndType(
             @Param("locationKeyword") String locationKeyword,
-            @Param("userId") Long userId,
             @Param("contentType") String contentType,
             @Param("limit") int limit);
 
@@ -89,6 +86,5 @@ public interface TravelNoteChunkMapper extends BaseMapper<TravelNoteChunk> {
     List<TravelNoteChunk> searchByFullText(
             @Param("queryText") String queryText,
             @Param("locationKeyword") String locationKeyword,
-            @Param("userId") Long userId,
             @Param("limit") int limit);
 }

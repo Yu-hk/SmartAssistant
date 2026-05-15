@@ -43,14 +43,14 @@ public class TravelRagService {
      * 判断是否需要 RAG 增强
      * 当问题涉及具体地点时触发
      */
-    public boolean needsRagEnhancement(String location, Long userId) {
+    public boolean needsRagEnhancement(String location) {
         if (!ragEnabled) {
             return false;
         }
         if (location == null || location.isEmpty()) {
             return false;
         }
-        return !travelNoteMapper.selectByLocationKeywords(location, userId).isEmpty();
+        return !travelNoteMapper.selectByLocationKeywords(location).isEmpty();
     }
 
     /**
@@ -60,28 +60,28 @@ public class TravelRagService {
      * 实现向量 + 全文 + 关键词多路召回 + RRF 融合。
      * 替代原有的单路向量检索。
      */
-    public List<TravelNoteChunk> retrieveRelevantChunks(String location, String query, Long userId) {
+    public List<TravelNoteChunk> retrieveRelevantChunks(String location, String query) {
         if (!ragEnabled || location == null) {
             return List.of();
         }
-        return recallService.retrieve(location, query, userId);
+        return recallService.retrieve(location, query);
     }
 
     /**
      * 检索相关攻略片段（仅使用地点，不生成向量）
      * 适用于 Embedding 服务不可用时的降级方案
      */
-    public List<TravelNoteChunk> retrieveByLocation(String location, Long userId) {
+    public List<TravelNoteChunk> retrieveByLocation(String location) {
         if (!ragEnabled || location == null) {
             return List.of();
         }
 
         try {
             List<TravelNoteChunk> chunks = travelNoteChunkMapper.searchByLocation(
-                    location, userId, topK);
+                    location, topK);
 
-            log.info("[TravelRag] 地点检索结果: location={}, userId={}, chunks={}",
-                    location, userId, chunks.size());
+            log.info("[TravelRag] 地点检索结果: location={}, chunks={}",
+                    location, chunks.size());
 
             return chunks;
         } catch (Exception e) {
@@ -94,17 +94,17 @@ public class TravelRagService {
      * 按内容类型检索攻略片段（纯文本查询，无需向量）
      * 用于获取美食建议等辅助内容
      */
-    public List<TravelNoteChunk> retrieveByContentType(String location, Long userId, String contentType, int limit) {
+    public List<TravelNoteChunk> retrieveByContentType(String location, String contentType, int limit) {
         if (!ragEnabled || location == null) {
             return List.of();
         }
 
         try {
             List<TravelNoteChunk> chunks = travelNoteChunkMapper.searchByLocationAndType(
-                    location, userId, contentType, limit);
+                    location, contentType, limit);
 
-            log.info("[TravelRag] 类型检索: location={}, userId={}, type={}, chunks={}",
-                    location, userId, contentType, chunks.size());
+            log.info("[TravelRag] 类型检索: location={}, type={}, chunks={}",
+                    location, contentType, chunks.size());
 
             return chunks;
         } catch (Exception e) {
@@ -116,8 +116,8 @@ public class TravelRagService {
     /**
      * 简写：获取美食建议
      */
-    public List<TravelNoteChunk> retrieveFoodSuggestions(String location, Long userId) {
-        return retrieveByContentType(location, userId, "food", 3);
+    public List<TravelNoteChunk> retrieveFoodSuggestions(String location) {
+        return retrieveByContentType(location, "food", 3);
     }
 
     /**
@@ -133,15 +133,10 @@ public class TravelRagService {
         StringBuilder context = new StringBuilder();
         context.append("\n\n=== 用户历史攻略参考 ===\n");
 
-        int idx = 0;
         for (TravelNoteChunk chunk : chunks) {
-            idx++;
-            context.append(String.format("\n【攻略 %d】%s\n", idx,
-                    chunk.getNoteTitle() != null ? chunk.getNoteTitle() : "未命名"));
+            String title = chunk.getNoteTitle() != null ? chunk.getNoteTitle() : "未命名游记";
+            context.append("\n[").append(title).append("]: ");
             context.append(chunk.getChunkText());
-            if (chunk.getSimilarity() != null) {
-                context.append(String.format("\n(相关度: %.2f)", chunk.getSimilarity()));
-            }
             context.append("\n");
         }
 
@@ -149,8 +144,9 @@ public class TravelRagService {
 
         if (foodChunks != null && !foodChunks.isEmpty()) {
             context.append("\n💡 美食建议（你的游记中提到过以下美食，可作为参考）：\n");
-            for (int i = 0; i < foodChunks.size(); i++) {
-                context.append(String.format("  • %s\n", foodChunks.get(i).getChunkText().trim()));
+            for (TravelNoteChunk chunk : foodChunks) {
+                String title = chunk.getNoteTitle() != null ? chunk.getNoteTitle() : "未命名游记";
+                context.append("  • 《").append(title).append("》中提及：").append(chunk.getChunkText().trim()).append("\n");
             }
             context.append("如果用户想进一步了解美食信息，可以引导用户咨询美食服务。\n");
             context.append("=========================\n");
@@ -162,11 +158,11 @@ public class TravelRagService {
     /**
      * 生成增强 Prompt（兼容旧接口，使用 contentType 过滤）
      */
-    public String enhancePrompt(String originalPrompt, String location, String query, Long userId) {
-        List<TravelNoteChunk> chunks = retrieveRelevantChunks(location, query, userId);
+    public String enhancePrompt(String originalPrompt, String location, String query) {
+        List<TravelNoteChunk> chunks = retrieveRelevantChunks(location, query);
 
         if (chunks.isEmpty()) {
-            chunks = retrieveByLocation(location, userId);
+            chunks = retrieveByLocation(location);
         }
 
         // 从检索结果中筛选非美食内容作为正文
@@ -175,7 +171,7 @@ public class TravelRagService {
                 .toList();
 
         // 单独查询美食建议
-        List<TravelNoteChunk> foodChunks = retrieveFoodSuggestions(location, userId);
+        List<TravelNoteChunk> foodChunks = retrieveFoodSuggestions(location);
 
         String ragContext = buildRagContext(location, travelChunks, foodChunks);
 

@@ -55,7 +55,242 @@ public class AgentCallerService {
     public String callAgent(String agentName, String question, Long userId) {
         return callAgentWithContext(agentName, question, userId, null);
     }
-    
+
+    /**
+     * 调用目标 Agent 并提取工具输出中的真实游记标题（用于引用校验）。
+     */
+    public AgentCallResult callAgentAndExtractTitles(String agentName, String question, Long userId) {
+        log.info("[AgentCaller] callAgentAndExtractTitles: agent={}, userId={}, questionLength={}",
+                agentName, userId, question != null ? question.length() : 0);
+
+        try {
+            String instruction = buildOptimizedInstruction(question, null);
+            String agentUrl = findAgentUrl(agentName);
+            if (agentUrl == null) {
+                return new AgentCallResult("❌ 未找到目标 Agent: " + agentName);
+            }
+
+            AgentCardProvider specificProvider = new SpecificAgentCardProvider(agentDiscoveryService, agentName);
+            A2aRemoteAgent remoteAgent = A2aRemoteAgent.builder()
+                    .name(agentName)
+                    .description("远程 Agent: " + agentName)
+                    .agentCardProvider(specificProvider)
+                    .instruction(question)
+                    .shareState(false)
+                    .build();
+
+            Optional<OverAllState> result = remoteAgent.invoke(question);
+            if (result.isEmpty()) {
+                return new AgentCallResult("⚠️ Agent 返回空结果");
+            }
+
+            // 从 messages 中提取工具输出里的真实游记标题和 tag
+            List<String> realTitles = extractRealTitlesFromMessages(result.get());
+            java.util.Map<String, String> tagsByTitle = extractTagsFromMessages(result.get());
+
+            // 提取 output
+            Object output = result.get().data().get("output");
+            if (output == null) {
+                return new AgentCallResult("⚠️ Agent 未返回 output", realTitles);
+            }
+
+            String response;
+            if (output instanceof AssistantMessage assistantOutput) {
+                String text = assistantOutput.getText();
+                response = (text != null && !text.isEmpty()) ? text : assistantOutput.toString();
+            } else if (output instanceof String strOutput) {
+                if (strOutput.startsWith("DeepSeekAssistantMessage [") || strOutput.startsWith("AssistantMessage [")) {
+                    if (strOutput.contains("textContent=")) {
+                        int startIdx = strOutput.indexOf("textContent=") + "textContent=".length();
+                        int endIdx = findEndOfTextContent(strOutput, startIdx);
+                        response = endIdx > startIdx ? strOutput.substring(startIdx, endIdx) : strOutput;
+                    } else {
+                        response = strOutput;
+                    }
+                } else {
+                    response = strOutput;
+                }
+            } else {
+                response = output.toString();
+            }
+
+            response = cleanThinkingContent(response);
+
+            if ("No output key in result.".equals(response)) {
+                Object messages = result.get().data().get("messages");
+                if (messages instanceof List<?> messageList) {
+                    for (int i = messageList.size() - 1; i >= 0; i--) {
+                        Object msg = messageList.get(i);
+                        if (msg instanceof AssistantMessage assistantMsg) {
+                            String text = assistantMsg.getText();
+                            if (text != null && !text.isEmpty()) {
+                                response = text;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            log.info("[AgentCaller] Agent 调用成功: {}, 响应长度={}, titles={}", agentName, response.length(), realTitles.size());
+
+            // ⭐ 后处理：去除响应中不存在于真实标题列表的 [...]、《...》、【...】引用
+            if (!realTitles.isEmpty()) {
+                response = stripFakeCitations(response, realTitles);
+            }
+
+            return new AgentCallResult(response, realTitles, tagsByTitle);
+
+        } catch (Exception e) {
+            log.error("[AgentCaller] Agent 调用失败: {}, 错误: {}", agentName, e.getMessage(), e);
+            return new AgentCallResult("❌ 调用 Agent 失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 从 Agent 返回数据中的 messages 列表提取工具输出里的真实游记标题。
+     * 在 A2A 远程调用中，消息可能被序列化为多种格式（ToolResponseMessage、String等），
+     * 因此遍历所有消息的 toString() 查找 【可引用的真实游记标题】 区块。
+     */
+    private List<String> extractRealTitlesFromMessages(OverAllState state) {
+        List<String> titles = new java.util.ArrayList<>();
+        try {
+            Object messages = state.data().get("messages");
+            if (messages instanceof List<?> messageList) {
+                for (Object msg : messageList) {
+                    // 尝试直接提取 ToolResponseMessage
+                    if (msg instanceof org.springframework.ai.chat.messages.ToolResponseMessage toolResponse) {
+                        for (var response : toolResponse.getResponses()) {
+                            String data = response.responseData();
+                            titles.addAll(parseTitlesFromText(data));
+                        }
+                    }
+                    // 尝试从 toString() 中提取（A2A 序列化后的消息）
+                    String msgStr = msg.toString();
+                    titles.addAll(parseTitlesFromText(msgStr));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[AgentCaller] 提取真实游记标题失败: {}", e.getMessage());
+        }
+        return titles;
+    }
+
+    /**
+     * 从 Agent 返回数据中的 messages 提取 ___METADATA___ JSON 块中的 title→tags 映射。
+     */
+    private java.util.Map<String, String> extractTagsFromMessages(OverAllState state) {
+        java.util.Map<String, String> result = new java.util.HashMap<>();
+        try {
+            Object messages = state.data().get("messages");
+            if (messages instanceof List<?> messageList) {
+                for (Object msg : messageList) {
+                    if (msg instanceof org.springframework.ai.chat.messages.ToolResponseMessage toolResponse) {
+                        for (var response : toolResponse.getResponses()) {
+                            result.putAll(parseTagsFromText(response.responseData()));
+                        }
+                    }
+                    result.putAll(parseTagsFromText(msg.toString()));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[AgentCaller] 提取 tag 失败: {}", e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * 从 ==REAL_TITLES== 标记行中解析 {title → tags}。
+     */
+    private java.util.Map<String, String> parseTagsFromText(String text) {
+        java.util.Map<String, String> map = new java.util.HashMap<>();
+        if (text == null || !text.contains("==REAL_TITLES==")) return map;
+        try {
+            int pos = text.indexOf("==REAL_TITLES==");
+            String after = text.substring(pos);
+            for (String line : after.split("\n")) {
+                line = line.trim();
+                // 跳过标记行和空行
+                if (line.isEmpty() || line.equals("==REAL_TITLES==")) continue;
+                if (line.startsWith("==")) {
+                    String content = line.substring(2); // 去掉开头的 ==
+                    int sep = content.indexOf('|');
+                    String title = sep > 0 ? content.substring(0, sep).trim() : content.trim();
+                    String tags = sep > 0 ? content.substring(sep + 1).trim() : "";
+                    if (!title.isEmpty()) {
+                        map.put(title, tags);
+                        log.info("[AgentCaller] 从 REAL_TITLES 标记提取到标题: {}", title);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[AgentCaller] REAL_TITLES 解析失败: {}", e.getMessage());
+        }
+        return map;
+    }
+
+    /**
+     * 从文本中解析标题。先尝试 ==REAL_TITLES== 标记，再回退到旧格式。
+     */
+    private List<String> parseTitlesFromText(String text) {
+        List<String> titles = new java.util.ArrayList<>();
+        if (text == null || text.isEmpty()) return titles;
+
+        // ⭐ 优先解析 ==REAL_TITLES== 标记行
+        if (text.contains("==REAL_TITLES==")) {
+            var tagsMap = parseTagsFromText(text);
+            titles.addAll(tagsMap.keySet());
+            if (!titles.isEmpty()) {
+                log.info("[AgentCaller] 从 REAL_TITLES 提取到 {} 个标题", titles.size());
+                return titles;
+            }
+        }
+
+        // ⭐ 回退：旧格式 title list
+        try {
+            if (!text.contains("【可引用的真实游记标题】")) return titles;
+            int blockStart = text.indexOf("【可引用的真实游记标题】");
+            String afterBlock = text.substring(blockStart);
+            int blockEnd = afterBlock.indexOf("⚠️");
+            String block = (blockEnd > 0) ? afterBlock.substring(0, blockEnd) : afterBlock;
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("[•●]\\s*([^\\n\\r]+)").matcher(block);
+            while (m.find()) {
+                String t = m.group(1).trim();
+                if (!t.startsWith("⚠️") && !t.isEmpty() && !t.contains("严禁")) titles.add(t);
+            }
+        } catch (Exception e) {
+            log.warn("[AgentCaller] 旧格式标题解析失败: {}", e.getMessage());
+        }
+        return titles;
+    }
+
+    /**
+     * ⭐ 去除响应中不存在于真实标题列表的 [...]、《...》、【...】引用。
+     * 如果引用内文不匹配任何真实标题，去掉外层括号降级为纯文本。
+     */
+    private String stripFakeCitations(String response, List<String> realTitles) {
+        if (response == null || response.isBlank()) return response;
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("\\[([^\\]]{2,80})]|《([^》]{2,80})》|【([^】]{2,80})】");
+        java.util.regex.Matcher m = p.matcher(response);
+        StringBuffer sb = new StringBuffer();
+        int removed = 0;
+        while (m.find()) {
+            String inner = m.group(1) != null ? m.group(1) : (m.group(2) != null ? m.group(2) : m.group(3));
+            boolean valid = realTitles.stream().anyMatch(rt -> rt.equals(inner) || rt.contains(inner) || inner.contains(rt));
+            if (valid) {
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(m.group()));
+            } else {
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(inner));
+                removed++;
+            }
+        }
+        m.appendTail(sb);
+        if (removed > 0) {
+            log.info("[AgentCaller] 已移除 {} 个编造的标题引用（Agent 后处理）", removed);
+        }
+        return sb.toString();
+    }
+
     /**
      * 调用目标 Agent（带提取的上下文信息）
      * 优化：使用关键词提取构建精简 instruction，减少 token 消耗
@@ -67,7 +302,7 @@ public class AgentCallerService {
      * @return Agent 响应结果
      */
     public String callAgentWithContext(String agentName, String question, Long userId, 
-                                      RouteDecision.ExtractedContext context) {
+                                       RouteDecision.ExtractedContext context) {
         log.info("[AgentCaller] 调用 Agent: {}, userId={}, questionLength={}", 
                 agentName, userId, question != null ? question.length() : 0);
         

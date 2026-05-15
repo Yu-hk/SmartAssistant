@@ -6,8 +6,8 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-> 基于 Spring AI Alibaba + A2A 协议的多智能体对话平台，集成 DeepSeek V4-Flash 大模型 + BGE 本地中文 Embedding。
-> 支持多 Agent 协同、三层路由兜底、**图片解析/文生图**、LLM 叙事摘要、语义缓存、全链路监控。
+> 基于 Spring AI Alibaba + A2A 协议的多智能体客服平台，集成 DeepSeek V4-Flash 大模型 + BGE 本地中文 Embedding。
+> 支持多 Agent 协同、三层路由兜底、订单查询、商品咨询、语义缓存、全链路监控。
 
 ---
 
@@ -37,10 +37,10 @@
 
 SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 框架和 **A2A (Agent-to-Agent)** 协议实现。系统通过 **智能路由器** 将用户请求分发到不同的专业 Agent，支持：
 
-- **Travel Agent**：出行规划、地点查询、天气预报
-- **Food Agent**：美食推荐、菜系查询、附近餐厅
-- **General Agent**：闲聊陪伴、问答、新闻热点
-- **Consumer 聚合**：统一对话入口，上下文管理，用户画像
+- **Order Agent**：订单查询、退款处理、物流跟踪（原 Travel 服务）
+- **Product Agent**：商品查询、库存查询、价格查询（原 Food 服务）
+- **General Agent**：闲聊陪伴、问答、新闻热点、天气查询
+- **Consumer 聚合**：统一对话入口，上下文管理、用户画像
 
 采用 **Agentic RAG** 架构，支持多轮推理、语义缓存、向量检索，并通过 **Prometheus + Grafana + Jaeger** 实现全链路可观测性。
 
@@ -69,26 +69,26 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 │  React:3001 │     │  :8081 (JWT) │     │  :8083 (意图识别) │
 └─────────────┘     └──────────────┘     └────────┬────────┘
                                                    │
-                         ┌─────────────────────────┼──────────┐
-                         │                         │          │
-                   ┌─────▼──────┐          ┌───────▼──────┐   │
-                   │  Consumer  │          │   General    │   │
-                   │  :8082     │          │   :8087      │   │
-                   │ (会话管理)   │          │  (闲聊+多模态)  │   │
-                   └─────┬──────┘          │  🖼️图解析/生图 │   │
-                         │                 └──────────────┘   │
-              ┌──────────┼──────────┐                          │
-         ┌────▼────┐ ┌──▼────┐ ┌───▼────┐                     │
-         │  Travel │ │ Food  │ │  User  │                     │
-         │  :8085  │ │:8084  │ │  :8086 │                     │
-         │(出行规划) │ │(美食)  │ │(认证)   │                     │
-         └─────────┘ └───────┘ └────────┘                     │
-                                                              │
-                   ┌─────────────────────────────────────┐    │
-                   │         Infrastructure               │    │
-                   │  Redis ─ Nacos ─ PostgreSQL ─ Zipkin │    │
-                   │  Prometheus ─ Grafana ─ Loki ─ Jaeger│    │
-                   └─────────────────────────────────────┘────┘
+                          ┌─────────────────────────┼──────────┐
+                          │                         │          │
+                    ┌─────▼──────┐          ┌───────▼──────┐   │
+                    │  Consumer  │          │   General    │   │
+                    │  :8082     │          │   :8087      │   │
+                    │ (会话管理)   │          │  (闲聊+天气)   │   │
+                    └─────┬──────┘          └──────────────┘   │
+                          │                                      │
+               ┌──────────┼──────────┐                          │
+          ┌────▼────┐ ┌──▼────┐ ┌───▼────┐                     │
+          │  Order  │ │Product│ │  User  │                     │
+          │  :8085  │ │:8084  │ │  :8086 │                     │
+          │(订单客服) │ │(商品咨询)│ │(认证)   │                     │
+          └─────────┘ └───────┘ └────────┘                     │
+                                                               │
+                    ┌─────────────────────────────────────┐    │
+                    │         Infrastructure               │    │
+                    │  Redis ─ Nacos ─ PostgreSQL ─ Zipkin │    │
+                    │  Prometheus ─ Grafana ─ Loki ─ Jaeger│    │
+                    └─────────────────────────────────────┘────┘
 ```
 
 ### 请求流程
@@ -334,8 +334,8 @@ saveReply() 时
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
 | **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀；提供 `/api/data/query` 数据查询独立端点 |
 | **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分解→并行执行→结果合并，Nacos 服务发现；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
-| **Travel** | 8085 | 出行规划，地点查询，天气预报，景点信息（RAG）；`service/` 按 rag/data/infrastructure 子包组织 |
-| **Food** | 8084 | 美食推荐，菜系查询，附近餐厅搜索；`service/` 按 core/search/infrastructure 子包组织 |
+| **Order** | 8085 | 订单查询，退款处理，物流跟踪（原 Travel 服务改造）；`service/` 按 rag/data/infrastructure 子包组织 |
+| **Product** | 8084 | 商品查询，库存查询，价格查询（原 Food 服务改造）；`service/` 按 core/search/infrastructure 子包组织 |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
 | **General** | 8087 | 闲聊问答，新闻热点，单位转换，**图片解析/文生图**，支持风格切换 |
 

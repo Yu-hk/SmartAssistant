@@ -5,8 +5,9 @@
  * full license information.
  */
 
-package com.example.smartassistant.tools;
+package com.example.a2a.tools;
 
+import com.example.smartassistant.tools.NearbyEntertainmentTool;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
