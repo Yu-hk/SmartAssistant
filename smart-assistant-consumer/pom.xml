@@ -75,12 +75,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Spring AI Alibaba DashScope Starter (仅用于 Embedding, Chat 已切换至 DeepSeek) -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
-        </dependency>
 
         <!-- Spring AI DeepSeek Starter (原生 DeepSeek 支持，含 thinking mode 处理) -->
         <dependency>

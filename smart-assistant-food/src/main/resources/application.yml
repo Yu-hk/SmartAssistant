@@ -4,7 +4,7 @@ server:
 
 spring:
   application:
-    name: food-service
+    name: product-service
 
   # ⭐ 排除 Spring Security + DeepSeek 自动配置 (使用自定义 ChatModel 禁用 thinking_mode)
   autoconfigure:
@@ -73,11 +73,9 @@ spring:
             password: ${NACOS_PASSWORD}
             # Agent 特征元数据（用于 Router 智能路由）
             metadata:
-              agent-type: food_recommendation
-              capabilities: cuisine_query,restaurant_recommendation,nearby_search
-              keywords: 美食,餐厅,菜系,特色菜,吃什么,附近美食,推荐餐厅
-              cuisine-types: 川菜,粤菜,鲁菜,苏菜,浙菜,闽菜,湘菜,徽菜,火锅,烧烤,日料,韩餐,西餐
-              support-location: true
+              agent-type: product_agent
+              capabilities: product_query,stock_check,price_query
+              keywords: 商品,价格,库存,规格,颜色,分期,多少钱,有货,参数,对比
               priority: 10
               cache-ttl-seconds: "43200"    # ⭐ 回复缓存 TTL（秒）
               # ⭐ 版本管理
@@ -89,7 +87,7 @@ spring:
         server:
           enabled: true
           card:
-            name: food_recommendation  # ⭐ 与路由规则中的 agent_name 保持一致
+            name: product_agent
             description: "美食推荐智能体 - 根据城市、菜系和位置推荐附近的餐厅"
             version: "1.0.0"
 

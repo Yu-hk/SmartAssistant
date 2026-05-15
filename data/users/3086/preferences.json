@@ -1,0 +1,28 @@
+{
+  "id" : null,
+  "userId" : 3086,
+  "preferredLocations" : null,
+  "foodPreferences" : [ "川菜" ],
+  "travelPreferences" : [ "文化" ],
+  "dietaryRestrictions" : null,
+  "budgetRange" : null,
+  "preferenceWeights" : {
+    "川菜" : 4
+  },
+  "intentDistribution" : {
+    "travel-service" : 55,
+    "目标助理" : 8
+  },
+  "additionalPreferences" : "{\"location_weights\":{\"北京\":4,\"厦门\":1,\"哈尔滨\":1,\"杭州\":44}}",
+  "totalQueries" : 63,
+  "lastQueryAt" : [ 2026, 5, 15, 16, 56, 3, 52422200 ],
+  "createdAt" : null,
+  "updatedAt" : [ 2026, 5, 15, 16, 56, 5, 414762700 ],
+  "preferredLocationsArray" : null,
+  "travelPreferencesArray" : [ "文化" ],
+  "foodPreferencesArray" : [ "川菜" ],
+  "dietaryRestrictionsArray" : null,
+  "preferenceWeightsMap" : {
+    "川菜" : 4
+  }
+}

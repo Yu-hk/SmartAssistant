@@ -29,14 +29,14 @@ import java.util.concurrent.Executors;
 @Slf4j
 public class TravelStreamController {
 
-    private final ReactAgent locationWeatherAgent;
+    private final ReactAgent orderAgent;
     private final StreamingTravelAgentService streamingAgentService;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     public TravelStreamController(
-            @Qualifier("locationWeatherAgent") ReactAgent locationWeatherAgent,
+            @Qualifier("orderAgent") ReactAgent orderAgent,
             StreamingTravelAgentService streamingAgentService) {
-        this.locationWeatherAgent = locationWeatherAgent;
+        this.orderAgent = orderAgent;
         this.streamingAgentService = streamingAgentService;
     }
 
@@ -114,7 +114,7 @@ public class TravelStreamController {
     public String chatSync(@RequestParam String message) {
         log.info("[TravelStream] 同步对话: {}", message);
         try {
-            var response = locationWeatherAgent.call(message);
+            var response = orderAgent.call(message);
             if (response != null) {
                 return response.getText();
             }

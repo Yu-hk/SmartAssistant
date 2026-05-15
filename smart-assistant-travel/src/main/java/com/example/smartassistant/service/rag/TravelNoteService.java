@@ -180,15 +180,8 @@ public class TravelNoteService {
     /**
      * 获取用户的所有游记
      */
-    public List<TravelNote> getUserNotes(Long userId) {
-        return travelNoteMapper.selectByUserId(userId);
-    }
-
-    /**
-     * 根据地点搜索游记（与用户无关，所有游记共享）
-     */
-    public List<TravelNote> searchByLocation(Long userId, String location) {
-        return travelNoteMapper.selectByLocationKeywords(location, userId);
+    public List<TravelNote> getAllNotes() {
+        return travelNoteMapper.selectAllActive();
     }
 
     /**
@@ -396,8 +389,8 @@ public class TravelNoteService {
     /**
      * 搜索分块（用于测试）
      */
-    public List<TravelNoteChunk> searchChunks(String location, String query, Long userId) {
+    public List<TravelNoteChunk> searchChunks(String location, String query) {
         // 降级方案：基于关键词搜索
-        return travelNoteChunkMapper.searchByLocation(location, userId, 10);
+        return travelNoteChunkMapper.searchByLocation(location, 10);
     }
 }

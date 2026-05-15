@@ -50,7 +50,7 @@ public class TravelNoteRankingService {
     // ==================== 权重配置 ====================
     private static final double WEIGHT_FRESHNESS = 0.15;       // 新鲜度
     private static final double WEIGHT_INTENT_MATCH = 0.30;    // 意图匹配
-    private static final double WEIGHT_PREFERENCE_MATCH = 0.15; // 用户偏好匹配
+    private static final double WEIGHT_PREFERENCE_MATCH = 0.0; // 用户偏好匹配（已禁用）
     private static final double WEIGHT_CONTENT_QUALITY = 0.20; // 内容质量
     private static final double WEIGHT_COST_EFFICIENCY = 0.20; // 性价比
 
@@ -212,13 +212,12 @@ public class TravelNoteRankingService {
      *     <li><b>用户偏好</b>：从用户历史游记中提取的长期偏好特征</li>
      * </ul>
      *
-     * @param userId    用户ID（用于提取用户偏好）
      * @param location  目的地/地点
      * @param userIntent 用户意图（如"带娃游玩"、"美食"等）
      * @return 评分结果列表
      */
-    public RankingResult rankTravelNotes(Long userId, String location, String userIntent) {
-        log.info("[Ranking] 开始规则推理: userId={}, location={}, intent={}", userId, location, userIntent);
+    public RankingResult rankTravelNotes(String location, String userIntent) {
+        log.info("[Ranking] 开始规则推理: location={}, intent={}", location, userIntent);
 
         // Step 1: 搜索该地点的游记
         List<TravelNote> allNotes = travelNoteService.searchByLocation(location);
@@ -239,13 +238,8 @@ public class TravelNoteRankingService {
                 intentType != null ? intentType.getPacePreference() : "normal",
                 intentType != null ? intentType.getCostPreference() : "medium");
 
-        // Step 4: 提取用户偏好（如果有 userId）
-        UserPreference userPref = extractUserPreference(userId);
-        log.info("[Ranking] Step4: 用户偏好={}",
-                userPref != null ? userPref.getSummary() : "无历史数据");
-
         // Step 5: 多维度评分
-        List<ScoredNote> scoredNotes = scoreNotes(recentNotes, intentType, userPref);
+        List<ScoredNote> scoredNotes = scoreNotes(recentNotes, intentType);
 
         // Step 6: 排序返回
         scoredNotes.sort((a, b) -> Double.compare(b.totalScore, a.totalScore));
@@ -254,59 +248,6 @@ public class TravelNoteRankingService {
                 scoredNotes.isEmpty() ? 0 : scoredNotes.get(0).totalScore);
 
         return RankingResult.of(scoredNotes, location, userIntent, intentType);
-    }
-
-    /**
-     * Step 4: 提取用户偏好
-     *
-     * <p>从用户的历史游记中提取长期偏好特征，这是真正的"用户画像"。</p>
-     */
-    private UserPreference extractUserPreference(Long userId) {
-        if (userId == null) {
-            return null;
-        }
-
-        try {
-            List<TravelNote> userNotes = travelNoteService.getUserNotes(userId);
-            if (userNotes == null || userNotes.isEmpty()) {
-                return null;
-            }
-
-            // 统计标签频率
-            Map<String, Long> tagFrequency = new HashMap<>();
-            int totalContentLength = 0;
-
-            for (TravelNote note : userNotes) {
-                String tagsStr = note.getTags();
-                if (tagsStr != null && !tagsStr.isEmpty()) {
-                    for (String tag : tagsStr.split(",")) {
-                        tagFrequency.merge(tag.toLowerCase().trim(), 1L, Long::sum);
-                    }
-                }
-                if (note.getContent() != null) {
-                    totalContentLength += note.getContent().length();
-                }
-            }
-
-            if (tagFrequency.isEmpty()) {
-                return null;
-            }
-
-            // 分析偏好特征
-            return UserPreference.builder()
-                    .totalNotes(userNotes.size())
-                    .avgContentLength(userNotes.isEmpty() ? 0 : totalContentLength / userNotes.size())
-                    .topTags(tagFrequency.entrySet().stream()
-                            .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
-                            .limit(5)
-                            .map(Map.Entry::getKey)
-                            .collect(Collectors.toList()))
-                    .build();
-
-        } catch (Exception e) {
-            log.warn("[Ranking] 提取用户偏好失败: {}", e.getMessage());
-            return null;
-        }
     }
 
     /**
@@ -353,7 +294,7 @@ public class TravelNoteRankingService {
     /**
      * Step 5: 多维度评分
      */
-    private List<ScoredNote> scoreNotes(List<TravelNote> notes, TravelProfile intentType, UserPreference userPref) {
+    private List<ScoredNote> scoreNotes(List<TravelNote> notes, TravelProfile intentType) {
         List<ScoredNote> scored = new ArrayList<>();
 
         for (TravelNote note : notes) {
@@ -364,9 +305,6 @@ public class TravelNoteRankingService {
             double intentScore = calculateIntentMatchScore(note, intentType);
             String intentReason = generateIntentReason(note, intentType);
 
-            double preferenceScore = calculatePreferenceMatchScore(note, userPref);
-            String preferenceReason = generatePreferenceReason(note, userPref);
-
             double qualityScore = calculateContentQualityScore(note);
             String qualityReason = generateQualityReason(note);
 
@@ -376,7 +314,6 @@ public class TravelNoteRankingService {
             // 2. 综合评分
             double totalScore = WEIGHT_FRESHNESS * freshnessScore
                     + WEIGHT_INTENT_MATCH * intentScore
-                    + WEIGHT_PREFERENCE_MATCH * preferenceScore
                     + WEIGHT_CONTENT_QUALITY * qualityScore
                     + WEIGHT_COST_EFFICIENCY * costScore;
 
@@ -386,12 +323,12 @@ public class TravelNoteRankingService {
                     .totalScore(totalScore)
                     .freshnessScore(freshnessScore)
                     .intentScore(intentScore)
-                    .preferenceScore(preferenceScore)
+                    .preferenceScore(0)
                     .qualityScore(qualityScore)
                     .costScore(costScore)
                     .freshnessReason(freshnessReason)
                     .intentReason(intentReason)
-                    .preferenceReason(preferenceReason)
+                    .preferenceReason("")
                     .qualityReason(qualityReason)
                     .costReason(costReason)
                     .build();
@@ -506,50 +443,6 @@ public class TravelNoteRankingService {
     }
 
     /**
-     * 计算用户偏好匹配评分
-     *
-     * <p>这是真正的"用户画像"评分 - 基于用户历史偏好，而非当前意图</p>
-     */
-    private double calculatePreferenceMatchScore(TravelNote note, UserPreference userPref) {
-        if (userPref == null || userPref.getTopTags() == null || userPref.getTopTags().isEmpty()) {
-            return 0.5;  // 无偏好数据时给基础分
-        }
-
-        String noteTags = nullToEmpty(note.getTags()).toLowerCase();
-        String noteContent = nullToEmpty(note.getContent()).toLowerCase();
-        String noteTitle = nullToEmpty(note.getTitle()).toLowerCase();
-        String fullText = noteTitle + " " + noteTags + " " + noteContent;
-
-        double score = 0.3;  // 基础分
-
-        // 检查游记标签是否匹配用户的热门偏好
-        for (String topTag : userPref.getTopTags()) {
-            if (fullText.contains(topTag.toLowerCase())) {
-                score += 0.14;  // 每个匹配+14%，最多5个标签匹配
-            }
-        }
-
-        return Math.min(1.0, score);
-    }
-
-    private String generatePreferenceReason(TravelNote note, UserPreference userPref) {
-        if (userPref == null) {
-            return "👤 无历史偏好";
-        }
-
-        String noteTags = nullToEmpty(note.getTags()).toLowerCase();
-
-        // 检查匹配了用户的哪个偏好标签
-        for (String topTag : userPref.getTopTags()) {
-            if (noteTags.contains(topTag.toLowerCase())) {
-                return "👤 匹配您的偏好 [" + topTag + "]";
-            }
-        }
-
-        return "👤 符合您的一般风格";
-    }
-
-    /**
      * 计算内容质量评分
      */
     private double calculateContentQualityScore(TravelNote note) {
@@ -654,27 +547,6 @@ public class TravelNoteRankingService {
         private Set<String> dislikedAttractionTypes;   // 不喜欢的景点类型
         private String pacePreference;                 // 游玩节奏: relaxed/active/budget/foodie/cultural/photo/shopping
         private String costPreference;                 // 消费偏好: very_low/low/medium/high
-    }
-
-    /**
-     * 用户偏好 - 从用户历史游记中提取的长期偏好特征
-     *
-     * <p>这是真正的"用户画像"，反映用户的旅行风格，而非临时意图。</p>
-     * <p>例如：用户经常写美食类游记 → 偏好美食；用户偏好深度体验 → 偏好详细攻略</p>
-     */
-    @lombok.Data
-    @lombok.Builder
-    private static class UserPreference {
-        private int totalNotes;              // 游记总数
-        private int avgContentLength;         // 平均内容长度
-        private List<String> topTags;         // 热门标签 Top 5
-
-        public String getSummary() {
-            if (topTags == null || topTags.isEmpty()) {
-                return "新用户";
-            }
-            return "偏好: " + String.join(", ", topTags.stream().limit(3).toArray(String[]::new));
-        }
     }
 
     /**

@@ -75,14 +75,13 @@ public class TravelNoteMatchService {
     /**
      * 根据用户意图，从指定地点的游记中找出最匹配的 TopN 篇
      *
-     * @param userId     用户ID（可选，用于个性化推荐）
      * @param location   目的地/地点
      * @param userIntent 用户的当前意图（如"带娃游玩"、"美食"、"情侣出行"）
      * @return 匹配结果
      */
-    public MatchResult selectBestTravelNote(Long userId, String location, String userIntent) {
-        log.info("[TravelNoteMatch] 开始匹配: userId={}, location={}, intent={}",
-                userId, location, userIntent);
+    public MatchResult selectBestTravelNote(String location, String userIntent) {
+        log.info("[TravelNoteMatch] 开始匹配: location={}, intent={}",
+                location, userIntent);
 
         // 检查 RAG 功能是否启用
         if (!ragEnabled) {
@@ -99,12 +98,12 @@ public class TravelNoteMatchService {
             log.info("[TravelNoteMatch] ========== 规则评分筛选 ==========");
 
             TravelNoteRankingService.RankingResult rankingResult =
-                    rankingService.rankTravelNotes(userId, location, userIntent);
+                    rankingService.rankTravelNotes(location, userIntent);
 
             if (rankingResult.isEmpty()) {
                 // 无游记时降级：尝试从 RAG 分块中检索
                 log.info("[TravelNoteMatch] 该地点无游记，降级使用 RAG 向量检索");
-                return fallbackToRagRetrieval(userId, location, userIntent);
+                return fallbackToRagRetrieval(location, userIntent);
             }
 
             // 获取 TopN 候选游记列表
@@ -112,11 +111,10 @@ public class TravelNoteMatchService {
             log.info("[TravelNoteMatch] 规则评分筛选出 {} 篇候选游记", topNotes.size());
 
             // ⭐ 收集被筛掉的笔记 ID（排名 #6 及之后），提取碎片作为补充建议
-            // 遵循"不放回"策略：同一 userId+location 已推荐过的笔记不再重复推荐
-            // Redis key: travel:seen:{userId}:{location}, TTL 30 分钟
+            // Redis key: travel:seen:{location}, TTL 30 分钟
             List<String> tips = List.of();
             List<TravelNoteRankingService.ScoredNote> allScored = rankingResult.getRankedNotes();
-            String seenKey = SEEN_KEY_PREFIX + userId + ":" + location.replaceAll("\\s+", "");
+            String seenKey = SEEN_KEY_PREFIX + location.replaceAll("\\s+", "");
 
             if (allScored.size() > DEFAULT_TOP_N) {
                 List<Long> remainingIds = allScored.stream()
@@ -192,27 +190,41 @@ public class TravelNoteMatchService {
     /**
      * 降级策略：无游记时用 RAG 向量检索
      */
-    private MatchResult fallbackToRagRetrieval(Long userId, String location, String userIntent) {
+    private MatchResult fallbackToRagRetrieval(String location, String userIntent) {
         log.info("[TravelNoteMatch] 该地点无游记，降级使用 RAG 向量检索");
 
-        var chunks = travelRagService.retrieveRelevantChunks(location, userIntent, userId);
+        var chunks = travelRagService.retrieveRelevantChunks(location, userIntent);
         if (chunks.isEmpty()) {
             return MatchResult.empty(location);
         }
 
+        // ⭐ 按 note_id 分组，保留每个 chunk 对应的真实游记标题
         StringBuilder aggregated = new StringBuilder();
+        java.util.Map<Long, String> noteTitles = new java.util.LinkedHashMap<>();
         for (var chunk : chunks) {
-            aggregated.append("【攻略片段】").append(chunk.getChunkText()).append("\n\n");
+            if (chunk.getNoteTitle() != null && !chunk.getNoteTitle().isBlank()) {
+                noteTitles.putIfAbsent(chunk.getNoteId(), chunk.getNoteTitle());
+            }
+            aggregated.append(chunk.getChunkText()).append("\n\n");
         }
 
-        TravelNote.VirtualTravelNote virtual = new TravelNote.VirtualTravelNote(
-                "【RAG 检索】" + location + " 相关攻略",
-                location,
-                aggregated.toString()
-        );
+        // ⭐ 从 chunks 中提取真实游记，bestNote 使用第一个有标题的 realNote
+        List<TravelNote> realNotes = noteTitles.entrySet().stream()
+                .map(e -> {
+                    TravelNote n = new TravelNote();
+                    n.setId(e.getKey());
+                    n.setTitle(e.getValue());
+                    n.setLocation(location);
+                    n.setContent(aggregated.toString());
+                    return n;
+                })
+                .toList();
 
-        String reason = "根据 RAG 向量检索找到 " + chunks.size() + " 个相关片段，已聚合成参考内容。";
-        return MatchResult.success(virtual, reason, userIntent, List.of(), List.of());
+        TravelNote bestReal = realNotes.isEmpty() ? null : realNotes.get(0);
+        List<TravelNote> restReal = realNotes.size() > 1 ? realNotes.subList(1, realNotes.size()) : List.of();
+
+        String reason = "根据 RAG 向量检索找到 " + chunks.size() + " 个相关片段，来自 " + noteTitles.size() + " 篇游记。";
+        return MatchResult.success(bestReal, reason, userIntent, restReal, List.of());
     }
 
     // ==================== MatchResult 内部类 ====================
@@ -270,7 +282,7 @@ public class TravelNoteMatchService {
                 return "⚠️ 匹配失败: " + errorMessage;
             }
             if (bestNote == null) {
-                return "📝 暂无相关游记，请上传游记以获得个性化推荐";
+                return "📝 暂无相关游记，请上传游记以获得个性化推荐。\n⚠️ 【重要】数据库中没有可用的游记，不要编造任何游记标题或引用来源。直接在回答中说明未检索到相关游记。";
             }
 
             StringBuilder sb = new StringBuilder();
@@ -279,9 +291,9 @@ public class TravelNoteMatchService {
             sb.append("🎯 匹配意图：").append(userIntent != null ? userIntent : "综合推荐").append("\n");
             sb.append("━".repeat(40)).append("\n\n");
 
-            sb.append("✅ 【最佳推荐】\n");
-            if (bestNote.getTitle() != null) {
-                sb.append("📌 ").append(bestNote.getTitle()).append("\n");
+            // ⭐ 最佳推荐：标题以 [标题] 格式嵌入正文，LLM 可原样复制到回复中
+            if (bestNote != null && bestNote.getTitle() != null) {
+                sb.append("[").append(bestNote.getTitle()).append("]: ");
             }
             sb.append(formatNoteContent(bestNote)).append("\n");
 
@@ -291,16 +303,13 @@ public class TravelNoteMatchService {
                 sb.append("\n");
             }
 
+            // ⭐ 其他备选
             if (alternatives != null && !alternatives.isEmpty()) {
-                sb.append("\n📋 【其他备选】\n");
-                for (int i = 0; i < alternatives.size(); i++) {
-                    TravelNote alt = alternatives.get(i);
-                    sb.append("  ").append(i + 1).append(". ");
-                    sb.append(nullToEmpty(alt.getTitle()));
-                    if (alt.getTags() != null) {
-                        sb.append(" (").append(alt.getTags()).append(")");
+                sb.append("\n📋 【其他游记】\n");
+                for (TravelNote alt : alternatives) {
+                    if (alt.getTitle() != null) {
+                        sb.append("[").append(alt.getTitle()).append("]\n");
                     }
-                    sb.append("\n");
                 }
             }
 
@@ -309,6 +318,22 @@ public class TravelNoteMatchService {
                 sb.append("\n💡 其他游记还提到：\n");
                 for (String tip : tips) {
                     sb.append("  • ").append(tip).append("\n");
+                }
+            }
+
+            // ⭐ 真实标题列表标记行（每行以 == 开头，供 Travel 端 injectCitations 解析）
+            sb.append("\n==REAL_TITLES==\n");
+            if (bestNote.getTitle() != null) {
+                sb.append("==").append(bestNote.getTitle()).append("|");
+                if (bestNote.getTags() != null) sb.append(bestNote.getTags());
+                sb.append("\n");
+            }
+            if (alternatives != null) {
+                for (TravelNote n : alternatives) {
+                    if (n.getTitle() == null) continue;
+                    sb.append("==").append(n.getTitle()).append("|");
+                    if (n.getTags() != null) sb.append(n.getTags());
+                    sb.append("\n");
                 }
             }
 
@@ -323,6 +348,12 @@ public class TravelNoteMatchService {
 
         private String nullToEmpty(String s) {
             return s != null ? s : "";
+        }
+
+        private String escapeJson(String s) {
+            if (s == null) return "";
+            return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                    .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
         }
 
     }

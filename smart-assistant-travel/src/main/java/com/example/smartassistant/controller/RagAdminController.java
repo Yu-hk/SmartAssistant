@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.controller;
 
+import com.example.smartassistant.service.data.AmapNoteImportService;
+import com.example.smartassistant.service.data.AmapNoteRewriteService;
 import com.example.smartassistant.service.rag.TravelNoteRankingService;
 import com.example.smartassistant.service.rag.TravelNoteService;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,8 @@ public class RagAdminController {
 
     private final TravelNoteService travelNoteService;
     private final TravelNoteRankingService rankingService;
+    private final AmapNoteImportService amapNoteService;
+    private final AmapNoteRewriteService amapRewriteService;
 
     /**
      * 手动触发指定游记的分块和向量化
@@ -109,7 +113,7 @@ public class RagAdminController {
         try {
             log.info("[RagAdmin] 测试检索: location={}, query={}, userId={}", location, query, userId);
             
-            var chunks = travelNoteService.searchChunks(location, query, userId);
+            var chunks = travelNoteService.searchChunks(location, query);
             
             result.put("success", true);
             result.put("location", location);
@@ -127,8 +131,56 @@ public class RagAdminController {
     }
 
     /**
+     * ⭐ 从 Wikivoyage 导入城市游记（测试用，仅管理员）
+     * POST /admin/rag/import-wikivoyage?city=杭州
+     */
+    @PostMapping("/import-amap")
+    public Map<String, Object> importFromAmap(@RequestParam String city) {
+        try {
+            return amapNoteService.importCity(city);
+        } catch (Exception e) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("success", false);
+            r.put("error", e.getMessage());
+            return r;
+        }
+    }
+
+    @PostMapping("/rewrite-amap")
+    public Map<String, Object> rewriteFromAmap(@RequestParam String city) {
+        try {
+            return amapRewriteService.importAndRewrite(city);
+        } catch (Exception e) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("success", false);
+            r.put("error", e.getMessage());
+            return r;
+        }
+    }
+
+    /**
+     * ⭐ 查询指定地点的真实游记标题列表（供 Router 校验引用真实性）
+     * GET /admin/rag/titles?location=成都&userId=1
+     */
+    @GetMapping("/titles")
+    public java.util.Map<String, Object> getRealTitles(
+            @RequestParam String location,
+            @RequestParam(defaultValue = "1") Long userId) {
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        try {
+            var notes = travelNoteService.searchByLocation(location);
+            result.put("titles", notes.stream().map(n -> n.getTitle()).toList());
+            result.put("location", location);
+            result.put("count", notes.size());
+        } catch (Exception e) {
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+
+    /**
      * 测试游记规则评分（TravelNoteRankingService）
-     * GET /admin/rag/test-ranking?location=杭州&userIntent=亲子游&userId=1
+     * GET /admin/rag/test-ranking?location=杭州&userIntent=亲子&userId=1
      */
     @GetMapping("/test-ranking")
     public Map<String, Object> testRanking(
@@ -142,7 +194,7 @@ public class RagAdminController {
             log.info("[RagAdmin] 测试规则评分: location={}, userIntent={}, userId={}", 
                     location, userIntent, userId);
             
-            var rankingResult = rankingService.rankTravelNotes(userId, location, userIntent);
+            var rankingResult = rankingService.rankTravelNotes(location, userIntent);
             
             result.put("success", !rankingResult.isEmpty());
             result.put("location", location);
