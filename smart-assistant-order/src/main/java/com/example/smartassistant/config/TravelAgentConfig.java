@@ -8,10 +8,7 @@
 package com.example.smartassistant.config;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.example.smartassistant.tool.FoodRecommendationTool;
-import com.example.smartassistant.tool.PersonalizedRestaurantRecommendationTool;
-import com.example.smartassistant.tool.SmartRestaurantRecommendationTool;
-import com.example.smartassistant.agent.FoodAgentTools;
+import com.example.smartassistant.tools.OrderTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
@@ -28,40 +25,39 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Food Agent 配置类
+ * Travel Agent 配置类
  *
- * <p>系统提示词外部化在 {@code prompts/food-system-prompt.txt}。</p>
+ * <p>系统提示词外部化在 {@code prompts/travel-system-prompt.txt}，修改无需重新编译。</p>
  */
 @Configuration
 @Slf4j
-public class FoodRecommendationAgentConfig {
+public class TravelAgentConfig {
 
     @Value("${spring.ai.alibaba.a2a.server.card.name}")
     private String agentName;
 
-    @Value("classpath:prompts/food-system-prompt.txt")
+    @Value("classpath:prompts/travel-system-prompt.txt")
     private Resource systemPromptResource;
 
-    /**
-     * 主 Agent Bean - 供 A2A Server 使用
-     */
     @Bean
-    public ReactAgent productAgent(
+    public ReactAgent orderAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
-            com.example.smartassistant.tools.ProductTools productTools) {
+            OrderTools orderTools) {
 
-        log.info("[ProductAgent] 初始化 Agent: agentName={}", agentName);
+        log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
-        MethodToolCallbackProvider provider = MethodToolCallbackProvider.builder()
-                .toolObjects(productTools)
-                .build();
-        ToolCallback[] allTools = provider.getToolCallbacks();
+        List<ToolCallback> allCallbacks = new ArrayList<>();
+        for (var tool : List.of(orderTools)) {
+            allCallbacks.addAll(List.of(
+                    MethodToolCallbackProvider.builder().toolObjects(tool).build().getToolCallbacks()));
+        }
 
-        log.info("[ProductAgent] 注册 {} 个工具", allTools.length);
+        org.springframework.ai.tool.ToolCallback[] allTools = allCallbacks.toArray(new org.springframework.ai.tool.ToolCallback[0]);
+        log.info("[OrderAgent] 注册 {} 个工具", allTools.length);
 
         return ReactAgent.builder()
                 .name(agentName)
-                .description("商品查询、库存查询、价格查询")
+                .description("订单查询、退款、物流跟踪")
                 .model(chatModel)
                 .systemPrompt(buildSystemPrompt())
                 .tools(allTools)
@@ -73,8 +69,8 @@ public class FoodRecommendationAgentConfig {
         try {
             return systemPromptResource.getContentAsString(StandardCharsets.UTF_8);
         } catch (IOException e) {
-            log.warn("[FoodAgent] 系统提示词文件加载失败，使用默认提示词: {}", e.getMessage());
-            return "你是一个专业的美食推荐助手。根据用户需求调用工具获取信息，给出推荐。";
+            log.warn("[TravelAgent] 系统提示词文件加载失败，使用默认提示词: {}", e.getMessage());
+            return "你是一个专业的出行规划助手。根据用户需求调用工具获取信息，给出推荐。";
         }
     }
 }

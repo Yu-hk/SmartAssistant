@@ -10,9 +10,9 @@
         <version>1.0.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>smart-assistant-travel</artifactId>
-    <name>Smart Assistant Travel - 出行服务智能体</name>
-    <description>Smart Assistant 旅行规划服务 - 基于 AI 的智能旅行助手</description>
+    <artifactId>smart-assistant-order</artifactId>
+    <name>Smart Assistant Order - 订单客服服务</name>
+    <description>Smart Assistant 订单客服服务 - 订单查询、退款处理、物流跟踪</description>
 
     <dependencies>
         <!-- Spring Boot Web -->
