@@ -73,12 +73,11 @@ public class TravelRagTool {
      */
     @Tool(description = "⭐【核心工具】根据用户意图从指定地点的游记中智能筛选最佳推荐。当用户表达明确出行意图时优先使用。返回最佳游记+推理过程+备选。location 地点和 userIntent 意图缺失时会返回询问提示。")
     public String selectBestTravelNotes(
-            @ToolParam(description = "用户ID", required = true) Long userId,
             @ToolParam(description = "目的地或地点，如杭州、西湖（缺失时返回询问提示）", required = false) String location,
             @ToolParam(description = "用户当前出行意图，如'带娃游玩'、'情侣出行'、'美食'、'拍照打卡'（缺失时返回询问提示）", required = false) String userIntent
     ) {
-        log.info("[TravelRagTool] selectBestTravelNotes: userId={}, location={}, intent={}",
-                userId, location, userIntent);
+        log.info("[TravelRagTool] selectBestTravelNotes: location={}, intent={}",
+                location, userIntent);
 
         // ========== 参数校验：缺失关键信息时返回询问提示 ==========
         boolean locationMissing = location == null || location.trim().isEmpty();
@@ -127,7 +126,10 @@ public class TravelRagTool {
 
         try {
             TravelNoteMatchService.MatchResult result =
-                    travelNoteMatchService.selectBestTravelNote(userId, location, userIntent);
+                    travelNoteMatchService.selectBestTravelNote(location, userIntent);
+
+            log.info("[TravelRagTool] selectBestTravelNotes 结果: success={}, bestNote={}", result.isSuccess(), result.getBestNote() != null ? result.getBestNote().getTitle() : "null");
+
             return result.toMcpText();
         } catch (Exception e) {
             log.error("[TravelRagTool] selectBestTravelNotes 失败: {}", e.getMessage());
@@ -144,12 +146,11 @@ public class TravelRagTool {
      * @param location 筛选地点（可选），如"杭州"、"北京"
      * @return 用户游记列表
      */
-    @Tool(description = "查询用户的历史游记列表，可按地点筛选")
+    @Tool(description = "查询游记列表，可按地点筛选")
     public String getUserTravelNotes(
-            @ToolParam(description = "用户ID", required = true) Long userId,
             @ToolParam(description = "筛选地点，如杭州、北京（可选）", required = false) String location
     ) {
-        log.info("[TravelRagTool] 查询用户游记: userId={}, location={}", userId, location);
+        log.info("[TravelRagTool] 查询游记: location={}", location);
 
         if (!ragEnabled) {
             return "⚠️ 攻略RAG功能未启用";
@@ -158,9 +159,9 @@ public class TravelRagTool {
         try {
             List<TravelNote> notes;
             if (location != null && !location.isEmpty()) {
-                notes = travelNoteService.searchByLocation(userId, location);
+                notes = travelNoteService.searchByLocation(location);
             } else {
-                notes = travelNoteService.getUserNotes(userId);
+                notes = travelNoteService.getAllNotes();
             }
 
             if (notes.isEmpty()) {
@@ -185,13 +186,12 @@ public class TravelRagTool {
      * @param query 用户的问题或需求描述
      * @return 相关攻略片段
      */
-    @Tool(description = "语义检索用户的历史攻略，返回与当前问题最相关的旅行经验")
+    @Tool(description = "语义检索攻略，返回与当前问题最相关的旅行经验")
     public String searchRelevantTravelNotes(
-            @ToolParam(description = "用户ID", required = true) Long userId,
             @ToolParam(description = "目的地或地点，如杭州、西湖", required = true) String location,
             @ToolParam(description = "用户的问题或需求，如'推荐美食'、'最佳路线'", required = true) String query
     ) {
-        log.info("[TravelRagTool] 语义检索: userId={}, location={}, query={}", userId, location, query);
+        log.info("[TravelRagTool] 语义检索: location={}, query={}", location, query);
 
         if (!ragEnabled) {
             return "⚠️ 攻略RAG功能未启用";
@@ -199,7 +199,7 @@ public class TravelRagTool {
 
         try {
             // 检索相关攻略片段
-            List<TravelNoteChunk> chunks = travelRagService.retrieveRelevantChunks(location, query, userId);
+            List<TravelNoteChunk> chunks = travelRagService.retrieveRelevantChunks(location, query);
 
             if (chunks.isEmpty()) {
                 return "📝 未找到与【" + location + "】相关的攻略记录\n" +
@@ -208,7 +208,7 @@ public class TravelRagTool {
             }
 
             // 构建增强上下文（按 contentType 分离正文和建议）
-            List<TravelNoteChunk> foodChunks = travelRagService.retrieveFoodSuggestions(location, userId);
+            List<TravelNoteChunk> foodChunks = travelRagService.retrieveFoodSuggestions(location);
             String context = travelRagService.buildRagContext(location, chunks, foodChunks);
 
             return "📖 找到 " + chunks.size() + " 条相关攻略：\n" +
@@ -231,12 +231,11 @@ public class TravelRagTool {
      * @param location 可选，指定地点的偏好
      * @return 旅行偏好摘要
      */
-    @Tool(description = "根据用户历史游记，提取旅行偏好和经验摘要")
+    @Tool(description = "提取旅行偏好和经验摘要")
     public String getUserTravelPreferences(
-            @ToolParam(description = "用户ID", required = true) Long userId,
             @ToolParam(description = "指定地点的偏好（可选）", required = false) String location
     ) {
-        log.info("[TravelRagTool] 获取旅行偏好: userId={}, location={}", userId, location);
+        log.info("[TravelRagTool] 获取旅行偏好: location={}", location);
 
         if (!ragEnabled) {
             return "⚠️ 攻略RAG功能未启用";
@@ -245,9 +244,9 @@ public class TravelRagTool {
         try {
             List<TravelNote> notes;
             if (location != null && !location.isEmpty()) {
-                notes = travelNoteService.searchByLocation(userId, location);
+                notes = travelNoteService.searchByLocation(location);
             } else {
-                notes = travelNoteService.getUserNotes(userId);
+                notes = travelNoteService.getAllNotes();
             }
 
             if (notes.isEmpty()) {
@@ -272,20 +271,19 @@ public class TravelRagTool {
      * @param originalPrompt 原始用户问题
      * @return 增强后的提示词
      */
-    @Tool(description = "结合用户历史攻略，增强旅行规划提示词，返回个性化建议")
+    @Tool(description = "结合攻略，增强旅行规划提示词，返回个性化建议")
     public String enhanceTravelPlanning(
-            @ToolParam(description = "用户ID", required = true) Long userId,
             @ToolParam(description = "目的地", required = true) String location,
             @ToolParam(description = "用户原始问题或需求", required = true) String originalPrompt
     ) {
-        log.info("[TravelRagTool] 增强规划: userId={}, location={}", userId, location);
+        log.info("[TravelRagTool] 增强规划: location={}", location);
 
         if (!ragEnabled) {
             return originalPrompt;
         }
 
         try {
-            String enhanced = travelRagService.enhancePrompt(originalPrompt, location, originalPrompt, userId);
+            String enhanced = travelRagService.enhancePrompt(originalPrompt, location, originalPrompt);
 
             // 检查是否真的增强了
             if (enhanced.equals(originalPrompt)) {

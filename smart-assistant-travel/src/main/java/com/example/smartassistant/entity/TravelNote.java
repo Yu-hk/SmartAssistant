@@ -88,10 +88,5 @@ public class TravelNote {
     @NoArgsConstructor
     @lombok.EqualsAndHashCode(callSuper = false)
     public static class VirtualTravelNote extends TravelNote {
-        public VirtualTravelNote(String title, String location, String content) {
-            setTitle(title);
-            setLocation(location);
-            setContent(content);
-        }
     }
 }

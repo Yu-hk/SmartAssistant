@@ -22,10 +22,10 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class StreamingFoodAgentService {
 
-    private final ReactAgent foodRecommendationAgent;
+    private final ReactAgent productAgent;
 
-    public StreamingFoodAgentService(@Qualifier("foodRecommendationAgent") ReactAgent foodRecommendationAgent) {
-        this.foodRecommendationAgent = foodRecommendationAgent;
+    public StreamingFoodAgentService(@Qualifier("productAgent") ReactAgent productAgent) {
+        this.productAgent = productAgent;
     }
 
     /**
@@ -34,7 +34,7 @@ public class StreamingFoodAgentService {
     public String execute(String userMessage) {
         try {
             log.info("[StreamingFoodAgent] 执行推理: {}", userMessage);
-            var response = foodRecommendationAgent.call(userMessage);
+            var response = productAgent.call(userMessage);
             if (response != null) {
                 return response.getText();
             }

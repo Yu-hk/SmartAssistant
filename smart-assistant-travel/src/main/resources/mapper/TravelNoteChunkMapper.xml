@@ -52,8 +52,7 @@
             ts_rank(tnc.chunk_tsvector, plainto_tsquery('simple', #{queryText})) AS similarity
         FROM travel_note_chunks tnc
         JOIN user_travel_notes tn ON tnc.note_id = tn.id
-        WHERE tn.user_id = #{userId}
-          AND tn.status = 'active'
+        WHERE tn.status = 'active'
           AND tnc.chunk_tsvector @@ plainto_tsquery('simple', #{queryText})
           <if test="locationKeyword != null and locationKeyword != ''">
             AND tnc.location_keywords LIKE CONCAT('%', #{locationKeyword}, '%')
@@ -76,8 +75,7 @@
             1 - (tnc.embedding &lt;=&gt; #{embedding}::vector) AS similarity
         FROM travel_note_chunks tnc
         JOIN user_travel_notes tn ON tnc.note_id = tn.id
-        WHERE tn.user_id = #{userId}
-          AND tn.status = 'active'
+        WHERE tn.status = 'active'
           <if test="locationKeyword != null and locationKeyword != ''">
             AND tnc.location_keywords LIKE CONCAT('%', #{locationKeyword}, '%')
           </if>
@@ -98,8 +96,7 @@
             tn.title AS note_title
         FROM travel_note_chunks tnc
         JOIN user_travel_notes tn ON tnc.note_id = tn.id
-        WHERE tn.user_id = #{userId}
-          AND tn.status = 'active'
+        WHERE tn.status = 'active'
           AND tnc.location_keywords LIKE CONCAT('%', #{locationKeyword}, '%')
         ORDER BY tn.created_at DESC
         LIMIT #{limit}
@@ -117,8 +114,7 @@
             tn.title AS note_title
         FROM travel_note_chunks tnc
         JOIN user_travel_notes tn ON tnc.note_id = tn.id
-        WHERE tn.user_id = #{userId}
-          AND tn.status = 'active'
+        WHERE tn.status = 'active'
           AND tnc.content_type = #{contentType}
           AND tnc.location_keywords LIKE CONCAT('%', #{locationKeyword}, '%')
         ORDER BY tn.created_at DESC

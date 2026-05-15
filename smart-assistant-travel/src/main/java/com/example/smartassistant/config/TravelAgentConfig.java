@@ -41,32 +41,24 @@ public class TravelAgentConfig {
     private Resource systemPromptResource;
 
     @Bean
-    public ReactAgent locationWeatherAgent(
+    public ReactAgent orderAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
-            LocationTool locationTool,
-            WeatherTool weatherTool,
-            TravelPlannerTool travelPlannerTool,
-            NearbyEntertainmentTool nearbyEntertainmentTool,
-            SmartTravelPlannerTool smartTravelPlannerTool,
-            KnowledgeBaseUpdateTool knowledgeBaseUpdateTool,
-            TravelRagTool travelRagTool,
-            TravelAgentTools travelAgentTools) {
+            OrderTools orderTools) {
 
-        log.info("[TravelAgent] 初始化 Agent: agentName={}", agentName);
+        log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
         List<ToolCallback> allCallbacks = new ArrayList<>();
-        for (var tool : List.of(travelAgentTools, locationTool, weatherTool, travelPlannerTool,
-                nearbyEntertainmentTool, smartTravelPlannerTool, knowledgeBaseUpdateTool, travelRagTool)) {
+        for (var tool : List.of(orderTools)) {
             allCallbacks.addAll(List.of(
                     MethodToolCallbackProvider.builder().toolObjects(tool).build().getToolCallbacks()));
         }
 
         org.springframework.ai.tool.ToolCallback[] allTools = allCallbacks.toArray(new org.springframework.ai.tool.ToolCallback[0]);
-        log.info("[TravelAgent] 发现 {} 个工具", allTools.length);
+        log.info("[OrderAgent] 注册 {} 个工具", allTools.length);
 
         return ReactAgent.builder()
                 .name(agentName)
-                .description("地理位置、天气与出行规划智能体，可以提供位置信息、天气预报、根据天气的出行建议和基于用户游记的个性化推荐")
+                .description("订单查询、退款、物流跟踪")
                 .model(chatModel)
                 .systemPrompt(buildSystemPrompt())
                 .tools(allTools)

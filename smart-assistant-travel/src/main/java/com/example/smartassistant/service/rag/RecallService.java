@@ -74,7 +74,7 @@ public class RecallService {
      * @param userId   用户 ID
      * @return 排序后的 Top-K 分块
      */
-    public List<TravelNoteChunk> retrieve(String location, String query, Long userId) {
+    public List<TravelNoteChunk> retrieve(String location, String query) {
         long start = System.currentTimeMillis();
 
         // 1. Multi-Query 查询改写：生成多个查询变体
@@ -86,7 +86,7 @@ public class RecallService {
         List<RecallPathResult> allPaths = new ArrayList<>();
 
         for (String searchText : searchQueries) {
-            allPaths.addAll(retrieveSingleQuery(searchText, location, userId, candidatesPerPath));
+            allPaths.addAll(retrieveSingleQuery(searchText, location, candidatesPerPath));
         }
 
         if (allPaths.isEmpty()) {
@@ -176,14 +176,14 @@ public class RecallService {
      * 对单个查询文本执行多路检索
      */
     private List<RecallPathResult> retrieveSingleQuery(String searchText, String location,
-                                                        Long userId, int candidatesPerPath) {
+                                                        int candidatesPerPath) {
         List<RecallPathResult> paths = new ArrayList<>();
 
         // Path 1: 向量检索
         try {
             float[] queryVec = embeddingService.embed(searchText);
             List<TravelNoteChunk> results = chunkMapper.searchByEmbedding(
-                    queryVec, location, userId, candidatesPerPath);
+                    queryVec, location, candidatesPerPath);
             // 标记路径名包含查询摘要，便于调试
             String pathName = "vector:" + abbreviate(searchText);
             paths.add(new RecallPathResult(pathName, results));
@@ -195,7 +195,7 @@ public class RecallService {
         try {
             if (searchText != null && !searchText.isBlank()) {
                 List<TravelNoteChunk> results = chunkMapper.searchByFullText(
-                        searchText, location, userId, candidatesPerPath);
+                        searchText, location, candidatesPerPath);
                 paths.add(new RecallPathResult("fulltext:" + abbreviate(searchText), results));
             }
         } catch (Exception e) {

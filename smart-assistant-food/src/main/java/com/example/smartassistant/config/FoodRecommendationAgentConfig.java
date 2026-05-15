@@ -46,31 +46,22 @@ public class FoodRecommendationAgentConfig {
      * 主 Agent Bean - 供 A2A Server 使用
      */
     @Bean
-    public ReactAgent foodRecommendationAgent(
+    public ReactAgent productAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
-            FoodAgentTools foodAgentTools) {
+            com.example.smartassistant.tools.ProductTools productTools) {
 
-        log.info("[FoodAgent] 初始化 Agent: agentName={}", agentName);
+        log.info("[ProductAgent] 初始化 Agent: agentName={}", agentName);
 
-        // 收集所有 ToolCallback
-
-        // FoodAgentTools（核心工具集 - 聚合了所有具体 Tool）
-        MethodToolCallbackProvider foodAgentProvider = MethodToolCallbackProvider.builder()
-                .toolObjects(foodAgentTools)
+        MethodToolCallbackProvider provider = MethodToolCallbackProvider.builder()
+                .toolObjects(productTools)
                 .build();
-        List<ToolCallback> allCallbacks = new ArrayList<>(List.of(foodAgentProvider.getToolCallbacks()));
+        ToolCallback[] allTools = provider.getToolCallbacks();
 
-        // ⚠️ 注意：不再单独注册具体 Tool，避免工具名重复冲突
-        // 具体 Tool 由 FoodAgentTools 内部调用
+        log.info("[ProductAgent] 注册 {} 个工具", allTools.length);
 
-        ToolCallback[] allTools = allCallbacks.toArray(new ToolCallback[0]);
-
-        log.info("[FoodAgent] 发现 {} 个工具", allTools.length);
-
-        // 构建 Agent
         return ReactAgent.builder()
                 .name(agentName)
-                .description("美食推荐智能体 - 提供特色菜查询、附近餐厅推荐、个性化推荐等服务")
+                .description("商品查询、库存查询、价格查询")
                 .model(chatModel)
                 .systemPrompt(buildSystemPrompt())
                 .tools(allTools)

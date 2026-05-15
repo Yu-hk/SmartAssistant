@@ -37,19 +37,23 @@ import java.util.*;
 public class CustomDeepSeekChatModel implements ChatModel {
 
     private static final Logger log = LoggerFactory.getLogger(CustomDeepSeekChatModel.class);
-
     private final DeepSeekApiClient apiClient;
+    private final double temperature;
+    private final int maxTokens;
 
-    public CustomDeepSeekChatModel(@Value("${spring.ai.deepseek.api-key}") String apiKey) {
+    public CustomDeepSeekChatModel(
+            @Value("${spring.ai.deepseek.api-key}") String apiKey,
+            @Value("${spring.ai.deepseek.chat.options.temperature:0.5}") double temperature,
+            @Value("${spring.ai.deepseek.chat.options.max-tokens:4096}") int maxTokens) {
         this.apiClient = new DeepSeekApiClient(apiKey);
-        log.info("[CustomDeepSeek] initialized (thinking_mode=disabled)");
+        this.temperature = temperature;
+        this.maxTokens = maxTokens;
+        log.info("[CustomDeepSeek] General initialized (temperature={}, maxTokens={})", temperature, maxTokens);
     }
 
-    @Override
-    public ChatResponse call(Prompt prompt) {
+    @Override public ChatResponse call(Prompt prompt) {
         try {
-            JsonNode messages = buildMessagesJson(prompt);
-            String requestJson = apiClient.buildRequestJson("deepseek-v4-flash", 0.7, 4096, messages);
+            String requestJson = apiClient.buildRequestJson("deepseek-v4-flash", temperature, maxTokens, buildMessagesJson(prompt));
             log.debug("[CustomDeepSeek] Request: {}", requestJson.substring(0, Math.min(200, requestJson.length())));
 
             String responseBody = apiClient.sendRequest(requestJson);
