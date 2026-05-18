@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.consumer.service.cache.AnswerCacheService;
 import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationService;
 import com.example.smartassistant.consumer.service.core.ChatConsumerService;
@@ -108,7 +109,10 @@ public class ChatController {
             requestId = UUID.randomUUID().toString().replace("-", "");
         }
         final String finalRequestId = requestId;
-        
+
+        // ⭐ 将 requestId 设入 MDC/ThreadLocal，供 @Tool 日志切面使用
+        ToolLogContext.setRequestId(finalRequestId);
+
         // ⭐ 方案E: 异步预热用户画像缓存（仅对已认证用户）
         if (!"anonymous".equals(userId) && !userIdFromHeader.isBlank()) {
             personalizationCacheService.preloadProfile(userId)

@@ -66,6 +66,13 @@
             <!-- version managed by parent -->
         </dependency>
 
+        <!-- ⭐ AOP（用于 @Tool 方法日志切面） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- ⭐ ONNX Runtime（BGE 向量推理，从华为云镜像下载） -->
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>

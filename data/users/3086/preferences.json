@@ -11,18 +11,18 @@
   },
   "intentDistribution" : {
     "travel-service" : 55,
-    "目标助理" : 9
+    "目标助理" : 18
   },
   "additionalPreferences" : "{\"location_weights\":{\"北京\":4,\"厦门\":1,\"哈尔滨\":1,\"杭州\":44}}",
-  "totalQueries" : 64,
-  "lastQueryAt" : [ 2026, 5, 15, 17, 27, 50, 227213800 ],
+  "totalQueries" : 73,
+  "lastQueryAt" : [ 2026, 5, 15, 17, 53, 33, 983486500 ],
   "createdAt" : null,
-  "updatedAt" : [ 2026, 5, 15, 17, 28, 6, 664143600 ],
+  "updatedAt" : [ 2026, 5, 15, 17, 53, 35, 833727400 ],
+  "preferredLocationsArray" : null,
   "dietaryRestrictionsArray" : null,
+  "travelPreferencesArray" : [ "文化" ],
+  "foodPreferencesArray" : [ "川菜" ],
   "preferenceWeightsMap" : {
     "川菜" : 4
-  },
-  "foodPreferencesArray" : [ "川菜" ],
-  "preferredLocationsArray" : null,
-  "travelPreferencesArray" : [ "文化" ]
+  }
 }
