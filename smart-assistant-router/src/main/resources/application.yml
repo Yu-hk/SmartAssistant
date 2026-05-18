@@ -133,6 +133,12 @@ router:
     enabled: true              # 是否启用中文分词器增强
     use-ik-analyzer: true      # 是否使用 IKAnalyzer
 
+  # ⭐ 反思器配置（纯规则评分，不调 LLM）
+  reflection:
+    enabled: true              # 是否启用反思器（灰度开关）
+    threshold: 0.60            # 质量评分阈值（0.0~1.0，低于此值触发重试）
+    max-retry: 1               # 最大重试次数（换 fallback Agent）
+
 # Actuator + Prometheus + Tracing 配置 ⭐
 management:
   endpoints:

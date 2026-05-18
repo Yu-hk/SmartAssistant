@@ -10,6 +10,7 @@ package com.example.smartassistant.general.tool;
 import com.example.smartassistant.common.correction.CorrectionService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import net.objecthunter.exp4j.Expression;
 import net.objecthunter.exp4j.ExpressionBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,8 +26,15 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 通用工具集 - 数学计算与单位转换
@@ -646,6 +654,125 @@ public class GeneralTools {
             return "未找到相关的修正记录，可以按正常流程回答。";
         }
         return result;
+    }
+
+    // ==================== 多步脚本执行 ====================
+
+    /**
+     * 多步计算脚本执行器。
+     *
+     * <p>支持多行赋值脚本，每行可以是：</p>
+     * <ul>
+     *   <li>变量赋值：{@code x = 表达式}，支持引用前面定义的变量</li>
+     *   <li>纯表达式：{@code 表达式}，直接计算并输出结果</li>
+     *   <li>注释：以 {@code #} 开头的行，显示为说明文字</li>
+     * </ul>
+     *
+     * <p>示例：</p>
+     * <pre>
+     *   # 计算复利本息
+     *   principal = 10000
+     *   rate = 0.045
+     *   years = 5
+     *   result = principal * (1 + rate)^years
+     * </pre>
+     */
+    @Tool(description = "执行多步计算脚本，支持变量赋值和跨行引用，适用于复利计算、工程公式、分步推导等复杂场景。格式：每行一条语句，'变量名 = 表达式' 或直接写表达式，# 开头为注释。示例：'r=0.05\\nyears=10\\nresult=10000*(1+r)^years'")
+    public String executeScript(
+            @ToolParam(description = "多行计算脚本，换行用 \\n 分隔，如 'a=3\\nb=4\\nc=sqrt(a^2+b^2)'") String script) {
+        log.info("[GeneralTools] 执行计算脚本: script={}", script.replace("\n", " | "));
+
+        // 安全检查：禁止脚本注入危险关键字
+        if (containsDangerousPattern(script)) {
+            return "脚本包含不允许的内容，仅支持数学运算和变量赋值。";
+        }
+
+        String[] lines = script.replace("\\n", "\n").split("\n");
+        Map<String, Double> variables = new LinkedHashMap<>();
+        StringBuilder sb = new StringBuilder();
+        sb.append("📊 计算过程\n\n");
+
+        int stepCount = 0;
+        for (String rawLine : lines) {
+            String line = rawLine.trim();
+            if (line.isEmpty()) continue;
+
+            // 注释行
+            if (line.startsWith("#")) {
+                sb.append("  ").append(line.substring(1).trim()).append("\n");
+                continue;
+            }
+
+            // 变量赋值：var = expr
+            Matcher assignMatcher = Pattern.compile("^([a-zA-Z_][a-zA-Z0-9_]*)\\s*=\\s*(.+)$").matcher(line);
+            if (assignMatcher.matches()) {
+                String varName = assignMatcher.group(1);
+                String expr = assignMatcher.group(2).trim();
+                try {
+                    double val = evalExpression(expr, variables);
+                    variables.put(varName, val);
+                    stepCount++;
+                    sb.append("  ").append(varName).append(" = ").append(formatResult(val)).append("\n");
+                } catch (Exception e) {
+                    sb.append("  ").append(varName).append(" = [计算失败: ").append(e.getMessage()).append("]\n");
+                }
+                continue;
+            }
+
+            // 纯表达式：直接计算并输出
+            try {
+                double val = evalExpression(line, variables);
+                stepCount++;
+                sb.append("  ").append(line).append(" = ").append(formatResult(val)).append("\n");
+            } catch (Exception e) {
+                sb.append("  [").append(line).append("] 无法解析: ").append(e.getMessage()).append("\n");
+            }
+        }
+
+        if (stepCount == 0) {
+            return "脚本中没有有效的计算语句，请检查格式是否正确。";
+        }
+
+        // 最终结果：取最后一个变量或最后一个纯表达式的值
+        if (!variables.isEmpty()) {
+            List<Map.Entry<String, Double>> entries = new ArrayList<>(variables.entrySet());
+            Map.Entry<String, Double> last = entries.get(entries.size() - 1);
+            sb.append("\n✅ 最终结果：").append(last.getKey()).append(" = ").append(formatResult(last.getValue()));
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 使用 exp4j 计算表达式，支持已定义的变量。
+     */
+    private double evalExpression(String expr, Map<String, Double> variables) {
+        if (variables.isEmpty()) {
+            return new ExpressionBuilder(expr)
+                    .implicitMultiplication(false)
+                    .build()
+                    .evaluate();
+        }
+        ExpressionBuilder builder = new ExpressionBuilder(expr)
+                .implicitMultiplication(false)
+                .variables(variables.keySet());
+        Expression e = builder.build();
+        for (Map.Entry<String, Double> entry : variables.entrySet()) {
+            e.setVariable(entry.getKey(), entry.getValue());
+        }
+        return e.evaluate();
+    }
+
+    /**
+     * 安全检查：防止脚本注入。
+     * 仅允许数字、字母、下划线、基本运算符和常见函数名。
+     */
+    private static final Pattern DANGEROUS_PATTERN = Pattern.compile(
+            "(?i)(class|import|exec|eval|runtime|process|system|file|socket|url|jdbc|http|reflect|new\\s|;\\s*\\w)"
+    );
+
+    private boolean containsDangerousPattern(String script) {
+        return DANGEROUS_PATTERN.matcher(script).find();
     }
 
     private String formatResult(double value) {

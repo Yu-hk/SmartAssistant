@@ -8,6 +8,7 @@
 package com.example.smartassistant.controller;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.service.agent.StreamingTravelAgentService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -43,9 +44,13 @@ public class TravelStreamController {
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(
             @RequestParam String message,
-            @RequestParam(required = false, defaultValue = "true") boolean showThinking) {
+            @RequestParam(required = false, defaultValue = "true") boolean showThinking,
+            @RequestHeader(value = "X-Request-Id", required = false) String requestIdHeader) {
 
-        log.info("[TravelStream] 开始流式对话: message={}, showThinking={}", message, showThinking);
+        // ⭐ 将 requestId 设入 MDC，供 @Tool 日志切面使用
+        ToolLogContext.setRequestId(requestIdHeader);
+
+        log.info("[TravelStream] 开始流式对话: message={}, showThinking={}, requestId={}", message, showThinking, requestIdHeader);
         SseEmitter emitter = new SseEmitter(360000L);
 
         executor.execute(() -> {
@@ -111,9 +116,12 @@ public class TravelStreamController {
     }
 
     @PostMapping("/chat/sync")
-    public String chatSync(@RequestParam String message) {
-        log.info("[TravelStream] 同步对话: {}", message);
+    public String chatSync(@RequestParam String message,
+                           @RequestHeader(value = "X-Request-Id", required = false) String requestIdHeader) {
+        // ⭐ 将 requestId 设入 MDC，供 @Tool 日志切面使用
+        ToolLogContext.setRequestId(requestIdHeader);
         try {
+            log.info("[TravelStream] 同步对话: {}, requestId={}", message, requestIdHeader);
             var response = orderAgent.call(message);
             if (response != null) {
                 return response.getText();
@@ -122,6 +130,8 @@ public class TravelStreamController {
         } catch (Exception e) {
             log.error("[TravelStream] 同步对话异常: {}", e.getMessage(), e);
             return "处理失败: " + e.getMessage();
+        } finally {
+            ToolLogContext.clear();
         }
     }
 
