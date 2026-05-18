@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.router.model.ReflectionResult;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.router.model.SubTask;
@@ -56,6 +57,7 @@ public class RouterService {
     private final SemanticRouteCacheService semanticCache;
     private final TaskPlannerService taskPlanner;
     private final ResultMerger resultMerger;
+    private final ReflectionService reflectionService;
 
     @Value("${router.agent.rag.enabled:false}")
     private boolean ragEnabled;
@@ -79,7 +81,8 @@ public class RouterService {
                          RouterRagService ragService,
                          SemanticRouteCacheService semanticCache,
                          TaskPlannerService taskPlanner,
-                         ResultMerger resultMerger) {
+                         ResultMerger resultMerger,
+                         ReflectionService reflectionService) {
         this.agentCallerService = agentCallerService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
@@ -87,6 +90,7 @@ public class RouterService {
         this.semanticCache = semanticCache;
         this.taskPlanner = taskPlanner;
         this.resultMerger = resultMerger;
+        this.reflectionService = reflectionService;
     }
     
     /**
@@ -141,7 +145,7 @@ public class RouterService {
                             .intentTag(cached.intentTag)  // ⭐ 从缓存中恢复 intentTag
                             .build();
                     if (cached.agentName != null && !"none".equals(cached.agentName)) {
-                        String agentReply = agentCallerService.callAgent(cached.agentName, enhancedQuestion, userId);
+                        String agentReply = agentCallerService.callAgent(cached.agentName, enhancedQuestion, userId, request.getRequestId());
                         if (agentReply != null) {
                             result.setResult(agentReply);
                         }
@@ -158,6 +162,31 @@ public class RouterService {
             // ⭐ 生成意图标签（用于用户画像统计），设置到 result
             String intentTag = semanticCache.generateIntentTag(question);
             result.setIntentTag(intentTag);
+
+            // ⭐⭐ 反思器：对非缓存的新结果进行质量评估（纯规则评分，不调 LLM）
+            if (cached == null && result.getResult() != null && !result.getResult().isBlank()
+                    && result.getAgentName() != null && !"none".equals(result.getAgentName())) {
+                ReflectionResult reflection = reflectionService.evaluate(
+                        question, result.getResult(), result.getAgentName(), intentTag, userId);
+                if (!reflection.isAcceptable()) {
+                    log.warn("[Router] 🪞 反思不通过: score={}, agent={}, reason={}",
+                            String.format("%.2f", reflection.getScore()),
+                            result.getAgentName(), reflection.getReason());
+                    // 最多重试 1 次，换 fallback Agent
+                    String retryResult = reflectionService.retry(
+                            question, result.getResult(), result.getAgentName(),
+                            intentTag, userId, request.getRequestId());
+                    if (retryResult != null && !retryResult.equals(result.getResult())) {
+                        result.setResult(retryResult);
+                        log.info("[Router] 🪞 反思重试成功，已替换低质量回复");
+                    }
+                    // ⭐ 低质量回复不写语义缓存（防污染），直接跳到写 Redis 决策
+                    if (result.getResult() != null && !result.getResult().startsWith("❌")) {
+                        // 即使反思不通过，如果重试后结果改善，仍允许缓存
+                    }
+                    // 标记反思不通过，后续 saveReply 会额外检查
+                }
+            }
             
             // ⭐ 提取原始问题（去除 Prompt 模板标记），用于缓存 key 生成
             String rawQuestion = extractRawQuestion(question);
@@ -172,10 +201,12 @@ public class RouterService {
                 semanticCache.saveExactMatch(rawQuestion, intentTag);
 
                 // 缓存回复内容（Agent 返回后异步写入，不阻塞主流程）
+                // ⭐ 低质量回复（反思不通过且未改善）不写语义缓存，防污染
                 String reply = result.getResult();
                 if (cached == null || cached.reply == null) {
                     // 首次路由或 Agent 重新调用：缓存回复原文
-                    if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")) {
+                    if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")
+                            && reply.length() >= 20) {  // ⭐ 过短回复不缓存
                         semanticCache.saveReply(question, reply, agentName, intentTag, Boolean.TRUE.equals(result.getAdminOperation()));
                     }
                 }
@@ -220,7 +251,7 @@ public class RouterService {
         String eventsKey = requestId != null ? SSE_EVENTS_KEY_PREFIX + requestId : null;
 
         // Step 2: 并行执行子任务
-        List<SubTaskResult> results = parallelExecute(tasks, userId, eventsKey);
+        List<SubTaskResult> results = parallelExecute(tasks, userId, eventsKey, requestId);
 
         // Step 3: SSE — 汇总中
         storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);
@@ -259,7 +290,7 @@ public class RouterService {
      * 使后续 Agent 能感知前面 Agent 的发现。
      * 例如 Food Agent 看到 Travel Agent 找到的景点后，可推荐附近的餐厅。
      */
-    private List<SubTaskResult> parallelExecute(List<SubTask> tasks, Long userId, String eventsKey) {
+    private List<SubTaskResult> parallelExecute(List<SubTask> tasks, Long userId, String eventsKey, String requestId) {
         List<SubTaskResult> results = new ArrayList<>();
         StringBuilder sharedContext = new StringBuilder();
 
@@ -276,7 +307,7 @@ public class RouterService {
 
             try {
                 var agentResult = agentCallerService.callAgentAndExtractTitles(
-                        task.getTargetAgent(), enrichedDesc, userId);
+                        task.getTargetAgent(), enrichedDesc, userId, requestId);
                 String resultText = agentResult.getResponse();
                 if (resultText != null && !resultText.isBlank()) {
                     // 将结果加入共享上下文，供后续 Agent 使用

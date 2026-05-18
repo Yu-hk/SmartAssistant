@@ -85,3 +85,6 @@ models/*.onnx
 **/models/bge-large-zh-v1.5/
 **/models/bge-small-zh-v1.5/
 "*.json"  
+login_tmp.json
+nul
+smart-assitant-router/

@@ -61,6 +61,46 @@ public class UserProfileService {
         this.llmExtractor = llmExtractor;
     }
 
+    // ==================== 冷启动默认画像 ====================
+
+    /**
+     * 群体画像冷启动默认值。
+     * 新用户第一次使用时，用此兜底偏好填充画像，
+     * 让 Prompt 中有基础上下文，避免回复完全无个性化。
+     * 随着用户真实行为积累，真实偏好会逐步覆盖这些默认值（权重=1）。
+     */
+    private static final String[]   DEFAULT_FOOD_PREFS         = {"清淡", "辣"};
+    private static final String[]   DEFAULT_TRAVEL_PREFS       = {"自然风光", "人文历史"};
+    private static final String     DEFAULT_BUDGET_RANGE       = "经济实惠";
+    private static final String[]   DEFAULT_DIETARY            = {};
+    private static final Map<String, Integer> DEFAULT_WEIGHTS  = Map.of(
+            "清淡", 1, "辣", 1, "自然风光", 1, "人文历史", 1
+    );
+
+    /**
+     * 用群体画像默认值填充空白画像（仅首次加载时触发）。
+     * 不覆盖已有字段，确保真实偏好优先。
+     */
+    private UserProfile applyDefaultProfile(UserProfile profile) {
+        if (profile.getFoodPreferencesArray() == null || profile.getFoodPreferencesArray().length == 0) {
+            profile.setFoodPreferencesArray(DEFAULT_FOOD_PREFS.clone());
+        }
+        if (profile.getTravelPreferencesArray() == null || profile.getTravelPreferencesArray().length == 0) {
+            profile.setTravelPreferencesArray(DEFAULT_TRAVEL_PREFS.clone());
+        }
+        if (profile.getBudgetRange() == null || profile.getBudgetRange().isBlank()) {
+            profile.setBudgetRange(DEFAULT_BUDGET_RANGE);
+        }
+        if (profile.getDietaryRestrictionsArray() == null) {
+            profile.setDietaryRestrictionsArray(DEFAULT_DIETARY.clone());
+        }
+        // 只补充缺失的权重，不覆盖已有真实权重
+        Map<String, Integer> weights = profile.getPreferenceWeightsMap();
+        DEFAULT_WEIGHTS.forEach(weights::putIfAbsent);
+        profile.setPreferenceWeightsMap(weights);
+        return profile;
+    }
+
     // ==================== 写入 ====================
 
     /**
@@ -76,6 +116,9 @@ public class UserProfileService {
                 profile = new UserProfile();
                 profile.setUserId(userId);
                 profile.setTotalQueries(0);
+                // ⭐ 新用户：注入群体画像冷启动默认值
+                profile = applyDefaultProfile(profile);
+                log.info("[UserProfile] 新用户冷启动，注入默认画像: userId={}", userId);
             }
 
             profile.setTotalQueries(profile.getTotalQueries() + 1);
@@ -133,12 +176,17 @@ public class UserProfileService {
     // ==================== 读取 ====================
 
     /**
-     * 构建用户画像 Prompt
+     * 构建用户画像 Prompt。
+     * 若用户首次使用（无历史画像），自动应用冷启动默认值，确保 Prompt 中始终有基础个性化上下文。
      */
     public String buildUserProfilePrompt(Long userId) {
         if (userId == null) return "";
         UserProfile profile = loadProfile(userId);
-        if (profile == null) return "";
+        if (profile == null) {
+            // 冷启动：用默认画像生成 Prompt，但不持久化（由 extractAndUpdatePreferences 写入）
+            profile = applyDefaultProfile(new UserProfile());
+            log.debug("[UserProfile] 冷启动 Prompt 生成: userId={}", userId);
+        }
 
         StringBuilder prompt = new StringBuilder();
         prompt.append("【用户历史信息】\n");

@@ -53,15 +53,35 @@ public class AgentCallerService {
      * @return Agent 响应结果
      */
     public String callAgent(String agentName, String question, Long userId) {
-        return callAgentWithContext(agentName, question, userId, null);
+        return callAgentWithContext(agentName, question, userId, null, null);
+    }
+
+    /**
+     * 调用目标 Agent（带 requestId 透传）
+     *
+     * @param agentName  Agent 名称
+     * @param question   原始问题
+     * @param userId     用户 ID
+     * @param requestId  请求 ID（透传到下游 Agent，用于 @Tool 日志关联）
+     * @return Agent 响应结果
+     */
+    public String callAgent(String agentName, String question, Long userId, String requestId) {
+        return callAgentWithContext(agentName, question, userId, null, requestId);
     }
 
     /**
      * 调用目标 Agent 并提取工具输出中的真实游记标题（用于引用校验）。
      */
     public AgentCallResult callAgentAndExtractTitles(String agentName, String question, Long userId) {
-        log.info("[AgentCaller] callAgentAndExtractTitles: agent={}, userId={}, questionLength={}",
-                agentName, userId, question != null ? question.length() : 0);
+        return callAgentAndExtractTitles(agentName, question, userId, null);
+    }
+
+    /**
+     * 调用目标 Agent 并提取工具输出中的真实游记标题（带 requestId 透传）。
+     */
+    public AgentCallResult callAgentAndExtractTitles(String agentName, String question, Long userId, String requestId) {
+        log.info("[AgentCaller] callAgentAndExtractTitles: agent={}, userId={}, questionLength={}, requestId={}",
+                agentName, userId, question != null ? question.length() : 0, requestId);
 
         try {
             String instruction = buildOptimizedInstruction(question, null);
@@ -70,16 +90,19 @@ public class AgentCallerService {
                 return new AgentCallResult("❌ 未找到目标 Agent: " + agentName);
             }
 
+            // ⭐ 注入 requestId 到 instruction 前缀，供下游 Agent 提取并设入 MDC
+            String enrichedInstruction = enrichWithRequestId(instruction, requestId);
+
             AgentCardProvider specificProvider = new SpecificAgentCardProvider(agentDiscoveryService, agentName);
             A2aRemoteAgent remoteAgent = A2aRemoteAgent.builder()
                     .name(agentName)
                     .description("远程 Agent: " + agentName)
                     .agentCardProvider(specificProvider)
-                    .instruction(question)
+                    .instruction(enrichedInstruction)
                     .shareState(false)
                     .build();
 
-            Optional<OverAllState> result = remoteAgent.invoke(question);
+            Optional<OverAllState> result = remoteAgent.invoke(enrichedInstruction);
             if (result.isEmpty()) {
                 return new AgentCallResult("⚠️ Agent 返回空结果");
             }
@@ -303,8 +326,23 @@ public class AgentCallerService {
      */
     public String callAgentWithContext(String agentName, String question, Long userId, 
                                        RouteDecision.ExtractedContext context) {
-        log.info("[AgentCaller] 调用 Agent: {}, userId={}, questionLength={}", 
-                agentName, userId, question != null ? question.length() : 0);
+        return callAgentWithContext(agentName, question, userId, context, null);
+    }
+
+    /**
+     * 调用目标 Agent（带提取的上下文信息 + requestId 透传）
+     *
+     * @param agentName Agent 名称
+     * @param question  原始问题
+     * @param userId    用户 ID
+     * @param context   提取的上下文信息（地点、意图等）
+     * @param requestId 请求 ID（透传到下游 Agent，用于 @Tool 日志关联）
+     * @return Agent 响应结果
+     */
+    public String callAgentWithContext(String agentName, String question, Long userId, 
+                                       RouteDecision.ExtractedContext context, String requestId) {
+        log.info("[AgentCaller] 调用 Agent: {}, userId={}, questionLength={}, requestId={}", 
+                agentName, userId, question != null ? question.length() : 0, requestId);
         
         if (context != null) {
             log.info("[AgentCaller] 提取的上下文: location={}, intent={}", 
@@ -325,22 +363,25 @@ public class AgentCallerService {
             }
             
             log.info("[AgentCaller] 目标 Agent URL: {}", agentUrl);
+
+            // ⭐ 注入 requestId 到 instruction 前缀，供下游 Agent 提取并设入 MDC
+            String enrichedInstruction = enrichWithRequestId(instruction, requestId);
             
             // ⭐ 先创建针对当前 agentName 的 AgentCardProvider
             AgentCardProvider specificProvider = new SpecificAgentCardProvider(agentDiscoveryService, agentName);
             
             // ⭐ 使用特定的 Provider 构建远程 Agent
-            // 注意：传递原始问题作为 instruction，让远程 Agent 正确处理
+            // 注意：传递注入了 requestId 的 instruction，让远程 Agent 正确处理
             A2aRemoteAgent remoteAgent = A2aRemoteAgent.builder()
                     .name(agentName)
                     .description("远程 Agent: " + agentName)
                     .agentCardProvider(specificProvider)  // ⭐ 使用预先确定的 Provider
-                    .instruction(question)  // ⭐ 传递原始问题，避免空 instruction 错误
+                    .instruction(enrichedInstruction)  // ⭐ 传递注入 requestId 的 instruction
                     .shareState(false)
                     .build();
             
-            // 调用 Agent - 直接传递原始问题
-            Optional<OverAllState> result = remoteAgent.invoke(question);
+            // 调用 Agent - 传递注入了 requestId 的 instruction
+            Optional<OverAllState> result = remoteAgent.invoke(enrichedInstruction);
             
             if (result.isPresent()) {
                 // ⭐ 调试：打印完整的返回数据结构
@@ -663,6 +704,22 @@ public class AgentCallerService {
         }
 
         return response;
+    }
+
+    /**
+     * ⭐ 将 requestId 注入到 instruction 前缀中，供下游 Agent 提取并设入 MDC。
+     *
+     * <p>格式：{@code [requestId:abc123]\n原始instruction}</p>
+     *
+     * <p>下游 Agent 在接收到 instruction 时，通过 {@link com.example.smartassistant.common.tool.ToolLogContext}
+     * 提取前缀中的 requestId 并设入 ThreadLocal/MDC，使 {@link com.example.smartassistant.common.tool.ToolLogAspect}
+     * 能在 @Tool 方法日志中输出 requestId。</p>
+     */
+    private String enrichWithRequestId(String instruction, String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            return instruction;
+        }
+        return "[requestId:" + requestId + "]\n" + instruction;
     }
 
     /**

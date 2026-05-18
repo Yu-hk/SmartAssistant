@@ -3,8 +3,10 @@ package com.example.smartassistant.router.service;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
+import com.example.smartassistant.router.model.ReflectionResult;
 import com.example.smartassistant.router.service.core.TaskPlannerService;
 import com.example.smartassistant.router.service.core.ResultMerger;
+import com.example.smartassistant.router.service.core.ReflectionService;
 import com.example.smartassistant.router.service.core.RouterService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
@@ -45,6 +47,7 @@ class RouterRoutingIntegrationTest {
     @Mock private ChineseTokenizer tokenizer;
     @Mock private TaskPlannerService taskPlanner;
     @Mock private ResultMerger resultMerger;
+    @Mock private ReflectionService reflectionService;
     @Mock private ValueOperations<String, String> valueOps;
     private TfEmbeddingService tfEmbedding;
     private VectorCacheStore vectorCache;
@@ -67,8 +70,13 @@ class RouterRoutingIntegrationTest {
         cacheService = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
                 agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding);
         ReflectionTestUtils.setField(cacheService, "cacheEnabled", true);
-        new RouterService(agentCallerService, agentDiscoveryService, chatClientBuilder,
-                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger);
+        // ⭐ 反思器默认通过（测试环境下不触发反思逻辑）
+        lenient().when(reflectionService.evaluate(anyString(), anyString(), anyString(), anyString(), any()))
+                .thenReturn(new ReflectionResult(true, 1.0, "test.pass"));
+        lenient().when(reflectionService.retry(anyString(), anyString(), anyString(), anyString(), any(), anyString()))
+                .thenReturn("retry result");
+        new RouterService(agentCallerService, chatClientBuilder,
+                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService);
     }
 
     @Test

@@ -25,6 +25,11 @@
   - [3. 构建项目](#3-构建项目)
   - [4. 启动服务](#4-启动服务)
 - [详细部署流程](#详细部署流程)
+- [RAG 召回管道](#rag-召回管道)
+- [Router 反思器](#router-反思器)
+- [@Tool 统一日志切面](#tool-统一日志切面)
+- [语义缓存](#语义缓存)
+- [请求排队](#请求排队)
 - [配置说明](#配置说明)
 - [监控体系](#监控体系)
 - [API 文档](#api-文档)
@@ -55,6 +60,8 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + 多路召回(RRF融合)，覆盖出行/美食领域 |
 | 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
+| 🔍 **@Tool 统一日志切面** | AOP 拦截全部 27 个 @Tool 方法，自动记录 requestId + 输入参数 + 输出结果 + 执行耗时；requestId 通过 MDC 全链路透传（Consumer → Router → A2A → Agent → @Tool） |
+| 🔄 **Router 通用反思器** | 纯规则五维评分（长度/错误标记/关键词覆盖/Agent健康/意图匹配），0.6 阈值以下自动换 fallback Agent 重试，低质量回复不写缓存（防污染） |
 | 📊 **全栈可观测** | Micrometer + Prometheus + Grafana 指标，Jaeger 链路追踪，Loki 日志聚合，8 个自定义仪表盘 |
 | ⏳ **请求排队 + SSE 流式** | Semaphore 限流 LLM 并发(默认5)，排队时 SSE 实时推送位置，支持 thinking/tool_call/response 事件 |
 | 🐳 **容器化部署** | Dockerfile + docker-compose.deploy.yml，7 个服务一键构建部署 |
@@ -243,6 +250,96 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 
 ---
 
+## Router 反思器
+
+系统在 Router 模块实现了通用反思器，对 Agent 回复进行**纯规则质量评估**，不调用 LLM，零额外延迟。
+
+### 五维评分模型（总分 0.0 ~ 1.0，默认阈值 0.6）
+
+| 维度 | 权重 | 评分规则 | 说明 |
+|------|:----:|----------|------|
+| 长度检查 | 20% | ≥100字=1.0 / 50~99字=0.6 / 20~49字=0.3 / <20字=0.0 | 回复过短疑似异常 |
+| 错误标记检测 | 25% | 不含=1.0 / 含❌⚠️ERROR等=0.0 | 明确的服务错误标记 |
+| 关键词覆盖 | 25% | ≥50%=1.0 / 30%~50%=0.6 / <30%=0.3 | 问题中命名实体是否在回复出现 |
+| Agent 健康状态 | 15% | 在线=1.0 / 离线=0.5 | Nacos 服务发现状态 |
+| 意图匹配 | 15% | 匹配=1.0 / General=0.6 / 不匹配=0.3 | intentTag 与 Agent 对应关系 |
+
+### 工作流程
+
+```
+Agent 返回结果
+  │
+  ├→ ReflectionService.evaluate()
+  │   ├── 五维评分（纯规则，无 LLM 调用）
+  │   └── score ≥ 0.6 → ✅ 通过 → 写入语义缓存 → 返回
+  │
+  └→ score < 0.6 → ❌ 不通过
+      ├── 低质量回复不写缓存（防污染）
+      ├── 自动换 fallback Agent 重试（最多 1 次）
+      ├── 重试结果再评估 → 通过 → 返回
+      └── 重试仍不通过 → 返回原结果
+```
+
+### 配置项
+
+```yaml
+router:
+  reflection:
+    enabled: true        # 灰度开关
+    threshold: 0.60      # 质量阈值（0.0~1.0）
+    max-retry: 1         # 最大重试次数
+```
+
+---
+
+## @Tool 统一日志切面
+
+系统通过 AOP 切面自动拦截全部 27 个 `@Tool` 方法，统一记录调用日志，无需在每个工具方法内手动写日志。
+
+### 架构设计
+
+```
+Consumer (requestId 生成)
+  │  ToolLogContext.setRequestId(requestId)
+  │
+  ├→ Router (A2A 调用)
+  │    │  AgentCallerService.enrichWithRequestId(instruction, requestId)
+  │    │  → instruction 前缀注入: "[requestId:xxx]\n原始指令"
+  │    │
+  │    └→ Agent 服务 (A2A 响应)
+  │         │  AgentRequestIdAspect (@Order(1))
+  │         │  → 从 instruction 前缀提取 requestId
+  │         │  → ToolLogContext.setRequestId(requestId)
+  │         │
+  │         └→ @Tool 方法执行
+  │              │  ToolLogAspect (@Around)
+  │              │  → MDC.get("toolRequestId") 获取 requestId
+  │              │  → log.info("[Tool] method={} requestId={} params={} result={} duration={}ms")
+  │              │
+  │              └─ finally: ToolLogContext.clear()
+```
+
+### 日志格式
+
+```
+[Tool] method=calculate requestId=req-abc123 params={expression: "2+3*4"} result=14 duration=3ms
+[Tool] method=getHotNews requestId=req-abc123 params={} result=[5条新闻] duration=222ms
+```
+
+- 参数截断至 300 字符，结果截断至 500 字符
+- 异常时输出 `log.warn` 级别，包含 error 信息
+
+### 核心组件
+
+| 组件 | 位置 | 说明 |
+|------|------|------|
+| `ToolLogContext` | `common/tool/` | ThreadLocal + MDC 持有 requestId |
+| `ToolLogAspect` | `common/tool/` | `@Around` 拦截 @Tool，记录输入/输出/耗时 |
+| `AgentRequestIdAspect` | `common/tool/` | `@Order(1)` 拦截 ReactAgent.invoke()，提取 requestId 前缀 |
+| `spring-boot-starter-aop` | `common/pom.xml` | AOP 依赖（optional） |
+
+---
+
 ## 语义缓存
 
 系统在 Router 模块实现了三层语义缓存，全部本地执行无需外部 API 调用。Tier 3 使用 **BGE-small-zh ONNX(512d)** 本地模型，零网络依赖。
@@ -333,11 +430,11 @@ saveReply() 时
 |------|------|------|
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
 | **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀；提供 `/api/data/query` 数据查询独立端点 |
-| **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分解→并行执行→结果合并，Nacos 服务发现；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
+| **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分解→并行执行→结果合并，Nacos 服务发现；**通用反思器**（五维评分 + 自动重试）；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
 | **Order** | 8085 | 订单查询，退款处理，物流跟踪（原 Travel 服务改造）；`service/` 按 rag/data/infrastructure 子包组织 |
 | **Product** | 8084 | 商品查询，库存查询，价格查询（原 Food 服务改造）；`service/` 按 core/search/infrastructure 子包组织 |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
-| **General** | 8087 | 闲聊问答，新闻热点，单位转换，**图片解析/文生图**，支持风格切换 |
+| **General** | 8087 | 闲聊问答，新闻热点，单位转换，**图片解析/文生图**，**多步脚本执行**，支持风格切换 |
 
 ---
 
@@ -610,7 +707,7 @@ smart-assistant-{service}/src/main/resources/prompts/
 
 ```
 smart-assistant-router/.../service/
-├── core/          RouterService, SmartRoutingService
+├── core/          RouterService, SmartRoutingService, ReflectionService
 ├── agent/         AgentCallerService, AgentDiscoveryService, AgentHealthChecker, AgentVersionNegotiator
 ├── cache/         SemanticRouteCacheService, RoutingDecisionStorageService
 ├── infrastructure/ DistributedTracingService
@@ -828,6 +925,7 @@ chat:
 | `analyzeImage(imageUrl, question)` 🆕 | 图片解析 | DashScope API Key |
 | `generateImage(prompt, size, n)` 🆕 | 文生图 | DashScope API Key |
 | `convertCurrency(value, from, to)` 🆕 | 货币汇率转换 | 实时汇率 API |
+| `executeScript(script)` 🆕 | 多步脚本执行 | — |
 
 ### 路由接口
 
@@ -963,7 +1061,7 @@ docker-compose restart nacos
 ### 模块依赖关系
 
 ```
-smart-assistant-common (核心工具：分词器、SQL 校验器、Dotenv、修正记录服务)
+smart-assistant-common (核心工具：分词器、SQL 校验器、Dotenv、修正记录服务、@Tool 日志切面)
     ↑          ↑          ↑          ↑
 Gateway   Consumer    Router     Travel / Food / User / General
 (无common)   (common)   (common)   (common)
