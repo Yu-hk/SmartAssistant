@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.general.tool;
 
+import com.example.smartassistant.common.tool.ToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -63,7 +64,7 @@ public class ImageTools {
     @Tool(description = "分析图片内容，根据用户的问题回答图片中的信息。支持图片URL和base64数据URI。"
             + "当用户发送图片或询问图片内容时调用此工具")
     public String analyzeImage(
-            @ToolParam(description = "图片的URL地址（支持 http/https 或 base64 data URI）") String imageUrl,
+            @ToolParam(description = "图片的URL地址（支持 http/https 或 base64 data URI）", required = true) String imageUrl,
             @ToolParam(description = "关于图片的问题，如'这张图片里有什么？''图中是什么景点？'等。默认为'请详细描述这张图片'") String question) {
         log.info("[ImageTools] 图片解读: imageUrl={}, question={}", 
                 imageUrl != null ? imageUrl.substring(0, Math.min(50, imageUrl.length())) + "..." : null, 
@@ -117,7 +118,7 @@ public class ImageTools {
 
             if (response.statusCode() != 200) {
                 log.warn("[ImageTools] API 调用失败: status={}, body={}", response.statusCode(), response.body());
-                return "图片分析失败，请稍后重试。错误: HTTP " + response.statusCode();
+                return ToolResult.error("IMAGE_ANALYSIS_FAILED", "图片分析失败", true, "请稍后重试");
             }
 
             // 解析结果
@@ -132,11 +133,11 @@ public class ImageTools {
             }
 
             log.warn("[ImageTools] 无法解析API响应: {}", response.body());
-            return "图片分析完成，但未能获取到有效描述。";
+            return ToolResult.error("IMAGE_ANALYSIS_FAILED", "图片分析失败：无法解析API响应", false);
 
         } catch (Exception e) {
             log.error("[ImageTools] 图片解读异常: {}", e.getMessage(), e);
-            return "图片分析时发生错误: " + e.getMessage();
+            return ToolResult.error("IMAGE_ANALYSIS_FAILED", "图片分析异常", true, "请检查图片URL是否有效");
         }
     }
 
@@ -145,9 +146,9 @@ public class ImageTools {
     @Tool(description = "根据文字描述生成图片。"
             + "当用户说'画一张...''生成一张...的图片''帮我画...'等时调用此工具")
     public String generateImage(
-            @ToolParam(description = "图片描述文字，如'夕阳下的西湖，水墨风格'，越详细效果越好") String prompt,
-            @ToolParam(description = "图片尺寸，可选：1024*1024（默认）、1024*576（横版）、576*1024（竖版）") String size,
-            @ToolParam(description = "生成数量，默认为1，最大4") Integer n) {
+            @ToolParam(description = "图片描述文字，如'夕阳下的西湖，水墨风格'，越详细效果越好", required = true) String prompt,
+            @ToolParam(description = "图片尺寸：1024*1024(方形)、1024*576(横版)、576*1024(竖版)", required = true) ImageSize size,
+            @ToolParam(description = "生成数量，默认为1，最大4", required = true) Integer n) {
         log.info("[ImageTools] 文生图: prompt={}, size={}, n={}", prompt, size, n);
 
         if (dashscopeApiKey == null || dashscopeApiKey.isBlank()) {
@@ -155,7 +156,7 @@ public class ImageTools {
         }
 
         // 参数默认值
-        if (size == null || size.isBlank()) size = "1024*1024";
+        if (size == null) size = ImageSize.SQUARE;
         if (n == null || n < 1) n = 1;
         if (n > 4) n = 4;
 
@@ -168,7 +169,7 @@ public class ImageTools {
             input.put("prompt", prompt);
 
             ObjectNode parameters = requestBody.putObject("parameters");
-            parameters.put("size", size);
+            parameters.put("size", size.getValue());
             parameters.put("n", n);
 
             String jsonBody = objectMapper.writeValueAsString(requestBody);
@@ -187,13 +188,13 @@ public class ImageTools {
             if (createResponse.statusCode() != 200) {
                 log.warn("[ImageTools] 创建任务失败: status={}, body={}", 
                         createResponse.statusCode(), createResponse.body());
-                return "图片生成失败。错误: HTTP " + createResponse.statusCode();
+                return ToolResult.error("IMAGE_GENERATION_FAILED", "图片生成失败", true, "请稍后重试");
             }
 
             JsonNode createRoot = objectMapper.readTree(createResponse.body());
             JsonNode output = createRoot.get("output");
             if (output == null) {
-                return "图片生成失败：无法创建任务";
+                return ToolResult.error("IMAGE_GENERATION_FAILED", "图片生成失败：无法创建任务", true);
             }
 
             String taskId = output.get("task_id").asText();
@@ -209,11 +210,11 @@ public class ImageTools {
                         + "尺寸：" + size;
             }
 
-            return "图片生成超时，请稍后重试。";
+            return ToolResult.error("IMAGE_GENERATION_TIMEOUT", "图片生成超时", true, "请稍后重试");
 
         } catch (Exception e) {
             log.error("[ImageTools] 文生图异常: {}", e.getMessage(), e);
-            return "图片生成时发生错误: " + e.getMessage();
+            return ToolResult.error("IMAGE_GENERATION_FAILED", "图片生成异常", true, "请稍后重试");
         }
     }
 

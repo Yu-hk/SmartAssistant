@@ -110,21 +110,19 @@ class SpecialtyCuisineKnowledgeBaseTest {
     }
 
     @Test
-    @DisplayName("测试6: 格式化单个菜品信息")
-    void testFormatDishInfo() {
+    @DisplayName("测试6: 格式化菜品列表")
+    void testFormatDishesList() {
         List<SpecialtyCuisineKnowledgeBase.SpecialtyDish> dishes = 
                 knowledgeBase.getDishesByCity("北京");
 
         assertFalse(dishes.isEmpty());
         
-        String formatted = knowledgeBase.formatDishInfo(dishes.get(0));
+        String formatted = knowledgeBase.formatDishesList(dishes, "北京特色菜");
         
         assertNotNull(formatted);
-        assertTrue(formatted.contains("•"), "应包含项目名称符号");
-        assertTrue(formatted.contains("📍"), "应包含地点图标");
-        assertTrue(formatted.contains("👅"), "应包含口味图标");
+        assertTrue(formatted.contains("北京特色菜"), "应包含标题");
 
-        System.out.println("=== 单个菜品信息示例 ===");
+        System.out.println("=== 菜品列表示例 ===");
         System.out.println(formatted);
     }
 

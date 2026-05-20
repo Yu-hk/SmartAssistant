@@ -5,7 +5,7 @@
  * full license information.
  */
 
-package com.example.a2a.router.service;
+package com.example.smartassistant.router.service.extraction;
 
 import com.example.smartassistant.router.service.extraction.KeywordExtractionService;
 import org.junit.jupiter.api.Test;
@@ -136,7 +136,7 @@ class KeywordExtractionServiceTest {
         String fullPrompt = """
             【用户画像】
             用户偏好：喜欢川菜和火锅，经常查询北京的餐厅
-            历史行为：上周查询过“北京火锅推荐”
+            历史行为：上周查询过"北京火锅推荐"
             
             【历史对话】
             用户: 北京有什么好吃的？

@@ -8,6 +8,7 @@
 package com.example.smartassistant.controller;
 
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.service.agent.StreamingTravelAgentService;
 import lombok.extern.slf4j.Slf4j;
@@ -30,12 +31,12 @@ import java.util.concurrent.Executors;
 @Slf4j
 public class TravelStreamController {
 
-    private final ReactAgent orderAgent;
+    private final SmartReActAgent orderAgent;
     private final StreamingTravelAgentService streamingAgentService;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     public TravelStreamController(
-            @Qualifier("orderAgent") ReactAgent orderAgent,
+            @Qualifier("orderAgent") SmartReActAgent orderAgent,
             StreamingTravelAgentService streamingAgentService) {
         this.orderAgent = orderAgent;
         this.streamingAgentService = streamingAgentService;
@@ -122,9 +123,10 @@ public class TravelStreamController {
         ToolLogContext.setRequestId(requestIdHeader);
         try {
             log.info("[TravelStream] 同步对话: {}, requestId={}", message, requestIdHeader);
-            var response = orderAgent.call(message);
-            if (response != null) {
-                return response.getText();
+            // ⭐ SmartReActAgent 内置超时和迭代限制
+            String result = orderAgent.execute(message);
+            if (result != null) {
+                return result;
             }
             return "Agent 返回为空";
         } catch (Exception e) {
