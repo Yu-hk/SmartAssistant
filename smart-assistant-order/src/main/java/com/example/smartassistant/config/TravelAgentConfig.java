@@ -7,7 +7,8 @@
 
 package com.example.smartassistant.config;
 
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.tools.OrderTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
@@ -40,7 +41,7 @@ public class TravelAgentConfig {
     private Resource systemPromptResource;
 
     @Bean
-    public ReactAgent orderAgent(
+    public SmartReActAgent orderAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
             OrderTools orderTools) {
 
@@ -52,17 +53,15 @@ public class TravelAgentConfig {
                     MethodToolCallbackProvider.builder().toolObjects(tool).build().getToolCallbacks()));
         }
 
-        org.springframework.ai.tool.ToolCallback[] allTools = allCallbacks.toArray(new org.springframework.ai.tool.ToolCallback[0]);
-        log.info("[OrderAgent] 注册 {} 个工具", allTools.length);
+        List<ToolCallback> toolList = new ArrayList<>(allCallbacks);
+        log.info("[OrderAgent] 注册 {} 个工具", toolList.size());
 
-        return ReactAgent.builder()
-                .name(agentName)
-                .description("订单查询、退款、物流跟踪")
-                .model(chatModel)
-                .systemPrompt(buildSystemPrompt())
-                .tools(allTools)
-                .outputKey("output")
-                .build();
+        return new SmartReActAgent(chatModel)
+                .withMaxIterations(10)
+                .withTimeoutMs(60_000)
+                .withPreset(PromptBuilder.build()
+                        .withServicePrompt(buildSystemPrompt())
+                        .assemble(), toolList);
     }
 
     private String buildSystemPrompt() {

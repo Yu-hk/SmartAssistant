@@ -679,7 +679,19 @@ public class AgentCallerService {
             log.info("[AgentCaller] 清理 [思考内容] 区块，长度: {} -> {}", original.length(), response.length());
         }
 
-        // 策略4：移除开头的引导语/回应语（DeepSeek R1 等推理模型常见的回复前缀）
+        // 策略4：移除 [思考]...[/思考] 区块
+        if (response.contains("[思考]")) {
+            response = response.replaceAll("(?s)\\[思考].*?\\[/思考]", "");
+            log.info("[AgentCaller] 清理 [思考] 区块，长度: {} -> {}", original.length(), response.length());
+        }
+
+        // 策略5：移除 [reasoning]...[/reasoning] 区块
+        if (response.contains("[reasoning]")) {
+            response = response.replaceAll("(?s)\\[reasoning].*?\\[/reasoning]", "");
+            log.info("[AgentCaller] 清理 [reasoning] 区块，长度: {} -> {}", original.length(), response.length());
+        }
+
+        // 策略6：移除开头的引导语/回应语（DeepSeek R1 等推理模型常见的回复前缀）
         // 匹配：太好了！根据...我来为您整理...
         //      好的，我来为...整理...
         //      好的，信息都齐了！下面/现在/接下来...

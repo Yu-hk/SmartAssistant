@@ -65,6 +65,10 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 📊 **全栈可观测** | Micrometer + Prometheus + Grafana 指标，Jaeger 链路追踪，Loki 日志聚合，8 个自定义仪表盘 |
 | ⏳ **请求排队 + SSE 流式** | Semaphore 限流 LLM 并发(默认5)，排队时 SSE 实时推送位置，支持 thinking/tool_call/response 事件 |
 | 🐳 **容器化部署** | Dockerfile + docker-compose.deploy.yml，7 个服务一键构建部署 |
+| 🔧 **自研 ReAct 循环** | SmartReActAgent 替代 ReactAgent 黑盒，内置迭代限制(10轮)、超时保护(60s)、Token 预算追踪(80%)、上下文压缩(LM 摘要+保留N轮) |
+| 🔄 **并行工具执行** | LLM 一次返回多个 tool_call 时自动并行执行(最大4并发)，独立超时，按序收集结果 |
+| 🛡️ **工具接口四步法** | Schema 收窄(enum/required/regex) → 错误结构化(ToolResult) → Description 互斥 → 副作用审批(confirmAction 二阶段确认) |
+| 🧩 **System Prompt 分层** | PromptBuilder 三层组装: base-prompt(通用规则) + 服务自有指令 + 运行动态上下文 |
 
 ---
 

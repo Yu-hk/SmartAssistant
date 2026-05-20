@@ -1,5 +1,6 @@
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.tool.ToolResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -35,7 +36,7 @@ public class ProductTools {
 
     @Tool(description = "查询商品详细信息，包括价格、规格、颜色、库存状态等")
     public String queryProductInfo(
-            @ToolParam(description = "商品编码或名称，如 IPHONE-15-PRO") String productCode) {
+            @ToolParam(description = "商品编码或名称，如 IPHONE-15-PRO", required = true) String productCode) {
         log.info("[ProductTool] 查商品: {}", productCode);
         Map<String, String> p = PRODUCTS.get(productCode);
         if (p == null) {
@@ -48,7 +49,8 @@ public class ProductTools {
             }
         }
         if (p == null) {
-            return "未找到商品 " + productCode + "，请确认商品编码或名称是否正确。";
+            return ToolResult.error("PRODUCT_NOT_FOUND", "未找到商品 " + productCode,
+                    false, "请确认商品编码或名称是否正确");
         }
         return String.format(
             "%s\n价格：%s 元\n库存：%s\n规格：%s\n颜色：%s",
@@ -57,10 +59,10 @@ public class ProductTools {
 
     @Tool(description = "查询商品库存状态，返回是否可购买及预计发货时间")
     public String checkStock(
-            @ToolParam(description = "商品编码，如 IPHONE-15-PRO") String productCode) {
+            @ToolParam(description = "商品编码，如 IPHONE-15-PRO", required = true) String productCode) {
         log.info("[ProductTool] 查库存: {}", productCode);
         Map<String, String> p = PRODUCTS.get(productCode);
-        if (p == null) return "未找到商品 " + productCode;
+        if (p == null) return ToolResult.error("PRODUCT_NOT_FOUND", "未找到商品 " + productCode, false);
         String stock = p.get("stock");
         if ("充足".equals(stock)) {
             return p.get("name") + " 库存充足，下单后 24 小时内发货。";
@@ -72,10 +74,10 @@ public class ProductTools {
 
     @Tool(description = "查询商品价格，支持查询原价、促销价和是否支持分期")
     public String getPrice(
-            @ToolParam(description = "商品编码，如 IPHONE-15-PRO") String productCode) {
+            @ToolParam(description = "商品编码，如 IPHONE-15-PRO", required = true) String productCode) {
         log.info("[ProductTool] 查价格: {}", productCode);
         Map<String, String> p = PRODUCTS.get(productCode);
-        if (p == null) return "未找到商品 " + productCode;
+        if (p == null) return ToolResult.error("PRODUCT_NOT_FOUND", "未找到商品 " + productCode, false);
         return String.format("%s 售价 %s 元，支持 3/6/12/24 期免息分期。", p.get("name"), p.get("price"));
     }
 }

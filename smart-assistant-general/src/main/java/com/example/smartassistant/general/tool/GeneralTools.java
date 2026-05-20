@@ -8,6 +8,7 @@
 package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.common.correction.CorrectionService;
+import com.example.smartassistant.common.tool.ToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.objecthunter.exp4j.Expression;
@@ -56,7 +57,7 @@ public class GeneralTools {
 
     @Tool(description = "计算数学表达式，支持 + - * / () 和平方根(sqrt)、幂(pow)")
     public String calculate(
-            @ToolParam(description = "数学表达式，如 '3.14 * 5^2'、'sqrt(144)'、'(12 + 8) * 3.5 / 2'") String expression) {
+            @ToolParam(description = "数学表达式，如 '3.14 * 5^2'、'sqrt(144)'、'(12 + 8) * 3.5 / 2'", required = true) String expression) {
         log.info("[GeneralTools] 数学计算: expression={}", expression);
         try {
             double result = new ExpressionBuilder(expression)
@@ -68,7 +69,8 @@ public class GeneralTools {
             return formatted;
         } catch (Exception e) {
             log.warn("[GeneralTools] 计算失败: {}", e.getMessage());
-            return "无法计算该表达式，请检查格式是否正确。支持的运算符：+ - * / () ^ sqrt() abs() sin() cos() tan() log()";
+            return ToolResult.error("EXPRESSION_PARSE_ERROR", "无法解析表达式",
+                    false, "支持的运算符：+ - * / () ^ sqrt() abs() sin() cos() tan() log()");
         }
     }
 
@@ -76,34 +78,34 @@ public class GeneralTools {
 
     @Tool(description = "温度单位转换，支持 Celsius(°C)、Fahrenheit(°F)、Kelvin(K)")
     public String convertTemperature(
-            @ToolParam(description = "数值") double value,
-            @ToolParam(description = "源单位：C(摄氏)、F(华氏)、K(开尔文)") String fromUnit,
-            @ToolParam(description = "目标单位：C(摄氏)、F(华氏)、K(开尔文)") String toUnit) {
+            @ToolParam(description = "数值", required = true) double value,
+            @ToolParam(description = "源温度单位", required = true) TemperatureUnit fromUnit,
+            @ToolParam(description = "目标温度单位", required = true) TemperatureUnit toUnit) {
         log.info("[GeneralTools] 温度转换: {} {} → {}", value, fromUnit, toUnit);
         try {
             // 先转成 Celsius
             double celsius;
-            switch (fromUnit.toUpperCase()) {
-                case "C": case "℃": case "°C": celsius = value; break;
-                case "F": case "℉": case "°F": celsius = (value - 32) * 5 / 9; break;
-                case "K": case "KELVIN": celsius = value - 273.15; break;
-                default: return "不支持的温度单位: " + fromUnit + "，请使用 C/F/K";
+            switch (fromUnit) {
+                case C: celsius = value; break;
+                case F: celsius = (value - 32) * 5 / 9; break;
+                case K: celsius = value - 273.15; break;
+                default: return "不支持的温度单位: " + fromUnit;
             }
 
             // 从 Celsius 转到目标
             double result;
-            String unit;
-            switch (toUnit.toUpperCase()) {
-                case "C": case "℃": case "°C": result = celsius; unit = "°C"; break;
-                case "F": case "℉": case "°F": result = celsius * 9 / 5 + 32; unit = "°F"; break;
-                case "K": case "KELVIN": result = celsius + 273.15; unit = "K"; break;
-                default: return "不支持的温度单位: " + toUnit + "，请使用 C/F/K";
+            String unitLabel;
+            switch (toUnit) {
+                case C: result = celsius; unitLabel = "°C"; break;
+                case F: result = celsius * 9 / 5 + 32; unitLabel = "°F"; break;
+                case K: result = celsius + 273.15; unitLabel = "K"; break;
+                default: return "不支持的温度单位: " + toUnit;
             }
 
-            return formatResult(result) + unit;
+            return formatResult(result) + unitLabel;
         } catch (Exception e) {
             log.warn("[GeneralTools] 温度转换失败: {}", e.getMessage());
-            return "温度转换失败，请检查输入格式";
+            return ToolResult.error("CONVERSION_ERROR", "温度转换失败", true);
         }
     }
 
@@ -111,23 +113,17 @@ public class GeneralTools {
 
     @Tool(description = "长度单位转换，支持 米(m)、千米(km)、厘米(cm)、毫米(mm)、英尺(ft)、英寸(in)、英里(mi)")
     public String convertLength(
-            @ToolParam(description = "数值") double value,
-            @ToolParam(description = "源单位：m/km/cm/mm/ft/in/mi") String fromUnit,
-            @ToolParam(description = "目标单位：m/km/cm/mm/ft/in/mi") String toUnit) {
+            @ToolParam(description = "数值", required = true) double value,
+            @ToolParam(description = "源长度单位", required = true) LengthUnit fromUnit,
+            @ToolParam(description = "目标长度单位", required = true) LengthUnit toUnit) {
         log.info("[GeneralTools] 长度转换: {} {} → {}", value, fromUnit, toUnit);
         try {
-            // 全部转成米
-            double meters = toMeters(value, fromUnit);
-            if (Double.isNaN(meters)) return "不支持的长度单位: " + fromUnit;
-
-            // 从米转到目标
-            double result = fromMeters(meters, toUnit);
-            if (Double.isNaN(result)) return "不支持的长度单位: " + toUnit;
-
-            return formatResult(result) + " " + toUnit.toLowerCase();
+            double meters = fromUnit.toMeters(value);
+            double result = toUnit.fromMeters(meters);
+            return formatResult(result) + " " + toUnit.getSymbol();
         } catch (Exception e) {
             log.warn("[GeneralTools] 长度转换失败: {}", e.getMessage());
-            return "长度转换失败，请检查输入格式";
+            return ToolResult.error("CONVERSION_ERROR", "长度转换失败", true);
         }
     }
 
@@ -135,29 +131,23 @@ public class GeneralTools {
 
     @Tool(description = "重量单位转换，支持 千克(kg)、克(g)、毫克(mg)、磅(lb)、盎司(oz)、吨(t)")
     public String convertWeight(
-            @ToolParam(description = "数值") double value,
-            @ToolParam(description = "源单位：kg/g/mg/lb/oz/t") String fromUnit,
-            @ToolParam(description = "目标单位：kg/g/mg/lb/oz/t") String toUnit) {
+            @ToolParam(description = "数值", required = true) double value,
+            @ToolParam(description = "源重量单位", required = true) WeightUnit fromUnit,
+            @ToolParam(description = "目标重量单位", required = true) WeightUnit toUnit) {
         log.info("[GeneralTools] 重量转换: {} {} → {}", value, fromUnit, toUnit);
         try {
-            // 全部转成千克
-            double kg = toKilograms(value, fromUnit);
-            if (Double.isNaN(kg)) return "不支持的重量单位: " + fromUnit;
-
-            // 从千克转到目标
-            double result = fromKilograms(kg, toUnit);
-            if (Double.isNaN(result)) return "不支持的重量单位: " + toUnit;
-
-            return formatResult(result) + " " + toUnit.toLowerCase();
+            double kg = fromUnit.toKg(value);
+            double result = toUnit.fromKg(kg);
+            return formatResult(result) + " " + toUnit.getSymbol();
         } catch (Exception e) {
             log.warn("[GeneralTools] 重量转换失败: {}", e.getMessage());
-            return "重量转换失败，请检查输入格式";
+            return ToolResult.error("CONVERSION_ERROR", "重量转换失败", true);
         }
     }
 
     // ==================== 新闻热点 ====================
 
-    @Tool(description = "获取当前网络热门新闻热点话题（微博热搜、百度热点等），无需参数，自动获取最新热点。需要时政/综合热点时优先用此工具")
+    @Tool(description = "获取当前网络热门话题排行榜（微博热搜、百度热点排行榜）。仅返回热点榜单列表，不检索具体新闻内容。适用于用户想看'今天有什么热搜''最近热门话题'时调用。")
     public String getHotNews() {
         log.info("[GeneralTools] 获取热门新闻");
         long start = System.currentTimeMillis();
@@ -178,10 +168,10 @@ public class GeneralTools {
 
             log.info("[GeneralTools] 新闻获取完成, 耗时={}ms", System.currentTimeMillis() - start);
             if (result != null) return result;
-            return "暂时无法获取新闻热点，请稍后再试";
+            return ToolResult.error("NEWS_UNAVAILABLE", "暂无热点数据", true, "请稍后重试");
         } catch (Exception e) {
             log.warn("[GeneralTools] 获取新闻失败: {}", e.getMessage());
-            return "暂时无法获取新闻热点，请稍后再试";
+            return ToolResult.error("NEWS_UNAVAILABLE", "新闻服务暂时不可用", true);
         }
     }
 
@@ -389,9 +379,9 @@ public class GeneralTools {
         };
     }
 
-    @Tool(description = "联网搜索信息，当用户问实时新闻、时事、百科知识或需要最新信息时调用")
+    @Tool(description = "联网搜索具体信息，适用于问答、百科查询、查找特定新闻原文等。注意：不要用此工具查热点排行榜，排行榜请用 getHotNews。当用户想了解某个具体事件/话题的详情时调用此工具。")
     public String searchWeb(
-            @ToolParam(description = "搜索关键词，如'2025年春节放假安排'") String query) {
+            @ToolParam(description = "搜索关键词，如'2025年春节放假安排'", required = true) String query) {
         log.info("[GeneralTools] 联网搜索: query={}", query);
         try {
             // 使用 DuckDuckGo 搜索（无需 API Key）
@@ -485,7 +475,7 @@ public class GeneralTools {
             String url = "https://www.bing.com/search?q=" + encoded + "&mkt=zh-CN";
             String html = fetchJson(url);
             if (html == null) {
-                return "搜索服务暂时不可用，请稍后重试。";
+                return ToolResult.error("SEARCH_UNAVAILABLE", "搜索服务暂时不可用", true, "请稍后重试");
             }
 
             StringBuilder sb = new StringBuilder();
@@ -531,13 +521,13 @@ public class GeneralTools {
             }
 
             if (count == 0) {
-                return "未找到「" + query + "」的相关结果，请尝试换个关键词。";
+                return ToolResult.error("NO_RESULTS", "未找到相关结果", false, "请尝试更换关键词");
             }
             sb.append("--- 共找到 ").append(count).append(" 条结果");
             return sb.toString();
         } catch (Exception e) {
             log.warn("[GeneralTools] Bing 搜索也失败: {}", e.getMessage());
-            return "搜索服务暂时不可用，请稍后重试。";
+            return ToolResult.error("SEARCH_UNAVAILABLE", "搜索服务暂时不可用", true, "请稍后重试");
         }
     }
 
@@ -600,9 +590,9 @@ public class GeneralTools {
 
     @Tool(description = "货币汇率转换，支持 CNY/USD/EUR/GBP/JPY/HKD/KRW/THB/AUD/CAD 等主流货币，基于实时汇率。适用于'100美元等于多少人民币'、'500欧元兑日元'等场景")
     public String convertCurrency(
-            @ToolParam(description = "金额数值") double value,
-            @ToolParam(description = "源货币代码，如 USD、CNY、EUR、JPY 等") String fromCurrency,
-            @ToolParam(description = "目标货币代码，如 CNY、USD、EUR、GBP 等") String toCurrency) {
+            @ToolParam(description = "金额数值", required = true) double value,
+            @ToolParam(description = "源货币代码，如 USD、CNY、EUR、JPY 等", required = true) String fromCurrency,
+            @ToolParam(description = "目标货币代码，如 CNY、USD、EUR、GBP 等", required = true) String toCurrency) {
         log.info("[GeneralTools] 汇率转换: {} {} → {}", value, fromCurrency, toCurrency);
         try {
             String from = fromCurrency.trim().toUpperCase();
@@ -617,14 +607,15 @@ public class GeneralTools {
             String url = "https://open.er-api.com/v6/latest/" + from;
             String json = fetchJson(url);
             if (json == null) {
-                return "获取汇率失败，请稍后重试。也可使用 searchWeb 搜索最新汇率。";
+                return ToolResult.error("RATE_UNAVAILABLE", "获取汇率失败", true, "请稍后重试");
             }
 
             // 解析 JSON 提取目标汇率
             String searchKey = "\"" + to + "\":";
             int idx = json.indexOf(searchKey);
             if (idx == -1) {
-                return "不支持的货币代码: " + to + "，支持的货币：CNY/USD/EUR/GBP/JPY/HKD/KRW/THB/AUD/CAD";
+                return ToolResult.error("INVALID_CURRENCY", "不支持的货币代码: " + to,
+                        false, "支持的货币：CNY/USD/EUR/GBP/JPY/HKD/KRW/THB/AUD/CAD");
             }
 
             int start = idx + searchKey.length();
@@ -638,7 +629,7 @@ public class GeneralTools {
             return formatResult(result) + " " + to + "（当前汇率: 1 " + from + " = " + formatResult(rate) + " " + to + "）";
         } catch (Exception e) {
             log.warn("[GeneralTools] 汇率转换失败: {}", e.getMessage());
-            return "汇率转换失败，请检查货币代码是否正确。也可使用 searchWeb 搜索最新汇率。";
+            return ToolResult.error("CONVERSION_ERROR", "汇率转换失败", true);
         }
     }
 
@@ -679,12 +670,14 @@ public class GeneralTools {
      */
     @Tool(description = "执行多步计算脚本，支持变量赋值和跨行引用，适用于复利计算、工程公式、分步推导等复杂场景。格式：每行一条语句，'变量名 = 表达式' 或直接写表达式，# 开头为注释。示例：'r=0.05\\nyears=10\\nresult=10000*(1+r)^years'")
     public String executeScript(
-            @ToolParam(description = "多行计算脚本，换行用 \\n 分隔，如 'a=3\\nb=4\\nc=sqrt(a^2+b^2)'") String script) {
+            @ToolParam(description = "多行计算脚本，换行用 \\n 分隔，如 'a=3\\nb=4\\nc=sqrt(a^2+b^2)'", required = true) String script) {
         log.info("[GeneralTools] 执行计算脚本: script={}", script.replace("\n", " | "));
 
         // 安全检查：禁止脚本注入危险关键字
         if (containsDangerousPattern(script)) {
-            return "脚本包含不允许的内容，仅支持数学运算和变量赋值。";
+            log.warn("[GeneralTools] 脚本包含危险关键字: {}", script);
+            return ToolResult.error("SCRIPT_REJECTED", "脚本包含不允许的内容，仅支持数学运算和变量赋值。",
+                    false, "请检查是否包含 import/exec/system 等关键字");
         }
 
         String[] lines = script.replace("\\n", "\n").split("\n");
@@ -730,7 +723,8 @@ public class GeneralTools {
         }
 
         if (stepCount == 0) {
-            return "脚本中没有有效的计算语句，请检查格式是否正确。";
+            return ToolResult.error("SCRIPT_EMPTY", "脚本中没有有效的计算语句", false,
+                    "格式：每行一条语句，'变量名 = 表达式' 或直接写表达式");
         }
 
         // 最终结果：取最后一个变量或最后一个纯表达式的值

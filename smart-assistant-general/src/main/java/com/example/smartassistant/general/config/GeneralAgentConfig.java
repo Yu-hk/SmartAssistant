@@ -7,7 +7,8 @@
 
 package com.example.smartassistant.general.config;
 
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.general.tool.ImageTools;
 import com.example.smartassistant.general.tool.GeneralTools;
 import com.example.smartassistant.general.tool.WeatherTool;
@@ -43,10 +44,10 @@ public class GeneralAgentConfig {
 
     /**
      * 通用对话 Agent Bean
-     * 注册通用工具和图像工具，支持 ReAct 模式
+     * 注册通用工具、图像工具和天气工具
      */
     @Bean
-    public ReactAgent generalChatAgent(
+    public SmartReActAgent generalChatAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
             GeneralTools generalTools,
             ImageTools imageTools,
@@ -75,14 +76,12 @@ public class GeneralAgentConfig {
                 imageToolProvider.getToolCallbacks().length,
                 weatherToolProvider.getToolCallbacks().length);
 
-        return ReactAgent.builder()
-                .name(agentName)
-                .description("通用对话智能体 - 闲聊、问答、数学计算、单位转换")
-                .model(chatModel)
-                .systemPrompt(buildSystemPrompt())
-                .tools(toolCallbacks.toArray(new ToolCallback[0]))
-                .outputKey("output")
-                .build();
+        return new SmartReActAgent(chatModel)
+                .withMaxIterations(10)
+                .withTimeoutMs(60_000)
+                .withPreset(PromptBuilder.build()
+                        .withServicePrompt(buildSystemPrompt())
+                        .assemble(), toolCallbacks);
     }
 
     private String buildSystemPrompt() {
