@@ -7,7 +7,8 @@
 
 package com.example.smartassistant.config;
 
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.tools.ProductTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
@@ -40,10 +41,10 @@ public class FoodRecommendationAgentConfig {
     private Resource systemPromptResource;
 
     /**
-     * 主 Agent Bean - 供 A2A Server 使用
+     * 主 Agent Bean - 供 StreamFoodAgentService 使用
      */
     @Bean
-    public ReactAgent productAgent(
+    public SmartReActAgent productAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
             com.example.smartassistant.tools.ProductTools productTools) {
 
@@ -53,17 +54,17 @@ public class FoodRecommendationAgentConfig {
                 .toolObjects(productTools)
                 .build();
         ToolCallback[] allTools = provider.getToolCallbacks();
+        List<ToolCallback> toolList = new ArrayList<>();
+        toolList.addAll(List.of(allTools));
 
-        log.info("[ProductAgent] 注册 {} 个工具", allTools.length);
+        log.info("[ProductAgent] 注册 {} 个工具", toolList.size());
 
-        return ReactAgent.builder()
-                .name(agentName)
-                .description("商品查询、库存查询、价格查询")
-                .model(chatModel)
-                .systemPrompt(buildSystemPrompt())
-                .tools(allTools)
-                .outputKey("output")
-                .build();
+        return new SmartReActAgent(chatModel)
+                .withMaxIterations(10)
+                .withTimeoutMs(60_000)
+                .withPreset(PromptBuilder.build()
+                        .withServicePrompt(buildSystemPrompt())
+                        .assemble(), toolList);
     }
 
     private String buildSystemPrompt() {

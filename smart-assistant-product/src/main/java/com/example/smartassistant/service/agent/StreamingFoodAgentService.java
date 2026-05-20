@@ -7,36 +7,33 @@
 
 package com.example.smartassistant.service.agent;
 
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.example.smartassistant.common.agent.SmartReActAgent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /**
  * Food 流式 Agent 服务
- * <p>
- * 由于 Spring AI Alibaba Graph Core 的流式 API 不稳定，
- * 采用简化的实现：非阻塞调用 + 异步返回结果
  */
 @Service
 @Slf4j
 public class StreamingFoodAgentService {
 
-    private final ReactAgent productAgent;
+    private final SmartReActAgent productAgent;
 
-    public StreamingFoodAgentService(@Qualifier("productAgent") ReactAgent productAgent) {
+    public StreamingFoodAgentService(@Qualifier("productAgent") SmartReActAgent productAgent) {
         this.productAgent = productAgent;
     }
 
     /**
-     * 执行美食推荐（非阻塞）
+     * 执行美食推荐
      */
     public String execute(String userMessage) {
         try {
             log.info("[StreamingFoodAgent] 执行推理: {}", userMessage);
-            var response = productAgent.call(userMessage);
-            if (response != null) {
-                return response.getText();
+            String result = productAgent.execute(userMessage);
+            if (result != null) {
+                return result;
             }
             return "Agent 返回为空";
         } catch (Exception e) {

@@ -7,7 +7,8 @@
 
 package com.example.smartassistant.consumer.service.agent;
 
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.consumer.config.McpTableWhitelistConfig;
 import com.example.smartassistant.consumer.service.cache.SqlQueryCache;
 import com.example.smartassistant.consumer.service.monitoring.SqlPerformanceMonitor;
@@ -15,7 +16,6 @@ import com.example.smartassistant.consumer.service.monitoring.SqlReviewService;
 import com.example.smartassistant.consumer.tool.DataGifTool;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.annotation.Tool;
@@ -43,7 +43,7 @@ public class McpAgentService {
     private final SqlReviewService sqlReviewService;  // ⭐ SQL 审查服务
     private final McpTableWhitelistConfig whitelistConfig;  // ⭐ 注入白名单配置
     private final DataGifTool dataGifTool;  // ⭐ 注入 GIF 动图工具
-    private ReactAgent mcpAgent;
+    private SmartReActAgent mcpAgent;
     
     public McpAgentService(
             ChatModel chatModel,
@@ -89,7 +89,7 @@ public class McpAgentService {
                 .build();
             
             // 合并所有工具
-            List<ToolCallback> allCallbacks = new java.util.ArrayList<>();
+            List<ToolCallback> allCallbacks = new ArrayList<>();
             java.util.Collections.addAll(allCallbacks, dbProvider.getToolCallbacks());
             java.util.Collections.addAll(allCallbacks, gifProvider.getToolCallbacks());
             
@@ -98,12 +98,12 @@ public class McpAgentService {
                     dbProvider.getToolCallbacks().length,
                     gifProvider.getToolCallbacks().length);
             
-            // ⭐ 使用 tools() 方法注册工具回调
-            this.mcpAgent = ReactAgent.builder()
-                .name("database-query-agent")
-                .model(chatModel)
-                .tools(allCallbacks.toArray(new ToolCallback[0]))
-                .systemPrompt("""
+            // ⭐ 使用 SmartReActAgent 替代 ReactAgent
+            this.mcpAgent = new SmartReActAgent(chatModel)
+                .withMaxIterations(10)
+                .withTimeoutMs(60_000)
+                .withPreset(PromptBuilder.build()
+                    .withServicePrompt("""
                     你是一个专业的数据库查询与数据可视化助手。可以查询数据库获取真实数据，
                     还能将时间序列数据生成动画趋势 GIF 进行可视化展示。
                     
@@ -277,13 +277,19 @@ public class McpAgentService {
                     ⭐ 建议内容
                     ⭐ 建议内容
                     ⭐ 建议内容
-                    """)
-                .build();
+                    
+                    ## ⏱️ 循环限制（重要）
+                    
+                    1. **工具调用次数限制**：每次回答最多调用 5 次工具
+                    2. **及时总结**：如果 3 次工具调用后仍未解决问题，请总结已获取的信息并询问用户下一步
+                    3. **避免重复**：不要反复调用同一个返回相同结果的工具
+                    4. **知难而退**：如果某个 SQL 连续 2 次执行失败，不要再重试，直接告知用户错误原因
+                    """).assemble(), allCallbacks);
             
-            log.info("[McpAgentService] ✅ ReactAgent 创建成功，已注册 MCP 工具");
+            log.info("[McpAgentService] ✅ SmartReActAgent 创建成功，已注册 {} 个 MCP 工具", allCallbacks.size());
             
         } catch (Exception e) {
-            log.error("[McpAgentService] ❌ ReactAgent 创建失败: {}", e.getMessage(), e);
+            log.error("[McpAgentService] ❌ SmartReActAgent 创建失败: {}", e.getMessage(), e);
             this.mcpAgent = null;
         }
     }
@@ -555,22 +561,24 @@ public class McpAgentService {
     
     private static final Pattern GIF_CACHE_PATTERN = Pattern.compile("GIF_CACHE:([a-f0-9-]+)");
 
+    /** Agent 调用超时时间（秒） */
+    private static final long AGENT_TIMEOUT_SECONDS = 60;
+
     /**
      * 执行自然语言查询
-     * ReactAgent 会自动执行 Think-Act-Observe 循环
+     * SmartReActAgent 内置超时保护、迭代限制、Token 预算追踪
      */
     public String query(String question) {
         if (mcpAgent == null) {
-            throw new IllegalStateException("ReactAgent 未初始化，请检查 ToolCallbackProvider 配置");
+            throw new IllegalStateException("SmartReActAgent 未初始化");
         }
         
         log.info("[MCP Agent] 开始查询: {}", question);
         long startTime = System.currentTimeMillis();
         
         try {
-            // ⭐ ReactAgent 自动执行工具调用循环
-            AssistantMessage response = mcpAgent.call(question);
-            String result = response != null ? response.getText() : null;
+            // ⭐ SmartReActAgent 内置超时 + 迭代限制
+            String result = mcpAgent.execute(question);
             
             // ⭐ 后处理：将 GIF_CACHE:xxx 替换为真实 Base64 data URI
             if (result != null) {

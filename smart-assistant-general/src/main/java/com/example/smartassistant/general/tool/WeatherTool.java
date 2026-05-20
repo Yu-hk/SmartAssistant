@@ -1,10 +1,12 @@
 package com.example.smartassistant.general.tool;
 
+import com.example.smartassistant.common.tool.ToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -30,7 +32,8 @@ public class WeatherTool {
     }
 
     @Tool(description = "查询指定城市的实时天气和未来天气预报，包括温度、天气状况、风速等。城市可以是中文或英文名称，如'北京'、'上海'、'London'。")
-    public String queryWeather(String city) {
+    public String queryWeather(
+            @ToolParam(description = "城市名称，如'北京'、'London'", required = true) String city) {
         log.info("[WeatherTool] 查询天气: {}", city);
         try {
             // 使用 wttr.in（免费，无需 API Key）
@@ -43,13 +46,13 @@ public class WeatherTool {
             var resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
 
             if (resp.statusCode() != 200) {
-                return "⚠️ 天气查询失败，请检查城市名称是否正确。";
+                return ToolResult.error("WEATHER_UNAVAILABLE", "天气查询失败，请检查城市名称是否正确。", false);
             }
 
             JsonNode root = objectMapper.readTree(resp.body());
             JsonNode current = root.at("/current_condition/0");
             if (current == null || current.isNull()) {
-                return "⚠️ 未找到该城市的天气数据。";
+                return ToolResult.error("WEATHER_NO_DATA", "未找到该城市的天气数据。", false);
             }
 
             String temp = current.get("temp_C").asText();
@@ -82,7 +85,7 @@ public class WeatherTool {
 
         } catch (Exception e) {
             log.warn("[WeatherTool] 查询失败: {}", e.getMessage());
-            return "⚠️ 天气查询失败: " + e.getMessage();
+            return ToolResult.error("WEATHER_UNAVAILABLE", "天气服务暂时不可用", true, "请稍后重试");
         }
     }
 }

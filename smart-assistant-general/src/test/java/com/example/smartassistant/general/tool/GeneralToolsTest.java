@@ -68,7 +68,7 @@ class GeneralToolsTest {
 
     @Test
     void invalidExpression() {
-        assertTrue(tools.calculate("abc").contains("无法计算"));
+        assertTrue(tools.calculate("abc").contains("error_code"));
     }
 
     @Test
@@ -80,91 +80,92 @@ class GeneralToolsTest {
 
     @Test
     void celsiusToFahrenheit() {
-        assertEquals("32°F", tools.convertTemperature(0, "C", "F"));
-        assertEquals("212°F", tools.convertTemperature(100, "C", "F"));
+        assertEquals("32°F", tools.convertTemperature(0, TemperatureUnit.C, TemperatureUnit.F));
+        assertEquals("212°F", tools.convertTemperature(100, TemperatureUnit.C, TemperatureUnit.F));
     }
 
     @Test
     void fahrenheitToCelsius() {
-        assertEquals("0°C", tools.convertTemperature(32, "F", "C"));
-        assertEquals("100°C", tools.convertTemperature(212, "F", "C"));
+        assertEquals("0°C", tools.convertTemperature(32, TemperatureUnit.F, TemperatureUnit.C));
+        assertEquals("100°C", tools.convertTemperature(212, TemperatureUnit.F, TemperatureUnit.C));
     }
 
     @Test
     void celsiusToKelvin() {
-        assertEquals("273.15K", tools.convertTemperature(0, "C", "K"));
-        assertEquals("373.15K", tools.convertTemperature(100, "C", "K"));
+        assertEquals("273.15K", tools.convertTemperature(0, TemperatureUnit.C, TemperatureUnit.K));
+        assertEquals("373.15K", tools.convertTemperature(100, TemperatureUnit.C, TemperatureUnit.K));
     }
 
     @Test
     void kelvinToCelsius() {
-        assertEquals("0°C", tools.convertTemperature(273.15, "K", "C"));
+        assertEquals("0°C", tools.convertTemperature(273.15, TemperatureUnit.K, TemperatureUnit.C));
     }
 
     @Test
     void sameUnit() {
-        assertEquals("25°C", tools.convertTemperature(25, "C", "C"));
+        assertEquals("25°C", tools.convertTemperature(25, TemperatureUnit.C, TemperatureUnit.C));
     }
 
     @Test
     void invalidTemperatureUnit() {
-        assertTrue(tools.convertTemperature(100, "X", "C").contains("不支持"));
+        assertTrue(tools.convertTemperature(100, TemperatureUnit.fromString("X"), TemperatureUnit.C).contains("错误")
+                || tools.convertTemperature(100, TemperatureUnit.fromString("X"), TemperatureUnit.C).contains("失败"));
     }
 
     // ========== 长度转换 ==========
 
     @Test
     void metersToKilometers() {
-        assertEquals("1 km", tools.convertLength(1000, "m", "km"));
+        assertEquals("1 km", tools.convertLength(1000, LengthUnit.M, LengthUnit.KM));
     }
 
     @Test
     void kilometersToMeters() {
-        assertEquals("1000 m", tools.convertLength(1, "km", "m"));
+        assertEquals("1000 m", tools.convertLength(1, LengthUnit.KM, LengthUnit.M));
     }
 
     @Test
     void metersToFeet() {
-        String result = tools.convertLength(1, "m", "ft");
+        String result = tools.convertLength(1, LengthUnit.M, LengthUnit.FT);
         assertTrue(result.startsWith("3.28") || result.startsWith("3.2808"));
     }
 
     @Test
     void inchesToCentimeters() {
-        assertEquals("2.54 cm", tools.convertLength(1, "in", "cm"));
+        assertEquals("2.54 cm", tools.convertLength(1, LengthUnit.IN, LengthUnit.CM));
     }
 
     @Test
     void invalidLengthUnit() {
-        assertTrue(tools.convertLength(100, "xyz", "m").contains("不支持"));
+        assertTrue(tools.convertLength(100, LengthUnit.fromString("xyz"), LengthUnit.M).contains("失败"));
     }
 
     // ========== 重量转换 ==========
 
     @Test
     void kilogramsToGrams() {
-        assertEquals("1000 g", tools.convertWeight(1, "kg", "g"));
+        assertEquals("1000 g", tools.convertWeight(1, WeightUnit.KG, WeightUnit.G));
     }
 
     @Test
     void gramsToKilograms() {
-        assertEquals("1 kg", tools.convertWeight(1000, "g", "kg"));
+        assertEquals("1 kg", tools.convertWeight(1000, WeightUnit.G, WeightUnit.KG));
     }
 
     @Test
     void poundsToKilograms() {
-        String result = tools.convertWeight(1, "lb", "kg");
+        String result = tools.convertWeight(1, WeightUnit.LB, WeightUnit.KG);
         assertTrue(result.startsWith("0.453"));
     }
 
     @Test
     void tonsToKilograms() {
-        assertEquals("1000 kg", tools.convertWeight(1, "t", "kg"));
+        assertEquals("1000 kg", tools.convertWeight(1, WeightUnit.T, WeightUnit.KG));
     }
 
     @Test
     void invalidWeightUnit() {
-        assertTrue(tools.convertWeight(100, "xyz", "kg").contains("不支持"));
+        assertTrue(tools.convertWeight(100, WeightUnit.fromString("xyz"), WeightUnit.KG).contains("失败"));
     }
 
     // ========== 边界条件 ==========
@@ -172,14 +173,14 @@ class GeneralToolsTest {
     @Test
     void zeroInput() {
         assertEquals("0", tools.calculate("0"));
-        assertEquals("0°C", tools.convertTemperature(0, "C", "C"));
-        assertEquals("0 m", tools.convertLength(0, "m", "m"));
-        assertEquals("0 kg", tools.convertWeight(0, "kg", "kg"));
+        assertEquals("0°C", tools.convertTemperature(0, TemperatureUnit.C, TemperatureUnit.C));
+        assertEquals("0 m", tools.convertLength(0, LengthUnit.M, LengthUnit.M));
+        assertEquals("0 kg", tools.convertWeight(0, WeightUnit.KG, WeightUnit.KG));
     }
 
     @Test
     void negativeTemperature() {
-        assertEquals("-40°F", tools.convertTemperature(-40, "C", "F")); // -40°C = -40°F
+        assertEquals("-40°F", tools.convertTemperature(-40, TemperatureUnit.C, TemperatureUnit.F)); // -40°C = -40°F
     }
 
     @Test
