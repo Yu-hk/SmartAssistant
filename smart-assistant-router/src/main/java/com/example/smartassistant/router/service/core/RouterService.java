@@ -58,6 +58,7 @@ public class RouterService {
     private final TaskPlannerService taskPlanner;
     private final ResultMerger resultMerger;
     private final ReflectionService reflectionService;
+    private final ModelRoutingService modelRoutingService;
 
     @Value("${router.agent.rag.enabled:false}")
     private boolean ragEnabled;
@@ -82,7 +83,8 @@ public class RouterService {
                          SemanticRouteCacheService semanticCache,
                          TaskPlannerService taskPlanner,
                          ResultMerger resultMerger,
-                         ReflectionService reflectionService) {
+                         ReflectionService reflectionService,
+                         ModelRoutingService modelRoutingService) {
         this.agentCallerService = agentCallerService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
@@ -91,6 +93,7 @@ public class RouterService {
         this.taskPlanner = taskPlanner;
         this.resultMerger = resultMerger;
         this.reflectionService = reflectionService;
+        this.modelRoutingService = modelRoutingService;
     }
     
     /**
@@ -332,19 +335,23 @@ public class RouterService {
     }
 
     /**
-     * 内联 ChatClient 兜底（handleSingleIntent 的第三、四层），
+     * 内联 Ollama 兜底（handleSingleIntent 的第三、四层），
      * 当所有 Agent 调用失败时的终极回应方案。
+     * <p>
+     * 纯本地推理：
+     * <ol>
+     *   <li>本地 Ollama（deepseek-r1:7b）</li>
+     *   <li>失败 → 预设文案（终极兜底）</li>
+     * </ol>
      */
     private RoutingResult inlineFallback(String question) {
         try {
-            String localReply = chatClient.prompt()
-                    .system("你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
-                          + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
-                          + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
-                          + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。")
-                    .user(question)
-                    .call()
-                    .content();
+            String localReply = modelRoutingService.call(
+                    "你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
+                  + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
+                  + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
+                  + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。",
+                    question);
             if (localReply != null && !localReply.isBlank()) {
                 return RoutingResult.builder()
                         .result(localReply)
@@ -353,9 +360,10 @@ public class RouterService {
                         .build();
             }
         } catch (Exception e) {
-            log.warn("[Router] 内联 ChatClient 兜底失败: {}", e.getMessage());
+            log.warn("[Router] 本地推理兜底失败: {}", e.getMessage());
         }
 
+        // 终极降级 — 预设文案轮换
         int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
         return RoutingResult.builder()
                 .result(FALLBACK_MESSAGES.get(idx))
