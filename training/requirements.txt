@@ -1,0 +1,26 @@
+# SmartAssistant 微调环境依赖
+# 安装: pip install -r requirements.txt
+# 建议使用 Python 3.10+，CUDA 11.8+
+
+# 核心框架
+torch>=2.1.0
+transformers>=4.37.0
+accelerate>=0.27.0
+peft>=0.9.0
+bitsandbytes>=0.43.0
+
+# 数据处理
+datasets>=2.17.0
+tokenizers>=0.15.0
+jsonlines>=4.0.0
+
+# 日志与监控
+tensorboard>=2.15.0
+wandb>=0.16.0
+
+# GGUF 导出
+# llama.cpp 需要单独编译安装（Windows 需预编译包或从源码构建）
+# 请参考: https://github.com/ggerganov/llama.cpp#build
+
+# 可选: 模型下载
+huggingface_hub>=0.21.0

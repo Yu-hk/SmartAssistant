@@ -49,12 +49,13 @@ spring:
       log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl  # 启用 SQL 日志
 
   ai:
-    # DeepSeek 配置（聊天模型）
-    deepseek:
-      api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek API Key，优先从环境变量读取
+    # ⭐ Ollama 本地模型配置（本地推理主通道）
+    ollama:
+      base-url: http://localhost:11434
       chat:
         options:
-          model: deepseek-v4-flash  # ⭐ 非思考模式（官方已废弃 deepseek-chat）
+          model: deepseek-r1:7b
+          temperature: 0.7
 
     alibaba:
       a2a:

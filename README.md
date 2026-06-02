@@ -6,8 +6,9 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-> 基于 Spring AI Alibaba + A2A 协议的多智能体客服平台，集成 DeepSeek V4-Flash 大模型 + BGE 本地中文 Embedding。
+> 基于 Spring AI Alibaba + A2A 协议的多智能体客服平台，集成 **本地 Ollama 推理引擎**（deepseek-r1:7b / qwen2.5:7b）+ BGE 本地中文 Embedding。
 > 支持多 Agent 协同、三层路由兜底、订单查询、商品咨询、语义缓存、全链路监控。
+> 🔒 纯本地推理，所有数据不出内网。
 
 ---
 
@@ -159,7 +160,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 语言 | Java | 17+ |
 | 框架 | Spring Boot | 3.4.8 |
 | AI 框架 | Spring AI Alibaba | 1.1.2 |
-| 模型 | DeepSeek V4-Flash / BGE-large-zh ONNX (1024d RAG) / BGE-small-zh ONNX (512d Cache) | — |
+| 模型 | **Ollama 本地推理**（deepseek-r1:7b / qwen2.5:7b） + BGE-large-zh ONNX (1024d RAG) / BGE-small-zh ONNX (512d Cache) | — |
 | 注册/配置中心 | Nacos（元数据支持动态管理） | 3.1.0 |
 | 缓存 | Redis | 7.2+ |
 | 数据库 | PostgreSQL (pgvector) | 16+/18+ |
@@ -187,6 +188,17 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | Loki | 日志聚合 | 3100 |
 | Promtail | 日志采集 | — |
 | Zipkin | 追踪兼容层 | 9411 |
+
+### 推理引擎（新增）
+
+所有 Agent 服务使用 **Ollama** 本地模型推理，**无云端 API 依赖**：
+
+| 模型 | 大小 | 默认使用 | 获取方式 |
+|------|:----:|:--------:|---------|
+| deepseek-r1:7b | 4.7 GB | ✅ 主推理模型 | `ollama pull deepseek-r1:7b` |
+| qwen2.5:7b | 4.7 GB | ❌ 备选 | `ollama pull qwen2.5:7b` |
+
+> 💡 首次启动前确保 Ollama 服务运行：`ollama serve`
 
 ---
 
@@ -478,27 +490,45 @@ docker-compose up -d
 docker ps --format "table {{.Names}}\t{{.Status}}"
 ```
 
+### 1b. 启动 Ollama 本地推理引擎
+
+> ⚠️ **必须操作**：所有 Agent 服务依赖本地 Ollama 模型，启动服务前请确保：
+
+```powershell
+# 1. 安装 Ollama（仅首次）
+# Windows: 从 https://ollama.com/download 下载安装
+# Linux: curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. 下载模型（仅首次）
+ollama pull deepseek-r1:7b    # 主推理模型
+ollama pull qwen2.5:7b        # 备选模型
+
+# 3. 启动 Ollama 服务
+ollama serve
+
+# 4. 验证模型可用
+ollama list
+```
+
 ### 2. 配置环境变量
 
 ```powershell
 # 从模板创建配置文件
 cd D:\workspace\SmartAssistant
 copy .env.example .env
-
-# 编辑 .env 填入真实 API Key（DeepSeek、DashScope 等）
-# ⚠️ .env 已加入 .gitignore，不会提交到版本控制
 ```
 
 关键变量说明：
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `DEEPSEEK_API_KEY` | DeepSeek 大模型 API Key | 必填 |
 | `DASHSCOPE_API_KEY` | DashScope API Key（图片解析/文生图） | 选填（不填则多模态不可用） |
 | `AMAP_API_KEY` | 高德地图 API Key | 可选 |
 | `POSTGRES_PASSWORD` | PostgreSQL 密码 | `postgres123` |
 | `app.data.dir` | 数据存储根目录 | `data` |
 | `jwt.secret` | JWT 签名密钥 | 建议自行生成 |
+
+> 💡 **已移除云端 DeepSeek API 依赖**，推理引擎为本地 Ollama，无需 `DEEPSEEK_API_KEY`。
 
 ### 3. 构建项目
 
@@ -649,22 +679,44 @@ docker compose -f docker-compose.deploy.yml up -d gateway
 
 ### 模型文件
 
-系统使用两个 BGE ONNX 模型文件（不随代码提交，需单独放置）：
+系统使用以下模型文件（不随代码提交，需单独放置）：
 
 | 模型 | 用途 | 路径 | 大小 |
 |------|------|------|:----:|
 | BGE-small-zh-v1.5 | Router Cache T3 语义匹配 | `models/bge-small-zh-v1.5.onnx` | 95 MB |
 | BGE-large-zh-v1.5 | Travel/Food/Consumer RAG 检索 | `models/bge-large-zh-v1.5.onnx` | 1.2 GB (FP32) |
+| **deepseek-r1:7b** (Ollama) | **主推理模型** | Ollama 管理 | 4.7 GB |
+| **qwen2.5:7b** (Ollama) | **备选推理模型** | Ollama 管理 | 4.7 GB |
+
+**推理引擎**：所有服务默认使用 Ollama 本地模型（deepseek-r1:7b），通过 Spring AI @Primary ChatModel 注入。无云端 API 依赖。
 
 模型路径通过 `bge.model.path` 配置（支持环境变量 `BGE_MODEL_PATH` 覆盖），首次加载约 4-5 秒。BGE-large 替换了原有的 DashScope text-embedding-v4 API 调用，纯本地推理 30-50ms/次。
+
+### 微调管道
+
+项目根目录 `training/` 包含完整的 QLoRA 微调工具集，用于对本地 7B 模型进行参数高效微调：
+
+```
+training/
+├── app.py               # Streamlit 控制面板
+├── finetune_lora.py     # QLoRA 微调主脚本
+├── prepare_data.py      # 数据准备与生成
+├── export_gguf.py       # 导出 GGUF + 注册 Ollama
+├── test_model.py        # 快速测试
+└── sample_data/         # 示例数据
+```
+
+使用详见 `training/README.md`。
 
 ### 配置层级（优先级从高到低）
 
 1. **命令行参数**：`--server.port=8082`
-2. **OS 环境变量**：`DEEPSEEK_API_KEY=xxx`
+2. **OS 环境变量**：`OLLAMA_BASE_URL=http://server:11434`（默认 localhost:11434）
 3. **`.env` 文件**：项目根目录（自动加载）
 4. **`application.yml`**：各服务的配置文件
 5. **默认值**：`${VAR:defaultValue}` 语法
+
+> 💡 已移除云端 DeepSeek API 依赖，无需配置 `DEEPSEEK_API_KEY`。
 
 ### 优雅关闭
 

@@ -43,16 +43,13 @@ spring:
 
   # DeepSeek 模型配置（V4-Flash 最新模型）
   ai:
-    deepseek:
-      api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek API Key，优先从环境变量读取
+    # ⭐ Ollama 本地模型配置（本地推理主通道）
+    ollama:
+      base-url: http://localhost:11434
       chat:
         options:
-          model: deepseek-v4-flash  # V4-Flash 模型
+          model: deepseek-r1:7b
           temperature: 0.7
-          max-tokens: 4096
-          extra-body:
-            thinking:
-              type: disabled  # ⭐ 禁用思考模式，以支持工具调用（否则 reasoning_content 字段会导致 400 错误）
 
     # DashScope API（A2A 发现依赖）
     dashscope:

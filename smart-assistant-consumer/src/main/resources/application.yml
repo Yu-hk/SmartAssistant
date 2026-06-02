@@ -87,12 +87,13 @@ spring:
         id-type: auto
 
   ai:
-    # ⭐ DeepSeek 原生配置 (Chat 模型)
-    deepseek:
-      api-key: ${DEEPSEEK_API_KEY:}
+    # ⭐ Ollama 本地模型配置（本地推理主通道）
+    ollama:
+      base-url: http://localhost:11434
       chat:
         options:
-          model: deepseek-v4-flash  # ⭐ 非思考模式（官方已废弃 deepseek-chat）
+          model: deepseek-r1:7b
+          temperature: 0.7
     
     # ⭐ MCP Server 配置（内嵌在 Consumer 中）
     mcp:
