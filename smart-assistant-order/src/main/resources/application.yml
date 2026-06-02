@@ -57,16 +57,13 @@ spring:
     driver-class-name: org.postgresql.Driver
 
   ai:
-    # DeepSeek 模型配置
-    deepseek:
-      api-key: ${DEEPSEEK_API_KEY:}  # DeepSeek API Key，申请地址：https://platform.deepseek.com/
+    # ⭐ Ollama 本地模型配置（本地推理主通道）
+    ollama:
+      base-url: http://localhost:11434
       chat:
         options:
-          model: deepseek-v4-flash  # ⭐ 非思考模式（官方已废弃 deepseek-chat）
-          temperature: 0.5
-          max-tokens: 512
-          log-requests: false
-          log-responses: false
+          model: deepseek-r1:7b
+          temperature: 0.7
     
     # Spring AI Alibaba A2A 配置
     alibaba:
