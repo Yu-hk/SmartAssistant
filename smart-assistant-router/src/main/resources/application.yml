@@ -57,17 +57,7 @@ spring:
           model: deepseek-r1:7b
           temperature: 0.7
 
-    alibaba:
-      a2a:
-        # Nacos 配置（服务发现）
-        nacos:
-          server-addr: 127.0.0.1:8848
-          discovery:
-            enabled: true
-            namespace: ""  # 使用默认 namespace (public)
-            group: DEFAULT_GROUP
-            username: ${NACOS_USERNAME:nacos}
-            password: ${NACOS_PASSWORD}
+    # Agent 调用方式：REST (POST /api/agent/chat)。Nacos 服务发现由 spring.cloud.nacos 管理。
 
 # JWT 配置（与 Consumer Service 保持一致）
 jwt:

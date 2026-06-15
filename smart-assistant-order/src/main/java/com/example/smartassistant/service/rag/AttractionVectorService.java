@@ -7,12 +7,12 @@
 
 package com.example.smartassistant.service.rag;
 
+import com.example.smartassistant.common.document.Document;
+import com.example.smartassistant.common.vectorstore.SearchRequest;
+import com.example.smartassistant.common.vectorstore.VectorStore;
 import com.example.smartassistant.knowledge.TouristAttractionKnowledgeBase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;

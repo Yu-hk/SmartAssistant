@@ -71,7 +71,7 @@ public class AgentMetadata {
     private String version = "1.0.0";
     
     /**
-     * A2A 协议版本
+     * 协议版本
      * 例如: v1, v2
      */
     private String protocolVersion = "v1";
@@ -91,9 +91,9 @@ public class AgentMetadata {
 
     /**
      * 支持的协议列表 (逗号分隔)
-     * 例如: a2a-v1,a2a-v2
+     * 例如: rest-v1
      */
-    private String supportedProtocols = "a2a-v1";
+    private String supportedProtocols = "rest-v1";
     
     /**
      * 解析能力列表

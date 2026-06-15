@@ -86,7 +86,26 @@
             <artifactId>spring-ai-model</artifactId>
         </dependency>
 
+        <!-- ⭐ JDBC Template（PgVectorStore 向量存储） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+            <optional>true</optional>
+        </dependency>
 
+        <!-- ⭐ Jackson（PgVectorStore metadata 序列化/反序列化） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ⭐ Micrometer（AgentError 指标监控，由各模块可选引入） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <optional>true</optional>
+        </dependency>
 
         <!-- Test -->
         <dependency>

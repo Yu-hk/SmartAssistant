@@ -29,6 +29,17 @@ spring:
         group: DEFAULT_GROUP
         username: ${NACOS_USERNAME:nacos}
         password: ${NACOS_PASSWORD}
+        # Agent 特征元数据（用于 Router 智能路由）
+        metadata:
+          agent-type: order_agent
+          capabilities: order_query,refund,logistics
+          keywords: "订单,退款,退货,物流,快递,取消,换货,售后,投诉,赔偿,发货,收货,查单"
+          support-order: true
+          support-refund: true
+          support-logistics: true
+          priority: 10
+          cache-ttl-seconds: "1200"     # ⭐ 回复缓存 TTL（秒），Router 直接读取
+          version: "1.0.0"
 
   # 禁用 SQL 初始化依赖检测（解决 MyBatis Plus 兼容性问题）
   sql:
@@ -65,40 +76,6 @@ spring:
           model: deepseek-r1:7b
           temperature: 0.7
     
-    # Spring AI Alibaba A2A 配置
-    alibaba:
-      a2a:
-        # Nacos 注册中心配置
-        nacos:
-          server-addr: 127.0.0.1:8848
-          registry:
-            enabled: true  # 启用 Nacos 注册（需要 Nacos 3.x 版本）
-            namespace: ""  # 使用默认 namespace (public)
-            group: DEFAULT_GROUP
-            username: ${NACOS_USERNAME:nacos}
-            password: ${NACOS_PASSWORD}
-            # Agent 特征元数据（用于 Router 智能路由）
-            metadata:
-              agent-type: order_agent
-              capabilities: order_query,refund,logistics
-              keywords: "订单,退款,退货,物流,快递,取消,换货,售后,投诉,赔偿,发货,收货,查单"
-              support-order: true
-              support-refund: true
-              support-logistics: true
-              priority: 10
-              cache-ttl-seconds: "1200"     # ⭐ 回复缓存 TTL（秒），Router 直接读取
-              # ⭐ 版本管理
-              version: "1.0.0"
-              protocol-version: "v1"
-              min-client-version: "1.0.0"
-              supported-protocols: "a2a-v1"
-        # A2A 服务端配置
-        server:
-          enabled: true
-          card:
-            name: order_agent
-            description: "订单客服智能体 - 订单查询、退款处理、物流跟踪"
-            version: "1.0.0"
     
     # ⭐ MCP Server 配置（内嵌模式）
     mcp:

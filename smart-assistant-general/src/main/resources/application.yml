@@ -6,83 +6,17 @@ spring:
   application:
     name: general-agent-service
   main:
-    allow-bean-definition-overriding: true  # ⭐ 允许覆盖 auto-config 的 deepSeekChatModel
-
-  # 排除 Spring Security 和 DeepSeek 自动配置
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
-      - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration  # ⭐ 使用自定义 DeepSeekChatModel
-
-  # Spring Cloud 配置
-  cloud:
-    compatibility-verifier:
-      enabled: false
-
-    # Nacos 服务发现
-    nacos:
-      config:
-        import-check:
-          enabled: false
-      discovery:
-        enabled: true
-        server-addr: 127.0.0.1:8848
-        namespace: ""
-        group: DEFAULT_GROUP
-        username: ${NACOS_USERNAME:nacos}
-        password: ${NACOS_PASSWORD}
-        metadata:
-          agent-type: general_chat
-          capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
-          priority: 100  # 最低优先级，作为兜底；无 keywords 约束，仅通过 fallback 匹配
-          cache-ttl-seconds: "7200"    # ⭐ 回复缓存 TTL（秒），闲聊类 2h
-          version: "1.0.0"
-          protocol-version: "v1"
-          min-client-version: "1.0.0"
-          supported-protocols: "a2a-v1"
+    allow-bean-definition-overriding: true  # ⭐ 允许覆盖 auto-config
 
   # DeepSeek 模型配置（V4-Flash 最新模型）
   ai:
-    # ⭐ Ollama 本地模型配置（本地推理主通道）
-    ollama:
-      base-url: http://localhost:11434
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY}
       chat:
         options:
-          model: deepseek-r1:7b
-          temperature: 0.7
-
-    # DashScope API（A2A 发现依赖）
-    dashscope:
-      api-key: ${DASHSCOPE_API_KEY:}
-
-    alibaba:
-      a2a:
-        # Nacos 注册中心
-        nacos:
-          server-addr: 127.0.0.1:8848
-          registry:
-            enabled: true
-            namespace: ""
-            group: DEFAULT_GROUP
-            username: ${NACOS_USERNAME:nacos}
-            password: ${NACOS_PASSWORD}
-            metadata:
-              agent-type: general_chat
-              capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
-              keywords: ""  # ⭐ 无 keywords 约束，纯 fallback 兜底
-              priority: 100  # 最低优先级，作为兜底
-              cache-ttl-seconds: "7200"    # ⭐ 回复缓存 TTL（秒）
-              version: "1.0.0"
-              protocol-version: "v1"
-              min-client-version: "1.0.0"
-              supported-protocols: "a2a-v1"
-        # A2A 服务端配置
-        server:
-          enabled: true
-          card:
-            name: general_chat
-            description: "通用对话智能体 - 闲聊、问答、帮助，当其他专业服务无法处理时作为兜底"
-            version: "1.0.0"
+          model: deepseek-v4-flash
+          temperature: 0.5
+          max-tokens: 4096
 
 # Actuator + Prometheus + Tracing 配置
 management:

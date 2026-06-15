@@ -21,25 +21,22 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Agent Framework (核心代理框架) -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-agent-framework</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
-        </dependency>
-
-        <!-- DeepSeek 模型支持 -->
+        <!-- Spring AI Model (ChatModel, ChatResponse, Prompt) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-model-deepseek</artifactId>
-            <version>${spring-ai.version}</version>
+            <artifactId>spring-ai-model</artifactId>
         </dependency>
 
-        <!-- A2A 与 Nacos 集成（已包含 nacos-client 和 nacos-api） -->
+        <!-- Spring AI Chat Client (ChatClient, ToolCallingChatOptions) -->
         <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-a2a-nacos</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-client-chat</artifactId>
+        </dependency>
+
+        <!-- Spring AI Tool support (@Tool, MethodToolCallbackProvider) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-autoconfigure-model-tool</artifactId>
         </dependency>
 
         <!-- Spring Cloud Alibaba Nacos Discovery (传统服务注册) ⭐ -->
@@ -65,13 +62,6 @@
         <dependency>
             <groupId>jakarta.annotation</groupId>
             <artifactId>jakarta.annotation-api</artifactId>
-        </dependency>
-
-        <!-- Spring AI Vector Store (PostgreSQL pgvector) -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
 
         <!-- PostgreSQL Driver -->
@@ -109,20 +99,7 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- Spring AI MCP Server (内嵌 MCP 工具) ⭐ -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
-            <version>${spring-ai.version}</version>
-        </dependency>
-
-        <!-- ⭐ Spring AI MCP Client (连接外部 MCP Server，如高德地图) -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
-        </dependency>
-
-        <!-- JDBC Template (用于 MCP SQL 执行) ⭐ -->
+        <!-- JDBC Template (用于 SQL 执行) ⭐ -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
@@ -146,6 +123,14 @@
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
+        <!-- JetBrains Annotations -->
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <version>24.0.1</version>
+            <scope>provided</scope>
         </dependency>
 
         <!-- ⭐ SmartAssistant Common 公共模块 -->

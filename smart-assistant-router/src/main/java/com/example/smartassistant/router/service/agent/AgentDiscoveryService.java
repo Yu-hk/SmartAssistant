@@ -210,7 +210,7 @@ public class AgentDiscoveryService {
                     metadata.getAgentType() : serviceName);
             agent.setIp(instance.getIp());
             agent.setPort(instance.getPort());
-            agent.setUrl("http://" + instance.getIp() + ":" + instance.getPort() + "/a2a");
+            agent.setUrl("http://" + instance.getIp() + ":" + instance.getPort());
             agent.setMetadata(metadata);
             agent.setHealthy(instance.isHealthy());
             agent.setWeight(instance.getWeight());

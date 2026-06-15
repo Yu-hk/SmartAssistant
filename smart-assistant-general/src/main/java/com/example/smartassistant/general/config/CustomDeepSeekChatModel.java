@@ -20,6 +20,7 @@ import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -127,5 +128,5 @@ public class CustomDeepSeekChatModel implements ChatModel {
     }
 
     @Override
-    public org.springframework.ai.chat.prompt.ChatOptions getDefaultOptions() { return null; }
+    public ChatOptions getOptions() { return null; }
 }

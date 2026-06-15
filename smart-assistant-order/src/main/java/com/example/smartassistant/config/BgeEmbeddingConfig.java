@@ -1,8 +1,11 @@
 package com.example.smartassistant.config;
 
+import com.example.smartassistant.common.document.Document;
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.embedding.*;
+import com.example.smartassistant.common.embedding.Embedding;
+import com.example.smartassistant.common.embedding.EmbeddingModel;
+import com.example.smartassistant.common.embedding.EmbeddingRequest;
+import com.example.smartassistant.common.embedding.EmbeddingResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,11 +34,11 @@ public class BgeEmbeddingConfig {
         return new EmbeddingModel() {
             @Override
             public EmbeddingResponse call(EmbeddingRequest request) {
-                var results = new ArrayList<org.springframework.ai.embedding.Embedding>();
+                var results = new ArrayList<Embedding>();
                 for (int i = 0; i < request.getInstructions().size(); i++) {
                     float[] vec = bge.embedding(request.getInstructions().get(i));
                     if (vec != null) {
-                        results.add(new org.springframework.ai.embedding.Embedding(vec, i));
+                        results.add(new Embedding(vec, i));
                     }
                 }
                 return new EmbeddingResponse(results);

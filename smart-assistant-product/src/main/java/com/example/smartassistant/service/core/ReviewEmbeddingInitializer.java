@@ -7,8 +7,8 @@
 
 package com.example.smartassistant.service.core;
 
+import com.example.smartassistant.common.embedding.EmbeddingModel;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.jdbc.core.JdbcTemplate;

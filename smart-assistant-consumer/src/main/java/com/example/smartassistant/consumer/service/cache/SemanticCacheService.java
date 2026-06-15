@@ -7,11 +7,11 @@
 
 package com.example.smartassistant.consumer.service.cache;
 
+import com.example.smartassistant.common.document.Document;
+import com.example.smartassistant.common.vectorstore.VectorStore;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;

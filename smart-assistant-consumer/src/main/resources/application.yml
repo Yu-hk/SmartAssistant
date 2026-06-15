@@ -19,12 +19,6 @@ spring:
   application:
     name: consumer-service
 
-  # ⭐ 排除 DeepSeek + DashScope 自动配置
-  autoconfigure:
-    exclude:
-      - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration
-      - com.alibaba.cloud.ai.autoconfigure.dashscope.audio.DashScopeAudioSpeechAutoConfiguration
-
   # ⭐ MVC 异步请求超时（任务拆解需要更长时间）
   mvc:
     async:
@@ -113,7 +107,7 @@ spring:
         core-size: 4
         max-size: 8
         queue-capacity: 100
-      thread-name-prefix: a2a-async-
+      thread-name-prefix: agent-async-
 
   # Redis 配置
   data:

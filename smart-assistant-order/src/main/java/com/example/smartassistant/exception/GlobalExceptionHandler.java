@@ -7,6 +7,10 @@
 
 package com.example.smartassistant.exception;
 
+import com.example.smartassistant.common.api.AgentApiResponse;
+import com.example.smartassistant.common.api.AgentApiResponses;
+import com.example.smartassistant.common.api.AgentError;
+import com.example.smartassistant.common.monitoring.AgentErrorMetricsCollector;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -15,7 +19,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Travel Agent 全局异常处理器
@@ -34,133 +39,140 @@ import java.time.LocalDateTime;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private final AgentErrorMetricsCollector metricsCollector;
+
+    public GlobalExceptionHandler(AgentErrorMetricsCollector metricsCollector) {
+        this.metricsCollector = metricsCollector;
+    }
+
     // ========== 参数校验 ==========
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationException(
+    public ResponseEntity<AgentApiResponse<Void>> handleValidationException(
             MethodArgumentNotValidException e, HttpServletRequest request) {
-        String msg = e.getBindingResult().getFieldErrors().stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .reduce((a, b) -> a + "; " + b)
-                .orElse("参数校验失败");
+        List<AgentError.ErrorDetail> details = e.getBindingResult().getFieldErrors().stream()
+                .map(err -> new AgentError.ErrorDetail(
+                        err.getField(),
+                        err.getDefaultMessage(),
+                        err.getRejectedValue()))
+                .collect(Collectors.toList());
+        String msg = details.stream()
+                .map(d -> d.getField() + ": " + d.getMessage())
+                .collect(Collectors.joining("; "));
 
         log.warn("[TRAVEL_001] 参数校验失败 | path={} | msg={}", request.getRequestURI(), msg);
 
-        return ResponseEntity.badRequest().body(ErrorResponse.of(
-                "TRAVEL_001", msg, HttpStatus.BAD_REQUEST.value()));
+        AgentError error = AgentError.builder()
+                .code("TRAVEL_001")
+                .title("请求参数校验失败")
+                .detail(msg)
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
+                .details(details)
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(
+    public ResponseEntity<AgentApiResponse<Void>> handleIllegalArgument(
             IllegalArgumentException e, HttpServletRequest request) {
         log.warn("[TRAVEL_001] 非法参数 | path={} | msg={}", request.getRequestURI(), e.getMessage());
-        return ResponseEntity.badRequest().body(ErrorResponse.of(
-                "TRAVEL_001", e.getMessage(), HttpStatus.BAD_REQUEST.value()));
-    }
 
-    // ========== 工具/MCP 执行异常 ==========
+        AgentError error = AgentError.builder()
+                .code("TRAVEL_001")
+                .title("非法参数")
+                .detail(e.getMessage())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
+                .build();
 
-    @ExceptionHandler(com.alibaba.cloud.ai.graph.exception.GraphStateException.class)
-    public ResponseEntity<ErrorResponse> handleGraphStateException(
-            com.alibaba.cloud.ai.graph.exception.GraphStateException e, HttpServletRequest request) {
-        log.error("[TRAVEL_003] Agent 推理异常 | path={} | msg={}",
-                request.getRequestURI(), e.getMessage());
-
-        return ResponseEntity.internalServerError().body(
-                ErrorResponse.of("TRAVEL_003", "Agent 推理执行失败，请稍后重试",
-                        HttpStatus.INTERNAL_SERVER_ERROR.value())
-                        .withDetail(truncate(e.getMessage(), 300)));
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     // ========== 数据访问异常 ==========
 
     @ExceptionHandler(org.springframework.dao.DataAccessException.class)
-    public ResponseEntity<ErrorResponse> handleDataAccessException(
+    public ResponseEntity<AgentApiResponse<Void>> handleDataAccessException(
             org.springframework.dao.DataAccessException e, HttpServletRequest request) {
         log.error("[TRAVEL_004] 数据访问异常 | path={} | msg={}",
                 request.getRequestURI(), e.getMessage());
 
+        AgentError error = AgentError.builder()
+                .code("TRAVEL_004")
+                .title("数据访问异常")
+                .detail("数据库暂时不可用，请稍后重试")
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(
-                ErrorResponse.of("TRAVEL_004", "数据库暂时不可用，请稍后重试",
-                        HttpStatus.SERVICE_UNAVAILABLE.value())
-                        .withDetail(truncate(e.getMessage(), 200)));
+                AgentApiResponses.error(error, null, 0));
     }
 
     @ExceptionHandler(org.springframework.web.client.ResourceAccessException.class)
-    public ResponseEntity<ErrorResponse> handleResourceAccessException(
+    public ResponseEntity<AgentApiResponse<Void>> handleResourceAccessException(
             org.springframework.web.client.ResourceAccessException e, HttpServletRequest request) {
         log.error("[TRAVEL_004] 远程资源访问失败 | path={} | msg={}",
                 request.getRequestURI(), e.getMessage());
 
+        AgentError error = AgentError.builder()
+                .code("TRAVEL_004")
+                .title("外部服务不可用")
+                .detail("外部服务暂时不可用")
+                .status(HttpStatus.BAD_GATEWAY.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(
-                ErrorResponse.of("TRAVEL_004", "外部服务暂时不可用",
-                        HttpStatus.BAD_GATEWAY.value())
-                        .withDetail(e.getMessage()));
+                AgentApiResponses.error(error, null, 0));
     }
 
     // ========== 权限异常 ==========
 
     @ExceptionHandler(SecurityException.class)
-    public ResponseEntity<ErrorResponse> handleSecurityException(
+    public ResponseEntity<AgentApiResponse<Void>> handleSecurityException(
             SecurityException e, HttpServletRequest request) {
         log.warn("[TRAVEL_005] 权限不足 | path={} | msg={}",
                 request.getRequestURI(), e.getMessage());
 
+        AgentError error = AgentError.builder()
+                .code("TRAVEL_005")
+                .title("权限不足")
+                .detail("权限不足: " + e.getMessage())
+                .status(HttpStatus.FORBIDDEN.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
-                ErrorResponse.of("TRAVEL_005", "权限不足: " + e.getMessage(),
-                        HttpStatus.FORBIDDEN.value()));
+                AgentApiResponses.error(error, null, 0));
     }
 
     // ========== 兜底异常 ==========
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneralException(
+    public ResponseEntity<AgentApiResponse<Void>> handleGeneralException(
             Exception e, HttpServletRequest request) {
         log.error("[TRAVEL_099] 未处理异常 | path={} | type={} | msg={}",
                 request.getRequestURI(), e.getClass().getSimpleName(), e.getMessage(), e);
 
+        AgentError error = AgentError.builder()
+                .code("TRAVEL_099")
+                .title("服务内部异常")
+                .detail("服务内部异常，请联系管理员")
+                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
         return ResponseEntity.internalServerError().body(
-                ErrorResponse.of("TRAVEL_099", "服务内部异常，请联系管理员",
-                        HttpStatus.INTERNAL_SERVER_ERROR.value())
-                        .withDetail(e.getClass().getSimpleName() + ": " + e.getMessage()));
-    }
-
-    // ========== 工具方法 ==========
-
-    private String truncate(String s, int maxLen) {
-        if (s == null) return null;
-        return s.length() > maxLen ? s.substring(0, maxLen) : s;
-    }
-
-    // ========== 统一响应模型 ==========
-
-    @lombok.Data
-    @lombok.Builder
-    @lombok.AllArgsConstructor
-    @lombok.NoArgsConstructor
-    public static class ErrorResponse {
-        private String code;
-        private String msg;
-        private int status;
-        @lombok.Builder.Default
-        private String service = "travel-agent";
-        @lombok.Builder.Default
-        private LocalDateTime timestamp = LocalDateTime.now();
-        private String detail;
-
-        public static ErrorResponse of(String code, String msg, int status) {
-            return ErrorResponse.builder()
-                    .code(code)
-                    .msg(msg)
-                    .status(status)
-                    .service("travel-agent")
-                    .timestamp(LocalDateTime.now())
-                    .build();
-        }
-
-        public ErrorResponse withDetail(String detail) {
-            this.detail = detail;
-            return this;
-        }
+                AgentApiResponses.error(error, null, 0));
     }
 }

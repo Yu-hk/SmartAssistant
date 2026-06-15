@@ -7,6 +7,10 @@
 
 package com.example.smartassistant.general.exception;
 
+import com.example.smartassistant.common.api.AgentApiResponse;
+import com.example.smartassistant.common.api.AgentApiResponses;
+import com.example.smartassistant.common.api.AgentError;
+import com.example.smartassistant.common.monitoring.AgentErrorMetricsCollector;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -15,7 +19,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * General Agent 全局异常处理器
@@ -32,35 +37,73 @@ import java.time.LocalDateTime;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private final AgentErrorMetricsCollector metricsCollector;
+
+    public GlobalExceptionHandler(AgentErrorMetricsCollector metricsCollector) {
+        this.metricsCollector = metricsCollector;
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(
+    public ResponseEntity<AgentApiResponse<Void>> handleValidation(
             MethodArgumentNotValidException e, HttpServletRequest request) {
-        String msg = e.getBindingResult().getFieldErrors().stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .reduce((a, b) -> a + "; " + b)
-                .orElse("参数校验失败");
+        List<AgentError.ErrorDetail> details = e.getBindingResult().getFieldErrors().stream()
+                .map(err -> new AgentError.ErrorDetail(
+                        err.getField(),
+                        err.getDefaultMessage(),
+                        err.getRejectedValue()))
+                .collect(Collectors.toList());
+        String msg = details.stream()
+                .map(d -> d.getField() + ": " + d.getMessage())
+                .collect(Collectors.joining("; "));
         log.warn("[GENERAL_001] 参数校验失败 | path={} | msg={}", request.getRequestURI(), msg);
-        return ResponseEntity.badRequest().body(ErrorResponse.of("GENERAL_001", msg, HttpStatus.BAD_REQUEST.value()));
+
+        AgentError error = AgentError.builder()
+                .code("GENERAL_001")
+                .title("请求参数校验失败")
+                .detail(msg)
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
+                .details(details)
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(
+    public ResponseEntity<AgentApiResponse<Void>> handleIllegalArgument(
             IllegalArgumentException e, HttpServletRequest request) {
         log.warn("[GENERAL_001] 非法参数 | path={} | msg={}", request.getRequestURI(), e.getMessage());
-        return ResponseEntity.badRequest().body(ErrorResponse.of("GENERAL_001", e.getMessage(), HttpStatus.BAD_REQUEST.value()));
+
+        AgentError error = AgentError.builder()
+                .code("GENERAL_001")
+                .title("非法参数")
+                .detail(e.getMessage())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleUnknown(
+    public ResponseEntity<AgentApiResponse<Void>> handleUnknown(
             Exception e, HttpServletRequest request) {
         log.error("[GENERAL_099] 未知错误 | path={} | msg={}", request.getRequestURI(), e.getMessage(), e);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ErrorResponse.of("GENERAL_099", "服务内部错误", HttpStatus.INTERNAL_SERVER_ERROR.value()));
-    }
 
-    public record ErrorResponse(String code, String message, int status, String timestamp) {
-        static ErrorResponse of(String code, String message, int status) {
-            return new ErrorResponse(code, message, status, LocalDateTime.now().toString());
-        }
+        AgentError error = AgentError.builder()
+                .code("GENERAL_099")
+                .title("服务内部错误")
+                .detail("服务内部错误，请联系管理员")
+                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(AgentApiResponses.error(error, null, 0));
     }
 }

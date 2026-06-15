@@ -7,9 +7,9 @@
 
 package com.example.smartassistant.consumer.rag;
 
+import com.example.smartassistant.common.embedding.EmbeddingModel;
+import com.example.smartassistant.common.vectorstore.PgVectorStore;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,7 +24,7 @@ import javax.sql.DataSource;
 @Slf4j
 @Configuration
 public class RagVectorStoreConfig {
-    
+
     /**
      * 创建 PgVectorStore Bean
      * 使用 PostgreSQL + pgvector 扩展实现向量存储
@@ -32,12 +32,12 @@ public class RagVectorStoreConfig {
     @Bean
     public PgVectorStore vectorStore(DataSource dataSource, EmbeddingModel embeddingModel) {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-        
+
         log.info("[RAG] 初始化 PgVectorStore...");
-        
+
         return PgVectorStore.builder(jdbcTemplate, embeddingModel)
-                .dimensions(1024)  // DashScope text-embedding-v4 输出 1024 维
-                .initializeSchema(true)  // 自动初始化表结构
+                .dimensions(1024)
+                .initializeSchema(true)
                 .build();
     }
 }

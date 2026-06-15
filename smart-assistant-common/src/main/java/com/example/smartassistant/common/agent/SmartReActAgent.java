@@ -105,6 +105,8 @@ public class SmartReActAgent {
     private String presetSystemPrompt;
     /** 预配置的工具列表（可选，可在 execute 时传入） */
     private List<ToolCallback> presetTools;
+    /** 可选的执行过程观察者（用于 SSE 流式输出等场景） */
+    private ReActObserver observer;
 
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
@@ -170,6 +172,24 @@ public class SmartReActAgent {
     public SmartReActAgent withPreset(String systemPrompt, List<ToolCallback> tools) {
         this.presetSystemPrompt = systemPrompt;
         this.presetTools = tools;
+        return this;
+    }
+
+    /**
+     * 注册执行过程观察者。
+     * <p>
+     * 观察者会在 ReAct 循环的各个阶段被回调，可用于：
+     * <ul>
+     *   <li>SSE 流式推送推理过程</li>
+     *   <li>日志记录工具调用链路</li>
+     *   <li>监控埋点</li>
+     * </ul>
+     *
+     * @param observer 观察者实例
+     * @return this
+     */
+    public SmartReActAgent withObserver(ReActObserver observer) {
+        this.observer = observer;
         return this;
     }
 
@@ -272,6 +292,15 @@ public class SmartReActAgent {
             }
 
             AssistantMessage assistantMsg = response.getResult().getOutput();
+
+            // ⭐ 通知推理内容（如 DeepSeek reasoning_content）
+            if (observer != null) {
+                Object reasoning = assistantMsg.getMetadata().get("reasoningContent");
+                if (reasoning != null && !reasoning.toString().isEmpty()) {
+                    observer.onThinking(iteration, reasoning.toString());
+                }
+            }
+
             var toolCalls = assistantMsg.getToolCalls();
 
             // ⭐ 没有工具调用 → 最终回答
@@ -279,10 +308,21 @@ public class SmartReActAgent {
                 String answer = assistantMsg.getText();
                 log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
                         iteration, elapsed, totalInputTokens, totalOutputTokens);
+                if (observer != null) {
+                    observer.onResponse(answer != null ? answer : "");
+                }
                 return answer;
             }
 
             log.debug("[SmartReActAgent] 收到 {} 个工具调用", toolCalls.size());
+
+            // ⭐ 通知工具调用
+            if (observer != null) {
+                int toolSeq = 1;
+                for (AssistantMessage.ToolCall tc : toolCalls) {
+                    observer.onToolCall(toolSeq++, tc.name(), tc.arguments());
+                }
+            }
 
             // ⭐ 将 assistant 的 tool_call 请求加入对话
             messages.add(assistantMsg);
@@ -293,6 +333,18 @@ public class SmartReActAgent {
             messages.add(ToolResponseMessage.builder()
                     .responses(toolResponses)
                     .build());
+
+            // ⭐ 通知工具执行结果
+            if (observer != null) {
+                for (ToolResponseMessage.ToolResponse tr : toolResponses) {
+                    String result = tr.responseData();
+                    if (result != null && result.length() > 2000) {
+                        result = result.substring(0, 2000) + "...";
+                    }
+                    observer.onToolResult(result != null ? result : "");
+                }
+            }
+
             // 继续循环
         }
 

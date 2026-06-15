@@ -22,31 +22,10 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring AI Alibaba Agent Framework -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-agent-framework</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
-        </dependency>
-
-        <!-- A2A 与 Nacos 集成 -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-a2a-nacos</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
-        </dependency>
-
         <!-- Spring Cloud Alibaba Nacos Discovery (服务发现) -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
-        </dependency>
-
-        <!-- Spring AI Alibaba DashScope Starter (LLM + Embedding) -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
         </dependency>
 
         <!-- PostgreSQL Driver -->
@@ -108,6 +87,14 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
+        <!-- JetBrains Annotations -->
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <version>24.0.1</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -119,6 +106,18 @@
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
+        <!-- Spring AI Chat Client (ChatClient, ToolCallingChatOptions) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-client-chat</artifactId>
+        </dependency>
+
+        <!-- Spring AI Tool support (@Tool, MethodToolCallbackProvider) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-autoconfigure-model-tool</artifactId>
         </dependency>
 
         <!-- ⭐ SmartAssistant Common 公共模块 -->

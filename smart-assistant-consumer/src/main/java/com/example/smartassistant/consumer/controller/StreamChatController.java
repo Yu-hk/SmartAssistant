@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.common.api.AgentApiResponses;
+import com.example.smartassistant.common.api.AgentStreamEvent;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;
@@ -249,42 +251,50 @@ public class StreamChatController {
         }
     }
     
+    // ==================== SSE 事件发送统一方法 ====================
+
     /**
-     * ⭐ 发送等待事件给前端
+     * 使用 {@link AgentStreamEvent} 构建并发送 SSE 事件。
+     *
+     * @param response   HTTP 响应
+     * @param eventName  SSE {@code event:} 字段值（如 "agent_waiting"）
+     * @param event      AgentStreamEvent 对象，将被序列化为 JSON 作为 {@code data:} 字段
      */
-    private void sendWaitingEvent(HttpServletResponse response) {
+    private void sendSseEvent(HttpServletResponse response, String eventName, AgentStreamEvent event) {
         try {
-            String event = String.format("event: waiting\ndata: {\"type\":\"waiting\",\"content\":\"%s\"}\n\n", 
-                    escapeForSSE("正在分析意图..."));
-            response.getOutputStream().write(event.getBytes(StandardCharsets.UTF_8));
+            String json = objectMapper.writeValueAsString(event);
+            String sse = "event: " + eventName + "\ndata: " + json + "\n\n";
+            response.getOutputStream().write(sse.getBytes(StandardCharsets.UTF_8));
             response.getOutputStream().flush();
         } catch (Exception e) {
-            logger.debug("[StreamChat] 发送等待事件失败: {}", e.getMessage());
+            logger.debug("[StreamChat] 发送 SSE 事件失败: eventName={}, error={}", eventName, e.getMessage());
         }
     }
 
     /**
-     * ⭐ 发送错误事件给前端
+     * 发送等待事件给前端（使用 {@link AgentStreamEvent#TYPE_WAITING}）。
      */
-    private void sendErrorEvent(jakarta.servlet.http.HttpServletResponse response, String errorMessage) {
+    private void sendWaitingEvent(HttpServletResponse response) {
+        sendSseEvent(response, AgentStreamEvent.TYPE_WAITING,
+                AgentStreamEvent.waiting("正在分析意图..."));
+    }
+
+    /**
+     * 发送错误事件给前端（使用 {@link AgentStreamEvent#TYPE_ERROR}）。
+     */
+    private void sendErrorEvent(HttpServletResponse response, String errorMessage) {
         if (response.isCommitted()) {
             logger.debug("[StreamChat] 响应已提交，跳过错误事件: {}", errorMessage);
             return;
         }
-        try {
-            String event = String.format("event: error\ndata: {\"type\":\"error\",\"content\":\"%s\"}\n\n", 
-                    escapeForSSE(errorMessage));
-            response.getOutputStream().write(event.getBytes(StandardCharsets.UTF_8));
-            response.getOutputStream().flush();
-        } catch (Exception e) {
-            logger.error("[StreamChat] 发送错误事件失败: {}", e.getMessage());
-        }
+        sendSseEvent(response, AgentStreamEvent.TYPE_ERROR,
+                AgentStreamEvent.error(errorMessage, AgentApiResponses.ERROR_INTERNAL, null));
     }
-    
+
     // ==================== 排队相关 SSE 事件 ====================
-    
+
     /**
-     * ⭐ 发送排队事件
+     * 发送排队事件（基础设施事件，直接写 JSON 不用 AgentStreamEvent）。
      */
     private void sendQueueEvent(HttpServletResponse response, int position, long estimatedWaitMs) {
         try {
@@ -299,9 +309,9 @@ public class StreamChatController {
             logger.debug("[StreamChat] 发送排队事件失败: {}", e.getMessage());
         }
     }
-    
+
     /**
-     * ⭐ 发送排队位置更新事件
+     * 发送排队位置更新事件（基础设施事件）。
      */
     private void sendQueuePositionEvent(HttpServletResponse response, int position, long estimatedWaitMs) {
         try {
@@ -315,23 +325,18 @@ public class StreamChatController {
             logger.debug("[StreamChat] 发送位置更新事件失败: {}", e.getMessage());
         }
     }
-    
+
     /**
-     * ⭐ 发送处理中事件（槽位已分配）
+     * 发送处理中事件（使用 {@link AgentStreamEvent#TYPE_PROCESSING}）。
      */
     private void sendProcessingEvent(HttpServletResponse response) {
-        try {
-            String event = "event: processing\ndata: {\"type\":\"processing\"}\n\n";
-            response.getOutputStream().write(event.getBytes(StandardCharsets.UTF_8));
-            response.getOutputStream().flush();
-            logger.info("[StreamChat] ▶️ 处理中事件");
-        } catch (Exception e) {
-            logger.debug("[StreamChat] 发送处理中事件失败: {}", e.getMessage());
-        }
+        sendSseEvent(response, AgentStreamEvent.TYPE_PROCESSING,
+                AgentStreamEvent.processing());
+        logger.info("[StreamChat] ▶️ 处理中事件");
     }
-    
+
     /**
-     * ⭐ 发送超时事件
+     * 发送超时事件（基础设施事件）。
      */
     private void sendTimeoutEvent(HttpServletResponse response, String message) {
         try {
@@ -447,10 +452,10 @@ public class StreamChatController {
                     Object agent = event.get("agent");
 
                     String sseLine;
+                    // summarising 是遗留 Agent 使用的 type → 映射到完整回复事件
                     if ("summarizing".equals(type)) {
-                        sseLine = "event: response\ndata: " + eventJson + "\n\n";
+                        sseLine = "event: " + AgentStreamEvent.TYPE_COMPLETE + "\ndata: " + eventJson + "\n\n";
                     } else if (agent != null) {
-                        // agent 字段非空 → 标注来源
                         sseLine = "event: " + type + "\ndata: " + eventJson + "\n\n";
                     } else {
                         sseLine = "event: " + type + "\ndata: " + eventJson + "\n\n";
@@ -462,9 +467,9 @@ public class StreamChatController {
                 }
             }
 
-            // 发送 done 事件
-            String done = "event: done\ndata: {\"type\":\"done\"}\n\n";
-            response.getOutputStream().write(done.getBytes(StandardCharsets.UTF_8));
+            // 发送 done 事件（流结束基础设施事件）
+            String doneLine = "event: done\ndata: {\"type\":\"done\"}\n\n";
+            response.getOutputStream().write(doneLine.getBytes(StandardCharsets.UTF_8));
             response.getOutputStream().flush();
 
         } catch (Exception e) {

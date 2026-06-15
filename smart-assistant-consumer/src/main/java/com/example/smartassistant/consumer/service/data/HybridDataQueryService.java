@@ -12,8 +12,6 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;  // ⭐ 正确包名
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -23,45 +21,37 @@ import java.util.Map;
 
 /**
  * 数据查询服务 - 混合架构
- * 结合 MyBatis（核心业务）和 MCP（灵活查询）
+ * 结合 MyBatis（核心业务）和 Agent 工具调用（灵活查询）
+ *
+ * <p>Spring AI 2.0.0 移除了 MCP starter，工具改为通过 {@code @Tool} 注解方法
+ * 配合 {@code MethodToolCallbackProvider} 注册到 ChatClient。</p>
  */
 @Service
 public class HybridDataQueryService {
 
     private static final Logger log = LoggerFactory.getLogger(HybridDataQueryService.class);
     
-    private final ChatClient mcpChatClient;  // MCP Client（备用）
+    private final ChatClient mcpChatClient;  // ChatClient（备用）
     private final McpAgentService mcpAgentService;  // ⭐ ReactAgent 服务
-    private final SyncMcpToolCallbackProvider syncMcpToolCallbackProvider;  // ⭐ MCP 专用类型
     private final JdbcTemplate jdbcTemplate;  // ⭐ JdbcTemplate
-    private volatile boolean mcpInitialized = false;  // MCP 初始化标志
+    private volatile boolean agentInitialized = false;  // Agent 初始化标志
 
-    @Value("${spring.ai.mcp.server.enabled:true}")
-    private boolean mcpEnabled;  // ⭐ 从配置文件读取 MCP Server 是否启用
+    @Value("${smartassistant.agent.enabled:true}")
+    private boolean agentEnabled;  // ⭐ 从配置文件读取 Agent 是否启用
 
     /**
      * 构造函数：注入依赖并初始化
      */
     public HybridDataQueryService(
             ChatClient.Builder chatClientBuilder,
-            @Autowired(required = false) SyncMcpToolCallbackProvider syncMcpToolCallbackProvider,
             McpAgentService mcpAgentService,
             JdbcTemplate jdbcTemplate) {
 
-        this.syncMcpToolCallbackProvider = syncMcpToolCallbackProvider;
         this.mcpAgentService = mcpAgentService;
         this.jdbcTemplate = jdbcTemplate;
 
-        // 构建备用的 ChatClient
-        if (syncMcpToolCallbackProvider != null) {
-            log.info("[HybridDataQueryService] 发现 SyncMcpToolCallbackProvider，注册 MCP 工具");
-            this.mcpChatClient = chatClientBuilder
-                .defaultToolCallbacks(syncMcpToolCallbackProvider.getToolCallbacks())
-                .build();
-        } else {
-            log.warn("[HybridDataQueryService] 未发现 SyncMcpToolCallbackProvider");
-            this.mcpChatClient = chatClientBuilder.build();
-        }
+        // 构建备用的 ChatClient（工具由 @Tool 注解方法注册）
+        this.mcpChatClient = chatClientBuilder.build();
         log.info("[HybridDataQueryService] 初始化完成，ReactAgent 可用: {}", mcpAgentService.isAvailable());
     }
     
@@ -70,34 +60,34 @@ public class HybridDataQueryService {
      * ⭐ 因为我们使用的是内嵌 ReactAgent，不需要外部 MCP Server 预热
      */
     @PostConstruct
-    public void warmupMcpServer() {
-        // ⭐ 如果 MCP Server 未启用，跳过预热
-        if (!mcpEnabled) {
-            log.info("[MCP Warmup] MCP Server 已禁用，跳过预热");
-            mcpInitialized = false;
+    public void warmupAgent() {
+        // ⭐ 如果 Agent 未启用，跳过预热
+        if (!agentEnabled) {
+            log.info("[Agent Warmup] Agent 已禁用，跳过预热");
+            agentInitialized = false;
             return;
         }
         
         // ⭐ 因为使用内嵌 ReactAgent，直接标记为已初始化
-        mcpInitialized = true;
-        log.info("[MCP Warmup] ✅ MCP Server (ReactAgent) 已就绪");
+        agentInitialized = true;
+        log.info("[Agent Warmup] ✅ ReactAgent 已就绪");
     }
     
     // ==================== 方式 1：MyBatis（核心业务）====================
 
-    // ==================== 方式 2：MCP（灵活查询）====================
+    // ==================== 方式 2：Agent 工具调用（灵活查询）====================
     
     /**
      * 自然语言数据查询（使用 ReactAgent + 智能降级）
-     * ⭐ ReactAgent 会自动执行 Think-Act-Observe 循环，真正调用 MCP 工具
+     * ⭐ ReactAgent 会自动执行 Think-Act-Observe 循环，调用 @Tool 注解的工具
      */
     public Map<String, Object> naturalLanguageQuery(String question) {
         long startTime = System.currentTimeMillis();
         
-        // ⭐ 如果 MCP 未启用或未初始化，直接使用降级方案
-        if (!mcpEnabled || !mcpInitialized) {
-            log.info("[数据查询] MCP 未启用或未初始化，使用 MyBatis 降级方案 (enabled={}, initialized={})", mcpEnabled, mcpInitialized);
-            return fallbackToMyBatis(question, "MCP 已禁用或未初始化");
+        // ⭐ 如果 Agent 未启用或未初始化，直接使用降级方案
+        if (!agentEnabled || !agentInitialized) {
+            log.info("[数据查询] Agent 未启用或未初始化，使用 MyBatis 降级方案 (enabled={}, initialized={})", agentEnabled, agentInitialized);
+            return fallbackToMyBatis(question, "Agent 已禁用或未初始化");
         }
         
         try {
@@ -124,7 +114,7 @@ public class HybridDataQueryService {
                 result.put("success", true);
                 result.put("question", question);
                 result.put("answer", formattedAnswer);
-                result.put("method", "ReactAgent-MCP");
+                 result.put("method", "ReactAgent");
                 result.put("duration_ms", duration);
                 
                 return result;
@@ -148,9 +138,9 @@ public class HybridDataQueryService {
      */
     private Map<String, Object> queryWithChatClient(String question, long startTime) {
         try {
-            // 检查 MCP 是否已初始化
-            if (!mcpInitialized) {
-                log.info("[数据查询] MCP Server 尚未预热，首次查询可能需要较长时间...");
+            // 检查 Agent 是否已初始化
+            if (!agentInitialized) {
+                log.info("[数据查询] Agent 尚未预热，首次查询可能需要较长时间...");
             }
             
             // 1. 先查询数据库表结构
@@ -196,30 +186,23 @@ public class HybridDataQueryService {
                     请严格遵守以上规则，**必须调用工具获取真实数据**！""";
             
             // 3. 执行查询
-            log.info("[数据查询] 开始调用 MCP，问题: {}", question);
-            log.info("[数据查询] MCP 启用状态: enabled={}, initialized={}", mcpEnabled, mcpInitialized);
+            log.info("[数据查询] 开始调用 LLM，问题: {}", question);
+            log.info("[数据查询] Agent 启用状态: enabled={}, initialized={}", agentEnabled, agentInitialized);
             
-            // ⭐ 关键修复：显式传递 toolCallbacks 以启用自动工具执行循环
-            var promptBuilder = mcpChatClient.prompt()
+            String answer = mcpChatClient.prompt()
                 .system(systemPrompt)
-                .user(question);
-            
-            // 如果有 SyncMcpToolCallbackProvider，显式传递工具
-            if (syncMcpToolCallbackProvider != null) {
-                promptBuilder = promptBuilder.tools(syncMcpToolCallbackProvider.getToolCallbacks());
-                log.info("[数据查询] 已注册 {} 个工具", syncMcpToolCallbackProvider.getToolCallbacks().length);
-            }
-            
-            String answer = promptBuilder.call().content();
+                .user(question)
+                .call()
+                .content();
             
             long duration = System.currentTimeMillis() - startTime;
-            log.info("[数据查询] MCP 返回结果 (耗时: {} ms): {}", duration, answer);
+            log.info("[数据查询] LLM 返回结果 (耗时: {} ms): {}", duration, answer);
             log.info("[数据查询] 回答长度: {} 字符", answer != null ? answer.length() : 0);
             
-            // 4. 验证 MCP 返回的有效性
+            // 4. 验证结果的有效性
             if (isInvalidResponse(answer)) {
-                log.warn("[数据查询] ⚠️ MCP 返回无效响应，触发降级机制");
-                return fallbackToMyBatis(question, "MCP 返回无效结果");
+                log.warn("[数据查询] ⚠️ LLM 返回无效响应，触发降级机制");
+                return fallbackToMyBatis(question, "LLM 返回无效结果");
             }
             
             // 5. 后处理：清理和格式化回答
@@ -229,7 +212,7 @@ public class HybridDataQueryService {
             result.put("success", true);
             result.put("question", question);
             result.put("answer", formattedAnswer);
-            result.put("method", "MCP");
+            result.put("method", "ChatClient");
             result.put("duration_ms", duration);
             
             return result;

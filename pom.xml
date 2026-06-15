@@ -20,23 +20,18 @@
 
     <modules>
         <module>smart-assistant-common</module>  <!-- ⭐ 公共模块 -->
-        <module>smart-assistant-consumer</module>
-        <module>smart-assistant-router</module>
-        <module>smart-assistant-order</module>
-        <module>smart-assistant-product</module>
         <module>smart-assistant-general</module>  <!-- ⭐ 通用对话模块 -->
-        <module>smart-assistant-gateway</module>
-        <module>smart-assistant-user</module>  <!-- ⭐ 用户服务 -->
+        <module>smart-assistant-router</module>   <!-- ⭐ 路由网关 -->
+        <module>smart-assistant-order</module>    <!-- ⭐ 订单旅行模块 -->
+        <module>smart-assistant-product</module>  <!-- ⭐ 商品评论模块 -->
+        <module>smart-assistant-consumer</module> <!-- ⭐ 用户消费模块 -->
+        <!-- smart-assistant-user 和 smart-assistant-gateway 保持禁用（待后续） -->
     </modules>
 
     <properties>
         <java.version>17</java.version>
-        <spring-ai-alibaba.version>1.1.2.2</spring-ai-alibaba.version>
-        <spring-ai.version>1.1.2</spring-ai.version>
+        <spring-ai.version>2.0.0</spring-ai.version>
         <spring-cloud-alibaba.version>2023.0.3.2</spring-cloud-alibaba.version>
-        <spring-cloud.version>2024.0.0</spring-cloud.version>
-        <!-- ⭐ 强制使用 Nacos 3.x 客户端以支持 A2A -->
-        <nacos-client.version>3.1.0</nacos-client.version>
         <!-- ⭐ 统一管理的第三方依赖版本 -->
         <mybatis-plus.version>3.5.9</mybatis-plus.version>
         <jjwt.version>0.12.5</jjwt.version>
@@ -55,42 +50,20 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- ⭐ 强制使用 Nacos 3.x 客户端以支持 A2A -->
-            <dependency>
-                <groupId>com.alibaba.nacos</groupId>
-                <artifactId>nacos-client</artifactId>
-                <version>${nacos-client.version}</version>
-            </dependency>
-            
-            <!-- Spring Cloud Alibaba BOM -->
-            <dependency>
-                <groupId>com.alibaba.cloud</groupId>
-                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
-                <version>${spring-cloud-alibaba.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <!-- Spring Cloud BOM -->
-            <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <!-- Spring AI Alibaba BOM -->
-            <dependency>
-                <groupId>com.alibaba.cloud.ai</groupId>
-                <artifactId>spring-ai-alibaba-bom</artifactId>
-                <version>${spring-ai-alibaba.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
             <!-- Spring AI BOM -->
             <dependency>
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>
                 <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- ⭐ Spring Cloud Alibaba BOM -->
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>${spring-cloud-alibaba.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -180,6 +153,13 @@
                 <groupId>com.github.jsqlparser</groupId>
                 <artifactId>jsqlparser</artifactId>
                 <version>${jsqlparser.version}</version>
+            </dependency>
+
+            <!-- ⭐ JetBrains Annotations -->
+            <dependency>
+                <groupId>org.jetbrains</groupId>
+                <artifactId>annotations</artifactId>
+                <version>24.0.1</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

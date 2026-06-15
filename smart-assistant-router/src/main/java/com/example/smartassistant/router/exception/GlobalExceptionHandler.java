@@ -7,7 +7,10 @@
 
 package com.example.smartassistant.router.exception;
 
-import com.example.smartassistant.router.model.ErrorResponse;
+import com.example.smartassistant.common.api.AgentApiResponse;
+import com.example.smartassistant.common.api.AgentApiResponses;
+import com.example.smartassistant.common.api.AgentError;
+import com.example.smartassistant.common.monitoring.AgentErrorMetricsCollector;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -20,8 +23,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Router 全局异常处理器
@@ -43,192 +46,220 @@ import java.util.regex.Pattern;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    private static final String SERVICE = "router-service";
+    private final AgentErrorMetricsCollector metricsCollector;
+
+    public GlobalExceptionHandler(AgentErrorMetricsCollector metricsCollector) {
+        this.metricsCollector = metricsCollector;
+    }
 
     // ===================== 参数校验异常 =====================
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationException(
+    public ResponseEntity<AgentApiResponse<Void>> handleValidationException(
             MethodArgumentNotValidException e, HttpServletRequest request) {
-        String msg = e.getBindingResult().getFieldErrors().stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .reduce((a, b) -> a + "; " + b)
-                .orElse("参数校验失败");
+        List<AgentError.ErrorDetail> details = e.getBindingResult().getFieldErrors().stream()
+                .map(err -> new AgentError.ErrorDetail(
+                        err.getField(),
+                        err.getDefaultMessage(),
+                        err.getRejectedValue()))
+                .collect(Collectors.toList());
+        String msg = details.stream()
+                .map(d -> d.getField() + ": " + d.getMessage())
+                .collect(Collectors.joining("; "));
 
         log.warn("[ROUTER_001] 参数校验失败 | path={} | msg={}", request.getRequestURI(), msg);
 
-        ErrorResponse resp = ErrorResponse.of("ROUTER_001", msg, HttpStatus.BAD_REQUEST.value())
-                .builder()
-                .traceId(getTraceId())
-                .detail("field: " + e.getBindingResult().getFieldErrors().get(0).getField())
+        AgentError error = AgentError.builder()
+                .code("ROUTER_001")
+                .title("请求参数校验失败")
+                .detail(msg)
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
+                .details(details)
                 .build();
 
-        return ResponseEntity.badRequest().body(resp);
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, getTraceId(), 0));
     }
 
     @ExceptionHandler(BindException.class)
-    public ResponseEntity<ErrorResponse> handleBindException(
+    public ResponseEntity<AgentApiResponse<Void>> handleBindException(
             BindException e, HttpServletRequest request) {
-        String msg = e.getBindingResult().getFieldErrors().stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .reduce((a, b) -> a + "; " + b)
-                .orElse("参数绑定失败");
+        List<AgentError.ErrorDetail> details = e.getBindingResult().getFieldErrors().stream()
+                .map(err -> new AgentError.ErrorDetail(
+                        err.getField(),
+                        err.getDefaultMessage(),
+                        err.getRejectedValue()))
+                .collect(Collectors.toList());
+        String msg = details.stream()
+                .map(d -> d.getField() + ": " + d.getMessage())
+                .collect(Collectors.joining("; "));
 
         log.warn("[ROUTER_001] 参数绑定失败 | path={} | msg={}", request.getRequestURI(), msg);
 
-        ErrorResponse resp = ErrorResponse.of("ROUTER_001", msg, HttpStatus.BAD_REQUEST.value())
-                .builder()
-                .traceId(getTraceId())
+        AgentError error = AgentError.builder()
+                .code("ROUTER_001")
+                .title("请求参数绑定失败")
+                .detail(msg)
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
+                .details(details)
                 .build();
 
-        return ResponseEntity.badRequest().body(resp);
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, getTraceId(), 0));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
+    public ResponseEntity<AgentApiResponse<Void>> handleIllegalArgumentException(
             IllegalArgumentException e, HttpServletRequest request) {
         log.warn("[ROUTER_001] 非法参数 | path={} | msg={}", request.getRequestURI(), e.getMessage());
 
-        ErrorResponse resp = ErrorResponse.of("ROUTER_001", e.getMessage(), HttpStatus.BAD_REQUEST.value())
-                .builder()
-                .traceId(getTraceId())
+        AgentError error = AgentError.builder()
+                .code("ROUTER_001")
+                .title("非法参数")
+                .detail(e.getMessage())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
                 .build();
 
-        return ResponseEntity.badRequest().body(resp);
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, getTraceId(), 0));
     }
 
     // ===================== 路由异常 =====================
 
     @ExceptionHandler(RoutingException.class)
-    public ResponseEntity<ErrorResponse> handleRoutingException(
+    public ResponseEntity<AgentApiResponse<Void>> handleRoutingException(
             RoutingException e, HttpServletRequest request) {
         log.warn("[ROUTER_002] 路由失败 | path={} | agent={} | method={} | msg={}",
                 request.getRequestURI(), e.getAgentName(), e.getRoutingMethod(), e.getMessage());
 
         String msg = e.getMessage() != null ? e.getMessage() : "路由失败，暂无可用服务";
 
-        ErrorResponse resp = ErrorResponse.of("ROUTER_002", msg, HttpStatus.SERVICE_UNAVAILABLE.value())
-                .builder()
-                .routingMethod(e.getRoutingMethod())
-                .traceId(getTraceId())
+        AgentError error = AgentError.builder()
+                .code("ROUTER_002")
+                .title("路由决策失败")
+                .detail(msg)
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .instance(request.getRequestURI())
                 .build();
 
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(resp);
+        metricsCollector.recordError(error);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(
+                AgentApiResponses.error(error, getTraceId(), 0, e.getAgentName()));
     }
 
     // ===================== Agent 调用异常 =====================
 
     @ExceptionHandler(AgentCallException.class)
-    public ResponseEntity<ErrorResponse> handleAgentCallException(
+    public ResponseEntity<AgentApiResponse<Void>> handleAgentCallException(
             AgentCallException e, HttpServletRequest request) {
         log.error("[ROUTER_003] Agent 调用失败 | path={} | agent={} | status={} | msg={}",
                 request.getRequestURI(), e.getAgentName(), e.getHttpStatus(), e.getMessage());
 
-        ErrorResponse resp = ErrorResponse.of("ROUTER_003",
-                        "服务调用失败: " + e.getMessage(),
-                        e.getHttpStatus())
-                .builder()
-                .agentName(e.getAgentName())
-                .traceId(getTraceId())
+        AgentError error = AgentError.builder()
+                .code("ROUTER_003")
+                .title("Agent 调用失败")
+                .detail("服务调用失败: " + e.getMessage())
+                .status(e.getHttpStatus())
+                .instance(request.getRequestURI())
                 .build();
 
-        return ResponseEntity.status(e.getHttpStatus()).body(resp);
+        metricsCollector.recordError(error);
+        return ResponseEntity.status(e.getHttpStatus()).body(
+                AgentApiResponses.error(error, getTraceId(), 0, e.getAgentName()));
     }
 
     // ===================== 远程服务异常 =====================
 
     @ExceptionHandler(HttpServerErrorException.class)
-    public ResponseEntity<ErrorResponse> handleHttpServerError(
+    public ResponseEntity<AgentApiResponse<Void>> handleHttpServerError(
             HttpServerErrorException e, HttpServletRequest request) {
         log.error("[ROUTER_004] 远程服务错误 | path={} | status={} | msg={}",
                 request.getRequestURI(), e.getStatusCode().value(), e.getMessage());
 
-        ErrorResponse resp = ErrorResponse.of("ROUTER_004",
-                        "远程服务异常，请稍后重试",
-                        HttpStatus.BAD_GATEWAY.value())
-                .builder()
-                .traceId(getTraceId())
-                .detail(e.getMessage())
+        AgentError error = AgentError.builder()
+                .code("ROUTER_004")
+                .title("远程服务异常")
+                .detail("远程服务异常，请稍后重试")
+                .status(HttpStatus.BAD_GATEWAY.value())
+                .instance(request.getRequestURI())
                 .build();
 
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(resp);
+        metricsCollector.recordError(error);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(
+                AgentApiResponses.error(error, getTraceId(), 0));
     }
 
     @ExceptionHandler(ResourceAccessException.class)
-    public ResponseEntity<ErrorResponse> handleResourceAccessException(
+    public ResponseEntity<AgentApiResponse<Void>> handleResourceAccessException(
             ResourceAccessException e, HttpServletRequest request) {
         log.error("[ROUTER_004] 连接远程服务失败 | path={} | msg={}",
                 request.getRequestURI(), e.getMessage());
 
-        // 尝试提取目标服务名
-        String detail = extractServiceName(e.getMessage());
-
-        ErrorResponse resp = ErrorResponse.of("ROUTER_004",
-                        "服务暂时不可用，请稍后重试",
-                        HttpStatus.BAD_GATEWAY.value())
-                .builder()
-                .traceId(getTraceId())
-                .detail(detail)
+        AgentError error = AgentError.builder()
+                .code("ROUTER_004")
+                .title("服务暂时不可用")
+                .detail("服务暂时不可用，请稍后重试")
+                .status(HttpStatus.BAD_GATEWAY.value())
+                .instance(request.getRequestURI())
                 .build();
 
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(resp);
+        metricsCollector.recordError(error);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(
+                AgentApiResponses.error(error, getTraceId(), 0));
     }
 
     // ===================== 认证异常 =====================
 
     @ExceptionHandler(SecurityException.class)
-    public ResponseEntity<ErrorResponse> handleSecurityException(
+    public ResponseEntity<AgentApiResponse<Void>> handleSecurityException(
             Exception e, HttpServletRequest request) {
         log.warn("[ROUTER_005] 认证/鉴权失败 | path={} | msg={}",
                 request.getRequestURI(), e.getMessage());
 
-        ErrorResponse resp = ErrorResponse.of("ROUTER_005",
-                        "认证失败，请重新登录",
-                        HttpStatus.UNAUTHORIZED.value())
-                .builder()
-                .traceId(getTraceId())
+        AgentError error = AgentError.builder()
+                .code("ROUTER_005")
+                .title("认证失败")
+                .detail("认证失败，请重新登录")
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .instance(request.getRequestURI())
                 .build();
 
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(resp);
+        metricsCollector.recordError(error);
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                AgentApiResponses.error(error, getTraceId(), 0));
     }
 
     // ===================== 兜底异常 =====================
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneralException(
+    public ResponseEntity<AgentApiResponse<Void>> handleGeneralException(
             Exception e, HttpServletRequest request) {
         log.error("[ROUTER_099] 未处理异常 | path={} | type={} | msg={}",
                 request.getRequestURI(), e.getClass().getSimpleName(), e.getMessage(), e);
 
-        ErrorResponse resp = ErrorResponse.of("ROUTER_099",
-                        "服务内部异常，请联系管理员",
-                        HttpStatus.INTERNAL_SERVER_ERROR.value())
-                .builder()
-                .traceId(getTraceId())
-                .detail(e.getClass().getSimpleName() + ": " + e.getMessage())
+        AgentError error = AgentError.builder()
+                .code("ROUTER_099")
+                .title("服务内部异常")
+                .detail("服务内部异常，请联系管理员")
+                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                .instance(request.getRequestURI())
                 .build();
 
-        return ResponseEntity.internalServerError().body(resp);
+        metricsCollector.recordError(error);
+        return ResponseEntity.internalServerError().body(
+                AgentApiResponses.error(error, getTraceId(), 0));
     }
 
     // ===================== 工具方法 =====================
 
     private String getTraceId() {
         String traceId = MDC.get("traceId");
-        return traceId != null ? traceId : "unknown";
-    }
-
-    /**
-     * 从异常消息中提取目标服务名
-     */
-    private String extractServiceName(String message) {
-        if (message == null) return null;
-        // 匹配形如 "I/O error on GET request for \"http://xxx/yyy\"" 的 URL
-        Pattern p = Pattern.compile("(?:for |uri=)(https?://[^/\"]+)");
-        Matcher m = p.matcher(message);
-        if (m.find()) {
-            return m.group(1);
-        }
-        return message;
+        return traceId != null ? traceId : null;
     }
 }

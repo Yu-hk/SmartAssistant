@@ -86,7 +86,7 @@ public class AgentHealthChecker {
      */
     private boolean checkAgentHealth(DiscoveredAgent agent) {
         try {
-            String healthUrl = agent.getUrl().replace("/a2a", "/actuator/health");
+            String healthUrl = agent.getUrl() + "/actuator/health";
             
             URL url = new URL(healthUrl);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();

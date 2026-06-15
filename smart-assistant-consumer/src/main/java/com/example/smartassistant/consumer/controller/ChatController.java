@@ -7,6 +7,11 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.common.api.AgentApiResponse;
+import com.example.smartassistant.common.api.AgentApiResponses;
+import com.example.smartassistant.common.api.AgentError;
+import com.example.smartassistant.common.api.AgentSyncResponse;
+import com.example.smartassistant.common.monitoring.AgentErrorMetricsCollector;
 import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.consumer.service.cache.AnswerCacheService;
 import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationService;
@@ -47,16 +52,20 @@ public class ChatController {
             .recordStats()
             .build();
 
+    private final AgentErrorMetricsCollector metricsCollector;
+
     public ChatController(ChatConsumerService chatService,
                          AnswerCacheService answerCacheService,
                          AnswerPersonalizationService personalizationCacheService,
                           ConversationValueService conversationValueService,
-                          ConversationDocumentService conversationDocumentService) {
+                          ConversationDocumentService conversationDocumentService,
+                          AgentErrorMetricsCollector metricsCollector) {
         this.chatService = chatService;
         this.answerCacheService = answerCacheService;
         this.personalizationCacheService = personalizationCacheService;
         this.conversationValueService = conversationValueService;
         this.conversationDocumentService = conversationDocumentService;
+        this.metricsCollector = metricsCollector;
     }
 
     /**
@@ -74,7 +83,7 @@ public class ChatController {
      */
     @PostMapping("/chat")
     @RateLimiter(name = "chatRateLimiter")
-    public Mono<Map<String, Object>> chat(
+    public Mono<AgentApiResponse<AgentSyncResponse>> chat(
             @RequestHeader(value = "X-User-Id", required = false) String userIdFromHeader,
             @RequestHeader(value = "X-User-Role", required = false) String userRoleFromHeader,
             @RequestBody Map<String, String> request) {
@@ -126,27 +135,23 @@ public class ChatController {
         
         // ⭐ 3. 统一转发给 ChatConsumerService（不再拦截数据查询请求）
         // 数据查询请求已由 DataQueryController 处理
-        Mono<Map<String, Object>> resultMono;
+        Mono<AgentSyncResponse> resultMono;
         if (sessionId != null) {
             // ⭐ 有 sessionId：使用带 session 的完整响应
             log.info("[交互式多意图] 使用 session 模式: sessionId={}", sessionId);
             resultMono = Mono.fromCallable(() -> chatService.calculateWithSession(userId, message, sessionId, finalRequestId))
                     .subscribeOn(Schedulers.boundedElastic())
                     .map(routerMap -> {
-                        String resultText = (String) ((Map<String, Object>) routerMap).get("result");
-                        String agentName = (String) ((Map<String, Object>) routerMap).get("agentName");
-                        Boolean fromCache = (Boolean) ((Map<String, Object>) routerMap).getOrDefault("fromCache", false);
-                        // ⭐ 提取 intentTag
-                        String intentTag = (String) ((Map<String, Object>) routerMap).get("intentTag");
-                        // ⭐ 提取工具调用信号（Router 根据实际执行链路设置）
-                        Boolean toolInvoked = (Boolean) ((Map<String, Object>) routerMap).getOrDefault("toolInvoked", false);
-                        Map<String, Object> map = new HashMap<>();
-                        map.put("result", resultText != null ? resultText : "");
-                        map.put("agentName", agentName);
-                        map.put("fromCache", fromCache);
-                        map.put("intentTag", intentTag);  // ⭐ 透传 intentTag
-                        map.put("toolInvoked", toolInvoked);  // ⭐ 透传工具调用信号
-                        return map;
+                        String resultText = (String) routerMap.get("result");
+                        String agentName = (String) routerMap.get("agentName");
+                        Boolean fromCache = (Boolean) routerMap.getOrDefault("fromCache", false);
+                        String intentTag = (String) routerMap.get("intentTag");
+                        Boolean toolInvoked = (Boolean) routerMap.getOrDefault("toolInvoked", false);
+                        return AgentSyncResponse.builder()
+                                .reply(resultText != null ? resultText : "")
+                                .intentTag(intentTag)
+                                .toolInvoked(toolInvoked != null && toolInvoked)
+                                .build();
                     });
         } else {
             // 4. 直接调用 LLM（无 session）
@@ -155,24 +160,20 @@ public class ChatController {
                     .subscribeOn(Schedulers.boundedElastic())
                     .map(routerMap -> {
                         String resultText = (String) routerMap.get("result");
-                        String agentName = (String) routerMap.get("agentName");
-                        Boolean fromCache = (Boolean) routerMap.getOrDefault("fromCache", false);
                         String intentTag = (String) routerMap.get("intentTag");
                         Boolean toolInvoked = (Boolean) routerMap.getOrDefault("toolInvoked", false);
-                        Map<String, Object> map = new HashMap<>();
-                        map.put("result", resultText != null ? resultText : "");
-                        map.put("agentName", agentName);
-                        map.put("fromCache", fromCache);
-                        map.put("intentTag", intentTag);
-                        map.put("toolInvoked", toolInvoked);
-                        return map;
+                        return AgentSyncResponse.builder()
+                                .reply(resultText != null ? resultText : "")
+                                .intentTag(intentTag)
+                                .toolInvoked(toolInvoked != null && toolInvoked)
+                                .build();
                     });
         }
 
         // 5. 组合所有异步操作
         return resultMono
-            .flatMap(routerResponse -> {
-                String reply = (String) routerResponse.get("result");
+            .flatMap(intermediate -> {
+                String reply = intermediate.getReply();
 
                 // ⭐ 6. 解析 Agent 回复中的建议（以 ⭐ 开头的行为建议）
                 List<String> suggestions = parseStarSuggestions(reply);
@@ -180,27 +181,23 @@ public class ChatController {
                 // 从回复中移除建议行，避免重复展示
                 String cleanReply = removeStarSuggestions(reply);
 
+                String intentTag = intermediate.getIntentTag();
+                boolean toolInvoked = intermediate.isToolInvoked();
+
                 // ⭐ 7. 对话价值评估：判断是否沉淀为用户个人文档（异步，不阻塞）
                 if (sessionId != null) {
-                    String agentName = (String) routerResponse.get("agentName");
-                    Boolean fromCache = (Boolean) routerResponse.getOrDefault("fromCache", false);
-                    // ⭐ 从透传的 intentTag 读取
-                    String intentTag = (String) routerResponse.get("intentTag");
-                    // ⭐ 计算当前轮数（session 粒度，使用 Caffeine asMap 的 merge 保证线程安全）
                     int turnCount = turnCounts.asMap().merge(sessionId, 1, Integer::sum);
-                    // ⭐ 使用 Router 传来的 toolInvoked 信号（不再通过意图标签猜测）
-                    Boolean toolInvoked = (Boolean) routerResponse.getOrDefault("toolInvoked", false);
 
                     ConversationValueService.ConversationValueContext ctx =
                             new ConversationValueService.ConversationValueContext(
                                     Long.valueOf(userId),
                                     sessionId,
                                     message + "\n" + cleanReply,
-                                    agentName,
-                                    intentTag,  // ⭐ 传递真实 intentTag
-                                    turnCount, // ⭐ 传递真实轮数
-                                    fromCache != null && fromCache,
-                                    toolInvoked != null && toolInvoked  // ⭐ 使用 Router 传来的工具调用信号
+                                    null,  // agentName 不需要透传
+                                    intentTag,
+                                    turnCount,
+                                    false,
+                                    toolInvoked
                             );
 
                     try {
@@ -218,14 +215,15 @@ public class ChatController {
                         suggestions.size(),
                         endTime - startTime);
 
-                // 8. 构建响应
-                Map<String, Object> response = new HashMap<>();
-                response.put("reply", cleanReply);
-                response.put("suggestions", suggestions);
-                response.put("sessionId", sessionId);
-                response.put("duration_ms", endTime - startTime);
+                // 8. 构建统一响应
+                AgentSyncResponse data = AgentSyncResponse.builder()
+                        .reply(cleanReply)
+                        .suggestions(suggestions)
+                        .intentTag(intentTag)
+                        .toolInvoked(toolInvoked)
+                        .build();
 
-                return Mono.just(response);
+                return Mono.just(AgentApiResponses.ok(data, null, finalRequestId, endTime - startTime));
             });
     }
 
@@ -276,16 +274,23 @@ public class ChatController {
      * POST /api/math/cache/stats
      */
     @PostMapping("/cache/stats")
-    public Mono<Map<String, Object>> getCacheStats(
+    public Mono<AgentApiResponse<Map<String, Object>>> getCacheStats(
             @RequestHeader(value = "X-User-Role", required = false) String userRoleFromHeader) {
         String role = (userRoleFromHeader != null) ? userRoleFromHeader : "ROLE_USER";
         if (!isAdmin(role)) {
             log.warn("[Auth] ⛔ 拒绝缓存统计请求: role={}", role);
-            return Mono.just(buildForbiddenResponse("缓存统计功能仅限管理员使用"));
+            AgentError error = AgentError.builder()
+                    .code(AgentApiResponses.ERROR_FORBIDDEN)
+                    .title("权限不足")
+                    .detail("缓存统计功能仅限管理员使用")
+                    .build();
+            metricsCollector.recordError(error);
+            return Mono.just(AgentApiResponses.error(error, null, 0));
         }
         return answerCacheService.getCacheStats()
-            .doOnNext(stats -> {
+            .map(stats -> {
                 log.info("[AnswerCache] 📊 缓存统计: {}", stats);
+                return AgentApiResponses.ok(stats, null, null, 0);
             });
     }
 
@@ -294,51 +299,6 @@ public class ChatController {
      */
     private boolean isAdmin(String role) {
         return "ROLE_ADMIN".equalsIgnoreCase(role);
-    }
-
-    /**
-     * ⭐ 构建 403 Forbidden 响应体（舒缓语气 + 随机文案 + 智能建议）
-     */
-    private Map<String, Object> buildForbiddenResponse(String message) {
-        Map<String, Object> response = new HashMap<>();
-        
-        // 随机舒缓文案
-        String[] friendlyMessages = {
-            "✨ 这个问题我暂时无法回答你，不过你可以试试问问我其他问题呢？",
-            "🌸 哎呀，这个问题有点超出我的能力范围了，换一个试试吧～",
-            "🌻 我暂时还不会这个，不过我可以帮你查天气、找美食、做旅行规划哦！",
-            "💫 这个问题我先记下来，你也可以先试试问我其他问题呢～",
-            "🌈 这个我还在学习中！不过下面的问题我都可以帮你解答哦：",
-            "🍀 换一个问题试试吧，比如查天气、推荐美食或者规划旅行都可以～",
-            "🌺 我暂时帮不上这个忙，不过我有好多其他技能等你来发现呢！"
-        };
-        String friendly = friendlyMessages[new java.util.Random().nextInt(friendlyMessages.length)];
-        
-        // 建议列表：根据用户问题中的地点/意图生成上下文相关建议
-        List<String> suggestions = new ArrayList<>();
-        String lower = message != null ? message.toLowerCase() : "";
-        boolean hasLocation = false;
-        for (String city : new String[]{"北京", "上海", "广州", "深圳", "杭州", "成都", "南京", "西安", "重庆", "武汉"}) {
-            if (lower.contains(city)) {
-                hasLocation = true;
-                suggestions.add(city + "今天天气怎么样？");
-                suggestions.add(city + "有什么好吃的推荐？");
-                suggestions.add(city + "有哪些必去的景点？");
-                break;
-            }
-        }
-        if (!hasLocation) {
-            suggestions.add("北京今天天气怎么样？");
-            suggestions.add("成都有什么美食推荐？");
-            suggestions.add("杭州有哪些必去的景点？");
-        }
-        suggestions.add("帮我规划一次周末旅行");
-        suggestions.add("今天适合出门走走吗？");
-        
-        response.put("reply", friendly);
-        response.put("suggestions", suggestions);
-        response.put("error", "FORBIDDEN");
-        return response;
     }
 
 }

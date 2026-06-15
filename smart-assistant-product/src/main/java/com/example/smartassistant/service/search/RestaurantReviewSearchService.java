@@ -7,12 +7,12 @@
 
 package com.example.smartassistant.service.search;
 
+import com.example.smartassistant.common.document.Document;
+import com.example.smartassistant.common.embedding.EmbeddingModel;
+import com.example.smartassistant.common.vectorstore.SearchRequest;
+import com.example.smartassistant.common.vectorstore.VectorStore;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;

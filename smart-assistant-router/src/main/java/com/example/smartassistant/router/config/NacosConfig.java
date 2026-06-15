@@ -22,13 +22,13 @@ public class NacosConfig {
     @Value("${spring.cloud.nacos.discovery.server-addr:127.0.0.1:8848}")
     private String serverAddr;
     
-    @Value("${spring.ai.alibaba.a2a.nacos.discovery.namespace:}")
+    @Value("${spring.cloud.nacos.discovery.namespace:}")
     private String namespace;
     
-    @Value("${spring.ai.alibaba.a2a.nacos.discovery.username:${NACOS_USERNAME:nacos}}")
+    @Value("${spring.cloud.nacos.discovery.username:${NACOS_USERNAME:nacos}}")
     private String username;
     
-    @Value("${spring.ai.alibaba.a2a.nacos.discovery.password:${NACOS_PASSWORD:nacos123}}")
+    @Value("${spring.cloud.nacos.discovery.password:${NACOS_PASSWORD:nacos123}}")
     private String password;
     
     /**

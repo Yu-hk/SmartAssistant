@@ -7,6 +7,10 @@
 
 package com.example.smartassistant.consumer.exception;
 
+import com.example.smartassistant.common.api.AgentApiResponse;
+import com.example.smartassistant.common.api.AgentApiResponses;
+import com.example.smartassistant.common.api.AgentError;
+import com.example.smartassistant.common.monitoring.AgentErrorMetricsCollector;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -18,9 +22,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
-import java.time.LocalDateTime;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Consumer 全局异常处理器
@@ -39,61 +44,113 @@ import java.util.regex.Pattern;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private final AgentErrorMetricsCollector metricsCollector;
+
+    public GlobalExceptionHandler(AgentErrorMetricsCollector metricsCollector) {
+        this.metricsCollector = metricsCollector;
+    }
+
     // ========== 参数校验异常 ==========
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationException(
+    public ResponseEntity<AgentApiResponse<Void>> handleValidationException(
             MethodArgumentNotValidException e, HttpServletRequest request) {
-        String msg = e.getBindingResult().getFieldErrors().stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .reduce((a, b) -> a + "; " + b)
-                .orElse("参数校验失败");
+        List<AgentError.ErrorDetail> details = e.getBindingResult().getFieldErrors().stream()
+                .map(err -> new AgentError.ErrorDetail(
+                        err.getField(),
+                        err.getDefaultMessage(),
+                        err.getRejectedValue()))
+                .collect(Collectors.toList());
+        String msg = details.stream()
+                .map(d -> d.getField() + ": " + d.getMessage())
+                .collect(Collectors.joining("; "));
 
         log.warn("[CONSUMER_001] 参数校验失败 | path={} | msg={}", request.getRequestURI(), msg);
 
-        return ResponseEntity.badRequest().body(ErrorResponse.of(
-                "CONSUMER_001", msg, HttpStatus.BAD_REQUEST.value()));
+        AgentError error = AgentError.builder()
+                .code("CONSUMER_001")
+                .title("请求参数校验失败")
+                .detail(msg)
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
+                .details(details)
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     @ExceptionHandler(BindException.class)
-    public ResponseEntity<ErrorResponse> handleBindException(
+    public ResponseEntity<AgentApiResponse<Void>> handleBindException(
             BindException e, HttpServletRequest request) {
-        String msg = e.getBindingResult().getFieldErrors().stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .reduce((a, b) -> a + "; " + b)
-                .orElse("参数绑定失败");
+        List<AgentError.ErrorDetail> details = e.getBindingResult().getFieldErrors().stream()
+                .map(err -> new AgentError.ErrorDetail(
+                        err.getField(),
+                        err.getDefaultMessage(),
+                        err.getRejectedValue()))
+                .collect(Collectors.toList());
+        String msg = details.stream()
+                .map(d -> d.getField() + ": " + d.getMessage())
+                .collect(Collectors.joining("; "));
 
         log.warn("[CONSUMER_001] 参数绑定失败 | path={}", request.getRequestURI());
 
-        return ResponseEntity.badRequest().body(ErrorResponse.of(
-                "CONSUMER_001", msg, HttpStatus.BAD_REQUEST.value()));
+        AgentError error = AgentError.builder()
+                .code("CONSUMER_001")
+                .title("请求参数绑定失败")
+                .detail(msg)
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
+                .details(details)
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(
+    public ResponseEntity<AgentApiResponse<Void>> handleIllegalArgument(
             IllegalArgumentException e, HttpServletRequest request) {
         log.warn("[CONSUMER_001] 非法参数 | path={} | msg={}", request.getRequestURI(), e.getMessage());
-        return ResponseEntity.badRequest().body(ErrorResponse.of(
-                "CONSUMER_001", e.getMessage(), HttpStatus.BAD_REQUEST.value()));
+
+        AgentError error = AgentError.builder()
+                .code("CONSUMER_001")
+                .title("非法参数")
+                .detail(e.getMessage())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.badRequest().body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     // ========== 远程服务调用异常 ==========
 
     @ExceptionHandler(HttpServerErrorException.class)
-    public ResponseEntity<ErrorResponse> handleHttpServerError(
+    public ResponseEntity<AgentApiResponse<Void>> handleHttpServerError(
             HttpServerErrorException e, HttpServletRequest request) {
         log.error("[CONSUMER_002] 远程服务错误 | path={} | status={}",
                 request.getRequestURI(), e.getStatusCode().value());
 
-        String detail = extractDetail(e.getMessage());
-        ErrorResponse resp = ErrorResponse.of("CONSUMER_002", "上游服务异常，请稍后重试",
-                HttpStatus.BAD_GATEWAY.value());
-        resp.setDetail(detail);
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(resp);
+        AgentError error = AgentError.builder()
+                .code("CONSUMER_002")
+                .title("上游服务异常")
+                .detail("上游服务异常，请稍后重试")
+                .status(HttpStatus.BAD_GATEWAY.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     @ExceptionHandler(ResourceAccessException.class)
-    public ResponseEntity<ErrorResponse> handleResourceAccess(
+    public ResponseEntity<AgentApiResponse<Void>> handleResourceAccess(
             ResourceAccessException e, HttpServletRequest request) {
         log.error("[CONSUMER_002] 连接远程服务失败 | path={} | msg={}",
                 request.getRequestURI(), e.getMessage());
@@ -103,35 +160,58 @@ public class GlobalExceptionHandler {
                 ? "服务暂时不可用（" + targetService + "），请稍后重试"
                 : "服务暂时不可用，请稍后重试";
 
-        ErrorResponse resp = ErrorResponse.of("CONSUMER_002", msg,
-                HttpStatus.BAD_GATEWAY.value());
-        resp.setDetail(e.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(resp);
+        AgentError error = AgentError.builder()
+                .code("CONSUMER_002")
+                .title("远程服务不可用")
+                .detail(msg)
+                .status(HttpStatus.BAD_GATEWAY.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     // ========== 认证异常 ==========
 
     @ExceptionHandler({SecurityException.class})
-    public ResponseEntity<ErrorResponse> handleSecurityException(
+    public ResponseEntity<AgentApiResponse<Void>> handleSecurityException(
             SecurityException e, HttpServletRequest request) {
         log.warn("[CONSUMER_005] 认证失败 | path={} | msg={}", request.getRequestURI(), e.getMessage());
+
+        AgentError error = AgentError.builder()
+                .code("CONSUMER_005")
+                .title("认证失败")
+                .detail("认证失败，请重新登录")
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
-                ErrorResponse.of("CONSUMER_005", "认证失败，请重新登录",
-                        HttpStatus.UNAUTHORIZED.value()));
+                AgentApiResponses.error(error, null, 0));
     }
 
     // ========== 兜底异常 ==========
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneralException(
+    public ResponseEntity<AgentApiResponse<Void>> handleGeneralException(
             Exception e, HttpServletRequest request) {
         log.error("[CONSUMER_099] 未处理异常 | path={} | type={} | msg={}",
                 request.getRequestURI(), e.getClass().getSimpleName(), e.getMessage(), e);
 
-        ErrorResponse resp = ErrorResponse.of("CONSUMER_099", "服务内部异常，请联系管理员",
-                HttpStatus.INTERNAL_SERVER_ERROR.value());
-        resp.setDetail(e.getClass().getSimpleName() + ": " + e.getMessage());
-        return ResponseEntity.internalServerError().body(resp);
+        AgentError error = AgentError.builder()
+                .code("CONSUMER_099")
+                .title("服务内部异常")
+                .detail("服务内部异常，请联系管理员")
+                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                .instance(request.getRequestURI())
+                .build();
+
+        metricsCollector.recordError(error);
+        return ResponseEntity.internalServerError().body(
+                AgentApiResponses.error(error, null, 0));
     }
 
     // ========== 工具方法 ==========
@@ -144,38 +224,5 @@ public class GlobalExceptionHandler {
             return m.group(1);
         }
         return null;
-    }
-
-    private String extractDetail(String message) {
-        if (message == null) return null;
-        return message.length() > 200 ? message.substring(0, 200) : message;
-    }
-
-    // ========== 统一响应模型 ==========
-
-    @lombok.Data
-    @lombok.Builder
-    @lombok.AllArgsConstructor
-    @lombok.NoArgsConstructor
-    public static class ErrorResponse {
-        private String code;
-        private String msg;
-        private int status;
-        @lombok.Builder.Default
-        private String service = "consumer-service";
-        @lombok.Builder.Default
-        private LocalDateTime timestamp = LocalDateTime.now();
-        private String traceId;
-        private String detail;
-
-        public static ErrorResponse of(String code, String msg, int status) {
-            return ErrorResponse.builder()
-                    .code(code)
-                    .msg(msg)
-                    .status(status)
-                    .service("consumer-service")
-                    .timestamp(LocalDateTime.now())
-                    .build();
-        }
     }
 }

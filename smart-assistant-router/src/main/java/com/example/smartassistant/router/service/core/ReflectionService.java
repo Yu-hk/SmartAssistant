@@ -212,7 +212,7 @@ public class ReflectionService {
                 originalAgent, fallbackAgent);
 
         try {
-            String retryResult = agentCallerService.callAgent(fallbackAgent, question, userId);
+            String retryResult = agentCallerService.callAgent(fallbackAgent, question, userId, requestId);
             if (retryResult != null && !retryResult.isBlank()
                     && !retryResult.startsWith("❌") && !retryResult.startsWith("⚠️")) {
                 // 对重试结果再评估一次
