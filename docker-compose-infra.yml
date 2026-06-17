@@ -1,0 +1,86 @@
+# SmartAssistant 基础设施服务（独立部署）
+# 使用: docker compose -f docker-compose-infra.yml up -d
+# 停止: docker compose -f docker-compose-infra.yml down
+# 查看日志: docker compose -f docker-compose-infra.yml logs -f
+
+services:
+  # === Redis 缓存 (端口 6379) ===
+  redis:
+    image: redis:7.2.4
+    container_name: smart-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # === Nacos 服务注册与发现 (端口 8848/9848) ===
+  nacos:
+    image: nacos/nacos-server:v3.1.0
+    container_name: smart-nacos
+    ports:
+      - "8848:8848"   # 客户端通信
+      - "9848:9848"   # gRPC 通信
+    environment:
+      - MODE=standalone
+      - JVM_XMS=256m
+      - JVM_XMX=512m
+      - NACOS_AUTH_ENABLE=false
+      - NACOS_AUTH_IDENTITY_KEY=serverIdentity
+      - NACOS_AUTH_IDENTITY_VALUE=security
+      - NACOS_AUTH_TOKEN=${NACOS_AUTH_TOKEN:-SecretKey012345678901234567890123456789012345678901234567890123456789}
+      - NACOS_AUTH_USERNAME=${NACOS_USERNAME:-nacos}
+      - NACOS_AUTH_PASSWORD=${NACOS_PASSWORD:-nacos123}
+      - NACOS_CORE_API_COMPATIBILITY_CONSOLE_ENABLED=true
+    volumes:
+      - nacos-data:/home/nacos/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # === PostgreSQL 16 + pgvector 向量检索 (端口 5432) ===
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    container_name: smart-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-a2a_system}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docs/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./docs/database/seed_data.sql:/docker-entrypoint-initdb.d/02-seed-data.sql
+    command: >
+      -c shared_preload_libraries=vector
+      -c max_connections=200
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-a2a_system}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # === Zipkin 链路追踪 (端口 9411) ===
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: smart-zipkin
+    ports:
+      - "9411:9411"
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  nacos-data:
+  postgres-data:

@@ -80,6 +80,8 @@ public class SmartReActAgent {
     private static final int DEFAULT_MAX_CONCURRENCY = 4;
     /** 默认单个工具超时（毫秒） */
     private static final long DEFAULT_TOOL_TIMEOUT_MS = 30_000;
+    /** ⭐ 连续无增量检测阈值：连续几次工具调用结果相似时强制停止 */
+    private static final int NO_INCREMENT_LIMIT = 2;
 
     private final ChatModel chatModel;
 
@@ -209,6 +211,10 @@ public class SmartReActAgent {
         long totalOutputTokens = 0;
         long maxBudgetTokens = (long) (contextWindow * tokenBudgetRatio);
 
+        // ⭐ 工具循环检测：记录最近工具调用的哈希，用于检测连续无增量
+        String lastToolCallHash = null;
+        int noIncrementCount = 0;
+
         // 预构建 ToolCallingChatOptions（每次循环复用）
         ToolCallingChatOptions options = ToolCallingChatOptions.builder()
                 .toolCallbacks(tools.toArray(new ToolCallback[0]))
@@ -251,6 +257,8 @@ public class SmartReActAgent {
             // ⭐ 调用 LLM
             ChatResponse response;
             try {
+                // ⭐ 注入工具列表到 CustomDeepSeekChatModel（如果适用）
+                injectToolsToModel(tools);
                 response = chatModel.call(new Prompt(messages, options));
             } catch (Exception e) {
                 log.error("[SmartReActAgent] LLM 调用失败: {}", e.getMessage());
@@ -289,6 +297,20 @@ public class SmartReActAgent {
 
             // ⭐ 执行工具（支持并行）
             List<ToolResponseMessage.ToolResponse> toolResponses = executeTools(toolCalls, toolMap);
+
+            // ⭐ 连续无增量检测：防止重复调同类工具陷入循环
+            String currentHash = toolCalls.stream().map(tc -> tc.name()).sorted()
+                    .collect(java.util.stream.Collectors.joining(","));
+            if (currentHash.equals(lastToolCallHash)) {
+                noIncrementCount++;
+                if (noIncrementCount >= NO_INCREMENT_LIMIT) {
+                    log.warn("[SmartReActAgent] 连续 {} 次相同工具调用，强制停止", noIncrementCount);
+                    return "执行过程中检测到重复调用，已为您整理了当前能获取的最佳信息。请尝试换一种方式描述您的问题。";
+                }
+            } else {
+                lastToolCallHash = currentHash;
+                noIncrementCount = 0;
+            }
 
             messages.add(ToolResponseMessage.builder()
                     .responses(toolResponses)
@@ -572,5 +594,24 @@ public class SmartReActAgent {
             }
         }
         return results;
+    }
+
+    /**
+     * ⭐ 向自定义 ChatModel 注入工具列表（通过反射，避免循环依赖）。
+     * <p>
+     * 如果 chatModel 有 {@code setToolCallbacks(List)} 方法，则调用它。
+     * 这允许 CustomDeepSeekChatModel 获取工具定义并向 DeepSeek API 发送 tools 参数。
+     * </p>
+     */
+    private void injectToolsToModel(List<ToolCallback> tools) {
+        try {
+            var method = chatModel.getClass().getMethod("setToolCallbacks", java.util.List.class);
+            method.invoke(chatModel, tools);
+            log.debug("[SmartReActAgent] 通过反射注入 {} 个工具到 ChatModel", tools.size());
+        } catch (NoSuchMethodException e) {
+            // ChatModel 没有 setToolCallbacks 方法，这是正常的
+        } catch (Exception e) {
+            log.warn("[SmartReActAgent] 注入工具到 ChatModel 失败: {}", e.getMessage());
+        }
     }
 }

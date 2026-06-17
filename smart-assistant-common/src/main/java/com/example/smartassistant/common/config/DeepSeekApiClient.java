@@ -48,9 +48,15 @@ public class DeepSeekApiClient {
 
     /**
      * 构建请求 JSON：禁用 thinking_mode，保持与 Spring AI Prompt 兼容的消息结构
+     *
+     * @param model        模型名称
+     * @param temperature  温度参数
+     * @param maxTokens    最大 Token 数
+     * @param messagesNode 消息列表（必填）
+     * @param toolsNode    工具定义列表（可为 null，为 null 时不发送 tools 字段）
      */
     public String buildRequestJson(String model, double temperature, int maxTokens,
-                                   JsonNode messagesNode) throws Exception {
+                                   JsonNode messagesNode, JsonNode toolsNode) throws Exception {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", model);
         root.put("temperature", temperature);
@@ -62,6 +68,9 @@ public class DeepSeekApiClient {
         root.set("extra_body", objectMapper.createObjectNode().set("thinking", thinking));
 
         root.set("messages", messagesNode);
+        if (toolsNode != null) {
+            root.set("tools", toolsNode);
+        }
         return objectMapper.writeValueAsString(root);
     }
 

@@ -47,16 +47,13 @@ public class AgentStreamClient {
 
     @PostConstruct
     public void init() {
-        // 启动时循环等待 Redis 中的 Agent URL 映射（Router 可能需要几秒才能写入）
-        for (int i = 0; i < 15; i++) {
-            refreshAgentUrls();
-            if (!agentUrlCache.isEmpty()) {
-                log.info("[AgentStreamClient] Agent URL 映射加载完成，共 {} 个 Agent", agentUrlCache.size());
-                return;
-            }
-            try { Thread.sleep(2000); } catch (InterruptedException ignored) { break; }
+        // 尝试一次加载，不阻塞启动；后续由 ensureCacheFresh() 在后台重试
+        refreshAgentUrls();
+        if (!agentUrlCache.isEmpty()) {
+            log.info("[AgentStreamClient] Agent URL 映射加载完成，共 {} 个 Agent", agentUrlCache.size());
+        } else {
+            log.warn("[AgentStreamClient] 启动时未加载到 Agent URL 映射，将在后台继续重试");
         }
-        log.warn("[AgentStreamClient] 启动时未加载到 Agent URL 映射，将在后台继续重试");
     }
 
     private void refreshAgentUrls() {

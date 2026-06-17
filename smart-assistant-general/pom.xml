@@ -90,6 +90,12 @@
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
+        <!-- ⭐ AOP（smart-assistant-common 中为 optional，需显式引入） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- ⭐ IKAnalyzer 中文分词器（common 中为 optional，需显式引入） -->
         <dependency>
             <groupId>com.github.magese</groupId>

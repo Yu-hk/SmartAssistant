@@ -7,20 +7,11 @@
 
 package com.example.smartassistant.service.agent;
 
-import com.alibaba.cloud.ai.graph.NodeOutput;
-import com.alibaba.cloud.ai.graph.agent.ReactAgent;
-import com.alibaba.cloud.ai.graph.streaming.StreamingOutput;
+import com.example.smartassistant.common.agent.SmartReActAgent;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.AssistantMessage.ToolCall;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
-import org.springframework.ai.chat.messages.Message;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
-
-import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 流式旅行 Agent 服务
@@ -38,151 +29,46 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class StreamingTravelAgentService {
 
-    private final ReactAgent orderAgent;
+    private final SmartReActAgent orderAgent;
 
-    public StreamingTravelAgentService(ReactAgent orderAgent) {
+    public StreamingTravelAgentService(SmartReActAgent orderAgent) {
         this.orderAgent = orderAgent;
     }
 
     /**
      * 流式对话，返回推理过程事件流
+     * <p>
+     * 使用 {@link SmartReActAgent#execute(String)} 执行推理，
+     * 因 {@code SmartReActAgent} 为同步执行器，流式结果仅包含最终回复事件。
      *
      * @param userMessage  用户消息
-     * @param showThinking 是否显示思考过程
+     * @param showThinking 是否显示思考过程（SmartReActAgent 同步模式不产生流式思考事件）
      * @return SSE 事件流
      */
     public Flux<ThinkingEvent> streamWithThinking(String userMessage, boolean showThinking) {
-        log.info("[StreamingAgent] 开始流式推理: message={}, showThinking={}", userMessage, showThinking);
+        log.info("[StreamingAgent] 开始推理: message={}, showThinking={}", userMessage, showThinking);
 
-        Flux<NodeOutput> outputFlux;
-        try {
-            outputFlux = orderAgent.stream(userMessage);
-        } catch (Exception e) {
-            log.error("[StreamingAgent] 启动流式推理失败: {}", e.getMessage(), e);
-            return Flux.just(ThinkingEvent.error("启动流式推理失败: " + e.getMessage()), ThinkingEvent.done());
-        }
-
-        AtomicInteger stepCounter = new AtomicInteger(1);
-        AtomicInteger toolCounter = new AtomicInteger(1);
-        StringBuilder responseBuilder = new StringBuilder();
-
-        return outputFlux
-                .filter(nodeOutput -> nodeOutput instanceof StreamingOutput)
-                .map(nodeOutput -> (StreamingOutput) nodeOutput)
-                .mapNotNull(streamingOutput -> {
-                    try {
-                        return processStreamingOutput(streamingOutput, stepCounter, toolCounter,
-                                showThinking, responseBuilder);
-                    } catch (Exception e) {
-                        log.error("[StreamingAgent] 处理输出异常: {}", e.getMessage(), e);
-                        return ThinkingEvent.error(e.getMessage());
-                    }
-                })
-                .filter(Objects::nonNull) // 过滤空事件
-                .doOnComplete(() -> {
-                    String finalResponse = responseBuilder.toString();
-                    if (!finalResponse.isEmpty()) {
-                        log.info("[StreamingAgent] 推理完成，最终回复长度: {}", finalResponse.length());
-                    }
-                    // ⭐ 如果最终响应事件为空，发送完成信号
-                    if (!responseBuilder.isEmpty()) {
-                        log.info("[StreamingAgent] 发送完成信号");
-                    }
-                })
-                // ⭐ 确保发送完成信号
-                .concatWith(Flux.just(ThinkingEvent.done()))
-                .doOnError(e -> log.error("[StreamingAgent] 流式推理异常: {}", e.getMessage(), e))
-                .onErrorResume(e -> {
-                    String msg = e.getMessage();
-                    if (msg != null && (msg.contains("image") || msg.contains("png") || msg.contains("jpg") || msg.contains("does not support"))) {
-                        log.error("[StreamingAgent] 模型不支持图片输入，已拦截: {}", msg);
-                        return Flux.just(
-                            ThinkingEvent.error("当前模型不支持图片输入，请避免在问题中包含图片引用"),
-                            ThinkingEvent.done()
-                        );
-                    }
-                    return Flux.just(ThinkingEvent.error(msg != null ? msg : "处理异常"), ThinkingEvent.done());
-                });
-    }
-
-    /**
-     * 处理流式输出，转换为 ThinkingEvent
-     */
-    private ThinkingEvent processStreamingOutput(
-            StreamingOutput output,
-            AtomicInteger stepCounter,
-            AtomicInteger toolCounter,
-            boolean showThinking,
-            StringBuilder responseBuilder) {
-
-        String outputType = output.getOutputType().name();
-        Message message = output.message();
-
-        // 模型流式输出（思考过程）
-        switch (outputType) {
-            case "AGENT_MODEL_STREAMING" -> {
-                if (message instanceof AssistantMessage assistantMsg) {
-                    // 获取推理内容
-                    Object reasoningContent = assistantMsg.getMetadata().get("reasoningContent");
-                    if (reasoningContent != null && !reasoningContent.toString().isEmpty() && showThinking) {
-                        String thinking = reasoningContent.toString();
-                        log.debug("[StreamingAgent] 思考过程[{}]: {}", stepCounter.get(), truncate(thinking, 100));
-                        return ThinkingEvent.thinking(stepCounter.getAndIncrement(), thinking);
-                    }
-
-                    // 普通回复内容（累积到 responseBuilder）
-                    String text = assistantMsg.getText();
-                    if (text != null && !text.isEmpty()) {
-                        responseBuilder.append(text);
-                    }
+        return Flux.create(sink -> {
+            try {
+                String result = orderAgent.execute(userMessage);
+                if (result != null && !result.isEmpty()) {
+                    log.info("[StreamingAgent] 推理完成，回复长度: {}", result.length());
+                    sink.next(ThinkingEvent.response(result));
                 }
-            }
-            // 模型推理完成，检查工具调用
-            case "AGENT_MODEL_FINISHED" -> {
-                if (message instanceof AssistantMessage assistantMsg) {
-                    if (assistantMsg.hasToolCalls()) {
-                        for (ToolCall toolCall : assistantMsg.getToolCalls()) {
-                            int step = toolCounter.getAndIncrement();
-                            log.info("[StreamingAgent] 工具调用[{}]: {}", step, toolCall.name());
-                            return ThinkingEvent.toolCall(step, toolCall.name(), toolCall.arguments());
-                        }
-                    }
-
-                    // 完整回复内容
-                    String fullText = assistantMsg.getText();
-                    if (fullText != null && !fullText.isEmpty()) {
-                        responseBuilder.append(fullText);
-                        return ThinkingEvent.response(fullText);
-                    }
+                sink.next(ThinkingEvent.done());
+                sink.complete();
+            } catch (Exception e) {
+                String msg = e.getMessage();
+                log.error("[StreamingAgent] 推理异常: {}", msg, e);
+                if (msg != null && (msg.contains("image") || msg.contains("png") || msg.contains("jpg") || msg.contains("does not support"))) {
+                    sink.next(ThinkingEvent.error("当前模型不支持图片输入，请避免在问题中包含图片引用"));
+                } else {
+                    sink.next(ThinkingEvent.error(msg != null ? msg : "处理异常"));
                 }
+                sink.next(ThinkingEvent.done());
+                sink.complete();
             }
-            // 工具执行完成
-            case "AGENT_TOOL_FINISHED" -> {
-                if (message instanceof ToolResponseMessage toolResponse) {
-                    StringBuilder results = new StringBuilder();
-                    toolResponse.getResponses().forEach(response -> {
-                        String result = response.responseData();
-                        if (result.length() > 2000) {
-                            result = result.substring(0, 2000) + "...";
-                        }
-                        results.append(response.name()).append(": ").append(result);
-                    });
-                    String resultStr = results.toString();
-                    log.debug("[StreamingAgent] 工具结果: {}", truncate(resultStr, 100));
-                    return ThinkingEvent.toolResult(resultStr);
-                }
-            }
-        }
-
-        return null; // 无需处理的事件
-    }
-
-    /**
-     * 截断字符串
-     */
-    private static String truncate(String str, int maxLen) {
-        if (str == null || str.length() <= maxLen) return str;
-        return str.substring(0, maxLen) + "...";
+        });
     }
 
     /**
@@ -235,6 +121,14 @@ public class StreamingTravelAgentService {
 
         public static ThinkingEvent done() {
             return new ThinkingEvent(EventType.DONE, 0, null, null, null);
+        }
+
+        /**
+         * 截断字符串
+         */
+        private static String truncate(String str, int maxLen) {
+            if (str == null || str.length() <= maxLen) return str;
+            return str.substring(0, maxLen) + "...";
         }
 
         @Override

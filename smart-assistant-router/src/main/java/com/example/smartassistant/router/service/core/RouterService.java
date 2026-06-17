@@ -15,6 +15,8 @@ import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
+import com.example.smartassistant.router.service.experience.ExperienceModel;
+import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,8 +44,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>已移除职责（迁移到 Consumer）：</p>
  * <ul>
  *     <li>日常建议生成 → Consumer.LLMSuggestionService</li>
- *     <li>多意图识别与处理 → 不再支持，只处理第一个意图</li>
  * </ul>
+ * <p>⭐ v2: 多意图由 ExperienceService 的 BGE 向量匹配提供，Router 通过 secondaryIntents
+ * 感知副意图并记录日志；未来可在协作执行场景下并行调用所有匹配的 Agent。</p>
  */
 @Service
 public class RouterService {
@@ -59,6 +62,7 @@ public class RouterService {
     private final ResultMerger resultMerger;
     private final ReflectionService reflectionService;
     private final ModelRoutingService modelRoutingService;
+    private final ExperienceService experienceService;
 
     @Value("${router.agent.rag.enabled:false}")
     private boolean ragEnabled;
@@ -84,7 +88,8 @@ public class RouterService {
                          TaskPlannerService taskPlanner,
                          ResultMerger resultMerger,
                          ReflectionService reflectionService,
-                         ModelRoutingService modelRoutingService) {
+                         ModelRoutingService modelRoutingService,
+                         ExperienceService experienceService) {
         this.agentCallerService = agentCallerService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
@@ -94,6 +99,7 @@ public class RouterService {
         this.resultMerger = resultMerger;
         this.reflectionService = reflectionService;
         this.modelRoutingService = modelRoutingService;
+        this.experienceService = experienceService;
     }
     
     /**
@@ -105,8 +111,62 @@ public class RouterService {
                 request.getUserId(), request.getSessionId(), truncate(request.getQuestion(), 100));
 
         try {
-            // Step 1: 检查语义缓存（仅存 agent 名，不存回复内容）
+            // Step 0: 经验匹配（优先级最高，在语义缓存之上）
+            // ⭐ 经验匹配可直接跳过 LLM 推理，命中 TOOL 经验时甚至直接执行工具
             String question = request.getQuestion();
+            ExperienceService.ExperienceMatchResult experienceMatch = experienceService.match(question);
+            if (experienceMatch != null) {
+                log.info("[Router] 🧠 经验匹配命中: type={}, agent={}, score={}",
+                        experienceMatch.experience.getType(), experienceMatch.agentName,
+                        String.format("%.2f", experienceMatch.matchScore));
+
+                // ⭐ 多意图：记录副匹配日志（未来可用于并行调用）
+                if (experienceMatch.secondaryIntents != null && !experienceMatch.secondaryIntents.isEmpty()) {
+                    for (var si : experienceMatch.secondaryIntents) {
+                        log.info("[Router] 🔀 副意图: agent={}, intent={}, score={}",
+                                si.agentName, si.intentTag, String.format("%.2f", si.score));
+                    }
+                }
+                
+                // TOOL 经验：直接把 reroutedQuestion 发往目标 Agent
+                if (experienceMatch.isToolExperience) {
+                    String agentReply = agentCallerService.callAgent(
+                            experienceMatch.agentName,
+                            experienceMatch.reroutedQuestion,
+                            request.getUserId(),
+                            request.getRequestId());
+                    if (agentReply != null && !agentReply.isBlank()) {
+                        RoutingResult result = RoutingResult.builder()
+                                .result(agentReply)
+                                .agentName(experienceMatch.agentName)
+                                .confidence(experienceMatch.matchScore)
+                                .intentTag(experienceMatch.experience.getIntentTag())
+                                .build();
+                        return finalizeRouting(result, request, question);
+                    }
+                }
+                
+                // COMMON / REACT 经验：设置路由目标，跳过 TaskPlanner
+                if (experienceMatch.skipTaskPlanning) {
+                    String agentReply = agentCallerService.callAgent(
+                            experienceMatch.agentName,
+                            experienceMatch.reroutedQuestion != null ? 
+                                    experienceMatch.reroutedQuestion : question,
+                            request.getUserId(),
+                            request.getRequestId());
+                    if (agentReply != null && !agentReply.isBlank()) {
+                        RoutingResult result = RoutingResult.builder()
+                                .result(agentReply)
+                                .agentName(experienceMatch.agentName)
+                                .confidence(experienceMatch.matchScore)
+                                .intentTag(experienceMatch.experience.getIntentTag())
+                                .build();
+                        return finalizeRouting(result, request, question);
+                    }
+                }
+            }
+
+            // Step 1: 检查语义缓存（仅存 agent 名，不存回复内容）
             SemanticRouteCacheService.CachedRouteDecision cached = semanticCache.getCachedDecision(question);
             
             // Step 2: 构建上下文
@@ -166,69 +226,131 @@ public class RouterService {
             String intentTag = semanticCache.generateIntentTag(question);
             result.setIntentTag(intentTag);
 
-            // ⭐⭐ 反思器：对非缓存的新结果进行质量评估（纯规则评分，不调 LLM）
-            if (cached == null && result.getResult() != null && !result.getResult().isBlank()
-                    && result.getAgentName() != null && !"none".equals(result.getAgentName())) {
-                ReflectionResult reflection = reflectionService.evaluate(
-                        question, result.getResult(), result.getAgentName(), intentTag, userId);
-                if (!reflection.isAcceptable()) {
-                    log.warn("[Router] 🪞 反思不通过: score={}, agent={}, reason={}",
-                            String.format("%.2f", reflection.getScore()),
-                            result.getAgentName(), reflection.getReason());
-                    // 最多重试 1 次，换 fallback Agent
-                    String retryResult = reflectionService.retry(
-                            question, result.getResult(), result.getAgentName(),
-                            intentTag, userId, request.getRequestId());
-                    if (retryResult != null && !retryResult.equals(result.getResult())) {
-                        result.setResult(retryResult);
-                        log.info("[Router] 🪞 反思重试成功，已替换低质量回复");
-                    }
-                    // ⭐ 低质量回复不写语义缓存（防污染），直接跳到写 Redis 决策
-                    if (result.getResult() != null && !result.getResult().startsWith("❌")) {
-                        // 即使反思不通过，如果重试后结果改善，仍允许缓存
-                    }
-                    // 标记反思不通过，后续 saveReply 会额外检查
-                }
-            }
-            
-            // ⭐ 提取原始问题（去除 Prompt 模板标记），用于缓存 key 生成
-            String rawQuestion = extractRawQuestion(question);
-            
-            // ⭐ 缓存路由决策 + 回复（使用原始问题 + 已生成的 intentTag）
-            String agentName = result.getAgentName();
-            String requestId = request.getRequestId();
-            if (agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
-                // 缓存路由决策（含审计日志）
-                semanticCache.saveDecision(requestId, question, agentName, result.getConfidence(), userId, intentTag, request.getSessionId());
-                // 更新精确匹配为原始问题的 MD5（覆盖带历史计数的全 Prompt MD5）
-                semanticCache.saveExactMatch(rawQuestion, intentTag);
-
-                // 缓存回复内容（Agent 返回后异步写入，不阻塞主流程）
-                // ⭐ 低质量回复（反思不通过且未改善）不写语义缓存，防污染
-                String reply = result.getResult();
-                if (cached == null || cached.reply == null) {
-                    // 首次路由或 Agent 重新调用：缓存回复原文
-                    if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")
-                            && reply.length() >= 20) {  // ⭐ 过短回复不缓存
-                        semanticCache.saveReply(question, reply, agentName, intentTag, Boolean.TRUE.equals(result.getAdminOperation()));
-                    }
-                }
-                // 缓存命中时已有回复缓存，无需重复写入
-            }
-
-            // ⭐ 将完整决策写入 Redis，供 Consumer 阻塞读取（含 intentTag）
-            if (requestId != null && !requestId.isBlank() && agentName != null) {
-                semanticCache.saveFullDecisionForConsumer(requestId, agentName,
-                        result.getConfidence(), result.getResult(), result.getIntentTag());
-            }
-            
-            return result;
+            // ⭐⭐ 反思器 + 缓存写入 + 经验提取（公共后处理）
+            return finalizeRouting(result, request, extractRawQuestion(question));
 
         } catch (Exception e) {
             log.error("[Router] 路由失败: {}", e.getMessage(), e);
             return RoutingResult.builder()
                     .result("❌ 路由失败: " + e.getMessage())
                 .build();
+        }
+    }
+
+    /**
+     * ⭐ 路由后处理公共方法：
+     * 反思器评估 → 语义缓存写入 → 经验提取 → 完整决策写入 Redis
+     * <p>
+     * 经验匹配命中的路径和正常语义缓存的路径都汇聚到此，避免重复代码。
+     */
+    private RoutingResult finalizeRouting(RoutingResult result, RouteRequest request, String rawQuestion) {
+        String question = request.getQuestion();
+        Long userId = request.getUserId();
+        String intentTag = result.getIntentTag();
+        if (intentTag == null || intentTag.isBlank()) {
+            intentTag = semanticCache.generateIntentTag(question);
+            result.setIntentTag(intentTag);
+        }
+
+        // ⭐⭐ 反思器：对非缓存的新结果进行质量评估（纯规则评分，不调 LLM）
+        if (result.getResult() != null && !result.getResult().isBlank()
+                && result.getAgentName() != null && !"none".equals(result.getAgentName())
+                && !Boolean.TRUE.equals(result.getFromCache())) {
+            ReflectionResult reflection = reflectionService.evaluate(
+                    question, result.getResult(), result.getAgentName(), intentTag, userId);
+            if (!reflection.isAcceptable()) {
+                log.warn("[Router] 🪞 反思不通过: score={}, agent={}, reason={}",
+                        String.format("%.2f", reflection.getScore()),
+                        result.getAgentName(), reflection.getReason());
+                // 最多重试 1 次，换 fallback Agent
+                String retryResult = reflectionService.retry(
+                        question, result.getResult(), result.getAgentName(),
+                        intentTag, userId, request.getRequestId());
+                if (retryResult != null && !retryResult.equals(result.getResult())) {
+                    result.setResult(retryResult);
+                    log.info("[Router] 🪞 反思重试成功，已替换低质量回复");
+                }
+            }
+        }
+
+        // ⭐ 缓存路由决策 + 回复
+        String agentName = result.getAgentName();
+        String requestId = request.getRequestId();
+        String reply = result.getResult();
+
+        if (agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
+            // 缓存路由决策（含审计日志 + 精确匹配覆盖）
+            semanticCache.saveDecision(requestId, question, agentName, result.getConfidence(), userId, intentTag, request.getSessionId());
+            semanticCache.saveExactMatch(rawQuestion != null ? rawQuestion : question, intentTag);
+
+            // 缓存回复内容（低质量回复不缓存，防污染）
+            if (!Boolean.TRUE.equals(result.getFromCache())) {
+                if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")
+                        && reply.length() >= 20) {
+                    semanticCache.saveReply(question, reply, agentName, intentTag, Boolean.TRUE.equals(result.getAdminOperation()));
+                }
+            }
+
+            // ⭐⭐ 经验提取（Agent 执行成功后才提取）
+            if (!Boolean.TRUE.equals(result.getFromCache())) {
+                // 提取 COMMON 经验
+                experienceService.extractCommonExperience(question, agentName, intentTag);
+
+                // 提取 TOOL 经验（如果回复中包含工具调用信息）
+                extractToolExperienceIfApplicable(reply, agentName, intentTag, question);
+            }
+        }
+
+        // ⭐ 将完整决策写入 Redis，供 Consumer 阻塞读取
+        if (requestId != null && !requestId.isBlank() && agentName != null) {
+            semanticCache.saveFullDecisionForConsumer(requestId, agentName,
+                    result.getConfidence(), reply, intentTag);
+        }
+
+        return result;
+    }
+
+    /**
+     * 尝试从 Agent 回复中提取 TOOL 经验。
+     * 当回复包含明显的工具调用模式时，提取为 TOOL 经验以备后续复用。
+     */
+    private void extractToolExperienceIfApplicable(String reply, String agentName, String intentTag, String question) {
+        if (reply == null || reply.isBlank() || agentName == null || intentTag == null) return;
+
+        // 检测工具调用模式：回复中包含特定的关键词表明使用了某个工具
+        // Order Agent 工具模式
+        if ("order_agent".equals(agentName)) {
+            if (reply.contains("订单") && (reply.contains("状态") || reply.contains("查询") || reply.contains("ORD-"))) {
+                String params = extractOrderParams(question);
+                experienceService.extractToolExperience(question, agentName, intentTag,
+                        "queryOrder", params, "订单{orderId}当前状态为{status}");
+            }
+            if (reply.contains("退款") || reply.contains("退货")) {
+                experienceService.extractToolExperience(question, agentName, intentTag,
+                        "refundOrder", "{\"orderId\": \"" + extractOrderId(question) + "\"}", "退款申请已提交");
+            }
+        }
+        // Product Agent 工具模式
+        else if ("product_agent".equals(agentName)) {
+            if (reply.contains("价格") || reply.contains("多少钱") || reply.contains("报价")) {
+                experienceService.extractToolExperience(question, agentName, intentTag,
+                        "queryPrice", "{\"product\": \"" + extractProductName(question) + "\"}", "{product}的价格为{price}");
+            }
+            if (reply.contains("库存") || reply.contains("有货") || reply.contains("缺货")) {
+                experienceService.extractToolExperience(question, agentName, intentTag,
+                        "checkStock", "{\"product\": \"" + extractProductName(question) + "\"}", "{product}的库存状态为{status}");
+            }
+        }
+        // General Agent 工具模式
+        else if ("general_agent".equals(agentName)) {
+            if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
+                experienceService.extractToolExperience(question, agentName, intentTag,
+                        "getWeather", "{\"location\": \"" + extractLocation(question) + "\"}", "{location}当前天气为{weather}");
+            }
+            if (reply.contains("新闻") || reply.contains("热点") || reply.contains("头条")) {
+                experienceService.extractToolExperience(question, agentName, intentTag,
+                        "getHotNews", "{}", "以下是近期热点新闻");
+            }
         }
     }
 
@@ -278,6 +400,11 @@ public class RouterService {
                 .map(SubTaskResult::getAgentName)
                 .filter(Objects::nonNull)
                 .findFirst().orElse("none");
+
+        // ⭐ 提取 REACT 经验（多步协作链路）
+        if (tasks.size() >= 2) {
+            experienceService.extractReactExperience(question, tasks);
+        }
 
         return RoutingResult.builder()
                 .result(merged)
@@ -503,6 +630,67 @@ public class RouterService {
     public static String truncate(String str, int maxLength) {
         if (str == null) return "";
         return str.length() > maxLength ? str.substring(0, maxLength) + "..." : str;
+    }
+
+    // ==================== 参数提取工具（用于 TOOL 经验提取）====================
+
+    /**
+     * 从问题中提取订单 ID
+     */
+    private String extractOrderId(String question) {
+        if (question == null) return "";
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("ORD[-_]?\\d+");
+        java.util.regex.Matcher matcher = pattern.matcher(question);
+        return matcher.find() ? matcher.group() : question;
+    }
+
+    /**
+     * 从问题中提取订单参数
+     */
+    private String extractOrderParams(String question) {
+        String orderId = extractOrderId(question);
+        if (!orderId.isEmpty() && !orderId.equals(question)) {
+            return "{\"orderId\": \"" + orderId + "\"}";
+        }
+        return "{\"orderId\": \"" + question + "\"}";
+    }
+
+    /**
+     * 从问题中提取商品名称
+     */
+    private String extractProductName(String question) {
+        if (question == null) return "";
+        // 常见商品关键词后提取
+        String[] productIndicators = {"多少钱", "价格", "有货", "库存", "怎么样", "好不好"};
+        for (String indicator : productIndicators) {
+            int idx = question.indexOf(indicator);
+            if (idx > 0) {
+                return question.substring(0, idx).trim();
+            }
+        }
+        // 提取第一个名词短语
+        if (question.length() > 8) return question.substring(0, Math.min(question.length(), 20));
+        return question;
+    }
+
+    /**
+     * 从问题中提取地点
+     */
+    private String extractLocation(String question) {
+        if (question == null) return "";
+        // 常见地点指示词
+        String[] indicators = {"在", "到", "去", "于", "的天气", "气温"};
+        for (String ind : indicators) {
+            int idx = question.indexOf(ind);
+            if (idx >= 0) {
+                String before = question.substring(0, idx).trim();
+                String after = question.substring(idx + ind.length()).trim();
+                // 取指示词前的地名（如果指示词在开头取后面）
+                if (before.length() >= 2 && before.length() <= 10) return before;
+                if (after.length() >= 2 && after.length() <= 10 && !after.contains("?")) return after;
+            }
+        }
+        return question.replace("天气", "").replace("气温", "").replace("?", "").trim();
     }
 
 }
