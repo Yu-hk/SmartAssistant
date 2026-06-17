@@ -32,6 +32,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 自研 ReAct 循环执行器。
@@ -491,19 +492,22 @@ public class SmartReActAgent {
 
     // ==================== 并行工具执行 ====================
 
-    /** 工具执行线程池（延迟初始化） */
+    /** 工具执行线程池（虚拟线程延迟初始化） */
     private volatile ExecutorService toolExecutor;
+
+    /** 工具线程池初始化锁 */
+    private final ReentrantLock toolExecutorInitLock = new ReentrantLock();
 
     private ExecutorService getToolExecutor() {
         if (toolExecutor == null) {
-            synchronized (this) {
+            toolExecutorInitLock.lock();
+            try {
                 if (toolExecutor == null) {
-                    toolExecutor = Executors.newFixedThreadPool(maxConcurrency, r -> {
-                        Thread t = new Thread(r, "tool-executor");
-                        t.setDaemon(true);
-                        return t;
-                    });
+                    // 虚拟线程 per-task 替代固定线程池
+                    toolExecutor = Executors.newVirtualThreadPerTaskExecutor();
                 }
+            } finally {
+                toolExecutorInitLock.unlock();
             }
         }
         return toolExecutor;

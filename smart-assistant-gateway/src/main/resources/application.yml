@@ -6,6 +6,11 @@ spring:
   application:
     name: api-gateway
 
+  # ⭐ 虚拟线程全局启用
+  threads:
+    virtual:
+      enabled: true
+
   cloud:
     # Spring Cloud Gateway 配置
     gateway:

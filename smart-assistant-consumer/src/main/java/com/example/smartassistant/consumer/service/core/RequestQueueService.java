@@ -1,10 +1,3 @@
-/*
- * Copyright (c) 2025-2026 SmartAssistant Project. All rights reserved.
- *
- * Licensed under the MIT License. See LICENSE file in the project root for
- * full license information.
- */
-
 package com.example.smartassistant.consumer.service.core;
 
 import com.example.smartassistant.consumer.config.ChatQueueConfig;
@@ -18,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 请求排队服务
@@ -29,6 +23,9 @@ import java.util.concurrent.TimeUnit;
  * 1. Semaphore 控制 LLM 并发槽位（默认 5）
  * 2. FIFO 队列跟踪等待顺序
  * 3. 等待线程通过 Semaphore.tryAcquire(timeout) 阻塞等待槽位
+ * <p>
+ * 锁策略：
+ * - 使用 {@link ReentrantLock} 替代 {@code synchronized}，避免虚拟线程 Carrier 线程 pin
  */
 @Service
 public class RequestQueueService {
@@ -40,6 +37,9 @@ public class RequestQueueService {
 
     // ⭐ 等待队列（FIFO，仅用于跟踪位置）
     private final LinkedList<QueuedRequest> waitingQueue = new LinkedList<>();
+
+    // ⭐ 等待队列的 ReentrantLock（替代 synchronized，避免虚拟线程 pin）
+    private final ReentrantLock queueLock = new ReentrantLock();
 
     // ⭐ requestId → 等待中的请求（用于查询位置和取消）
     private final Map<String, QueuedRequest> requestMap = new ConcurrentHashMap<>();
@@ -73,9 +73,10 @@ public class RequestQueueService {
             return SlotResult.QUEUE_FULL;
         }
 
-        // 3. 加入等待队列
+        // 3. 加入等待队列（ReentrantLock 替代 synchronized）
         QueuedRequest queued = new QueuedRequest(requestId, System.currentTimeMillis());
-        synchronized (waitingQueue) {
+        queueLock.lock();
+        try {
             // ⭐ 二次检查（在获取锁期间可能槽位被释放）
             if (slots.tryAcquire()) {
                 log.debug("[Queue] ✅ 二次检查获取槽位成功: requestId={}", requestId);
@@ -84,6 +85,8 @@ public class RequestQueueService {
             queued.position = waitingQueue.size() + 1;
             waitingQueue.addLast(queued);
             requestMap.put(requestId, queued);
+        } finally {
+            queueLock.unlock();
         }
 
         log.info("[Queue] ⏳ 进入排队: requestId={}, position={}", requestId, queued.position);
@@ -141,12 +144,15 @@ public class RequestQueueService {
     public int getQueuePosition(String requestId) {
         QueuedRequest queued = requestMap.get(requestId);
         if (queued == null) return 0;
-        synchronized (waitingQueue) {
+        queueLock.lock();
+        try {
             int pos = 1;
             for (QueuedRequest q : waitingQueue) {
                 if (q.requestId.equals(requestId)) return pos;
                 pos++;
             }
+        } finally {
+            queueLock.unlock();
         }
         return 0;
     }
@@ -155,8 +161,11 @@ public class RequestQueueService {
      * 获取当前等待请求数
      */
     public int getQueueSize() {
-        synchronized (waitingQueue) {
+        queueLock.lock();
+        try {
             return waitingQueue.size();
+        } finally {
+            queueLock.unlock();
         }
     }
 
@@ -171,7 +180,8 @@ public class RequestQueueService {
      * 从等待队列中移除指定 requestId
      */
     private void removeFromQueue(String requestId) {
-        synchronized (waitingQueue) {
+        queueLock.lock();
+        try {
             Iterator<QueuedRequest> it = waitingQueue.iterator();
             while (it.hasNext()) {
                 if (it.next().requestId.equals(requestId)) {
@@ -179,6 +189,8 @@ public class RequestQueueService {
                     break;
                 }
             }
+        } finally {
+            queueLock.unlock();
         }
         requestMap.remove(requestId);
     }

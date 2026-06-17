@@ -90,7 +90,7 @@ public class SessionService {
     /**
      * ⭐ 异步保存会话到数据库
      */
-    @Async("taskExecutor")
+    @Async
     public void saveSessionToDatabaseAsync(Long userId, String tokenId, String ipAddress, String userAgent) {
         try {
             UserSession session = new UserSession();

@@ -6,6 +6,11 @@ spring:
   application:
     name: user-service
 
+  # ⭐ 虚拟线程全局启用
+  threads:
+    virtual:
+      enabled: true
+
   # Spring Cloud 配置
   cloud:
     compatibility-verifier:

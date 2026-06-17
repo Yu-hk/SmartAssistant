@@ -32,7 +32,7 @@ public class RoutingCallLogService {
     /**
      * 异步保存路由调用日志
      */
-    @Async("asyncRouteExecutor")
+    @Async
     public void saveLog(String sessionId, String userInput, String routedAgent, 
                        String routeMethod, Long latencyMs, String status) {
         try {

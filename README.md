@@ -1,13 +1,15 @@
 # SmartAssistant — 多智能体对话系统
 
-[![Java](https://img.shields.io/badge/Java-17%2B-blue)](https://adoptium.net/)
+[![Java](https://img.shields.io/badge/Java-21%2B-blue)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.8-brightgreen)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-1.1.2-brightgreen)](https://docs.spring.io/spring-ai/reference/)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.0-brightgreen)](https://docs.spring.io/spring-ai/reference/)
+[![Virtual Threads](https://img.shields.io/badge/Virtual%20Threads-✅-success)](https://openjdk.org/jeps/444)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-> 基于 Spring AI Alibaba + A2A 协议的多智能体客服平台，集成 **本地 Ollama 推理引擎**（deepseek-r1:7b / qwen2.5:7b）+ BGE 本地中文 Embedding。
+> 基于 Spring AI + A2A 协议的多智能体客服平台，集成 **本地 Ollama 推理引擎**（deepseek-r1:7b / qwen2.5:7b）+ BGE 本地中文 Embedding。
 > 支持多 Agent 协同、三层路由兜底、订单查询、商品咨询、语义缓存、全链路监控。
+> 🚀 **JDK 21 + 虚拟线程**：全模块启用虚拟线程，仅保留 1 个 CPU 密集线程池。
 > 🔒 纯本地推理，所有数据不出内网。
 
 ---
@@ -16,6 +18,7 @@
 
 - [项目简介](#项目简介)
 - [核心亮点](#核心亮点)
+- [近期升级（2026-06-17）](#近期升级2026-06-17)
 - [系统架构](#系统架构)
 - [技术栈](#技术栈)
 - [服务说明](#服务说明)
@@ -70,6 +73,20 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🔄 **并行工具执行** | LLM 一次返回多个 tool_call 时自动并行执行(最大4并发)，独立超时，按序收集结果 |
 | 🛡️ **工具接口四步法** | Schema 收窄(enum/required/regex) → 错误结构化(ToolResult) → Description 互斥 → 副作用审批(confirmAction 二阶段确认) |
 | 🧩 **System Prompt 分层** | PromptBuilder 三层组装: base-prompt(通用规则) + 服务自有指令 + 运行动态上下文 |
+| 🚀 **JDK 21 + 虚拟线程** | 全局 `spring.threads.virtual.enabled=true`，7 个模块全量启用。10 个线程池/Executor 替换为 VT，仅保留 asyncEmbeddingExecutor（CPU 密集） |
+| 🔧 **ThreadLocal → MDC** | ToolLogContext 改造为 MDC-only，ChineseTokenizer 清理死 ThreadLocal，RequestQueueService/ChatService/SmartReActAgent synchronized → ReentrantLock，为 VT 扫清前置条件 |
+
+---
+
+## 近期升级（2026-06-17）
+
+| 升级项 | 说明 |
+|--------|------|
+| 🚀 **JDK 17 → 21 LTS** | 全项目编译通过，maven-compiler-plugin 自动适配。启用虚拟线程无需降级 spring-ai |
+| 🧵 **虚拟线程** | `spring.threads.virtual.enabled=true` 覆盖 7 个模块。10 个线程池/Executor → VT，仅保留 asyncEmbeddingExecutor（CPU 密集） |
+| 🔧 **ThreadLocal + synchronized 清理** | ToolLogContext（ThreadLocal→MDC）、ChineseTokenizer（死 ThreadLocal）、RequestQueueService/ChatService/SmartReActAgent（synchronized→ReentrantLock） |
+| 📐 **LangGraph4j POC** | 验证 StateGraph + PostgresSaver 持久化 Checkpoint 到 PG + 节点内 ChatClient 调用链路。编译通过，待启动验证 |
+| 🧠 **Spring AI 2.0.0** | 确认项目实际依赖 spring-ai-bom 2.0.0（非 Spring AI Alibaba），修正 MEMORY 认知偏差 |
 
 ---
 
@@ -157,9 +174,9 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 | 分类 | 技术 | 版本 |
 |------|------|------|
-| 语言 | Java | 17+ |
+| 语言 | Java | **21 LTS**（虚拟线程） |
 | 框架 | Spring Boot | 3.4.8 |
-| AI 框架 | Spring AI Alibaba | 1.1.2 |
+| AI 框架 | Spring AI | 2.0.0（无 SAA 依赖） |
 | 模型 | **Ollama 本地推理**（deepseek-r1:7b / qwen2.5:7b） + BGE-large-zh ONNX (1024d RAG) / BGE-small-zh ONNX (512d Cache) | — |
 | 注册/配置中心 | Nacos（元数据支持动态管理） | 3.1.0 |
 | 缓存 | Redis | 7.2+ |
@@ -167,6 +184,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | ORM | MyBatis-Plus | 3.5+ |
 | 分词 | HanLP | 1.8.4 |
 | SQL 解析 | jsqlparser | 4.9 |
+| Graph 编排 | LangGraph4j（POC 验证中） | 1.8.19 |
 | 构建 | Maven Wrapper | 3.9.6 |
 
 ### 前端
@@ -1157,7 +1175,7 @@ Gateway   Consumer    Router     Travel / Food / User / General
 | food | 34 | 美食推荐、菜系知识、餐厅搜索 |
 | travel | 43 | 天气/景点工具、智能行程规划、RAG 召回匹配、MCP 权限测试 |
 | general | 30 | 数学计算、温度/长度/重量/货币转换、边界条件 |
-| **总计** | **238+** | **27 个测试文件，全模块覆盖** |
+| **总计** | **238+** | **27 个测试文件，全模块覆盖。JDK 21 + VT 改造后 60 个测试 0 失败（10 errors 为 Redis 环境依赖）** |
 
 ---
 

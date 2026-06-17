@@ -19,6 +19,11 @@ spring:
   application:
     name: consumer-service
 
+  # ⭐ 虚拟线程全局启用（JDK 21 + Spring Boot 3.4 原生支持）
+  threads:
+    virtual:
+      enabled: true
+
   # ⭐ MVC 异步请求超时（任务拆解需要更长时间）
   mvc:
     async:

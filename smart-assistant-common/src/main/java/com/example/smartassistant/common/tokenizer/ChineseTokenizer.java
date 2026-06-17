@@ -61,10 +61,7 @@ public class ChineseTokenizer {
     
     /** 最大缓存大小 */
     private static final int MAX_CACHE_SIZE = 10000;
-    
-    /** IKAnalyzer 实例（线程不安全，每个线程需单独创建） */
-    private static final ThreadLocal<IKSegmenter> IK_SEGMENTER_HOLDER = ThreadLocal.withInitial(() -> null);
-    
+
     /** HanLP 是否可用 */
     private boolean hanlpAvailable = false;
     

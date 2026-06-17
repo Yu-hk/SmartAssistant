@@ -17,8 +17,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Travel 服务实时思考控制器
@@ -32,7 +30,6 @@ public class TravelStreamController {
 
     private final SmartReActAgent orderAgent;
     private final StreamingTravelAgentService streamingAgentService;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     public TravelStreamController(
             @Qualifier("orderAgent") SmartReActAgent orderAgent,
@@ -53,7 +50,8 @@ public class TravelStreamController {
         log.info("[TravelStream] 开始流式对话: message={}, showThinking={}, requestId={}", message, showThinking, requestIdHeader);
         SseEmitter emitter = new SseEmitter(360000L);
 
-        executor.execute(() -> {
+        // ⭐ 在虚拟线程中执行流式推送（VT 全局启用，Tomcat 线程为 VT）
+        Thread.ofVirtual().name("travel-stream-" + requestIdHeader).start(() -> {
             try {
                 streamingAgentService.streamWithThinking(message, showThinking)
                     .subscribe(

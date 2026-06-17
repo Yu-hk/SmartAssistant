@@ -33,6 +33,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -46,6 +48,9 @@ import java.util.regex.Pattern;
 public class GeneralTools {
 
     private static final Logger log = LoggerFactory.getLogger(GeneralTools.class);
+
+    /** 虚拟线程 Executor，用于 CompletableFuture.supplyAsync */
+    private static final Executor VT_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
     private final CorrectionService correctionService;
 
@@ -152,14 +157,14 @@ public class GeneralTools {
         log.info("[GeneralTools] 获取热门新闻");
         long start = System.currentTimeMillis();
         try {
-            // ⭐ 并行尝试多个来源，谁先返回就用谁
+            // ⭐ 并行尝试多个来源，谁先返回就用谁（使用虚拟线程 Executor）
             var future1 = CompletableFuture.supplyAsync(() -> {
                 String json = fetchJson("https://tenapi.cn/v2/hotlist");
                 if (json != null) return formatHotNews(json);
                 return null;
-            });
+            }, VT_EXECUTOR);
 
-            var future2 = CompletableFuture.supplyAsync(this::fetchBaiduNews);
+            var future2 = CompletableFuture.supplyAsync(this::fetchBaiduNews, VT_EXECUTOR);
 
             // 先到先用，最多等 4 秒
             String result = (String) CompletableFuture.anyOf(future1, future2)

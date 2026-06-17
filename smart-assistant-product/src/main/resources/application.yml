@@ -6,6 +6,11 @@ spring:
   application:
     name: product-service
 
+  # ⭐ 虚拟线程全局启用
+  threads:
+    virtual:
+      enabled: true
+
   # ⭐ 排除 Spring Security + DeepSeek 自动配置 (使用自定义 ChatModel 禁用 thinking_mode)
   autoconfigure:
     exclude:

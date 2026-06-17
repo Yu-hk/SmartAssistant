@@ -134,6 +134,18 @@
             <version>1.18.0</version>
         </dependency>
 
+        <!-- LangGraph4j: Graph 编排框架（core + postgres checkpoint） -->
+        <dependency>
+            <groupId>org.bsc.langgraph4j</groupId>
+            <artifactId>langgraph4j-core</artifactId>
+            <version>${langgraph4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bsc.langgraph4j</groupId>
+            <artifactId>langgraph4j-postgres-saver</artifactId>
+            <version>${langgraph4j.version}</version>
+        </dependency>
+
     </dependencies>
 
     <build>

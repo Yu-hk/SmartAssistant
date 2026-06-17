@@ -6,6 +6,11 @@ spring:
   application:
     name: order-service
 
+  # ⭐ 虚拟线程全局启用
+  threads:
+    virtual:
+      enabled: true
+
   # ⭐ 排除 Spring Security + DeepSeek 自动配置
   autoconfigure:
     exclude:

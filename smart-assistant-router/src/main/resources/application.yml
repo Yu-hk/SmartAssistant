@@ -5,6 +5,11 @@ server:
 spring:
   application:
     name: router-service
+
+  # ⭐ 虚拟线程全局启用
+  threads:
+    virtual:
+      enabled: true
   
   # 禁用 Spring Cloud 兼容性检查（Spring Boot 3.4.x 需要）
   cloud:

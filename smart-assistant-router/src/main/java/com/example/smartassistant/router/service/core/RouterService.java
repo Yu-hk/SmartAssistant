@@ -20,13 +20,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -77,7 +75,6 @@ public class RouterService {
 
     public RouterService(AgentCallerService agentCallerService,
                          ChatClient.Builder chatClientBuilder,
-                         @Qualifier("routerParallelAgentExecutor") Executor routerParallelAgentExecutor,
                          @Autowired(required = false) StringRedisTemplate redisTemplate,
                          RouterRagService ragService,
                          SemanticRouteCacheService semanticCache,
@@ -311,19 +308,19 @@ public class RouterService {
             try {
                 var agentResult = agentCallerService.callAgentAndExtractTitles(
                         task.getTargetAgent(), enrichedDesc, userId, requestId);
-                String resultText = agentResult.getResponse();
+                String resultText = agentResult.response();
                 if (resultText != null && !resultText.isBlank()) {
                     // 将结果加入共享上下文，供后续 Agent 使用
                     sharedContext.append("【").append(task.getTargetAgent()).append("】")
                             .append(resultText).append("\n\n");
                     results.add(new SubTaskResult(task.getId(), task.getDescription(),
-                            task.getTargetAgent(), resultText, true, agentResult.getRealTitles(), agentResult.getTagsByTitle()));
+                            task.getTargetAgent(), resultText, true, agentResult.realTitles(), agentResult.tagsByTitle()));
                     storeSseEvent(eventsKey, "response",
                             resultText.substring(0, Math.min(200, resultText.length())),
                             task.getTargetAgent());
                 } else {
                     results.add(new SubTaskResult(task.getId(), task.getDescription(),
-                            task.getTargetAgent(), "", false, agentResult.getRealTitles()));
+                            task.getTargetAgent(), "", false, agentResult.realTitles()));
                 }
             } catch (Exception e) {
                 log.warn("[Collaborative] 子任务失败: task={}, error={}", task.getId(), e.getMessage());

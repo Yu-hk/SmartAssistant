@@ -5,6 +5,12 @@ server:
 spring:
   application:
     name: general-agent-service
+
+  # ⭐ 虚拟线程全局启用
+  threads:
+    virtual:
+      enabled: true
+
   main:
     allow-bean-definition-overriding: true  # ⭐ 允许覆盖 auto-config
 

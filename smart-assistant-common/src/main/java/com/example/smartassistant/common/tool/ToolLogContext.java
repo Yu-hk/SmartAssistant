@@ -10,8 +10,16 @@ package com.example.smartassistant.common.tool;
 import org.slf4j.MDC;
 
 /**
- * Tool 日志上下文 —— 在 ThreadLocal + MDC 中持有 requestId，
+ * Tool 日志上下文 —— 在 MDC 中持有 requestId，
  * 供 {@link ToolLogAspect} 切面读取后写入 @Tool 方法日志。
+ *
+ * <p>使用 MDC 替代 ThreadLocal，确保：
+ * <ul>
+ *   <li>与 Spring Boot 虚拟线程上下文传播兼容（SB 3.4+ 自动处理 MDC 传播）</li>
+ *   <li>避免 ThreadLocal 在虚拟线程回收时数据污染</li>
+ *   <li>@Async 场景下 MDC 自动继承到子线程</li>
+ * </ul>
+ * </p>
  *
  * <p>使用方式：</p>
  * <pre>
@@ -32,17 +40,16 @@ public final class ToolLogContext {
     /** MDC key，与 logback 配合使用 */
     public static final String MDC_KEY = "toolRequestId";
 
-    private static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();
-
     private ToolLogContext() {}
 
     /**
-     * 设置当前 requestId，同步写入 ThreadLocal 和 MDC。
+     * 设置当前 requestId，写入 MDC。
      */
     public static void setRequestId(String requestId) {
-        REQUEST_ID.set(requestId);
         if (requestId != null) {
             MDC.put(MDC_KEY, requestId);
+        } else {
+            MDC.remove(MDC_KEY);
         }
     }
 
@@ -50,18 +57,13 @@ public final class ToolLogContext {
      * 获取当前 requestId。
      */
     public static String getRequestId() {
-        String id = REQUEST_ID.get();
-        if (id == null) {
-            id = MDC.get(MDC_KEY);
-        }
-        return id;
+        return MDC.get(MDC_KEY);
     }
 
     /**
-     * 清除当前线程的 requestId（ThreadLocal + MDC）。
+     * 清除当前上下文的 requestId（MDC）。
      */
     public static void clear() {
-        REQUEST_ID.remove();
         MDC.remove(MDC_KEY);
     }
 }

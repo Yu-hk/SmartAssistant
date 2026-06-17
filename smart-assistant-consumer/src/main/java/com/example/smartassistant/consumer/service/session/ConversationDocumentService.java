@@ -23,6 +23,7 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -68,7 +69,8 @@ public class ConversationDocumentService {
     private static final int MIN_TURN_FOR_SUMMARIZE = 3;
 
     // ★ 文件锁缓存，按 sessionId 粒度同步（使用 Caffeine 缓存，30 分钟自动过期，最大 5000 条目）
-    private final Cache<String, Object> fileLocks = Caffeine.newBuilder()
+    // 使用 ReentrantLock 替代 synchronized，避免虚拟线程 Carrier 线程 pin
+    private final Cache<String, ReentrantLock> fileLocks = Caffeine.newBuilder()
             .expireAfterAccess(30, TimeUnit.MINUTES)
             .maximumSize(5000)
             .build();
@@ -94,7 +96,7 @@ public class ConversationDocumentService {
      * - 文件已存在时读取旧内容，追加新条目，更新 frontmatter
      * - 通过 sessionId 粒度锁保证并发安全
      */
-    @Async("taskExecutor")
+    @Async
     public void saveValuableConversation(ConversationValueService.ConversationValueContext ctx) {
         try {
             Path userDir = Paths.get(basePath, String.valueOf(ctx.userId()), "memories");
@@ -104,7 +106,10 @@ public class ConversationDocumentService {
             String entryContent = buildEntryContent(ctx);
 
             // ★ 同步写（session 粒度，防并发读-改-写冲突）
-            synchronized (getFileLock(ctx.sessionId())) {
+            // 使用 ReentrantLock 替代 synchronized，避免虚拟线程 pin
+            ReentrantLock lock = getFileLock(ctx.sessionId());
+            lock.lock();
+            try {
                 // ★ session 优先：查找已有记忆文件（跨天不换文件）
                 Path existingFile = findExistingSessionFile(userDir, sessionKey);
 
@@ -115,6 +120,8 @@ public class ConversationDocumentService {
                     String filename = LocalDate.now().format(DATE_FMT) + "_" + sessionKey + ".md";
                     createMemoryFile(userDir.resolve(filename), ctx, entryContent);
                 }
+            } finally {
+                lock.unlock();
             }
 
             log.info("[UserMemory] 记忆已保存: userId={}, sessionId={}", ctx.userId(), ctx.sessionId());
@@ -290,10 +297,10 @@ public class ConversationDocumentService {
     }
 
     /**
-     * 获取 sessionId 粒度的同步锁对象（使用 Caffeine 缓存，自动过期）
+     * 获取 sessionId 粒度的 ReentrantLock（使用 Caffeine 缓存，自动过期）
      */
-    private Object getFileLock(String sessionId) {
-        return fileLocks.get(sessionId, k -> new Object());
+    private ReentrantLock getFileLock(String sessionId) {
+        return fileLocks.get(sessionId, k -> new ReentrantLock());
     }
 
     /**
