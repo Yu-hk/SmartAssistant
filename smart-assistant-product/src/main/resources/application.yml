@@ -29,12 +29,14 @@ spring:
         group: DEFAULT_GROUP
         username: ${NACOS_USERNAME:nacos}
         password: ${NACOS_PASSWORD}
-        # 注册时携带元数据（供 Router 使用）
+        # 注册时携带元数据（供 Router Agent 发现和路由决策）
         metadata:
-          agent-type: food_recommendation
-          capabilities: cuisine_query,restaurant_recommendation,nearby_search
-          keywords: 美食,餐厅,菜系,特色菜,吃什么,附近美食,推荐餐厅
-          cache-ttl-seconds: "43200"    # ⭐ 回复缓存 TTL（秒），美食类 12h
+          agent-type: product_agent
+          capabilities: cuisine_query,restaurant_recommendation,product_query,price_query,stock_check
+          keywords: 美食,餐厅,菜系,特色菜,吃什么,附近美食,推荐餐厅,商品,价格,库存,规格,颜色,多少钱,有货,参数,对比,手机,电脑,推荐,性价比
+          priority: 10
+          cache-ttl-seconds: "43200"    # ⭐ 回复缓存 TTL（秒），商品咨询类 12h
+          always-cache-reply: "true"    # ⭐ 首次即缓存回复，无需等待成为高频问题
           # ⭐ 版本管理
           version: "1.0.0"
           protocol-version: "v1"

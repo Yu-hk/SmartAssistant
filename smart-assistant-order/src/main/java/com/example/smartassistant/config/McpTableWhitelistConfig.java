@@ -27,6 +27,8 @@ public class McpTableWhitelistConfig {
     private ServiceConfig travel = new ServiceConfig();
     private ServiceConfig consumer = new ServiceConfig();
     private ServiceConfig food = new ServiceConfig();
+    /** ⭐ Order 服务表白名单（用于 TextToSqlTool） */
+    private ServiceConfig order = new ServiceConfig();
     
     @Data
     public static class ServiceConfig {
@@ -69,6 +71,7 @@ public class McpTableWhitelistConfig {
             case "travel" -> travel;
             case "consumer" -> consumer;
             case "food" -> food;
+            case "order" -> order;
             default -> null;
         };
     }

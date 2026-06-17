@@ -42,20 +42,15 @@ public class TaskPlannerService {
 
         String fallback = findFallbackAgent();
         String prompt = String.format("""
-                你是一个任务规划专家。请将用户的问题拆解为多个独立的子任务。
-                每个子任务交给最合适的专业助理处理。
+                将用户的问题分配给最合适的助理。
 
-                可用专业助理（从服务发现动态获取，含关键词和能力描述）：
+                助理（只能从以下选择）：
                 %s
 
-                要求：
-                - 每个子任务一行，格式：子任务ID|描述|目标助理
-                - 子任务之间不应有依赖关系（可并行执行）
-                - 描述应包含具体的查询内容，便于助理理解
-                - 如果用户的问题只涉及一个领域，只输出一个子任务
-                - 不要合并不同领域的查询到同一个子任务中
-                - 只输出任务列表，不要多余解释
-                - 优先根据助理的关键词和能力进行匹配。当用户意图与任何助理均不匹配时，使用兜底助理：%s
+                输出格式（每行一条）：子任务ID|描述|助理名
+                示例：t1|查询订单状态|order_agent
+
+                要求：只能从上面的助理名单中选择，不要自创。不匹配时使用兜底：%s
 
                 用户：%s
                 """, agentList, fallback, question);
@@ -108,15 +103,30 @@ public class TaskPlannerService {
         List<SubTask> tasks = new ArrayList<>();
         if (response == null || response.isBlank()) return tasks;
 
-        Pattern pattern = Pattern.compile("(\\w+)\\|([^|]+)\\|([^|\\n]+)");
-        Matcher matcher = pattern.matcher(response);
+        // ⭐ 先尝试标准格式解析：id|desc|agent
+        Pattern standardPattern = Pattern.compile("(\\w+)\\|([^|]+)\\|([^|\\n]+)");
+        Matcher matcher = standardPattern.matcher(response);
         while (matcher.find()) {
             String id = matcher.group(1).trim();
             String desc = matcher.group(2).trim();
             String agent = matcher.group(3).trim();
             tasks.add(new SubTask(id, desc, agent));
-            log.debug("[TaskPlanner] 子任务: id={}, agent={}, desc={}", id, agent, desc);
         }
+        
+        // ⭐ 如果标准解析成功，直接返回
+        if (!tasks.isEmpty()) return tasks;
+        
+        // ⭐ 标准解析失败（如 LLM 输出多余字段），尝试灵活解析：
+        //   取每行最后一个 | 后的内容作为 agent，第一个 | 前的内容作为 id
+        Pattern flexiblePattern = Pattern.compile("^(.+?)\\|(.+)\\|(.+)$", Pattern.MULTILINE);
+        Matcher flexMatcher = flexiblePattern.matcher(response);
+        while (flexMatcher.find()) {
+            String id = flexMatcher.group(1).trim();
+            String desc = flexMatcher.group(2).trim();
+            String agent = flexMatcher.group(3).trim();
+            tasks.add(new SubTask(id, desc, agent));
+        }
+        
         return tasks;
     }
 }

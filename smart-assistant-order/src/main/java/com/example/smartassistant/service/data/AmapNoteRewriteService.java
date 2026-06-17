@@ -181,7 +181,7 @@ public class AmapNoteRewriteService {
         userMsg.put("role", "user");
         userMsg.put("content", prompt.toString());
 
-        String json = apiClient.buildRequestJson("deepseek-v4-flash", 0.7, 2048, msgs);
+        String json = apiClient.buildRequestJson("deepseek-v4-flash", 0.7, 2048, msgs, null);
         String respBody = apiClient.sendRequest(json);
         JsonNode root = apiClient.parseResponse(respBody);
         JsonNode content = root.at("/choices/0/message/content");

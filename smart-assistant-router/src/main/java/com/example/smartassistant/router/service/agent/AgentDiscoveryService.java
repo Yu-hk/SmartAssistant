@@ -412,6 +412,12 @@ public class AgentDiscoveryService {
                 log.warn("[AgentDiscovery] 解析 cache-ttl-seconds 失败: {}", ttlStr);
             }
         }
+
+        // ⭐ 读取 Agent 是否始终缓存回复
+        String alwaysCacheStr = nacosMetadata.get("always-cache-reply");
+        if (alwaysCacheStr != null) {
+            metadata.setAlwaysCacheReply(Boolean.parseBoolean(alwaysCacheStr));
+        }
         
         return metadata;
     }
@@ -429,7 +435,7 @@ public class AgentDiscoveryService {
      * 由各 Agent 在 application.yml 的 metadata 中通过 cache-ttl-seconds 声明。
      * Router 直接读取，无需硬编码各 Agent 的时效性逻辑。
      *
-     * @param agentName Agent 名称（如 location_weather, food_recommendation）
+     * @param agentName Agent 名称（如 product_agent, order_agent）
      * @return TTL（秒），null 表示未设置（使用 Router 默认值）
      */
     public Long getAgentTtl(String agentName) {
@@ -443,6 +449,26 @@ public class AgentDiscoveryService {
             }
         }
         return null;
+    }
+
+    /**
+     * ⭐ 获取 Agent 是否始终缓存回复
+     * <p>
+     * 由各 Agent 在 metadata 中通过 always-cache-reply 声明。
+     * 为 true 时，SemanticRouteCacheService 在首次命中时即缓存回复，
+     * 无需等待成为高频问题。
+     */
+    public boolean isAlwaysCacheReply(String agentName) {
+        if (agentName == null) return false;
+        for (DiscoveredAgent agent : agentCache.values()) {
+            if (agent.getAgentName() != null && agent.getAgentName().equals(agentName)) {
+                AgentMetadata meta = agent.getMetadata();
+                if (meta != null && meta.getAlwaysCacheReply() != null) {
+                    return meta.getAlwaysCacheReply();
+                }
+            }
+        }
+        return false;
     }
 
     /**

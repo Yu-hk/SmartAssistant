@@ -20,7 +20,7 @@ public class AgentMetadata {
     
     /**
      * Agent 类型标识
-     * 例如：food_recommendation, location_weather
+     * 例如：product_agent, order_agent
      */
     private String agentType;
     
@@ -88,6 +88,16 @@ public class AgentMetadata {
      * 为 null 时使用 Router 默认值（3600s）。
      */
     private Long cacheTtlSeconds;
+
+    /**
+     * ⭐ 是否始终缓存回复（忽略低频问题检查）
+     * <p>
+     * 设置为 true 时，Agent 的回复将在首次命中时即被缓存，
+     * 无需等待成为高频问题（≥2 次）。
+     * 适用于 Product（商品价格/库存）和 General（天气/新闻）等
+     * 具有稳定、可复用回复模式的场景。
+     */
+    private Boolean alwaysCacheReply = false;
 
     /**
      * 支持的协议列表 (逗号分隔)

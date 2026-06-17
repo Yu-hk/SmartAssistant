@@ -94,11 +94,11 @@ services:
       nacos: { condition: service_healthy }
       redis: { condition: service_started }
 
-  travel:
+  order:
     build:
-      context: ./smart-assistant-travel
+      context: ./smart-assistant-order
       args:
-        SERVICE_NAME: smart-assistant-travel
+        SERVICE_NAME: smart-assistant-order
     ports:
       - "8085:8085"
     environment:
@@ -111,11 +111,11 @@ services:
     depends_on:
       nacos: { condition: service_healthy }
 
-  food:
+  product:
     build:
-      context: ./smart-assistant-food
+      context: ./smart-assistant-product
       args:
-        SERVICE_NAME: smart-assistant-food
+        SERVICE_NAME: smart-assistant-product
     ports:
       - "8084:8084"
     environment:
@@ -123,6 +123,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       NACOS_PASSWORD: ${NACOS_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
     depends_on:
       nacos: { condition: service_healthy }
 

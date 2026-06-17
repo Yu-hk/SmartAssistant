@@ -34,27 +34,34 @@ public class BgeOnnxEmbeddingService {
 
     @PostConstruct
     public void init() {
+        byte[] modelBytes = null;
         try {
-            ClassPathResource modelResource = new ClassPathResource("models/bge-small-zh-v1.5.onnx");
-            if (!modelResource.exists()) {
-                log.warn("[BGE] 模型不存在: models/bge-small-zh-v1.5.onnx，请运行 convert-bge-to-onnx.py");
-                return;
+            // ⭐ 优先从文件系统加载（避免将 1.3GB 模型打入 JAR）
+            java.io.File externalModel = new java.io.File("../models/bge-large-zh-v1.5.onnx");
+            java.io.File externalVocab = new java.io.File("../models/tokenizer.json");
+            if (externalModel.exists()) {
+                log.info("[BGE] 从外部文件加载模型: {}", externalModel.getAbsolutePath());
+                modelBytes = java.nio.file.Files.readAllBytes(externalModel.toPath());
+            } else {
+                ClassPathResource modelResource = new ClassPathResource("models/bge-small-zh-v1.5.onnx");
+                if (!modelResource.exists()) {
+                    log.warn("[BGE] 模型不存在: models/bge-small-zh-v1.5.onnx，请运行 convert-bge-to-onnx.py");
+                    return;
+                }
+                try (var is = modelResource.getInputStream()) {
+                    modelBytes = is.readAllBytes();
+                }
             }
-            // Load tokenizer vocab
-            ClassPathResource vocabResource = new ClassPathResource("models/tokenizer.json");
-            if (vocabResource.exists()) {
-                try (var is = vocabResource.getInputStream()) {
-                    var mapper = new ObjectMapper();
-                    Map<String, Object> root = mapper.readValue(is, new TypeReference<Map<String, Object>>() {});
-                    Map<String, Object> modelNode = (Map<String, Object>) root.get("model");
-                    if (modelNode != null) {
-                        Object v = modelNode.get("vocab");
-                        if (v instanceof Map) {
-                            vocab = new HashMap<>();
-                            for (var entry : ((Map<String, Object>) v).entrySet()) {
-                                vocab.put(entry.getKey(), ((Number) entry.getValue()).intValue());
-                            }
-                        }
+            // Load tokenizer vocab - also try external first
+            if (externalVocab.exists()) {
+                try (var is = new java.io.FileInputStream(externalVocab)) {
+                    loadVocab(is);
+                }
+            } else {
+                ClassPathResource vocabResource = new ClassPathResource("models/tokenizer.json");
+                if (vocabResource.exists()) {
+                    try (var is = vocabResource.getInputStream()) {
+                        loadVocab(is);
                     }
                 }
             }
@@ -67,9 +74,7 @@ public class BgeOnnxEmbeddingService {
             env = OrtEnvironment.getEnvironment();
             var opts = new OrtSession.SessionOptions();
             opts.setIntraOpNumThreads(2);
-            try (var is = modelResource.getInputStream()) {
-                session = env.createSession(is.readAllBytes(), opts);
-            }
+            session = env.createSession(modelBytes, opts);
             // Auto-detect embedding dimension by dummy inference
             try {
                 long[] dummy = new long[MAX_LEN];
@@ -86,6 +91,9 @@ public class BgeOnnxEmbeddingService {
             } catch (Exception ignored) {}
             available = true;
             log.info("[BGE] ONNX 模型加载成功 (dim={})", embedDim);
+        } catch (OutOfMemoryError e) {
+            log.warn("[BGE] 堆内存不足（{}MB），模型过大，跳过加载。Jaccard 降级可用。",
+                    Runtime.getRuntime().maxMemory() / 1024 / 1024);
         } catch (Exception e) {
             log.warn("[BGE] 加载失败: {}", e.getMessage());
         }
@@ -97,6 +105,22 @@ public class BgeOnnxEmbeddingService {
     }
 
     public boolean isAvailable() { return available; }
+
+    /** 从输入流加载 tokenizer vocab */
+    private void loadVocab(java.io.InputStream is) throws Exception {
+        var mapper = new ObjectMapper();
+        Map<String, Object> root = mapper.readValue(is, new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> modelNode = (Map<String, Object>) root.get("model");
+        if (modelNode != null) {
+            Object v = modelNode.get("vocab");
+            if (v instanceof Map) {
+                vocab = new HashMap<>();
+                for (var entry : ((Map<String, Object>) v).entrySet()) {
+                    vocab.put(entry.getKey(), ((Number) entry.getValue()).intValue());
+                }
+            }
+        }
+    }
 
     /** 将文本转为 embedDim 维归一化向量 */
     public float[] embed(String text) {

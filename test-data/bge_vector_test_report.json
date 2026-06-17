@@ -1,0 +1,145 @@
+{
+  "timestamp": "2026-06-16T10:46:40.447197",
+  "tests": [
+    {
+      "name": "pgvector 扩展已安装",
+      "status": "✅ PASS",
+      "detail": "extensions: 1"
+    },
+    {
+      "name": "vector_store 表结构",
+      "status": "✅ PASS",
+      "detail": "id(uuid); content(text); metadata(json); embedding(vector)"
+    },
+    {
+      "name": "embedding 列类型: vector",
+      "status": "✅ PASS",
+      "detail": ""
+    },
+    {
+      "name": "vector_store 数据量",
+      "status": "✅ PASS",
+      "detail": "0 条记录"
+    },
+    {
+      "name": "数据库表",
+      "status": "✅ PASS",
+      "detail": "共 21 张表: ab_test_events, attraction_highlights, attraction_tags, conversation_feedback, orders, pg_stat_statements, pg_stat_statements_info, products, restaurant_reviews_vector, routing_call_log, tourist_attractions, travel_note_chunks, user_favorited_attractions, user_preferred_cities, user_preferred_levels, user_preferred_tags, user_sessions, user_travel_notes, user_viewed_attractions, users, vector_store"
+    },
+    {
+      "name": "BGE 词表加载",
+      "status": "✅ PASS",
+      "detail": "21128 个词条, 耗时 0.00s"
+    },
+    {
+      "name": "BGE ONNX 模型加载",
+      "status": "✅ PASS",
+      "detail": "inputs=['input_ids', 'attention_mask', 'token_type_ids'], outputs=['last_hidden_state'], shape=['batch_size', 'sequence_length'], 耗时 1.29s"
+    },
+    {
+      "name": "BGE Embedding 生成",
+      "status": "✅ PASS",
+      "detail": "成功生成 5 个文本的向量, 维度=1024"
+    },
+    {
+      "name": "语义相似度验证",
+      "status": "✅ PASS",
+      "detail": "同义(成都美食,成都美食)=0.7332 > 不同义(成都美食,北京天气)=0.2793"
+    },
+    {
+      "name": "Consumer Health",
+      "status": "✅ PASS",
+      "detail": "status=UP, DB=UP"
+    },
+    {
+      "name": "BGE 模型加载日志",
+      "status": "❌ FAIL",
+      "detail": "进程 457766 运行时, 日志文件未找到. FD: "
+    },
+    {
+      "name": "Consumer 进程",
+      "status": "✅ PASS",
+      "detail": "root      457766  0.0  2.0 19591312 2612612 ?    SNl  10:41   0:39 java -Xmx4g -jar smart-assistant-consumer/target/smart-assistant-consumer-1.0.0-SNA"
+    },
+    {
+      "name": "注册测试用户",
+      "status": "❌ FAIL",
+      "detail": "status=500, body={\"code\":\"CONSUMER_099\",\"msg\":\"服务内部异常，请联系管理员\",\"status\":500,\"service\":\"consumer-service\",\"timestamp\":\""
+    },
+    {
+      "name": "聊天请求 #1 [成都有什么美食推荐？]",
+      "status": "✅ PASS",
+      "detail": "status=200, duration=0.0s, reply=❌ 调用 Router 服务失败: I/O error on POST request for \"http://localhost:8083/api/router/route\": Connection"
+    },
+    {
+      "name": "聊天请求 #2 [说一下成都的美食]",
+      "status": "✅ PASS",
+      "detail": "status=200, duration=0.0s, reply=❌ 调用 Router 服务失败: I/O error on POST request for \"http://localhost:8083/api/router/route\": Connection"
+    },
+    {
+      "name": "聊天请求 #3 [北京有哪些好玩的地方？]",
+      "status": "✅ PASS",
+      "detail": "status=200, duration=0.0s, reply=❌ 调用 Router 服务失败: I/O error on POST request for \"http://localhost:8083/api/router/route\": Connection"
+    },
+    {
+      "name": "Gateway 链路",
+      "status": "✅ PASS",
+      "detail": "Gateway 未启动（当前仅 Consumer 运行）"
+    },
+    {
+      "name": "vector_store 数据详情",
+      "status": "✅ PASS",
+      "detail": "暂无数据"
+    },
+    {
+      "name": "Redis 连接",
+      "status": "✅ PASS",
+      "detail": ""
+    },
+    {
+      "name": "Redis answer缓存",
+      "status": "✅ PASS",
+      "detail": "无缓存"
+    },
+    {
+      "name": "Redis 向量缓存(方案C)",
+      "status": "✅ PASS",
+      "detail": "无缓存"
+    },
+    {
+      "name": "Redis 服务信息",
+      "status": "✅ PASS",
+      "detail": "version=7.2.4, used_memory=1.29M, total_keys=102"
+    },
+    {
+      "name": "批量 1 条 embedding 耗时",
+      "status": "✅ PASS",
+      "detail": "平均 289ms, 单条 289ms"
+    },
+    {
+      "name": "批量 5 条 embedding 耗时",
+      "status": "✅ PASS",
+      "detail": "平均 1536ms, 单条 307ms"
+    },
+    {
+      "name": "批量 10 条 embedding 耗时",
+      "status": "✅ PASS",
+      "detail": "平均 2632ms, 单条 263ms"
+    },
+    {
+      "name": "ONNX Runtime providers",
+      "status": "✅ PASS",
+      "detail": "['AzureExecutionProvider', 'CPUExecutionProvider']"
+    },
+    {
+      "name": "向量 L2 归一化验证",
+      "status": "✅ PASS",
+      "detail": "L2 norm = 1.000000"
+    }
+  ],
+  "summary": {
+    "passed": 25,
+    "failed": 2,
+    "total": 27
+  }
+}
