@@ -20,6 +20,7 @@
 
     <modules>
         <module>smart-assistant-common</module>  <!-- ⭐ 公共模块 -->
+        <module>smart-assistant-embedding-service</module>  <!-- ⭐ 独立嵌入服务 -->
         <module>smart-assistant-consumer</module>
         <module>smart-assistant-router</module>
         <module>smart-assistant-order</module>

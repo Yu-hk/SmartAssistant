@@ -43,7 +43,7 @@ public class BgeEmbeddingModel implements AutoCloseable {
             e = OrtEnvironment.getEnvironment();
             var opts = new OrtSession.SessionOptions();
             opts.setIntraOpNumThreads(2);
-            s = e.createSession(Files.readAllBytes(mp), opts);
+            s = e.createSession(modelPath, opts);
 
             d = detectDim(e, s);
             a = true;

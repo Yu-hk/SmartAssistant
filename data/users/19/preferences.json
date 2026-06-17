@@ -1,0 +1,31 @@
+{
+  "id" : null,
+  "userId" : 19,
+  "preferredLocations" : null,
+  "foodPreferences" : [ "清淡", "辣" ],
+  "travelPreferences" : [ "人文历史", "自然风光" ],
+  "dietaryRestrictions" : [ ],
+  "budgetRange" : "经济实惠",
+  "preferenceWeights" : {
+    "清淡" : 1,
+    "辣" : 1,
+    "人文历史" : 1,
+    "自然风光" : 1
+  },
+  "intentDistribution" : { },
+  "additionalPreferences" : null,
+  "totalQueries" : 1,
+  "lastQueryAt" : [ 2026, 6, 16, 15, 50, 56, 36902517 ],
+  "createdAt" : null,
+  "updatedAt" : [ 2026, 6, 16, 15, 50, 56, 781117991 ],
+  "dietaryRestrictionsArray" : [ ],
+  "foodPreferencesArray" : [ "清淡", "辣" ],
+  "travelPreferencesArray" : [ "人文历史", "自然风光" ],
+  "preferenceWeightsMap" : {
+    "清淡" : 1,
+    "辣" : 1,
+    "人文历史" : 1,
+    "自然风光" : 1
+  },
+  "preferredLocationsArray" : null
+}

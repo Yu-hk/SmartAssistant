@@ -38,7 +38,7 @@ public class CustomDeepSeekChatModel implements ChatModel {
 
     @Override public ChatResponse call(Prompt prompt) {
         try {
-            String requestJson = apiClient.buildRequestJson("deepseek-v4-flash", temperature, maxTokens, buildMessages(prompt));
+            String requestJson = apiClient.buildRequestJson("deepseek-v4-flash", temperature, maxTokens, buildMessages(prompt), null);
             return parseResponse(apiClient.sendRequest(requestJson));
         } catch (Exception e) { throw new RuntimeException("DeepSeek call failed: " + e.getMessage(), e); }
     }

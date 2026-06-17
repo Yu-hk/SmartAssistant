@@ -68,6 +68,7 @@ public class SemanticRouteCacheService {
     private final BgeOnnxEmbeddingService bgeEmbedding;
     private final TfEmbeddingService tfEmbedding;
     private final VectorCacheStore vectorCache;
+    private final AgentDiscoveryService agentDiscoveryService;
 
     @Value("${router.semantic-cache.enabled:true}")
     private boolean cacheEnabled;
@@ -88,6 +89,7 @@ public class SemanticRouteCacheService {
         this.bgeEmbedding = bgeEmbedding;
         this.tfEmbedding = tfEmbedding;
         this.vectorCache = vectorCache;
+        this.agentDiscoveryService = agentDiscoveryService;
     }
 
     /** BGE > TF > null */
@@ -640,9 +642,17 @@ public class SemanticRouteCacheService {
 
             // ⭐ 仅高频问题（被问到 ≥2 次）才缓存回复内容
             // 低频问题即使缓存也几乎不会命中，节省 Redis 内存
+            // ⭐ 但 product_agent 和 general_agent 配置了 always-cache-reply=true
+            //    （通过 Nacos metadata），因此首次即可缓存
             if (!isHighFrequencyQuestion(intentTag)) {
-                log.debug("[SemanticCache] 跳过低频问题回复缓存: intent={}, agent={}", intentTag, agentName);
-                return;
+                // 检查 Agent 是否配置了始终缓存
+                boolean alwaysCache = agentDiscoveryService != null
+                        && agentDiscoveryService.isAlwaysCacheReply(agentName);
+                if (!alwaysCache) {
+                    log.debug("[SemanticCache] 跳过低频问题回复缓存: intent={}, agent={}", intentTag, agentName);
+                    return;
+                }
+                log.debug("[SemanticCache] 低频但 always-cache-reply=true: intent={}, agent={}", intentTag, agentName);
             }
 
             // ⭐ 高频问题：保存关键词级别回复缓存（使同类问题共享回复）

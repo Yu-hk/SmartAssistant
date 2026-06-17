@@ -7,7 +7,9 @@ import com.example.smartassistant.router.model.ReflectionResult;
 import com.example.smartassistant.router.service.core.TaskPlannerService;
 import com.example.smartassistant.router.service.core.ResultMerger;
 import com.example.smartassistant.router.service.core.ReflectionService;
+import com.example.smartassistant.router.service.core.ModelRoutingService;
 import com.example.smartassistant.router.service.core.RouterService;
+import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
 import com.example.smartassistant.router.service.cache.TfEmbeddingService;
@@ -48,6 +50,8 @@ class RouterRoutingIntegrationTest {
     @Mock private TaskPlannerService taskPlanner;
     @Mock private ResultMerger resultMerger;
     @Mock private ReflectionService reflectionService;
+    @Mock private ModelRoutingService modelRoutingService;
+    @Mock private ExperienceService experienceService;
     @Mock private ValueOperations<String, String> valueOps;
     private TfEmbeddingService tfEmbedding;
     private VectorCacheStore vectorCache;
@@ -76,7 +80,7 @@ class RouterRoutingIntegrationTest {
         lenient().when(reflectionService.retry(anyString(), anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn("retry result");
         new RouterService(agentCallerService, chatClientBuilder,
-                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService);
+                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, modelRoutingService, experienceService);
     }
 
     @Test

@@ -2,7 +2,6 @@
 -- PostgreSQL database dump
 --
 
-\restrict eVniqpXVJ3Xm2zYzxCQDZt4hh0xOrH2Cj8S1QDE6ExyOvtx7HwvtjzM2FywgDiz
 
 -- Dumped from database version 18.0
 -- Dumped by pg_dump version 18.0
@@ -1434,5 +1433,4 @@ ALTER TABLE ONLY public.travel_note_chunks
 -- PostgreSQL database dump complete
 --
 
-\unrestrict eVniqpXVJ3Xm2zYzxCQDZt4hh0xOrH2Cj8S1QDE6ExyOvtx7HwvtjzM2FywgDiz
 

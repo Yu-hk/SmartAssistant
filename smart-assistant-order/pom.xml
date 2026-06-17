@@ -35,13 +35,6 @@
             <version>${spring-ai.version}</version>
         </dependency>
 
-        <!-- A2A 与 Nacos 集成（已包含 nacos-client 和 nacos-api） -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-a2a-nacos</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
-        </dependency>
-
         <!-- Spring Cloud Alibaba Nacos Discovery (传统服务注册) ⭐ -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
