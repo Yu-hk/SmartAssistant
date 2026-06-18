@@ -61,3 +61,20 @@ VALUES
 -- -----------------------------
 SELECT setval('orders_id_seq', COALESCE((SELECT MAX(id) FROM orders), 1));
 SELECT setval('products_id_seq', COALESCE((SELECT MAX(id) FROM products), 1));
+
+-- -----------------------------
+-- 优惠券种子数据
+-- -----------------------------
+INSERT INTO user_coupons (coupon_id, user_id, coupon_type, title, value, condition_amount, used, expire_at)
+VALUES
+('CP-001', 1, 'FULL_REDUCTION', '满200减50券',      50.00,  200.00, false, CURRENT_TIMESTAMP + INTERVAL '3 months'),
+('CP-002', 1, 'DISCOUNT',       '9折优惠券',          0.90,  NULL,   false, CURRENT_TIMESTAMP + INTERVAL '3 months'),
+('CP-003', 1, 'CASH',           '立减20元券',         20.00,  NULL,   false, CURRENT_TIMESTAMP + INTERVAL '15 days'),
+('CP-004', 1, 'FULL_REDUCTION', '满500减150券',      150.00, 500.00, false, CURRENT_TIMESTAMP + INTERVAL '3 months'),
+('CP-005', 1, 'DISCOUNT',       '8折限时券',           0.80,  NULL,   false, CURRENT_TIMESTAMP + INTERVAL '15 days'),
+('CP-006', 1, 'CASH',           '新人立减50元券',     50.00,  NULL,   false, CURRENT_TIMESTAMP + INTERVAL '3 months'),
+('CP-101', 2, 'FULL_REDUCTION', '满100减20券',       20.00,  100.00, false, CURRENT_TIMESTAMP + INTERVAL '3 months'),
+('CP-102', 2, 'CASH',           '立减10元券',         10.00,  NULL,   false, CURRENT_TIMESTAMP + INTERVAL '3 months'),
+('CP-103', 2, 'DISCOUNT',       '95折券',             0.95,  NULL,   false, CURRENT_TIMESTAMP + INTERVAL '3 months');
+
+SELECT setval('user_coupons_id_seq', COALESCE((SELECT MAX(id) FROM user_coupons), 1));

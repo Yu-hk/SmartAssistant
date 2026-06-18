@@ -7,6 +7,14 @@
 
 package com.example.smartassistant.common.tool;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * 工具返回值格式化工具类。
  * <p>
@@ -19,8 +27,14 @@ package com.example.smartassistant.common.tool;
  *   <li>成功：直接返回原始数据字符串</li>
  *   <li>错误：{@code {"error_code":"CODE","message":"描述","retryable":true/false,"hint":"建议"}}</li>
  * </ul>
+ *
+ * <p><b>改进</b>：改用 Jackson ObjectMapper 序列化 JSON，
+ * 替代手写字符串拼接，消除控制字符注入风险。</p>
  */
 public final class ToolResult {
+
+    private static final Logger log = LoggerFactory.getLogger(ToolResult.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private ToolResult() {}
 
@@ -43,9 +57,7 @@ public final class ToolResult {
      * @return JSON 格式的错误字符串
      */
     public static String error(String errorCode, String message, boolean retryable) {
-        return "{\"error_code\":\"" + escape(errorCode)
-                + "\",\"message\":\"" + escape(message)
-                + "\",\"retryable\":" + retryable + "}";
+        return buildErrorJson(errorCode, message, retryable, null);
     }
 
     /**
@@ -58,19 +70,27 @@ public final class ToolResult {
      * @return JSON 格式的错误字符串
      */
     public static String error(String errorCode, String message, boolean retryable, String hint) {
-        return "{\"error_code\":\"" + escape(errorCode)
-                + "\",\"message\":\"" + escape(message)
-                + "\",\"retryable\":" + retryable
-                + ",\"hint\":\"" + escape(hint) + "\"}";
+        return buildErrorJson(errorCode, message, retryable, hint);
     }
 
-    /** 转义 JSON 特殊字符 */
-    private static String escape(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
+    /**
+     * 使用 Jackson ObjectMapper 构建错误 JSON。
+     * 替代手写字符串拼接，消除控制字符注入风险。
+     */
+    private static String buildErrorJson(String errorCode, String message, boolean retryable, String hint) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("error_code", errorCode != null ? errorCode : "");
+        map.put("message", message != null ? message : "");
+        map.put("retryable", retryable);
+        if (hint != null) {
+            map.put("hint", hint);
+        }
+        try {
+            return MAPPER.writeValueAsString(map);
+        } catch (JsonProcessingException e) {
+            log.error("[ToolResult] JSON 序列化失败: {}", e.getMessage());
+            // 降级：返回简单错误字符串（不应发生，ObjectMapper 序列化 Map 极少失败）
+            return "{\"error_code\":\"SERIALIZATION_ERROR\",\"message\":\"错误信息序列化失败\",\"retryable\":false}";
+        }
     }
 }

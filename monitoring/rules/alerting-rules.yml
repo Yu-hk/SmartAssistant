@@ -242,3 +242,73 @@ groups:
         annotations:
           summary: "Agent Service 宕机 ({{ $labels.job }})"
           description: "Prometheus 无法抓取 {{ $labels.job }} 指标，服务可能已停止"
+
+  # ──────────────────────────────────────────
+  # Agent / LLM 告警 (新增指标)
+  # ──────────────────────────────────────────
+  - name: a2a_agent_llm_alerts
+    rules:
+      # 1. Agent 超时率过高
+      - alert: AgentTimeoutHigh
+        expr: |
+          rate(a2a_agent_timeout_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          service: agent
+        annotations:
+          summary: "Agent 超时率过高"
+          description: "Agent 每分钟超时 {{ $value | humanize }} 次，可能模型响应过慢"
+          runbook: "检查 LLM 推理延迟 (a2a_llm_inference_latency)，确认模型是否正常响应"
+
+      # 2. 工具幻觉频发
+      - alert: ToolHallucinationFrequent
+        expr: |
+          rate(a2a_agent_tool_hallucination_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: warning
+          service: agent
+        annotations:
+          summary: "工具幻觉频繁"
+          description: "每分钟 {{ $value | humanize }} 次工具幻觉，LLM 频繁调用不存在的工具"
+          runbook: "检查系统提示词中的工具描述是否正确，工具名是否匹配 @Tool 注解的 name"
+
+      # 3. LLM 推理延迟过高
+      - alert: LLMInferenceHighLatency
+        expr: |
+          histogram_quantile(0.95, rate(a2a_llm_inference_latency_bucket[5m])) > 10000
+        for: 3m
+        labels:
+          severity: warning
+          service: agent
+        annotations:
+          summary: "LLM P95 推理延迟过高"
+          description: "P95 推理延迟超过 10000ms，当前值: {{ printf \"%.0f\" $value }}ms"
+          runbook: "检查 Ollama 负载、显存使用，考虑切换更快的模型或增加推理节点"
+
+      # 4. 工具错误率过高
+      - alert: ToolErrorRateHigh
+        expr: |
+          rate(a2a_tool_error_total[5m]) > 2
+        for: 3m
+        labels:
+          severity: warning
+          service: agent
+        annotations:
+          summary: "工具执行错误率过高"
+          description: "每分钟 {{ $value | humanize }} 次工具错误，可能有下游服务异常"
+          runbook: "检查各工具对应的数据库/API 是否正常，查看 ToolLogAspect 日志"
+
+      # 5. Agent 上下文压缩频繁（Token 超预算）
+      - alert: AgentFrequentContextCompression
+        expr: |
+          rate(a2a_agent_context_compress_total[5m]) > 3
+        for: 5m
+        labels:
+          severity: info
+          service: agent
+        annotations:
+          summary: "Agent 上下文压缩频繁"
+          description: "每分钟 {{ $value | humanize }} 次上下文压缩，对话轮次可能过长"
+          runbook: "建议增加 contextWindow 或 compressThreshold 配置"

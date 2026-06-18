@@ -1433,4 +1433,47 @@ ALTER TABLE ONLY public.travel_note_chunks
 -- PostgreSQL database dump complete
 --
 
+--
+-- Name: user_coupons; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_coupons (
+    id bigint NOT NULL,
+    coupon_id character varying(50) NOT NULL,
+    user_id bigint NOT NULL,
+    coupon_type character varying(30) NOT NULL CHECK (coupon_type IN ('FULL_REDUCTION', 'DISCOUNT', 'CASH')),
+    title character varying(200) NOT NULL,
+    value numeric(10, 2) NOT NULL,
+    condition_amount numeric(10, 2),
+    used boolean DEFAULT false NOT NULL,
+    expire_at timestamp without time zone,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+ALTER TABLE public.user_coupons OWNER TO postgres;
+
+CREATE SEQUENCE public.user_coupons_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.user_coupons_id_seq OWNER TO postgres;
+
+ALTER SEQUENCE public.user_coupons_id_seq OWNED BY public.user_coupons.id;
+
+ALTER TABLE ONLY public.user_coupons ALTER COLUMN id SET DEFAULT nextval('public.user_coupons_id_seq'::regclass);
+
+ALTER TABLE ONLY public.user_coupons
+    ADD CONSTRAINT user_coupons_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.user_coupons
+    ADD CONSTRAINT uk_user_coupons_coupon_id UNIQUE (coupon_id);
+
+CREATE INDEX idx_user_coupons_user_id ON public.user_coupons USING btree (user_id);
+
+CREATE INDEX idx_user_coupons_expire_at ON public.user_coupons USING btree (expire_at);
+
 

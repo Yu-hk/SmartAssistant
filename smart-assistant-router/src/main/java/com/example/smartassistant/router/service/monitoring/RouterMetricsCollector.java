@@ -7,19 +7,24 @@
 
 package com.example.smartassistant.router.service.monitoring;
 
+import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Prometheus 自定义指标收集器（Router Service）
+ * <p>
+ * 实现 {@link AgentMetricsCollector} 以采集 SmartReActAgent 的 LLM/迭代指标。
+ * </p>
  */
 @Component
-public class RouterMetricsCollector {
+public class RouterMetricsCollector implements AgentMetricsCollector {
 
     private final Counter totalRoutingRequestsCounter;
     private final Counter successfulRoutingCounter;
@@ -32,7 +37,17 @@ public class RouterMetricsCollector {
     
     private final AtomicLong activeAgents = new AtomicLong(0);
     private final AtomicLong cacheHitCount = new AtomicLong(0);
-    
+
+    // ⭐ Agent/LLM 指标
+    private final Counter tokenInputCounter;
+    private final Counter tokenOutputCounter;
+    private final Counter iterationCounter;
+    private final Counter timeoutCounter;
+    private final Counter maxIterationHitCounter;
+    private final Counter contextCompressionCounter;
+    private final Counter toolHallucinationCounter;
+    private final Timer inferenceLatencyTimer;
+
     public RouterMetricsCollector(MeterRegistry meterRegistry) {
 
         this.totalRoutingRequestsCounter = Counter.builder("a2a_router_routing_requests_total")
@@ -79,6 +94,47 @@ public class RouterMetricsCollector {
                 .description("Keyword extraction cache hits")
                 .tag("service", "router-service")
                 .register(meterRegistry);
+
+        // ⭐ Agent/LLM 指标
+        this.tokenInputCounter = Counter.builder("a2a_llm_token_input_total")
+                .description("Total LLM input tokens")
+                .tag("service", "router-service")
+                .register(meterRegistry);
+
+        this.tokenOutputCounter = Counter.builder("a2a_llm_token_output_total")
+                .description("Total LLM output tokens")
+                .tag("service", "router-service")
+                .register(meterRegistry);
+
+        this.iterationCounter = Counter.builder("a2a_agent_iteration_total")
+                .description("Total agent iterations")
+                .tag("service", "router-service")
+                .register(meterRegistry);
+
+        this.timeoutCounter = Counter.builder("a2a_agent_timeout_total")
+                .description("Agent timeout count")
+                .tag("service", "router-service")
+                .register(meterRegistry);
+
+        this.maxIterationHitCounter = Counter.builder("a2a_agent_max_iteration_hit_total")
+                .description("Max iteration limit reached count")
+                .tag("service", "router-service")
+                .register(meterRegistry);
+
+        this.contextCompressionCounter = Counter.builder("a2a_agent_context_compress_total")
+                .description("Context compression trigger count")
+                .tag("service", "router-service")
+                .register(meterRegistry);
+
+        this.toolHallucinationCounter = Counter.builder("a2a_agent_tool_hallucination_total")
+                .description("Tool hallucination (unknown tool) count")
+                .tag("service", "router-service")
+                .register(meterRegistry);
+
+        this.inferenceLatencyTimer = Timer.builder("a2a_llm_inference_latency")
+                .description("LLM inference latency")
+                .tag("service", "router-service")
+                .register(meterRegistry);
     }
     
     public void recordTotalRoutingRequest() {
@@ -115,5 +171,43 @@ public class RouterMetricsCollector {
     
     public void recordCacheHit() {
         cacheHitCount.incrementAndGet();
+    }
+
+    // ==================== AgentMetricsCollector 实现 ====================
+
+    @Override
+    public void recordTokenUsage(int inputTokens, int outputTokens) {
+        tokenInputCounter.increment(inputTokens);
+        tokenOutputCounter.increment(outputTokens);
+    }
+
+    @Override
+    public void recordIteration(int iterationCount) {
+        iterationCounter.increment();
+    }
+
+    @Override
+    public void recordInferenceLatency(long millis) {
+        inferenceLatencyTimer.record(millis, TimeUnit.MILLISECONDS);
+    }
+
+    @Override
+    public void recordContextCompression() {
+        contextCompressionCounter.increment();
+    }
+
+    @Override
+    public void recordToolHallucination() {
+        toolHallucinationCounter.increment();
+    }
+
+    @Override
+    public void recordTimeout() {
+        timeoutCounter.increment();
+    }
+
+    @Override
+    public void recordMaxIterationHit() {
+        maxIterationHitCounter.increment();
     }
 }

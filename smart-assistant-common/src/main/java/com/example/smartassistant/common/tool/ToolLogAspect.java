@@ -7,28 +7,32 @@
 
 package com.example.smartassistant.common.tool;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+
 /**
- * @Tool 方法统一日志切面。
+ * @Tool 方法统一日志切面 + Micrometer 指标采集。
  *
  * <p>拦截所有标注 {@code @org.springframework.ai.tool.annotation.Tool} 的方法，
- * 记录：方法名、requestId、输入参数、输出结果、执行耗时。</p>
- *
- * <p>日志格式：</p>
- * <pre>
- *   [Tool] method=calculate requestId=abc123 params={expression:"3.14*5^2"} result="78.5" duration=3ms
- * </pre>
- *
- * <p>输出结果超长时自动截断（默认 500 字），避免日志膨胀。</p>
- *
- * @author SmartAssistant
- * @since 2026-05-18
+ * 记录：方法名、requestId、输入参数、输出结果、执行耗时。
+ * 同时采集 Prometheus 指标：
+ * <ul>
+ *   <li>{@code a2a_tool_call_total{tool="xxx"}} — 工具调用次数</li>
+ *   <li>{@code a2a_tool_execution_latency{tool="xxx"}} — 工具执行耗时</li>
+ *   <li>{@code a2a_tool_error_total{tool="xxx"}} — 工具错误次数</li>
+ * </ul>
+ * </p>
  */
 @Aspect
 @Component
@@ -42,6 +46,22 @@ public class ToolLogAspect {
     /** 输入参数截断长度 */
     private static final int MAX_PARAM_LENGTH = 300;
 
+    /** Micrometer 指标注册表 */
+    private final MeterRegistry meterRegistry;
+
+    /** 工具调用计数器缓存：toolName → Counter */
+    private final ConcurrentHashMap<String, Counter> toolCallCounters = new ConcurrentHashMap<>();
+
+    /** 工具错误计数器缓存 */
+    private final ConcurrentHashMap<String, Counter> toolErrorCounters = new ConcurrentHashMap<>();
+
+    /** 工具执行计时器缓存 */
+    private final ConcurrentHashMap<String, Timer> toolLatencyTimers = new ConcurrentHashMap<>();
+
+    public ToolLogAspect(@Autowired(required = false) MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
+
     /**
      * 拦截所有 @Tool 注解的方法（全限定类名匹配 Spring AI 注解）。
      */
@@ -50,6 +70,9 @@ public class ToolLogAspect {
         String methodName = joinPoint.getSignature().getName();
         String requestId = ToolLogContext.getRequestId();
         String params = truncate(formatParams(joinPoint.getArgs()), MAX_PARAM_LENGTH);
+
+        // 记录工具调用次数
+        recordToolCall(methodName);
 
         long start = System.currentTimeMillis();
         try {
@@ -63,6 +86,10 @@ public class ToolLogAspect {
                     params,
                     resultStr,
                     duration);
+
+            // 记录工具执行耗时
+            recordToolLatency(methodName, duration);
+
             return result;
         } catch (Throwable ex) {
             long duration = System.currentTimeMillis() - start;
@@ -72,8 +99,44 @@ public class ToolLogAspect {
                     params,
                     ex.getMessage(),
                     duration);
+
+            // 记录工具错误
+            recordToolError(methodName);
+            recordToolLatency(methodName, duration);
             throw ex;
         }
+    }
+
+    // ==================== Micrometer 指标 ====================
+
+    private void recordToolCall(String toolName) {
+        if (meterRegistry == null) return;
+        toolCallCounters.computeIfAbsent(toolName, name ->
+                Counter.builder("a2a_tool_call_total")
+                        .description("Tool call count")
+                        .tag("tool", name)
+                        .register(meterRegistry)
+        ).increment();
+    }
+
+    private void recordToolError(String toolName) {
+        if (meterRegistry == null) return;
+        toolErrorCounters.computeIfAbsent(toolName, name ->
+                Counter.builder("a2a_tool_error_total")
+                        .description("Tool execution error count")
+                        .tag("tool", name)
+                        .register(meterRegistry)
+        ).increment();
+    }
+
+    private void recordToolLatency(String toolName, long millis) {
+        if (meterRegistry == null) return;
+        toolLatencyTimers.computeIfAbsent(toolName, name ->
+                Timer.builder("a2a_tool_execution_latency")
+                        .description("Tool execution latency")
+                        .tag("tool", name)
+                        .register(meterRegistry)
+        ).record(millis, TimeUnit.MILLISECONDS);
     }
 
     /**

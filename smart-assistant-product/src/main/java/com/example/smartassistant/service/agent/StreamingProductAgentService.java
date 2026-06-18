@@ -13,7 +13,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /**
- * Food 流式 Agent 服务
+ * Product 流式 Agent 服务
  */
 @Service
 @Slf4j
@@ -26,18 +26,18 @@ public class StreamingProductAgentService {
     }
 
     /**
-     * 执行美食推荐
+     * 执行商品咨询
      */
     public String execute(String userMessage) {
         try {
-            log.info("[StreamingFoodAgent] 执行推理: {}", userMessage);
+            log.info("[StreamingProductAgent] 执行推理: {}", userMessage);
             String result = productAgent.execute(userMessage);
             if (result != null) {
                 return result;
             }
             return "Agent 返回为空";
         } catch (Exception e) {
-            log.error("[StreamingFoodAgent] 执行异常: {}", e.getMessage(), e);
+            log.error("[StreamingProductAgent] 执行异常: {}", e.getMessage(), e);
             return "处理失败: " + e.getMessage();
         }
     }
