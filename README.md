@@ -63,7 +63,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
 | 🔍 **@Tool 统一日志切面** | AOP 拦截全部 27 个 @Tool 方法，自动记录 requestId + 输入参数 + 输出结果 + 执行耗时；requestId 通过 MDC 全链路透传（Consumer → Router → A2A → Agent → @Tool） |
 | 🔄 **Router 通用反思器** | 纯规则五维评分（长度/错误标记/关键词覆盖/Agent健康/意图匹配），0.6 阈值以下自动换 fallback Agent 重试，低质量回复不写缓存（防污染） |
-| 📊 **全栈可观测** | Micrometer + Prometheus + Grafana 指标，Jaeger 链路追踪，Loki 日志聚合，8 个自定义仪表盘 |
+| 📊 **全栈可观测** | Micrometer + Prometheus + Grafana 指标，Jaeger 链路追踪，Loki 日志聚合，8 个自定义仪表盘；Order/Product/General 各服务独立暴露 `a2a_llm_token_input_total` / `a2a_llm_token_output_total` 等 8 类 Agent 指标 |
 | ⏳ **请求排队 + SSE 流式** | Semaphore 限流 LLM 并发(默认5)，排队时 SSE 实时推送位置，支持 thinking/tool_call/response 事件 |
 | 🐳 **容器化部署** | Dockerfile + docker-compose.deploy.yml，7 个服务一键构建部署 |
 | 🔧 **自研 ReAct 循环** | SmartReActAgent 替代 ReactAgent 黑盒，内置迭代限制(10轮)、超时保护(60s)、Token 预算追踪(80%)、上下文压缩(LM 摘要+保留N轮) |

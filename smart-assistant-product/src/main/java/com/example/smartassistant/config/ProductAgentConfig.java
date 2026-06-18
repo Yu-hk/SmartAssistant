@@ -8,7 +8,9 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.service.monitoring.ProductMetricsCollector;
 import com.example.smartassistant.tools.KnowledgeQueryTool;
 import com.example.smartassistant.tools.ProductTools;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +50,8 @@ public class ProductAgentConfig {
     public SmartReActAgent productAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
             ProductTools productTools,
-            KnowledgeQueryTool knowledgeQueryTool) {
+            KnowledgeQueryTool knowledgeQueryTool,
+            ProductMetricsCollector metricsCollector) {
 
         log.info("[ProductAgent] 初始化 Agent: agentName={}", agentName);
 
@@ -68,6 +71,7 @@ public class ProductAgentConfig {
         log.info("[ProductAgent] 注册 {} 个工具（含知识库查询）", toolList.size());
 
         return new SmartReActAgent(chatModel)
+                .withMetrics(metricsCollector)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)
                 .withPreset(PromptBuilder.build()
