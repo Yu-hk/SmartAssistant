@@ -68,11 +68,11 @@ public class AgentHealthChecker {
                 log.warn("[HealthChecker] ⚠️ Agent {} 健康检查失败 (连续 {} 次)", 
                     agent.getServiceName(), failCount);
                 
-                // 连续失败3次,从缓存中移除
+                // 连续失败3次,从缓存中移除（仅移除该 Agent，避免影响其他正常 Agent）
                 if (failCount >= 3) {
-                    log.error("[HealthChecker] ❌ Agent {} 连续3次健康检查失败,从缓存中移除", 
+                    log.error("[HealthChecker] ❌ Agent {} 连续3次健康检查失败,从缓存中移除",
                         agent.getServiceName());
-                    agentDiscoveryService.clearCache();
+                    agentDiscoveryService.removeCachedAgent(agent.getServiceName());
                     unhealthyAgents.remove(agent.getServiceName());
                 }
             }

@@ -22,13 +22,14 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
 
-  # DashScope配置(测试时使用mock)
+  # ⭐ 本地 Ollama 模型配置（替代 DashScope）
   ai:
-    dashscope:
-      api-key: test-api-key-for-testing
-      embedding:
+    ollama:
+      base-url: http://localhost:11434
+      chat:
         options:
-          model: text-embedding-v4
+          model: qwen2.5:0.5b
+          temperature: 0.1
     
     alibaba:
       a2a:
@@ -37,7 +38,7 @@ spring:
           registry:
             enabled: false  # 测试时禁用注册
           discovery:
-            enabled: false  # 测试时禁用的发现
+            enabled: false  # 测试时禁用发现
         server:
           enabled: false  # 测试时禁用A2A服务
 
@@ -54,3 +55,8 @@ spring:
 routing:
   min-match-score: 0.650
   semantic-enabled: true
+
+# ⭐ Router 服务地址（测试时禁用，由 mock 处理）
+router:
+  service:
+    url: http://localhost:8083

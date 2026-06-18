@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.core;
 
+import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -35,8 +36,13 @@ public class ModelRoutingService {
     }
 
     /**
-     * 调用本地 Ollama 模型推理
+     * 调用本地 Ollama 模型推理。
+     * <p>
+     * 使用 Resilience4j 指数退避重试：
+     * 200ms → 400ms → 800ms，最多 3 次。
+     * </p>
      */
+    @Retry(name = "modelRoutingRetry")
     public String call(String systemPrompt, String userMessage) {
         long start = System.currentTimeMillis();
         try {

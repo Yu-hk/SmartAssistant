@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.agent;
 
+import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -108,6 +109,9 @@ public class SmartReActAgent {
     /** 预配置的工具列表（可选，可在 execute 时传入） */
     private List<ToolCallback> presetTools;
 
+    /** ⭐ 可选的指标采集器 */
+    private AgentMetricsCollector metrics = new AgentMetricsCollector() {};
+
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
     }
@@ -175,6 +179,19 @@ public class SmartReActAgent {
         return this;
     }
 
+    /**
+     * 设置指标采集器。
+     *
+     * @param metrics 指标采集器实现（通常由各模块的 MetricsCollector 实现）
+     * @return this
+     */
+    public SmartReActAgent withMetrics(AgentMetricsCollector metrics) {
+        if (metrics != null) {
+            this.metrics = metrics;
+        }
+        return this;
+    }
+
     // ==================== execute 重载 ====================
 
     /**
@@ -233,6 +250,7 @@ public class SmartReActAgent {
             // ⭐ 超时检查
             if (elapsed > timeoutMs) {
                 log.warn("[SmartReActAgent] ⏰ 超时 ({}ms, 迭代 {} 次)", elapsed, iteration);
+                metrics.recordTimeout();
                 return "执行超时（超过 " + (timeoutMs / 1000) + " 秒），请简化问题后重试。";
             }
 
@@ -249,13 +267,17 @@ public class SmartReActAgent {
                 if (compressed != messages) { // 压缩实际发生
                     log.info("[SmartReActAgent] 上下文压缩: {} → {} 条消息", messages.size(), compressed.size());
                     messages = compressed;
+                    metrics.recordContextCompression();
                 }
             }
 
             log.info("[SmartReActAgent] 第 {} 轮迭代开始 (已耗时 {}ms, 消息数 {})", iteration, elapsed, messages.size());
 
+            metrics.recordIteration(iteration);
+
             // ⭐ 调用 LLM
             ChatResponse response;
+            long llmStart = System.currentTimeMillis();
             try {
                 // ⭐ 注入工具列表到 CustomDeepSeekChatModel（如果适用）
                 injectToolsToModel(tools);
@@ -264,6 +286,8 @@ public class SmartReActAgent {
                 log.error("[SmartReActAgent] LLM 调用失败: {}", e.getMessage());
                 return "AI 服务暂时不可用，请稍后重试。";
             }
+            long llmElapsed = System.currentTimeMillis() - llmStart;
+            metrics.recordInferenceLatency(llmElapsed);
 
             if (response == null || response.getResult() == null) {
                 log.warn("[SmartReActAgent] LLM 返回空");
@@ -273,10 +297,13 @@ public class SmartReActAgent {
             // ⭐ 追踪 Token 消耗
             if (trackTokenBudget && response.getMetadata() != null
                     && response.getMetadata().getUsage() != null) {
-                totalInputTokens += response.getMetadata().getUsage().getPromptTokens();
-                totalOutputTokens += response.getMetadata().getUsage().getCompletionTokens();
+                int inTokens = response.getMetadata().getUsage().getPromptTokens();
+                int outTokens = response.getMetadata().getUsage().getCompletionTokens();
+                totalInputTokens += inTokens;
+                totalOutputTokens += outTokens;
                 log.debug("[SmartReActAgent] Token 累计: 输入={}, 输出={}",
                         totalInputTokens, totalOutputTokens);
+                metrics.recordTokenUsage(inTokens, outTokens);
             }
 
             AssistantMessage assistantMsg = response.getResult().getOutput();
@@ -320,6 +347,7 @@ public class SmartReActAgent {
 
         // ⭐ 达到最大迭代次数
         log.warn("[SmartReActAgent] 达到最大迭代次数 {}", maxIterations);
+        metrics.recordMaxIterationHit();
         return "已达到最大执行次数上限，请总结当前进度并询问用户是否继续。";
     }
 
@@ -509,6 +537,7 @@ public class SmartReActAgent {
 
                 if (callback == null) {
                     log.warn("[SmartReActAgent] 未知工具: {}", tc.name());
+                    metrics.recordToolHallucination();
                     return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
                             "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: " + tc.name()
                                     + "\",\"retryable\":false}");

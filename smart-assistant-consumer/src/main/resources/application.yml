@@ -19,11 +19,19 @@ spring:
   application:
     name: consumer-service
 
-  # ⭐ 排除 DeepSeek + DashScope 自动配置
+  # ⭐ 排除 DeepSeek + DashScope 自动配置（使用本地 Ollama 不需要 API Key）
   autoconfigure:
     exclude:
       - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration
-      - com.alibaba.cloud.ai.autoconfigure.dashscope.audio.DashScopeAudioSpeechAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeImageAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeVideoAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioSpeechAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioTranscriptionAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeRerankAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeEmbeddingAutoConfiguration
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAsyncToolCallingManagerAutoConfiguration
 
   # ⭐ MVC 异步请求超时（任务拆解需要更长时间）
   mvc:

@@ -86,7 +86,18 @@
             <artifactId>spring-ai-model</artifactId>
         </dependency>
 
+        <!-- ⭐ Jackson（ToolResult JSON 序列化） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
 
+        <!-- ⭐ Micrometer Core（指标采集，各模块通过 spring-boot-starter-actuator 引入） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <optional>true</optional>
+        </dependency>
 
         <!-- Test -->
         <dependency>

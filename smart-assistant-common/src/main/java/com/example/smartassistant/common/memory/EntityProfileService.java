@@ -8,6 +8,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -15,6 +16,11 @@ import java.util.stream.Collectors;
  * <p>
  * 将对话中提取的用户事实（"我怕狗"→ fear=狗）存储为结构化 KV，
  * 支持精准查询，不依赖向量检索。
+ * </p>
+ * <p>
+ * <b>改进</b>：支持注入可选的 LLM 提取器（{@link BiFunction}），
+ * 当提取器可用时优先使用 LLM 提取，否则降级到关键词匹配。
+ * </p>
  */
 public class EntityProfileService {
 
@@ -25,9 +31,25 @@ public class EntityProfileService {
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
 
+    // ⭐ 可选的 LLM 提取器（输入：message+reply，输出：category→value 事实）
+    private BiFunction<String, String, Map<String, String>> llmExtractor;
+
     public EntityProfileService(StringRedisTemplate redis) {
         this.redis = redis;
         this.mapper = new ObjectMapper();
+    }
+
+    /**
+     * 设置 LLM 提取器（可选），用于从对话中提取用户事实。
+     * <p>
+     * 由注入方（如 Consumer 模块）传入，实现方式可以是 ChatClient、HTTP 调用等。
+     * 不设置时自动降级到关键词匹配。
+     * </p>
+     *
+     * @param llmExtractor 接收 (message, reply)，返回 Map&lt;category, value&gt;
+     */
+    public void setLlmExtractor(BiFunction<String, String, Map<String, String>> llmExtractor) {
+        this.llmExtractor = llmExtractor;
     }
 
     /**
@@ -78,6 +100,8 @@ public class EntityProfileService {
 
     /**
      * 使用 LLM 从对话文本中提取用户事实，并自动存储。
+     * <p>
+     * 优先使用 LLM 提取器提取，降级到关键词匹配。
      *
      * @param userId   用户 ID
      * @param message  用户消息原文
@@ -87,10 +111,15 @@ public class EntityProfileService {
         if (userId == null || message == null || message.isBlank()) return;
 
         try {
-            // 使用已有的 DeepSeekApiClient 提取事实
-            // 格式: category1=value1\ncategory2=value2
-            // 对话: 用户说"我怕狗" → 提取 fear=狗
-            Map<String, String> facts = extractFacts(message, reply);
+            Map<String, String> facts;
+
+            // ⭐ 优先使用 LLM 提取器（更准确）
+            if (llmExtractor != null) {
+                facts = extractFactsWithLLM(message, reply);
+            } else {
+                facts = extractFactsWithKeywords(message);
+            }
+
             if (!facts.isEmpty()) {
                 putAll(userId, facts);
             }
@@ -100,11 +129,25 @@ public class EntityProfileService {
     }
 
     /**
-     * LLM 提取事实。实际调用时由调用方传入 chatClient。
+     * ⭐ 使用 LLM 提取器提取用户事实。
      */
-    public Map<String, String> extractFacts(String message, String reply) {
-        // 默认实现：简单关键词匹配
-        // 生产环境应由 LLM 完成
+    private Map<String, String> extractFactsWithLLM(String message, String reply) {
+        if (llmExtractor == null) return Map.of();
+
+        try {
+            Map<String, String> facts = llmExtractor.apply(message, reply);
+            return facts != null ? facts : Map.of();
+        } catch (Exception e) {
+            log.warn("[Profile] LLM 提取失败，降级到关键词: {}", e.getMessage());
+            return extractFactsWithKeywords(message);
+        }
+    }
+
+    /**
+     * 关键词匹配提取用户事实（降级方案）。
+     * 当 LLM 提取器不可用时使用。
+     */
+    public Map<String, String> extractFactsWithKeywords(String message) {
         Map<String, String> facts = new LinkedHashMap<>();
         if (message == null) return facts;
 

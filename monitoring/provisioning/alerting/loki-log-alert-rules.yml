@@ -1,0 +1,166 @@
+apiVersion: 1
+
+# Loki 日志告警规则
+# 注意：这些规则在 Grafana 中通过 Loki 数据源执行 LogQL 查询
+groups:
+  - orgId: 1
+    name: a2a-loki-log-alerts
+    folder: A2A 日志告警
+    interval: 1m
+    rules:
+      # ========== ERROR 日志高频出现 ==========
+      - uid: loki_high_error_rate
+        title: "🚨 高频 ERROR 日志告警"
+        condition: "A"
+        data:
+          - refId: "A"
+            datasourceUid: "loki"
+            model:
+              expr: |
+                sum(count_over_time({service=~"consumer-service|router-service|order-service|product-service"} |= "ERROR" [5m])) > 20
+              intervalMs: 60000
+              maxDataPoints: 0
+            queryType: "logql"
+            relativeTimeRange:
+              from: 300
+              to: 0
+        noDataState: "NoData"
+        execErrState: "Error"
+        for: "2m"
+        annotations:
+          summary: "🚨 高频 ERROR 日志（5分钟内超过 20 条）"
+          description: "服务 {{ $labels.service }} 在 5 分钟内产生了 {{ $values.A }} 条 ERROR 日志，请检查"
+          runbook_url: "http://wiki.example.com/runbooks/log-error"
+        labels:
+          severity: "critical"
+          service: "all"
+
+      # ========== Agent 超时次数过高 ==========
+      - uid: loki_agent_timeout
+        title: "⚠️ Agent 频繁超时"
+        condition: "A"
+        data:
+          - refId: "A"
+            datasourceUid: "loki"
+            model:
+              expr: |
+                sum(count_over_time({service=~"consumer-service|router-service"} |= "超时" |= "SmartReActAgent" [5m])) > 3
+              intervalMs: 60000
+              maxDataPoints: 0
+            queryType: "logql"
+            relativeTimeRange:
+              from: 300
+              to: 0
+        noDataState: "NoData"
+        execErrState: "Error"
+        for: "1m"
+        annotations:
+          summary: "⚠️ Agent 频繁超时"
+          description: "Agent 在 5 分钟内超时 {{ $values.A }} 次，可能模型响应过慢"
+        labels:
+          severity: "warning"
+          service: "agent"
+
+      # ========== 工具幻觉频繁出现 ==========
+      - uid: loki_tool_hallucination
+        title: "⚠️ Agent 工具幻觉频繁"
+        condition: "A"
+        data:
+          - refId: "A"
+            datasourceUid: "loki"
+            model:
+              expr: |
+                sum(count_over_time({service=~"consumer-service|router-service"} |= "未知工具" [10m])) > 5
+              intervalMs: 60000
+              maxDataPoints: 0
+            queryType: "logql"
+            relativeTimeRange:
+              from: 600
+              to: 0
+        noDataState: "NoData"
+        execErrState: "Error"
+        for: "2m"
+        annotations:
+          summary: "⚠️ Agent 工具幻觉频繁"
+          description: "10 分钟内检测到 {{ $values.A }} 次工具幻觉（LLM 调用了不存在的工具），可能系统提示词需要更新"
+        labels:
+          severity: "warning"
+          service: "agent"
+
+      # ========== 服务返回错误响应 ==========
+      - uid: loki_service_error_response
+        title: "⚠️ 服务返回错误响应"
+        condition: "A"
+        data:
+          - refId: "A"
+            datasourceUid: "loki"
+            model:
+              expr: |
+                sum(count_over_time({service=~"consumer-service|router-service|order-service|product-service"} |~ "❌|ToolResult.*error_code" [5m])) > 10
+              intervalMs: 60000
+              maxDataPoints: 0
+            queryType: "logql"
+            relativeTimeRange:
+              from: 300
+              to: 0
+        noDataState: "NoData"
+        execErrState: "Error"
+        for: "2m"
+        annotations:
+          summary: "⚠️ 服务频繁返回错误响应"
+          description: "5 分钟内检测到 {{ $values.A }} 个错误响应（含 ❌ 和 ToolResult 错误码）"
+        labels:
+          severity: "warning"
+          service: "all"
+
+      # ========== Nacos/Nginx 连接失败 ==========
+      - uid: loki_connection_failure
+        title: "🚨 服务连接失败"
+        condition: "A"
+        data:
+          - refId: "A"
+            datasourceUid: "loki"
+            model:
+              expr: |
+                sum(count_over_time({service=~"consumer-service|router-service|order-service|product-service"} |= "ConnectException" [5m])) > 5
+              intervalMs: 60000
+              maxDataPoints: 0
+            queryType: "logql"
+            relativeTimeRange:
+              from: 300
+              to: 0
+        noDataState: "NoData"
+        execErrState: "Error"
+        for: "1m"
+        annotations:
+          summary: "🚨 服务连接失败"
+          description: "5 分钟内检测到 {{ $values.A }} 次 ConnectException，可能有服务宕机"
+        labels:
+          severity: "critical"
+          service: "all"
+
+      # ========== SQL 慢查询告警 ==========
+      - uid: loki_slow_sql
+        title: "⚠️ SQL 慢查询"
+        condition: "A"
+        data:
+          - refId: "A"
+            datasourceUid: "loki"
+            model:
+              expr: |
+                sum(count_over_time({service=~"consumer-service|order-service"} |= "SQL_SLOW" [5m])) > 3
+              intervalMs: 60000
+              maxDataPoints: 0
+            queryType: "logql"
+            relativeTimeRange:
+              from: 300
+              to: 0
+        noDataState: "NoData"
+        execErrState: "Error"
+        for: "2m"
+        annotations:
+          summary: "⚠️ SQL 慢查询"
+          description: "5 分钟内检测到 {{ $values.A }} 次 SQL 慢查询，需要检查数据库性能"
+        labels:
+          severity: "warning"
+          service: "database"

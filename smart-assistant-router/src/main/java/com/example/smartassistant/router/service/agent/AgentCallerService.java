@@ -30,24 +30,55 @@ import java.util.Map;
  * Router 直接 POST 请求到 Agent 服务的 {@code /api/order/agent/process} 端点，
  * 不依赖 Spring AI Alibaba 的 A2aRemoteAgent 框架。
  * </p>
+ * <p>
+ * <b>版本协商</b>：集成 {@link AgentVersionNegotiator} 选择兼容版本的 Agent。
+ * 当版本协商失败时（如元数据缺失），回退到原有按名匹配逻辑。
+ * </p>
  */
 @Service
 public class AgentCallerService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentCallerService.class);
 
+    /**
+     * 默认 Router 版本号，用于版本协商
+     */
+    private static final String DEFAULT_CLIENT_VERSION = "1.0.0";
+
+    /**
+     * 默认协议版本
+     */
+    private static final String DEFAULT_PROTOCOL_VERSION = "a2a-v1";
+
     private final AgentDiscoveryService agentDiscoveryService;
+    private final AgentVersionNegotiator versionNegotiator;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
     public AgentCallerService(AgentDiscoveryService agentDiscoveryService,
-                             KeywordExtractionService keywordExtractionService) {
+                             KeywordExtractionService keywordExtractionService,
+                             AgentVersionNegotiator versionNegotiator) {
         this.agentDiscoveryService = agentDiscoveryService;
+        this.versionNegotiator = versionNegotiator;
         this.restTemplate = new RestTemplate();
         this.objectMapper = new ObjectMapper();
     }
 
     // ==================== 公开方法 ====================
+
+    /**
+     * ⭐ 获取可用 Agent 数量。
+     * 当无任何 Agent 注册时，Router 直接使用内联 Ollama 兜底。
+     */
+    public int getAvailableAgentCount() {
+        try {
+            List<DiscoveredAgent> agents = agentDiscoveryService.discoverAllAgents();
+            return agents != null ? agents.size() : 0;
+        } catch (Exception e) {
+            log.warn("[AgentCaller] 获取 Agent 列表失败: {}", e.getMessage());
+            return 0;
+        }
+    }
 
     public String callAgent(String agentName, String question, Long userId) {
         return callAgentWithContext(agentName, question, userId, null, null);
@@ -97,6 +128,12 @@ public class AgentCallerService {
         }
 
         try {
+            // ⭐ 特殊 Agent 名称：builtin_fallback 和 none 是内部兜底标记，不实际调用
+            if ("builtin_fallback".equals(agentName) || "none".equals(agentName)) {
+                log.warn("[AgentCaller] 特殊 Agent 名称 '{}'，跳过 HTTP 调用", agentName);
+                return "";
+            }
+
             String agentUrl = findAgentUrl(agentName);
             if (agentUrl == null) {
                 log.error("[AgentCaller] 未找到 Agent: {}", agentName);
@@ -146,14 +183,31 @@ public class AgentCallerService {
 
     /**
      * 从 AgentDiscoveryService 查找目标 Agent 的 URL。
+     * <p>
+     * <b>改进</b>：优先使用 {@link AgentVersionNegotiator} 进行版本协商，
+     * 选择兼容版本的 Agent 实例。如果版本协商失败（如元数据缺失），
+     * 则回退到原有按名匹配逻辑。
+     * </p>
      */
     private String findAgentUrl(String agentName) {
         try {
+            // ⭐ 第一步：尝试版本协商（选择兼容版本）
+            DiscoveredAgent negotiated = versionNegotiator.selectCompatibleAgent(
+                    agentName, DEFAULT_CLIENT_VERSION, DEFAULT_PROTOCOL_VERSION);
+            if (negotiated != null && negotiated.getUrl() != null) {
+                log.info("[AgentCaller] ✅ 版本协商成功: agent={}, url={}, version={}",
+                        agentName, negotiated.getUrl(),
+                        negotiated.getMetadata() != null ? negotiated.getMetadata().getVersion() : "unknown");
+                return negotiated.getUrl();
+            }
+
+            // ⭐ 第二步：版本协商失败（无匹配版本），回退到按名匹配
+            log.warn("[AgentCaller] 版本协商无兼容 Agent: {}, 回退到直接匹配", agentName);
             List<DiscoveredAgent> agents = agentDiscoveryService.discoverAllAgents();
             for (DiscoveredAgent agent : agents) {
                 if (agent.getAgentName().equals(agentName) ||
                     agent.getServiceName().equals(agentName)) {
-                    log.info("[AgentCaller] 找到 Agent: {}, URL: {}", agentName, agent.getUrl());
+                    log.info("[AgentCaller] 找到 Agent (回退): {}, URL: {}", agentName, agent.getUrl());
                     return agent.getUrl();
                 }
             }
