@@ -70,7 +70,7 @@ spring:
       base-url: http://localhost:11434
       chat:
         options:
-          model: deepseek-r1:7b
+          model: qwen2.5:7b
           temperature: 0.7
 
     # ⭐ MCP Server 配置（内嵌模式）
