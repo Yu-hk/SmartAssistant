@@ -69,7 +69,7 @@ spring:
       base-url: http://localhost:11434
       chat:
         options:
-          model: qwen2.5:0.5b
+          model: qwen2.5:7b
           temperature: 0.1
 
     alibaba:

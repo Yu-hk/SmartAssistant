@@ -8,7 +8,9 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.service.monitoring.OrderMetricsCollector;
 import com.example.smartassistant.tools.CouponTools;
 import com.example.smartassistant.tools.OrderAnalyticsTool;
 import com.example.smartassistant.tools.OrderTools;
@@ -52,7 +54,8 @@ public class OrderAgentConfig {
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
             OrderTools orderTools,
             OrderAnalyticsTool analyticsTool,
-            CouponTools couponTools) {
+            CouponTools couponTools,
+            OrderMetricsCollector metricsCollector) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
@@ -66,6 +69,7 @@ public class OrderAgentConfig {
         log.info("[OrderAgent] 注册 {} 个工具（订单处理 + 预定义分析查询）", toolList.size());
 
         return new SmartReActAgent(chatModel)
+                .withMetrics(metricsCollector)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)
                 .withPreset(PromptBuilder.build()
