@@ -13,11 +13,10 @@ import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationSe
 import com.example.smartassistant.consumer.service.core.ChatConsumerService;
 import com.example.smartassistant.consumer.service.session.ConversationDocumentService;
 import com.example.smartassistant.consumer.service.session.ConversationValueService;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -39,24 +38,24 @@ public class ChatController {
     private final AnswerPersonalizationService personalizationCacheService;  // ⭐ 方案E: 缓存预热
     private final ConversationValueService conversationValueService;
     private final ConversationDocumentService conversationDocumentService;
+    private final StringRedisTemplate redisTemplate;
 
-    // ⭐ 会话轮数追踪：sessionId -> turnCount（使用 Caffeine 缓存，1 小时自动过期，最大 10000 条目）
-    private final Cache<String, Integer> turnCounts = Caffeine.newBuilder()
-            .expireAfterWrite(1, TimeUnit.HOURS)
-            .maximumSize(10000)
-            .recordStats()
-            .build();
+    // ⭐ 会话轮数追踪：sessionId -> turnCount
+    // 使用 Redis String，TTL 1 小时，支持多实例部署
+    private static final String TURN_COUNT_PREFIX = "session:turncount:";
 
     public ChatController(ChatConsumerService chatService,
                          AnswerCacheService answerCacheService,
                          AnswerPersonalizationService personalizationCacheService,
                           ConversationValueService conversationValueService,
-                          ConversationDocumentService conversationDocumentService) {
+                          ConversationDocumentService conversationDocumentService,
+                          StringRedisTemplate redisTemplate) {
         this.chatService = chatService;
         this.answerCacheService = answerCacheService;
         this.personalizationCacheService = personalizationCacheService;
         this.conversationValueService = conversationValueService;
         this.conversationDocumentService = conversationDocumentService;
+        this.redisTemplate = redisTemplate;
     }
 
     /**
@@ -186,8 +185,14 @@ public class ChatController {
                     Boolean fromCache = (Boolean) routerResponse.getOrDefault("fromCache", false);
                     // ⭐ 从透传的 intentTag 读取
                     String intentTag = (String) routerResponse.get("intentTag");
-                    // ⭐ 计算当前轮数（session 粒度，使用 Caffeine asMap 的 merge 保证线程安全）
-                    int turnCount = turnCounts.asMap().merge(sessionId, 1, Integer::sum);
+                    // ⭐ 计算当前轮数（session 粒度，使用 Redis INCR + TTL 保证线程安全和多实例兼容）
+                    String turnKey = TURN_COUNT_PREFIX + sessionId;
+                    Long turnCountLong = redisTemplate.opsForValue().increment(turnKey);
+                    if (turnCountLong != null && turnCountLong == 1) {
+                        // 首次创建，设置 1 小时 TTL
+                        redisTemplate.expire(turnKey, 1, TimeUnit.HOURS);
+                    }
+                    int turnCount = turnCountLong != null ? turnCountLong.intValue() : 1;
                     // ⭐ 使用 Router 传来的 toolInvoked 信号（不再通过意图标签猜测）
                     Boolean toolInvoked = (Boolean) routerResponse.getOrDefault("toolInvoked", false);
 

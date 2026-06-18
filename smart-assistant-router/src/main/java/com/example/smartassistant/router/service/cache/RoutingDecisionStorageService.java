@@ -54,6 +54,8 @@ public class RoutingDecisionStorageService {
 
     /**
      * ⭐ 存储路由决策结果
+     * <p>
+     * 保存后同时向通知队列发送 BLPOP 信号，使等待端能立即收到通知。
      *
      * @param requestId 请求 ID
      * @param decision  决策结果
@@ -68,7 +70,13 @@ public class RoutingDecisionStorageService {
             String key = ROUTING_DECISION_KEY_PREFIX + requestId;
             String value = objectMapper.writeValueAsString(decision);
             redisTemplate.opsForValue().set(key, value, DEFAULT_TTL.getSeconds(), TimeUnit.SECONDS);
-            log.debug("[RoutingDecisionStorage] 决策已存储: requestId={}, agentName={}",
+
+            // ⭐ 向 BLPOP 通知队列发送信号，唤醒等待端
+            String notifyKey = ROUTING_DECISION_KEY_PREFIX + "notify:" + requestId;
+            redisTemplate.opsForList().rightPush(notifyKey, requestId);
+            redisTemplate.expire(notifyKey, DEFAULT_TTL.getSeconds(), TimeUnit.SECONDS);
+
+            log.debug("[RoutingDecisionStorage] 决策已存储并通知: requestId={}, agentName={}",
                     requestId, decision.get("agentName"));
         } catch (JsonProcessingException e) {
             log.error("[RoutingDecisionStorage] 序列化决策失败: requestId={}", requestId, e);
@@ -107,13 +115,14 @@ public class RoutingDecisionStorageService {
     }
 
     /**
-     * ⭐ 阻塞等待路由决策结果
+     * ⭐ 阻塞等待路由决策结果（支持 BLPOP 通知机制）
      * <p>
-     * 轮询 Redis 直到获取到决策结果或超时
+     * 使用 Redis List 的 BLPOP 替代轮询，减少延迟和 CPU 消耗。
+     * 写入决策时同时 push 到通知队列，读端阻塞等待。
      *
      * @param requestId  请求 ID
      * @param maxWaitMs  最大等待时间（毫秒）
-     * @param pollIntervalMs 轮询间隔（毫秒）
+     * @param pollIntervalMs 轮询间隔（毫秒，仅作为 BLPOP 超时后的降级回退）
      * @return 决策结果，如果超时返回 null
      */
     public Map<String, Object> waitForDecision(String requestId, long maxWaitMs, long pollIntervalMs) {
@@ -122,30 +131,58 @@ public class RoutingDecisionStorageService {
             return null;
         }
 
+        String notifyKey = ROUTING_DECISION_KEY_PREFIX + "notify:" + requestId;
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // ⭐ 使用 BLPOP 阻塞等待通知（最大等待 maxWaitMs 毫秒）
+            // 如果 BLPOP 成功返回，说明决策已就绪；否则超时
+            String notifyResult = redisTemplate.opsForList().leftPop(
+                    notifyKey, Duration.ofMillis(maxWaitMs));
+
+            if (notifyResult != null) {
+                log.debug("[RoutingDecisionStorage] BLPOP 收到决策通知: requestId={}, waitTime={}ms",
+                        requestId, System.currentTimeMillis() - startTime);
+                return getDecision(requestId);
+            }
+
+            // BLPOP 超时，回退到轮询检查（兼容旧版未发送通知的场景）
+            log.debug("[RoutingDecisionStorage] BLPOP 超时，回退到轮询: requestId={}", requestId);
+            return pollForDecision(requestId, maxWaitMs - (System.currentTimeMillis() - startTime), pollIntervalMs);
+
+        } catch (Exception e) {
+            log.warn("[RoutingDecisionStorage] BLPOP 等待异常: requestId={}", requestId, e);
+            // 异常降级到轮询
+            return pollForDecision(requestId, maxWaitMs - (System.currentTimeMillis() - startTime), pollIntervalMs);
+        }
+    }
+
+    /**
+     * 降级轮询方式获取决策（兼容旧版）
+     */
+    private Map<String, Object> pollForDecision(String requestId, long remainingMs, long pollIntervalMs) {
+        if (remainingMs <= 0) return null;
+
         long startTime = System.currentTimeMillis();
         int attempts = 0;
 
-        while (System.currentTimeMillis() - startTime < maxWaitMs) {
+        while (System.currentTimeMillis() - startTime < remainingMs) {
             attempts++;
             Map<String, Object> decision = getDecision(requestId);
-
             if (decision != null) {
-                log.debug("[RoutingDecisionStorage] 等待到决策: requestId={}, attempts={}, waitTime={}ms",
+                log.debug("[RoutingDecisionStorage] 轮询到决策: requestId={}, attempts={}, waitTime={}ms",
                         requestId, attempts, System.currentTimeMillis() - startTime);
                 return decision;
             }
-
             try {
-                Thread.sleep(pollIntervalMs);
-            } catch (InterruptedException e) {
+                Thread.sleep(Math.min(pollIntervalMs, remainingMs - (System.currentTimeMillis() - startTime)));
+            } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
-                log.warn("[RoutingDecisionStorage] 等待被中断: requestId={}", requestId);
                 return null;
             }
         }
 
-        log.warn("[RoutingDecisionStorage] 等待决策超时: requestId={}, maxWaitMs={}, attempts={}",
-                requestId, maxWaitMs, attempts);
+        log.warn("[RoutingDecisionStorage] 轮询超时: requestId={}, attempts={}", requestId, attempts);
         return null;
     }
 

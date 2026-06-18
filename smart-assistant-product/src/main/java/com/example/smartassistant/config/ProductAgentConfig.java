@@ -27,7 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Food Agent 配置类
+ * Product Agent 配置类
  *
  * <p>系统提示词外部化在 {@code prompts/product-system-prompt.txt}。</p>
  */
@@ -80,7 +80,7 @@ public class ProductAgentConfig {
             return systemPromptResource.getContentAsString(StandardCharsets.UTF_8);
         } catch (IOException e) {
             log.warn("[FoodAgent] 系统提示词文件加载失败，使用默认提示词: {}", e.getMessage());
-            return "你是一个专业的美食推荐助手。根据用户需求调用工具获取信息，给出推荐。";
+            return "你是一个专业的商品咨询助手。根据用户需求调用工具获取商品信息，给出回答。";
         }
     }
 }

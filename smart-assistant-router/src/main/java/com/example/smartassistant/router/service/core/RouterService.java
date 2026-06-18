@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.ReflectionResult;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
@@ -64,6 +65,16 @@ public class RouterService {
     private final ModelRoutingService modelRoutingService;
     private final ExperienceService experienceService;
 
+    // ⭐ 基于图的意图执行引擎
+    private final GraphExecutionService graphExecutionService;
+
+    // ⭐ 并行 Agent 执行线程池（用于独立子任务的真正并行执行）
+    private final Executor parallelExecutor;
+
+    // ⭐ 子任务单 Agent 超时（毫秒）
+    @Value("${router.parallel.agent-timeout-ms:30000}")
+    private long agentTimeoutMs;
+
     @Value("${router.agent.rag.enabled:false}")
     private boolean ragEnabled;
 
@@ -89,7 +100,8 @@ public class RouterService {
                          ResultMerger resultMerger,
                          ReflectionService reflectionService,
                          ModelRoutingService modelRoutingService,
-                         ExperienceService experienceService) {
+                         ExperienceService experienceService,
+                         GraphExecutionService graphExecutionService) {
         this.agentCallerService = agentCallerService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
@@ -100,6 +112,8 @@ public class RouterService {
         this.reflectionService = reflectionService;
         this.modelRoutingService = modelRoutingService;
         this.experienceService = experienceService;
+        this.graphExecutionService = graphExecutionService;
+        this.parallelExecutor = routerParallelAgentExecutor;
     }
     
     /**
@@ -207,6 +221,11 @@ public class RouterService {
                             .confidence(cached.confidence)
                             .intentTag(cached.intentTag)  // ⭐ 从缓存中恢复 intentTag
                             .build();
+                    // ⭐ 缓存了 builtin_fallback 但无回复 → 不使用缓存决策，走内联兜底
+                    if ("builtin_fallback".equals(cached.agentName) || "none".equals(cached.agentName)) {
+                        log.warn("[Router] 缓存命中但 agent={} 无可用 Agent，降级到内联兜底", cached.agentName);
+                        return inlineFallback(enhancedQuestion);
+                    }
                     if (cached.agentName != null && !"none".equals(cached.agentName)) {
                         String agentReply = agentCallerService.callAgent(cached.agentName, enhancedQuestion, userId, request.getRequestId());
                         if (agentReply != null) {
@@ -357,26 +376,35 @@ public class RouterService {
     // ==================== 多 Agent 协作 ====================
 
     /**
-     * 多 Agent 协作：任务分解 → 并行执行 → 结果合并。
+     * 多 Agent 协作：图分解 → 图执行 → 结果合并。
      * <p>
      * 处理跨领域复杂问题，如"推荐北京景点和川菜馆"，
-     * 分别发给 location_weather 和 food_recommendation 后合并。
+     * 使用 {@link TaskPlannerService#planToGraph(String)} 分解为带依赖关系的 DAG，
+     * 由 {@link GraphExecutionService#execute} 按拓扑顺序并行执行。
+     * </p>
      */
     private RoutingResult executeCollaborative(String question, Long userId, String requestId) {
         long start = System.currentTimeMillis();
 
-        // Step 1: 任务分解
-        List<SubTask> tasks = taskPlanner.plan(question);
-        if (tasks.isEmpty()) {
-            log.warn("[Collaborative] 任务分解为空，降级到内联 ChatClient 兜底");
+        // ⭐ Step 0: 检查是否有可用 Agent（无 Agent 时直接使用内联兜底）
+        if (agentCallerService.getAvailableAgentCount() == 0) {
+            log.warn("[Collaborative] 无可用 Agent，降级到内联 ChatClient 兜底");
             return inlineFallback(question);
         }
-        log.info("[Collaborative] 任务分解: {} 个子任务", tasks.size());
+
+        // Step 1: 图分解（带依赖关系的 DAG）
+        IntentGraph graph = taskPlanner.planToGraph(question);
+        if (graph.getNodeCount() == 0) {
+            log.warn("[Collaborative] 图分解为空，降级到内联 ChatClient 兜底");
+            return inlineFallback(question);
+        }
+        log.info("[Collaborative] 图分解完成: {} 个节点, hasDeps={}, maxParallelism={}",
+                graph.getNodeCount(), graph.hasDependency(), graph.getMaxParallelism());
 
         String eventsKey = requestId != null ? SSE_EVENTS_KEY_PREFIX + requestId : null;
 
-        // Step 2: 并行执行子任务
-        List<SubTaskResult> results = parallelExecute(tasks, userId, eventsKey, requestId);
+        // Step 2: 图执行（根据拓扑并行执行）
+        List<SubTaskResult> results = graphExecutionService.execute(graph, userId, eventsKey, requestId);
 
         // Step 3: SSE — 汇总中
         storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);
@@ -386,7 +414,7 @@ public class RouterService {
 
         long elapsed = System.currentTimeMillis() - start;
 
-        // Step 5: 终极兜底 — 所有 Agent 均失败或结果为空时走内联 ChatClient
+        // Step 5: 终极兜底 — 所有子任务均失败或结果为空时走内联 ChatClient
         boolean allFailed = results.isEmpty() || results.stream().noneMatch(SubTaskResult::isSuccess);
         if (allFailed || merged == null || merged.isBlank()) {
             log.warn("[Collaborative] 所有子任务均失败，降级到内联 ChatClient 兜底");
@@ -402,8 +430,11 @@ public class RouterService {
                 .findFirst().orElse("none");
 
         // ⭐ 提取 REACT 经验（多步协作链路）
-        if (tasks.size() >= 2) {
-            experienceService.extractReactExperience(question, tasks);
+        if (graph.getNodeCount() >= 2) {
+            experienceService.extractReactExperience(question,
+                    graph.getAllNodes().stream()
+                            .map(n -> new SubTask(n.getId(), n.getDescription(), n.getTargetAgent(), n.getDependsOn()))
+                            .collect(java.util.stream.Collectors.toList()));
         }
 
         return RoutingResult.builder()
@@ -414,13 +445,16 @@ public class RouterService {
     }
 
     /**
-     * 带共享上下文的顺序执行。
+     * 多 Agent 顺序执行带共享上下文累积。
      * <p>
-     * 每个子任务执行前，将已完成的 Agent 结果（共享上下文）注入到描述中，
-     * 使后续 Agent 能感知前面 Agent 的发现。
-     * 例如 Food Agent 看到 Travel Agent 找到的景点后，可推荐附近的餐厅。
+     * <b>已弃用</b>：请使用 {@link GraphExecutionService#execute} 替代。
+     * 保留此方法仅用于后向兼容和回退参考。
+     * </p>
+     *
+     * @deprecated 使用 {@link GraphExecutionService#execute(IntentGraph, Long, String, String)} 替代
      */
-    private List<SubTaskResult> parallelExecute(List<SubTask> tasks, Long userId, String eventsKey, String requestId) {
+    @Deprecated
+    private List<SubTaskResult> executeTasksWithSharedContext(List<SubTask> tasks, Long userId, String eventsKey, String requestId) {
         List<SubTaskResult> results = new ArrayList<>();
         StringBuilder sharedContext = new StringBuilder();
 
