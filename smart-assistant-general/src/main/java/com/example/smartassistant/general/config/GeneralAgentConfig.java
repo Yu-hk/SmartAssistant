@@ -8,7 +8,9 @@
 package com.example.smartassistant.general.config;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.general.service.monitoring.GeneralMetricsCollector;
 import com.example.smartassistant.general.tool.ImageTools;
 import com.example.smartassistant.general.tool.GeneralTools;
 import com.example.smartassistant.general.tool.WeatherTool;
@@ -51,7 +53,8 @@ public class GeneralAgentConfig {
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
             GeneralTools generalTools,
             ImageTools imageTools,
-            WeatherTool weatherTool) {
+            WeatherTool weatherTool,
+            GeneralMetricsCollector metricsCollector) {
 
         log.info("[GeneralAgent] 初始化通用对话 Agent: agentName={}", agentName);
 
@@ -77,6 +80,7 @@ public class GeneralAgentConfig {
                 weatherToolProvider.getToolCallbacks().length);
 
         return new SmartReActAgent(chatModel)
+                .withMetrics(metricsCollector)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)
                 .withPreset(PromptBuilder.build()
