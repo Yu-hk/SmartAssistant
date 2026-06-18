@@ -29,7 +29,8 @@ import java.util.concurrent.Executor;
  * 覆盖 YAML 中硬编码的 metadata，并监听变更自动重新注册。
  * <p>
  * Nacos Config 中需创建配置：
- *   Data ID: food-service-metadata
+ *   <li>Data ID: product-service-metadata</li>
+ *   <li>Group: AGENT_META</li>
  *   Group:   AGENT_META
  *   Format:  YAML
  *   Content:
@@ -48,7 +49,7 @@ public class NacosMetadataConfigurer {
     private final NacosServiceRegistry nacosRegistry;
     private final NacosRegistration registration;
 
-    @Value("${spring.application.name:food-service}")
+    @Value("${spring.application.name:product-service}")
     private String serviceName;
 
     @Value("${nacos.metadata.config-id-suffix:-metadata}")

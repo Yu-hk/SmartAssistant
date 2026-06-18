@@ -17,7 +17,7 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Food 服务流式响应控制器
+ * Product 服务流式响应控制器
  * <p>
  * 提供 SSE 流式输出，实时展示 AI 推理过程
  * <p>
@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - event: done       - 完成信号
  */
 @RestController
-@RequestMapping("/food/stream")
+@RequestMapping("/product/stream")
 @Slf4j
 public class ProductStreamController {
 
@@ -53,7 +53,7 @@ public class ProductStreamController {
             @RequestParam String message,
             @RequestParam(required = false, defaultValue = "true") boolean showThinking) {
 
-        log.info("[FoodStream] 开始流式对话: message={}, showThinking={}", message, showThinking);
+        log.info("[ProductStream] 开始流式对话: message={}, showThinking={}", message, showThinking);
 
         AtomicInteger step = new AtomicInteger(1);
 
@@ -65,10 +65,10 @@ public class ProductStreamController {
                 }
 
                 // 2. 发送 tool_call 事件（模拟工具调用）
-                sink.next(createSSEEvent("tool_call", step.getAndIncrement(), null, "querySpecialtyCuisine", null));
+                sink.next(createSSEEvent("tool_call", step.getAndIncrement(), null, "queryProductInfo", null));
 
                 // 3. 发送 tool_result 事件
-                sink.next(createSSEEvent("tool_result", 0, "正在查询美食数据库..."));
+                sink.next(createSSEEvent("tool_result", 0, "正在查询商品数据库..."));
 
                 // 4. 执行实际推理
                 String result = streamingAgentService.execute(message);
@@ -80,10 +80,10 @@ public class ProductStreamController {
                 sink.next(createSSEEvent("done", 0, null));
 
                 sink.complete();
-                log.info("[FoodStream] 流式对话完成");
+                log.info("[ProductStream] 流式对话完成");
 
             } catch (Exception e) {
-                log.error("[FoodStream] 流式对话异常: {}", e.getMessage(), e);
+                log.error("[ProductStream] 流式对话异常: {}", e.getMessage(), e);
                 sink.next(createSSEEvent("error", 0, "处理失败: " + e.getMessage()));
                 sink.next(createSSEEvent("done", 0, null));
                 sink.complete();
@@ -96,7 +96,7 @@ public class ProductStreamController {
      */
     @PostMapping("/chat/sync")
     public String chatSync(@RequestParam String message) {
-        log.info("[FoodStream] 同步对话: {}", message);
+        log.info("[ProductStream] 同步对话: {}", message);
         return streamingAgentService.execute(message);
     }
 

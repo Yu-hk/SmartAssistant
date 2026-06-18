@@ -498,6 +498,44 @@ public class AgentDiscoveryService {
             log.info("[AgentDiscovery] 🗑️ Agent 缓存已清除，降级 Agent 已置空");
         }
     }
+
+    /**
+     * ⭐ 移除单个 Agent 缓存（替代全量 clearCache）
+     * <p>
+     * 当某 Agent 连续健康检查失败时，仅移除该 Agent 而非清空全部缓存，
+     * 避免影响其他正常运行的 Agent。
+     * </p>
+     *
+     * @param serviceName 要移除的 Agent 服务名称
+     */
+    public void removeCachedAgent(String serviceName) {
+        DiscoveredAgent removed = agentCache.remove(serviceName);
+        if (removed != null) {
+            log.info("[AgentDiscovery] 🗑️ 移除 Agent 缓存: serviceName={}", serviceName);
+            // 如果移除的是当前降级 Agent，同步置空
+            if (this.fallbackAgent != null && this.fallbackAgent.getServiceName().equals(serviceName)) {
+                this.fallbackAgent = null;
+                // 重新选择降级 Agent
+                assignFallbackAgent();
+            }
+            // 同步更新 Redis SSE URL
+            if (redisTemplate != null) {
+                saveSseUrlsToRedis();
+            }
+        } else {
+            log.debug("[AgentDiscovery] 未找到要移除的 Agent: serviceName={}", serviceName);
+        }
+    }
+
+    /**
+     * 重新分配降级 Agent
+     */
+    private void assignFallbackAgent() {
+        this.fallbackAgent = agentCache.values().stream()
+                .filter(a -> a.getMetadata() != null && a.getMetadata().getAgentType() != null)
+                .findFirst()
+                .orElse(null);
+    }
     
     /**
      * ⭐ 扫描并订阅新的 Agent 服务

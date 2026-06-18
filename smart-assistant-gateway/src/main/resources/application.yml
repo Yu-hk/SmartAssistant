@@ -23,6 +23,10 @@ spring:
       # 默认过滤器（应用到所有路由）
       default-filters:
         - AddResponseHeader=X-Gateway-Version, 1.0.0
+        - name: RequestRateLimiter  # ⭐ 启用 Redis 限流，由 GatewayConfig 提供 KeyResolver 和 RedisRateLimiter
+          args:
+            key-resolver: "#{@userKeyResolver}"
+            redis-rate-limiter: "#{@redisRateLimiter}"
       
       # 路由配置
       routes:

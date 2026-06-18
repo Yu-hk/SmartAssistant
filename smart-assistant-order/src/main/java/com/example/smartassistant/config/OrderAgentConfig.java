@@ -9,6 +9,7 @@ package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.tools.CouponTools;
 import com.example.smartassistant.tools.OrderAnalyticsTool;
 import com.example.smartassistant.tools.OrderTools;
 import lombok.extern.slf4j.Slf4j;
@@ -50,12 +51,13 @@ public class OrderAgentConfig {
     public SmartReActAgent orderAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
             OrderTools orderTools,
-            OrderAnalyticsTool analyticsTool) {
+            OrderAnalyticsTool analyticsTool,
+            CouponTools couponTools) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
         List<ToolCallback> allCallbacks = new ArrayList<>();
-        for (var tool : List.of(orderTools, analyticsTool)) {
+        for (var tool : List.of(orderTools, analyticsTool, couponTools)) {
             allCallbacks.addAll(List.of(
                     MethodToolCallbackProvider.builder().toolObjects(tool).build().getToolCallbacks()));
         }

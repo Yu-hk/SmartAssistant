@@ -107,13 +107,6 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Spring AI PostgreSQL Vector Store (pgvector) ⭐ -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
-            <version>${spring-ai.version}</version>
-        </dependency>
-
         <!-- Common Module -->
         <dependency>
             <groupId>com.example.smartassistant</groupId>
