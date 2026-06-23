@@ -1,4 +1,5 @@
 server.shutdown: graceful  # ⭐ 优雅关闭，等待处理中的请求完成
+spring.lifecycle.timeout-per-shutdown-phase: "30s"
 server:
   port: 8083
 

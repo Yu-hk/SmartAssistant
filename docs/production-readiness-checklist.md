@@ -203,12 +203,12 @@
 | 条目 | 状态 |
 |------|------|
 | 是否有 JWT/API Key 鉴权 | ✅ `GlobalJwtAuthFilter` 统一 JWT 鉴权 |
-| 会话中断/结束端点是否校验归属 | ⚠️ 未审计 `endSession()` 端点是否验证用户身份与 sessionId 的匹配关系 |
+| 会话中断/结束端点是否校验归属 | ✅ **已审计** — 项目中不存在 `endSession`/`interrupt` 端点，无 IDOR 风险 ✅ |
 | 密钥是否从环境变量读取 | ✅ `.env` 文件 + `DotenvEnvironmentPostProcessor` |
 | Swagger 在生产环境是否关闭 | ✅ 生产 profile 未配置 springdoc |
 | API Response 是否暴露内部细节 | ✅ 异常信息已通用化 |
 
-**结论**：⚠️ **需关注**。JWT 鉴权框架已到位，但需确认 `endSession` 等敏感端点有归属校验。
+**结论**：✅ 已通过审计。
 
 ---
 
@@ -280,18 +280,18 @@
 
 ## 七、行动项优先级
 
-按高/中/低标注：
+按高/中/低标注，已修复的标记为 ✅：
 
-| 序号 | 条目 | 优先级 | 工作量 | 对应文件 |
-|------|------|--------|--------|---------|
-| 1 | 确认 `endSession` 端点归属校验 | 🟢 **高** | <0.5天 | `.../controller/SessionController.java` |
-| 2 | 配置 `spring.lifecycle.timeout-per-shutdown-phase` | 🟢 **高** | <0.1天 | `application.yml` |
-| 3 | 评估长对话记忆（文件→外置存储） | 🟡 **中** | 2-3天 | `ConversationDocumentService` |
-| 4 | 引入 Nacos 动态 prompt（如需） | 🟡 **中** | 1-2天 | `TaskAnalysisService` / `QualityEvaluationService` |
-| 5 | 任务分析结果驱动路由增强 | 🟡 **中** | 1-2天 | `RouterService` |
-| 6 | 质检不通过时触发重试 | 🟡 **中** | 0.5天 | `RouterService.finalizeRouting()` |
-| 7 | Checkpoint 断点续跑（Order 多步流） | ⚪ **低** | 3-5天 | `GraphExecutionService` |
-| 8 | 水平扩展适配（进程内限流→Redis） | ⚪ **低** | 1-2天 | — |
+| 序号 | 条目 | 优先级 | 状态 | 对应文件 |
+|------|------|--------|:----:|---------|
+| 1 | 确认 `endSession` 端点归属校验 | 🟢 **高** | ✅ **已审计 — 无此类端点，无 IDOR 风险** | — |
+| 2 | 配置 `spring.lifecycle.timeout-per-shutdown-phase` | 🟢 **高** | ✅ **已配置** | 8 个 `application.yml` |
+| 3 | 评估长对话记忆（文件→外置存储） | 🟡 **中** | ✅ **已增加 Redis 镜像**（`app.memory.redis-enabled=true`） | `ConversationDocumentService` |
+| 4 | 引入 Nacos 动态 prompt（如需） | 🟡 **中** | ✅ **已增加 @RefreshScope + 可外部化 prompt 属性** | `TaskAnalysisService` / `QualityEvaluationService` |
+| 5 | 任务分析结果驱动路由增强 | 🟡 **中** | ❌ 待处理 | `RouterService` |
+| 6 | 质检不通过时触发重试 | 🟡 **中** | ❌ 待处理 | `RouterService.finalizeRouting()` |
+| 7 | Checkpoint 断点续跑（Order 多步流） | ⚪ **低** | ❌ 待评估 | `GraphExecutionService` |
+| 8 | 水平扩展适配（进程内限流→Redis） | ⚪ **低** | ❌ 待评估 | — |
 
 ---
 

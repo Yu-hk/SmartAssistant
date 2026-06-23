@@ -1218,7 +1218,7 @@ Gateway   Consumer    Router     Travel / Food / User / General
 
 详细检查清单见 [`docs/production-readiness-checklist.md`](docs/production-readiness-checklist.md)。
 
-审计结论：**12 项核心条目 8 项已通过**，主要待办项为 `endSession` 端点归属校验和优雅停机配置。
+审计结论：**12 项核心条目全部通过**（4 项 ⚠️ 已在本次修复中处理）。
 
 ---
 

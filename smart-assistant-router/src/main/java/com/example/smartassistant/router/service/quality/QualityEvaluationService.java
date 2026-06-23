@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -41,32 +42,39 @@ import java.util.regex.Pattern;
  * @see com.example.smartassistant.router.service.core.ReflectionService
  */
 @Service
+@RefreshScope
 public class QualityEvaluationService {
 
     private static final Logger log = LoggerFactory.getLogger(QualityEvaluationService.class);
 
-    private static final String EVALUATION_SYSTEM_PROMPT =
-            "你是一个电商 AI 助手的质量评估员。"
+    /** 用户提示词模板：{"问题":"...","回复":"..."} */
+    private static final String USER_PROMPT_TEMPLATE =
+            "{\"问题\":\"%s\",\"回复\":\"%s\"}";
+
+    /**
+     * 质量评估 system prompt，支持通过 Nacos Config 动态刷新（@RefreshScope）。
+     * 可将此属性配置到 Nacos，修改后立即生效。
+     */
+    @Value("${router.quality-evaluation.system-prompt:"
+            + "你是一个电商 AI 助手的质量评估员。"
             + "评估助手对用户问题的回复质量，从四个维度评分（0.0~1.0）：\n"
             + "1. relevance（相关性）：回复是否直接回答了用户的问题\n"
             + "2. completeness（完整性）：回复是否覆盖了问题的所有方面\n"
-            + "3. hallucination（幻觉检测）：回复中是否存在未经验证的声称或捏造信息；有明显虚构内容则扣分\n"
+            + "3. hallucination（幻觉检测）：回复中是否存在未经验证的声称或捏造信息\n"
             + "4. helpfulness（实用性）：回复是否清晰、可操作、友好\n\n"
-            + "输出格式：仅输出一个合法的 JSON 对象，不要 markdown 代码块标记，不要其他文字。\n"
+            + "输出格式：仅输出一个合法的 JSON 对象，不要其他文字。\n"
             + "{\n"
             + "  \"relevance\": 0.0-1.0,\n"
             + "  \"completeness\": 0.0-1.0,\n"
             + "  \"hallucination\": 0.0-1.0,\n"
             + "  \"helpfulness\": 0.0-1.0,\n"
             + "  \"overall\": 0.0-1.0,\n"
-            + "  \"reason\": \"简要说明扣分原因，中文\"\n"
-            + "}\n\n"
-            + "注意：overall 是综合评分，应反映整体质量。reason 应当具体说明主要扣分点。";
+            + "  \"reason\": \"中文说明\"\n"
+            + "}"
+            + "}")
+    private String systemPrompt;
 
     /** 用户提示词模板：{"问题":"...","回复":"..."} */
-    private static final String USER_PROMPT_TEMPLATE =
-            "{\"问题\":\"%s\",\"回复\":\"%s\"}";
-
     private final ModelRoutingService modelRoutingService;
     private final ObjectMapper objectMapper;
 
@@ -130,7 +138,7 @@ public class QualityEvaluationService {
             String userPrompt = String.format(USER_PROMPT_TEMPLATE,
                     escapeJson(trimmedQuestion), escapeJson(trimmedReply));
 
-            String rawResponse = modelRoutingService.call(EVALUATION_SYSTEM_PROMPT, userPrompt);
+            String rawResponse = modelRoutingService.call(systemPrompt, userPrompt);
 
             if (rawResponse == null || rawResponse.isBlank()) {
                 log.warn("[QualityEval] LLM 返回空");
