@@ -7,14 +7,13 @@
 
 package com.example.smartassistant.common.agent;
 
+import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.error.ErrorRecoveryService;
+import com.example.smartassistant.common.error.RecoveryAction;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
-import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.messages.*;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -24,15 +23,7 @@ import org.springframework.ai.tool.ToolCallback;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.*;
 
 /**
  * 自研 ReAct 循环执行器。
@@ -111,6 +102,9 @@ public class SmartReActAgent {
 
     /** ⭐ 可选的指标采集器 */
     private AgentMetricsCollector metrics = new AgentMetricsCollector() {};
+
+    /** ⭐ 错误恢复服务（表驱动恢复，默认使用内置静态实例） */
+    private ErrorRecoveryService recoveryService = ErrorRecoveryService.DEFAULT;
 
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
@@ -192,6 +186,20 @@ public class SmartReActAgent {
         return this;
     }
 
+    /**
+     * 设置错误恢复服务（用于表驱动错误码→恢复策略路由）。
+     * 默认使用 {@link ErrorRecoveryService#DEFAULT}，通常无需覆写。
+     *
+     * @param recoveryService 错误恢复服务
+     * @return this
+     */
+    public SmartReActAgent withRecoveryService(ErrorRecoveryService recoveryService) {
+        if (recoveryService != null) {
+            this.recoveryService = recoveryService;
+        }
+        return this;
+    }
+
     // ==================== execute 重载 ====================
 
     /**
@@ -251,14 +259,18 @@ public class SmartReActAgent {
             if (elapsed > timeoutMs) {
                 log.warn("[SmartReActAgent] ⏰ 超时 ({}ms, 迭代 {} 次)", elapsed, iteration);
                 metrics.recordTimeout();
-                return "执行超时（超过 " + (timeoutMs / 1000) + " 秒），请简化问题后重试。";
+                recoveryService.logRecovery(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, RecoveryAction.FALLBACK_AGENT,
+                        "elapsed=" + elapsed + "ms, iteration=" + iteration, iteration);
+                return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, null);
             }
 
             // ⭐ Token 预算检查
             if (trackTokenBudget && (totalInputTokens + totalOutputTokens) > maxBudgetTokens) {
                 log.warn("[SmartReActAgent] Token 预算耗尽 (输入={}, 输出={}, 上限={})",
                         totalInputTokens, totalOutputTokens, maxBudgetTokens);
-                return "Token 预算即将耗尽，请总结当前进度并询问用户是否继续。";
+                recoveryService.logRecovery(AgentErrorCode.SYSTEM_BUDGET_EXCEEDED, RecoveryAction.CLARIFY_USER,
+                        "input=" + totalInputTokens + ", output=" + totalOutputTokens, iteration);
+                return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_BUDGET_EXCEEDED, null);
             }
 
             // ⭐ 上下文压缩检查（消息数过多时触发）
@@ -284,7 +296,9 @@ public class SmartReActAgent {
                 response = chatModel.call(new Prompt(messages, options));
             } catch (Exception e) {
                 log.error("[SmartReActAgent] LLM 调用失败: {}", e.getMessage());
-                return "AI 服务暂时不可用，请稍后重试。";
+                recoveryService.logRecovery(AgentErrorCode.MODEL_CALL_FAILED, RecoveryAction.RETRY_BACKOFF,
+                        e.getMessage(), iteration);
+                return recoveryService.resolveUserMessage(AgentErrorCode.MODEL_CALL_FAILED, null);
             }
             long llmElapsed = System.currentTimeMillis() - llmStart;
             metrics.recordInferenceLatency(llmElapsed);
@@ -332,7 +346,9 @@ public class SmartReActAgent {
                 noIncrementCount++;
                 if (noIncrementCount >= NO_INCREMENT_LIMIT) {
                     log.warn("[SmartReActAgent] 连续 {} 次相同工具调用，强制停止", noIncrementCount);
-                    return "执行过程中检测到重复调用，已为您整理了当前能获取的最佳信息。请尝试换一种方式描述您的问题。";
+                    recoveryService.logRecovery(AgentErrorCode.SYSTEM_NO_INCREMENT, RecoveryAction.RETRY_ALTERNATIVE,
+                            "consecutive=" + noIncrementCount, iteration);
+                    return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_NO_INCREMENT, null);
                 }
             } else {
                 lastToolCallHash = currentHash;
@@ -348,7 +364,9 @@ public class SmartReActAgent {
         // ⭐ 达到最大迭代次数
         log.warn("[SmartReActAgent] 达到最大迭代次数 {}", maxIterations);
         metrics.recordMaxIterationHit();
-        return "已达到最大执行次数上限，请总结当前进度并询问用户是否继续。";
+        recoveryService.logRecovery(AgentErrorCode.SYSTEM_MAX_ITERATIONS, RecoveryAction.FALLBACK_AGENT,
+                "maxIterations=" + maxIterations, maxIterations);
+        return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_MAX_ITERATIONS, null);
     }
 
     // ==================== 上下文压缩 ====================

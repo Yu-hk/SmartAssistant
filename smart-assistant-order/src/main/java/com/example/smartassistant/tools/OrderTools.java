@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.entity.OrderEntity;
 import com.example.smartassistant.entity.OrderLogisticsEntity;
@@ -138,13 +139,13 @@ public class OrderTools {
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态
         if (!S_PENDING_PAY.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
-                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待付款」订单可以支付", false);
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
+                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待付款」订单可以支付");
         }
 
         // ⭐ 安全检查：先查是否已确认支付
@@ -187,14 +188,14 @@ public class OrderTools {
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态：仅待付款/待发货可取消
         if (!S_PENDING_PAY.equals(order.getStatus()) && !S_PENDING_SHIP.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待付款」或「待发货」订单可以取消。"
-                    + "已发货的订单如需退款，请使用 applyRefund 申请退款。", false);
+                    + "已发货的订单如需退款，请使用 applyRefund 申请退款。");
         }
 
         order.setStatus(S_CANCELLED);
@@ -221,13 +222,13 @@ public class OrderTools {
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态
         if (!S_PENDING_SHIP.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
-                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待发货」订单可以发货", false);
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
+                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待发货」订单可以发货");
         }
 
         // ⭐ 使用 updateById 替代自定义 @Update SQL（已验证 updateById 可靠）
@@ -240,7 +241,7 @@ public class OrderTools {
 
         if (updateRows == 0) {
             log.error("[OrderTool] ❌ 订单更新失败: orderId={}", orderId);
-            return ToolResult.error("UPDATE_FAILED", "订单 " + orderId + " 状态更新失败，请重试", true);
+            return ToolResult.error(AgentErrorCode.UPDATE_FAILED, "订单 " + orderId + " 状态更新失败，请重试");
         }
 
         // 创建物流轨迹记录
@@ -282,13 +283,13 @@ public class OrderTools {
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态
         if (!S_SHIPPED.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
-                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「已发货」订单可以确认收货", false);
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
+                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「已发货」订单可以确认收货");
         }
 
         // ⭐ 使用 updateById 替代自定义 @Update SQL
@@ -300,7 +301,7 @@ public class OrderTools {
 
         if (updateRows == 0) {
             log.error("[OrderTool] ❌ 订单签收更新失败: orderId={}", orderId);
-            return ToolResult.error("UPDATE_FAILED", "订单 " + orderId + " 签收状态更新失败，请重试", true);
+            return ToolResult.error(AgentErrorCode.UPDATE_FAILED, "订单 " + orderId + " 签收状态更新失败，请重试");
         }
 
         // 更新物流轨迹状态
@@ -335,8 +336,8 @@ public class OrderTools {
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId,
-                    false, "确认订单号格式是否正确，当前支持的订单号格式如 ORD-2024001");
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId,
+                    "确认订单号格式是否正确，当前支持的订单号格式如 ORD-2024001");
         }
 
         StringBuilder sb = new StringBuilder();
@@ -405,20 +406,20 @@ public class OrderTools {
         // 先查订单是否存在
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态：仅已发货/已签收可申请退款
         if (!S_SHIPPED.equals(order.getStatus()) && !S_DELIVERED.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「已发货」或「已签收」订单可以申请退款。"
                     + "「待付款」订单请使用 cancelOrder 取消，"
-                    + "「待发货」订单请先联系商家或使用 cancelOrder 取消。", false);
+                    + "「待发货」订单请先联系商家或使用 cancelOrder 取消。");
         }
 
         // 检查是否已存在退款中记录
         if (S_REFUNDING.equals(order.getStatus())) {
-            return ToolResult.error("ALREADY_REFUNDING", "订单 " + orderId + " 已在退款处理中，请耐心等待", false);
+            return ToolResult.error(AgentErrorCode.ALREADY_REFUNDING, "订单 " + orderId + " 已在退款处理中，请耐心等待");
         }
 
         // ⭐ 安全检查：先查是否已确认
@@ -498,13 +499,13 @@ public class OrderTools {
             @ToolParam(description = "快递单号", required = true) String trackingNumber) {
         log.info("[OrderTool] 查物流: {}", trackingNumber);
         if (trackingNumber == null || trackingNumber.isBlank()) {
-            return ToolResult.error("TRACKING_REQUIRED", "请提供快递单号", false, "请提供快递单号");
+            return ToolResult.error(AgentErrorCode.TRACKING_REQUIRED, "请提供快递单号", "请提供快递单号");
         }
 
         OrderLogisticsEntity logistics = orderLogisticsMapper.findByTrackingNo(trackingNumber);
         if (logistics == null) {
-            return ToolResult.error("LOGISTICS_NOT_FOUND", "未找到快递单号 " + trackingNumber + " 的物流信息",
-                    false, "确认快递单号是否正确");
+            return ToolResult.error(AgentErrorCode.LOGISTICS_NOT_FOUND, "未找到快递单号 " + trackingNumber + " 的物流信息",
+                    "确认快递单号是否正确");
         }
 
         StringBuilder sb = new StringBuilder();

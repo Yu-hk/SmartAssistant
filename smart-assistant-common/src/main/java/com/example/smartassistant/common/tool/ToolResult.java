@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.tool;
 
+import com.example.smartassistant.common.error.AgentErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -92,5 +93,40 @@ public final class ToolResult {
             // 降级：返回简单错误字符串（不应发生，ObjectMapper 序列化 Map 极少失败）
             return "{\"error_code\":\"SERIALIZATION_ERROR\",\"message\":\"错误信息序列化失败\",\"retryable\":false}";
         }
+    }
+
+    // ==================== AgentErrorCode 增强 ====================
+
+    /**
+     * 使用 {@link AgentErrorCode} 枚举生成结构化错误返回。
+     * <p>
+     * 比直接传字符串更安全，确保错误码与恢复策略一致。
+     * 推荐新代码优先使用此方法。
+     * </p>
+     *
+     * @param code    标准错误码枚举
+     * @param message 详细的错误描述（可包含上下文信息）
+     * @return JSON 格式的错误字符串
+     */
+    public static String error(AgentErrorCode code, String message) {
+        if (code == null) {
+            return error("UNKNOWN_CODE", "未知错误", false);
+        }
+        return buildErrorJson(code.getCode(), message, code.isRetryable(), code.getDefaultHint());
+    }
+
+    /**
+     * 使用 {@link AgentErrorCode} 生成错误返回（覆写 hint）。
+     *
+     * @param code    标准错误码枚举
+     * @param message 详细的错误描述
+     * @param hint    覆写默认提示信息
+     * @return JSON 格式的错误字符串
+     */
+    public static String error(AgentErrorCode code, String message, String hint) {
+        if (code == null) {
+            return error("UNKNOWN_CODE", "未知错误", false);
+        }
+        return buildErrorJson(code.getCode(), message, code.isRetryable(), hint);
     }
 }

@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.general.tool;
 
+import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -118,7 +119,7 @@ public class ImageTools {
 
             if (response.statusCode() != 200) {
                 log.warn("[ImageTools] API 调用失败: status={}, body={}", response.statusCode(), response.body());
-                return ToolResult.error("IMAGE_ANALYSIS_FAILED", "图片分析失败", true, "请稍后重试");
+                return ToolResult.error(AgentErrorCode.VALIDATION_IMAGE_ANALYSIS, "图片分析失败", "请稍后重试");
             }
 
             // 解析结果
@@ -133,11 +134,11 @@ public class ImageTools {
             }
 
             log.warn("[ImageTools] 无法解析API响应: {}", response.body());
-            return ToolResult.error("IMAGE_ANALYSIS_FAILED", "图片分析失败：无法解析API响应", false);
+            return ToolResult.error(AgentErrorCode.VALIDATION_IMAGE_ANALYSIS, "图片分析失败：无法解析API响应");
 
         } catch (Exception e) {
             log.error("[ImageTools] 图片解读异常: {}", e.getMessage(), e);
-            return ToolResult.error("IMAGE_ANALYSIS_FAILED", "图片分析异常", true, "请检查图片URL是否有效");
+            return ToolResult.error(AgentErrorCode.VALIDATION_IMAGE_ANALYSIS, "图片分析异常", "请检查图片URL是否有效");
         }
     }
 
@@ -188,13 +189,13 @@ public class ImageTools {
             if (createResponse.statusCode() != 200) {
                 log.warn("[ImageTools] 创建任务失败: status={}, body={}", 
                         createResponse.statusCode(), createResponse.body());
-                return ToolResult.error("IMAGE_GENERATION_FAILED", "图片生成失败", true, "请稍后重试");
+                return ToolResult.error(AgentErrorCode.TOOL_IMAGE_GENERATION_FAILED, "图片生成失败", "请稍后重试");
             }
 
             JsonNode createRoot = objectMapper.readTree(createResponse.body());
             JsonNode output = createRoot.get("output");
             if (output == null) {
-                return ToolResult.error("IMAGE_GENERATION_FAILED", "图片生成失败：无法创建任务", true);
+                return ToolResult.error(AgentErrorCode.TOOL_IMAGE_GENERATION_FAILED, "图片生成失败：无法创建任务");
             }
 
             String taskId = output.get("task_id").asText();
@@ -210,11 +211,11 @@ public class ImageTools {
                         + "尺寸：" + size;
             }
 
-            return ToolResult.error("IMAGE_GENERATION_TIMEOUT", "图片生成超时", true, "请稍后重试");
+            return ToolResult.error(AgentErrorCode.TOOL_IMAGE_GENERATION_TIMEOUT, "图片生成超时", "请稍后重试");
 
         } catch (Exception e) {
             log.error("[ImageTools] 文生图异常: {}", e.getMessage(), e);
-            return ToolResult.error("IMAGE_GENERATION_FAILED", "图片生成异常", true, "请稍后重试");
+            return ToolResult.error(AgentErrorCode.TOOL_IMAGE_GENERATION_FAILED, "图片生成异常", "请稍后重试");
         }
     }
 
