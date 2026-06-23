@@ -8,6 +8,7 @@
 package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.common.correction.CorrectionService;
+import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,8 +70,8 @@ public class GeneralTools {
             return formatted;
         } catch (Exception e) {
             log.warn("[GeneralTools] 计算失败: {}", e.getMessage());
-            return ToolResult.error("EXPRESSION_PARSE_ERROR", "无法解析表达式",
-                    false, "支持的运算符：+ - * / () ^ sqrt() abs() sin() cos() tan() log()");
+            return ToolResult.error(AgentErrorCode.VALIDATION_EXPRESSION_PARSE, "无法解析表达式",
+                    "支持的运算符：+ - * / () ^ sqrt() abs() sin() cos() tan() log()");
         }
     }
 
@@ -105,7 +106,7 @@ public class GeneralTools {
             return formatResult(result) + unitLabel;
         } catch (Exception e) {
             log.warn("[GeneralTools] 温度转换失败: {}", e.getMessage());
-            return ToolResult.error("CONVERSION_ERROR", "温度转换失败", true);
+            return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR, "温度转换失败");
         }
     }
 
@@ -123,7 +124,7 @@ public class GeneralTools {
             return formatResult(result) + " " + toUnit.getSymbol();
         } catch (Exception e) {
             log.warn("[GeneralTools] 长度转换失败: {}", e.getMessage());
-            return ToolResult.error("CONVERSION_ERROR", "长度转换失败", true);
+            return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR, "长度转换失败");
         }
     }
 
@@ -141,7 +142,7 @@ public class GeneralTools {
             return formatResult(result) + " " + toUnit.getSymbol();
         } catch (Exception e) {
             log.warn("[GeneralTools] 重量转换失败: {}", e.getMessage());
-            return ToolResult.error("CONVERSION_ERROR", "重量转换失败", true);
+            return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR, "重量转换失败");
         }
     }
 
@@ -168,10 +169,10 @@ public class GeneralTools {
 
             log.info("[GeneralTools] 新闻获取完成, 耗时={}ms", System.currentTimeMillis() - start);
             if (result != null) return result;
-            return ToolResult.error("NEWS_UNAVAILABLE", "暂无热点数据", true, "请稍后重试");
+            return ToolResult.error(AgentErrorCode.SERVICE_NEWS_UNAVAILABLE, "暂无热点数据", "请稍后重试");
         } catch (Exception e) {
             log.warn("[GeneralTools] 获取新闻失败: {}", e.getMessage());
-            return ToolResult.error("NEWS_UNAVAILABLE", "新闻服务暂时不可用", true);
+            return ToolResult.error(AgentErrorCode.SERVICE_NEWS_UNAVAILABLE, "新闻服务暂时不可用");
         }
     }
 
@@ -475,7 +476,7 @@ public class GeneralTools {
             String url = "https://www.bing.com/search?q=" + encoded + "&mkt=zh-CN";
             String html = fetchJson(url);
             if (html == null) {
-                return ToolResult.error("SEARCH_UNAVAILABLE", "搜索服务暂时不可用", true, "请稍后重试");
+                return ToolResult.error(AgentErrorCode.SERVICE_SEARCH_UNAVAILABLE, "搜索服务暂时不可用", "请稍后重试");
             }
 
             StringBuilder sb = new StringBuilder();
@@ -521,13 +522,13 @@ public class GeneralTools {
             }
 
             if (count == 0) {
-                return ToolResult.error("NO_RESULTS", "未找到相关结果", false, "请尝试更换关键词");
+                return ToolResult.error(AgentErrorCode.NO_RESULTS, "未找到相关结果", "请尝试更换关键词");
             }
             sb.append("--- 共找到 ").append(count).append(" 条结果");
             return sb.toString();
         } catch (Exception e) {
             log.warn("[GeneralTools] Bing 搜索也失败: {}", e.getMessage());
-            return ToolResult.error("SEARCH_UNAVAILABLE", "搜索服务暂时不可用", true, "请稍后重试");
+            return ToolResult.error(AgentErrorCode.SERVICE_SEARCH_UNAVAILABLE, "搜索服务暂时不可用", "请稍后重试");
         }
     }
 
@@ -607,15 +608,15 @@ public class GeneralTools {
             String url = "https://open.er-api.com/v6/latest/" + from;
             String json = fetchJson(url);
             if (json == null) {
-                return ToolResult.error("RATE_UNAVAILABLE", "获取汇率失败", true, "请稍后重试");
+                return ToolResult.error(AgentErrorCode.SERVICE_RATE_UNAVAILABLE, "获取汇率失败", "请稍后重试");
             }
 
             // 解析 JSON 提取目标汇率
             String searchKey = "\"" + to + "\":";
             int idx = json.indexOf(searchKey);
             if (idx == -1) {
-                return ToolResult.error("INVALID_CURRENCY", "不支持的货币代码: " + to,
-                        false, "支持的货币：CNY/USD/EUR/GBP/JPY/HKD/KRW/THB/AUD/CAD");
+                return ToolResult.error(AgentErrorCode.VALIDATION_INVALID_CURRENCY, "不支持的货币代码: " + to,
+                        "支持的货币：CNY/USD/EUR/GBP/JPY/HKD/KRW/THB/AUD/CAD");
             }
 
             int start = idx + searchKey.length();
@@ -629,7 +630,7 @@ public class GeneralTools {
             return formatResult(result) + " " + to + "（当前汇率: 1 " + from + " = " + formatResult(rate) + " " + to + "）";
         } catch (Exception e) {
             log.warn("[GeneralTools] 汇率转换失败: {}", e.getMessage());
-            return ToolResult.error("CONVERSION_ERROR", "汇率转换失败", true);
+            return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR, "汇率转换失败");
         }
     }
 
@@ -676,8 +677,8 @@ public class GeneralTools {
         // 安全检查：禁止脚本注入危险关键字
         if (containsDangerousPattern(script)) {
             log.warn("[GeneralTools] 脚本包含危险关键字: {}", script);
-            return ToolResult.error("SCRIPT_REJECTED", "脚本包含不允许的内容，仅支持数学运算和变量赋值。",
-                    false, "请检查是否包含 import/exec/system 等关键字");
+            return ToolResult.error(AgentErrorCode.SECURITY_SCRIPT_REJECTED, "脚本包含不允许的内容，仅支持数学运算和变量赋值。",
+                    "请检查是否包含 import/exec/system 等关键字");
         }
 
         String[] lines = script.replace("\\n", "\n").split("\n");
@@ -723,7 +724,7 @@ public class GeneralTools {
         }
 
         if (stepCount == 0) {
-            return ToolResult.error("SCRIPT_EMPTY", "脚本中没有有效的计算语句", false,
+            return ToolResult.error(AgentErrorCode.VALIDATION_SCRIPT_EMPTY, "脚本中没有有效的计算语句",
                     "格式：每行一条语句，'变量名 = 表达式' 或直接写表达式");
         }
 

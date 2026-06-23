@@ -8,17 +8,24 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.router.model.IntentGraph;
+import com.example.smartassistant.router.model.QualityEvaluationResult;
 import com.example.smartassistant.router.model.ReflectionResult;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.model.SubTaskResult;
+import com.example.smartassistant.router.model.TaskAnalysisResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.experience.ExperienceModel;
 import com.example.smartassistant.router.service.experience.ExperienceService;
+import com.example.smartassistant.router.service.quality.QualityEvaluationService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
+import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
+import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.error.ErrorRecoveryService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -68,6 +75,14 @@ public class RouterService {
     // ⭐ 基于图的意图执行引擎
     private final GraphExecutionService graphExecutionService;
 
+    // ⭐ 任务分析服务（结构化提取实体/约束/风险/工具评分）
+    private final TaskAnalysisService taskAnalysisService;
+
+    // ⭐ LLM-as-Judge 质量评估服务（深层语义质检）
+    private final QualityEvaluationService qualityEvaluationService;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     // ⭐ 并行 Agent 执行线程池（用于独立子任务的真正并行执行）
     private final Executor parallelExecutor;
 
@@ -101,7 +116,9 @@ public class RouterService {
                          ReflectionService reflectionService,
                          ModelRoutingService modelRoutingService,
                          ExperienceService experienceService,
-                         GraphExecutionService graphExecutionService) {
+                         GraphExecutionService graphExecutionService,
+                         TaskAnalysisService taskAnalysisService,
+                         QualityEvaluationService qualityEvaluationService) {
         this.agentCallerService = agentCallerService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
@@ -113,6 +130,8 @@ public class RouterService {
         this.modelRoutingService = modelRoutingService;
         this.experienceService = experienceService;
         this.graphExecutionService = graphExecutionService;
+        this.taskAnalysisService = taskAnalysisService;
+        this.qualityEvaluationService = qualityEvaluationService;
         this.parallelExecutor = routerParallelAgentExecutor;
     }
     
@@ -234,6 +253,13 @@ public class RouterService {
                     }
                 }
             } else {
+                // ⭐ Step 3.5: 任务分析（非缓存命中时执行）
+                // 结构化提取实体/约束/风险/工具评分，存入 Redis 供下游 Agent 使用
+                TaskAnalysisResult taskAnalysis = taskAnalysisService.analyze(rawQuestion);
+                if (taskAnalysis.isMeaningful()) {
+                    storeTaskAnalysisToRedis(request.getRequestId(), taskAnalysis);
+                }
+
                 // ⭐ 多 Agent 协作（所有提问均走规划→执行→合并）
                 // 简单问题 plan() 返回单个子任务，merge() 直接返回
                 // 复杂问题自动分解为多个子任务并行执行
@@ -250,8 +276,10 @@ public class RouterService {
 
         } catch (Exception e) {
             log.error("[Router] 路由失败: {}", e.getMessage(), e);
+            String errorMsg = ErrorRecoveryService.DEFAULT.resolveUserMessage(
+                    AgentErrorCode.SYSTEM_ROUTE_FAILED, e.getMessage());
             return RoutingResult.builder()
-                    .result("❌ 路由失败: " + e.getMessage())
+                    .result(errorMsg)
                 .build();
         }
     }
@@ -272,11 +300,13 @@ public class RouterService {
         }
 
         // ⭐⭐ 反思器：对非缓存的新结果进行质量评估（纯规则评分，不调 LLM）
+        double reflectScore = 0.7; // 默认分（不触发 LLM 质检）
         if (result.getResult() != null && !result.getResult().isBlank()
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
                 && !Boolean.TRUE.equals(result.getFromCache())) {
             ReflectionResult reflection = reflectionService.evaluate(
                     question, result.getResult(), result.getAgentName(), intentTag, userId);
+            reflectScore = reflection.getScore();
             if (!reflection.isAcceptable()) {
                 log.warn("[Router] 🪞 反思不通过: score={}, agent={}, reason={}",
                         String.format("%.2f", reflection.getScore()),
@@ -292,6 +322,23 @@ public class RouterService {
             }
         }
 
+        // ⭐⭐ LLM-as-Judge 质量评估（深层语义质检）
+        // 仅在反思器评分处于边界区间(0.5~0.8)时触发，避免为明显好/差的回复增加开销
+        boolean qualityPassed = true;
+        if (result.getResult() != null && !result.getResult().isBlank()
+                && result.getAgentName() != null && !"none".equals(result.getAgentName())
+                && !Boolean.TRUE.equals(result.getFromCache())) {
+            QualityEvaluationResult quality = qualityEvaluationService.evaluate(
+                    question, result.getResult(), reflectScore);
+            if (quality.isCompleted() && !quality.isPassing(0.6)) {
+                qualityPassed = false;
+                log.warn("[Router] 🔍 质量评估不通过: overall={}, hallucination={}, reason={}",
+                        String.format("%.2f", quality.getOverall()),
+                        String.format("%.2f", quality.getHallucination()),
+                        quality.getReason());
+            }
+        }
+
         // ⭐ 缓存路由决策 + 回复
         String agentName = result.getAgentName();
         String requestId = request.getRequestId();
@@ -303,7 +350,7 @@ public class RouterService {
             semanticCache.saveExactMatch(rawQuestion != null ? rawQuestion : question, intentTag);
 
             // 缓存回复内容（低质量回复不缓存，防污染）
-            if (!Boolean.TRUE.equals(result.getFromCache())) {
+            if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
                 if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")
                         && reply.length() >= 20) {
                     semanticCache.saveReply(question, reply, agentName, intentTag, Boolean.TRUE.equals(result.getAdminOperation()));
@@ -324,9 +371,64 @@ public class RouterService {
         if (requestId != null && !requestId.isBlank() && agentName != null) {
             semanticCache.saveFullDecisionForConsumer(requestId, agentName,
                     result.getConfidence(), reply, intentTag);
+
+            // ⭐ 如有任务分析结果，追加到完整决策中
+            appendTaskAnalysisToFullDecision(requestId);
         }
 
         return result;
+    }
+
+    /**
+     * 将任务分析结果追加到完整决策 JSON 中，供 Consumer 读取。
+     * <p>
+     * 读取 a2a:task-analysis:{requestId} 键，如果存在则将其内容
+     * 作为 taskAnalysis 字段写入 full-decision 键。
+     * </p>
+     */
+    private void appendTaskAnalysisToFullDecision(String requestId) {
+        if (redisTemplate == null || requestId == null || requestId.isBlank()) return;
+        try {
+            String analysisKey = "a2a:task-analysis:" + requestId;
+            String analysisJson = redisTemplate.opsForValue().get(analysisKey);
+            if (analysisJson == null || analysisJson.isBlank()) return;
+
+            String decisionKey = "a2a:route:full-decision:" + requestId;
+            String decisionJson = redisTemplate.opsForValue().get(decisionKey);
+            if (decisionJson == null || decisionJson.isBlank()) return;
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> decision = objectMapper.readValue(decisionJson, Map.class);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> analysis = objectMapper.readValue(analysisJson, Map.class);
+            decision.put("taskAnalysis", analysis);
+            redisTemplate.opsForValue().set(decisionKey,
+                    objectMapper.writeValueAsString(decision), 120, TimeUnit.SECONDS);
+
+            log.debug("[Router] 🔍 任务分析已追加到完整决策: requestId={}", requestId);
+        } catch (Exception e) {
+            log.debug("[Router] 追加任务分析到完整决策时异常: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * ⭐ 将任务分析结果存入 Redis（独立 key，下游 Agent 可读取）
+     * <p>
+     * Key: a2a:task-analysis:{requestId}<br>
+     * TTL: 120 秒（与 full-decision 一致）
+     * </p>
+     */
+    private void storeTaskAnalysisToRedis(String requestId, TaskAnalysisResult analysis) {
+        if (requestId == null || requestId.isBlank() || redisTemplate == null) return;
+        try {
+            String key = "a2a:task-analysis:" + requestId;
+            String json = objectMapper.writeValueAsString(analysis);
+            redisTemplate.opsForValue().set(key, json, 120, TimeUnit.SECONDS);
+            log.info("[Router] 🔍 任务分析已存储: requestId={}, intent={}, entities={}",
+                    requestId, analysis.getIntentCategory(), analysis.getEntities().size());
+        } catch (Exception e) {
+            log.warn("[Router] 存储任务分析失败: {}", e.getMessage());
+        }
     }
 
     /**

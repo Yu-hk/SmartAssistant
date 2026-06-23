@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.spi.CouponBackend;
 import com.example.smartassistant.spi.CouponModels.CouponRecommendation;
@@ -62,7 +63,7 @@ public class CouponTools {
             return ToolResult.success(sb.toString().trim());
         } catch (Exception e) {
             log.error("[CouponTool] 查询失败: {}", e.getMessage(), e);
-            return ToolResult.error("COUPON_QUERY_FAILED", "查询优惠券失败，请稍后重试", true);
+            return ToolResult.error(AgentErrorCode.SERVICE_COUPON_QUERY_FAILED, "查询优惠券失败，请稍后重试");
         }
     }
 
@@ -101,7 +102,7 @@ public class CouponTools {
             return ToolResult.success(sb.toString().trim());
         } catch (Exception e) {
             log.error("[CouponTool] 计算最优方案失败: {}", e.getMessage(), e);
-            return ToolResult.error("COUPON_CALC_FAILED", "计算优惠方案失败，请稍后重试", true);
+            return ToolResult.error(AgentErrorCode.SERVICE_COUPON_CALC_FAILED, "计算优惠方案失败，请稍后重试");
         }
     }
 }
