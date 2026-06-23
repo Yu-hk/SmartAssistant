@@ -2,13 +2,14 @@
 
 [![Java](https://img.shields.io/badge/Java-17%2B-blue)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.8-brightgreen)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-1.1.2-brightgreen)](https://docs.spring.io/spring-ai/reference/)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.0-brightgreen)](https://docs.spring.io/spring-ai/reference/)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+[![Production Readiness](https://img.shields.io/badge/production_readiness-audited-blue)](docs/production-readiness-checklist.md)
 
-> 基于 Spring AI Alibaba + A2A 协议的多智能体客服平台，集成 **本地 Ollama 推理引擎**（deepseek-r1:7b / qwen2.5:7b）+ BGE 本地中文 Embedding。
+> 基于 Spring AI 2.0.0 + A2A 协议的多智能体客服平台，集成 **本地 Ollama 推理引擎**（deepseek-r1:7b）+ **本地 BGE ONNX 嵌入**（384维语义匹配）。
 > 支持多 Agent 协同、三层路由兜底、订单查询、商品咨询、语义缓存、全链路监控。
-> 🔒 纯本地推理，所有数据不出内网。
+> 🔒 **零外部 API 依赖**，纯本地推理，所有数据不出内网。
 
 ---
 
@@ -45,7 +46,9 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 - **Order Agent**：订单查询、退款处理、物流跟踪（原 Travel 服务）
 - **Product Agent**：商品查询、库存查询、价格查询（原 Food 服务）
-- **General Agent**：闲聊陪伴、问答、新闻热点、天气查询
+- **General Agent**：闲聊陪伴、问答、新闻热点、天气查询、图片处理
+- **Embedding Service**：本地 BGE ONNX 嵌入服务（384维），供语义缓存和经验匹配
+- **Router 决策链路**：经验匹配(TOOL/COMMON) → 语义缓存(T1/T2/T3) → 任务分析(实体/约束/风险/工具评分) → DAG 多Agent协作 → inlineFallback(三级兜底)
 - **Consumer 聚合**：统一对话入口，上下文管理、用户画像
 
 采用 **Agentic RAG** 架构，支持多轮推理、语义缓存、向量检索，并通过 **Prometheus + Grafana + Jaeger** 实现全链路可观测性。
@@ -62,7 +65,9 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 | 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
 | 🔍 **@Tool 统一日志切面** | AOP 拦截全部 27 个 @Tool 方法，自动记录 requestId + 输入参数 + 输出结果 + 执行耗时；requestId 通过 MDC 全链路透传（Consumer → Router → A2A → Agent → @Tool） |
-| 🔄 **Router 通用反思器** | 纯规则五维评分（长度/错误标记/关键词覆盖/Agent健康/意图匹配），0.6 阈值以下自动换 fallback Agent 重试，低质量回复不写缓存（防污染） |
+| 🔄 **二阶段质量评估** | 反射器(ReflectionService)纯规则五维评分 + LLM-as-Judge(QualityEvaluationService)四维语义评估；反射器通过后仅在边界区间触发 LLM 质检，平衡质量与开销 |
+| 📋 **标准错误码 + 表驱动恢复** | `AgentErrorCode` 统一枚举 32 个错误码(6 分类)，`ErrorRecoveryService` 三态表驱动恢复路由(RETRY/RETRY_BACKOFF/CLARIFY_USER/FALLBACK_AGENT/TERMINATE)；集成到 SmartReActAgent 6 个错误点 + 全工具 45 处调用 |
+| 🔄 **Agent 级工具自动重试** | `executeToolCallWithRetry()` 统一并行/串行工具执行路径，解析 error_code JSON 自动重试，退避策略由 ErrorRecoveryService 表驱动决策 |
 | 📊 **全栈可观测** | Micrometer + Prometheus + Grafana 指标，Jaeger 链路追踪，Loki 日志聚合，8 个自定义仪表盘；Order/Product/General 各服务独立暴露 `a2a_llm_token_input_total` / `a2a_llm_token_output_total` 等 8 类 Agent 指标 |
 | ⏳ **请求排队 + SSE 流式** | Semaphore 限流 LLM 并发(默认5)，排队时 SSE 实时推送位置，支持 thinking/tool_call/response 事件 |
 | 🐳 **容器化部署** | Dockerfile + docker-compose.deploy.yml，7 个服务一键构建部署 |
@@ -76,31 +81,36 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 ## 系统架构
 
 ```text
-┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
-│   Frontend  │────▶│   Gateway    │────▶│     Router      │
-│  React:3001 │     │  :8081 (JWT) │     │  :8083 (意图识别) │
-└─────────────┘     └──────────────┘     └────────┬────────┘
+┌─────────────┐     ┌──────────────┐     ┌─────────────────────┐
+│   Frontend  │────▶│   Gateway    │────▶│      Router         │
+│  React:3001 │     │  :8081 (JWT) │     │  :8083 (意图识别     │
+└─────────────┘     └──────────────┘     │  + 任务分析          │
+                                          │  + 质量评估          │
+                                          │  + DAG 协作)         │
+                                          └──────────┬──────────┘
                                                    │
-                          ┌─────────────────────────┼──────────┐
-                          │                         │          │
-                    ┌─────▼──────┐          ┌───────▼──────┐   │
-                    │  Consumer  │          │   General    │   │
-                    │  :8082     │          │   :8087      │   │
-                    │ (会话管理)   │          │  (闲聊+天气)   │   │
-                    └─────┬──────┘          └──────────────┘   │
-                          │                                      │
-               ┌──────────┼──────────┐                          │
-          ┌────▼────┐ ┌──▼────┐ ┌───▼────┐                     │
-          │  Order  │ │Product│ │  User  │                     │
-          │  :8085  │ │:8084  │ │  :8086 │                     │
-          │(订单客服) │ │(商品咨询)│ │(认证)   │                     │
-          └─────────┘ └───────┘ └────────┘                     │
-                                                               │
-                    ┌─────────────────────────────────────┐    │
-                    │         Infrastructure               │    │
-                    │  Redis ─ Nacos ─ PostgreSQL ─ Zipkin │    │
-                    │  Prometheus ─ Grafana ─ Loki ─ Jaeger│    │
-                    └─────────────────────────────────────┘────┘
+                          ┌─────────────────────────┼──────────────┐
+                          │                         │              │
+                    ┌─────▼──────┐          ┌───────▼──────┐      │
+                    │  Consumer  │          │   General    │      │
+                    │  :8082     │          │   :8087      │      │
+                    │ (会话管理   │          │  (闲聊+天气   │      │
+                    │  记忆沉淀)  │          │   图片工具)   │      │
+                    └─────┬──────┘          └──────────────┘      │
+                          │                                        │
+               ┌──────────┼──────────┐                             │
+          ┌────▼────┐ ┌──▼────┐ ┌───▼────┐                        │
+          │  Order  │ │Product│ │  User  │                        │
+          │  :8085  │ │:8084  │ │  :8086 │                        │
+          │(订单客服)│ │(商品咨询)│ │(认证)   │                        │
+          └─────────┘ └───────┘ └────────┘                        │
+                                                                   │
+                    ┌─────────────────────────────────────────┐    │
+                    │         Infrastructure                   │    │
+                    │  Redis ─ Nacos ─ PostgreSQL(pgvector)    │    │
+                    │  Prometheus ─ Grafana ─ Loki ─ Jaeger    │    │
+                    │  Embedding Service (BGE ONNX, :8090)     │    │
+                    └─────────────────────────────────────────┘────┘
 ```
 
 ### 请求流程
@@ -266,11 +276,41 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 
 ---
 
-## Router 反思器
+## Router 流水线
 
-系统在 Router 模块实现了通用反思器，对 Agent 回复进行**纯规则质量评估**，不调用 LLM，零额外延迟。
+Router 的路由决策采用 **6 步流水线**：
 
-### 五维评分模型（总分 0.0 ~ 1.0，默认阈值 0.6）
+```
+用户请求
+  │
+  ├→ Step 0: 经验匹配 (ExperienceService)
+  │   BGE 向量匹配 TOOL/COMMON/REACT 经验，命中 TOOL 经验直接执行
+  │
+  ├→ Step 1: 语义缓存 (SemanticCacheService)
+  │   Tier 1 精确 → Tier 2 关键词 → Tier 3 BGE 向量; 命中直接返回
+  │
+  ├→ Step 2: 任务分析 (TaskAnalysisService) ← NEW 💡
+  │   LLM 结构化提取: 意图分类/实体/约束/风险/工具评分
+  │   存入 Redis a2a:task-analysis:{id}，下游 Agent 可读取
+  │
+  ├→ Step 3: 构建上下文 + RAG 增强
+  │   从 Redis 加载会话历史，可选 RAG 检索增强问题
+  │
+  ├→ Step 4: 路由决策 (executeCollaborative)
+  │   多 Agent DAG 协作: 图分解 → 拓扑并行执行 → 结果合并
+  │   三级降级: Agent→inlineFallback→预设文案轮换
+  │
+  └→ Step 5: 后处理 (finalizeRouting)
+      ├─ 反射器 (ReflectionService) — 纯规则五维评分
+      ├─ LLM 质量评估 (QualityEvaluationService) — 四维语义评分
+      ├─ 错误码恢复 (ErrorRecoveryService) — 表驱动重试
+      ├─ 语义缓存写入 + 经验提取
+      └─ 完整决策写入 Redis (Consumer 通过 BLPOP 阻塞读取)
+```
+
+### 反射器（规则级，零 LLM 开销）
+
+五维评分模型（总分 0.0 ~ 1.0，默认阈值 0.6）：
 
 | 维度 | 权重 | 评分规则 | 说明 |
 |------|:----:|----------|------|
@@ -285,15 +325,20 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 ```
 Agent 返回结果
   │
-  ├→ ReflectionService.evaluate()
-  │   ├── 五维评分（纯规则，无 LLM 调用）
-  │   └── score ≥ 0.6 → ✅ 通过 → 写入语义缓存 → 返回
+  ├→ 反射器 (ReflectionService.evaluate())
+  │   五维评分（纯规则，无 LLM 调用）
+  │   ├─ score ≥ 0.6 → ✅ 通过 → 进入 LLM 质检
+  │   └─ score < 0.6 → ❌ 不通过 → 换 fallback Agent 重试
   │
-  └→ score < 0.6 → ❌ 不通过
-      ├── 低质量回复不写缓存（防污染）
-      ├── 自动换 fallback Agent 重试（最多 1 次）
-      ├── 重试结果再评估 → 通过 → 返回
-      └── 重试仍不通过 → 返回原结果
+  ├→ LLM 质量评估 (QualityEvaluationService.evaluate())
+  │   四维语义评分（仅反射器 0.50~0.80 边界区间触发）
+  │   relevance/completeness/hallucination/helpfulness
+  │   ├─ 通过 → ✅ 写入语义缓存 → 返回
+  │   └─ 不通过 → ❌ 跳过缓存（防污染），不阻断用户响应
+  │
+  └→ 错误恢复 (ErrorRecoveryService)
+      执行工具时自动解析 error_code JSON
+      AgentErrorCode → shouldRetry() → 自动退避重试
 ```
 
 ### 配置项
@@ -304,6 +349,11 @@ router:
     enabled: true        # 灰度开关
     threshold: 0.60      # 质量阈值（0.0~1.0）
     max-retry: 1         # 最大重试次数
+  quality-evaluation:
+    enabled: true
+    threshold: 0.6
+    reflection-lower-bound: 0.50   # 低于此值不走 LLM 质检
+    reflection-upper-bound: 0.80   # 高于此值不走 LLM 质检
 ```
 
 ---
@@ -445,12 +495,13 @@ saveReply() 时
 | 服务 | 端口 | 职责 |
 |------|------|------|
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
-| **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀；提供 `/api/data/query` 数据查询独立端点 |
-| **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分解→并行执行→结果合并，Nacos 服务发现；**通用反思器**（五维评分 + 自动重试）；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
-| **Order** | 8085 | 订单查询，退款处理，物流跟踪（原 Travel 服务改造）；`service/` 按 rag/data/infrastructure 子包组织 |
-| **Product** | 8084 | 商品查询，库存查询，价格查询（原 Food 服务改造）；`service/` 按 core/search/infrastructure 子包组织 |
+| **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀（重试3次写入）；提供 `/api/data/query` 数据查询独立端点 |
+| **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分析(实体/约束/风险/工具评分)，DAG 图分解→并行执行→结果合并，**二阶段质量评估**(反射器+LLM质检)，**标准错误码表驱动恢复**，**Agent 级工具自动重试**，Nacos 服务发现 |
+| **Embedding Service** | 8090 | 独立 BGE ONNX 嵌入服务（384维），供 Router 语义缓存和 ExperienceService 经验匹配 |
+| **Order** | 8085 | 订单查询(Text-to-SQL)，退款处理，物流跟踪，优惠券查询 |
+| **Product** | 8084 | 商品查询，库存检查，价格查询 |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
-| **General** | 8087 | 闲聊问答，新闻热点，单位转换，**图片解析/文生图**，**多步脚本执行**，支持风格切换 |
+| **General** | 8087 | 闲聊问答，新闻热点，单位转换(温度/长度/重量/货币)，**图片解析/文生图**，**多步脚本执行**，支持风格切换 |
 
 ---
 
@@ -1158,6 +1209,16 @@ Gateway   Consumer    Router     Travel / Food / User / General
 | travel | 43 | 天气/景点工具、智能行程规划、RAG 召回匹配、MCP 权限测试 |
 | general | 30 | 数学计算、温度/长度/重量/货币转换、边界条件 |
 | **总计** | **238+** | **27 个测试文件，全模块覆盖** |
+
+---
+
+## 生产就绪度
+
+本项目已完成基于 [customer_work 12 生产坑](https://mp.weixin.qq.com/s/Ihtqsp68m1h66Ua12yV7kw) 和 [ThinkingAgent 可靠性体系](https://mp.weixin.qq.com/s/UTEdhrkV3G3Ycfrg0Jng_A) 的交叉审计。
+
+详细检查清单见 [`docs/production-readiness-checklist.md`](docs/production-readiness-checklist.md)。
+
+审计结论：**12 项核心条目 8 项已通过**，主要待办项为 `endSession` 端点归属校验和优雅停机配置。
 
 ---
 
