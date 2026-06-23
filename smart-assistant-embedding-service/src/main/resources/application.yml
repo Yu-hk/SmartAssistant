@@ -1,7 +1,9 @@
 server:
   port: 8091
-
+  shutdown: graceful
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: "30s"
   application:
     name: embedding-service
   main:

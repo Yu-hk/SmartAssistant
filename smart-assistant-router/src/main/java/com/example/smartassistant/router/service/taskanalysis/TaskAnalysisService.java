@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -38,6 +39,7 @@ import java.util.regex.Pattern;
  * @see ModelRoutingService
  */
 @Service
+@RefreshScope
 public class TaskAnalysisService {
 
     private static final Logger log = LoggerFactory.getLogger(TaskAnalysisService.class);
@@ -46,52 +48,49 @@ public class TaskAnalysisService {
     private final ObjectMapper objectMapper;
 
     /**
-     * 任务分析 prompt 模板。
-     * 要求 LLM 输出严格 JSON，包含实体/约束/风险/工具评分等信息。
+     * 任务分析 prompt，支持通过 Nacos Config 动态刷新（@RefreshScope）。
+     * 可将此属性配置到 Nacos 配置中心，修改后立即生效，无需重启。
      */
-    private static final String SYSTEM_PROMPT_TEMPLATE = """
-            你是一个电商客服系统的任务分析器。
-            分析用户的提问，提取结构化信息。
-
-            输出要求：
-            1. 仅输出一个合法的 JSON 对象，不要包含任何其他文字、markdown 代码块标记或说明。
-            2. JSON 必须包含以下所有字段：
-
-            {
-              "intent_category": "意图分类，仅限 ORDER(订单/物流/退款)/PRODUCT(商品查询/库存/价格)/GENERAL(问答/计算/天气/新闻)/COMPLEX(跨领域)/UNKNOWN",
-              "entities": {
-                "order_id": "订单号或null",
-                "product_name": "商品名称或null",
-                "date": "日期信息或null",
-                "amount": "金额信息或null",
-                "location": "地点或null",
-                "currency": "币种或null"
-              },
-              "action_constraints": ["行为约束列表，如'仅查询''勿修改订单'"],
-              "output_constraints": ["输出约束列表，如'Markdown格式''200字以内'"],
-              "risk_flags": ["风险标记列表，如'涉及退款''需二次确认''数据敏感'"],
-              "task_goal": "一句话概括用户任务目标（≤20字）",
-              "tool_scores": {
-                "query_order": 0.0-1.0,
-                "pay_order": 0.0-1.0,
-                "cancel_order": 0.0-1.0,
-                "query_product": 0.0-1.0,
-                "check_stock": 0.0-1.0,
-                "getHotNews": 0.0-1.0,
-                "calculate": 0.0-1.0,
-                "convertCurrency": 0.0-1.0,
-                "searchWeb": 0.0-1.0
-              }
-            }
-
-            评分规则：
-            - 0.0: 完全不相关
-            - 0.1~0.3: 边缘相关
-            - 0.4~0.6: 中等相关
-            - 0.7~1.0: 高度相关或必须使用
-
-            覆核要求：实体字段用 null 而非空字符串表示不存在。
-            """;
+    @Value("${router.task-analysis.system-prompt:"
+            + "你是一个电商客服系统的任务分析器。\n"
+            + "分析用户的提问，提取结构化信息。\n\n"
+            + "输出要求：\n"
+            + "1. 仅输出一个合法的 JSON 对象，不要包含任何其他文字、markdown 代码块标记或说明。\n"
+            + "2. JSON 必须包含以下所有字段：\n\n"
+            + "{\n"
+            + "  \"intent_category\": \"意图分类，仅限 ORDER(订单/物流/退款)/PRODUCT(商品查询/库存/价格)/GENERAL(问答/计算/天气/新闻)/COMPLEX(跨领域)/UNKNOWN\",\n"
+            + "  \"entities\": {\n"
+            + "    \"order_id\": \"订单号或null\",\n"
+            + "    \"product_name\": \"商品名称或null\",\n"
+            + "    \"date\": \"日期信息或null\",\n"
+            + "    \"amount\": \"金额信息或null\",\n"
+            + "    \"location\": \"地点或null\",\n"
+            + "    \"currency\": \"币种或null\"\n"
+            + "  },\n"
+            + "  \"action_constraints\": [\"行为约束列表，如'仅查询''勿修改订单'\"],\n"
+            + "  \"output_constraints\": [\"输出约束列表，如'Markdown格式''200字以内'\"],\n"
+            + "  \"risk_flags\": [\"风险标记列表，如'涉及退款''需二次确认''数据敏感'\"],\n"
+            + "  \"task_goal\": \"一句话概括用户任务目标（≤20字）\",\n"
+            + "  \"tool_scores\": {\n"
+            + "    \"query_order\": 0.0-1.0,\n"
+            + "    \"pay_order\": 0.0-1.0,\n"
+            + "    \"cancel_order\": 0.0-1.0,\n"
+            + "    \"query_product\": 0.0-1.0,\n"
+            + "    \"check_stock\": 0.0-1.0,\n"
+            + "    \"getHotNews\": 0.0-1.0,\n"
+            + "    \"calculate\": 0.0-1.0,\n"
+            + "    \"convertCurrency\": 0.0-1.0,\n"
+            + "    \"searchWeb\": 0.0-1.0\n"
+            + "  }\n"
+            + "}\n\n"
+            + "评分规则：\n"
+            + "- 0.0: 完全不相关\n"
+            + "- 0.1~0.3: 边缘相关\n"
+            + "- 0.4~0.6: 中等相关\n"
+            + "- 0.7~1.0: 高度相关或必须使用\n\n"
+            + "覆核要求：实体字段用 null 而非空字符串表示不存在。"
+            + "}")
+    private String systemPrompt;
 
     @Value("${router.task-analysis.enabled:true}")
     private boolean enabled;
@@ -117,7 +116,7 @@ public class TaskAnalysisService {
 
         long start = System.currentTimeMillis();
         try {
-            String rawResponse = modelRoutingService.call(SYSTEM_PROMPT_TEMPLATE, question);
+            String rawResponse = modelRoutingService.call(systemPrompt, question);
 
             if (rawResponse == null || rawResponse.isBlank()) {
                 log.warn("[TaskAnalysis] LLM 返回空响应");

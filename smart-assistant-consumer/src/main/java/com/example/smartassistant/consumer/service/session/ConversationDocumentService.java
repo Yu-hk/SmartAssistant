@@ -9,10 +9,12 @@ package com.example.smartassistant.consumer.service.session;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -82,6 +84,17 @@ public class ConversationDocumentService {
 
     // ★ 叙事摘要服务
     private final ConversationSummarizationService summarizationService;
+
+    // ★ Redis 镜像存储（可选，水平扩展时开启）
+    @Autowired(required = false)
+    private StringRedisTemplate redisTemplate;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${app.memory.redis-enabled:false}")
+    private boolean redisEnabled;
+
+    private static final String REDIS_MEMORY_KEY_PREFIX = "user:memory:";
 
     @Autowired
     public ConversationDocumentService(
@@ -154,6 +167,32 @@ public class ConversationDocumentService {
         }
 
         log.info("[UserMemory] 记忆已保存: userId={}, sessionId={}", ctx.userId(), ctx.sessionId());
+
+        // ★ Redis 镜像（可选，多实例共享记忆）
+        saveToRedisIfEnabled(ctx, entryContent);
+    }
+
+    /**
+     * 当 Redis 镜像开启时，将记忆同步写入 Redis（与文件保存解耦，失败不影响主流程）。
+     * Key: user:memory:{userId}:{sessionId}
+     * Value: JSON {content, turnCount, intentTag, savedAt}
+     * TTL: 7 天
+     */
+    private void saveToRedisIfEnabled(ConversationValueService.ConversationValueContext ctx, String entryContent) {
+        if (!redisEnabled || redisTemplate == null) return;
+        try {
+            String redisKey = REDIS_MEMORY_KEY_PREFIX + ctx.userId() + ":" + sanitize(ctx.sessionId());
+            java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+            data.put("content", entryContent);
+            data.put("turnCount", ctx.turnCount());
+            data.put("intentTag", ctx.intentTag());
+            data.put("savedAt", System.currentTimeMillis());
+            String json = objectMapper.writeValueAsString(data);
+            redisTemplate.opsForValue().set(redisKey, json, 7, TimeUnit.DAYS);
+            log.debug("[UserMemory] Redis 镜像已保存: key={}", redisKey);
+        } catch (Exception e) {
+            log.warn("[UserMemory] Redis 镜像保存失败: {}", e.getMessage());
+        }
     }
 
     // ========== 条目构建 ==========
