@@ -73,6 +73,11 @@ public class ConversationDocumentService {
             .maximumSize(5000)
             .build();
 
+    /** 写入重试最大次数 */
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+    /** 重试初始等待（毫秒），指数退避 ×2 */
+    private static final long RETRY_INITIAL_DELAY_MS = 200;
+
     private final String basePath;
 
     // ★ 叙事摘要服务
@@ -96,32 +101,59 @@ public class ConversationDocumentService {
      */
     @Async("taskExecutor")
     public void saveValuableConversation(ConversationValueService.ConversationValueContext ctx) {
-        try {
-            Path userDir = Paths.get(basePath, String.valueOf(ctx.userId()), "memories");
-            Files.createDirectories(userDir);
-
-            String sessionKey = sanitize(ctx.sessionId());
-            String entryContent = buildEntryContent(ctx);
-
-            // ★ 同步写（session 粒度，防并发读-改-写冲突）
-            synchronized (getFileLock(ctx.sessionId())) {
-                // ★ session 优先：查找已有记忆文件（跨天不换文件）
-                Path existingFile = findExistingSessionFile(userDir, sessionKey);
-
-                if (existingFile != null) {
-                    appendToMemoryFile(existingFile, ctx, entryContent);
-                } else {
-                    // 不存在则创建新文件（带当前日期）
-                    String filename = LocalDate.now().format(DATE_FMT) + "_" + sessionKey + ".md";
-                    createMemoryFile(userDir.resolve(filename), ctx, entryContent);
+        int attempt = 0;
+        Exception lastException = null;
+        while (attempt < MAX_RETRY_ATTEMPTS) {
+            attempt++;
+            try {
+                doSave(ctx);
+                return; // 成功直接返回
+            } catch (Exception e) {
+                lastException = e;
+                if (attempt < MAX_RETRY_ATTEMPTS) {
+                    long delay = RETRY_INITIAL_DELAY_MS * (1L << (attempt - 1)); // 200ms, 400ms, 800ms
+                    log.warn("[UserMemory] 保存记忆失败(第{}次), {}ms后重试: userId={}, error={}",
+                            attempt, delay, ctx.userId(), e.getMessage());
+                    try {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
-
-            log.info("[UserMemory] 记忆已保存: userId={}, sessionId={}", ctx.userId(), ctx.sessionId());
-
-        } catch (Exception e) {
-            log.warn("[UserMemory] 保存记忆失败: userId={}, error={}", ctx.userId(), e.getMessage());
         }
+        // 所有重试均失败
+        log.warn("[UserMemory] 保存记忆失败(已重试{}次): userId={}, error={}",
+                MAX_RETRY_ATTEMPTS, ctx.userId(),
+                lastException != null ? lastException.getMessage() : "unknown");
+    }
+
+    /**
+     * 执行文件保存操作（被 {@link #saveValuableConversation} 重试包裹）
+     */
+    private void doSave(ConversationValueService.ConversationValueContext ctx) throws Exception {
+        Path userDir = Paths.get(basePath, String.valueOf(ctx.userId()), "memories");
+        Files.createDirectories(userDir);
+
+        String sessionKey = sanitize(ctx.sessionId());
+        String entryContent = buildEntryContent(ctx);
+
+        // ★ 同步写（session 粒度，防并发读-改-写冲突）
+        synchronized (getFileLock(ctx.sessionId())) {
+            // ★ session 优先：查找已有记忆文件（跨天不换文件）
+            Path existingFile = findExistingSessionFile(userDir, sessionKey);
+
+            if (existingFile != null) {
+                appendToMemoryFile(existingFile, ctx, entryContent);
+            } else {
+                // 不存在则创建新文件（带当前日期）
+                String filename = LocalDate.now().format(DATE_FMT) + "_" + sessionKey + ".md";
+                createMemoryFile(userDir.resolve(filename), ctx, entryContent);
+            }
+        }
+
+        log.info("[UserMemory] 记忆已保存: userId={}, sessionId={}", ctx.userId(), ctx.sessionId());
     }
 
     // ========== 条目构建 ==========
