@@ -1,5 +1,6 @@
 package com.example.smartassistant.general.tool;
 
+import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,13 +47,13 @@ public class WeatherTool {
             var resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
 
             if (resp.statusCode() != 200) {
-                return ToolResult.error("WEATHER_UNAVAILABLE", "天气查询失败，请检查城市名称是否正确。", false);
+                return ToolResult.error(AgentErrorCode.SERVICE_WEATHER_UNAVAILABLE, "天气查询失败，请检查城市名称是否正确。");
             }
 
             JsonNode root = objectMapper.readTree(resp.body());
             JsonNode current = root.at("/current_condition/0");
             if (current == null || current.isNull()) {
-                return ToolResult.error("WEATHER_NO_DATA", "未找到该城市的天气数据。", false);
+                return ToolResult.error(AgentErrorCode.WEATHER_NO_DATA, "未找到该城市的天气数据。");
             }
 
             String temp = current.get("temp_C").asText();
@@ -85,7 +86,7 @@ public class WeatherTool {
 
         } catch (Exception e) {
             log.warn("[WeatherTool] 查询失败: {}", e.getMessage());
-            return ToolResult.error("WEATHER_UNAVAILABLE", "天气服务暂时不可用", true, "请稍后重试");
+            return ToolResult.error(AgentErrorCode.SERVICE_WEATHER_UNAVAILABLE, "天气服务暂时不可用", "请稍后重试");
         }
     }
 }

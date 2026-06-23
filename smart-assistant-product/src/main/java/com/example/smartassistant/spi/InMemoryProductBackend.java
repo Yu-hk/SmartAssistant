@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.spi;
 
+import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.tool.ToolResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,8 +63,8 @@ public class InMemoryProductBackend implements ProductBackend {
         log.info("[MockProduct] 查商品: {}", productCode);
         Map<String, String> p = findProduct(productCode);
         if (p == null) {
-            return ToolResult.error("PRODUCT_NOT_FOUND", "未找到商品 " + productCode,
-                    false, "请确认商品编码或名称是否正确");
+            return ToolResult.error(AgentErrorCode.PRODUCT_NOT_FOUND, "未找到商品 " + productCode,
+                    "请确认商品编码或名称是否正确");
         }
         return String.format("%s\n价格：%s 元\n库存：%s\n规格：%s\n颜色：%s",
                 p.get("name"), p.get("price"), p.get("stock"), p.get("spec"), p.get("color"));
@@ -73,7 +74,7 @@ public class InMemoryProductBackend implements ProductBackend {
     public String checkStock(String productCode) {
         log.info("[MockProduct] 查库存: {}", productCode);
         Map<String, String> p = findProduct(productCode);
-        if (p == null) return ToolResult.error("PRODUCT_NOT_FOUND", "未找到商品 " + productCode, false);
+        if (p == null) return ToolResult.error(AgentErrorCode.PRODUCT_NOT_FOUND, "未找到商品 " + productCode);
         String stock = p.get("stock");
         if ("充足".equals(stock)) {
             return p.get("name") + " 库存充足，下单后 24 小时内发货。";
@@ -87,7 +88,7 @@ public class InMemoryProductBackend implements ProductBackend {
     public String getPrice(String productCode) {
         log.info("[MockProduct] 查价格: {}", productCode);
         Map<String, String> p = findProduct(productCode);
-        if (p == null) return ToolResult.error("PRODUCT_NOT_FOUND", "未找到商品 " + productCode, false);
+        if (p == null) return ToolResult.error(AgentErrorCode.PRODUCT_NOT_FOUND, "未找到商品 " + productCode);
         return String.format("%s 售价 %s 元，支持 3/6/12/24 期免息分期。", p.get("name"), p.get("price"));
     }
 
