@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.agent;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.error.AgentException;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.common.error.RecoveryAction;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
@@ -549,32 +550,8 @@ public class SmartReActAgent {
         // ⭐ 创建所有工具的异步任务
         List<CompletableFuture<ToolResponseMessage.ToolResponse>> futures = new ArrayList<>();
         for (var tc : toolCalls) {
-            futures.add(CompletableFuture.supplyAsync(() -> {
-                long toolStart = System.currentTimeMillis();
-                ToolCallback callback = toolMap.get(tc.name());
-
-                if (callback == null) {
-                    log.warn("[SmartReActAgent] 未知工具: {}", tc.name());
-                    metrics.recordToolHallucination();
-                    return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                            "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: " + tc.name()
-                                    + "\",\"retryable\":false}");
-                }
-
-                try {
-                    log.info("[SmartReActAgent] 并行执行工具: {} (id={})", tc.name(), tc.id());
-                    String result = callback.call(tc.arguments());
-                    long elapsed = System.currentTimeMillis() - toolStart;
-                    log.info("[SmartReActAgent] 工具 {} 完成 (耗时 {}ms)", tc.name(), elapsed);
-                    return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                            result != null ? result : "null");
-                } catch (Exception e) {
-                    log.error("[SmartReActAgent] 工具执行异常: {} - {}", tc.name(), e.getMessage());
-                    return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                            "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
-                                    + e.getMessage() + "\",\"retryable\":true}");
-                }
-            }, getToolExecutor()));
+            futures.add(CompletableFuture.supplyAsync(() ->
+                    executeToolCallWithRetry(tc, toolMap), getToolExecutor()));
         }
 
         // ⭐ 等待所有工具完成（有超时）
@@ -620,27 +597,147 @@ public class SmartReActAgent {
 
         List<ToolResponseMessage.ToolResponse> results = new ArrayList<>();
         for (var tc : toolCalls) {
-            ToolCallback callback = toolMap.get(tc.name());
-            if (callback == null) {
-                log.warn("[SmartReActAgent] 未知工具: {}", tc.name());
-                results.add(new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                        "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: " + tc.name()
-                                + "\",\"retryable\":false}"));
-                continue;
-            }
-            try {
-                log.info("[SmartReActAgent] 串行执行工具: {} (id={})", tc.name(), tc.id());
-                String result = callback.call(tc.arguments());
-                results.add(new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                        result != null ? result : "null"));
-            } catch (Exception e) {
-                log.error("[SmartReActAgent] 工具执行异常: {} - {}", tc.name(), e.getMessage());
-                results.add(new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                        "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
-                                + e.getMessage() + "\",\"retryable\":true}"));
-            }
+            results.add(executeToolCallWithRetry(tc, toolMap));
         }
         return results;
+    }
+
+    /**
+     * 执行单个工具调用并自动重试（基于 ErrorRecoveryService 表驱动决策）。
+     * <p>
+     * 工具返回的 JSON 结果如果包含 {@code error_code} 字段，会按 AgentErrorCode
+     * 映射到恢复策略，决定是否自动重试。
+     * </p>
+     */
+    private ToolResponseMessage.ToolResponse executeToolCallWithRetry(
+            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap) {
+        ToolCallback callback = toolMap.get(tc.name());
+        if (callback == null) {
+            log.warn("[SmartReActAgent] 未知工具: {}", tc.name());
+            metrics.recordToolHallucination();
+            recoveryService.logRecovery(AgentErrorCode.UNKNOWN_TOOL, RecoveryAction.CLARIFY_USER,
+                    "tool=" + tc.name(), 0);
+            return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
+                    "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: "
+                            + tc.name() + "\",\"retryable\":false}");
+        }
+
+        int attempt = 0;
+        Exception lastException = null;
+        String lastErrorCode = null;
+
+        while (true) {
+            attempt++;
+            try {
+                log.info("[SmartReActAgent] {}执行工具: {} (id={}, attempt={})",
+                        parallelExecution ? "并行" : "串行", tc.name(), tc.id(), attempt);
+                long toolStart = System.currentTimeMillis();
+                String result = callback.call(tc.arguments());
+                long elapsed = System.currentTimeMillis() - toolStart;
+                log.info("[SmartReActAgent] 工具 {} 完成 (耗时 {}ms)", tc.name(), elapsed);
+
+                // ⭐ 检查工具返回结果是否包含 error_code
+                String errorCode = extractErrorCode(result);
+                if (errorCode == null) {
+                    // 正常结果，直接返回
+                    return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
+                            result != null ? result : "null");
+                }
+
+                // 工具返回了错误码，判断是否需要重试
+                lastErrorCode = errorCode;
+                AgentErrorCode agentCode = AgentErrorCode.fromCode(errorCode);
+                if (agentCode != null && recoveryService.shouldRetry(agentCode, attempt)) {
+                    long delay = recoveryService.getRetryDelayMs(agentCode, attempt - 1);
+                    log.warn("[SmartReActAgent] 工具返回错误(第{}次): tool={}, code={}, {}ms后重试",
+                            attempt, tc.name(), errorCode, delay);
+                    recoveryService.logRecovery(agentCode, recoveryService.resolve(agentCode),
+                            "tool=" + tc.name() + ", result=" + truncate64(result), attempt);
+                    try { Thread.sleep(delay); }
+                    catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    continue;
+                }
+
+                // 不可重试或已达上限，返回原始错误
+                log.warn("[SmartReActAgent] 工具返回不可重试错误(尝试{}次): tool={}, code={}",
+                        attempt, tc.name(), errorCode);
+                return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(), result);
+
+            } catch (AgentException e) {
+                // 标准化的工具异常
+                lastErrorCode = e.getErrorCode().getCode();
+                if (recoveryService.shouldRetry(e.getErrorCode(), attempt)) {
+                    long delay = recoveryService.getRetryDelayMs(e.getErrorCode(), attempt - 1);
+                    log.warn("[SmartReActAgent] 工具异常(第{}次): tool={}, code={}, {}ms后重试",
+                            attempt, tc.name(), e.getErrorCode().getCode(), delay);
+                    recoveryService.logRecovery(e.getErrorCode(), recoveryService.resolve(e.getErrorCode()),
+                            "tool=" + tc.name() + ", msg=" + e.getMessage(), attempt);
+                    try { Thread.sleep(delay); }
+                    catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    continue;
+                }
+                return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(), e.toToolResultJson());
+
+            } catch (Exception e) {
+                // 普通异常（工具抛出非AgentException的异常）
+                lastException = e;
+                AgentErrorCode code = AgentErrorCode.TOOL_EXECUTION_ERROR;
+                if (recoveryService.shouldRetry(code, attempt)) {
+                    long delay = recoveryService.getRetryDelayMs(code, attempt - 1);
+                    log.warn("[SmartReActAgent] 工具异常(第{}次): tool={}, {}ms后重试",
+                            attempt, tc.name(), delay);
+                    try { Thread.sleep(delay); }
+                    catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    continue;
+                }
+                log.error("[SmartReActAgent] 工具执行失败(最后一次尝试): {} - {}", tc.name(), e.getMessage());
+                return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
+                        "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
+                                + e.getMessage() + "\",\"retryable\":true}");
+            }
+        }
+
+        // 中断或重试耗尽
+        String reason = lastErrorCode != null
+                ? "工具返回错误: " + lastErrorCode
+                : (lastException != null ? lastException.getMessage() : "工具执行失败");
+        log.error("[SmartReActAgent] 工具执行失败(重试{}次): tool={}, reason={}", attempt - 1, tc.name(), reason);
+        return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
+                "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
+                        + reason + "\",\"retryable\":false}");
+    }
+
+    /**
+     * 从工具返回的 JSON 结果中提取 error_code 字段值。
+     * 仅检查格式为 {"error_code":"CODE",...} 的 JSON 对象，不依赖 Jackson。
+     */
+    private String extractErrorCode(String result) {
+        if (result == null || result.isBlank()) return null;
+        String trimmed = result.trim();
+        if (!trimmed.startsWith("{")) return null;
+        int keyIdx = trimmed.indexOf("\"error_code\"");
+        if (keyIdx < 0) return null;
+        // 查找冒号后的第一个引号
+        int startQuote = trimmed.indexOf('"', keyIdx + 12);
+        if (startQuote < 0) return null;
+        int endQuote = trimmed.indexOf('"', startQuote + 1);
+        if (endQuote <= startQuote) return null;
+        return trimmed.substring(startQuote + 1, endQuote);
+    }
+
+    /** 截断字符串到64字符（用于日志） */
+    private static String truncate64(String str) {
+        if (str == null) return "";
+        return str.length() > 64 ? str.substring(0, 64) + "..." : str;
     }
 
     /**
