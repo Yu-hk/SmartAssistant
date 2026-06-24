@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.common.rag;
 
+import lombok.Getter;
+
 /**
  * 知识文档——RAG 检索的基本单元。
  * <p>
@@ -14,6 +16,7 @@ package com.example.smartassistant.common.rag;
  * 对应 RAG 治理文章中的"召回单元"概念。
  * </p>
  */
+@Getter
 public class KnowledgeDocument {
 
     /** 文档唯一 ID */
@@ -68,12 +71,4 @@ public class KnowledgeDocument {
 
     // ------- Getters -------
 
-    public String getId() { return id; }
-    public String getTitle() { return title; }
-    public String getContent() { return content; }
-    public String getCategory() { return category; }
-    public String getKeywords() { return keywords; }
-    public long getEffectiveAt() { return effectiveAt; }
-    public long getExpireAt() { return expireAt; }
-    public long getCreatedAt() { return createdAt; }
 }
