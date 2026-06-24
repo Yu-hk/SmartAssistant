@@ -292,6 +292,11 @@
 | 6 | 质检不通过时触发重试 | 🟡 **中** | ❌ 待处理 | `RouterService.finalizeRouting()` |
 | 7 | Checkpoint 断点续跑（Order 多步流） | ⚪ **低** | ❌ 待评估 | `GraphExecutionService` |
 | 8 | 水平扩展适配（进程内限流→Redis） | ⚪ **低** | ❌ 待评估 | — |
+| 9 | **Tool Group 工具分组** | 🟡 **中** | ✅ **已实现** | `ToolGroupManager` + `SmartReActAgent` |
+| 10 | **结构化输出框架化** | 🟢 **高** | ✅ **已实现** | `StructuredOutputService` |
+| 11 | Runtime Sandbox 工具隔离 | ⚪ **低** | ❌ 待评估 | — |
+| 12 | Harness 工作区 | ⚪ **低** | ❌ 待评估 | — |
+| 13 | 评估与强化学习管线 | ⚪ **低** | ❌ 待评估 | — |
 
 ---
 
