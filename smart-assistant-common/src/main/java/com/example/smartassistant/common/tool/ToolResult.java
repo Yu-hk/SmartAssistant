@@ -77,6 +77,10 @@ public final class ToolResult {
     /**
      * 使用 Jackson ObjectMapper 构建错误 JSON。
      * 替代手写字符串拼接，消除控制字符注入风险。
+     * <p>
+     * 包含 suggestion 字段（文章技巧4：错误反馈闭环），
+     * 告诉 LLM "接下来可以怎么做" 而不是让它自己猜。
+     * </p>
      */
     private static String buildErrorJson(String errorCode, String message, boolean retryable, String hint) {
         Map<String, Object> map = new LinkedHashMap<>();
@@ -85,6 +89,7 @@ public final class ToolResult {
         map.put("retryable", retryable);
         if (hint != null) {
             map.put("hint", hint);
+            map.put("suggestion", hint);  // ⭐ 文章技巧4：suggestion = 给 LLM 的具体下一步操作
         }
         try {
             return MAPPER.writeValueAsString(map);

@@ -85,7 +85,7 @@ public class OrderTools {
     @Tool(description = "【下单】创建新的订单。用户提供商品名称、金额和收货信息，系统自动生成订单号。"
             + "下单成功后状态为「待付款」，后续可调用 payOrder 完成支付。")
     public String createOrder(
-            @ToolParam(description = "用户ID", required = true) Long userId,
+            @ToolParam(description = "用户ID，如 12345", required = true) Long userId,
             @ToolParam(description = "商品名称，如 iPhone 15 Pro 256GB", required = true) String productName,
             @ToolParam(description = "商品金额，如 8999.00", required = true) BigDecimal amount,
             @ToolParam(description = "收货人姓名", required = true) String contactName,
@@ -137,7 +137,7 @@ public class OrderTools {
             + "流程：首次调用→创建确认项→用户确认→confirmAction→再次调用payOrder执行。"
             + "不适用场景：退款操作（请用 applyRefund）；查询订单（请用 queryOrder）。")
     public String payOrder(
-            @ToolParam(description = "订单号", required = true) String orderId,
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
             @ToolParam(description = "支付方式，如 微信支付/支付宝/银行卡", required = true) String paymentMethod) {
         log.info("[OrderTool] 支付订单: {}, paymentMethod={}", orderId, paymentMethod);
 
@@ -190,8 +190,8 @@ public class OrderTools {
     @Tool(description = "【取消订单】取消指定订单。仅「待付款」或「待发货」状态的订单可以取消。"
             + "取消后状态变为「已取消」。")
     public String cancelOrder(
-            @ToolParam(description = "订单号", required = true) String orderId,
-            @ToolParam(description = "取消原因", required = true) String reason) {
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
+            @ToolParam(description = "取消原因，如 '不想要了'/'商品与描述不符'", required = true) String reason) {
         log.info("[OrderTool] 取消订单: orderId={}, reason={}", orderId, reason);
 
         // ★ Read-before-Edit
@@ -227,9 +227,9 @@ public class OrderTools {
             + "需要提供物流公司名称和快递单号。发货后状态变为「已发货」。"
             + "发货后用户可通过 trackLogistics 查询物流轨迹。")
     public String shipOrder(
-            @ToolParam(description = "订单号", required = true) String orderId,
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
             @ToolParam(description = "物流公司，如 顺丰速运", required = true) String carrier,
-            @ToolParam(description = "快递单号", required = true) String trackingNo) {
+            @ToolParam(description = "快递单号，如 SF1234567890", required = true) String trackingNo) {
         log.info("[OrderTool] 发货: orderId={}, carrier={}, trackingNo={}", orderId, carrier, trackingNo);
 
         // ★ Read-before-Edit
@@ -294,7 +294,7 @@ public class OrderTools {
     @Tool(description = "【确认收货】买家确认收到商品。仅「已发货」状态的订单可以确认收货。"
             + "确认后状态变为「已签收」。")
     public String confirmDelivery(
-            @ToolParam(description = "订单号", required = true) String orderId) {
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId) {
         log.info("[OrderTool] 确认收货: {}", orderId);
 
         // ★ Read-before-Edit
@@ -422,8 +422,8 @@ public class OrderTools {
             + "流程：首次调用→创建确认项→用户确认→confirmAction→再次调用applyRefund执行。"
             + "不适用场景：待付款/待发货订单取消（请用 cancelOrder）")
     public String applyRefund(
-            @ToolParam(description = "订单号", required = true) String orderId,
-            @ToolParam(description = "退款原因", required = true) String reason) {
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
+            @ToolParam(description = "退款原因，如 '商品质量问题'/'七天无理由退货'", required = true) String reason) {
         log.info("[OrderTool] 退款请求: orderId={}, reason={}", orderId, reason);
 
         // ★ Read-before-Edit：必须事先查询过该订单
@@ -498,7 +498,7 @@ public class OrderTools {
             + "适用场景：payOrder 或 applyRefund 首次调用后返回确认提示时。"
             + "不适用场景：未调用 payOrder/applyRefund 之前直接调用。")
     public String confirmAction(
-            @ToolParam(description = "订单号", required = true) String orderId,
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
             @ToolParam(description = "操作类型：'payment' 支付确认 / 'refund' 退款确认", required = true) String actionType) {
         log.info("[OrderTool] 确认操作: orderId={}, actionType={}", orderId, actionType);
         boolean success = approvalService.confirmAction(orderId, actionType);
@@ -523,7 +523,7 @@ public class OrderTools {
             + "适用场景：用户提供快递单号要查包裹到哪了。"
             + "不适用场景：查订单基本信息（请用 queryOrder）；没有快递单号时（请用 queryOrder 看物流字段）。")
     public String trackLogistics(
-            @ToolParam(description = "快递单号", required = true) String trackingNumber) {
+            @ToolParam(description = "快递单号，如 SF1234567890", required = true) String trackingNumber) {
         log.info("[OrderTool] 查物流: {}", trackingNumber);
         if (trackingNumber == null || trackingNumber.isBlank()) {
             return ToolResult.error(AgentErrorCode.TRACKING_REQUIRED, "请提供快递单号", "请提供快递单号");

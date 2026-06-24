@@ -118,7 +118,7 @@ public class OrderAnalyticsTool {
             + "适用于：'查一下XX用户的退款情况'、'这个用户退过多少次'等。"
             + "不适用于：统计整体退款趋势（请用 queryTopRefunds）。")
     public String queryUserRefunds(
-            @ToolParam(description = "用户ID", required = true) Long userId) {
+            @ToolParam(description = "用户ID，如 12345", required = true) Long userId) {
 
         log.info("[Analytics] queryUserRefunds: userId={}", userId);
 
