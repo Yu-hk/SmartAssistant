@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.tool.ToolPageResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;

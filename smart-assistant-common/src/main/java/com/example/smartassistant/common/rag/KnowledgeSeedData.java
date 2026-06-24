@@ -56,9 +56,6 @@ public class KnowledgeSeedData {
         kb.addDocuments(productDocuments());
         kb.reindex();
         return kb;
-    }        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(PRODUCT_KB, model);
-        kb.addDocuments(productDocuments());
-        return kb;
     }
 
     // ==================== 订单知识 ====================
