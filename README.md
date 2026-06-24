@@ -61,7 +61,10 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 |------|------|
 | 🧠 **A2A 多 Agent 协作** | 基于 Spring AI Alibaba A2A 协议，8 个微服务通过 Nacos 自动发现与注册。Router 支持任务分解 → 并行调用 → 结果合并，跨域问题自动分配多个 Agent |
 | 🧠 **三层语义缓存 + BGE ONNX + 智能跳过** | 精确匹配 → 关键词哈希 → BGE 向量匹配。短时效 Agent(TTL<1h)回复自动跳过缓存，管理员工具操作通过 Redis 标记跳过，均保留路由决策加速 |
-| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + 多路召回(RRF融合)，覆盖出行/美食领域 |
+| 🔍 **12 维 Agent 可标注评测** | LLM 输出后自动执行 6 层规则后处理：实体归一化(日期/金额/地点/纠错) → 词槽状态机(6意图词槽表+缺失/冲突检测) → 澄清判断(追问生成) → 输入鲁棒性(错别字/别名纠错)。叠加 LLM 层 6 维（意图识别、多意图拆分、隐含意图、拒识、实体识别、工具评分），完整覆盖文章推荐的 12 个评测维度 |
+| 🎯 **意图置信度 + 阈值路由** | LLM 输出意图置信度(0.0~1.0)，低于 0.6 阈值时自动触发澄清流程而非盲目执行，避免误操作 |
+| 🔄 **意图引导的查询改写** | 任务分析后根据意图类型选择改写策略：多意图→查询分解、模糊→查询扩展(补充实体)、精确→保留、对话→指代消解 |
+| 🗂️ **多样性 RAG + Cross-Encoder 重排序** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + bge-reranker-v2-m3 Cross-Encoder 二次精排(BM25→向量→重排序器三级) |
 | 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
 | 🔍 **@Tool 统一日志切面** | AOP 拦截全部 27 个 @Tool 方法，自动记录 requestId + 输入参数 + 输出结果 + 执行耗时；requestId 通过 MDC 全链路透传（Consumer → Router → A2A → Agent → @Tool） |
@@ -278,7 +281,7 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 
 ## Router 流水线
 
-Router 的路由决策采用 **6 步流水线**：
+Router 的路由决策采用 **8 步流水线**：
 
 ```
 用户请求
@@ -289,18 +292,29 @@ Router 的路由决策采用 **6 步流水线**：
   ├→ Step 1: 语义缓存 (SemanticCacheService)
   │   Tier 1 精确 → Tier 2 关键词 → Tier 3 BGE 向量; 命中直接返回
   │
-  ├→ Step 2: 任务分析 (TaskAnalysisService) ← NEW 💡
-  │   LLM 结构化提取: 意图分类/实体/约束/风险/工具评分
+  ├→ Step 2: 任务分析 (TaskAnalysisService) ✨
+  │   LLM 结构化提取: 意图分类/置信度/实体/约束/风险/工具评分
+  │   多意图拆分(sub_intents)、隐含意图(implicit_intents)、拒识
   │   存入 Redis a2a:task-analysis:{id}，下游 Agent 可读取
   │
-  ├→ Step 3: 构建上下文 + RAG 增强
+  ├→ Step 2.5: 规则层评测后处理 (IntentEvaluationService) 🆕
+  │   实体归一化(日期/金额/地点/纠错) → 词槽分析(填充/缺失/冲突)
+  │   → 澄清判断(追问生成) → 置信度阈值检查(<0.6触发澄清)
+  │   存入 Redis 供下游消费
+  │
+  ├→ Step 3: 意图引导的查询改写 (IntentGuidedQueryRewriter) 🆕
+  │   根据意图类型选择改写策略：
+  │   多意图→查询分解 / 模糊→查询扩展 / 精确→保留 / 对话→指代消解
+  │   改写结果存入 Redis a2a:rewrite:{id}
+  │
+  ├→ Step 4: 构建上下文 + RAG 增强
   │   从 Redis 加载会话历史，可选 RAG 检索增强问题
   │
-  ├→ Step 4: 路由决策 (executeCollaborative)
+  ├→ Step 5: 路由决策 (executeCollaborative)
   │   多 Agent DAG 协作: 图分解 → 拓扑并行执行 → 结果合并
   │   三级降级: Agent→inlineFallback→预设文案轮换
   │
-  └→ Step 5: 后处理 (finalizeRouting)
+  └→ Step 6: 后处理 (finalizeRouting)
       ├─ 反射器 (ReflectionService) — 纯规则五维评分
       ├─ LLM 质量评估 (QualityEvaluationService) — 四维语义评分
       ├─ 错误码恢复 (ErrorRecoveryService) — 表驱动重试
@@ -498,8 +512,8 @@ saveReply() 时
 | **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀（重试3次写入）；提供 `/api/data/query` 数据查询独立端点 |
 | **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分析(实体/约束/风险/工具评分)，DAG 图分解→并行执行→结果合并，**二阶段质量评估**(反射器+LLM质检)，**标准错误码表驱动恢复**，**Agent 级工具自动重试**，Nacos 服务发现 |
 | **Embedding Service** | 8090 | 独立 BGE ONNX 嵌入服务（384维），供 Router 语义缓存和 ExperienceService 经验匹配 |
-| **Order** | 8085 | 订单查询(Text-to-SQL)，退款处理，物流跟踪，优惠券查询 |
-| **Product** | 8084 | 商品查询，库存检查，价格查询 |
+| **Order** | 8085 | 订单查询(Text-to-SQL)，退款处理，物流跟踪，优惠券查询，**BGE 知识库检索 + bge-reranker Cross-Encoder 重排序** |
+| **Product** | 8084 | 商品查询，库存检查，价格查询，**BGE 知识库检索** |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
 | **General** | 8087 | 闲聊问答，新闻热点，单位转换(温度/长度/重量/货币)，**图片解析/文生图**，**多步脚本执行**，支持风格切换 |
 
@@ -736,6 +750,7 @@ docker compose -f docker-compose.deploy.yml up -d gateway
 |------|------|------|:----:|
 | BGE-small-zh-v1.5 | Router Cache T3 语义匹配 | `models/bge-small-zh-v1.5.onnx` | 95 MB |
 | BGE-large-zh-v1.5 | Travel/Food/Consumer RAG 检索 | `models/bge-large-zh-v1.5.onnx` | 1.2 GB (FP32) |
+| **bge-reranker-v2-m3** | Order 知识库 Cross-Encoder 二次精排 | `models/bge-reranker-v2-m3.onnx` | 192 KB + 2.2 GB 权重 |
 | **deepseek-r1:7b** (Ollama) | **主推理模型** | Ollama 管理 | 4.7 GB |
 | **qwen2.5:7b** (Ollama) | **备选推理模型** | Ollama 管理 | 4.7 GB |
 
@@ -819,7 +834,10 @@ smart-assistant-router/.../service/
 ├── cache/         SemanticRouteCacheService, RoutingDecisionStorageService
 ├── infrastructure/ DistributedTracingService
 ├── extraction/    KeywordExtractionService
-└── rag/           RouterRagService
+├── rag/           RouterRagService
+├── evaluation/    EntityNormalizer, SlotStateMachine, ClarificationService,
+│                  IntentEvaluationService, IntentGuidedQueryRewriter 🆕
+└── taskanalysis/  TaskAnalysisService
 
 smart-assistant-food/.../service/
 ├── core/          ABTestService, HybridRecommendationService, ReviewEmbeddingInitializer
@@ -1200,15 +1218,15 @@ Gateway   Consumer    Router     Travel / Food / User / General
 
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|---------|
-| common | 50 | SQL 安全校验器、中文分词器（IKAnalyzer/HanLP）、同义词、词性标注、意图识别、缓存 |
+| common | 57 | SQL 安全校验器、中文分词器（IKAnalyzer/HanLP）、同义词、词性标注、意图识别、缓存、EntityProfileService、**BgeReranker(降级策略)** |
 | gateway | 33 | JWT 工具、白名单过滤、Filter 认证、Filter 集成测试 |
 | user | 9 | JWT 服务 |
 | consumer | 25 | 对话叙事摘要、文档沉淀服务、DataGifTool、Chat 集成测试 |
-| router | 29 | Agent 调用消息清理、思考内容过滤、关键词提取、语义缓存（4 层缓存 + 前缀个性化） |
+| router | 67 | Agent 调用、语义缓存（4 层）、关键词提取、**EntityNormalizer(18测试)**、**SlotStateMachine(11测试)**、**ClarificationService(10测试)**、**IntentEvaluationService(7测试)**、**TaskAnalysisResult(12测试)**、**IntentGuidedQueryRewriter(9测试)** |
 | food | 34 | 美食推荐、菜系知识、餐厅搜索 |
 | travel | 43 | 天气/景点工具、智能行程规划、RAG 召回匹配、MCP 权限测试 |
 | general | 30 | 数学计算、温度/长度/重量/货币转换、边界条件 |
-| **总计** | **238+** | **27 个测试文件，全模块覆盖** |
+| **总计** | **300+** | **32 个测试文件，全模块覆盖** |
 
 ---
 
