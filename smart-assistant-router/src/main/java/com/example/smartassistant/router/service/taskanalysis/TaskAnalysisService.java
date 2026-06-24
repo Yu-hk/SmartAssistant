@@ -9,6 +9,7 @@ package com.example.smartassistant.router.service.taskanalysis;
 
 import com.example.smartassistant.router.model.TaskAnalysisResult;
 import com.example.smartassistant.router.service.core.ModelRoutingService;
+import com.example.smartassistant.router.service.evaluation.IntentEvaluationService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -45,6 +46,7 @@ public class TaskAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(TaskAnalysisService.class);
 
     private final ModelRoutingService modelRoutingService;
+    private final IntentEvaluationService intentEvaluationService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -65,11 +67,34 @@ public class TaskAnalysisService {
             + "    \"date\": \"日期信息或null\",\n"
             + "    \"amount\": \"金额信息或null\",\n"
             + "    \"location\": \"地点或null\",\n"
-            + "    \"currency\": \"币种或null\"\n"
+            + "    \"currency\": \"币种或null\",\n"
+            + "    \"departure_station\": \"出发站（火车票场景）或null\",\n"
+            + "    \"arrival_station\": \"到达站或null\",\n"
+            + "    \"departure_time\": \"出发时间或null\",\n"
+            + "    \"passenger\": \"乘客姓名或null\",\n"
+            + "    \"seat_type\": \"座位类型（二等座/一等座/商务座）或null\",\n"
+            + "    \"train_type\": \"车次类型（高铁/动车/普快）或null\",\n"
+            + "    \"departure_date\": \"出发日期或null\"\n"
             + "  },\n"
+            + "  \"sub_intents\": [\n"
+            + "    {\n"
+            + "      \"intent\": \"子意图分类（查票/预订/改签/退票/订单查询/查商品/看天气等）\",\n"
+            + "      \"description\": \"子任务描述\",\n"
+            + "      \"depends_on\": \"依赖的子任务（如'查票'后才有'下单'，填null表示无依赖）\",\n"
+            + "      \"order\": 1\n"
+            + "    }\n"
+            + "  ],\n"
+            + "  \"implicit_intents\": [\n"
+            + "    {\n"
+            + "      \"expression\": \"用户的表层表达\",\n"
+            + "      \"inferred_intent\": \"推断的真实目标\",\n"
+            + "      \"confidence\": \"confidence 0.0~1.0\",\n"
+            + "      \"trigger_basis\": \"触发依据（业务语境/对话状态/业务规则）\"\n"
+            + "    }\n"
+            + "  ],\n"
             + "  \"action_constraints\": [\"行为约束列表，如'仅查询''勿修改订单'\"],\n"
             + "  \"output_constraints\": [\"输出约束列表，如'Markdown格式''200字以内'\"],\n"
-            + "  \"risk_flags\": [\"风险标记列表，如'涉及退款''需二次确认''数据敏感'\"],\n"
+            + "  \"risk_flags\": [\"风险标记列表，如'涉及退款''需二次确认''数据敏感''交易越界'\"],\n"
             + "  \"task_goal\": \"一句话概括用户任务目标（≤20字）\",\n"
             + "  \"tool_scores\": {\n"
             + "    \"query_order\": 0.0-1.0,\n"
@@ -88,6 +113,17 @@ public class TaskAnalysisService {
             + "- 0.1~0.3: 边缘相关\n"
             + "- 0.4~0.6: 中等相关\n"
             + "- 0.7~1.0: 高度相关或必须使用\n\n"
+            + "多意图拆分说明：\n"
+            + "- 如果一句话包含多个任务（如\"查明天去上海的票，有合适的就订\"），务必拆到 sub_intents 数组\n"
+            + "- depends_on 体现任务依赖关系（先查票，再下单）\n"
+            + "- order 字段标记执行顺序（1最先）\n\n"
+            + "隐含意图说明：\n"
+            + "- 用户没直说但有上下文提示的目标，补到 implicit_intents\n"
+            + "- 例如用户说\"别耽误四点的会\"，隐含意图是\"到达时间需早于16点，预留出站缓冲\"\n"
+            + "- trigger_basis 必须来自：业务语境/对话状态/业务规则\n\n"
+            + "拒识说明：\n"
+            + "- 如果用户请求越界、不合规、无效（如\"买昨天票\"、\"绕过实名\"），在 risk_flags 中标出\n"
+            + "- 拒识原因加入 action_constraints：\"无效请求-原因\"/\"越界请求-原因\"/\"不支持-原因\"\n\n"
             + "覆核要求：实体字段用 null 而非空字符串表示不存在。"
             + "}")
     private String systemPrompt;
@@ -98,8 +134,10 @@ public class TaskAnalysisService {
     @Value("${router.task-analysis.max-entities-entries:20}")
     private int maxEntityEntries;
 
-    public TaskAnalysisService(ModelRoutingService modelRoutingService) {
+    public TaskAnalysisService(ModelRoutingService modelRoutingService,
+                               IntentEvaluationService intentEvaluationService) {
         this.modelRoutingService = modelRoutingService;
+        this.intentEvaluationService = intentEvaluationService;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -130,15 +168,25 @@ public class TaskAnalysisService {
             }
 
             TaskAnalysisResult result = parseJson(json);
+
+            // 规则层后处理：实体归一化、词槽状态、澄清判断、输入鲁棒性
+            if (result.isMeaningful() && intentEvaluationService != null) {
+                result = intentEvaluationService.postProcess(question, result);
+            }
+
             long elapsed = System.currentTimeMillis() - start;
 
             if (result.isMeaningful()) {
-                log.info("[TaskAnalysis] ✅ 分析完成: intent={}, entities={}, constraints={}, risks={}, toolScores={}, cost={}ms",
+                log.info("[TaskAnalysis] ✅ 分析完成: intent={}, entities={}, subIntents={}, implicitIntents={}, constraints={}, risks={}, slots=[filled={},missing={},conflicts={}], cost={}ms",
                         result.getIntentCategory(),
                         result.getEntities().size(),
+                        result.getSubIntents().size(),
+                        result.getImplicitIntents().size(),
                         result.getActionConstraints().size(),
                         result.getRiskFlags().size(),
-                        result.getToolScores().size(),
+                        result.getFilledSlots().size(),
+                        result.getMissingSlots().size(),
+                        result.getSlotConflicts().size(),
                         elapsed);
             } else {
                 log.info("[TaskAnalysis] ℹ️ 分析完成(结果为空): cost={}ms", elapsed);
@@ -282,6 +330,25 @@ public class TaskAnalysisService {
                     }
                 }
                 result.setToolScores(scores);
+            }
+
+            // ---------- 新增字段解析 ----------
+
+            // sub_intents（多意图拆分）
+            if (map.containsKey("sub_intents") && map.get("sub_intents") instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> subIntents = (List<Map<String, Object>>) map.get("sub_intents");
+                if (subIntents.size() > 1) { // 只有多个意图才保留
+                    result.setSubIntents(subIntents);
+                }
+            }
+
+            // implicit_intents（隐含意图）
+            if (map.containsKey("implicit_intents") && map.get("implicit_intents") instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> implicitIntents =
+                        (List<Map<String, Object>>) map.get("implicit_intents");
+                result.setImplicitIntents(implicitIntents);
             }
 
         } catch (Exception e) {

@@ -3,6 +3,7 @@ package com.example.smartassistant.common.rag;
 import ai.onnxruntime.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,6 +38,12 @@ public class BgeReranker implements Reranker {
 
     private static final int MAX_LEN = 512;
 
+    /** XLM-RoBERTa 特殊 token ID（与 BERT 不同） */
+    private static final long CLS_ID = 0;
+    private static final long SEP_ID = 2;
+    private static final long PAD_ID = 1;
+    private static final int UNK_ID = 3;
+
     private final OrtEnvironment env;
     private final OrtSession session;
     private final Map<String, Integer> vocab;
@@ -45,7 +52,8 @@ public class BgeReranker implements Reranker {
     /** 输入/输出名称（由 ONNX 模型定义） */
     private final String inputIdsName;
     private final String attentionMaskName;
-    private final String tokenTypeIdsName;
+    @Nullable
+    private final String tokenTypeIdsName; // XLM-RoBERTa 模型无此输入
     private final String outputName;
 
     public BgeReranker(String modelPath, String vocabPath) {
@@ -55,7 +63,7 @@ public class BgeReranker implements Reranker {
         boolean a = false;
         String inId = "input_ids";
         String attn = "attention_mask";
-        String tok = "token_type_ids";
+        String tok = null; // XLM-RoBERTa 可能无 token_type_ids
         String out = "logits";
 
         try {
@@ -72,18 +80,26 @@ public class BgeReranker implements Reranker {
             s = e.createSession(modelPath, opts);
 
             // 自动检测输入输出名称
+            Set<String> inputNames = s.getInputInfo().keySet();
             for (var entry : s.getInputInfo().entrySet()) {
                 String name = entry.getKey();
                 if (name.contains("input") || name.contains("input_ids")) inId = name;
                 if (name.contains("attention") || name.contains("mask")) attn = name;
-                if (name.contains("token") || name.contains("type")) tok = name;
+                if ((name.contains("token") || name.contains("type")) && !name.contains("input")) tok = name;
             }
+
+            // 如果模型没有 token_type_ids 输入，标记为 null
+            if (tok != null && !inputNames.contains(tok)) {
+                tok = null;
+            }
+
             for (var entry : s.getOutputInfo().entrySet()) {
                 out = entry.getKey();
             }
 
             a = true;
-            log.info("[BgeReranker] 模型加载成功: path={}, inputs={}", modelPath, s.getInputInfo().keySet());
+            log.info("[BgeReranker] 模型加载成功: path={}, inputs={}, hasTokenTypeIds={}",
+                    modelPath, inputNames, tok != null);
         } catch (Exception ex) {
             log.warn("[BgeReranker] 加载失败: {}（重排序降级为恒等映射）", ex.getMessage());
         }
@@ -137,12 +153,13 @@ public class BgeReranker implements Reranker {
 
         try {
             // 1. Tokenize: [CLS] query [SEP] doc [SEP]
+            // XLM-RoBERTa 格式：CLS=0, SEP=2, PAD=1, UNK=3
             List<Long> inputIds = new ArrayList<>();
             List<Long> tokenTypeIds = new ArrayList<>();
             List<Long> attentionMask = new ArrayList<>();
 
-            // CLS token
-            inputIds.add(101L); tokenTypeIds.add(0L); attentionMask.add(1L);
+            // CLS token (XLM-RoBERTa: 0)
+            inputIds.add(CLS_ID); tokenTypeIds.add(0L); attentionMask.add(1L);
 
             // Query tokens
             int[] queryTokens = encode(query);
@@ -151,8 +168,8 @@ public class BgeReranker implements Reranker {
                 inputIds.add((long) t); tokenTypeIds.add(0L); attentionMask.add(1L);
             }
 
-            // SEP
-            inputIds.add(102L); tokenTypeIds.add(0L); attentionMask.add(1L);
+            // SEP (XLM-RoBERTa: 2)
+            inputIds.add(SEP_ID); tokenTypeIds.add(0L); attentionMask.add(1L);
 
             // Document tokens
             int[] docTokens = encode(docText);
@@ -162,11 +179,11 @@ public class BgeReranker implements Reranker {
             }
 
             // SEP
-            inputIds.add(102L); tokenTypeIds.add(1L); attentionMask.add(1L);
+            inputIds.add(SEP_ID); tokenTypeIds.add(1L); attentionMask.add(1L);
 
-            // Pad to MAX_LEN
+            // Pad to MAX_LEN (XLM-RoBERTa PAD: 1)
             while (inputIds.size() < MAX_LEN) {
-                inputIds.add(0L); tokenTypeIds.add(0L); attentionMask.add(0L);
+                inputIds.add(PAD_ID); tokenTypeIds.add(0L); attentionMask.add(0L);
             }
 
             // 2. Create tensors
@@ -175,19 +192,26 @@ public class BgeReranker implements Reranker {
                     LongBuffer.wrap(inputIds.stream().mapToLong(Long::longValue).toArray()), shape);
             OnnxTensor maskTensor = OnnxTensor.createTensor(env,
                     LongBuffer.wrap(attentionMask.stream().mapToLong(Long::longValue).toArray()), shape);
-            OnnxTensor typeTensor = OnnxTensor.createTensor(env,
-                    LongBuffer.wrap(tokenTypeIds.stream().mapToLong(Long::longValue).toArray()), shape);
 
-            // 3. Run inference
-            var inputs = Map.of(
-                    inputIdsName, inputTensor,
-                    attentionMaskName, maskTensor,
-                    tokenTypeIdsName, typeTensor);
+            // 3. Build inputs map（动态：可能包含或不含 token_type_ids）
+            Map<String, OnnxTensor> inputs = new LinkedHashMap<>();
+            inputs.put(inputIdsName, inputTensor);
+            inputs.put(attentionMaskName, maskTensor);
+            if (tokenTypeIdsName != null) {
+                OnnxTensor typeTensor = OnnxTensor.createTensor(env,
+                        LongBuffer.wrap(tokenTypeIds.stream().mapToLong(Long::longValue).toArray()), shape);
+                inputs.put(tokenTypeIdsName, typeTensor);
+            }
+
             var results = session.run(inputs);
 
-            // 4. Extract score
-            @SuppressWarnings("unchecked")
-            var output = (OnnxTensor) results.get(outputName);
+            // 4. Extract score（ONNX Runtime 1.26+ 返回 Optional<OnnxValue>）
+            var outputOptional = results.get(outputName);
+            if (outputOptional.isEmpty()) {
+                log.warn("[BgeReranker] 输出为空: {}", outputName);
+                return 0;
+            }
+            OnnxTensor output = (OnnxTensor) outputOptional.get();
             float[][] scores = (float[][]) output.getValue();
             float score = scores[0][0];
 
@@ -231,8 +255,8 @@ public class BgeReranker implements Reranker {
                 ids.add(bestId);
                 i += bestLen;
             } else {
-                // Unknown char → use [UNK] (100)
-                ids.add(100);
+                // Unknown char → use [UNK] (XLM-RoBERTa: 3)
+                ids.add(UNK_ID);
                 i++;
             }
         }

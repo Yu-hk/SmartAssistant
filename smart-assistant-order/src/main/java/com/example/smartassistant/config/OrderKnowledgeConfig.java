@@ -36,15 +36,19 @@ public class OrderKnowledgeConfig {
     @Value("${reranker.model.path:models/bge-reranker-v2-m3.onnx}")
     private String rerankerModelPath;
 
+    @Value("${reranker.vocab.path:models/bge-reranker-tokenizer.json}")
+    private String rerankerVocabPath;
+
     @Value("${bge.vocab.path:models/tokenizer.json}")
-    private String vocabPath;
+    private String bgeVocabPath;
 
     /** bge-reranker Cross-Encoder（按配置启用） */
     @Bean
     @ConditionalOnProperty(name = "reranker.enabled", havingValue = "true")
     public Reranker orderReranker() {
-        log.info("[OrderKnowledge] 初始化 bge-reranker: path={}", rerankerModelPath);
-        BgeReranker reranker = new BgeReranker(rerankerModelPath, vocabPath);
+        log.info("[OrderKnowledge] 初始化 bge-reranker: model={}, vocab={}",
+                rerankerModelPath, rerankerVocabPath);
+        BgeReranker reranker = new BgeReranker(rerankerModelPath, rerankerVocabPath);
         if (reranker.isAvailable()) {
             log.info("[OrderKnowledge] bge-reranker 就绪");
         } else {

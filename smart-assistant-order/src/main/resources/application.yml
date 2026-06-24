@@ -131,6 +131,14 @@ bge:
   vocab:
     path: ${BGE_VOCAB_PATH:D:\\workspace\\SmartAssistant\\models\\tokenizer.json}
 
+# ⭐ bge-reranker Cross-Encoder 配置
+reranker:
+  enabled: true
+  model:
+    path: ${RERANKER_MODEL_PATH:D:\\workspace\\SmartAssistant\\models\\bge-reranker-v2-m3.onnx}
+  vocab:
+    path: ${RERANKER_VOCAB_PATH:D:\\workspace\\SmartAssistant\\models\\bge-reranker-tokenizer.json}
+
 # ⭐ MCP 表访问白名单配置（用于 TextToSqlTool 安全控制）
 mcp:
   order:
