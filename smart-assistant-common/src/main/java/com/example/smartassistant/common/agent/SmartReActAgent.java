@@ -12,6 +12,7 @@ import com.example.smartassistant.common.error.AgentException;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.common.error.RecoveryAction;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
+import com.example.smartassistant.common.tool.ToolGroupManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.*;
@@ -107,6 +108,9 @@ public class SmartReActAgent {
     /** ⭐ 错误恢复服务（表驱动恢复，默认使用内置静态实例） */
     private ErrorRecoveryService recoveryService = ErrorRecoveryService.DEFAULT;
 
+    /** ⭐ 工具组管理器（可选，用于按需激活工具组） */
+    private ToolGroupManager toolGroupManager;
+
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
     }
@@ -201,6 +205,18 @@ public class SmartReActAgent {
         return this;
     }
 
+    /**
+     * 设置工具组管理器（用于按需激活工具组，减少 LLM Schema 占用）。
+     * 激活的组工具会注入 ReAct 循环，未激活组对 LLM 不可见。
+     *
+     * @param toolGroupManager 工具组管理器
+     * @return this
+     */
+    public SmartReActAgent withToolGroupManager(ToolGroupManager toolGroupManager) {
+        this.toolGroupManager = toolGroupManager;
+        return this;
+    }
+
     // ==================== execute 重载 ====================
 
     /**
@@ -227,8 +243,19 @@ public class SmartReActAgent {
      * @return 最终回答或超时/预算耗尽提示
      */
     public String execute(String userMessage, String systemPrompt, List<ToolCallback> tools) {
+        // ⭐ 当有 ToolGroupManager 时，使用活跃组的工具替换平坦列表
+        List<ToolCallback> effectiveTools = tools;
+        String enhancedPrompt = systemPrompt;
+        if (toolGroupManager != null) {
+            effectiveTools = toolGroupManager.getActiveTools();
+            String groupDesc = toolGroupManager.getActiveGroupsDescription();
+            enhancedPrompt = systemPrompt + "\n\n【当前可用的工具组】\n" + groupDesc;
+            log.info("[SmartReActAgent] 使用 ToolGroup 模式: activeGroups={}, tools={}",
+                    toolGroupManager.getActiveGroupNames(), effectiveTools.size());
+        }
+
         List<Message> messages = new ArrayList<>();
-        messages.add(new SystemMessage(systemPrompt));
+        messages.add(new SystemMessage(enhancedPrompt));
         messages.add(new UserMessage(userMessage));
 
         long startTime = System.currentTimeMillis();
@@ -243,12 +270,12 @@ public class SmartReActAgent {
 
         // 预构建 ToolCallingChatOptions（每次循环复用）
         ToolCallingChatOptions options = ToolCallingChatOptions.builder()
-                .toolCallbacks(tools.toArray(new ToolCallback[0]))
+                .toolCallbacks(effectiveTools.toArray(new ToolCallback[0]))
                 .build();
 
         // 构建工具名查找缓存（加速）
         Map<String, ToolCallback> toolMap = new ConcurrentHashMap<>();
-        for (ToolCallback tc : tools) {
+        for (ToolCallback tc : effectiveTools) {
             toolMap.put(tc.getToolDefinition().name(), tc);
         }
 
@@ -293,7 +320,7 @@ public class SmartReActAgent {
             long llmStart = System.currentTimeMillis();
             try {
                 // ⭐ 注入工具列表到 CustomDeepSeekChatModel（如果适用）
-                injectToolsToModel(tools);
+                injectToolsToModel(effectiveTools);
                 response = chatModel.call(new Prompt(messages, options));
             } catch (Exception e) {
                 log.error("[SmartReActAgent] LLM 调用失败: {}", e.getMessage());
