@@ -11,6 +11,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -28,7 +30,7 @@ public class KeywordExtractionService {
     
     private static final Logger log = LoggerFactory.getLogger(KeywordExtractionService.class);
     
-    // 可选的 ChatClient，用于 LLM 辅助提取
+    // 轻量模型用于 LLM 辅助提取
     private final Optional<ChatClient> chatClient;
     
     // 缓存：问题 -> 精简指令（使用 ConcurrentHashMap 保证线程安全）
@@ -44,8 +46,8 @@ public class KeywordExtractionService {
     private final AtomicLong totalRequests = new AtomicLong(0);      // 总请求数
     private final AtomicLong cacheHits = new AtomicLong(0);           // 缓存命中数
 
-    public KeywordExtractionService(Optional<ChatClient> chatClient) {
-        this.chatClient = chatClient;
+    public KeywordExtractionService(@Qualifier("lightChatModel") ChatModel lightModel) {
+        this.chatClient = Optional.of(ChatClient.create(lightModel));
     }
     
     // 地点提取正则（匹配常见城市和省份）

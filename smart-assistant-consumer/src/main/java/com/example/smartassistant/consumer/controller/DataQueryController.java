@@ -12,6 +12,8 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -34,9 +36,9 @@ public class DataQueryController {
 
     public DataQueryController(
             HybridDataQueryService hybridDataQueryService,
-            ChatClient.Builder chatClientBuilder) {
+            @Qualifier("lightChatModel") ChatModel lightModel) {
         this.hybridDataQueryService = hybridDataQueryService;
-        this.chatClient = chatClientBuilder.build();
+        this.chatClient = ChatClient.create(lightModel);
     }
 
     /**
