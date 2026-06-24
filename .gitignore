@@ -81,6 +81,9 @@ models/*.onnx
 models/bge-reranker-v2-m3.onnx
 models/bge-reranker-v2-m3/
 
+# ONNX external weight data files (very large, 2.2GB+)
+models/*.onnx.data
+
 # Test model output
 **/models/*.onnx
 **/models/onnx/
