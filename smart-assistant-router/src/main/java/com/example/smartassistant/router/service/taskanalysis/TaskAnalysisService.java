@@ -61,6 +61,7 @@ public class TaskAnalysisService {
             + "2. JSON 必须包含以下所有字段：\n\n"
             + "{\n"
             + "  \"intent_category\": \"意图分类，仅限 ORDER(订单/物流/退款)/PRODUCT(商品查询/库存/价格)/GENERAL(问答/计算/天气/新闻)/COMPLEX(跨领域)/UNKNOWN\",\n"
+            + "  \"confidence\": \"意图分类置信度 0.0~1.0，根据用户输入清晰度和匹配度评估\",\n"
             + "  \"entities\": {\n"
             + "    \"order_id\": \"订单号或null\",\n"
             + "    \"product_name\": \"商品名称或null\",\n"
@@ -266,6 +267,14 @@ public class TaskAnalysisService {
             // intent_category
             if (map.containsKey("intent_category")) {
                 result.setIntentCategory(String.valueOf(map.get("intent_category")));
+            }
+
+            // confidence
+            if (map.containsKey("confidence")) {
+                try {
+                    double conf = Double.parseDouble(String.valueOf(map.get("confidence")));
+                    result.setConfidence(Math.max(0.0, Math.min(1.0, conf)));
+                } catch (NumberFormatException ignored) {}
             }
 
             // entities
