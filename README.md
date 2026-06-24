@@ -2,12 +2,12 @@
 
 [![Java](https://img.shields.io/badge/Java-17%2B-blue)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.8-brightgreen)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.0-brightgreen)](https://docs.spring.io/spring-ai/reference/)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-1.1.2-brightgreen)](https://docs.spring.io/spring-ai/reference/)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 [![Production Readiness](https://img.shields.io/badge/production_readiness-audited-blue)](docs/production-readiness-checklist.md)
 
-> 基于 Spring AI 2.0.0 + A2A 协议的多智能体客服平台，集成 **本地 Ollama 推理引擎**（deepseek-r1:7b）+ **本地 BGE ONNX 嵌入**（384维语义匹配）。
+> 基于 Spring AI 1.1.2 + 多智能体协作平台，集成 **本地 Ollama 推理引擎**（qwen2.5:7b 主模型）+ **本地 BGE ONNX 嵌入**（1024维 RAG / 512维 缓存）。
 > 支持多 Agent 协同、三层路由兜底、订单查询、商品咨询、语义缓存、全链路监控。
 > 🔒 **零外部 API 依赖**，纯本地推理，所有数据不出内网。
 
@@ -42,16 +42,16 @@
 
 ## 项目简介
 
-SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 框架和 **A2A (Agent-to-Agent)** 协议实现。系统通过 **智能路由器** 将用户请求分发到不同的专业 Agent，支持：
+SmartAssistant 是一个多智能体对话系统，基于 **Spring AI** 框架和 **自研 ReAct 循环**实现。系统通过 **智能路由器** 将用户请求分发到不同的专业 Agent，支持：
 
-- **Order Agent**：订单查询、退款处理、物流跟踪（原 Travel 服务）
-- **Product Agent**：商品查询、库存查询、价格查询（原 Food 服务）
-- **General Agent**：闲聊陪伴、问答、新闻热点、天气查询、图片处理
-- **Embedding Service**：本地 BGE ONNX 嵌入服务（384维），供语义缓存和经验匹配
-- **Router 决策链路**：经验匹配(TOOL/COMMON) → 语义缓存(T1/T2/T3) → 任务分析(实体/约束/风险/工具评分) → DAG 多Agent协作 → inlineFallback(三级兜底)
-- **Consumer 聚合**：统一对话入口，上下文管理、用户画像
+- **Order Agent**：订单查询、退款处理、物流跟踪、优惠券查询、知识库检索
+- **Product Agent**：商品查询、库存查询、价格查询、知识库检索
+- **General Agent**：闲聊陪伴、问答、新闻热点、天气查询、单位转换、汇率转换
+- **Embedding Service**：本地 BGE ONNX 嵌入服务（1024维），供语义缓存、知识库检索和经验匹配
+- **Router 决策链路**：经验匹配(TOOL/COMMON) → 语义缓存(T1/T2/T3) → 任务分析(意图/实体/约束/风险/工具评分) → 规则层评测后处理(实体归一/词槽/澄清/置信度) → 意图查询改写 → DAG 多Agent协作 → inlineFallback(三级兜底)
+- **Consumer 聚合**：统一对话入口，上下文管理、用户画像、会话记忆沉淀
 
-采用 **Agentic RAG** 架构，支持多轮推理、语义缓存、向量检索，并通过 **Prometheus + Grafana + Jaeger** 实现全链路可观测性。
+采用本地推理架构（Ollama + ONNX Runtime），零外部 API 依赖。通过 **Prometheus + Grafana + Jaeger + Loki** 实现全链路可观测性。
 
 ---
 
@@ -59,13 +59,12 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 | 特性 | 说明 |
 |------|------|
-| 🧠 **A2A 多 Agent 协作** | 基于 Spring AI Alibaba A2A 协议，8 个微服务通过 Nacos 自动发现与注册。Router 支持任务分解 → 并行调用 → 结果合并，跨域问题自动分配多个 Agent |
+| 🧠 **多 Agent 协作** | 8 个微服务通过 Nacos 自动发现与注册。Router 支持任务分解 → 并行调用 → 结果合并，跨域问题自动分配多个 Agent |
 | 🧠 **三层语义缓存 + BGE ONNX + 智能跳过** | 精确匹配 → 关键词哈希 → BGE 向量匹配。短时效 Agent(TTL<1h)回复自动跳过缓存，管理员工具操作通过 Redis 标记跳过，均保留路由决策加速 |
 | 🔍 **12 维 Agent 可标注评测** | LLM 输出后自动执行 6 层规则后处理：实体归一化(日期/金额/地点/纠错) → 词槽状态机(6意图词槽表+缺失/冲突检测) → 澄清判断(追问生成) → 输入鲁棒性(错别字/别名纠错)。叠加 LLM 层 6 维（意图识别、多意图拆分、隐含意图、拒识、实体识别、工具评分），完整覆盖文章推荐的 12 个评测维度 |
 | 🎯 **意图置信度 + 阈值路由** | LLM 输出意图置信度(0.0~1.0)，低于 0.6 阈值时自动触发澄清流程而非盲目执行，避免误操作 |
 | 🔄 **意图引导的查询改写** | 任务分析后根据意图类型选择改写策略：多意图→查询分解、模糊→查询扩展(补充实体)、精确→保留、对话→指代消解 |
 | 🗂️ **多样性 RAG + Cross-Encoder 重排序** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + bge-reranker-v2-m3 Cross-Encoder 二次精排(BM25→向量→重排序器三级) |
-| 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
 | 🔍 **@Tool 统一日志切面** | AOP 拦截全部 27 个 @Tool 方法，自动记录 requestId + 输入参数 + 输出结果 + 执行耗时；requestId 通过 MDC 全链路透传（Consumer → Router → A2A → Agent → @Tool） |
 | 🔄 **二阶段质量评估** | 反射器(ReflectionService)纯规则五维评分 + LLM-as-Judge(QualityEvaluationService)四维语义评估；反射器通过后仅在边界区间触发 LLM 质检，平衡质量与开销 |
@@ -84,13 +83,14 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 ## 系统架构
 
 ```text
-┌─────────────┐     ┌──────────────┐     ┌─────────────────────┐
-│   Frontend  │────▶│   Gateway    │────▶│      Router         │
-│  React:3001 │     │  :8081 (JWT) │     │  :8083 (意图识别     │
-└─────────────┘     └──────────────┘     │  + 任务分析          │
-                                          │  + 质量评估          │
-                                          │  + DAG 协作)         │
-                                          └──────────┬──────────┘
+┌─────────────┐     ┌──────────────┐     ┌───────────────────────────┐
+│   Frontend  │────▶│   Gateway    │────▶│        Router             │
+│  React:3001 │     │  :8081 (JWT) │     │  :8083 (意图识别           │
+└─────────────┘     └──────────────┘     │  + 任务分析                │
+                                          │  + 评测后处理              │
+                                          │  + 查询改写                │
+                                          │  + DAG 协作)               │
+                                          └──────────┬────────────────┘
                                                    │
                           ┌─────────────────────────┼──────────────┐
                           │                         │              │
@@ -98,7 +98,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
                     │  Consumer  │          │   General    │      │
                     │  :8082     │          │   :8087      │      │
                     │ (会话管理   │          │  (闲聊+天气   │      │
-                    │  记忆沉淀)  │          │   图片工具)   │      │
+                    │  记忆沉淀)  │          │   换算工具)   │      │
                     └─────┬──────┘          └──────────────┘      │
                           │                                        │
                ┌──────────┼──────────┐                             │
@@ -106,27 +106,25 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
           │  Order  │ │Product│ │  User  │                        │
           │  :8085  │ │:8084  │ │  :8086 │                        │
           │(订单客服)│ │(商品咨询)│ │(认证)   │                        │
-          └─────────┘ └───────┘ └────────┘                        │
-                                                                   │
-                    ┌─────────────────────────────────────────┐    │
-                    │         Infrastructure                   │    │
-                    │  Redis ─ Nacos ─ PostgreSQL(pgvector)    │    │
-                    │  Prometheus ─ Grafana ─ Loki ─ Jaeger    │    │
-                    │  Embedding Service (BGE ONNX, :8090)     │    │
-                    └─────────────────────────────────────────┘────┘
+          │(含知识库)│ │(含知识库)│ └────────┘                        │
+          └─────────┘ └───────┘                                     │
+                                                                     │
+                    ┌───────────────────────────────────────────┐    │
+                    │         Infrastructure                     │    │
+                    │  Redis ─ Nacos ─ PostgreSQL(pgvector)      │    │
+                    │  Prometheus ─ Grafana ─ Loki ─ Jaeger      │    │
+                    │  Embedding Service (BGE ONNX, :8091)       │    │
+                    └───────────────────────────────────────────┘────┘
 ```
 
 ### 请求流程
 
 1. **前端请求** → Gateway (JWT 认证 + 限流)
 2. **Gateway 转发** → Router (多 Agent 协作路由)
-3. **Router 路由** → Consumer (会话管理 + 价值评估)
-4. **Consumer 调度** → 对应 Agent(s) (通过 A2A 协议)
+3. **Router 路由** → Consumer (会话管理 + 价值评估 + 记忆沉淀)
+4. **Consumer 调度** → 对应 Agent(s)（通过 Nacos 服务发现）
 5. **Agent 响应** → 通过 SSE 流式返回给前端
 6. **价值评估** → 轮数≥3 或触发工具调用时触发 → `data/users/{userId}/memories/`（异步增量追加）
-   - 同 session 的记忆**追加到同一文件**，不覆盖，保留完整对话历史
-   - 轮数≥3 且内容≥1000 字符时触发 LLM 叙事摘要
-    - 摘要替代原对话内容（清空冗余），超长内容截断部分原文追加，信息零丢失
 
 ### 多 Agent 协作
 
@@ -172,14 +170,15 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 |------|------|------|
 | 语言 | Java | 17+ |
 | 框架 | Spring Boot | 3.4.8 |
-| AI 框架 | Spring AI Alibaba | 1.1.2 |
-| 模型 | **Ollama 本地推理**（deepseek-r1:7b / qwen2.5:7b） + BGE-large-zh ONNX (1024d RAG) / BGE-small-zh ONNX (512d Cache) | — |
-| 注册/配置中心 | Nacos（元数据支持动态管理） | 3.1.0 |
+| AI 框架 | Spring AI | 1.1.2 |
+| 模型 | **Ollama 本地推理**（qwen2.5:7b 主模型） + BGE-large-zh ONNX (1024d RAG/知识库) / BGE-small-zh ONNX (512d Cache) / bge-reranker-v2-m3 ONNX (重排序) | — |
+| 注册/配置中心 | Nacos（元数据支持动态管理） | 2.3+ |
 | 缓存 | Redis | 7.2+ |
 | 数据库 | PostgreSQL (pgvector) | 16+/18+ |
 | ORM | MyBatis-Plus | 3.5+ |
 | 分词 | HanLP | 1.8.4 |
 | SQL 解析 | jsqlparser | 4.9 |
+| 推理引擎 | ONNX Runtime | 1.26+ |
 | 构建 | Maven Wrapper | 3.9.6 |
 
 ### 前端
@@ -208,74 +207,50 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 | 模型 | 大小 | 默认使用 | 获取方式 |
 |------|:----:|:--------:|---------|
-| deepseek-r1:7b | 4.7 GB | ✅ 主推理模型 | `ollama pull deepseek-r1:7b` |
-| qwen2.5:7b | 4.7 GB | ❌ 备选 | `ollama pull qwen2.5:7b` |
+| qwen2.5:7b | 4.7 GB | ✅ 主推理模型 | `ollama pull qwen2.5:7b` |
 
 > 💡 首次启动前确保 Ollama 服务运行：`ollama serve`
 
 ---
 
-## RAG 召回管道
+## 知识库召回管道
 
-系统在 Travel 模块实现了完整的 RAG 召回管道，用于从用户游记中检索相关内容增强 LLM 回答。
+系统在 **Order** 和 **Product** 模块实现了基于 BGE 向量检索的知识库召回管道，用于从订单政策/商品信息知识库中检索相关内容增强 Agent 回答。
 
-### 处理流程
-
-```text
-用户查询 (location + query)
-    │
-    ├── Multi-Query 查询改写 (LLM)
-    │     ├── 原始查询："北京 有什么好玩的"
-    │     ├── 变体 1：  "北京热门景点 游玩攻略"
-    │     ├── 变体 2：  "北京旅游 必去地点 推荐"
-    │     └── 变体 3：  "北京 周末去哪儿 好玩的地方"
-    │
-    ├── 每个变体独立执行多路检索 (候选数 = topK × 3)
-    │   ├── 向量检索  ─── pgvector HNSW 索引 ── 语义相似度 (BGE-large 1024d)
-    │   └── 全文检索  ─── tsvector GIN 索引  ── 关键词精确匹配
-    │
-    ├── RRF 融合 (所有变体 × 所有检索路径的结果合并)
-    │     └── score = Σ(1 / (K + rank_i))，K=60
-    │
-    ├── BGE 语义重排序                                  ← P0
-    │     └── 综合评分 = RRF×0.3 + BGE余弦相似度×0.7
-    │     └── 使用 BGE-large-zh 计算 query 与每个 chunk 的精确语义距离
-    │
-    ├── Lost in the Middle 优化                          ← P2
-    │     └── 最相关文档放 prompt 首尾，次相关放中间
-    │     └── LLM 对中间位置关注度最低 (Liu et al. 2023)
-    │
-    └── Top-K 返回 + 引用溯源                            ← P1
-          └── Agent 回答标注来源："根据[游记标题]的推荐..."
-          └── 实时数据标注："根据高德地图当前信息..."
-```
-
-### 🔄 Lost in the Middle 重排序
-
-大模型对上下文中间位置的内容注意力最低。系统在 BGE 重排序后执行首尾交替排列：
+### 两阶段检索架构
 
 ```
-排序前 (按分数降序):  [最高分] [次高分] [第三] [第四] [第五]
-排序后 (首尾交替):    [最高分] [第五]   [第三] [第四] [次高分]
-                        首部 ↑                  尾部 ↑ (注意力最高)
+用户查询
+    │
+    ├── BGE 向量粗筛 (Top-50)
+    │     使用 BGE-large-zh ONNX (1024维) 计算语义相似度
+    │     HNSW 索引加速（pgvector）
+    │
+    ├── BM25+时效性精排 (Top-5)
+    │     中文分词(HanLP) → BM25(k1=1.5, b=0.75) 关键词匹配
+    │     + 时效性加权（新文档权重更高）
+    │
+    ├── [可选] Cross-Encoder 重排序
+    │     bge-reranker-v2-m3 ONNX 对 (query, doc) 对二次精排
+    │     配置 reranker.enabled=true 启用
+    │
+    └── Top-K 返回给 Agent
+          Agent 结合检索结果生成最终回答
 ```
 
-### 数据库索引
+### 知识库内容
 
-| 表 | 索引 | 类型 | 作用 |
-|----|------|------|------|
-| `travel_note_chunks` | `idx_chunks_embedding_hnsw` | HNSW (cosine) | 向量检索加速 |
-| `travel_note_chunks` | `idx_chunks_tsvector_gin` | GIN | 全文检索 |
-| `travel_note_chunks` | `idx_chunks_note_id` | B-tree | JOIN 加速 |
-| `restaurant_reviews_vector` | `idx_reviews_embedding_hnsw` | HNSW (cosine) | Food 向量加速 |
-| `restaurant_reviews_vector` | `idx_reviews_tsvector_gin` | GIN | Food 全文检索 |
-| `restaurant_reviews_vector` | `idx_reviews_city_cuisine` | B-tree | 多维过滤 |
+| 知识库 | 文档数 | 覆盖内容 |
+|:------|:-----:|:---------|
+| **订单知识库** (order_knowledge) | 10 | 退款政策、发货规则、支付说明、订单状态、优惠券规则、客服联系、售后服务、预约规则等 |
+| **商品知识库** (product_knowledge) | 7 | 退换货政策、保修政策、价格保护、配送说明、库存规则等 |
 
-### 索引部署
+### 存储方案
 
-```powershell
-$env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -U postgres -d a2a_system -f "smart-assistant-travel/src/main/resources/sql/v20260508__add_rag_indexes.sql"
-```
+| 模式 | 说明 | 配置 |
+|:----|:-----|:-----|
+| **InMemory**（默认） | 内存索引 + BGE 向量 + BM25，启动时加载种子数据 | `app.knowledge.pgvector-enabled=false` |
+| **pgvector**（可选） | PostgreSQL HNSW 索引持久化，多实例共享 | `app.knowledge.pgvector-enabled=true` |
 
 ---
 
@@ -510,12 +485,12 @@ saveReply() 时
 |------|------|------|
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
 | **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀（重试3次写入）；提供 `/api/data/query` 数据查询独立端点 |
-| **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分析(实体/约束/风险/工具评分)，DAG 图分解→并行执行→结果合并，**二阶段质量评估**(反射器+LLM质检)，**标准错误码表驱动恢复**，**Agent 级工具自动重试**，Nacos 服务发现 |
-| **Embedding Service** | 8090 | 独立 BGE ONNX 嵌入服务（384维），供 Router 语义缓存和 ExperienceService 经验匹配 |
-| **Order** | 8085 | 订单查询(Text-to-SQL)，退款处理，物流跟踪，优惠券查询，**BGE 知识库检索 + bge-reranker Cross-Encoder 重排序** |
+| **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分析(意图/置信度/实体/约束/风险/工具评分)，**评测后处理**(实体归一/词槽/澄清/置信度阈值)，**意图查询改写**，DAG 图分解→并行执行→结果合并，**二阶段质量评估**(反射器+LLM质检)，**标准错误码表驱动恢复**，**Agent 级工具自动重试**，Nacos 服务发现 |
+| **Embedding Service** | 8091 | 独立 BGE ONNX 嵌入服务（1024维），供 Router 语义缓存、知识库检索和 ExperienceService 经验匹配 |
+| **Order** | 8085 | 订单查询(Text-to-SQL)，退款处理，物流跟踪，优惠券查询，**BGE 知识库检索 + bge-reranker 重排序** |
 | **Product** | 8084 | 商品查询，库存检查，价格查询，**BGE 知识库检索** |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
-| **General** | 8087 | 闲聊问答，新闻热点，单位转换(温度/长度/重量/货币)，**图片解析/文生图**，**多步脚本执行**，支持风格切换 |
+| **General** | 8087 | 闲聊问答，新闻热点，单位转换(温度/长度/重量/货币)，多步脚本执行，支持风格切换 |
 
 ---
 
@@ -565,8 +540,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 # Linux: curl -fsSL https://ollama.com/install.sh | sh
 
 # 2. 下载模型（仅首次）
-ollama pull deepseek-r1:7b    # 主推理模型
-ollama pull qwen2.5:7b        # 备选模型
+ollama pull qwen2.5:7b    # 主推理模型
 
 # 3. 启动 Ollama 服务
 ollama serve
@@ -587,13 +561,13 @@ copy .env.example .env
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `DASHSCOPE_API_KEY` | DashScope API Key（图片解析/文生图） | 选填（不填则多模态不可用） |
-| `AMAP_API_KEY` | 高德地图 API Key | 可选 |
 | `POSTGRES_PASSWORD` | PostgreSQL 密码 | `postgres123` |
+| `REDIS_PASSWORD` | Redis 密码 | `redis123` |
+| `NACOS_PASSWORD` | Nacos 密码 | `nacos123` |
+| `JWT_SECRET` | JWT 签名密钥 | 建议自行生成 |
 | `app.data.dir` | 数据存储根目录 | `data` |
-| `jwt.secret` | JWT 签名密钥 | 建议自行生成 |
 
-> 💡 **已移除云端 DeepSeek API 依赖**，推理引擎为本地 Ollama，无需 `DEEPSEEK_API_KEY`。
+> 💡 **推理引擎为本地 Ollama + ONNX Runtime**，无云端 API 依赖，无需配置 `DEEPSEEK_API_KEY` 或 `DASHSCOPE_API_KEY`。
 
 ### 3. 构建项目
 
@@ -615,49 +589,31 @@ cd frontend && npm install && cd ..
 
 ### 4. 启动服务
 
-#### 方式一：一键启动（推荐）
-
-```powershell
-powershell -ExecutionPolicy Bypass -File start-all.ps1
-```
-
-提交前验证（编译 + 测试）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File verify-all.ps1
-```
-
-#### 方式二：手动逐个启动
-
-```powershell
-# ⚠️ 清除 SERVER__PORT 环境变量（双下划线会覆盖 server.port）
-Remove-Item Env:SERVER__PORT
-
-$env:DEEPSEEK_API_KEY = "sk-xxx"
-$env:DASHSCOPE_API_KEY = "sk-xxx"
-
-# 先启动基础服务
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-gateway\target\smart-assistant-gateway-1.0.0-SNAPSHOT.jar", "--server.port=8081" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-user\target\smart-assistant-user-1.0.0-SNAPSHOT.jar", "--server.port=8086" -WindowStyle Hidden
-
-# 等待 10-15 秒后启动其他服务（等 General 注册到 Nacos）
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-consumer\target\smart-assistant-consumer-1.0.0-SNAPSHOT.jar", "--server.port=8082" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-router\target\smart-assistant-router-1.0.0-SNAPSHOT.jar", "--server.port=8083" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-travel\target\smart-assistant-travel-1.0.0-SNAPSHOT.jar", "--server.port=8085" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-food\target\smart-assistant-food-1.0.0-SNAPSHOT.jar", "--server.port=8084" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-general\target\smart-assistant-general-1.0.0-SNAPSHOT.jar", "--server.port=8087" -WindowStyle Hidden
-
-# 前端
-cd frontend && npm run dev
-```
-
-#### 方式三：IDE 开发（IntelliJ IDEA）
+#### 方式一：IDE 开发（IntelliJ IDEA 推荐）
 
 1. 打开项目根目录
 2. 设置运行配置的环境变量（指向 `.env` 中的值）
-3. 按依赖顺序启动：
-   - 先启动 Nacos、Redis（docker-compose）
-   - 再启动 Gateway → User → Consumer → Router → Travel → Food → General（无严格顺序要求，但 Router 依赖 Nacos）
+3. **必须先清除 `SERVER__PORT` 环境变量**（双下划线会覆盖 `server.port`）：`Remove-Item Env:SERVER__PORT`
+4. 按依赖顺序启动：
+   - 先启动基础设施：Redis、Nacos（`docker-compose up -d`）
+   - 启动 **Embedding Service**（8091）：需先让 BGE ONNX 模型就绪
+   - 启动 **Gateway**（8081）→ **User**（8086）→ **Consumer**（8082）→ **Router**（8083）→ **Order**（8085）→ **Product**（8084）→ **General**（8087）
+   - 无严格顺序要求，但 Router 依赖 Nacos，Consumer 依赖 Redis
+
+```powershell
+# 批量启动（需先修改各服务的端口配置）
+cd D:\workspace\SmartAssistant
+Remove-Item Env:SERVER__PORT
+
+# 逐个启动（推荐在 IDE 中启动，方便调试）
+.\mvnw.cmd spring-boot:run -pl smart-assistant-gateway
+```
+
+#### 方式二：前端
+
+```powershell
+cd frontend && npm install && npm run dev
+```
 
 ---
 
@@ -818,9 +774,9 @@ smart-assistant-{service}/src/main/resources/
 
 ```
 smart-assistant-{service}/src/main/resources/prompts/
-├── travel-system-prompt.txt    # 出行规划助手
-├── food-system-prompt.txt      # 美食推荐助手
-└── general-system-prompt.txt   # 通用对话助手
+├── order-system-prompt.txt        # 订单客服助手
+├── product-system-prompt.txt      # 商品咨询助手
+└── general-system-prompt.txt      # 通用对话助手
 ```
 
 加载方式：`@Value("classpath:prompts/{service}-system-prompt.txt")`，IO 异常时自动降级为默认提示词，不影响服务启动。
@@ -863,27 +819,29 @@ smart-assistant-travel/.../service/
 ```powershell
 # 应用日志（纯净 Spring Boot 输出，推荐优先查看）
 type logs\router-service.log -Tail 50
-type logs\travel-service.log -Tail 50
-type logs\food-service.log -Tail 50
+type logs\order-service.log -Tail 50
+type logs\product-service.log -Tail 50
+type logs\general-agent-service.log -Tail 50
 type logs\consumer-service.log -Tail 50
 type logs\api-gateway.log -Tail 50
 type logs\user-service.log -Tail 50
 
 # 标准输出日志（含启动横幅等）
 type logs\Router-stdout.log -Tail 30
-type logs\Travel-stdout.log -Tail 30
+type logs\Order-stdout.log -Tail 30
+type logs\Product-stdout.log -Tail 30
 ```
 
-### ⚠️ 密码配置强制要求（2026-05-11）
+### ⚠️ 密码配置强制要求
 
-从 v1.0 起，以下密码不再有默认值，**必须通过环境变量设置**，未设置时服务启动即报错：
+以下密码**必须通过环境变量设置**，未设置时服务启动即报错：
 
-| 变量 | 默认值（已移除） | 说明 |
-|------|:--------------:|------|
-| `JWT_SECRET` | `a2a-demo-secret-...` | JWT 签名密钥 |
-| `POSTGRES_PASSWORD` | `postgres123` | PostgreSQL 密码 |
-| `REDIS_PASSWORD` | `redis123` | Redis 密码 |
-| `NACOS_PASSWORD` | `nacos123` | Nacos 密码 |
+| 变量 | 说明 |
+|------|------|
+| `JWT_SECRET` | JWT 签名密钥 |
+| `POSTGRES_PASSWORD` | PostgreSQL 密码（默认 postgres123） |
+| `REDIS_PASSWORD` | Redis 密码（默认 redis123） |
+| `NACOS_PASSWORD` | Nacos 密码（默认 nacos123） |
 
 ### 用户数据存储
 
@@ -1047,10 +1005,9 @@ chat:
 | `convertTemperature/Length/Weight` | 单位转换 | — |
 | `getHotNews()` | 网络热点新闻 | — |
 | `searchWeb(query)` | 联网搜索 | — |
-| `analyzeImage(imageUrl, question)` 🆕 | 图片解析 | DashScope API Key |
-| `generateImage(prompt, size, n)` 🆕 | 文生图 | DashScope API Key |
-| `convertCurrency(value, from, to)` 🆕 | 货币汇率转换 | 实时汇率 API |
-| `executeScript(script)` 🆕 | 多步脚本执行 | — |
+| `convertCurrency(value, from, to)` | 货币汇率转换 | 实时汇率 API |
+| `executeScript(script)` | 多步脚本执行 | — |
+| `queryWeather(city)` | 天气查询 | — |
 
 ### 路由接口
 
@@ -1090,9 +1047,6 @@ set SERVER__PORT=
 
 检查 `.env` 文件是否存在且包含正确的 `DEEPSEEK_API_KEY`。如果以 IDE 启动，需在运行配置中设置环境变量。
 
-### Q: 服务启动失败 "DashScope API key must be set"
-
-检查 `.env` 中的 `DASHSCOPE_API_KEY`。DashScope 用于 Embedding 和 A2A 服务发现（Router 必须配置）。
 
 ### Q: 中文请求返回"一串问号"
 
@@ -1106,21 +1060,6 @@ Invoke-RestMethod -Uri 'http://localhost:8081/assistant/api/math/chat' -Method P
 
 cmd 中先执行 `chcp 65001` 切换到 UTF-8 代码页。
 
-### Q: 文生图/图片解析功能如何测试？
-
-确保已设置 `DASHSCOPE_API_KEY` 环境变量，服务启动后调用 chat API：
-
-```powershell
-$headers = @{ 'X-User-Id' = '3075'; 'X-User-Role' = 'ROLE_USER' }
-$body = @{ message='作为通用助手，帮我画一张夕阳下的海滩风景图' } | ConvertTo-Json
-$utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-Invoke-RestMethod -Uri 'http://localhost:8082/api/math/chat' -Method Post -Body $utf8Bytes -ContentType 'application/json; charset=utf-8' -Headers $headers -TimeoutSec 120
-```
-
-也可直接运行测试脚本：
-```powershell
-powershell -ExecutionPolicy Bypass -File test-image.ps1
-```
 
 ### Q: 编译报错"编码 UTF-8 的不可映射字符"
 
@@ -1136,8 +1075,8 @@ powershell -ExecutionPolicy Bypass -File test-image.ps1
 
 ### Q: 模型生效
 
-当前使用 `deepseek-v4-flash`（非思考模式）。如果 DeepSeek 发布新模型，只需修改各服务 `application.yml` 中
-`spring.ai.deepseek.chat.options.model` 的值，无需改代码。
+当前使用 `qwen2.5:7b`（Ollama 本地模型）。如果切换模型，只需修改各服务 `application.yml` 中
+`spring.ai.ollama.chat.options.model` 的值，无需改代码。
 
 ### Q: Nacos 连接失败 "unauthorized"
 
