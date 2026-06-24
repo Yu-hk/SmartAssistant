@@ -8,6 +8,7 @@
 package com.example.smartassistant.tools;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.tool.ToolPageResult;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.spi.CouponBackend;
 import com.example.smartassistant.spi.CouponModels.CouponRecommendation;
@@ -41,26 +42,47 @@ public class CouponTools {
     /**
      * 查询用户可用的优惠券列表。
      */
-    @Tool(description = "【优惠券】查询用户当前可用的优惠券列表，包含满减券、折扣券、现金券等。"
-            + "下单前调用此方法，可帮用户找到最省钱的优惠方式。")
+    @Tool(description = "【优惠券】查询用户当前可用的优惠券列表（支持分页），包含满减券、折扣券、现金券等。"
+            + "下单前调用此方法，可帮用户找到最省钱的优惠方式。"
+            + "如需更多数据，请使用 offset 参数翻页。")
     public String queryUserCoupons(
-            @ToolParam(description = "用户ID", required = true) Long userId) {
-        log.info("[CouponTool] 查询用户优惠券: userId={}", userId);
+            @ToolParam(description = "用户ID", required = true) Long userId,
+            @ToolParam(description = "偏移量，用于翻页。第一页传 0，续读时传上一页返回的 next_offset", required = false) Integer offset,
+            @ToolParam(description = "每页条数，默认 10，最大 50", required = false) Integer limit) {
+        log.info("[CouponTool] 查询用户优惠券: userId={}, offset={}, limit={}", userId, offset, limit);
 
         try {
-            List<UserCoupon> coupons = couponBackend.getUserCoupons(userId);
-            if (coupons == null || coupons.isEmpty()) {
+            List<UserCoupon> allCoupons = couponBackend.getUserCoupons(userId);
+            if (allCoupons == null || allCoupons.isEmpty()) {
                 return ToolResult.success("您目前没有可用的优惠券。");
             }
 
+            int off = (offset != null && offset >= 0) ? offset : 0;
+            int lim = (limit != null && limit > 0 && limit <= 50) ? limit : 10;
+
+            // 手动分页
+            List<UserCoupon> page = allCoupons.subList(
+                    Math.min(off, allCoupons.size()),
+                    Math.min(off + lim, allCoupons.size()));
+
             StringBuilder sb = new StringBuilder("🎫 您有以下可用优惠券：\n\n");
-            for (int i = 0; i < coupons.size(); i++) {
-                UserCoupon c = coupons.get(i);
-                sb.append(i + 1).append(". ").append(c.getTitle()).append("\n");
+            for (int i = 0; i < page.size(); i++) {
+                UserCoupon c = page.get(i);
+                int idx = off + i + 1;
+                sb.append(idx).append(". ").append(c.getTitle()).append("\n");
                 sb.append("   ").append(c).append("\n\n");
             }
             sb.append("💡 下单时我可以帮您选择最优惠的券！");
-            return ToolResult.success(sb.toString().trim());
+
+            boolean hasMore = (off + lim) < allCoupons.size();
+            return ToolPageResult.builder()
+                    .title(null)
+                    .items(page)
+                    .hasMore(hasMore)
+                    .nextOffset(off + lim)
+                    .pageSize(lim)
+                    .build()
+                    .formatWithContinuation(sb.toString(), "queryUserCoupons");
         } catch (Exception e) {
             log.error("[CouponTool] 查询失败: {}", e.getMessage(), e);
             return ToolResult.error(AgentErrorCode.SERVICE_COUPON_QUERY_FAILED, "查询优惠券失败，请稍后重试");
