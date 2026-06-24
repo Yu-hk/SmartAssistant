@@ -24,6 +24,8 @@ import com.example.smartassistant.router.service.quality.QualityEvaluationServic
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
 import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -85,6 +87,9 @@ public class RouterService {
     // ⭐ 意图引导的查询改写服务
     private final IntentGuidedQueryRewriter queryRewriter;
 
+    // ⭐ 轻量模型（用于兜底回复等简单推理）
+    private final ChatClient lightChatClient;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // ⭐ 并行 Agent 执行线程池（用于独立子任务的真正并行执行）
@@ -123,7 +128,8 @@ public class RouterService {
                          GraphExecutionService graphExecutionService,
                          TaskAnalysisService taskAnalysisService,
                          QualityEvaluationService qualityEvaluationService,
-                         IntentGuidedQueryRewriter queryRewriter) {
+                         IntentGuidedQueryRewriter queryRewriter,
+                         @Qualifier("lightChatModel") ChatModel lightModel) {
         this.agentCallerService = agentCallerService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
@@ -138,6 +144,7 @@ public class RouterService {
         this.taskAnalysisService = taskAnalysisService;
         this.qualityEvaluationService = qualityEvaluationService;
         this.queryRewriter = queryRewriter;
+        this.lightChatClient = ChatClient.create(lightModel);
         this.parallelExecutor = routerParallelAgentExecutor;
     }
     
@@ -640,12 +647,14 @@ public class RouterService {
      */
     private RoutingResult inlineFallback(String question) {
         try {
-            String localReply = modelRoutingService.call(
-                    "你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
-                  + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
-                  + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
-                  + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。",
-                    question);
+            String localReply = lightChatClient.prompt()
+                    .system("你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
+                          + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
+                          + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
+                          + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。")
+                    .user(question)
+                    .call()
+                    .content();
             if (localReply != null && !localReply.isBlank()) {
                 return RoutingResult.builder()
                         .result(localReply)

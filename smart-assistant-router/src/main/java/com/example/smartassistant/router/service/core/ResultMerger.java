@@ -4,6 +4,8 @@ import com.example.smartassistant.router.model.SubTaskResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -18,8 +20,8 @@ public class ResultMerger {
     private static final Logger log = LoggerFactory.getLogger(ResultMerger.class);
     private final ChatClient chatClient;
 
-    public ResultMerger(ChatClient.Builder builder) {
-        this.chatClient = builder.build();
+    public ResultMerger(@Qualifier("lightChatModel") ChatModel lightModel) {
+        this.chatClient = ChatClient.create(lightModel);
     }
 
     /**
