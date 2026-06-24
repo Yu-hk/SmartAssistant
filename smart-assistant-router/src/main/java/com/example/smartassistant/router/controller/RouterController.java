@@ -102,11 +102,11 @@ public class RouterController {
     }
 
     /**
-     * ReactAgent 智能路由测试接口
+     * 智能路由测试接口
      */
     @PostMapping("/react/route")
     public ResponseEntity<Map<String, Object>> reactRoute(@Valid @RequestBody RouteRequest request) {
-        log.info("[ReactAgent Router API] 收到 ReactAgent 路由请求: userId={}, question={}",
+        log.info("[Router API] 收到路由请求: userId={}, question={}",
                 request.getUserId(), truncate(request.getQuestion()));
 
         long startTime = System.currentTimeMillis();
@@ -133,13 +133,13 @@ public class RouterController {
             response.put("latency_ms", latency);
             response.put("note", "这是路由决策结果（含 Agent 回复）");
 
-            log.info("[ReactAgent Router API] 路由完成: serviceName={}, latency={}ms",
+            log.info("[Router API] 路由完成: serviceName={}, latency={}ms",
                     routingResult.getAgentName(), latency);
 
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            log.error("[ReactAgent Router API] 路由失败: {}", e.getMessage(), e);
+            log.error("[Router API] 路由失败: {}", e.getMessage(), e);
 
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
@@ -150,7 +150,7 @@ public class RouterController {
     }
 
     /**
-     * 对比测试：传统路由 vs ReactAgent 路由
+     * 对比测试：传统路由 vs 关键词路由
      */
     @PostMapping("/compare/route")
     public ResponseEntity<Map<String, Object>> compareRoute(@Valid @RequestBody RouteRequest request) {
@@ -178,7 +178,7 @@ public class RouterController {
             ));
         }
 
-        // 2. ReactAgent 路由决策
+        // 2. 关键词路由
         long reactStart = System.currentTimeMillis();
         try {
             var context = Map.<String, Object>of("userId", request.getUserId());
