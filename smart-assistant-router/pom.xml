@@ -28,6 +28,18 @@
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
         </dependency>
 
+        <!-- Spring AI Chat Client (ChatClient API — 原由 spring-ai-alibaba 传递引入) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-chat-client</artifactId>
+        </dependency>
+
+        <!-- Spring AI Model (ChatModel, Prompt 等 — 原由 spring-ai-alibaba 传递引入) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-model</artifactId>
+        </dependency>
+
         <!-- PostgreSQL Driver -->
         <dependency>
             <groupId>org.postgresql</groupId>
