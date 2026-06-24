@@ -11,8 +11,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -27,7 +29,7 @@ import static org.mockito.Mockito.*;
 class ConversationSummarizationServiceTest {
 
     @Mock
-    private ChatClient.Builder chatClientBuilder;
+    private ChatModel chatModel;
 
     @Mock
     private ChatClient chatClient;
@@ -42,12 +44,14 @@ class ConversationSummarizationServiceTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(chatClientBuilder.build()).thenReturn(chatClient);
         lenient().when(chatClient.prompt()).thenReturn(requestSpec);
         lenient().when(requestSpec.user(anyString())).thenReturn(requestSpec);
         lenient().when(requestSpec.call()).thenReturn(callResponseSpec);
 
-        service = new ConversationSummarizationService(chatClientBuilder);
+        try (MockedStatic<ChatClient> mocked = mockStatic(ChatClient.class)) {
+            mocked.when(() -> ChatClient.create(chatModel)).thenReturn(chatClient);
+            service = new ConversationSummarizationService(chatModel);
+        }
     }
 
     @Test
