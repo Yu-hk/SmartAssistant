@@ -56,6 +56,12 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- JetBrains Annotations (@NotNull) — 原由 spring-ai-alibaba 传递引入 -->
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+        </dependency>
+
         <!-- Spring AOP (日志切面) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

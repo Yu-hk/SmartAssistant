@@ -46,6 +46,12 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- JetBrains Annotations -->
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+        </dependency>
+
         <!-- Spring AOP (日志切面) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
