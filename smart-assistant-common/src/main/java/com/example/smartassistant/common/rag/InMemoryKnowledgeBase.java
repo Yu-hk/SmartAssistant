@@ -54,17 +54,23 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     /** BM25 评分器（HanLP 中文分词） */
     private Bm25Scorer bm25Scorer;
 
+    /** 重排序器（Cross-Encoder，可选） */
+    private Reranker reranker;
+
     /**
      * @param name           知识库名称
      * @param embeddingModel BGE 嵌入模型
      * @param tokenizer      HanLP 中文分词器（用于 BM25，可为 null 则跳过 BM25）
+     * @param reranker       Cross-Encoder 重排序器（可为 null 则跳过）
      */
-    public InMemoryKnowledgeBase(String name, BgeEmbeddingModel embeddingModel, ChineseTokenizer tokenizer) {
+    public InMemoryKnowledgeBase(String name, BgeEmbeddingModel embeddingModel,
+                                  ChineseTokenizer tokenizer, Reranker reranker) {
         this.name = name;
         this.embeddingModel = embeddingModel;
         if (tokenizer != null) {
             this.bm25Scorer = new Bm25Scorer(tokenizer);
         }
+        this.reranker = reranker != null ? reranker : Reranker.identity();
     }
 
     @Override
@@ -113,13 +119,20 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
             roughResults.add(new ScoredDoc(doc, finalScore));
         }
 
-        // 排序取 Top-K
+        // 排序取 Top-K（粗排结果用于 Reranker）
         roughResults.sort((a, b) -> Double.compare(b.score, a.score));
-
-        return roughResults.stream()
-                .limit(k)
+        List<KnowledgeHit> hits = roughResults.stream()
+                .limit(Math.max(k, 20)) // 给 Reranker 留更多候选
                 .map(sd -> new KnowledgeHit(sd.doc, sd.score))
                 .collect(Collectors.toList());
+
+        // Stage 3: Cross-Encoder 重排序（可选）
+        if (reranker != null && reranker != Reranker.identity()) {
+            hits = reranker.rerank(hits, query, k);
+        } else {
+            hits = hits.size() <= k ? hits : hits.subList(0, k);
+        }
+        return hits;
     }
 
     @Override
