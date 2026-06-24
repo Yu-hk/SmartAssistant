@@ -99,6 +99,18 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- ⭐ Caffeine 缓存（EntityConflictResolver / ReadBeforeEditGuard） -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- ⭐ Spring JDBC（PgVectorKnowledgeBase 使用 JdbcTemplate） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -13,6 +13,8 @@ import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.service.monitoring.OrderMetricsCollector;
 import com.example.smartassistant.tools.CouponTools;
 import com.example.smartassistant.tools.OrderAnalyticsTool;
+import com.example.smartassistant.tools.OrderAnalyticsTool;
+import com.example.smartassistant.tools.OrderKnowledgeTool;
 import com.example.smartassistant.tools.OrderTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
