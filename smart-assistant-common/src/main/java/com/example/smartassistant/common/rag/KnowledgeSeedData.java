@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.rag;
 
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
+import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,18 +30,29 @@ public class KnowledgeSeedData {
 
     /**
      * 创建并填充订单知识库。
+     *
+     * @param model     BGE 嵌入模型
+     * @param tokenizer 中文分词器（用于 BM25，可为 null）
      */
-    public static InMemoryKnowledgeBase createOrderKnowledgeBase(BgeEmbeddingModel model) {
-        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(ORDER_KB, model);
+    public static InMemoryKnowledgeBase createOrderKnowledgeBase(BgeEmbeddingModel model, ChineseTokenizer tokenizer) {
+        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(ORDER_KB, model, tokenizer);
         kb.addDocuments(orderDocuments());
+        kb.reindex(); // 触发 BM25 索引构建
         return kb;
     }
 
     /**
      * 创建并填充产品知识库。
+     *
+     * @param model     BGE 嵌入模型
+     * @param tokenizer 中文分词器（用于 BM25，可为 null）
      */
-    public static InMemoryKnowledgeBase createProductKnowledgeBase(BgeEmbeddingModel model) {
-        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(PRODUCT_KB, model);
+    public static InMemoryKnowledgeBase createProductKnowledgeBase(BgeEmbeddingModel model, ChineseTokenizer tokenizer) {
+        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(PRODUCT_KB, model, tokenizer);
+        kb.addDocuments(productDocuments());
+        kb.reindex();
+        return kb;
+    }        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(PRODUCT_KB, model);
         kb.addDocuments(productDocuments());
         return kb;
     }

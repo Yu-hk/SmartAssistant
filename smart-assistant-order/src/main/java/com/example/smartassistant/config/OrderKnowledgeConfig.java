@@ -11,6 +11,7 @@ import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
+import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,7 +19,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * 订单知识库配置——初始化基于 BGE 嵌入的知识库。
+ * 订单知识库配置——初始化基于 BGE 嵌入 + BM25 的知识库。
  */
 @Configuration
 public class OrderKnowledgeConfig {
@@ -26,10 +27,12 @@ public class OrderKnowledgeConfig {
     private static final Logger log = LoggerFactory.getLogger(OrderKnowledgeConfig.class);
 
     @Bean
-    public InMemoryKnowledgeBase orderKnowledgeBase(BgeEmbeddingModel embeddingModel) {
-        log.info("[OrderKnowledge] 初始化订单知识库...");
-        InMemoryKnowledgeBase kb = KnowledgeSeedData.createOrderKnowledgeBase(embeddingModel);
-        log.info("[OrderKnowledge] 订单知识库就绪: {} 篇文档", kb.size());
+    public InMemoryKnowledgeBase orderKnowledgeBase(BgeEmbeddingModel embeddingModel,
+                                                     ChineseTokenizer tokenizer) {
+        log.info("[OrderKnowledge] 初始化订单知识库 (BGE + BM25)...");
+        InMemoryKnowledgeBase kb = KnowledgeSeedData.createOrderKnowledgeBase(embeddingModel, tokenizer);
+        log.info("[OrderKnowledge] 订单知识库就绪: {} 篇文档, BM25={}",
+                kb.size(), tokenizer != null ? "已启用" : "未启用");
         return kb;
     }
 

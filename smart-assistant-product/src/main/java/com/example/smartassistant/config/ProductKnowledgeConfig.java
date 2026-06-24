@@ -11,6 +11,7 @@ import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
+import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,9 +41,10 @@ public class ProductKnowledgeConfig {
     }
 
     @Bean
-    public InMemoryKnowledgeBase productKnowledgeBase(BgeEmbeddingModel productBgeEmbeddingModel) {
-        log.info("[ProductKnowledge] 初始化产品知识库...");
-        InMemoryKnowledgeBase kb = KnowledgeSeedData.createProductKnowledgeBase(productBgeEmbeddingModel);
+    public InMemoryKnowledgeBase productKnowledgeBase(BgeEmbeddingModel productBgeEmbeddingModel,
+                                                       ChineseTokenizer tokenizer) {
+        log.info("[ProductKnowledge] 初始化产品知识库 (BGE + BM25)...");
+        InMemoryKnowledgeBase kb = KnowledgeSeedData.createProductKnowledgeBase(productBgeEmbeddingModel, tokenizer);
         log.info("[ProductKnowledge] 产品知识库就绪: {} 篇文档", kb.size());
         return kb;
     }
