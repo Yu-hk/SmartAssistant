@@ -23,6 +23,7 @@ import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.quality.QualityEvaluationService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
+import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -81,6 +82,9 @@ public class RouterService {
     // ⭐ LLM-as-Judge 质量评估服务（深层语义质检）
     private final QualityEvaluationService qualityEvaluationService;
 
+    // ⭐ 意图引导的查询改写服务
+    private final IntentGuidedQueryRewriter queryRewriter;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // ⭐ 并行 Agent 执行线程池（用于独立子任务的真正并行执行）
@@ -118,7 +122,8 @@ public class RouterService {
                          ExperienceService experienceService,
                          GraphExecutionService graphExecutionService,
                          TaskAnalysisService taskAnalysisService,
-                         QualityEvaluationService qualityEvaluationService) {
+                         QualityEvaluationService qualityEvaluationService,
+                         IntentGuidedQueryRewriter queryRewriter) {
         this.agentCallerService = agentCallerService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
@@ -132,6 +137,7 @@ public class RouterService {
         this.graphExecutionService = graphExecutionService;
         this.taskAnalysisService = taskAnalysisService;
         this.qualityEvaluationService = qualityEvaluationService;
+        this.queryRewriter = queryRewriter;
         this.parallelExecutor = routerParallelAgentExecutor;
     }
     
@@ -258,6 +264,31 @@ public class RouterService {
                 TaskAnalysisResult taskAnalysis = taskAnalysisService.analyze(rawQuestion);
                 if (taskAnalysis.isMeaningful()) {
                     storeTaskAnalysisToRedis(request.getRequestId(), taskAnalysis);
+                }
+
+                // ⭐ Step 3.6: 意图引导的查询改写
+                // 根据意图类型选择改写策略：多跳→分解、模糊→扩展、精确→保留
+                if (taskAnalysis.isMeaningful()) {
+                    IntentGuidedQueryRewriter.RewriteResult rewriteResult =
+                            queryRewriter.rewrite(enhancedQuestion, taskAnalysis);
+                    if (!rewriteResult.rewrittenQuery().equals(enhancedQuestion)) {
+                        log.info("[Router] 查询改写: '{}' → '{}' (策略={})",
+                                enhancedQuestion, rewriteResult.rewrittenQuery(),
+                                rewriteResult.rewriteStrategy());
+                        enhancedQuestion = rewriteResult.rewrittenQuery();
+                        // 将改写结果存入 Redis
+                        try {
+                            Map<String, Object> rewriteData = new LinkedHashMap<>();
+                            rewriteData.put("original", rawQuestion);
+                            rewriteData.put("rewritten", rewriteResult.rewrittenQuery());
+                            rewriteData.put("strategy", rewriteResult.rewriteStrategy());
+                            rewriteData.put("subQueries", rewriteResult.subQueries());
+                            redisTemplate.opsForValue().set(
+                                    "a2a:rewrite:" + request.getRequestId(),
+                                    objectMapper.writeValueAsString(rewriteData),
+                                    java.time.Duration.ofSeconds(30));
+                        } catch (Exception ignored) {}
+                    }
                 }
 
                 // ⭐ 多 Agent 协作（所有提问均走规划→执行→合并）

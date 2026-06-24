@@ -10,6 +10,7 @@ package com.example.smartassistant.router.service.evaluation;
 import com.example.smartassistant.router.model.TaskAnalysisResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -37,6 +38,10 @@ public class IntentEvaluationService {
     private final EntityNormalizer entityNormalizer;
     private final SlotStateMachine slotStateMachine;
     private final ClarificationService clarificationService;
+
+    /** 置信度低于此阈值时触发澄清，而非直接执行 */
+    @Value("${router.task-analysis.clarification-threshold:0.6}")
+    private double clarificationThreshold;
 
     public IntentEvaluationService(EntityNormalizer entityNormalizer,
                                    SlotStateMachine slotStateMachine,
@@ -159,15 +164,28 @@ public class IntentEvaluationService {
         }
 
         // 4. 澄清判断：是否追问 + 追问问题
-        if (slotAnalysis.hasMissing() || slotAnalysis.hasConflicts()
-                || slotAnalysis.hasDefaultable()) {
+        //    触发条件：词槽缺失/冲突/可默认 + 置信度低于阈值
+        boolean shouldClarify = slotAnalysis.hasMissing() || slotAnalysis.hasConflicts()
+                || slotAnalysis.hasDefaultable();
+
+        // 置信度低于阈值时也触发澄清（即使词槽完整）
+        if (llmResult.isConfidenceLow(clarificationThreshold)) {
+            shouldClarify = true;
+            if (llmResult.getClarificationReason() == null) {
+                llmResult.setClarificationReason(
+                        String.format("意图置信度偏低(%.2f)，需澄清确认", llmResult.getConfidence()));
+            }
+        }
+
+        if (shouldClarify) {
             ClarificationService.ClarificationAdvice advice =
                     clarificationService.generateFromSlotAnalysis(
                             llmResult.getIntentCategory(),
                             llmResult.getEntities(),
                             slotAnalysis);
 
-            llmResult.setNeedsClarification(advice.needsClarification());
+            llmResult.setNeedsClarification(advice.needsClarification()
+                    || llmResult.isConfidenceLow(clarificationThreshold));
             llmResult.setClarificationReason(advice.reason());
             llmResult.setClarificationQuestions(new ArrayList<>(advice.questions()));
 
@@ -179,11 +197,12 @@ public class IntentEvaluationService {
         }
 
         long elapsed = System.currentTimeMillis() - start;
-        log.info("[IntentEvaluation] 后处理完成: corrections={}, normalized={}, missing={}, conflicts={}, cost={}ms",
+        log.info("[IntentEvaluation] 后处理完成: corrections={}, normalized={}, missing={}, conflicts={}, confidence={}, cost={}ms",
                 llmResult.getInputCorrections().size(),
                 llmResult.getNormalizationDetails().size(),
                 llmResult.getMissingSlots().size(),
                 llmResult.getSlotConflicts().size(),
+                String.format("%.2f", llmResult.getConfidence()),
                 elapsed);
 
         return llmResult;
