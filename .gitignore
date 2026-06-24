@@ -77,6 +77,10 @@ cp.txt
 # BGE ONNX model files (large binary, ~95MB-1.2GB)
 models/*.onnx
 
+# bge-reranker ONNX model (large binary, ~1.1GB)
+models/bge-reranker-v2-m3.onnx
+models/bge-reranker-v2-m3/
+
 # Test model output
 **/models/*.onnx
 **/models/onnx/

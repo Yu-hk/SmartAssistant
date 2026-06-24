@@ -8,14 +8,17 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
+import com.example.smartassistant.common.rag.BgeReranker;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
 import com.example.smartassistant.common.rag.PgVectorKnowledgeBase;
+import com.example.smartassistant.common.rag.Reranker;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,15 +33,39 @@ public class OrderKnowledgeConfig {
 
     private static final Logger log = LoggerFactory.getLogger(OrderKnowledgeConfig.class);
 
+    @Value("${reranker.model.path:models/bge-reranker-v2-m3.onnx}")
+    private String rerankerModelPath;
+
+    @Value("${bge.vocab.path:models/tokenizer.json}")
+    private String vocabPath;
+
+    /** bge-reranker Cross-Encoder（按配置启用） */
+    @Bean
+    @ConditionalOnProperty(name = "reranker.enabled", havingValue = "true")
+    public Reranker orderReranker() {
+        log.info("[OrderKnowledge] 初始化 bge-reranker: path={}", rerankerModelPath);
+        BgeReranker reranker = new BgeReranker(rerankerModelPath, vocabPath);
+        if (reranker.isAvailable()) {
+            log.info("[OrderKnowledge] bge-reranker 就绪");
+        } else {
+            log.warn("[OrderKnowledge] bge-reranker 不可用，降级为恒等映射");
+        }
+        return reranker;
+    }
+
     /** 内存知识库（轻量，默认启用） */
     @Bean
     @Primary
-    public InMemoryKnowledgeBase orderKnowledgeBase(BgeEmbeddingModel embeddingModel,
-                                                     ChineseTokenizer tokenizer) {
-        log.info("[OrderKnowledge] 初始化订单知识库 (InMemory + BGE + BM25)...");
-        InMemoryKnowledgeBase kb = KnowledgeSeedData.createOrderKnowledgeBase(embeddingModel, tokenizer);
-        log.info("[OrderKnowledge] 订单知识库就绪: {} 篇文档, BM25={}",
-                kb.size(), tokenizer != null ? "已启用" : "未启用");
+    public InMemoryKnowledgeBase orderKnowledgeBase(
+            BgeEmbeddingModel embeddingModel,
+            ChineseTokenizer tokenizer,
+            ObjectProvider<Reranker> rerankerProvider) {
+        Reranker reranker = rerankerProvider.getIfAvailable();
+        log.info("[OrderKnowledge] 初始化订单知识库 (InMemory + BGE + BM25), Reranker={}",
+                reranker != null && reranker != Reranker.identity() ? "已启用" : "未启用");
+        InMemoryKnowledgeBase kb = KnowledgeSeedData.createOrderKnowledgeBase(
+                embeddingModel, tokenizer, reranker);
+        log.info("[OrderKnowledge] 订单知识库就绪: {} 篇文档", kb.size());
         return kb;
     }
 
