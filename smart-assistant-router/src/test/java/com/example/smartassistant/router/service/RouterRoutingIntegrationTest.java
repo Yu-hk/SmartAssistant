@@ -24,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -52,6 +53,7 @@ class RouterRoutingIntegrationTest {
     @Mock private ReflectionService reflectionService;
     @Mock private ModelRoutingService modelRoutingService;
     @Mock private ExperienceService experienceService;
+    @Mock private ChatModel lightChatModel;
     @Mock private ValueOperations<String, String> valueOps;
     private TfEmbeddingService tfEmbedding;
     private VectorCacheStore vectorCache;
@@ -80,7 +82,7 @@ class RouterRoutingIntegrationTest {
         lenient().when(reflectionService.retry(anyString(), anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn("retry result");
         new RouterService(agentCallerService, chatClientBuilder,
-                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, modelRoutingService, experienceService, null);
+                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, modelRoutingService, experienceService, null, lightChatModel);
     }
 
     @Test
