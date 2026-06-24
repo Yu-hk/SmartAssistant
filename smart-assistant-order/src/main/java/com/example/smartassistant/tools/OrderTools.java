@@ -8,6 +8,8 @@
 package com.example.smartassistant.tools;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.memory.ConflictResult;
+import com.example.smartassistant.common.memory.EntityConflictResolver;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.entity.OrderEntity;
@@ -66,17 +68,20 @@ public class OrderTools {
     private final OrderRefundMapper orderRefundMapper;
     private final OrderLogisticsMapper orderLogisticsMapper;
     private final ReadBeforeEditGuard readGuard;
+    private final EntityConflictResolver conflictResolver;
 
     public OrderTools(ApprovalService approvalService,
                       OrderMapper orderMapper,
                       OrderRefundMapper orderRefundMapper,
                       OrderLogisticsMapper orderLogisticsMapper,
-                      ReadBeforeEditGuard readGuard) {
+                      ReadBeforeEditGuard readGuard,
+                      EntityConflictResolver conflictResolver) {
         this.approvalService = approvalService;
         this.orderMapper = orderMapper;
         this.orderRefundMapper = orderRefundMapper;
         this.orderLogisticsMapper = orderLogisticsMapper;
         this.readGuard = readGuard;
+        this.conflictResolver = conflictResolver;
     }
 
     // ==================== 下单 ====================
@@ -93,6 +98,13 @@ public class OrderTools {
             @ToolParam(description = "收货地址", required = true) String shippingAddress,
             @ToolParam(description = "商品类型，如 电子产品/定制商品/生鲜食品，留空则自动识别", required = false) String productType) {
         log.info("[OrderTool] 创建订单: userId={}, productName={}, amount={}", userId, productName, amount);
+
+        // ★ 冲突检测：检查收货信息是否在本次会话中变更过
+        String sessionKey = "user:" + userId;
+        ConflictResult addrConflict = conflictResolver.update(
+                sessionKey, "shipping_address", String.valueOf(userId), shippingAddress);
+        ConflictResult nameConflict = conflictResolver.update(
+                sessionKey, "contact_name", String.valueOf(userId), contactName);
 
         String orderId = String.format("ORD-%d%04d",
                 System.currentTimeMillis() % 1000000,
