@@ -268,7 +268,7 @@ public class RouterService {
             } else {
                 // ⭐ Step 3.5: 任务分析（非缓存命中时执行）
                 // 结构化提取实体/约束/风险/工具评分，存入 Redis 供下游 Agent 使用
-                TaskAnalysisResult taskAnalysis = taskAnalysisService.analyze(rawQuestion);
+                TaskAnalysisResult taskAnalysis = taskAnalysisService.analyze(question);
                 if (taskAnalysis.isMeaningful()) {
                     storeTaskAnalysisToRedis(request.getRequestId(), taskAnalysis);
                 }
@@ -286,7 +286,7 @@ public class RouterService {
                         // 将改写结果存入 Redis
                         try {
                             Map<String, Object> rewriteData = new LinkedHashMap<>();
-                            rewriteData.put("original", rawQuestion);
+                            rewriteData.put("original", question);
                             rewriteData.put("rewritten", rewriteResult.rewrittenQuery());
                             rewriteData.put("strategy", rewriteResult.rewriteStrategy());
                             rewriteData.put("subQueries", rewriteResult.subQueries());
