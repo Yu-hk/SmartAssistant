@@ -55,18 +55,19 @@ public class OrderAgentConfig {
             OrderTools orderTools,
             OrderAnalyticsTool analyticsTool,
             CouponTools couponTools,
+            OrderKnowledgeTool orderKnowledgeTool,
             OrderMetricsCollector metricsCollector) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
         List<ToolCallback> allCallbacks = new ArrayList<>();
-        for (var tool : List.of(orderTools, analyticsTool, couponTools)) {
+        for (var tool : List.of(orderTools, analyticsTool, couponTools, orderKnowledgeTool)) {
             allCallbacks.addAll(List.of(
                     MethodToolCallbackProvider.builder().toolObjects(tool).build().getToolCallbacks()));
         }
 
         List<ToolCallback> toolList = new ArrayList<>(allCallbacks);
-        log.info("[OrderAgent] 注册 {} 个工具（订单处理 + 预定义分析查询）", toolList.size());
+        log.info("[OrderAgent] 注册 {} 个工具（订单处理 + 分析 + 优惠券 + 知识库）", toolList.size());
 
         return new SmartReActAgent(chatModel)
                 .withMetrics(metricsCollector)
