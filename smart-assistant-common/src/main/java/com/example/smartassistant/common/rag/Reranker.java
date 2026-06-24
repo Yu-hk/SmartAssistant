@@ -13,7 +13,7 @@ import java.util.List;
  * 重排序器接口——对检索结果进行第二次精排。
  * <p>
  * 参照 RAG 文章的两阶段架构：向量检索（粗筛，Bi-Encoder）→ 重排（精排，Cross-Encoder）。
- * 默认实现为恒等映射（不对排序做任何修改）。
+ * 使用 bge-reranker 系列模型对候选文档重新排序。
  * </p>
  */
 @FunctionalInterface

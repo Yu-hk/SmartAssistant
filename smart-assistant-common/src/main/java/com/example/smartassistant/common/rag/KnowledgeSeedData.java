@@ -33,11 +33,13 @@ public class KnowledgeSeedData {
      *
      * @param model     BGE 嵌入模型
      * @param tokenizer 中文分词器（用于 BM25，可为 null）
+     * @param reranker  Cross-Encoder 重排序器（可为 null）
      */
-    public static InMemoryKnowledgeBase createOrderKnowledgeBase(BgeEmbeddingModel model, ChineseTokenizer tokenizer) {
-        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(ORDER_KB, model, tokenizer);
+    public static InMemoryKnowledgeBase createOrderKnowledgeBase(
+            BgeEmbeddingModel model, ChineseTokenizer tokenizer, Reranker reranker) {
+        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(ORDER_KB, model, tokenizer, reranker);
         kb.addDocuments(orderDocuments());
-        kb.reindex(); // 触发 BM25 索引构建
+        kb.reindex();
         return kb;
     }
 
@@ -46,9 +48,11 @@ public class KnowledgeSeedData {
      *
      * @param model     BGE 嵌入模型
      * @param tokenizer 中文分词器（用于 BM25，可为 null）
+     * @param reranker  Cross-Encoder 重排序器（可为 null）
      */
-    public static InMemoryKnowledgeBase createProductKnowledgeBase(BgeEmbeddingModel model, ChineseTokenizer tokenizer) {
-        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(PRODUCT_KB, model, tokenizer);
+    public static InMemoryKnowledgeBase createProductKnowledgeBase(
+            BgeEmbeddingModel model, ChineseTokenizer tokenizer, Reranker reranker) {
+        InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(PRODUCT_KB, model, tokenizer, reranker);
         kb.addDocuments(productDocuments());
         kb.reindex();
         return kb;
