@@ -38,7 +38,7 @@ import java.util.List;
 @Slf4j
 public class GeneralAgentConfig {
 
-    @Value("${spring.ai.alibaba.a2a.server.card.name}")
+    @Value("${spring.application.name:general-agent}")
     private String agentName;
 
     @Value("classpath:prompts/general-system-prompt.txt")

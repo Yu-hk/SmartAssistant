@@ -169,13 +169,6 @@
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
         </dependency>
 
-        <!-- ⭐ Spring AI Alibaba Agent Framework (支持 ReactAgent) -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-agent-framework</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
-        </dependency>
-
         <!-- ⭐ Spring Cloud Bootstrap (支持 @RefreshScope 热重载) -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
