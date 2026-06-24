@@ -46,7 +46,7 @@ public class CouponTools {
             + "下单前调用此方法，可帮用户找到最省钱的优惠方式。"
             + "如需更多数据，请使用 offset 参数翻页。")
     public String queryUserCoupons(
-            @ToolParam(description = "用户ID", required = true) Long userId,
+            @ToolParam(description = "用户ID，如 12345", required = true) Long userId,
             @ToolParam(description = "偏移量，用于翻页。第一页传 0，续读时传上一页返回的 next_offset", required = false) Integer offset,
             @ToolParam(description = "每页条数，默认 10，最大 50", required = false) Integer limit) {
         log.info("[CouponTool] 查询用户优惠券: userId={}, offset={}, limit={}", userId, offset, limit);
@@ -96,7 +96,7 @@ public class CouponTools {
             + "支持满减券、折扣券、现金券的智能对比。"
             + "下单前调用此方法，系统会自动帮用户选出最优优惠券。")
     public String findBestCoupon(
-            @ToolParam(description = "用户ID", required = true) Long userId,
+            @ToolParam(description = "用户ID，如 12345", required = true) Long userId,
             @ToolParam(description = "商品金额，如 8999.00", required = true) BigDecimal amount) {
         log.info("[CouponTool] 寻找最优优惠券: userId={}, amount={}", userId, amount);
 
