@@ -15,6 +15,8 @@ import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -34,9 +36,9 @@ public class LLMPreferenceExtractor {
     private final ObjectMapper objectMapper;
     private final ChineseTokenizer tokenizer;
     
-    public LLMPreferenceExtractor(ChatClient.Builder chatClientBuilder, 
+    public LLMPreferenceExtractor(@Qualifier("lightChatModel") ChatModel lightModel,
                                   ChineseTokenizer tokenizer) {
-        this.chatClient = chatClientBuilder.build();
+        this.chatClient = ChatClient.create(lightModel);
         this.objectMapper = new ObjectMapper();
         this.tokenizer = tokenizer;
     }

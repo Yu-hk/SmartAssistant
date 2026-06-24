@@ -36,8 +36,8 @@ public class OrderIntentService {
 
     private final ChatClient chatClient;
 
-    public OrderIntentService(@Qualifier("deepSeekChatModel") ChatModel chatModel) {
-        this.chatClient = ChatClient.create(chatModel);
+    public OrderIntentService(@Qualifier("lightChatModel") ChatModel lightModel) {
+        this.chatClient = ChatClient.create(lightModel);
     }
 
     /**

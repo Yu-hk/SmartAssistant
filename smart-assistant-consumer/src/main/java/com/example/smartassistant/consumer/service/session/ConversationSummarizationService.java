@@ -10,6 +10,8 @@ package com.example.smartassistant.consumer.service.session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /**
@@ -30,8 +32,8 @@ public class ConversationSummarizationService {
 
     private final ChatClient chatClient;
 
-    public ConversationSummarizationService(ChatClient.Builder chatClientBuilder) {
-        this.chatClient = chatClientBuilder.build();
+    public ConversationSummarizationService(@Qualifier("lightChatModel") ChatModel lightModel) {
+        this.chatClient = ChatClient.create(lightModel);
     }
 
     /**
