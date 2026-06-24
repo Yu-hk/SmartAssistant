@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.rag;
 
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
+import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,15 +45,26 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     /** 时间衰减 λ（知识类取 0.01，新闻类取 0.1） */
     private static final double TIME_DECAY_LAMBDA = 0.01;
 
-    /** BM25 关键词命中加分 */
-    private static final double BM25_BONUS = 0.15;
+    /** BM25 关键词加分权重（与 BM25 分数的混合比例，0=不使用 BM25） */
+    private static final double BM25_MIX_WEIGHT = 0.3;
 
     /** 余弦相似度阈值（低于此值不返回） */
     private static final double MIN_SIMILARITY = 0.30;
 
-    public InMemoryKnowledgeBase(String name, BgeEmbeddingModel embeddingModel) {
+    /** BM25 评分器（HanLP 中文分词） */
+    private Bm25Scorer bm25Scorer;
+
+    /**
+     * @param name           知识库名称
+     * @param embeddingModel BGE 嵌入模型
+     * @param tokenizer      HanLP 中文分词器（用于 BM25，可为 null 则跳过 BM25）
+     */
+    public InMemoryKnowledgeBase(String name, BgeEmbeddingModel embeddingModel, ChineseTokenizer tokenizer) {
         this.name = name;
         this.embeddingModel = embeddingModel;
+        if (tokenizer != null) {
+            this.bm25Scorer = new Bm25Scorer(tokenizer);
+        }
     }
 
     @Override
@@ -116,9 +128,19 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     @Override
     public void reindex() {
         vectors.clear();
-        for (KnowledgeDocument doc : docs.values()) {
+        List<KnowledgeDocument> allDocs = new ArrayList<>(docs.values());
+        for (KnowledgeDocument doc : allDocs) {
             float[] vec = embeddingModel.embedding(doc.toEmbedText());
             if (vec != null) vectors.put(doc.getId(), normalize(vec));
+        }
+        // ★ 重新初始化 BM25 索引
+        if (bm25Scorer != null) {
+            bm25Scorer.initialize(allDocs);
+            log.info("[KnowledgeBase:{}] BM25 索引完成: {} 篇文档, avgDocLen={:.1f}",
+                    name, allDocs.size(),
+                    bm25Scorer.isInitialized() ? (double) allDocs.stream()
+                            .mapToInt(d -> (d.getContent() != null ? d.getContent().length() : 0)).average().orElse(0)
+                            : 0);
         }
         log.info("[KnowledgeBase:{}] 重新索引完成: {} 篇文档", name, docs.size());
     }
@@ -126,7 +148,7 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     // ==================== 精排 ====================
 
     /**
-     * 组合评分 = 余弦相似度 × 时间衰减 + BM25 加分
+     * 组合评分 = 余弦相似度 × 时间衰减 + BM25 × 混合权重
      */
     private double composeScore(double cosSim, KnowledgeDocument doc, String query) {
         // 时间衰减
@@ -138,20 +160,14 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
             }
         }
 
-        // BM25 关键词加分
+        // BM25 分数（标准化到 0~1 范围）
         double bm25Score = 0;
-        String q = query.toLowerCase();
-        if (doc.getKeywords() != null) {
-            for (String kw : doc.getKeywords().split("[,，、 ]")) {
-                if (kw.isBlank()) continue;
-                if (q.contains(kw.toLowerCase()) || doc.getContent().toLowerCase().contains(kw.toLowerCase())) {
-                    bm25Score += BM25_BONUS;
-                }
-            }
-            bm25Score = Math.min(bm25Score, 0.3); // cap
+        if (bm25Scorer != null && bm25Scorer.isInitialized()) {
+            bm25Score = Math.tanh(bm25Scorer.score(doc, query)); // tanh 压缩到 [0,1)
+            bm25Score = Math.min(bm25Score, 1.0); // 上限保护
         }
 
-        return cosSim * timeDecay + bm25Score;
+        return cosSim * timeDecay * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
     }
 
     // ==================== 兜底搜索 ====================
