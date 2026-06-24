@@ -8,6 +8,7 @@
 package com.example.smartassistant.tools;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.entity.OrderEntity;
 import com.example.smartassistant.entity.OrderLogisticsEntity;
@@ -64,15 +65,18 @@ public class OrderTools {
     private final OrderMapper orderMapper;
     private final OrderRefundMapper orderRefundMapper;
     private final OrderLogisticsMapper orderLogisticsMapper;
+    private final ReadBeforeEditGuard readGuard;
 
     public OrderTools(ApprovalService approvalService,
                       OrderMapper orderMapper,
                       OrderRefundMapper orderRefundMapper,
-                      OrderLogisticsMapper orderLogisticsMapper) {
+                      OrderLogisticsMapper orderLogisticsMapper,
+                      ReadBeforeEditGuard readGuard) {
         this.approvalService = approvalService;
         this.orderMapper = orderMapper;
         this.orderRefundMapper = orderRefundMapper;
         this.orderLogisticsMapper = orderLogisticsMapper;
+        this.readGuard = readGuard;
     }
 
     // ==================== 下单 ====================
@@ -137,6 +141,10 @@ public class OrderTools {
             @ToolParam(description = "支付方式，如 微信支付/支付宝/银行卡", required = true) String paymentMethod) {
         log.info("[OrderTool] 支付订单: {}, paymentMethod={}", orderId, paymentMethod);
 
+        // ★ Read-before-Edit：必须事先查询过该订单
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
+
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
             return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
@@ -186,6 +194,10 @@ public class OrderTools {
             @ToolParam(description = "取消原因", required = true) String reason) {
         log.info("[OrderTool] 取消订单: orderId={}, reason={}", orderId, reason);
 
+        // ★ Read-before-Edit
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
+
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
             return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
@@ -219,6 +231,10 @@ public class OrderTools {
             @ToolParam(description = "物流公司，如 顺丰速运", required = true) String carrier,
             @ToolParam(description = "快递单号", required = true) String trackingNo) {
         log.info("[OrderTool] 发货: orderId={}, carrier={}, trackingNo={}", orderId, carrier, trackingNo);
+
+        // ★ Read-before-Edit
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
@@ -280,6 +296,10 @@ public class OrderTools {
     public String confirmDelivery(
             @ToolParam(description = "订单号", required = true) String orderId) {
         log.info("[OrderTool] 确认收货: {}", orderId);
+
+        // ★ Read-before-Edit
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
@@ -388,6 +408,9 @@ public class OrderTools {
             sb.append("\n").append(nextStep);
         }
 
+        // ★ Read-before-Edit：标记已读，供后续修改操作校验
+        readGuard.markRead(orderId, "order");
+
         return sb.toString();
     }
 
@@ -397,11 +420,15 @@ public class OrderTools {
     @Tool(description = "【退款申请】提交退款申请。⚠️ 敏感操作，需二次确认。"
             + "适用场景：用户明确要求退款，仅已发货或已签收订单可用。"
             + "流程：首次调用→创建确认项→用户确认→confirmAction→再次调用applyRefund执行。"
-            + "不适用场景：待付款/待发货订单取消（请用 cancelOrder）；统计退款数据（请用 queryTopRefunds）。")
+            + "不适用场景：待付款/待发货订单取消（请用 cancelOrder）")
     public String applyRefund(
             @ToolParam(description = "订单号", required = true) String orderId,
             @ToolParam(description = "退款原因", required = true) String reason) {
         log.info("[OrderTool] 退款请求: orderId={}, reason={}", orderId, reason);
+
+        // ★ Read-before-Edit：必须事先查询过该订单
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
 
         // 先查订单是否存在
         OrderEntity order = orderMapper.findByOrderId(orderId);
