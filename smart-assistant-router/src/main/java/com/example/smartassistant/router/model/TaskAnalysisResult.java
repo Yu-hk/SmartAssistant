@@ -25,6 +25,9 @@ public class TaskAnalysisResult {
     /** 规范化意图分类：ORDER / PRODUCT / GENERAL / COMPLEX / UNKNOWN */
     private String intentCategory;
 
+    /** 意图置信度 (0.0~1.0)——LLM 对意图分类的把握程度 */
+    private double confidence = 1.0;
+
     /** 提取的关键实体（orderId, productName, date, amount, location, currency 等） */
     private Map<String, Object> entities;
 
@@ -133,6 +136,9 @@ public class TaskAnalysisResult {
     public String getIntentCategory() { return intentCategory; }
     public void setIntentCategory(String intentCategory) { this.intentCategory = intentCategory; }
 
+    public double getConfidence() { return confidence; }
+    public void setConfidence(double confidence) { this.confidence = confidence; }
+
     public Map<String, Object> getEntities() { return entities; }
     public void setEntities(Map<String, Object> entities) { this.entities = entities != null ? entities : new HashMap<>(); }
 
@@ -236,10 +242,17 @@ public class TaskAnalysisResult {
                 || needsClarification || standardizedInput != null;
     }
 
+    /** 置信度是否低于澄清阈值 */
+    public boolean isConfidenceLow(double threshold) {
+        return intentCategory != null && !"UNKNOWN".equals(intentCategory)
+                && confidence < threshold;
+    }
+
     @Override
     public String toString() {
         return "TaskAnalysisResult{"
                 + "intentCategory='" + intentCategory + '\''
+                + ", confidence=" + confidence
                 + ", entities=" + entities
                 + ", subIntents=" + subIntents
                 + ", implicitIntents=" + implicitIntents
