@@ -4,13 +4,17 @@ import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.model.ReflectionResult;
+import com.example.smartassistant.router.service.core.GraphExecutionService;
 import com.example.smartassistant.router.service.core.TaskPlannerService;
 import com.example.smartassistant.router.service.core.ResultMerger;
 import com.example.smartassistant.router.service.core.ReflectionService;
 import com.example.smartassistant.router.service.core.ModelRoutingService;
 import com.example.smartassistant.router.service.core.RouterService;
+import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
+import com.example.smartassistant.router.service.quality.QualityEvaluationService;
+import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
 import com.example.smartassistant.router.service.cache.TfEmbeddingService;
 import com.example.smartassistant.router.service.cache.VectorCacheStore;
@@ -54,6 +58,10 @@ class RouterRoutingIntegrationTest {
     @Mock private ModelRoutingService modelRoutingService;
     @Mock private ExperienceService experienceService;
     @Mock private ChatModel lightChatModel;
+    @Mock private GraphExecutionService graphExecutionService;
+    @Mock private TaskAnalysisService taskAnalysisService;
+    @Mock private QualityEvaluationService qualityEvaluationService;
+    @Mock private IntentGuidedQueryRewriter queryRewriter;
     @Mock private ValueOperations<String, String> valueOps;
     private TfEmbeddingService tfEmbedding;
     private VectorCacheStore vectorCache;
@@ -82,7 +90,7 @@ class RouterRoutingIntegrationTest {
         lenient().when(reflectionService.retry(anyString(), anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn("retry result");
         new RouterService(agentCallerService, chatClientBuilder,
-                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, modelRoutingService, experienceService, null, lightChatModel);
+                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, modelRoutingService, experienceService, graphExecutionService, taskAnalysisService, qualityEvaluationService, queryRewriter, lightChatModel);
     }
 
     @Test
