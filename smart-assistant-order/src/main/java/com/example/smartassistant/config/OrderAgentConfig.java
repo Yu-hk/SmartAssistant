@@ -15,6 +15,7 @@ import com.example.smartassistant.tools.CouponTools;
 import com.example.smartassistant.tools.OrderAnalyticsTool;
 import com.example.smartassistant.tools.OrderAnalyticsTool;
 import com.example.smartassistant.tools.OrderKnowledgeTool;
+import com.example.smartassistant.tools.OrderMemoryTool;
 import com.example.smartassistant.tools.OrderTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
@@ -58,18 +59,19 @@ public class OrderAgentConfig {
             OrderAnalyticsTool analyticsTool,
             CouponTools couponTools,
             OrderKnowledgeTool orderKnowledgeTool,
+            OrderMemoryTool orderMemoryTool,
             OrderMetricsCollector metricsCollector) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
         List<ToolCallback> allCallbacks = new ArrayList<>();
-        for (var tool : List.of(orderTools, analyticsTool, couponTools, orderKnowledgeTool)) {
+        for (var tool : List.of(orderTools, analyticsTool, couponTools, orderKnowledgeTool, orderMemoryTool)) {
             allCallbacks.addAll(List.of(
                     MethodToolCallbackProvider.builder().toolObjects(tool).build().getToolCallbacks()));
         }
 
         List<ToolCallback> toolList = new ArrayList<>(allCallbacks);
-        log.info("[OrderAgent] 注册 {} 个工具（订单处理 + 分析 + 优惠券 + 知识库）", toolList.size());
+        log.info("[OrderAgent] 注册 {} 个工具（订单处理 + 分析 + 优惠券 + 知识库 + 记忆）", toolList.size());
 
         return new SmartReActAgent(chatModel)
                 .withMetrics(metricsCollector)
