@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.SchedulingConfigurer;
@@ -23,14 +24,15 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * 线程池配置类
- * 
- * <p>为不同的业务场景配置专用的线程池，避免资源竞争和线程泄漏</p>
- * 
- * <h3>配置的线程池：</h3>
+ *
+ * <p>为不同的业务场景配置专用的执行器。JDK 21 升级后按任务性质区分线程模型：</p>
+ *
+ * <h3>执行器清单（按任务性质）：</h3>
  * <ul>
- *     <li><b>scheduledTaskExecutor</b> - 定时任务专用线程池（会话清理等）</li>
- *     <li><b>asyncRouteExecutor</b> - 异步路由日志记录线程池</li>
- *     <li><b>asyncEmbeddingExecutor</b> - 异步 Embedding 计算线程池</li>
+ *     <li><b>taskExecutor</b>（I/O 阻塞型）- 通用 @Async 池，<b>已切换为虚拟线程</b>（Session DB / 文件写入）</li>
+ *     <li><b>asyncRouteExecutor</b>（I/O 阻塞型）- 异步路由日志，<b>已切换为虚拟线程</b></li>
+ *     <li><b>asyncEmbeddingExecutor</b>（CPU 密集型）- Embedding 计算，<b>保留平台线程池</b>（虚拟线程对 CPU 密集无收益且受核数约束）</li>
+ *     <li><b>scheduledTaskExecutor</b> / TaskScheduler（定时调度）- <b>保留平台线程池</b>（@Scheduled 触发依赖固定调度线程）</li>
  * </ul>
  */
 @Configuration
@@ -41,6 +43,7 @@ public class ThreadPoolConfig implements SchedulingConfigurer {
     private static final Logger log = LoggerFactory.getLogger(ThreadPoolConfig.class);
 
     // ⭐ 通用异步任务线程池配置
+    // 注：taskExecutor 已改为虚拟线程，以下 size/queue 参数对其不再生效，保留仅为兼容历史配置文件
     @org.springframework.beans.factory.annotation.Value("${thread-pool.async-task.core-size:5}")
     private int asyncTaskCoreSize;
     
@@ -64,6 +67,7 @@ public class ThreadPoolConfig implements SchedulingConfigurer {
     private int scheduledTaskQueueCapacity;
     
     // ⭐ 异步路由日志线程池配置
+    // 注：asyncRouteExecutor 已改为虚拟线程，以下 size/queue 参数对其不再生效，保留仅为兼容历史配置文件
     @org.springframework.beans.factory.annotation.Value("${thread-pool.async-route.core-size:2}")
     private int asyncRouteCoreSize;
     
@@ -81,57 +85,33 @@ public class ThreadPoolConfig implements SchedulingConfigurer {
     private int asyncEmbeddingQueueCapacity;
 
     /**
-     * ⭐ 通用异步任务线程池（用于 Session 数据库写入等）
-     * 
-     * <p>用于 @Async 注解的默认线程池</p>
-     * <ul>
-     *     <li>核心线程数：可配置（默认 5）</li>
-     *     <li>最大线程数：可配置（默认 10）</li>
-     *     <li>队列容量：可配置（默认 200）</li>
-     *     <li>拒绝策略：CallerRunsPolicy（保证任务执行）</li>
-     * </ul>
+     * ⭐ 通用异步任务执行器（@Async 默认池）—— JDK 21 虚拟线程版
+     *
+     * <p>任务性质：[I/O 阻塞型]（Session 数据库写入、记忆文件写入、Redis 操作）。</p>
+     * <p>原 {@code ThreadPoolTaskExecutor(core=5/max=10/queue=200)} 替换为基于虚拟线程的
+     * {@link SimpleAsyncTaskExecutor}：每个任务运行在一根虚拟线程上，阻塞 I/O 期间自动释放
+     * 载体线程，无需再为核心数/最大数/队列容量调参，并发吞吐近乎不受线程数限制。</p>
      */
     @Bean(name = "taskExecutor")
     public Executor taskExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        
-        // 核心线程数
-        executor.setCorePoolSize(asyncTaskCoreSize);
-        
-        // 最大线程数
-        executor.setMaxPoolSize(asyncTaskMaxSize);
-        
-        // 队列容量
-        executor.setQueueCapacity(asyncTaskQueueCapacity);
-        
-        // 线程名称前缀
-        executor.setThreadNamePrefix("async-task-");
-        
-        // 空闲线程存活时间（秒）
-        executor.setKeepAliveSeconds(asyncTaskKeepAliveSeconds);
-        
-        // 拒绝策略：由调用线程执行，保证任务不丢失
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
-        
-        // 等待所有任务结束后再关闭线程池
-        executor.setWaitForTasksToCompleteOnShutdown(true);
-        
-        // 等待时间（秒）
-        executor.setAwaitTerminationSeconds(60);
-        
-        // 初始化
-        executor.initialize();
-        
-        log.info("[ThreadPool] 通用异步任务线程池初始化完成: core={}, max={}, queue={}", 
-                asyncTaskCoreSize, asyncTaskMaxSize, asyncTaskQueueCapacity);
-        
+        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("async-task-vt-");
+
+        // 启用虚拟线程（每任务一线程）
+        executor.setVirtualThreads(true);
+
+        // 优雅关闭：等待在途任务完成，最多 60s（替代原 setWaitForTasksToCompleteOnShutdown + awaitTermination）
+        executor.setTaskTerminationTimeout(60_000);
+
+        log.info("[ThreadPool] 通用异步任务执行器初始化完成: 模式=虚拟线程(VirtualThreads), 优雅关闭超时=60s");
+
         return executor;
     }
 
     /**
-     * 定时任务专用线程池
-     * 
-     * <p>用于执行 @Scheduled 注解的定时任务</p>
+     * 定时任务专用线程池（保留平台线程池）
+     *
+     * <p>任务性质：[定时调度]。{@code @Scheduled} 的触发依赖固定的调度线程，
+     * 不适合替换为无界虚拟线程，故保留传统 {@link ThreadPoolTaskExecutor}。</p>
      * <ul>
      *     <li>核心线程数：可配置（默认 1，定时任务通常串行执行）</li>
      *     <li>最大线程数：可配置（默认 3，应对突发任务）</li>
@@ -177,57 +157,33 @@ public class ThreadPoolConfig implements SchedulingConfigurer {
     }
 
     /**
-     * 异步路由日志记录线程池
-     * 
-     * <p>用于异步保存路由调用日志，不阻塞主业务流程</p>
-     * <ul>
-     *     <li>核心线程数：可配置（默认 2）</li>
-     *     <li>最大线程数：可配置（默认 5）</li>
-     *     <li>队列容量：可配置（默认 100）</li>
-     *     <li>拒绝策略：DiscardPolicy（日志丢失可接受）</li>
-     * </ul>
+     * 异步路由日志记录执行器 —— JDK 21 虚拟线程版
+     *
+     * <p>任务性质：[I/O 阻塞型]（单次路由日志 DB insert）。原 {@code ThreadPoolTaskExecutor
+     * (core=2/max=5/queue=100, DiscardPolicy)} 替换为虚拟线程：每条日志一根轻量虚拟线程，
+     * 不再需要有界队列与丢弃策略，写入阻塞不再占用平台线程。</p>
      */
     @Bean(name = "asyncRouteExecutor")
     public Executor asyncRouteExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        
-        // 核心线程数
-        executor.setCorePoolSize(asyncRouteCoreSize);
-        
-        // 最大线程数
-        executor.setMaxPoolSize(asyncRouteMaxSize);
-        
-        // 队列容量
-        executor.setQueueCapacity(asyncRouteQueueCapacity);
-        
-        // 线程名称前缀
-        executor.setThreadNamePrefix("async-route-");
-        
-        // 空闲线程存活时间（秒）
-        executor.setKeepAliveSeconds(asyncRouteKeepAliveSeconds);
-        
-        // 拒绝策略：丢弃任务（日志记录失败可以接受）
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
-        
-        // 等待所有任务结束后再关闭线程池
-        executor.setWaitForTasksToCompleteOnShutdown(true);
-        
-        // 等待时间（秒）
-        executor.setAwaitTerminationSeconds(30);
-        
-        // 初始化
-        executor.initialize();
-        
-        log.info("[ThreadPool] 异步路由日志线程池初始化完成: core={}, max={}, queue={}", 
-                asyncRouteCoreSize, asyncRouteMaxSize, asyncRouteQueueCapacity);
-        
+        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("async-route-vt-");
+
+        // 启用虚拟线程
+        executor.setVirtualThreads(true);
+
+        // 优雅关闭：等待在途日志写入完成，最多 30s
+        executor.setTaskTerminationTimeout(30_000);
+
+        log.info("[ThreadPool] 异步路由日志执行器初始化完成: 模式=虚拟线程(VirtualThreads), 优雅关闭超时=30s");
+
         return executor;
     }
 
     /**
-     * 异步 Embedding 计算线程池
-     * 
-     * <p>用于异步更新规则的 Embedding 向量（CPU 密集型任务）</p>
+     * 异步 Embedding 计算线程池（保留平台线程池）
+     *
+     * <p>任务性质：[CPU 密集型]（向量 Embedding 计算）。虚拟线程的优势在于阻塞 I/O 期间释放
+     * 载体线程，对纯 CPU 计算无收益，且其吞吐最终仍受 CPU 核数约束；同时本池刻意将并发上限
+     * 绑定到 CPU 核数，起到天然背压作用。因此<b>保留传统 {@link ThreadPoolTaskExecutor}</b>。</p>
      * <ul>
      *     <li>核心线程数：CPU 核心数</li>
      *     <li>最大线程数：CPU 核心数 * 2</li>
@@ -272,14 +228,18 @@ public class ThreadPoolConfig implements SchedulingConfigurer {
         // 初始化
         executor.initialize();
         
-        log.info("[ThreadPool] 异步 Embedding 线程池初始化完成: core={}, max={}, queue={}", 
+        log.info("[ThreadPool] 异步 Embedding 线程池初始化完成: core={}, max={}, queue={} (CPU 密集型，保留平台线程池)", 
                 cpuCores, cpuCores * 2, asyncEmbeddingQueueCapacity);
         
         return executor;
     }
 
     /**
-     * 配置定时任务的线程池
+     * 配置定时任务的线程池（保留平台线程池）
+     *
+     * <p>任务性质：[定时调度]。调度器负责按固定周期/cron 触发任务，依赖稳定的平台线程，
+     * 故保留 {@link ThreadPoolTaskScheduler}。被触发的任务体若为 I/O 阻塞，可由各自的
+     * 虚拟线程执行器承接。</p>
      */
     @Override
     public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
@@ -302,6 +262,6 @@ public class ThreadPoolConfig implements SchedulingConfigurer {
         
         taskRegistrar.setTaskScheduler(scheduler);
         
-        log.info("[ThreadPool] 定时任务调度器初始化完成: poolSize=3");
+        log.info("[ThreadPool] 定时任务调度器初始化完成: poolSize=3 (定时调度，保留平台线程池)");
     }
 }

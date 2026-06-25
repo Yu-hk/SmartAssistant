@@ -4,6 +4,10 @@ server:
   port: 8084
 
 spring:
+  # ⭐ JDK 21 虚拟线程：每请求一线程 + @Async/@Scheduled 默认走虚拟线程（I/O 阻塞型服务收益显著）
+  threads:
+    virtual:
+      enabled: true
   application:
     name: product-service
 
