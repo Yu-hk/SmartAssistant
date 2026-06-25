@@ -500,7 +500,7 @@ saveReply() 时
 
 - **操作系统**：Windows 10/11 或 macOS / Linux
 - **Java**：JDK 21+（推荐 Eclipse Temurin 21.0.6+，`D:\Program Files\Java\jdk-21.0.6+7`）
-- **Maven**：3.9+（可选，Maven Wrapper 可自动下载）
+- **Maven**：3.9+（可选，使用 `bash mvn21.sh` 自动调用系统 Maven）
 - **Node.js**：18+（前端构建）
 - **Docker**：24+（基础设施服务）
 - **Git**：2.x（版本管理）
@@ -509,11 +509,14 @@ saveReply() 时
 
 ```powershell
 # 检查依赖
+bash mvn21.sh -v        # ⭐ 推荐：绕过 Git Bash 的 Maven 路径兼容问题
+.\mvnw.cmd --version    # 备用：Windows CMD 下使用（需先设置 JAVA_HOME）
 java -version
-.\mvnw.cmd --version   # Maven Wrapper 自动处理
 node -v
 docker --version
 ```
+
+> ⚠️ **重要**：本项目需要 JDK 21+。在 Git Bash 下 `./mvnw` 因 MSYS 路径兼容问题无法正常工作，请使用 `bash mvn21.sh <goals>` 替代。
 
 ---
 
@@ -571,17 +574,18 @@ copy .env.example .env
 
 ### 3. 构建项目
 
+> ⚠️ Git Bash 下 `./mvnw` 因 MSYS 路径兼容问题不可用，请使用 `bash mvn21.sh`。
+> PowerShell/cmd 下可使用 `mvnw.cmd`，但需先执行 `set JAVA_HOME=D:\Program Files\Java\jdk-21.0.6+7`。
+
 ```powershell
 cd D:\workspace\SmartAssistant
 
-# Maven Wrapper 自动下载指定版本 Maven，无需本地安装
-.\mvnw.cmd install -pl smart-assistant-common -DskipTests
-
-# 全量编译（跳过测试）
-.\mvnw.cmd compile -DskipTests
+# ⭐ 推荐：使用 mvn21.sh 构建（兼容 Git Bash）
+bash mvn21.sh install -pl smart-assistant-common -DskipTests
+bash mvn21.sh compile -DskipTests
 
 # 全量打包
-.\mvnw.cmd package -DskipTests -Dmaven.test.skip=true
+bash mvn21.sh package -DskipTests -Dmaven.test.skip=true
 
 # 前端（React + TypeScript + TDesign）
 cd frontend && npm install && cd ..
