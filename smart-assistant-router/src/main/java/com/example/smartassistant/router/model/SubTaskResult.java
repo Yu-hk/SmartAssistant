@@ -11,6 +11,8 @@ public class SubTaskResult {
     private boolean success;
     private List<String> realTitles;
     private Map<String, String> tagsByTitle;
+    /** ⭐ Handoff 交接命令：执行完毕后如果需显式移交其他 Agent，非空表示有交接请求 */
+    private HandoffCommand handoffCommand;
 
     public SubTaskResult() {}
 
@@ -46,4 +48,8 @@ public class SubTaskResult {
     public void setRealTitles(List<String> realTitles) { this.realTitles = realTitles != null ? realTitles : List.of(); }
     public Map<String, String> getTagsByTitle() { return tagsByTitle; }
     public void setTagsByTitle(Map<String, String> tagsByTitle) { this.tagsByTitle = tagsByTitle != null ? tagsByTitle : Map.of(); }
+
+    public HandoffCommand getHandoffCommand() { return handoffCommand; }
+    public void setHandoffCommand(HandoffCommand handoffCommand) { this.handoffCommand = handoffCommand; }
+    public boolean hasHandoff() { return handoffCommand != null; }
 }
