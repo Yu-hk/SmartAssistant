@@ -12,6 +12,7 @@ import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.service.monitoring.ProductMetricsCollector;
 import com.example.smartassistant.tools.KnowledgeQueryTool;
+import com.example.smartassistant.tools.ProductMemoryTool;
 import com.example.smartassistant.tools.ProductTools;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
@@ -51,6 +52,7 @@ public class ProductAgentConfig {
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
             ProductTools productTools,
             KnowledgeQueryTool knowledgeQueryTool,
+            ProductMemoryTool productMemoryTool,
             ProductMetricsCollector metricsCollector) {
 
         log.info("[ProductAgent] 初始化 Agent: agentName={}", agentName);
@@ -68,7 +70,13 @@ public class ProductAgentConfig {
                 .build();
         toolList.addAll(List.of(kbProvider.getToolCallbacks()));
 
-        log.info("[ProductAgent] 注册 {} 个工具（含知识库查询）", toolList.size());
+        // ⭐ 注册记忆工具
+        MethodToolCallbackProvider memProvider = MethodToolCallbackProvider.builder()
+                .toolObjects(productMemoryTool)
+                .build();
+        toolList.addAll(List.of(memProvider.getToolCallbacks()));
+
+        log.info("[ProductAgent] 注册 {} 个工具（商品查询 + 知识库 + 记忆）", toolList.size());
 
         return new SmartReActAgent(chatModel)
                 .withMetrics(metricsCollector)
