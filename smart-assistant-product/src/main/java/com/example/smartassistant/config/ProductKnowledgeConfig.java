@@ -11,9 +11,11 @@ import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
+import com.example.smartassistant.common.rag.Reranker;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -42,9 +44,17 @@ public class ProductKnowledgeConfig {
 
     @Bean
     public InMemoryKnowledgeBase productKnowledgeBase(BgeEmbeddingModel productBgeEmbeddingModel,
-                                                       ChineseTokenizer tokenizer) {
-        log.info("[ProductKnowledge] 初始化产品知识库 (BGE + BM25)...");
-        InMemoryKnowledgeBase kb = KnowledgeSeedData.createProductKnowledgeBase(productBgeEmbeddingModel, tokenizer);
+                                                       ChineseTokenizer tokenizer,
+                                                       ObjectProvider<Reranker> rerankerProvider) {
+        // Reranker 为可选依赖：未配置 Reranker bean 时降级为恒等映射，绝不传 null
+        Reranker reranker = rerankerProvider.getIfAvailable();
+        if (reranker == null) {
+            reranker = Reranker.identity();
+        }
+        log.info("[ProductKnowledge] 初始化产品知识库 (BGE + BM25), Reranker={}",
+                reranker != Reranker.identity() ? "已启用" : "未启用(恒等映射)");
+        InMemoryKnowledgeBase kb = KnowledgeSeedData.createProductKnowledgeBase(
+                productBgeEmbeddingModel, tokenizer, reranker);
         log.info("[ProductKnowledge] 产品知识库就绪: {} 篇文档", kb.size());
         return kb;
     }

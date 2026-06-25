@@ -535,18 +535,25 @@ public class SmartReActAgent {
 
     // ==================== 并行工具执行 ====================
 
-    /** 工具执行线程池（延迟初始化） */
+    /** 工具执行线程池（延迟初始化，JDK 21 虚拟线程，每工具一线程） */
     private volatile ExecutorService toolExecutor;
+
+    /**
+     * ⭐ 工具并发限流闸门。
+     * <p>虚拟线程执行器是无界的，为保留原 {@code newFixedThreadPool(maxConcurrency)} 隐含的
+     * “单批工具最多 maxConcurrency 个并行”语义（避免对外部工具 API / 搜索接口造成过高并发），
+     * 用 {@link Semaphore} 维持该并发上限。与 toolExecutor 一同延迟初始化，以读取最终的 maxConcurrency。</p>
+     */
+    private volatile Semaphore toolConcurrencyLimiter;
 
     private ExecutorService getToolExecutor() {
         if (toolExecutor == null) {
             synchronized (this) {
                 if (toolExecutor == null) {
-                    toolExecutor = Executors.newFixedThreadPool(maxConcurrency, r -> {
-                        Thread t = new Thread(r, "tool-executor");
-                        t.setDaemon(true);
-                        return t;
-                    });
+                    // 限流闸门与执行器同步初始化（此时 maxConcurrency 已为最终值）
+                    toolConcurrencyLimiter = new Semaphore(maxConcurrency);
+                    // I/O 阻塞型工具（搜索 / HTTP / 汇率等）：每次调用一根虚拟线程，阻塞期间释放载体线程
+                    toolExecutor = Executors.newVirtualThreadPerTaskExecutor();
                 }
             }
         }
@@ -577,8 +584,20 @@ public class SmartReActAgent {
         // ⭐ 创建所有工具的异步任务
         List<CompletableFuture<ToolResponseMessage.ToolResponse>> futures = new ArrayList<>();
         for (var tc : toolCalls) {
-            futures.add(CompletableFuture.supplyAsync(() ->
-                    executeToolCallWithRetry(tc, toolMap), getToolExecutor()));
+            futures.add(CompletableFuture.supplyAsync(() -> {
+                try {
+                    // ⭐ 虚拟线程无界，用限流闸门保留“单批最多 maxConcurrency 个工具并行”的上限
+                    toolConcurrencyLimiter.acquire();
+                    try {
+                        return executeToolCallWithRetry(tc, toolMap);
+                    } finally {
+                        toolConcurrencyLimiter.release();
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new CompletionException(ie);
+                }
+            }, getToolExecutor()));
         }
 
         // ⭐ 等待所有工具完成（有超时）
