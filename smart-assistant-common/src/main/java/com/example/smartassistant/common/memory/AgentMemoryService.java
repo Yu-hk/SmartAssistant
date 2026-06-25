@@ -7,8 +7,6 @@
 
 package com.example.smartassistant.common.memory;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,12 +21,20 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Agent 独立记忆服务（本地文件存储）。
+ * Agent 独立记忆服务（本地 Markdown 文件存储）。
  *
  * <p>为每个 Agent（order/product/general）提供用户粒度的键值记忆存储。
- * 记忆以 JSON 文件存储在 {@code {app.data.dir}/{userId}/{agent}-memory.json} 中。</p>
+ * 记忆以 Markdown 文件存储在 {@code {app.data.dir}/{userId}/{agent}-memory.md} 中，
+ * 与 Consumer 的记忆沉淀（{@code memories/*.md}）保持一致的格式风格。</p>
  *
- * <p>存储格式：{@code {"preferWindowSeat": "靠窗", "frequentRoute": "北京→上海", ...}}</p>
+ * <p>存储格式（Markdown 无序列表）：</p>
+ * <pre>
+ * # Agent 用户偏好
+ *
+ * - preferWindowSeat: 靠窗
+ * - frequentRoute: 北京→上海
+ * - preferPaymentMethod: 微信支付
+ * </pre>
  *
  * <p>写入时机：Agent 工具调用成功后，由 Agent 自身调用 {@link #save(String, String, String, String)}。</p>
  * <p>读取时机：Agent 处理请求前，由 Controller 将记忆注入 system prompt 的上下文。</p>
@@ -41,12 +47,17 @@ public class AgentMemoryService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentMemoryService.class);
 
+    /** 标记文件标题前缀 */
+    private static final String FILE_TITLE_PREFIX = "# ";
+    /** 无序列表前缀 */
+    private static final String LIST_PREFIX = "- ";
+    /** 键值分隔符 */
+    private static final String KV_SEPARATOR = ": ";
+
     private final Path basePath;
-    private final ObjectMapper objectMapper;
 
     public AgentMemoryService(@Value("${app.data.dir:data/users}") String basePath) {
         this.basePath = Paths.get(basePath);
-        this.objectMapper = new ObjectMapper();
     }
 
     /**
@@ -148,36 +159,68 @@ public class AgentMemoryService {
 
     // ==================== 文件操作 ====================
 
-    /** 获取记忆文件路径：{basePath}/{userId}/{agent}-memory.json */
+    /** 获取记忆文件路径：{basePath}/{userId}/{agent}-memory.md */
     private Path getMemoryFile(String agent, String userId) {
-        return basePath.resolve(userId).resolve(agent + "-memory.json");
+        return basePath.resolve(userId).resolve(agent + "-memory.md");
     }
 
-    /** 从 JSON 文件加载全部记忆；文件不存在时返回空 Map */
+    /** 从 Markdown 文件加载全部记忆；文件不存在时返回空 Map */
     private Map<String, String> loadFile(Path file) {
         if (!Files.exists(file)) {
             return new LinkedHashMap<>();
         }
         try {
-            byte[] bytes = Files.readAllBytes(file);
-            String content = new String(bytes, StandardCharsets.UTF_8).trim();
+            String content = Files.readString(file, StandardCharsets.UTF_8).trim();
             if (content.isEmpty()) return new LinkedHashMap<>();
-            return objectMapper.readValue(content, new TypeReference<LinkedHashMap<String, String>>() {});
+
+            Map<String, String> memories = new LinkedHashMap<>();
+            for (String line : content.split("\n")) {
+                line = line.trim();
+                // 解析无序列表行：- key: value
+                if (line.startsWith(LIST_PREFIX) && line.contains(KV_SEPARATOR)) {
+                    String rest = line.substring(LIST_PREFIX.length());
+                    int sepIdx = rest.indexOf(KV_SEPARATOR);
+                    if (sepIdx > 0) {
+                        String key = rest.substring(0, sepIdx).trim();
+                        String value = rest.substring(sepIdx + KV_SEPARATOR.length()).trim();
+                        if (!key.isEmpty()) {
+                            memories.put(key, value);
+                        }
+                    }
+                }
+            }
+            return memories;
         } catch (IOException e) {
             log.warn("[AgentMemory] 读取文件失败: {}, error={}", file, e.getMessage());
             return new LinkedHashMap<>();
         }
     }
 
-    /** 将记忆写入 JSON 文件 */
+    /** 将记忆写入 Markdown 文件 */
     private void writeFile(Path file, Map<String, String> memories) {
         try {
             Files.createDirectories(file.getParent());
-            String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(memories);
-            Files.writeString(file, json, StandardCharsets.UTF_8);
+            StringBuilder sb = new StringBuilder();
+            // 标题
+            String agentName = file.getFileName().toString().replace("-memory.md", "");
+            sb.append(FILE_TITLE_PREFIX).append(capitalize(agentName)).append(" Agent 用户偏好\n\n");
+            // 偏好列表
+            for (Map.Entry<String, String> entry : memories.entrySet()) {
+                String value = entry.getValue();
+                if (value != null && !value.isBlank()) {
+                    sb.append(LIST_PREFIX).append(entry.getKey()).append(KV_SEPARATOR).append(value).append("\n");
+                }
+            }
+            Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             log.warn("[AgentMemory] 写入文件失败: {}, error={}", file, e.getMessage());
         }
+    }
+
+    /** 首字母大写 */
+    private static String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     // ==================== 键名格式化 ====================
