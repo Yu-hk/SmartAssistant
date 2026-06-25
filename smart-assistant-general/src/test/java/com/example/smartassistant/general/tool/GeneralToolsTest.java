@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.general.tool;
 
+import com.example.smartassistant.general.sandbox.ScriptSandbox;
+import com.example.smartassistant.general.sandbox.ScriptSandboxProperties;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -17,7 +19,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class GeneralToolsTest {
 
-    private final GeneralTools tools = new GeneralTools(null);
+    private final GeneralTools tools =
+            new GeneralTools(null, new ScriptSandbox(new ScriptSandboxProperties()));
 
     // ========== 数学计算 ==========
 
