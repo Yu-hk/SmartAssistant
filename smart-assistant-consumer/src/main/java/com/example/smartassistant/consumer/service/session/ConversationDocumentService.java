@@ -25,6 +25,7 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -69,8 +70,10 @@ public class ConversationDocumentService {
     private static final int MIN_CONTENT_FOR_SUMMARIZE = 1000;
     private static final int MIN_TURN_FOR_SUMMARIZE = 3;
 
-    // ★ 文件锁缓存，按 sessionId 粒度同步（使用 Caffeine 缓存，30 分钟自动过期，最大 5000 条目）
-    private final Cache<String, Object> fileLocks = Caffeine.newBuilder()
+    // ★ 文件锁缓存，按 sessionId 粒度同步（Caffeine 缓存，30 分钟自动过期，最大 5000 条目）
+    // ⭐ JDK 21 虚拟线程：使用 ReentrantLock 而非 synchronized + Object，避免在持锁做阻塞 I/O 时
+    //    钉住(pin)载体线程（synchronized 块内阻塞会使虚拟线程退化为平台线程行为）
+    private final Cache<String, ReentrantLock> fileLocks = Caffeine.newBuilder()
             .expireAfterAccess(30, TimeUnit.MINUTES)
             .maximumSize(5000)
             .build();
@@ -153,7 +156,10 @@ public class ConversationDocumentService {
         String entryContent = buildEntryContent(ctx);
 
         // ★ 同步写（session 粒度，防并发读-改-写冲突）
-        synchronized (getFileLock(ctx.sessionId())) {
+        // ⭐ 用 ReentrantLock 替代 synchronized：虚拟线程持锁期间做文件 I/O 不会 pin 载体线程
+        ReentrantLock fileLock = getFileLock(ctx.sessionId());
+        fileLock.lock();
+        try {
             // ★ session 优先：查找已有记忆文件（跨天不换文件）
             Path existingFile = findExistingSessionFile(userDir, sessionKey);
 
@@ -164,6 +170,8 @@ public class ConversationDocumentService {
                 String filename = LocalDate.now().format(DATE_FMT) + "_" + sessionKey + ".md";
                 createMemoryFile(userDir.resolve(filename), ctx, entryContent);
             }
+        } finally {
+            fileLock.unlock();
         }
 
         log.info("[UserMemory] 记忆已保存: userId={}, sessionId={}", ctx.userId(), ctx.sessionId());
@@ -363,8 +371,8 @@ public class ConversationDocumentService {
     /**
      * 获取 sessionId 粒度的同步锁对象（使用 Caffeine 缓存，自动过期）
      */
-    private Object getFileLock(String sessionId) {
-        return fileLocks.get(sessionId, k -> new Object());
+    private ReentrantLock getFileLock(String sessionId) {
+        return fileLocks.get(sessionId, k -> new ReentrantLock());
     }
 
     /**
