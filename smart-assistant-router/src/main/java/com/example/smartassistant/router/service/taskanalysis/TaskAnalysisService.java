@@ -48,6 +48,8 @@ public class TaskAnalysisService {
     private final ModelRoutingService modelRoutingService;
     private final IntentEvaluationService intentEvaluationService;
     private final ObjectMapper objectMapper;
+    /** 意图向量检索器：动态检索与用户问题最相关的意图定义 */
+    private final IntentRetriever intentRetriever;
 
     /**
      * 任务分析 prompt，支持通过 Nacos Config 动态刷新（@RefreshScope）。
@@ -136,9 +138,11 @@ public class TaskAnalysisService {
     private int maxEntityEntries;
 
     public TaskAnalysisService(ModelRoutingService modelRoutingService,
-                               IntentEvaluationService intentEvaluationService) {
+                               IntentEvaluationService intentEvaluationService,
+                               IntentRetriever intentRetriever) {
         this.modelRoutingService = modelRoutingService;
         this.intentEvaluationService = intentEvaluationService;
+        this.intentRetriever = intentRetriever;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -155,7 +159,9 @@ public class TaskAnalysisService {
 
         long start = System.currentTimeMillis();
         try {
-            String rawResponse = modelRoutingService.call(systemPrompt, question);
+            // ⭐ 动态构建 prompt：检索与用户问题最相关的意图定义，替换全量硬编码
+            String finalPrompt = buildDynamicPrompt(question);
+            String rawResponse = modelRoutingService.call(finalPrompt, question);
 
             if (rawResponse == null || rawResponse.isBlank()) {
                 log.warn("[TaskAnalysis] LLM 返回空响应");
@@ -197,6 +203,35 @@ public class TaskAnalysisService {
         } catch (Exception e) {
             log.warn("[TaskAnalysis] 分析异常: {}", e.getMessage());
             return TaskAnalysisResult.empty();
+        }
+    }
+
+    /**
+     * 动态构建任务分析 prompt。
+     *
+     * <p>在基础 system prompt 后追加通过 {@link IntentRetriever} 检索到的与当前问题
+     * 最相关的意图定义（Top-3），而非将所有 5 个意图定义全量硬编码在 prompt 中。
+     * 这使 LLM 专注于相关意图，减少干扰，同时简化后续新增意图的维护成本。</p>
+     *
+     * <p>降级策略：意图检索器不可用或未命中时，直接使用基础 prompt（包含全量意图定义）。</p>
+     *
+     * @param question 用户问题
+     * @return 构建完成的 prompt 文本
+     */
+    private String buildDynamicPrompt(String question) {
+        if (intentRetriever == null) {
+            return systemPrompt;
+        }
+        try {
+            List<IntentDef> relevant = intentRetriever.retrieve(question, 3);
+            String intentSection = intentRetriever.buildIntentSection(relevant);
+            if (intentSection == null) {
+                return systemPrompt;
+            }
+            return systemPrompt + "\n\n" + intentSection;
+        } catch (Exception e) {
+            log.warn("[TaskAnalysis] 动态意图检索失败，使用全量定义: {}", e.getMessage());
+            return systemPrompt;
         }
     }
 
