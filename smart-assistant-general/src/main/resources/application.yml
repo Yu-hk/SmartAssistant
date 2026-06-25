@@ -4,6 +4,10 @@ server:
   port: 8087
 
 spring:
+  # ⭐ JDK 21 虚拟线程：每请求一线程 + @Async/@Scheduled 默认走虚拟线程（I/O 阻塞型服务收益显著）
+  threads:
+    virtual:
+      enabled: true
   application:
     name: general-agent-service
   main:
@@ -121,3 +125,14 @@ logging:
       max-file-size: 10MB
       max-history: 7
       total-size-cap: 100MB
+
+# ⭐ 脚本沙箱：executeScript 工具的运行时资源限制 + 超时熔断（防 CPU/内存耗尽 DoS）
+sandbox:
+  script:
+    enabled: true
+    timeout-ms: 2000            # 单次脚本执行超时（毫秒），超时熔断释放请求线程
+    max-script-length: 2000     # 脚本总字符上限
+    max-lines: 50               # 最大语句行数
+    max-variables: 50           # 最大变量数（防内存膨胀）
+    max-expression-length: 200  # 单行表达式字符上限
+    max-output-length: 8000     # 输出字符上限（防输出膨胀）

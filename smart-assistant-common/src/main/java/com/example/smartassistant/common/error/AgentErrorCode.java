@@ -128,6 +128,12 @@ public enum AgentErrorCode {
     /** 脚本包含危险操作被拒绝 */
     SECURITY_SCRIPT_REJECTED("SCRIPT_REJECTED", false, ErrorCategory.SECURITY,
             RecoveryAction.TERMINATE, "脚本包含不允许的操作，已拒绝执行"),
+    /** 脚本执行超时（沙箱超时熔断，保护请求线程不被长任务占用） */
+    SECURITY_SCRIPT_TIMEOUT("SCRIPT_TIMEOUT", false, ErrorCategory.SECURITY,
+            RecoveryAction.CLARIFY_USER, "脚本执行超时，请简化计算步骤后重试"),
+    /** 脚本超出资源限制（长度/行数/变量数，防 CPU/内存耗尽） */
+    SECURITY_SCRIPT_RESOURCE_LIMIT("SCRIPT_RESOURCE_LIMIT", false, ErrorCategory.SECURITY,
+            RecoveryAction.CLARIFY_USER, "脚本规模超出限制，请缩减脚本长度或步骤数"),
 
     // ==================== 系统内部类 ====================
 
