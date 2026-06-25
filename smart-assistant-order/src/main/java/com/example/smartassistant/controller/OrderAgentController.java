@@ -8,6 +8,7 @@
 package com.example.smartassistant.controller;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.memory.AgentMemoryService;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
 import com.example.smartassistant.service.core.OrderRagService;
@@ -41,13 +42,17 @@ public class OrderAgentController {
     private final SmartReActAgent orderAgent;
     private final OrderIntentService intentService;
     private final OrderRagService ragService;
+    /** Agent 独立记忆：用户粒度的键值偏好存储（Order Agent 专属） */
+    private final AgentMemoryService memoryService;
 
     public OrderAgentController(SmartReActAgent orderAgent,
                                 OrderIntentService intentService,
-                                OrderRagService ragService) {
+                                OrderRagService ragService,
+                                AgentMemoryService memoryService) {
         this.orderAgent = orderAgent;
         this.intentService = intentService;
         this.ragService = ragService;
+        this.memoryService = memoryService;
     }
 
     /**
@@ -78,15 +83,30 @@ public class OrderAgentController {
         try {
             // Step 1: 意图识别
             IntentType intent = intentService.detect(question);
-            log.info("[OrderAgent] 意图识别: {}", intent.getLabel());
 
-            // Step 2: RAG 预检索 + 上下文注入
-            String enhancedQuestion = ragService.buildEnhancedMessage(intent, question);
-            if (!enhancedQuestion.equals(question)) {
-                log.info("[OrderAgent] RAG 预检索已注入上下文");
+            // Step 2: 用户记忆注入（userId 为可选字段）
+            String userId = request.get("userId");
+            String enhancedQuestion = question;
+            if (userId != null && !userId.isBlank() && !"null".equals(userId)) {
+                String userMemory = memoryService.getAllFormatted("order", userId);
+                if (!userMemory.isBlank()) {
+                    enhancedQuestion = userMemory + "\n[用户问题]\n" + question;
+                    log.info("[OrderAgent] 用户记忆已注入: userId={}, memories={}",
+                            userId, userMemory.replace("\n", " | "));
+                }
             }
 
-            // Step 3: Agent 执行
+            // Step 3: RAG 预检索 + 上下文注入
+            if (ragService != null) {
+                String ragEnhanced = ragService.buildEnhancedMessage(intent, enhancedQuestion);
+                if (!ragEnhanced.equals(enhancedQuestion)) {
+                    enhancedQuestion = ragEnhanced;
+                    log.info("[OrderAgent] RAG 预检索已注入上下文");
+                }
+            }
+
+            // Step 4: Agent 执行
+            log.info("[OrderAgent] 意图识别: {}, userId={}, 记忆注入={}", intent.getLabel(), userId, userId != null);
             String result = orderAgent.execute(enhancedQuestion);
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("[OrderAgent] 处理完成: intent={},耗时={}ms,结果长度={}",
