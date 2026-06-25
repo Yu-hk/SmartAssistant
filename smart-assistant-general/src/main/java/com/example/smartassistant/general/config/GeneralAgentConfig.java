@@ -11,8 +11,9 @@ import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.general.service.monitoring.GeneralMetricsCollector;
-import com.example.smartassistant.general.tool.ImageTools;
+import com.example.smartassistant.general.tool.GeneralMemoryTool;
 import com.example.smartassistant.general.tool.GeneralTools;
+import com.example.smartassistant.general.tool.ImageTools;
 import com.example.smartassistant.general.tool.WeatherTool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
@@ -54,11 +55,12 @@ public class GeneralAgentConfig {
             GeneralTools generalTools,
             ImageTools imageTools,
             WeatherTool weatherTool,
+            GeneralMemoryTool generalMemoryTool,
             GeneralMetricsCollector metricsCollector) {
 
         log.info("[GeneralAgent] 初始化通用对话 Agent: agentName={}", agentName);
 
-        // 注册所有工具（通用工具 + 图像工具 + 天气工具）
+        // 注册所有工具（通用工具 + 图像工具 + 天气工具 + 记忆工具）
         MethodToolCallbackProvider generalToolProvider = MethodToolCallbackProvider.builder()
                 .toolObjects(generalTools)
                 .build();
@@ -68,10 +70,14 @@ public class GeneralAgentConfig {
         MethodToolCallbackProvider weatherToolProvider = MethodToolCallbackProvider.builder()
                 .toolObjects(weatherTool)
                 .build();
+        MethodToolCallbackProvider memoryToolProvider = MethodToolCallbackProvider.builder()
+                .toolObjects(generalMemoryTool)
+                .build();
         List<ToolCallback> toolCallbacks = new ArrayList<>();
         toolCallbacks.addAll(List.of(generalToolProvider.getToolCallbacks()));
         toolCallbacks.addAll(List.of(imageToolProvider.getToolCallbacks()));
         toolCallbacks.addAll(List.of(weatherToolProvider.getToolCallbacks()));
+        toolCallbacks.addAll(List.of(memoryToolProvider.getToolCallbacks()));
 
         log.info("[GeneralAgent] 注册 {} 个工具（通用 {} + 图像 {} + 天气 {}）",
                 toolCallbacks.size(),
