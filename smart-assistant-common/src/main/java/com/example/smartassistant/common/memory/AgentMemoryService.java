@@ -7,22 +7,30 @@
 
 package com.example.smartassistant.common.memory;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * Agent 独立记忆服务。
+ * Agent 独立记忆服务（本地文件存储）。
  *
  * <p>为每个 Agent（order/product/general）提供用户粒度的键值记忆存储。
- * 记忆以 Redis key 存储，格式：{@code a2a:memory:{agent}:{userId}:{key}}。</p>
+ * 记忆以 JSON 文件存储在 {@code {app.data.dir}/{userId}/{agent}-memory.json} 中。</p>
  *
- * <p>写入时机：Agent 工具调用成功后，由 Agent 自身的 MemoryTool 或 AOP 切面触发。</p>
+ * <p>存储格式：{@code {"preferWindowSeat": "靠窗", "frequentRoute": "北京→上海", ...}}</p>
+ *
+ * <p>写入时机：Agent 工具调用成功后，由 Agent 自身调用 {@link #save(String, String, String, String)}。</p>
  * <p>读取时机：Agent 处理请求前，由 Controller 将记忆注入 system prompt 的上下文。</p>
  *
  * <p>遵循文章③的核心原则：<strong>"不记什么 > 记什么"</strong>，
@@ -33,58 +41,65 @@ public class AgentMemoryService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentMemoryService.class);
 
-    private static final String MEMORY_PREFIX = "a2a:memory:";
-    /** 默认记忆 TTL：60 天 */
-    private static final long DEFAULT_TTL_SECONDS = TimeUnit.DAYS.toSeconds(60);
+    private final Path basePath;
+    private final ObjectMapper objectMapper;
 
-    private final StringRedisTemplate redisTemplate;
-
-    public AgentMemoryService(StringRedisTemplate redisTemplate) {
-        this.redisTemplate = redisTemplate;
+    public AgentMemoryService(@Value("${app.data.dir:data/users}") String basePath) {
+        this.basePath = Paths.get(basePath);
+        this.objectMapper = new ObjectMapper();
     }
 
     /**
      * 保存一条 Agent 记忆。
      *
-     * @param agent   Agent 名称（如 {@code order}）
-     * @param userId  用户 ID
-     * @param key     记忆键（如 {@code preferWindowSeat}、{@code frequentRoute}）
-     * @param value   记忆值
+     * @param agent  Agent 名称（如 {@code order}）
+     * @param userId 用户 ID
+     * @param key    记忆键（如 {@code preferWindowSeat}）
+     * @param value  记忆值（如 {@code 靠窗}）
      */
     public void save(String agent, String userId, String key, String value) {
-        save(agent, userId, key, value, DEFAULT_TTL_SECONDS);
-    }
-
-    /**
-     * 保存一条 Agent 记忆（自定义 TTL）。
-     *
-     * @param agent   Agent 名称
-     * @param userId  用户 ID
-     * @param key     记忆键
-     * @param value   记忆值
-     * @param ttlSeconds TTL（秒）
-     */
-    public void save(String agent, String userId, String key, String value, long ttlSeconds) {
-        String redisKey = buildKey(agent, userId, key);
-        redisTemplate.opsForValue().set(redisKey, value, ttlSeconds, TimeUnit.SECONDS);
-        log.debug("[AgentMemory] 保存: agent={}, userId={}, key={}, ttl={}d",
-                agent, userId, key, ttlSeconds / 86400);
+        if (agent == null || userId == null || key == null) return;
+        try {
+            Path file = getMemoryFile(agent, userId);
+            Map<String, String> memories = loadFile(file);
+            memories.put(key, value != null ? value : "");
+            writeFile(file, memories);
+            log.debug("[AgentMemory] 保存: agent={}, userId={}, key={}, value={}", agent, userId, key, value);
+        } catch (Exception e) {
+            log.warn("[AgentMemory] 保存失败: agent={}, userId={}, key={}, error={}", agent, userId, key, e.getMessage());
+        }
     }
 
     /**
      * 读取一条 Agent 记忆。
      *
-     * @return 记忆值；不存在时返回 null
+     * @return 记忆值；不存在时返回 {@code null}
      */
     public String get(String agent, String userId, String key) {
-        return redisTemplate.opsForValue().get(buildKey(agent, userId, key));
+        if (agent == null || userId == null || key == null) return null;
+        try {
+            Map<String, String> memories = loadFile(getMemoryFile(agent, userId));
+            return memories.get(key);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
      * 删除一条 Agent 记忆。
      */
     public void delete(String agent, String userId, String key) {
-        redisTemplate.delete(buildKey(agent, userId, key));
+        if (agent == null || userId == null || key == null) return;
+        try {
+            Path file = getMemoryFile(agent, userId);
+            Map<String, String> memories = loadFile(file);
+            if (memories.remove(key) != null) {
+                writeFile(file, memories);
+                log.debug("[AgentMemory] 删除: agent={}, userId={}, key={}", agent, userId, key);
+            }
+        } catch (Exception e) {
+            log.warn("[AgentMemory] 删除失败: agent={}, userId={}, key={}, error={}", agent, userId, key, e.getMessage());
+        }
     }
 
     /**
@@ -93,51 +108,82 @@ public class AgentMemoryService {
      * <p>返回格式示例：</p>
      * <pre>
      * [用户偏好]
-     * - 常用出发地：北京
-     * - 偏好座位：靠窗
-     * - 常订车次：G1/G2 次
+     * - 偏好窗口座位：靠窗
+     * - 常用出行路线：北京→上海
      * </pre>
      *
      * @return 格式化文本；无记忆时返回空字符串
      */
     public String getAllFormatted(String agent, String userId) {
-        Set<String> keys = redisTemplate.keys(buildPrefix(agent, userId) + "*");
-        if (keys == null || keys.isEmpty()) return "";
+        if (agent == null || userId == null) return "";
+        try {
+            Map<String, String> memories = loadFile(getMemoryFile(agent, userId));
+            if (memories.isEmpty()) return "";
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("[用户偏好]\n");
-        for (String key : keys) {
-            String value = redisTemplate.opsForValue().get(key);
-            if (value != null && !value.isBlank()) {
-                String keyName = key.substring(key.lastIndexOf(':') + 1);
-                sb.append("- ").append(formatKeyName(keyName)).append("：").append(value).append("\n");
+            StringBuilder sb = new StringBuilder();
+            sb.append("[用户偏好]\n");
+            for (Map.Entry<String, String> entry : memories.entrySet()) {
+                String value = entry.getValue();
+                if (value != null && !value.isBlank()) {
+                    sb.append("- ").append(formatKeyName(entry.getKey())).append("：").append(value).append("\n");
+                }
             }
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
         }
-        return sb.toString();
     }
 
     /**
      * 检查该用户在该 Agent 下是否有任何记忆。
      */
     public boolean hasMemory(String agent, String userId) {
-        Set<String> keys = redisTemplate.keys(buildPrefix(agent, userId) + "*");
-        return keys != null && !keys.isEmpty();
+        if (agent == null || userId == null) return false;
+        try {
+            return Files.exists(getMemoryFile(agent, userId));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
-    /** 构建 Redis key：a2a:memory:{agent}:{userId}:{key} */
-    private static String buildKey(String agent, String userId, String key) {
-        return MEMORY_PREFIX + agent + ":" + userId + ":" + key;
+    // ==================== 文件操作 ====================
+
+    /** 获取记忆文件路径：{basePath}/{userId}/{agent}-memory.json */
+    private Path getMemoryFile(String agent, String userId) {
+        return basePath.resolve(userId).resolve(agent + "-memory.json");
     }
 
-    /** 构建 Redis key 前缀：a2a:memory:{agent}:{userId}: */
-    private static String buildPrefix(String agent, String userId) {
-        return MEMORY_PREFIX + agent + ":" + userId + ":";
+    /** 从 JSON 文件加载全部记忆；文件不存在时返回空 Map */
+    private Map<String, String> loadFile(Path file) {
+        if (!Files.exists(file)) {
+            return new LinkedHashMap<>();
+        }
+        try {
+            byte[] bytes = Files.readAllBytes(file);
+            String content = new String(bytes, StandardCharsets.UTF_8).trim();
+            if (content.isEmpty()) return new LinkedHashMap<>();
+            return objectMapper.readValue(content, new TypeReference<LinkedHashMap<String, String>>() {});
+        } catch (IOException e) {
+            log.warn("[AgentMemory] 读取文件失败: {}, error={}", file, e.getMessage());
+            return new LinkedHashMap<>();
+        }
     }
 
-    /** 将 camelCase 或连字符格式的 key 转换为中文可读形式 */
+    /** 将记忆写入 JSON 文件 */
+    private void writeFile(Path file, Map<String, String> memories) {
+        try {
+            Files.createDirectories(file.getParent());
+            String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(memories);
+            Files.writeString(file, json, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.warn("[AgentMemory] 写入文件失败: {}, error={}", file, e.getMessage());
+        }
+    }
+
+    // ==================== 键名格式化 ====================
+
+    /** 将 camelCase key 转换为中文可读形式 */
     private static String formatKeyName(String key) {
-        // preferWindowSeat → 偏好窗口座位
-        // 使用预定义映射
         return switch (key) {
             case "preferWindowSeat", "preferWindow" -> "偏好窗口座位";
             case "preferAisleSeat", "preferAisle" -> "偏好过道座位";
