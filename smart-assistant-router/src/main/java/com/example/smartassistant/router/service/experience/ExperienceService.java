@@ -73,16 +73,20 @@ public class ExperienceService {
     private final SemanticRouteCacheService semanticCache;
     private final BgeOnnxEmbeddingService bgeEmbedding;
     private final ExperienceEmbeddingMapper embeddingMapper;
+    /** 经验验证器：召回后验证时效性和可靠度 */
+    private final ExperienceValidator experienceValidator;
 
     public ExperienceService(StringRedisTemplate redisTemplate,
                              SemanticRouteCacheService semanticCache,
                              BgeOnnxEmbeddingService bgeEmbedding,
-                             ExperienceEmbeddingMapper embeddingMapper) {
+                             ExperienceEmbeddingMapper embeddingMapper,
+                             ExperienceValidator experienceValidator) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.semanticCache = semanticCache;
         this.bgeEmbedding = bgeEmbedding;
         this.embeddingMapper = embeddingMapper;
+        this.experienceValidator = experienceValidator;
     }
 
     // ==================== 经验匹配（路由主流程调用）====================
@@ -166,15 +170,24 @@ public class ExperienceService {
 
             ScoredExperience best = allMatches.get(0);
 
-            log.info("[Experience] 🧠 经验匹配成功: type={}, intent={}, agent={}, score={}, bge={}",
-                    best.exp.getType(), best.exp.getIntentTag(), best.exp.getAgentName(),
+            // ⭐ 经验验证：检查时效性、可靠度、新鲜度
+            List<String> warnings = experienceValidator.validate(best.exp);
+            if (!warnings.isEmpty()) {
+                log.info("[Experience] ⚠️ 经验匹配成功但存在验证警告: warnings={}, type={}, intent={}, score={}",
+                        warnings, best.exp.getType(), best.exp.getIntentTag(),
+                        String.format("%.2f", best.score));
+            }
+
+            log.info("[Experience] 🧠 经验匹配成功: type={}, intent={}, agent={}, score={}, bge={}{}",
+                    best.exp.getType(),                     best.exp.getIntentTag(), best.exp.getAgentName(),
                     String.format("%.2f", best.score), useBge ? "✅" : "❌");
 
             // 6. 更新命中计数
             incrementHitCount(best.exp);
 
-            // 7. 构造匹配结果（含多意图副匹配）
+            // 7. 构造匹配结果（含多意图副匹配 + 验证警告）
             ExperienceMatchResult result = buildMatchResult(best.exp, best.score, question);
+            result.warnings = warnings;
 
             // 8. ⭐ 多意图：提取分数 ≥ 0.5 的其他经验作为副匹配
             List<ExperienceMatchResult.SecondaryIntent> secondaries = new ArrayList<>();
@@ -816,6 +829,8 @@ public class ExperienceService {
         public List<ReactStep> reactSteps;
         /** ⭐ 多意图副匹配列表 */
         public List<SecondaryIntent> secondaryIntents;
+        /** ⭐ 经验验证警告（时效性/可靠度/新鲜度），空列表表示完全可信 */
+        public List<String> warnings;
 
         public static class SecondaryIntent {
             public String agentName;
