@@ -39,6 +39,8 @@
         <nacos-client.version>3.1.0</nacos-client.version>
         <!-- JetBrains Annotations — 原由 spring-ai-alibaba 传递引入 -->
         <jetbrains-annotations.version>26.0.2</jetbrains-annotations.version>
+        <!-- ⭐ JDK 17 Windows 长类路径修复（Surefire 3.5.3 bug） -->
+        <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
         <!-- ⭐ 统一管理的第三方依赖版本 -->
         <mybatis-plus.version>3.5.9</mybatis-plus.version>
         <jjwt.version>0.12.5</jjwt.version>
@@ -218,14 +220,6 @@
                                 <artifactId>lombok</artifactId>
                             </exclude>
                         </excludes>
-                    </configuration>
-                </plugin>
-                <!-- ⭐ JDK 17 Windows 长类路径修复 -->
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-surefire-plugin</artifactId>
-                    <configuration>
-                        <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
                     </configuration>
                 </plugin>
             </plugins>
