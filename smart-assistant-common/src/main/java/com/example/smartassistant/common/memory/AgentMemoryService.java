@@ -147,6 +147,21 @@ public class AgentMemoryService {
 
             if (truncated) {
                 sb.append("\n  ⚠️ 共 ").append(total).append(" 条偏好，仅显示前 ").append(limit).append(" 条\n");
+                // ⭐ 提供剩余条目的 key-only 索引，Agent 可调用 recallMemories 获取详情
+                sb.append("  (更多键名：");
+                int indexCount = 0;
+                for (Map.Entry<String, String> entry : memories.entrySet()) {
+                    String raw = entry.getValue();
+                    String value = stripTimestamp(raw);
+                    if (value == null || value.isBlank()) continue;
+                    indexCount++;
+                    if (indexCount <= limit) continue;
+                    sb.append(entry.getKey()).append(", ");
+                }
+                if (sb.charAt(sb.length() - 2) == ',') {
+                    sb.setLength(sb.length() - 2);
+                }
+                sb.append(" — 可调用 recallMemories 获取详情)\n");
             }
 
             return sb.toString();
