@@ -1,0 +1,19 @@
+{
+  "description": "SmartAssistant 业务测试集（黄金测试集）",
+  "version": "1.0",
+  "test_cases": [
+    { "id": "O-001", "intent": "ORDER", "agent": "order", "question": "我的订单到哪了", "tags": ["order","query"], "expected": ["订单","状态"], "priority": "P0" },
+    { "id": "O-002", "intent": "ORDER", "agent": "order", "question": "帮我查一下订单 ORD-2024001 的物流信息", "tags": ["order","logistics"], "expected": ["物流","快递"], "priority": "P0" },
+    { "id": "O-003", "intent": "ORDER", "agent": "order", "question": "我要申请退款，订单号是 ORD-2024001", "tags": ["order","refund"], "expected": ["退款","申请"], "priority": "P1" },
+    { "id": "O-004", "intent": "ORDER", "agent": "order", "question": "帮我取消订单 ORD-2024001", "tags": ["order","cancel"], "expected": ["取消"], "priority": "P1" },
+    { "id": "O-005", "intent": "ORDER", "agent": "order", "question": "帮我订一张靠窗的票，北京到上海", "tags": ["order","create","preference"], "expected": ["北京","上海"], "priority": "P2" },
+    { "id": "P-001", "intent": "PRODUCT", "agent": "product", "question": "这个手机多少钱", "tags": ["product","price"], "expected": ["价格"], "priority": "P0" },
+    { "id": "P-002", "intent": "PRODUCT", "agent": "product", "question": "XX商品还有货吗", "tags": ["product","stock"], "expected": ["库存"], "priority": "P0" },
+    { "id": "P-003", "intent": "PRODUCT", "agent": "product", "question": "推荐一款 500 元以内的耳机", "tags": ["product","recommend"], "expected": ["耳机","推荐"], "priority": "P1" },
+    { "id": "G-001", "intent": "GENERAL", "agent": "general", "question": "今天天气怎么样", "tags": ["general","weather"], "expected": ["天气"], "priority": "P0" },
+    { "id": "G-002", "intent": "GENERAL", "agent": "general", "question": "100美元等于多少人民币", "tags": ["general","currency"], "expected": ["人民币"], "priority": "P1" },
+    { "id": "G-003", "intent": "GENERAL", "agent": "general", "question": "25 + 3 * 4 等于多少", "tags": ["general","calculate"], "expected": ["37"], "priority": "P0" },
+    { "id": "G-004", "intent": "GENERAL", "agent": "general", "question": "帮我查一下最新的热点新闻", "tags": ["general","news"], "expected": ["新闻"], "priority": "P1" },
+    { "id": "M-001", "intent": "ORDER", "agent": "order", "question": "帮我订靠窗的座位，北京到上海", "tags": ["memory","preference"], "expected": ["靠窗","北京","上海"], "priority": "P2" }
+  ]
+}
