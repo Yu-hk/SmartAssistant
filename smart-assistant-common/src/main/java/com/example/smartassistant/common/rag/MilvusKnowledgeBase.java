@@ -40,16 +40,21 @@ import java.util.stream.Collectors;
  * <p>Milvus Collection 设计：</p>
  * <pre>
  * Collection: {name}_kb
- * ├── id         (Int64, 主键, auto_id=false)
- * ├── doc_id     (VarChar, 文档原始 ID, maxLength=128)
- * ├── title      (VarChar, maxLength=1024)
- * ├── content    (VarChar, maxLength=65535)
- * ├── category   (VarChar, maxLength=64)
- * ├── keywords   (VarChar, maxLength=512)
- * ├── effective_at (Int64)
- * ├── expire_at  (Int64)
- * ├── embedding  (FloatVector, dim=384)
- * └── created_at (Int64)
+ * ├── id            (Int64, 主键, auto_id=false)
+ * ├── doc_id        (VarChar, 文档原始 ID, maxLength=128)
+ * ├── title         (VarChar, maxLength=1024)
+ * ├── content       (VarChar, maxLength=65535)
+ * ├── category      (VarChar, maxLength=64)
+ * ├── keywords      (VarChar, maxLength=512)
+ * ├── effective_at  (Int64)
+ * ├── expire_at     (Int64)
+ * ├── tenant_id     (VarChar, 64)     ← 🔴 ACL：租户隔离
+ * ├── version       (VarChar, 32)     ← 🔴 版本：灰度回滚
+ * ├── source_url    (VarChar, 1024)   ← 🟡 来源：引用回链
+ * ├── chunk_index   (Int64)           ← 🟡 段落：跨段拼接
+ * ├── updated_at    (Int64)           ← 🟡 时效：更新追踪
+ * ├── embedding     (FloatVector, dim=384)
+ * └── created_at    (Int64)
  *
  * Index: IVF_FLAT (nlist=128), metric=COSINE
  * </pre>
@@ -141,6 +146,17 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                             .withName("effective_at").withDataType(DataType.Int64).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("expire_at").withDataType(DataType.Int64).build())
+                    // ⭐ 生产级 6 类字段（ACL/版本/来源/索引/时效）
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("tenant_id").withDataType(DataType.VarChar).withMaxLength(64).build())
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("version").withDataType(DataType.VarChar).withMaxLength(32).build())
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("source_url").withDataType(DataType.VarChar).withMaxLength(1024).build())
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("chunk_index").withDataType(DataType.Int64).build())
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("updated_at").withDataType(DataType.Int64).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("embedding").withDataType(DataType.FloatVector).withDimension(DIMENSIONS).build())
                     .addFieldType(FieldType.newBuilder()
@@ -207,6 +223,12 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
             vecList.add(floatVec);
             fields.add(new Field("embedding", vecList));
             fields.add(new Field("created_at", List.of(System.currentTimeMillis())));
+            // ⭐ 生产级 6 类字段
+            fields.add(new Field("tenant_id", List.of(doc.getTenantId() != null && !doc.getTenantId().isBlank() ? doc.getTenantId() : "public")));
+            fields.add(new Field("version", List.of(doc.getVersion() != null ? doc.getVersion() : "v1")));
+            fields.add(new Field("source_url", List.of(doc.getSourceUrl() != null ? doc.getSourceUrl() : "")));
+            fields.add(new Field("chunk_index", List.of((long) doc.getChunkIndex())));
+            fields.add(new Field("updated_at", List.of(System.currentTimeMillis())));
 
             InsertParam insertParam = InsertParam.newBuilder()
                     .withCollectionName(collectionName)
@@ -259,7 +281,8 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                     .withCollectionName(collectionName)
                     .withMetricType(MetricType.COSINE)
                     .withOutFields(List.of("doc_id", "title", "content", "category",
-                            "keywords", "effective_at", "expire_at", "created_at"))
+                            "keywords", "effective_at", "expire_at", "created_at",
+                            "tenant_id", "version", "source_url", "chunk_index", "updated_at"))
                     .withTopK(k)
                     .withVectors(queryVectors)
                     .withParams(SEARCH_PARAM)

@@ -41,6 +41,7 @@ import java.util.concurrent.TimeUnit;
  * ├── agent_name    (VarChar, maxLength=64)
  * ├── summary_text  (VarChar, maxLength=65535)
  * ├── generation    (Int64)
+ * ├── version       (VarChar, 32)    ← 🔴 版本：灰度回滚
  * ├── created_at    (Int64)
  * └── embedding     (FloatVector, dim=384)
  * Index: IVF_FLAT (nlist=128), metric=COSINE
@@ -101,6 +102,9 @@ public class MilvusConversationSummaryStore implements ConversationSummaryStore 
                             .withName("summary_text").withDataType(DataType.VarChar).withMaxLength(65535).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("generation").withDataType(DataType.Int64).build())
+                    // ⭐ 生产级版本字段
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("version").withDataType(DataType.VarChar).withMaxLength(32).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("created_at").withDataType(DataType.Int64).build())
                     .addFieldType(FieldType.newBuilder()
@@ -149,6 +153,7 @@ public class MilvusConversationSummaryStore implements ConversationSummaryStore 
             fields.add(new Field("agent_name", List.of(agentName != null ? agentName : "")));
             fields.add(new Field("summary_text", List.of(summary)));
             fields.add(new Field("generation", List.of((long) generation)));
+            fields.add(new Field("version", List.of("v1")));
             fields.add(new Field("created_at", List.of(System.currentTimeMillis())));
             fields.add(new Field("embedding", List.of(floatVec)));
 

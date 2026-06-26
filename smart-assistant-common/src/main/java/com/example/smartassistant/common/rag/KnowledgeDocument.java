@@ -7,17 +7,17 @@
 
 package com.example.smartassistant.common.rag;
 
-import lombok.Getter;
-
 /**
  * 知识文档——RAG 检索的基本单元。
  * <p>
- * 包含文档内容、元信息、分类标签和时效性字段。
- * 对应 RAG 治理文章中的"召回单元"概念。
+ * 包含文档内容、元信息、分类标签、时效性字段、权限标签（ACL）、版本号。
+ * 参考字节面试考点：向量数据库至少需要 6 类字段——embedding、chunk_text、
+ * doc_id、metadata、权限标签(ACL)、版本号，每一类对应一种生产事故。
  * </p>
  */
-@Getter
 public class KnowledgeDocument {
+
+    // ==================== 原有字段 ====================
 
     /** 文档唯一 ID */
     private final String id;
@@ -43,9 +43,34 @@ public class KnowledgeDocument {
     /** 创建时间戳 */
     private final long createdAt;
 
+    // ==================== 新增生产字段（参考字节面试 6 类字段）====================
+
+    /** 🔴 ACL：租户 ID（权限过滤），默认空字符串表示公开 */
+    private final String tenantId;
+
+    /** 🔴 版本号：灰度发布 + 回滚（如 "v3"），默认 "v1" */
+    private final String version;
+
+    /** 🟡 来源 URL：引用回链），默认空字符串 */
+    private final String sourceUrl;
+
+    /** 🟡 Chunk 序号：跨段拼接），默认 0 */
+    private final int chunkIndex;
+
+    // ==================== 构造器 ====================
+
     public KnowledgeDocument(String id, String title, String content,
                              String category, String keywords,
                              long effectiveAt, long expireAt) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                "", "v1", "", 0);
+    }
+
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex) {
         this.id = id;
         this.title = title;
         this.content = content;
@@ -54,6 +79,10 @@ public class KnowledgeDocument {
         this.effectiveAt = effectiveAt;
         this.expireAt = expireAt;
         this.createdAt = System.currentTimeMillis();
+        this.tenantId = tenantId != null ? tenantId : "";
+        this.version = version != null ? version : "v1";
+        this.sourceUrl = sourceUrl != null ? sourceUrl : "";
+        this.chunkIndex = chunkIndex;
     }
 
     /** 文档是否在有效期内 */
@@ -69,6 +98,18 @@ public class KnowledgeDocument {
         return title + "。\n" + content + "\n关键词：" + keywords;
     }
 
-    // ------- Getters -------
+    // ==================== Getters ====================
 
+    public String getId() { return id; }
+    public String getTitle() { return title; }
+    public String getContent() { return content; }
+    public String getCategory() { return category; }
+    public String getKeywords() { return keywords; }
+    public long getEffectiveAt() { return effectiveAt; }
+    public long getExpireAt() { return expireAt; }
+    public long getCreatedAt() { return createdAt; }
+    public String getTenantId() { return tenantId; }
+    public String getVersion() { return version; }
+    public String getSourceUrl() { return sourceUrl; }
+    public int getChunkIndex() { return chunkIndex; }
 }
