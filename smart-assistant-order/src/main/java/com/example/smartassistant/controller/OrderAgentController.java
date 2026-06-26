@@ -9,6 +9,7 @@ package com.example.smartassistant.controller;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.memory.AgentMemoryService;
+import com.example.smartassistant.common.memory.ContextOrchestrator;
 import com.example.smartassistant.common.memory.MemoryExtractor;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
@@ -17,6 +18,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -48,17 +51,21 @@ public class OrderAgentController {
     private final AgentMemoryService memoryService;
     /** 记忆后台提取器：对话结束后自动提取用户偏好 */
     private final MemoryExtractor memoryExtractor;
+    /** 上下文协调器：统一调度四层记忆预算 */
+    private final ContextOrchestrator orchestrator;
 
     public OrderAgentController(SmartReActAgent orderAgent,
                                 OrderIntentService intentService,
                                 OrderRagService ragService,
                                 AgentMemoryService memoryService,
-                                MemoryExtractor memoryExtractor) {
+                                MemoryExtractor memoryExtractor,
+                                ContextOrchestrator orchestrator) {
         this.orderAgent = orderAgent;
         this.intentService = intentService;
         this.ragService = ragService;
         this.memoryService = memoryService;
         this.memoryExtractor = memoryExtractor;
+        this.orchestrator = orchestrator;
     }
 
     /**
@@ -90,28 +97,23 @@ public class OrderAgentController {
             // Step 1: 意图识别
             IntentType intent = intentService.detect(question);
 
-            // Step 2: ⭐ 状态锚点强制注入（始终执行，防止上下文漂移）
+            // Step 2: ⭐ 上下文协调器 — 统一调度四层记忆预算
             String userId = request.get("userId");
-            String anchor = memoryService.getStateAnchor(userId);
-            String enhancedQuestion = anchor;
-            // 同时注入 Agent 专属记忆（如有）
-            if (userId != null && !userId.isBlank() && !"null".equals(userId)) {
-                String userMemory = memoryService.getAllFormatted("order", userId, question);
-                if (!userMemory.isBlank()) {
-                    enhancedQuestion = anchor + "\n" + userMemory;
-                    log.info("[OrderAgent] 状态锚点+记忆已注入: userId={}", userId);
-                }
-            }
-            enhancedQuestion += "\n[用户问题]\n" + question;
+            List<String> extras = new ArrayList<>();
 
-            // Step 3: RAG 预检索 + 上下文注入
+            // Step 3: RAG 预检索作为额外上下文
             if (ragService != null) {
-                String ragEnhanced = ragService.buildEnhancedMessage(intent, enhancedQuestion);
-                if (!ragEnhanced.equals(enhancedQuestion)) {
-                    enhancedQuestion = ragEnhanced;
+                String ragContext = ragService.buildEnhancedMessage(intent, question);
+                if (!ragContext.equals(question)) {
+                    extras.add(ragContext);
                     log.info("[OrderAgent] RAG 预检索已注入上下文");
                 }
             }
+
+            // 通过 Orchestrator 构建分层 prompt
+            String enhancedQuestion = orchestrator.buildPrompt(question, userId, "order",
+                    extras.isEmpty() ? null : extras);
+            log.info("[OrderAgent] 状态锚点已强制注入: userId={}", userId != null ? userId : "访客");
 
             // Step 4: Agent 执行
             log.info("[OrderAgent] 意图识别: {}, userId={}, 记忆注入={}", intent.getLabel(), userId, userId != null);
