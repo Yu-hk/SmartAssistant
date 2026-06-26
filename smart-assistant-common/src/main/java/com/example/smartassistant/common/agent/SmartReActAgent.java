@@ -13,6 +13,8 @@ import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.common.error.RecoveryAction;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.tool.ToolGroupManager;
+import com.example.smartassistant.common.trace.TraceSpan;
+import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.*;
@@ -110,6 +112,9 @@ public class SmartReActAgent {
 
     /** ⭐ 工具组管理器（可选，用于按需激活工具组） */
     private ToolGroupManager toolGroupManager;
+
+    /** ⭐ 追踪跨度注册表（可选，用于生成 Jaeger 嵌套跨度） */
+    private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
 
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
@@ -217,6 +222,11 @@ public class SmartReActAgent {
         return this;
     }
 
+    public SmartReActAgent withObservationRegistry(ObservationRegistry registry) {
+        if (registry != null) this.observationRegistry = registry;
+        return this;
+    }
+
     // ==================== execute 重载 ====================
 
     /**
@@ -315,13 +325,15 @@ public class SmartReActAgent {
 
             metrics.recordIteration(iteration);
 
-            // ⭐ 调用 LLM
+            // ⭐ 调用 LLM（带追踪跨度）
             ChatResponse response;
             long llmStart = System.currentTimeMillis();
             try {
-                // ⭐ 注入工具列表到 CustomDeepSeekChatModel（如果适用）
                 injectToolsToModel(effectiveTools);
-                response = chatModel.call(new Prompt(messages, options));
+                final List<Message> callMessages = messages;
+                final ToolCallingChatOptions callOptions = options;
+                response = TraceSpan.of(observationRegistry, "agent-llm-call")
+                        .run(() -> chatModel.call(new Prompt(callMessages, callOptions)));
             } catch (Exception e) {
                 log.error("[SmartReActAgent] LLM 调用失败: {}", e.getMessage());
                 recoveryService.logRecovery(AgentErrorCode.MODEL_CALL_FAILED, RecoveryAction.RETRY_BACKOFF,
@@ -364,8 +376,9 @@ public class SmartReActAgent {
             // ⭐ 将 assistant 的 tool_call 请求加入对话
             messages.add(assistantMsg);
 
-            // ⭐ 执行工具（支持并行）
-            List<ToolResponseMessage.ToolResponse> toolResponses = executeTools(toolCalls, toolMap);
+            // ⭐ 执行工具（支持并行，带追踪跨度）
+            List<ToolResponseMessage.ToolResponse> toolResponses = TraceSpan.of(observationRegistry, "agent-tool-execute")
+                    .run(() -> executeTools(toolCalls, toolMap));
 
             // ⭐ 连续无增量检测：防止重复调同类工具陷入循环
             String currentHash = toolCalls.stream().map(tc -> tc.name()).sorted()
