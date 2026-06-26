@@ -20,8 +20,11 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Agent 独立记忆服务（本地 Markdown 文件存储）。
@@ -111,11 +114,51 @@ public class AgentMemoryService {
      *
      * <p>条目截断：超过 {@value #MAX_DISPLAY_ENTRIES} 条时只输出前半 + 截断提示。</p>
      */
+    /**
+     * 获取该 Agent + 用户的所有记忆，含老化警告和条目截断。
+     * 参考 {@link #getAllFormatted(String, String, String)} 可传入上下文做相关性排序。
+     */
     public String getAllFormatted(String agent, String userId) {
+        return getAllFormatted(agent, userId, null);
+    }
+
+    /**
+     * 获取该 Agent + 用户的所有记忆，按问题上下文排序。
+     *
+     * <p>当传入 {@code context} 时，记忆条目按与上下文的匹配度排序
+     * （基于键名+值的关键词命中），使最相关的偏好排在前面。
+     * 这是"小模型语义选择"的轻量实现——用关键词匹配替代 LLM 调用。</p>
+     *
+     * <p>老化规则：</p>
+     * <ul>
+     *   <li>保存至今 ≤{@value #WARN_DAYS} 天 → 正常显示</li>
+     *   <li>{@value #WARN_DAYS}~{@value #STALE_DAYS} 天 → 附加 ⚠️ 警告</li>
+     *   <li>超过 {@value #STALE_DAYS} 天 → 附加 ⚠️⚠️ 可能已过时</li>
+     * </ul>
+     *
+     * <p>条目截断：超过 {@value #MAX_DISPLAY_ENTRIES} 条时只输出前半 + 截断提示。</p>
+     *
+     * @param agent   Agent 名称
+     * @param userId  用户 ID
+     * @param context 当前问题上下文（用于相关性排序，可为 null）
+     * @return 格式化文本；无记忆时返回空字符串
+     */
+    public String getAllFormatted(String agent, String userId, String context) {
         if (agent == null || userId == null) return "";
         try {
             Map<String, String> memories = loadFile(getMemoryFile(agent, userId));
             if (memories.isEmpty()) return "";
+
+            // ⭐ 按上下文相关性排序（关键词匹配，LLM-free 轻量语义选择）
+            String ctx = (context != null) ? context.toLowerCase() : "";
+            List<Map.Entry<String, String>> entries = new ArrayList<>(memories.entrySet());
+            if (!ctx.isBlank()) {
+                entries.sort((a, b) -> {
+                    int sa = relevanceScore(a, ctx);
+                    int sb = relevanceScore(b, ctx);
+                    return Integer.compare(sb, sa);
+                });
+            }
 
             StringBuilder sb = new StringBuilder();
             sb.append("[用户偏好]\n");
@@ -127,7 +170,7 @@ public class AgentMemoryService {
 
             LocalDate today = LocalDate.now();
 
-            for (Map.Entry<String, String> entry : memories.entrySet()) {
+            for (Map.Entry<String, String> entry : entries) {
                 if (count >= limit) break;
                 count++;
 
@@ -150,7 +193,7 @@ public class AgentMemoryService {
                 // ⭐ 提供剩余条目的 key-only 索引，Agent 可调用 recallMemories 获取详情
                 sb.append("  (更多键名：");
                 int indexCount = 0;
-                for (Map.Entry<String, String> entry : memories.entrySet()) {
+                for (Map.Entry<String, String> entry : entries) {
                     String raw = entry.getValue();
                     String value = stripTimestamp(raw);
                     if (value == null || value.isBlank()) continue;
@@ -281,5 +324,23 @@ public class AgentMemoryService {
             case "replyStyle" -> "回复风格偏好";
             default -> key;
         };
+    }
+
+    // ==================== 上下文相关性评分 ====================
+
+    /** 计算记忆条目与上下文的匹配得分（关键词命中数） */
+    private static int relevanceScore(Map.Entry<String, String> entry, String context) {
+        String combined = (entry.getKey() + " " + formatKeyName(entry.getKey()) + " " + stripTimestamp(entry.getValue()))
+                .toLowerCase();
+        int score = 0;
+        // 以空格/逗号/句号分割上下文为 tokens
+        String[] tokens = context.split("[\\s，。、,.;:！？]+");
+        for (String token : tokens) {
+            if (token.length() < 2) continue; // 跳过单字
+            if (combined.contains(token)) {
+                score++;
+            }
+        }
+        return score;
     }
 }
