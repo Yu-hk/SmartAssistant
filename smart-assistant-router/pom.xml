@@ -22,31 +22,16 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring AI Alibaba Agent Framework -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-agent-framework</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
-        </dependency>
-
-        <!-- A2A 与 Nacos 集成 -->
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-a2a-nacos</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
-        </dependency>
-
         <!-- Spring Cloud Alibaba Nacos Discovery (服务发现) -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
         </dependency>
 
-        <!-- Spring AI Alibaba DashScope Starter (LLM + Embedding) -->
+        <!-- Spring AI Chat Client (ChatClient — 原由 spring-ai-alibaba 传递引入) -->
         <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-client-chat</artifactId>
         </dependency>
 
         <!-- PostgreSQL Driver -->
@@ -67,6 +52,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- JetBrains Annotations -->
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
         </dependency>
 
         <!-- Redis（用于加载会话上下文） -->

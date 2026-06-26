@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartAssistant 监控面板</title>
+<style>
+  :root {
+    --bg: #0f1923;
+    --card: #1a2a3a;
+    --border: #2a3a4a;
+    --text: #c8d6e5;
+    --green: #2ecc71;
+    --red: #e74c3c;
+    --amber: #f39c12;
+    --blue: #3498db;
+    --header-bg: linear-gradient(135deg, #1a2a3a 0%, #0f1923 100%);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 20px; min-height: 100vh; }
+  .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; padding-bottom:16px; border-bottom:1px solid var(--border); }
+  .header h1 { font-size:24px; background: linear-gradient(90deg, #3498db, #2ecc71); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .header .badge { font-size:13px; color:#8899aa; }
+  .header .badge span { color:var(--green); font-weight:bold; }
+  .controls { display:flex; gap:12px; align-items:center; }
+  .controls button { background:var(--card); border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; transition:all 0.2s; }
+  .controls button:hover { border-color:var(--blue); }
+  .controls .auto-refresh { display:flex; align-items:center; gap:8px; font-size:13px; }
+  .controls .auto-refresh input { accent-color:var(--green); }
+  .summary-bar { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:20px; }
+  .summary-card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center; }
+  .summary-card .num { font-size:28px; font-weight:bold; }
+  .summary-card .label { font-size:12px; color:#8899aa; margin-top:4px; }
+  .summary-card.up .num { color:var(--green); }
+  .summary-card.warn .num { color:var(--amber); }
+  .summary-card.down .num { color:var(--red); }
+  .services-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(400px, 1fr)); gap:16px; margin-bottom:20px; }
+  .service-card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; }
+  .service-card .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .service-card .name { font-size:16px; font-weight:bold; }
+  .service-card .port { font-size:12px; color:#8899aa; }
+  .status-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
+  .status-dot.up { background:var(--green); box-shadow:0 0 8px var(--green); }
+  .status-dot.down { background:var(--red); box-shadow:0 0 8px var(--red); }
+  .status-dot.warn { background:var(--amber); box-shadow:0 0 8px var(--amber); }
+  .metric-row { display:flex; justify-content:space-between; padding:4px 0; font-size:13px; border-bottom:1px solid rgba(42,58,74,0.3); }
+  .metric-row:last-child { border-bottom:none; }
+  .metric-row .val { font-weight:bold; }
+  .gauge-wrap { background:#0f1923; border-radius:4px; height:6px; overflow:hidden; margin:8px 0; }
+  .gauge-fill { height:100%; border-radius:4px; transition:width 1s ease; }
+  .gauge-fill.green { background:var(--green); }
+  .gauge-fill.blue { background:var(--blue); }
+  .gauge-fill.amber { background:var(--amber); }
+  .external-links { display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+  .external-links a { display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--border); border-radius:6px; padding:10px 16px; text-decoration:none; color:var(--text); font-size:14px; transition:all 0.2s; }
+  .external-links a:hover { border-color:var(--blue); transform:translateY(-1px); }
+  .external-links a .icon { font-size:18px; }
+  .error-bar { display:none; background:rgba(231,76,60,0.15); border:1px solid rgba(231,76,60,0.3); border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:13px; }
+  .error-bar.show { display:block; }
+  .timestamp { text-align:center; font-size:12px; color:#667788; margin-top:16px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>📊 SmartAssistant 监控面板</h1>
+    <div class="badge">运行中 · <span id="serviceCount">6</span>/6 服务在线</div>
+  </div>
+  <div class="controls">
+    <div class="auto-refresh">
+      <input type="checkbox" id="autoRefresh" checked>
+      <label for="autoRefresh">自动刷新 (10s)</label>
+    </div>
+    <button onclick="refreshAll()">🔄 立即刷新</button>
+  </div>
+</div>
+
+<div class="error-bar" id="errorBar"></div>
+
+<div class="external-links">
+  <a href="http://localhost:9411" target="_blank">
+    <span class="icon">🔗</span> Zipkin 链路追踪
+  </a>
+  <a href="http://localhost:8848/nacos" target="_blank">
+    <span class="icon">📡</span> Nacos 服务注册
+  </a>
+  <a href="http://localhost:6379" target="_blank">
+    <span class="icon">💾</span> Redis (6379)
+  </a>
+  <a href="http://localhost:5433" target="_blank">
+    <span class="icon">🗄️</span> PostgreSQL+pgvector (5433)
+  </a>
+</div>
+
+<div class="summary-bar" id="summaryBar">
+  <div class="summary-card up"><div class="num" id="totalUp">0</div><div class="label">✅ 运行中</div></div>
+  <div class="summary-card warn"><div class="num" id="totalWarn">0</div><div class="label">⚠️ 告警</div></div>
+  <div class="summary-card down"><div class="num" id="totalDown">0</div><div class="label">❌ 宕机</div></div>
+  <div class="summary-card up"><div class="num" id="totalRequests">-</div><div class="label">📨 总请求数</div></div>
+  <div class="summary-card up"><div class="num" id="totalMemory">-</div><div class="label">💾 总堆内存(GB)</div></div>
+</div>
+
+<div class="services-grid" id="servicesGrid"></div>
+
+<div class="timestamp">最后更新: <span id="lastUpdate">-</span></div>
+
+<script>
+const SERVICES = [
+  { name: "API Gateway",    port: 8081, color: "#3498db" },
+  { name: "Consumer",       port: 8082, color: "#9b59b6" },
+  { name: "Router",         port: 8083, color: "#1abc9c" },
+  { name: "Product",        port: 8084, color: "#e67e22" },
+  { name: "Order",          port: 8085, color: "#2ecc71" },
+  { name: "User",           port: 8086, color: "#e74c3c" },
+];
+
+let autoRefreshTimer = null;
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let val = bytes;
+  while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
+  return val.toFixed(1) + ' ' + units[i];
+}
+
+function formatTimestamp() {
+  return new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+}
+
+function setError(msg) {
+  const bar = document.getElementById('errorBar');
+  if (msg) { bar.textContent = '⚠️ ' + msg; bar.classList.add('show'); }
+  else { bar.classList.remove('show'); }
+}
+
+function renderServiceCard(svc, data) {
+  const health = data.health || {};
+  const status = health.status === 'UP' ? 'up' : (health.status ? 'warn' : 'down');
+  const statusText = status === 'up' ? '正常' : (status === 'warn' ? '告警' : '宕机');
+  const metrics = data.metrics || {};
+  
+  const heapUsed = metrics['jvm.memory.used'] || 0;
+  const heapMax = metrics['jvm.memory.max'] || 1;
+  const heapPct = heapMax > 0 ? Math.min(100, (heapUsed / heapMax * 100)) : 0;
+  const cpu = metrics['system.cpu.usage'];
+  const cpuPct = cpu ? Math.round(cpu * 100) : '-';
+  const requests = metrics['http.server.requests'] || 0;
+  const gcPause = metrics['jvm.gc.pause'] || 0;
+
+  return `
+    <div class="service-card">
+      <div class="top">
+        <div>
+          <span class="status-dot ${status}"></span>
+          <span class="name" style="color:${svc.color}">${svc.name}</span>
+          <span class="port">:${svc.port}</span>
+        </div>
+        <div>
+          <span style="font-size:13px;color:${status === 'up' ? 'var(--green)' : 'var(--red)'}">${statusText}</span>
+        </div>
+      </div>
+      <div class="metric-row">
+        <span>💾 堆内存</span>
+        <span class="val">${formatBytes(heapUsed)} / ${formatBytes(heapMax)}</span>
+      </div>
+      <div class="gauge-wrap"><div class="gauge-fill ${heapPct > 80 ? 'amber' : 'blue'}" style="width:${heapPct}%"></div></div>
+      <div class="metric-row">
+        <span>⚡ CPU占用</span>
+        <span class="val">${cpuPct}%</span>
+      </div>
+      <div class="metric-row">
+        <span>📨 HTTP请求</span>
+        <span class="val">${requests.toLocaleString()}</span>
+      </div>
+      <div class="metric-row">
+        <span>🔄 GC暂停</span>
+        <span class="val">${gcPause ? parseInt(gcPause) + 'ms' : '-'}</span>
+      </div>
+      <div class="metric-row" style="margin-top:8px;font-size:12px;color:#8899aa;">
+        <span>🔗 端点</span>
+        <span>
+          <a href="http://localhost:${svc.port}/actuator/health" target="_blank" style="color:var(--blue);text-decoration:none;">health</a>
+          <span style="margin:0 4px">|</span>
+          <a href="http://localhost:${svc.port}/actuator/metrics" target="_blank" style="color:var(--blue);text-decoration:none;">metrics</a>
+          <span style="margin:0 4px">|</span>
+          <a href="http://localhost:${svc.port}/actuator/prometheus" target="_blank" style="color:var(--blue);text-decoration:none;">prometheus</a>
+        </span>
+      </div>
+    </div>
+  `;
+}
+
+async function fetchMetrics(port) {
+  try {
+    const [healthRes, metricsRes] = await Promise.all([
+      fetch(`http://localhost:${port}/actuator/health`).then(r => r.json()).catch(() => ({status:'DOWN'})),
+      fetch(`http://localhost:${port}/actuator/metrics`).then(r => r.json()).catch(() => ({names:[]}))
+    ]);
+    
+    // Fetch individual metrics
+    const metricNames = metricsRes.names || [];
+    const needed = ['jvm.memory.used','jvm.memory.max','system.cpu.usage','http.server.requests','jvm.gc.pause','jvm.classes.loaded','jvm.threads.live'];
+    const metricValues = {};
+    const results = await Promise.allSettled(
+      needed.map(name => 
+        fetch(`http://localhost:${port}/actuator/metrics/${name}`)
+          .then(r => r.json())
+          .then(d => { metricValues[name] = d.measurements?.[0]?.value || 0; })
+          .catch(() => {})
+      )
+    );
+    
+    // For http.server.requests, try to get the total count
+    if (metricNames.includes('http.server.requests')) {
+      try {
+        const r = await fetch(`http://localhost:${port}/actuator/metrics/http.server.requests?tag=outcome:SUCCESS`);
+        const d = await r.json();
+        metricValues['http.server.requests'] = d.measurements?.find(m => m.statistic === 'COUNT')?.value || 0;
+      } catch {}
+    }
+    
+    return { health: healthRes, metrics: metricValues };
+  } catch (e) {
+    return { health: null, metrics: {} };
+  }
+}
+
+async function refreshAll() {
+  setError(null);
+  document.getElementById('lastUpdate').textContent = '刷新中...';
+  
+  const results = await Promise.all(SERVICES.map(s => fetchMetrics(s.port)));
+  
+  let up = 0, warn = 0, down = 0, totalReqs = 0, totalHeap = 0;
+  let serviceCards = '';
+  
+  results.forEach((data, i) => {
+    const svc = SERVICES[i];
+    const status = data.health?.status;
+    if (status === 'UP') up++;
+    else if (status) warn++;
+    else down++;
+    totalReqs += data.metrics['http.server.requests'] || 0;
+    totalHeap += (data.metrics['jvm.memory.max'] || 0);
+    serviceCards += renderServiceCard(svc, data);
+  });
+  
+  document.getElementById('totalUp').textContent = up;
+  document.getElementById('totalWarn').textContent = warn;
+  document.getElementById('totalDown').textContent = down;
+  document.getElementById('totalRequests').textContent = totalReqs.toLocaleString();
+  document.getElementById('totalMemory').textContent = (totalHeap / (1024*1024*1024)).toFixed(1);
+  document.getElementById('servicesGrid').innerHTML = serviceCards;
+  document.getElementById('serviceCount').textContent = up + warn;
+  document.getElementById('lastUpdate').textContent = formatTimestamp();
+  
+  if (down > 0) setError(`${down} 个服务无响应`);
+}
+
+function toggleAutoRefresh() {
+  const enabled = document.getElementById('autoRefresh').checked;
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  if (enabled) autoRefreshTimer = setInterval(refreshAll, 10000);
+}
+
+document.getElementById('autoRefresh').addEventListener('change', toggleAutoRefresh);
+
+// Initial load
+refreshAll();
+toggleAutoRefresh();
+</script>
+</body>
+</html>

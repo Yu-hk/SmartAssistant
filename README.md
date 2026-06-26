@@ -1,14 +1,15 @@
 # SmartAssistant — 多智能体对话系统
 
-[![Java](https://img.shields.io/badge/Java-17%2B-blue)](https://adoptium.net/)
+[![Java](https://img.shields.io/badge/Java-21%2B-blue)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.8-brightgreen)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-1.1.2-brightgreen)](https://docs.spring.io/spring-ai/reference/)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.0-brightgreen)](https://docs.spring.io/spring-ai/reference/)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+[![Production Readiness](https://img.shields.io/badge/production_readiness-audited-blue)](docs/production-readiness-checklist.md)
 
-> 基于 Spring AI Alibaba + A2A 协议的多智能体客服平台，集成 **本地 Ollama 推理引擎**（deepseek-r1:7b / qwen2.5:7b）+ BGE 本地中文 Embedding。
+> 基于 Spring AI 2.0.0 + 多智能体协作平台，集成 **本地 Ollama 推理引擎**（qwen2.5:7b 主模型）+ **本地 BGE ONNX 嵌入**（1024维 RAG / 512维 缓存）。
 > 支持多 Agent 协同、三层路由兜底、订单查询、商品咨询、语义缓存、全链路监控。
-> 🔒 纯本地推理，所有数据不出内网。
+> 🔒 **零外部 API 依赖**，纯本地推理，所有数据不出内网。
 
 ---
 
@@ -41,14 +42,16 @@
 
 ## 项目简介
 
-SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 框架和 **A2A (Agent-to-Agent)** 协议实现。系统通过 **智能路由器** 将用户请求分发到不同的专业 Agent，支持：
+SmartAssistant 是一个多智能体对话系统，基于 **Spring AI** 框架和 **自研 ReAct 循环**实现。系统通过 **智能路由器** 将用户请求分发到不同的专业 Agent，支持：
 
-- **Order Agent**：订单查询、退款处理、物流跟踪（原 Travel 服务）
-- **Product Agent**：商品查询、库存查询、价格查询（原 Food 服务）
-- **General Agent**：闲聊陪伴、问答、新闻热点、天气查询
-- **Consumer 聚合**：统一对话入口，上下文管理、用户画像
+- **Order Agent**：订单查询、退款处理、物流跟踪、优惠券查询、知识库检索
+- **Product Agent**：商品查询、库存查询、价格查询、知识库检索
+- **General Agent**：闲聊陪伴、问答、新闻热点、天气查询、单位转换、汇率转换
+- **Embedding Service**：本地 BGE ONNX 嵌入服务（1024维），供语义缓存、知识库检索和经验匹配
+- **Router 决策链路**：经验匹配(TOOL/COMMON) → 语义缓存(T1/T2/T3) → 任务分析(意图/实体/约束/风险/工具评分) → 规则层评测后处理(实体归一/词槽/澄清/置信度) → 意图查询改写 → DAG 多Agent协作 → inlineFallback(三级兜底)
+- **Consumer 聚合**：统一对话入口，上下文管理、用户画像、会话记忆沉淀
 
-采用 **Agentic RAG** 架构，支持多轮推理、语义缓存、向量检索，并通过 **Prometheus + Grafana + Jaeger** 实现全链路可观测性。
+采用本地推理架构（Ollama + ONNX Runtime），零外部 API 依赖。通过 **Prometheus + Grafana + Jaeger + Loki** 实现全链路可观测性。
 
 ---
 
@@ -56,19 +59,36 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 | 特性 | 说明 |
 |------|------|
-| 🧠 **A2A 多 Agent 协作** | 基于 Spring AI Alibaba A2A 协议，8 个微服务通过 Nacos 自动发现与注册。Router 支持任务分解 → 并行调用 → 结果合并，跨域问题自动分配多个 Agent |
+| 🧠 **多 Agent 协作** | 8 个微服务通过 Nacos 自动发现与注册。Router 支持任务分解 → 并行调用 → 结果合并，跨域问题自动分配多个 Agent |
 | 🧠 **三层语义缓存 + BGE ONNX + 智能跳过** | 精确匹配 → 关键词哈希 → BGE 向量匹配。短时效 Agent(TTL<1h)回复自动跳过缓存，管理员工具操作通过 Redis 标记跳过，均保留路由决策加速 |
-| 🗂️ **多样性 RAG** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + 多路召回(RRF融合)，覆盖出行/美食领域 |
-| 🖼️ **多模态 AI** | 集成 DashScope 图片解析(analyzeImage) + 文生图(generateImage)，支持多风格切换 |
+| 🔍 **12 维 Agent 可标注评测** | LLM 输出后自动执行 6 层规则后处理：实体归一化(日期/金额/地点/纠错) → 词槽状态机(6意图词槽表+缺失/冲突检测) → 澄清判断(追问生成) → 输入鲁棒性(错别字/别名纠错)。叠加 LLM 层 6 维（意图识别、多意图拆分、隐含意图、拒识、实体识别、工具评分），完整覆盖文章推荐的 12 个评测维度 |
+| 🎯 **意图置信度 + 阈值路由** | LLM 输出意图置信度(0.0~1.0)，低于 0.6 阈值时自动触发澄清流程而非盲目执行，避免误操作 |
+| 🔄 **意图引导的查询改写** | 任务分析后根据意图类型选择改写策略：多意图→查询分解、模糊→查询扩展(补充实体)、精确→保留、对话→指代消解 |
+| 🗂️ **多样性 RAG + Cross-Encoder 重排序** | Agentic RAG + Text-to-SQL RAG + pgvector 语义检索 + bge-reranker-v2-m3 Cross-Encoder 二次精排(BM25→向量→重排序器三级) |
 | 🛡️ **AST 级 SQL 防护** | 基于 jsqlparser 的表名白名单校验，精确到 SQL AST 节点，杜绝注入 |
-| 🔍 **@Tool 统一日志切面** | AOP 拦截全部 27 个 @Tool 方法，自动记录 requestId + 输入参数 + 输出结果 + 执行耗时；requestId 通过 MDC 全链路透传（Consumer → Router → A2A → Agent → @Tool） |
-| 🔄 **Router 通用反思器** | 纯规则五维评分（长度/错误标记/关键词覆盖/Agent健康/意图匹配），0.6 阈值以下自动换 fallback Agent 重试，低质量回复不写缓存（防污染） |
-| 📊 **全栈可观测** | Micrometer + Prometheus + Grafana 指标，Jaeger 链路追踪，Loki 日志聚合，8 个自定义仪表盘；Order/Product/General 各服务独立暴露 `a2a_llm_token_input_total` / `a2a_llm_token_output_total` 等 8 类 Agent 指标 |
+| 🔍 **@Tool 统一日志切面** | AOP 拦截全部 @Tool 方法，自动记录 requestId + 输入参数 + 输出结果 + 执行耗时；requestId 通过 MDC 全链路透传（Consumer → Router → Agent → @Tool） |
+| 🔄 **二阶段质量评估** | 反射器(ReflectionService)纯规则五维评分 + LLM-as-Judge(QualityEvaluationService)四维语义评估；反射器通过后仅在边界区间触发 LLM 质检，平衡质量与开销 |
+| 📋 **标准错误码 + 表驱动恢复** | `AgentErrorCode` 统一枚举 32 个错误码(6 分类)，`ErrorRecoveryService` 三态表驱动恢复路由(RETRY/RETRY_BACKOFF/CLARIFY_USER/FALLBACK_AGENT/TERMINATE)；集成到 SmartReActAgent 6 个错误点 + 全工具 45 处调用 |
+| 🔄 **Agent 级工具自动重试** | `executeToolCallWithRetry()` 统一并行/串行工具执行路径，解析 error_code JSON 自动重试，退避策略由 ErrorRecoveryService 表驱动决策 |
+| 📊 **全栈可观测** | Micrometer + Prometheus + Grafana 指标，Jaeger 链路追踪（含嵌套 Span：`agent-llm-call` + `agent-tool-execute`），Loki 日志聚合，10 个自定义仪表盘（含 Token 累计 Stat + 业务仪表盘 Token 面板）；Order/Product/General 各服务独立暴露 `a2a_llm_token_input_total` / `a2a_llm_token_output_total` 等 8 类 Agent 指标 |
 | ⏳ **请求排队 + SSE 流式** | Semaphore 限流 LLM 并发(默认5)，排队时 SSE 实时推送位置，支持 thinking/tool_call/response 事件 |
 | 🐳 **容器化部署** | Dockerfile + docker-compose.deploy.yml，7 个服务一键构建部署 |
-| 🔧 **自研 ReAct 循环** | SmartReActAgent 替代 ReactAgent 黑盒，内置迭代限制(10轮)、超时保护(60s)、Token 预算追踪(80%)、上下文压缩(LM 摘要+保留N轮) |
+| 🔧 **自研 ReAct 循环** | SmartReActAgent 实现全可控 ReAct 循环，内置迭代限制(10轮)、超时保护(60s)、Token 预算追踪(80%)、上下文压缩(9段式摘要+增量更新+MicroCompact) |
 | 🔄 **并行工具执行** | LLM 一次返回多个 tool_call 时自动并行执行(最大4并发)，独立超时，按序收集结果 |
 | 🛡️ **工具接口四步法** | Schema 收窄(enum/required/regex) → 错误结构化(ToolResult) → Description 互斥 → 副作用审批(confirmAction 二阶段确认) |
+| ⏱️ **Runtime Sandbox 脚本沙箱** | executeScript 三层防御：关键字黑名单 → 静态资源限制(长度/行数/变量数/单行/输出) → 超时熔断(独立虚拟线程 + Future.get(2000ms))。全部参数外部化配置 `sandbox.script.*` |
+| 🎯 **意图定义向量化检索** | 5 个意图定义(ORDER/PRODUCT/GENERAL/COMPLEX/UNKNOWN)由 BGE 向量动态检索 Top-3，替代全量硬编码。BGE cosine 相似度(主)+关键词命中加权(辅)，不可用时降级纯关键词匹配 |
+| ✅ **经验验证+淘汰机制** | ExperienceValidator 对召回经验验证时效性(>24h未命中标记过时)、可靠度(hitCount<3标记低置信)、新鲜度(未经验证)。ExperiencePruner 每日定时扫描淘汰低质量经验 |
+| 🔀 **Handoff 显式交接** | Agent 执行完毕后可通过 `HandoffCommand(targetAgent, question, contextPayload)` 显式移交下一个 Agent，支持递归 Handoff 链。适用于客服转接等串行场景 |
+| 🧠 **Agent 独立记忆** | Order/Product/General 各 Agent 拥有用户粒度的独立记忆文件(`{agent}-memory.md`)，通过 `savePreference`/`recallMemories` 工具存取偏好。Markdown 格式，与 Consumer 记忆系统一致 |
+| ⏰ **记忆老化警告+条目截断** | 超过 7 天记忆标记 ⚠️、超过 30 天 ⚠️⚠️；超过 10 条时输出 key-only 索引并提示"可调用 recallMemories 获取详情"。Agent prompt 统一增加验证指令 |
+| 🕵️ **后台自动提取偏好** | 每轮对话结束后，MemoryExtractor 异步扫描用户输入+Agent 回复，用 LLM 自动提取可复用偏好写入记忆。不限 Agent 手动调用 |
+| 🔗 **Span 级嵌套追踪** | TraceSpan 基于 Micrometer Observation 为 LLM 调用(`agent-llm-call`)和工具执行(`agent-tool-execute`)创建 Jaeger 嵌套跨度，与现有 0.3 采样率配合 |
+| 📝 **9 段式 Context 压缩** | 9 个结构化章节摘要(诉求/技术/错误/待办等)；增量更新避免重复压缩；MicroCompact 清理旧工具结果；PrecomputedCompact 后台异步预压缩 |
+| 🔍 **上下文感知记忆排序** | `getAllFormatted(agent, userId, context)` 按问题关键词匹配排序记忆条目，最相关偏好优先展示 |
+| 🔍 **Milvus 向量数据库** | 替代 pgvector，Milvus 集群(etcd+MinIO+Milvus)提供知识库持久化 + 经验向量检索(IVF_FLAT + COSINE)。Milvus 不可用时自动降级 pgvector |
+| 🔒 **向量库 6 类生产字段** | 参考字节面试考点：Milvus 三个 Collection 全部补齐 ACL(tenant_id)、版本号(version)、来源(source_url)、段落索引(chunk_index)、更新时间(updated_at)、原文(chunk_text)。每类字段对应一种生产事故 |
+| 💾 **对话摘要持久化到 Milvus** | 方案 A：每次 Context 压缩生成的 9 段式摘要自动嵌入为 BGE 向量，持久化到 Milvus `conversation_summaries` Collection。支持语义检索历史对话摘要 |
 | 🧩 **System Prompt 分层** | PromptBuilder 三层组装: base-prompt(通用规则) + 服务自有指令 + 运行动态上下文 |
 
 ---
@@ -76,44 +96,48 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 ## 系统架构
 
 ```text
-┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
-│   Frontend  │────▶│   Gateway    │────▶│     Router      │
-│  React:3001 │     │  :8081 (JWT) │     │  :8083 (意图识别) │
-└─────────────┘     └──────────────┘     └────────┬────────┘
+┌─────────────┐     ┌──────────────┐     ┌───────────────────────────┐
+│   Frontend  │────▶│   Gateway    │────▶│        Router             │
+│  React:3001 │     │  :8081 (JWT) │     │  :8083 (意图识别           │
+└─────────────┘     └──────────────┘     │  + 任务分析                │
+                                          │  + 评测后处理              │
+                                          │  + 查询改写                │
+                                          │  + DAG 协作)               │
+                                          └──────────┬────────────────┘
                                                    │
-                          ┌─────────────────────────┼──────────┐
-                          │                         │          │
-                    ┌─────▼──────┐          ┌───────▼──────┐   │
-                    │  Consumer  │          │   General    │   │
-                    │  :8082     │          │   :8087      │   │
-                    │ (会话管理)   │          │  (闲聊+天气)   │   │
-                    └─────┬──────┘          └──────────────┘   │
-                          │                                      │
-               ┌──────────┼──────────┐                          │
-          ┌────▼────┐ ┌──▼────┐ ┌───▼────┐                     │
-          │  Order  │ │Product│ │  User  │                     │
-          │  :8085  │ │:8084  │ │  :8086 │                     │
-          │(订单客服) │ │(商品咨询)│ │(认证)   │                     │
-          └─────────┘ └───────┘ └────────┘                     │
-                                                               │
-                    ┌─────────────────────────────────────┐    │
-                    │         Infrastructure               │    │
-                    │  Redis ─ Nacos ─ PostgreSQL ─ Zipkin │    │
-                    │  Prometheus ─ Grafana ─ Loki ─ Jaeger│    │
-                    └─────────────────────────────────────┘────┘
+                          ┌─────────────────────────┼──────────────┐
+                          │                         │              │
+                    ┌─────▼──────┐          ┌───────▼──────┐      │
+                    │  Consumer  │          │   General    │      │
+                    │  :8082     │          │   :8087      │      │
+                    │ (会话管理   │          │  (闲聊+天气   │      │
+                    │  记忆沉淀)  │          │   换算工具)   │      │
+                    └─────┬──────┘          └──────────────┘      │
+                          │                                        │
+               ┌──────────┼──────────┐                             │
+          ┌────▼────┐ ┌──▼────┐ ┌───▼────┐                        │
+          │  Order  │ │Product│ │  User  │                        │
+          │  :8085  │ │:8084  │ │  :8086 │                        │
+          │(订单客服)│ │(商品咨询)│ │(认证)   │                        │
+          │(含知识库)│ │(含知识库)│ └────────┘                        │
+          └─────────┘ └───────┘                                     │
+                                                                     │
+                    ┌───────────────────────────────────────────┐    │
+                    │         Infrastructure                     │    │
+                    │  Redis ─ Nacos ─ PostgreSQL                │    │
+                    │  Milvus(etcd+MinIO) ─ Prometheus ─ Grafana │    │
+                    │  Loki ─ Jaeger ─ Embedding(:8091)          │    │
+                    └───────────────────────────────────────────┘────┘
 ```
 
 ### 请求流程
 
 1. **前端请求** → Gateway (JWT 认证 + 限流)
 2. **Gateway 转发** → Router (多 Agent 协作路由)
-3. **Router 路由** → Consumer (会话管理 + 价值评估)
-4. **Consumer 调度** → 对应 Agent(s) (通过 A2A 协议)
+3. **Router 路由** → Consumer (会话管理 + 价值评估 + 记忆沉淀)
+4. **Consumer 调度** → 对应 Agent(s)（通过 Nacos 服务发现）
 5. **Agent 响应** → 通过 SSE 流式返回给前端
 6. **价值评估** → 轮数≥3 或触发工具调用时触发 → `data/users/{userId}/memories/`（异步增量追加）
-   - 同 session 的记忆**追加到同一文件**，不覆盖，保留完整对话历史
-   - 轮数≥3 且内容≥1000 字符时触发 LLM 叙事摘要
-    - 摘要替代原对话内容（清空冗余），超长内容截断部分原文追加，信息零丢失
 
 ### 多 Agent 协作
 
@@ -157,16 +181,18 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 | 分类 | 技术 | 版本 |
 |------|------|------|
-| 语言 | Java | 17+ |
+| 语言 | Java | 21+ (Temurin 21.0.6 LTS, `D:\Program Files\Java\jdk-21.0.6+7`) |
 | 框架 | Spring Boot | 3.4.8 |
-| AI 框架 | Spring AI Alibaba | 1.1.2 |
-| 模型 | **Ollama 本地推理**（deepseek-r1:7b / qwen2.5:7b） + BGE-large-zh ONNX (1024d RAG) / BGE-small-zh ONNX (512d Cache) | — |
-| 注册/配置中心 | Nacos（元数据支持动态管理） | 3.1.0 |
+| AI 框架 | Spring AI（社区版） | 2.0.0 |
+| 模型 | **Ollama 本地推理**（qwen2.5:7b 主模型） + BGE-large-zh ONNX (1024d RAG/知识库) / BGE-small-zh ONNX (512d Cache) / bge-reranker-v2-m3 ONNX (重排序) | — |
+| 注册/配置中心 | Nacos（元数据支持动态管理） | 2.3+ |
 | 缓存 | Redis | 7.2+ |
-| 数据库 | PostgreSQL (pgvector) | 16+/18+ |
+| 数据库 | PostgreSQL (向量: Milvus) | 16+ (Milvus 2.5+) |
+| 向量数据库 | Milvus（etcd+MinIO），IVF_FLAT + COSINE 索引 | 2.5.5 |
 | ORM | MyBatis-Plus | 3.5+ |
 | 分词 | HanLP | 1.8.4 |
 | SQL 解析 | jsqlparser | 4.9 |
+| 推理引擎 | ONNX Runtime | 1.26+ |
 | 构建 | Maven Wrapper | 3.9.6 |
 
 ### 前端
@@ -195,82 +221,104 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI Alibaba** 
 
 | 模型 | 大小 | 默认使用 | 获取方式 |
 |------|:----:|:--------:|---------|
-| deepseek-r1:7b | 4.7 GB | ✅ 主推理模型 | `ollama pull deepseek-r1:7b` |
-| qwen2.5:7b | 4.7 GB | ❌ 备选 | `ollama pull qwen2.5:7b` |
+| qwen2.5:7b | 4.7 GB | ✅ 主推理模型 | `ollama pull qwen2.5:7b` |
 
 > 💡 首次启动前确保 Ollama 服务运行：`ollama serve`
 
 ---
 
-## RAG 召回管道
+## 知识库召回管道
 
-系统在 Travel 模块实现了完整的 RAG 召回管道，用于从用户游记中检索相关内容增强 LLM 回答。
+系统在 **Order** 和 **Product** 模块实现了基于 BGE 向量检索的知识库召回管道，用于从订单政策/商品信息知识库中检索相关内容增强 Agent 回答。
 
-### 处理流程
-
-```text
-用户查询 (location + query)
-    │
-    ├── Multi-Query 查询改写 (LLM)
-    │     ├── 原始查询："北京 有什么好玩的"
-    │     ├── 变体 1：  "北京热门景点 游玩攻略"
-    │     ├── 变体 2：  "北京旅游 必去地点 推荐"
-    │     └── 变体 3：  "北京 周末去哪儿 好玩的地方"
-    │
-    ├── 每个变体独立执行多路检索 (候选数 = topK × 3)
-    │   ├── 向量检索  ─── pgvector HNSW 索引 ── 语义相似度 (BGE-large 1024d)
-    │   └── 全文检索  ─── tsvector GIN 索引  ── 关键词精确匹配
-    │
-    ├── RRF 融合 (所有变体 × 所有检索路径的结果合并)
-    │     └── score = Σ(1 / (K + rank_i))，K=60
-    │
-    ├── BGE 语义重排序                                  ← P0
-    │     └── 综合评分 = RRF×0.3 + BGE余弦相似度×0.7
-    │     └── 使用 BGE-large-zh 计算 query 与每个 chunk 的精确语义距离
-    │
-    ├── Lost in the Middle 优化                          ← P2
-    │     └── 最相关文档放 prompt 首尾，次相关放中间
-    │     └── LLM 对中间位置关注度最低 (Liu et al. 2023)
-    │
-    └── Top-K 返回 + 引用溯源                            ← P1
-          └── Agent 回答标注来源："根据[游记标题]的推荐..."
-          └── 实时数据标注："根据高德地图当前信息..."
-```
-
-### 🔄 Lost in the Middle 重排序
-
-大模型对上下文中间位置的内容注意力最低。系统在 BGE 重排序后执行首尾交替排列：
+### 两阶段检索架构
 
 ```
-排序前 (按分数降序):  [最高分] [次高分] [第三] [第四] [第五]
-排序后 (首尾交替):    [最高分] [第五]   [第三] [第四] [次高分]
-                        首部 ↑                  尾部 ↑ (注意力最高)
+用户查询
+    │
+    ├── BGE 向量粗筛 (Top-50)
+    │     使用 BGE-large-zh ONNX (1024维) 计算语义相似度
+    │     HNSW 索引加速（pgvector）
+    │
+    ├── BM25+时效性精排 (Top-5)
+    │     中文分词(HanLP) → BM25(k1=1.5, b=0.75) 关键词匹配
+    │     + 时效性加权（新文档权重更高）
+    │
+    ├── [可选] Cross-Encoder 重排序
+    │     bge-reranker-v2-m3 ONNX 对 (query, doc) 对二次精排
+    │     配置 reranker.enabled=true 启用
+    │
+    └── Top-K 返回给 Agent
+          Agent 结合检索结果生成最终回答
 ```
 
-### 数据库索引
+### 知识库内容
 
-| 表 | 索引 | 类型 | 作用 |
-|----|------|------|------|
-| `travel_note_chunks` | `idx_chunks_embedding_hnsw` | HNSW (cosine) | 向量检索加速 |
-| `travel_note_chunks` | `idx_chunks_tsvector_gin` | GIN | 全文检索 |
-| `travel_note_chunks` | `idx_chunks_note_id` | B-tree | JOIN 加速 |
-| `restaurant_reviews_vector` | `idx_reviews_embedding_hnsw` | HNSW (cosine) | Food 向量加速 |
-| `restaurant_reviews_vector` | `idx_reviews_tsvector_gin` | GIN | Food 全文检索 |
-| `restaurant_reviews_vector` | `idx_reviews_city_cuisine` | B-tree | 多维过滤 |
+| 知识库 | 文档数 | 覆盖内容 |
+|:------|:-----:|:---------|
+| **订单知识库** (order_knowledge) | 10 | 退款政策、发货规则、支付说明、订单状态、优惠券规则、客服联系、售后服务、预约规则等 |
+| **商品知识库** (product_knowledge) | 7 | 退换货政策、保修政策、价格保护、配送说明、库存规则等 |
 
-### 索引部署
+### 存储方案
 
-```powershell
-$env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -U postgres -d a2a_system -f "smart-assistant-travel/src/main/resources/sql/v20260508__add_rag_indexes.sql"
-```
+| 模式 | 说明 | 配置 |
+|:----|:-----|:-----|
+| **InMemory**（默认） | 内存索引 + BGE 向量 + BM25，启动时加载种子数据 | `app.milvus.enabled=false` |
+| **Milvus**（可选） | Milvus 集群持久化(IVF_FLAT + COSINE)，跨实例共享 | `app.milvus.enabled=true`，需先 `docker compose -f monitoring/docker-compose-milvus.yml up -d` |
 
 ---
 
-## Router 反思器
+## Router 流水线
 
-系统在 Router 模块实现了通用反思器，对 Agent 回复进行**纯规则质量评估**，不调用 LLM，零额外延迟。
+Router 的路由决策采用 **9 步流水线**：
 
-### 五维评分模型（总分 0.0 ~ 1.0，默认阈值 0.6）
+```
+用户请求
+  │
+  ├→ Step 0: 经验匹配 (ExperienceService) 
+  │   BGE 向量匹配 TOOL/COMMON/REACT 经验，命中 TOOL 经验直接执行
+  │   ⭐ 经验召回后经 ExperienceValidator 验证时效性/可靠度/新鲜度（警告随结果返回）
+  │   ⭐ ExperiencePruner 每日 3:00 定时淘汰低质量经验（低 hitCount + 长空闲）
+  │
+  ├→ Step 1: 语义缓存 (SemanticCacheService)
+  │   Tier 1 精确 → Tier 2 关键词 → Tier 3 BGE 向量; 命中直接返回
+  │
+  ├→ Step 2: 任务分析 (TaskAnalysisService) ✨
+  │   LLM 结构化提取: 意图分类/置信度/实体/约束/风险/工具评分
+  │   ⭐ BGE 向量动态检索 Top-3 最相关意图定义，替代全量硬编码
+  │   多意图拆分(sub_intents)、隐含意图(implicit_intents)、拒识
+  │   存入 Redis a2a:task-analysis:{id}，下游 Agent 可读取
+  │
+  ├→ Step 2.5: 规则层评测后处理 (IntentEvaluationService) 
+  │   实体归一化(日期/金额/地点/纠错) → 词槽分析(填充/缺失/冲突)
+  │   → 澄清判断(追问生成) → 置信度阈值检查(<0.6触发澄清)
+  │   存入 Redis 供下游消费
+  │
+  ├→ Step 3: 意图引导的查询改写 (IntentGuidedQueryRewriter) 
+  │   根据意图类型选择改写策略：
+  │   多意图→查询分解 / 模糊→查询扩展 / 精确→保留 / 对话→指代消解
+  │   改写结果存入 Redis a2a:rewrite:{id}
+  │
+  ├→ Step 4: 构建上下文 + RAG 增强
+  │   从 Redis 加载会话历史，可选 RAG 检索增强问题
+  │
+  ├→ Step 5: 路由决策 (executeCollaborative)
+  │   多 Agent DAG 协作: 图分解 → 拓扑并行执行 → Handoff 显式交接
+  │   ⭐ HandoffCommand(targetAgent, question, 累积上下文) 支持动态链式移交
+  │   ⭐ 每个节点执行后可发起 Handoff，递归执行直到 COMPLETE/FAILED
+  │   三级降级: Agent→inlineFallback→预设文案轮换
+  │
+  └→ Step 6: 后处理 (finalizeRouting)
+      ├─ 反射器 (ReflectionService) — 纯规则五维评分
+      ├─ LLM 质量评估 (QualityEvaluationService) — 四维语义评分
+      ├─ 错误码恢复 (ErrorRecoveryService) — 表驱动重试
+      ├─ 语义缓存写入 + 经验提取
+      └─ 完整决策写入 Redis (Consumer 通过 BLPOP 阻塞读取)
+```
+
+### 反射器（规则级，零 LLM 开销）
+
+五维评分模型（总分 0.0 ~ 1.0，默认阈值 0.6）：
 
 | 维度 | 权重 | 评分规则 | 说明 |
 |------|:----:|----------|------|
@@ -285,15 +333,20 @@ $env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -
 ```
 Agent 返回结果
   │
-  ├→ ReflectionService.evaluate()
-  │   ├── 五维评分（纯规则，无 LLM 调用）
-  │   └── score ≥ 0.6 → ✅ 通过 → 写入语义缓存 → 返回
+  ├→ 反射器 (ReflectionService.evaluate())
+  │   五维评分（纯规则，无 LLM 调用）
+  │   ├─ score ≥ 0.6 → ✅ 通过 → 进入 LLM 质检
+  │   └─ score < 0.6 → ❌ 不通过 → 换 fallback Agent 重试
   │
-  └→ score < 0.6 → ❌ 不通过
-      ├── 低质量回复不写缓存（防污染）
-      ├── 自动换 fallback Agent 重试（最多 1 次）
-      ├── 重试结果再评估 → 通过 → 返回
-      └── 重试仍不通过 → 返回原结果
+  ├→ LLM 质量评估 (QualityEvaluationService.evaluate())
+  │   四维语义评分（仅反射器 0.50~0.80 边界区间触发）
+  │   relevance/completeness/hallucination/helpfulness
+  │   ├─ 通过 → ✅ 写入语义缓存 → 返回
+  │   └─ 不通过 → ❌ 跳过缓存（防污染），不阻断用户响应
+  │
+  └→ 错误恢复 (ErrorRecoveryService)
+      执行工具时自动解析 error_code JSON
+      AgentErrorCode → shouldRetry() → 自动退避重试
 ```
 
 ### 配置项
@@ -304,6 +357,11 @@ router:
     enabled: true        # 灰度开关
     threshold: 0.60      # 质量阈值（0.0~1.0）
     max-retry: 1         # 最大重试次数
+  quality-evaluation:
+    enabled: true
+    threshold: 0.6
+    reflection-lower-bound: 0.50   # 低于此值不走 LLM 质检
+    reflection-upper-bound: 0.80   # 高于此值不走 LLM 质检
 ```
 
 ---
@@ -318,14 +376,14 @@ router:
 Consumer (requestId 生成)
   │  ToolLogContext.setRequestId(requestId)
   │
-  ├→ Router (A2A 调用)
+  ├→ Router (HTTP 直调)
   │    │  AgentCallerService.enrichWithRequestId(instruction, requestId)
   │    │  → instruction 前缀注入: "[requestId:xxx]\n原始指令"
   │    │
-  │    └→ Agent 服务 (A2A 响应)
-  │         │  AgentRequestIdAspect (@Order(1))
-  │         │  → 从 instruction 前缀提取 requestId
-  │         │  → ToolLogContext.setRequestId(requestId)
+  │    └→ Agent 服务
+  │         │  ToolLogAspect (@Around)
+  │         │  → 从 instruction 参数提取 requestId
+  │         │  → MDC 设入，工具调用日志关联同一 requestId
   │         │
   │         └→ @Tool 方法执行
   │              │  ToolLogAspect (@Around)
@@ -351,7 +409,6 @@ Consumer (requestId 生成)
 |------|------|------|
 | `ToolLogContext` | `common/tool/` | ThreadLocal + MDC 持有 requestId |
 | `ToolLogAspect` | `common/tool/` | `@Around` 拦截 @Tool，记录输入/输出/耗时 |
-| `AgentRequestIdAspect` | `common/tool/` | `@Order(1)` 拦截 ReactAgent.invoke()，提取 requestId 前缀 |
 | `spring-boot-starter-aop` | `common/pom.xml` | AOP 依赖（optional） |
 
 ---
@@ -445,12 +502,13 @@ saveReply() 时
 | 服务 | 端口 | 职责 |
 |------|------|------|
 | **Gateway** | 8081 | API 统一入口，JWT 认证，Redis 限流，负载均衡 |
-| **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀；提供 `/api/data/query` 数据查询独立端点 |
-| **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分解→并行执行→结果合并，Nacos 服务发现；**通用反思器**（五维评分 + 自动重试）；`service/` 按 core/agent/cache/infrastructure/extraction/rag 子包组织 |
-| **Order** | 8085 | 订单查询，退款处理，物流跟踪（原 Travel 服务改造）；`service/` 按 rag/data/infrastructure 子包组织 |
-| **Product** | 8084 | 商品查询，库存查询，价格查询（原 Food 服务改造）；`service/` 按 core/search/infrastructure 子包组织 |
+| **Consumer** | 8082 | 对话聚合，价值评估，用户画像（文件存储），记忆沉淀（重试3次写入）；提供 `/api/data/query` 数据查询独立端点 |
+| **Router** | 8083 | 多 Agent 协作路由，**三层语义缓存**，任务分析(意图/置信度/实体/约束/风险/工具评分)，**评测后处理**(实体归一/词槽/澄清/置信度阈值)，**意图查询改写**，**意图向量化检索**(BGE Top-K 动态注入)，DAG 图分解→拓扑并行执行→**Handoff 显式交接**，**二阶段质量评估**(反射器+LLM质检)，**标准错误码表驱动恢复**，**Agent 级工具自动重试**，**经验验证+淘汰**(定时清理低质量经验)，Nacos 服务发现 |
+| **Embedding Service** | 8091 | 独立 BGE ONNX 嵌入服务（1024维），供 Router 语义缓存、知识库检索和 ExperienceService 经验匹配 |
+| **Order** | 8085 | 订单查询(Text-to-SQL)，退款处理，物流跟踪，优惠券查询，**BGE 知识库检索 + bge-reranker 重排序**，**独立记忆**(Markdown 文件存储，savePreference/recallMemories) |
+| **Product** | 8084 | 商品查询，库存检查，价格查询，**BGE 知识库检索**，**独立记忆**(商品偏好/价格区间/品牌偏好) |
 | **User** | 8086 | 用户注册登录，JWT Token 签发，角色管理 |
-| **General** | 8087 | 闲聊问答，新闻热点，单位转换，**图片解析/文生图**，**多步脚本执行**，支持风格切换 |
+| **General** | 8087 | 闲聊问答，新闻热点，单位转换(温度/长度/重量/货币)，**沙箱保护的多步脚本执行**(ScriptSandbox 三层防御: 关键字黑名单/资源限制/超时熔断)，**独立记忆**(回复风格/常用单位/兴趣话题)，支持风格切换 |
 
 ---
 
@@ -459,8 +517,8 @@ saveReply() 时
 ### 开发环境
 
 - **操作系统**：Windows 10/11 或 macOS / Linux
-- **Java**：JDK 17+（推荐 Eclipse Temurin）
-- **Maven**：3.9+（可选，Maven Wrapper 可自动下载）
+- **Java**：JDK 21+（推荐 Eclipse Temurin 21.0.6+，`D:\Program Files\Java\jdk-21.0.6+7`）
+- **Maven**：3.9+（可选，使用 `bash mvn21.sh` 自动调用系统 Maven）
 - **Node.js**：18+（前端构建）
 - **Docker**：24+（基础设施服务）
 - **Git**：2.x（版本管理）
@@ -469,11 +527,14 @@ saveReply() 时
 
 ```powershell
 # 检查依赖
+bash mvn21.sh -v        # ⭐ 推荐：绕过 Git Bash 的 Maven 路径兼容问题
+.\mvnw.cmd --version    # 备用：Windows CMD 下使用（需先设置 JAVA_HOME）
 java -version
-.\mvnw.cmd --version   # Maven Wrapper 自动处理
 node -v
 docker --version
 ```
+
+> ⚠️ **重要**：本项目需要 JDK 21+。在 Git Bash 下 `./mvnw` 因 MSYS 路径兼容问题无法正常工作，请使用 `bash mvn21.sh <goals>` 替代。
 
 ---
 
@@ -485,6 +546,9 @@ docker --version
 # 启动 Redis + Nacos + Zipkin
 cd D:\workspace\SmartAssistant
 docker-compose up -d
+
+# 可选：启动 Milvus 向量数据库（启用 app.milvus.enabled=true 时需要）
+docker compose -f monitoring/docker-compose-milvus.yml up -d
 
 # 验证
 docker ps --format "table {{.Names}}\t{{.Status}}"
@@ -500,8 +564,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 # Linux: curl -fsSL https://ollama.com/install.sh | sh
 
 # 2. 下载模型（仅首次）
-ollama pull deepseek-r1:7b    # 主推理模型
-ollama pull qwen2.5:7b        # 备选模型
+ollama pull qwen2.5:7b    # 主推理模型
 
 # 3. 启动 Ollama 服务
 ollama serve
@@ -522,27 +585,28 @@ copy .env.example .env
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `DASHSCOPE_API_KEY` | DashScope API Key（图片解析/文生图） | 选填（不填则多模态不可用） |
-| `AMAP_API_KEY` | 高德地图 API Key | 可选 |
 | `POSTGRES_PASSWORD` | PostgreSQL 密码 | `postgres123` |
+| `REDIS_PASSWORD` | Redis 密码 | `redis123` |
+| `NACOS_PASSWORD` | Nacos 密码 | `nacos123` |
+| `JWT_SECRET` | JWT 签名密钥 | 建议自行生成 |
 | `app.data.dir` | 数据存储根目录 | `data` |
-| `jwt.secret` | JWT 签名密钥 | 建议自行生成 |
 
-> 💡 **已移除云端 DeepSeek API 依赖**，推理引擎为本地 Ollama，无需 `DEEPSEEK_API_KEY`。
+> 💡 **推理引擎为本地 Ollama + ONNX Runtime**，无云端 API 依赖，无需配置 `DEEPSEEK_API_KEY` 或 `DASHSCOPE_API_KEY`。
 
 ### 3. 构建项目
+
+> ⚠️ Git Bash 下 `./mvnw` 因 MSYS 路径兼容问题不可用，请使用 `bash mvn21.sh`。
+> PowerShell/cmd 下可使用 `mvnw.cmd`，但需先执行 `set JAVA_HOME=D:\Program Files\Java\jdk-21.0.6+7`。
 
 ```powershell
 cd D:\workspace\SmartAssistant
 
-# Maven Wrapper 自动下载指定版本 Maven，无需本地安装
-.\mvnw.cmd install -pl smart-assistant-common -DskipTests
-
-# 全量编译（跳过测试）
-.\mvnw.cmd compile -DskipTests
+# ⭐ 推荐：使用 mvn21.sh 构建（兼容 Git Bash）
+bash mvn21.sh install -pl smart-assistant-common -DskipTests
+bash mvn21.sh compile -DskipTests
 
 # 全量打包
-.\mvnw.cmd package -DskipTests -Dmaven.test.skip=true
+bash mvn21.sh package -DskipTests -Dmaven.test.skip=true
 
 # 前端（React + TypeScript + TDesign）
 cd frontend && npm install && cd ..
@@ -550,49 +614,31 @@ cd frontend && npm install && cd ..
 
 ### 4. 启动服务
 
-#### 方式一：一键启动（推荐）
-
-```powershell
-powershell -ExecutionPolicy Bypass -File start-all.ps1
-```
-
-提交前验证（编译 + 测试）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File verify-all.ps1
-```
-
-#### 方式二：手动逐个启动
-
-```powershell
-# ⚠️ 清除 SERVER__PORT 环境变量（双下划线会覆盖 server.port）
-Remove-Item Env:SERVER__PORT
-
-$env:DEEPSEEK_API_KEY = "sk-xxx"
-$env:DASHSCOPE_API_KEY = "sk-xxx"
-
-# 先启动基础服务
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-gateway\target\smart-assistant-gateway-1.0.0-SNAPSHOT.jar", "--server.port=8081" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-user\target\smart-assistant-user-1.0.0-SNAPSHOT.jar", "--server.port=8086" -WindowStyle Hidden
-
-# 等待 10-15 秒后启动其他服务（等 General 注册到 Nacos）
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-consumer\target\smart-assistant-consumer-1.0.0-SNAPSHOT.jar", "--server.port=8082" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-router\target\smart-assistant-router-1.0.0-SNAPSHOT.jar", "--server.port=8083" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-travel\target\smart-assistant-travel-1.0.0-SNAPSHOT.jar", "--server.port=8085" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-food\target\smart-assistant-food-1.0.0-SNAPSHOT.jar", "--server.port=8084" -WindowStyle Hidden
-Start-Process -FilePath "java" -ArgumentList "-Dfile.encoding=UTF-8", "-jar", "smart-assistant-general\target\smart-assistant-general-1.0.0-SNAPSHOT.jar", "--server.port=8087" -WindowStyle Hidden
-
-# 前端
-cd frontend && npm run dev
-```
-
-#### 方式三：IDE 开发（IntelliJ IDEA）
+#### 方式一：IDE 开发（IntelliJ IDEA 推荐）
 
 1. 打开项目根目录
 2. 设置运行配置的环境变量（指向 `.env` 中的值）
-3. 按依赖顺序启动：
-   - 先启动 Nacos、Redis（docker-compose）
-   - 再启动 Gateway → User → Consumer → Router → Travel → Food → General（无严格顺序要求，但 Router 依赖 Nacos）
+3. **必须先清除 `SERVER__PORT` 环境变量**（双下划线会覆盖 `server.port`）：`Remove-Item Env:SERVER__PORT`
+4. 按依赖顺序启动：
+   - 先启动基础设施：Redis、Nacos（`docker-compose up -d`）
+   - 启动 **Embedding Service**（8091）：需先让 BGE ONNX 模型就绪
+   - 启动 **Gateway**（8081）→ **User**（8086）→ **Consumer**（8082）→ **Router**（8083）→ **Order**（8085）→ **Product**（8084）→ **General**（8087）
+   - 无严格顺序要求，但 Router 依赖 Nacos，Consumer 依赖 Redis
+
+```powershell
+# 批量启动（需先修改各服务的端口配置）
+cd D:\workspace\SmartAssistant
+Remove-Item Env:SERVER__PORT
+
+# 逐个启动（推荐在 IDE 中启动，方便调试）
+.\mvnw.cmd spring-boot:run -pl smart-assistant-gateway
+```
+
+#### 方式二：前端
+
+```powershell
+cd frontend && npm install && npm run dev
+```
 
 ---
 
@@ -630,6 +676,9 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 ```powershell
 cd monitoring
 docker-compose -f docker-compose.yml up -d
+
+# ⭐ 若启用 Milvus 向量数据库，还需启动 Milvus 集群
+docker compose -f docker-compose-milvus.yml up -d
 ```
 
 监控组件：
@@ -685,12 +734,13 @@ docker compose -f docker-compose.deploy.yml up -d gateway
 |------|------|------|:----:|
 | BGE-small-zh-v1.5 | Router Cache T3 语义匹配 | `models/bge-small-zh-v1.5.onnx` | 95 MB |
 | BGE-large-zh-v1.5 | Travel/Food/Consumer RAG 检索 | `models/bge-large-zh-v1.5.onnx` | 1.2 GB (FP32) |
+| **bge-reranker-v2-m3** | Order 知识库 Cross-Encoder 二次精排 | `models/bge-reranker-v2-m3.onnx` | 192 KB + 2.2 GB 权重 |
 | **deepseek-r1:7b** (Ollama) | **主推理模型** | Ollama 管理 | 4.7 GB |
 | **qwen2.5:7b** (Ollama) | **备选推理模型** | Ollama 管理 | 4.7 GB |
 
 **推理引擎**：所有服务默认使用 Ollama 本地模型（deepseek-r1:7b），通过 Spring AI @Primary ChatModel 注入。无云端 API 依赖。
 
-模型路径通过 `bge.model.path` 配置（支持环境变量 `BGE_MODEL_PATH` 覆盖），首次加载约 4-5 秒。BGE-large 替换了原有的 DashScope text-embedding-v4 API 调用，纯本地推理 30-50ms/次。
+模型路径通过 `bge.model.path` 配置（支持环境变量 `BGE_MODEL_PATH` 覆盖），首次加载约 4-5 秒，纯本地推理 30-50ms/次。
 
 ### 微调管道
 
@@ -752,9 +802,9 @@ smart-assistant-{service}/src/main/resources/
 
 ```
 smart-assistant-{service}/src/main/resources/prompts/
-├── travel-system-prompt.txt    # 出行规划助手
-├── food-system-prompt.txt      # 美食推荐助手
-└── general-system-prompt.txt   # 通用对话助手
+├── order-system-prompt.txt        # 订单客服助手
+├── product-system-prompt.txt      # 商品咨询助手
+└── general-system-prompt.txt      # 通用对话助手
 ```
 
 加载方式：`@Value("classpath:prompts/{service}-system-prompt.txt")`，IO 异常时自动降级为默认提示词，不影响服务启动。
@@ -768,7 +818,10 @@ smart-assistant-router/.../service/
 ├── cache/         SemanticRouteCacheService, RoutingDecisionStorageService
 ├── infrastructure/ DistributedTracingService
 ├── extraction/    KeywordExtractionService
-└── rag/           RouterRagService
+├── rag/           RouterRagService
+├── evaluation/    EntityNormalizer, SlotStateMachine, ClarificationService,
+│                  IntentEvaluationService, IntentGuidedQueryRewriter 🆕
+└── taskanalysis/  TaskAnalysisService
 
 smart-assistant-food/.../service/
 ├── core/          ABTestService, HybridRecommendationService, ReviewEmbeddingInitializer
@@ -794,27 +847,29 @@ smart-assistant-travel/.../service/
 ```powershell
 # 应用日志（纯净 Spring Boot 输出，推荐优先查看）
 type logs\router-service.log -Tail 50
-type logs\travel-service.log -Tail 50
-type logs\food-service.log -Tail 50
+type logs\order-service.log -Tail 50
+type logs\product-service.log -Tail 50
+type logs\general-agent-service.log -Tail 50
 type logs\consumer-service.log -Tail 50
 type logs\api-gateway.log -Tail 50
 type logs\user-service.log -Tail 50
 
 # 标准输出日志（含启动横幅等）
 type logs\Router-stdout.log -Tail 30
-type logs\Travel-stdout.log -Tail 30
+type logs\Order-stdout.log -Tail 30
+type logs\Product-stdout.log -Tail 30
 ```
 
-### ⚠️ 密码配置强制要求（2026-05-11）
+### ⚠️ 密码配置强制要求
 
-从 v1.0 起，以下密码不再有默认值，**必须通过环境变量设置**，未设置时服务启动即报错：
+以下密码**必须通过环境变量设置**，未设置时服务启动即报错：
 
-| 变量 | 默认值（已移除） | 说明 |
-|------|:--------------:|------|
-| `JWT_SECRET` | `a2a-demo-secret-...` | JWT 签名密钥 |
-| `POSTGRES_PASSWORD` | `postgres123` | PostgreSQL 密码 |
-| `REDIS_PASSWORD` | `redis123` | Redis 密码 |
-| `NACOS_PASSWORD` | `nacos123` | Nacos 密码 |
+| 变量 | 说明 |
+|------|------|
+| `JWT_SECRET` | JWT 签名密钥 |
+| `POSTGRES_PASSWORD` | PostgreSQL 密码（默认 postgres123） |
+| `REDIS_PASSWORD` | Redis 密码（默认 redis123） |
+| `NACOS_PASSWORD` | Nacos 密码（默认 nacos123） |
 
 ### 用户数据存储
 
@@ -823,12 +878,31 @@ type logs\Travel-stdout.log -Tail 30
 ```
 data/users/{userId}/
 ├── preferences.json            # 用户偏好（权重、意图分布）
+├── order-memory.md             # Order Agent 记忆（行程偏好、座位偏好）
+├── product-memory.md           # Product Agent 记忆（品类偏好、价格区间）
+├── general-memory.md           # General Agent 记忆（回复风格、常用单位）
 └── memories/
     ├── 2026-05-08_session_abc.md   # 增量追加记忆文件
     └── 2026-05-08_session_def.md
 ```
 
-记忆文件采用 **session 优先的增量追加**模式。同 session 始终追加到同一文件（跨天不换文件），文件名为首次创建的日期：
+**Agent 独立记忆**：每个 Agent 拥有用户粒度的键值记忆文件（Markdown 格式），记录可复用的用户偏好和习惯。
+
+```markdown
+# Order Agent 用户偏好
+
+- preferWindowSeat: 靠窗
+- frequentRoute: 北京→上海
+- preferPaymentMethod: 微信支付
+```
+
+Agent 通过 `savePreference(userId, key, value)` 写入，`recallMemories(userId)` 读取。
+系统在每次处理用户问题前自动将记忆注入 prompt 上下文，提供个性化回复。
+记忆文件在首次写入时自动创建，无需手动初始化。
+
+**对话摘要持久化（方案 A）**：SmartReActAgent 每次 Context 压缩后，自动将 9 段式摘要嵌入为 BGE 向量并存入 Milvus `conversation_summaries` Collection（IVF_FLAT + COSINE 索引）。支持按用户语义检索历史摘要。通过 `withSummaryStore()` 注入，不可用时静默降级。
+
+---记忆文件采用 **session 优先的增量追加**模式。同 session 始终追加到同一文件（跨天不换文件），文件名为首次创建的日期：
 
 ```yaml
 ---
@@ -970,6 +1044,12 @@ chat:
 | POST | `/assistant/api/data/query` | ⭐ 数据查询（仅 ADMIN，独立端点，不混入对话流） |
 | WebSocket | `/assistant/ws/conversation` | WebSocket 实时对话 |
 
+### 用户反馈接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/feedback` | 提交用户对 Agent 回复的评价（like/dislike）。请求体：`{userId, sessionId, question, response, rating, reason}` |
+
 ### 通用助手工具（General Agent）
 
 | 工具 | 说明 | 依赖 |
@@ -978,10 +1058,19 @@ chat:
 | `convertTemperature/Length/Weight` | 单位转换 | — |
 | `getHotNews()` | 网络热点新闻 | — |
 | `searchWeb(query)` | 联网搜索 | — |
-| `analyzeImage(imageUrl, question)` 🆕 | 图片解析 | DashScope API Key |
-| `generateImage(prompt, size, n)` 🆕 | 文生图 | DashScope API Key |
-| `convertCurrency(value, from, to)` 🆕 | 货币汇率转换 | 实时汇率 API |
-| `executeScript(script)` 🆕 | 多步脚本执行 | — |
+| `convertCurrency(value, from, to)` | 货币汇率转换 | 实时汇率 API |
+| `executeScript(script)` | **沙箱保护**的多步计算脚本执行（关键字黑名单/资源限制/超时熔断） | — |
+| `queryWeather(city)` | 天气查询 | — |
+| `savePreference(userId, key, value)` | 保存用户偏好（Order/Product/General 三 Agent 均有） | AgentMemoryService |
+| `recallMemories(userId)` | 获取用户保存的所有偏好记忆 | AgentMemoryService |
+
+### Agent 控制接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/order/agent/process` | Order Agent 直调（支持 userId 可选，自动注入记忆和后台提取偏好） |
+| POST | `/product/chat/sync` | Product Agent 同步对话 |
+| GET | `/product/stream/chat` | Product Agent SSE 流式对话 |
 
 ### 路由接口
 
@@ -1003,6 +1092,12 @@ chat:
 | GET | `/actuator/prometheus` | Prometheus 指标 |
 | GET | `/actuator/info` | 服务信息 |
 
+### 离线评测
+
+| 工具 | 路径 | 说明 |
+|------|------|------|
+| 黄金测试集 | `docs/eval/sample-test-set.json` | 14 个测试用例覆盖 Order/Product/General 三个 Agent。运行：`java com.example.smartassistant.common.eval.GoldenTestRunner docs/eval/sample-test-set.json` |
+
 ---
 
 ## 常见问题
@@ -1021,9 +1116,6 @@ set SERVER__PORT=
 
 检查 `.env` 文件是否存在且包含正确的 `DEEPSEEK_API_KEY`。如果以 IDE 启动，需在运行配置中设置环境变量。
 
-### Q: 服务启动失败 "DashScope API key must be set"
-
-检查 `.env` 中的 `DASHSCOPE_API_KEY`。DashScope 用于 Embedding 和 A2A 服务发现（Router 必须配置）。
 
 ### Q: 中文请求返回"一串问号"
 
@@ -1037,21 +1129,6 @@ Invoke-RestMethod -Uri 'http://localhost:8081/assistant/api/math/chat' -Method P
 
 cmd 中先执行 `chcp 65001` 切换到 UTF-8 代码页。
 
-### Q: 文生图/图片解析功能如何测试？
-
-确保已设置 `DASHSCOPE_API_KEY` 环境变量，服务启动后调用 chat API：
-
-```powershell
-$headers = @{ 'X-User-Id' = '3075'; 'X-User-Role' = 'ROLE_USER' }
-$body = @{ message='作为通用助手，帮我画一张夕阳下的海滩风景图' } | ConvertTo-Json
-$utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-Invoke-RestMethod -Uri 'http://localhost:8082/api/math/chat' -Method Post -Body $utf8Bytes -ContentType 'application/json; charset=utf-8' -Headers $headers -TimeoutSec 120
-```
-
-也可直接运行测试脚本：
-```powershell
-powershell -ExecutionPolicy Bypass -File test-image.ps1
-```
 
 ### Q: 编译报错"编码 UTF-8 的不可映射字符"
 
@@ -1067,8 +1144,8 @@ powershell -ExecutionPolicy Bypass -File test-image.ps1
 
 ### Q: 模型生效
 
-当前使用 `deepseek-v4-flash`（非思考模式）。如果 DeepSeek 发布新模型，只需修改各服务 `application.yml` 中
-`spring.ai.deepseek.chat.options.model` 的值，无需改代码。
+当前使用 `qwen2.5:7b`（Ollama 本地模型）。如果切换模型，只需修改各服务 `application.yml` 中
+`spring.ai.ollama.chat.options.model` 的值，无需改代码。
 
 ### Q: Nacos 连接失败 "unauthorized"
 
@@ -1149,15 +1226,25 @@ Gateway   Consumer    Router     Travel / Food / User / General
 
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|---------|
-| common | 50 | SQL 安全校验器、中文分词器（IKAnalyzer/HanLP）、同义词、词性标注、意图识别、缓存 |
+| common | 63 | SQL 安全校验器、中文分词器...**AgentMemoryService(6用例)**、**TraceSpan(3用例)**、**GoldenTestRunner(5用例)** |
 | gateway | 33 | JWT 工具、白名单过滤、Filter 认证、Filter 集成测试 |
 | user | 9 | JWT 服务 |
 | consumer | 25 | 对话叙事摘要、文档沉淀服务、DataGifTool、Chat 集成测试 |
-| router | 29 | Agent 调用消息清理、思考内容过滤、关键词提取、语义缓存（4 层缓存 + 前缀个性化） |
+| router | 72 | Agent 调用、语义缓存...**IntentRetriever(1用例)**、**ExperienceValidator(5用例)**、**HandoffCommand(3用例)** |
 | food | 34 | 美食推荐、菜系知识、餐厅搜索 |
 | travel | 43 | 天气/景点工具、智能行程规划、RAG 召回匹配、MCP 权限测试 |
-| general | 30 | 数学计算、温度/长度/重量/货币转换、边界条件 |
-| **总计** | **238+** | **27 个测试文件，全模块覆盖** |
+| general | 44 | 数学计算、温度/长度/重量/货币转换、边界条件、**ScriptSandbox 沙箱(14测试: 正常/校验/黑名单/资源限制/超时/内联回退)** |
+| **总计** | **340+** | **36 个测试文件，全模块覆盖** |
+
+---
+
+## 生产就绪度
+
+本项目已完成基于 [customer_work 12 生产坑](https://mp.weixin.qq.com/s/Ihtqsp68m1h66Ua12yV7kw) 和 [ThinkingAgent 可靠性体系](https://mp.weixin.qq.com/s/UTEdhrkV3G3Ycfrg0Jng_A) 的交叉审计。
+
+详细检查清单见 [`docs/production-readiness-checklist.md`](docs/production-readiness-checklist.md)。
+
+审计结论：**12 项核心条目全部通过**（4 项 ⚠️ 已在本次修复中处理）。
 
 ---
 

@@ -7,6 +7,10 @@
 
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.memory.ConflictResult;
+import com.example.smartassistant.common.memory.EntityConflictResolver;
+import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.entity.OrderEntity;
 import com.example.smartassistant.entity.OrderLogisticsEntity;
@@ -63,15 +67,21 @@ public class OrderTools {
     private final OrderMapper orderMapper;
     private final OrderRefundMapper orderRefundMapper;
     private final OrderLogisticsMapper orderLogisticsMapper;
+    private final ReadBeforeEditGuard readGuard;
+    private final EntityConflictResolver conflictResolver;
 
     public OrderTools(ApprovalService approvalService,
                       OrderMapper orderMapper,
                       OrderRefundMapper orderRefundMapper,
-                      OrderLogisticsMapper orderLogisticsMapper) {
+                      OrderLogisticsMapper orderLogisticsMapper,
+                      ReadBeforeEditGuard readGuard,
+                      EntityConflictResolver conflictResolver) {
         this.approvalService = approvalService;
         this.orderMapper = orderMapper;
         this.orderRefundMapper = orderRefundMapper;
         this.orderLogisticsMapper = orderLogisticsMapper;
+        this.readGuard = readGuard;
+        this.conflictResolver = conflictResolver;
     }
 
     // ==================== 下单 ====================
@@ -80,7 +90,7 @@ public class OrderTools {
     @Tool(description = "【下单】创建新的订单。用户提供商品名称、金额和收货信息，系统自动生成订单号。"
             + "下单成功后状态为「待付款」，后续可调用 payOrder 完成支付。")
     public String createOrder(
-            @ToolParam(description = "用户ID", required = true) Long userId,
+            @ToolParam(description = "用户ID，如 12345", required = true) Long userId,
             @ToolParam(description = "商品名称，如 iPhone 15 Pro 256GB", required = true) String productName,
             @ToolParam(description = "商品金额，如 8999.00", required = true) BigDecimal amount,
             @ToolParam(description = "收货人姓名", required = true) String contactName,
@@ -88,6 +98,13 @@ public class OrderTools {
             @ToolParam(description = "收货地址", required = true) String shippingAddress,
             @ToolParam(description = "商品类型，如 电子产品/定制商品/生鲜食品，留空则自动识别", required = false) String productType) {
         log.info("[OrderTool] 创建订单: userId={}, productName={}, amount={}", userId, productName, amount);
+
+        // ★ 冲突检测：检查收货信息是否在本次会话中变更过
+        String sessionKey = "user:" + userId;
+        ConflictResult addrConflict = conflictResolver.update(
+                sessionKey, "shipping_address", String.valueOf(userId), shippingAddress);
+        ConflictResult nameConflict = conflictResolver.update(
+                sessionKey, "contact_name", String.valueOf(userId), contactName);
 
         String orderId = String.format("ORD-%d%04d",
                 System.currentTimeMillis() % 1000000,
@@ -132,19 +149,23 @@ public class OrderTools {
             + "流程：首次调用→创建确认项→用户确认→confirmAction→再次调用payOrder执行。"
             + "不适用场景：退款操作（请用 applyRefund）；查询订单（请用 queryOrder）。")
     public String payOrder(
-            @ToolParam(description = "订单号", required = true) String orderId,
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
             @ToolParam(description = "支付方式，如 微信支付/支付宝/银行卡", required = true) String paymentMethod) {
         log.info("[OrderTool] 支付订单: {}, paymentMethod={}", orderId, paymentMethod);
 
+        // ★ Read-before-Edit：必须事先查询过该订单
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
+
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态
         if (!S_PENDING_PAY.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
-                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待付款」订单可以支付", false);
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
+                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待付款」订单可以支付");
         }
 
         // ⭐ 安全检查：先查是否已确认支付
@@ -181,20 +202,24 @@ public class OrderTools {
     @Tool(description = "【取消订单】取消指定订单。仅「待付款」或「待发货」状态的订单可以取消。"
             + "取消后状态变为「已取消」。")
     public String cancelOrder(
-            @ToolParam(description = "订单号", required = true) String orderId,
-            @ToolParam(description = "取消原因", required = true) String reason) {
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
+            @ToolParam(description = "取消原因，如 '不想要了'/'商品与描述不符'", required = true) String reason) {
         log.info("[OrderTool] 取消订单: orderId={}, reason={}", orderId, reason);
+
+        // ★ Read-before-Edit
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态：仅待付款/待发货可取消
         if (!S_PENDING_PAY.equals(order.getStatus()) && !S_PENDING_SHIP.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待付款」或「待发货」订单可以取消。"
-                    + "已发货的订单如需退款，请使用 applyRefund 申请退款。", false);
+                    + "已发货的订单如需退款，请使用 applyRefund 申请退款。");
         }
 
         order.setStatus(S_CANCELLED);
@@ -214,20 +239,24 @@ public class OrderTools {
             + "需要提供物流公司名称和快递单号。发货后状态变为「已发货」。"
             + "发货后用户可通过 trackLogistics 查询物流轨迹。")
     public String shipOrder(
-            @ToolParam(description = "订单号", required = true) String orderId,
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
             @ToolParam(description = "物流公司，如 顺丰速运", required = true) String carrier,
-            @ToolParam(description = "快递单号", required = true) String trackingNo) {
+            @ToolParam(description = "快递单号，如 SF1234567890", required = true) String trackingNo) {
         log.info("[OrderTool] 发货: orderId={}, carrier={}, trackingNo={}", orderId, carrier, trackingNo);
+
+        // ★ Read-before-Edit
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态
         if (!S_PENDING_SHIP.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
-                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待发货」订单可以发货", false);
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
+                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待发货」订单可以发货");
         }
 
         // ⭐ 使用 updateById 替代自定义 @Update SQL（已验证 updateById 可靠）
@@ -240,7 +269,7 @@ public class OrderTools {
 
         if (updateRows == 0) {
             log.error("[OrderTool] ❌ 订单更新失败: orderId={}", orderId);
-            return ToolResult.error("UPDATE_FAILED", "订单 " + orderId + " 状态更新失败，请重试", true);
+            return ToolResult.error(AgentErrorCode.UPDATE_FAILED, "订单 " + orderId + " 状态更新失败，请重试");
         }
 
         // 创建物流轨迹记录
@@ -277,18 +306,22 @@ public class OrderTools {
     @Tool(description = "【确认收货】买家确认收到商品。仅「已发货」状态的订单可以确认收货。"
             + "确认后状态变为「已签收」。")
     public String confirmDelivery(
-            @ToolParam(description = "订单号", required = true) String orderId) {
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId) {
         log.info("[OrderTool] 确认收货: {}", orderId);
+
+        // ★ Read-before-Edit
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态
         if (!S_SHIPPED.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
-                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「已发货」订单可以确认收货", false);
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
+                    "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「已发货」订单可以确认收货");
         }
 
         // ⭐ 使用 updateById 替代自定义 @Update SQL
@@ -300,7 +333,7 @@ public class OrderTools {
 
         if (updateRows == 0) {
             log.error("[OrderTool] ❌ 订单签收更新失败: orderId={}", orderId);
-            return ToolResult.error("UPDATE_FAILED", "订单 " + orderId + " 签收状态更新失败，请重试", true);
+            return ToolResult.error(AgentErrorCode.UPDATE_FAILED, "订单 " + orderId + " 签收状态更新失败，请重试");
         }
 
         // 更新物流轨迹状态
@@ -335,8 +368,8 @@ public class OrderTools {
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId,
-                    false, "确认订单号格式是否正确，当前支持的订单号格式如 ORD-2024001");
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId,
+                    "确认订单号格式是否正确，当前支持的订单号格式如 ORD-2024001");
         }
 
         StringBuilder sb = new StringBuilder();
@@ -387,6 +420,9 @@ public class OrderTools {
             sb.append("\n").append(nextStep);
         }
 
+        // ★ Read-before-Edit：标记已读，供后续修改操作校验
+        readGuard.markRead(orderId, "order");
+
         return sb.toString();
     }
 
@@ -396,29 +432,33 @@ public class OrderTools {
     @Tool(description = "【退款申请】提交退款申请。⚠️ 敏感操作，需二次确认。"
             + "适用场景：用户明确要求退款，仅已发货或已签收订单可用。"
             + "流程：首次调用→创建确认项→用户确认→confirmAction→再次调用applyRefund执行。"
-            + "不适用场景：待付款/待发货订单取消（请用 cancelOrder）；统计退款数据（请用 queryTopRefunds）。")
+            + "不适用场景：待付款/待发货订单取消（请用 cancelOrder）")
     public String applyRefund(
-            @ToolParam(description = "订单号", required = true) String orderId,
-            @ToolParam(description = "退款原因", required = true) String reason) {
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
+            @ToolParam(description = "退款原因，如 '商品质量问题'/'七天无理由退货'", required = true) String reason) {
         log.info("[OrderTool] 退款请求: orderId={}, reason={}", orderId, reason);
+
+        // ★ Read-before-Edit：必须事先查询过该订单
+        String guard = readGuard.requireRead(orderId, "order", "queryOrder");
+        if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
 
         // 先查订单是否存在
         OrderEntity order = orderMapper.findByOrderId(orderId);
         if (order == null) {
-            return ToolResult.error("ORDER_NOT_FOUND", "未找到订单 " + orderId, false);
+            return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
         // 校验状态：仅已发货/已签收可申请退款
         if (!S_SHIPPED.equals(order.getStatus()) && !S_DELIVERED.equals(order.getStatus())) {
-            return ToolResult.error("INVALID_STATUS",
+            return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「已发货」或「已签收」订单可以申请退款。"
                     + "「待付款」订单请使用 cancelOrder 取消，"
-                    + "「待发货」订单请先联系商家或使用 cancelOrder 取消。", false);
+                    + "「待发货」订单请先联系商家或使用 cancelOrder 取消。");
         }
 
         // 检查是否已存在退款中记录
         if (S_REFUNDING.equals(order.getStatus())) {
-            return ToolResult.error("ALREADY_REFUNDING", "订单 " + orderId + " 已在退款处理中，请耐心等待", false);
+            return ToolResult.error(AgentErrorCode.ALREADY_REFUNDING, "订单 " + orderId + " 已在退款处理中，请耐心等待");
         }
 
         // ⭐ 安全检查：先查是否已确认
@@ -470,7 +510,7 @@ public class OrderTools {
             + "适用场景：payOrder 或 applyRefund 首次调用后返回确认提示时。"
             + "不适用场景：未调用 payOrder/applyRefund 之前直接调用。")
     public String confirmAction(
-            @ToolParam(description = "订单号", required = true) String orderId,
+            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
             @ToolParam(description = "操作类型：'payment' 支付确认 / 'refund' 退款确认", required = true) String actionType) {
         log.info("[OrderTool] 确认操作: orderId={}, actionType={}", orderId, actionType);
         boolean success = approvalService.confirmAction(orderId, actionType);
@@ -495,16 +535,16 @@ public class OrderTools {
             + "适用场景：用户提供快递单号要查包裹到哪了。"
             + "不适用场景：查订单基本信息（请用 queryOrder）；没有快递单号时（请用 queryOrder 看物流字段）。")
     public String trackLogistics(
-            @ToolParam(description = "快递单号", required = true) String trackingNumber) {
+            @ToolParam(description = "快递单号，如 SF1234567890", required = true) String trackingNumber) {
         log.info("[OrderTool] 查物流: {}", trackingNumber);
         if (trackingNumber == null || trackingNumber.isBlank()) {
-            return ToolResult.error("TRACKING_REQUIRED", "请提供快递单号", false, "请提供快递单号");
+            return ToolResult.error(AgentErrorCode.TRACKING_REQUIRED, "请提供快递单号", "请提供快递单号");
         }
 
         OrderLogisticsEntity logistics = orderLogisticsMapper.findByTrackingNo(trackingNumber);
         if (logistics == null) {
-            return ToolResult.error("LOGISTICS_NOT_FOUND", "未找到快递单号 " + trackingNumber + " 的物流信息",
-                    false, "确认快递单号是否正确");
+            return ToolResult.error(AgentErrorCode.LOGISTICS_NOT_FOUND, "未找到快递单号 " + trackingNumber + " 的物流信息",
+                    "确认快递单号是否正确");
         }
 
         StringBuilder sb = new StringBuilder();

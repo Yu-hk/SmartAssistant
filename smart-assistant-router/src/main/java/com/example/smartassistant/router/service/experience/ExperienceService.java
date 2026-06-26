@@ -11,6 +11,7 @@ import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.experience.ExperienceEmbeddingMapper.EmbeddingSearchResult;
+import com.example.smartassistant.router.service.experience.ExperienceMilvusService.SearchResult;
 import com.example.smartassistant.router.service.experience.ExperienceModel.CommonExperience;
 import com.example.smartassistant.router.service.experience.ExperienceModel.ReactExperience;
 import com.example.smartassistant.router.service.experience.ExperienceModel.ReactExperience.ReactStep;
@@ -19,6 +20,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -73,16 +75,27 @@ public class ExperienceService {
     private final SemanticRouteCacheService semanticCache;
     private final BgeOnnxEmbeddingService bgeEmbedding;
     private final ExperienceEmbeddingMapper embeddingMapper;
+    /** 经验验证器：召回后验证时效性和可靠度 */
+    private final ExperienceValidator experienceValidator;
+    /** Milvus 向量检索服务（可选，替代 pgvector） */
+    private final ExperienceMilvusService milvusService;
 
     public ExperienceService(StringRedisTemplate redisTemplate,
                              SemanticRouteCacheService semanticCache,
                              BgeOnnxEmbeddingService bgeEmbedding,
-                             ExperienceEmbeddingMapper embeddingMapper) {
+                             ExperienceEmbeddingMapper embeddingMapper,
+                             ExperienceValidator experienceValidator,
+                             ObjectProvider<ExperienceMilvusService> milvusProvider) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.semanticCache = semanticCache;
         this.bgeEmbedding = bgeEmbedding;
         this.embeddingMapper = embeddingMapper;
+        this.experienceValidator = experienceValidator;
+        this.milvusService = milvusProvider != null ? milvusProvider.getIfAvailable() : null;
+        if (milvusService != null) {
+            log.info("[Experience] Milvus 经验向量服务已加载");
+        }
     }
 
     // ==================== 经验匹配（路由主流程调用）====================
@@ -110,29 +123,44 @@ public class ExperienceService {
             List<String> keywords = extractKeywords(question);
             if (keywords.isEmpty()) return null;
 
-            // 2. BGE 向量化查询 + pgvector 搜索
+            // BGE 向量搜索结果与关键词收拢到同一个集合
+            Set<String> matchedExpIds = new HashSet<>();
+            Map<String, Double> bgeScoreMap = new HashMap<>();
+
+            // 2. BGE 向量化搜索（优先 Milvus，降级 pgvector）
             float[] queryVec = embed(question);
             boolean useBge = queryVec != null;
-            List<EmbeddingSearchResult> bgeResults = null;
             if (useBge) {
-                String vectorStr = floatsToPgVector(queryVec);
-                if (vectorStr != null) {
-                    bgeResults = embeddingMapper.findSimilar(vectorStr, 0.7, 20);
-                    log.debug("[Experience] pgvector 搜索: {} 条候选", bgeResults != null ? bgeResults.size() : 0);
+                if (milvusService != null) {
+                    // 用 Milvus 搜索
+                    List<Float> queryFloatVec = new ArrayList<>(queryVec.length);
+                    for (float v : queryVec) queryFloatVec.add(v);
+                    List<SearchResult> milvusResults = milvusService.findSimilar(queryFloatVec, 0.7, 20);
+                    log.debug("[Experience] Milvus 搜索: {} 条候选", milvusResults != null ? milvusResults.size() : 0);
+                    if (milvusResults != null) {
+                        for (SearchResult sr : milvusResults) {
+                            matchedExpIds.add(sr.getExpId());
+                            bgeScoreMap.put(sr.getExpId(), sr.getSimilarity());
+                        }
+                    }
+                } else {
+                    // 降级到 pgvector
+                    String vectorStr = floatsToPgVector(queryVec);
+                    if (vectorStr != null) {
+                        List<EmbeddingSearchResult> bgeResults = embeddingMapper.findSimilar(vectorStr, 0.7, 20);
+                        log.debug("[Experience] pgvector 搜索: {} 条候选", bgeResults != null ? bgeResults.size() : 0);
+                        if (bgeResults != null) {
+                            for (EmbeddingSearchResult sr : bgeResults) {
+                                matchedExpIds.add(sr.getExpId());
+                                bgeScoreMap.put(sr.getExpId(), sr.getSimilarity());
+                            }
+                        }
+                    }
                 }
             }
 
             // 3. 关键词索引快速预筛选
-            Set<String> matchedExpIds = findMatchingExperienceIds(keywords);
-
-            // 4. 合并 pgvector 结果 + 关键词结果（取并集）
-            Map<String, Double> bgeScoreMap = new HashMap<>();
-            if (bgeResults != null) {
-                for (EmbeddingSearchResult sr : bgeResults) {
-                    matchedExpIds.add(sr.getExpId());
-                    bgeScoreMap.put(sr.getExpId(), sr.getSimilarity());
-                }
-            }
+            matchedExpIds.addAll(findMatchingExperienceIds(keywords));
 
             if (matchedExpIds.isEmpty()) {
                 if (!useBge) return null;
@@ -166,15 +194,24 @@ public class ExperienceService {
 
             ScoredExperience best = allMatches.get(0);
 
-            log.info("[Experience] 🧠 经验匹配成功: type={}, intent={}, agent={}, score={}, bge={}",
-                    best.exp.getType(), best.exp.getIntentTag(), best.exp.getAgentName(),
+            // ⭐ 经验验证：检查时效性、可靠度、新鲜度
+            List<String> warnings = experienceValidator.validate(best.exp);
+            if (!warnings.isEmpty()) {
+                log.info("[Experience] ⚠️ 经验匹配成功但存在验证警告: warnings={}, type={}, intent={}, score={}",
+                        warnings, best.exp.getType(), best.exp.getIntentTag(),
+                        String.format("%.2f", best.score));
+            }
+
+            log.info("[Experience] 🧠 经验匹配成功: type={}, intent={}, agent={}, score={}, bge={}{}",
+                    best.exp.getType(),                     best.exp.getIntentTag(), best.exp.getAgentName(),
                     String.format("%.2f", best.score), useBge ? "✅" : "❌");
 
             // 6. 更新命中计数
             incrementHitCount(best.exp);
 
-            // 7. 构造匹配结果（含多意图副匹配）
+            // 7. 构造匹配结果（含多意图副匹配 + 验证警告）
             ExperienceMatchResult result = buildMatchResult(best.exp, best.score, question);
+            result.warnings = warnings;
 
             // 8. ⭐ 多意图：提取分数 ≥ 0.5 的其他经验作为副匹配
             List<ExperienceMatchResult.SecondaryIntent> secondaries = new ArrayList<>();
@@ -525,7 +562,10 @@ public class ExperienceService {
             }
             redisTemplate.delete(EXP_PREFIX + expId);
             redisTemplate.opsForSet().remove(EXP_INDEX_KEY, expId);
-            // ⭐ 清理 pgvector 嵌入向量
+            // ⭐ 清理向量嵌入（Milvus + pgvector 双写兼容）
+            if (milvusService != null) {
+                milvusService.delete(expId);
+            }
             embeddingMapper.delete(expId);
             log.info("[Experience] 🗑️ 经验已删除: id={}", expId);
         } catch (Exception e) {
@@ -534,7 +574,7 @@ public class ExperienceService {
     }
 
     /**
-     * ⭐ 将经验意图的 BGE embedding 存入 pgvector。
+     * ⭐ 将经验意图的 BGE embedding 存入向量数据库（优先 Milvus，降级 pgvector）。
      * 仅在 BGE 可用时执行；已有数据执行 upsert 更新。
      */
     private void upsertEmbedding(String expId, String agentName, String intentTag) {
@@ -542,11 +582,19 @@ public class ExperienceService {
         try {
             float[] vec = bgeEmbedding.embed(intentTag);
             if (vec == null) return;
-            String vecStr = floatsToPgVector(vec);
-            embeddingMapper.upsert(expId, agentName, intentTag, vecStr);
-            log.debug("[Experience] pgvector upsert: id={}, dim={}", expId, vec.length);
+
+            if (milvusService != null) {
+                List<Float> vecList = new ArrayList<>(vec.length);
+                for (float v : vec) vecList.add(v);
+                milvusService.upsert(expId, agentName, intentTag, vecList);
+                log.debug("[Experience] Milvus upsert: id={}, dim={}", expId, vec.length);
+            } else {
+                String vecStr = floatsToPgVector(vec);
+                embeddingMapper.upsert(expId, agentName, intentTag, vecStr);
+                log.debug("[Experience] pgvector upsert: id={}, dim={}", expId, vec.length);
+            }
         } catch (Exception e) {
-            log.warn("[Experience] pgvector upsert 失败: id={}, err={}", expId, e.getMessage());
+            log.warn("[Experience] 向量 upsert 失败: id={}, err={}", expId, e.getMessage());
         }
     }
 
@@ -816,6 +864,8 @@ public class ExperienceService {
         public List<ReactStep> reactSteps;
         /** ⭐ 多意图副匹配列表 */
         public List<SecondaryIntent> secondaryIntents;
+        /** ⭐ 经验验证警告（时效性/可靠度/新鲜度），空列表表示完全可信 */
+        public List<String> warnings;
 
         public static class SecondaryIntent {
             public String agentName;

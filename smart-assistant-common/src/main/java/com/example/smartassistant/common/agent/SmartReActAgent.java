@@ -7,14 +7,18 @@
 
 package com.example.smartassistant.common.agent;
 
+import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.error.AgentException;
+import com.example.smartassistant.common.error.ErrorRecoveryService;
+import com.example.smartassistant.common.error.RecoveryAction;
+import com.example.smartassistant.common.memory.ConversationSummaryStore;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
+import com.example.smartassistant.common.tool.ToolGroupManager;
+import com.example.smartassistant.common.trace.TraceSpan;
+import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
-import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.messages.*;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -24,15 +28,7 @@ import org.springframework.ai.tool.ToolCallback;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.*;
 
 /**
  * 自研 ReAct 循环执行器。
@@ -111,6 +107,26 @@ public class SmartReActAgent {
 
     /** ⭐ 可选的指标采集器 */
     private AgentMetricsCollector metrics = new AgentMetricsCollector() {};
+
+    /** ⭐ 错误恢复服务（表驱动恢复，默认使用内置静态实例） */
+    private ErrorRecoveryService recoveryService = ErrorRecoveryService.DEFAULT;
+
+    /** ⭐ 工具组管理器（可选，用于按需激活工具组） */
+    private ToolGroupManager toolGroupManager;
+
+    /** ⭐ 追踪跨度注册表（可选，用于生成 Jaeger 嵌套跨度） */
+    private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
+
+    /** ⭐ 预计算压缩结果（PrecomputedCompact：后台异步压缩，下一轮直接使用） */
+    private volatile CompletableFuture<List<Message>> precomputedCompactFuture;
+
+    /** ⭐ 递归滚动摘要链（#1 对话历史 + #3 递归滚动）：每轮压缩生成的摘要累加到此链 */
+    private final List<String> summaryChain = new ArrayList<>();
+    /** 每触发一次压缩后递增的摘要代数 */
+    private int summaryGeneration = 0;
+
+    /** ⭐ 对话摘要持久化存储（可选：方案 A — 压缩摘要写入向量数据库） */
+    private ConversationSummaryStore summaryStore;
 
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
@@ -192,6 +208,43 @@ public class SmartReActAgent {
         return this;
     }
 
+    /**
+     * 设置错误恢复服务（用于表驱动错误码→恢复策略路由）。
+     * 默认使用 {@link ErrorRecoveryService#DEFAULT}，通常无需覆写。
+     *
+     * @param recoveryService 错误恢复服务
+     * @return this
+     */
+    public SmartReActAgent withRecoveryService(ErrorRecoveryService recoveryService) {
+        if (recoveryService != null) {
+            this.recoveryService = recoveryService;
+        }
+        return this;
+    }
+
+    /**
+     * 设置工具组管理器（用于按需激活工具组，减少 LLM Schema 占用）。
+     * 激活的组工具会注入 ReAct 循环，未激活组对 LLM 不可见。
+     *
+     * @param toolGroupManager 工具组管理器
+     * @return this
+     */
+    public SmartReActAgent withToolGroupManager(ToolGroupManager toolGroupManager) {
+        this.toolGroupManager = toolGroupManager;
+        return this;
+    }
+
+    public SmartReActAgent withObservationRegistry(ObservationRegistry registry) {
+        if (registry != null) this.observationRegistry = registry;
+        return this;
+    }
+
+    /** 配置对话摘要持久化存储（方案 A：压缩摘要写入向量数据库） */
+    public SmartReActAgent withSummaryStore(ConversationSummaryStore summaryStore) {
+        this.summaryStore = summaryStore;
+        return this;
+    }
+
     // ==================== execute 重载 ====================
 
     /**
@@ -218,8 +271,19 @@ public class SmartReActAgent {
      * @return 最终回答或超时/预算耗尽提示
      */
     public String execute(String userMessage, String systemPrompt, List<ToolCallback> tools) {
+        // ⭐ 当有 ToolGroupManager 时，使用活跃组的工具替换平坦列表
+        List<ToolCallback> effectiveTools = tools;
+        String enhancedPrompt = systemPrompt;
+        if (toolGroupManager != null) {
+            effectiveTools = toolGroupManager.getActiveTools();
+            String groupDesc = toolGroupManager.getActiveGroupsDescription();
+            enhancedPrompt = systemPrompt + "\n\n【当前可用的工具组】\n" + groupDesc;
+            log.info("[SmartReActAgent] 使用 ToolGroup 模式: activeGroups={}, tools={}",
+                    toolGroupManager.getActiveGroupNames(), effectiveTools.size());
+        }
+
         List<Message> messages = new ArrayList<>();
-        messages.add(new SystemMessage(systemPrompt));
+        messages.add(new SystemMessage(enhancedPrompt));
         messages.add(new UserMessage(userMessage));
 
         long startTime = System.currentTimeMillis();
@@ -234,12 +298,12 @@ public class SmartReActAgent {
 
         // 预构建 ToolCallingChatOptions（每次循环复用）
         ToolCallingChatOptions options = ToolCallingChatOptions.builder()
-                .toolCallbacks(tools.toArray(new ToolCallback[0]))
+                .toolCallbacks(effectiveTools.toArray(new ToolCallback[0]))
                 .build();
 
         // 构建工具名查找缓存（加速）
         Map<String, ToolCallback> toolMap = new ConcurrentHashMap<>();
-        for (ToolCallback tc : tools) {
+        for (ToolCallback tc : effectiveTools) {
             toolMap.put(tc.getToolDefinition().name(), tc);
         }
 
@@ -251,20 +315,36 @@ public class SmartReActAgent {
             if (elapsed > timeoutMs) {
                 log.warn("[SmartReActAgent] ⏰ 超时 ({}ms, 迭代 {} 次)", elapsed, iteration);
                 metrics.recordTimeout();
-                return "执行超时（超过 " + (timeoutMs / 1000) + " 秒），请简化问题后重试。";
+                recoveryService.logRecovery(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, RecoveryAction.FALLBACK_AGENT,
+                        "elapsed=" + elapsed + "ms, iteration=" + iteration, iteration);
+                return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, null);
             }
 
             // ⭐ Token 预算检查
             if (trackTokenBudget && (totalInputTokens + totalOutputTokens) > maxBudgetTokens) {
                 log.warn("[SmartReActAgent] Token 预算耗尽 (输入={}, 输出={}, 上限={})",
                         totalInputTokens, totalOutputTokens, maxBudgetTokens);
-                return "Token 预算即将耗尽，请总结当前进度并询问用户是否继续。";
+                recoveryService.logRecovery(AgentErrorCode.SYSTEM_BUDGET_EXCEEDED, RecoveryAction.CLARIFY_USER,
+                        "input=" + totalInputTokens + ", output=" + totalOutputTokens, iteration);
+                return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_BUDGET_EXCEEDED, null);
             }
 
             // ⭐ 上下文压缩检查（消息数过多时触发）
+            // 优先使用后台预计算的结果，避免阻塞
             if (enableCompress && messages.size() > compressThreshold) {
-                List<Message> compressed = compressHistory(messages);
-                if (compressed != messages) { // 压缩实际发生
+                List<Message> compressed = null;
+                if (precomputedCompactFuture != null && precomputedCompactFuture.isDone()) {
+                    try {
+                        compressed = precomputedCompactFuture.get();
+                        precomputedCompactFuture = null;
+                    } catch (Exception e) {
+                        log.debug("[SmartReActAgent] 预计算压缩结果无效，回退同步: {}", e.getMessage());
+                    }
+                }
+                if (compressed == null) {
+                    compressed = compressHistory(messages);
+                }
+                if (compressed != messages) {
                     log.info("[SmartReActAgent] 上下文压缩: {} → {} 条消息", messages.size(), compressed.size());
                     messages = compressed;
                     metrics.recordContextCompression();
@@ -275,16 +355,20 @@ public class SmartReActAgent {
 
             metrics.recordIteration(iteration);
 
-            // ⭐ 调用 LLM
+            // ⭐ 调用 LLM（带追踪跨度）
             ChatResponse response;
             long llmStart = System.currentTimeMillis();
             try {
-                // ⭐ 注入工具列表到 CustomDeepSeekChatModel（如果适用）
-                injectToolsToModel(tools);
-                response = chatModel.call(new Prompt(messages, options));
+                injectToolsToModel(effectiveTools);
+                final List<Message> callMessages = messages;
+                final ToolCallingChatOptions callOptions = options;
+                response = TraceSpan.of(observationRegistry, "agent-llm-call")
+                        .run(() -> chatModel.call(new Prompt(callMessages, callOptions)));
             } catch (Exception e) {
                 log.error("[SmartReActAgent] LLM 调用失败: {}", e.getMessage());
-                return "AI 服务暂时不可用，请稍后重试。";
+                recoveryService.logRecovery(AgentErrorCode.MODEL_CALL_FAILED, RecoveryAction.RETRY_BACKOFF,
+                        e.getMessage(), iteration);
+                return recoveryService.resolveUserMessage(AgentErrorCode.MODEL_CALL_FAILED, null);
             }
             long llmElapsed = System.currentTimeMillis() - llmStart;
             metrics.recordInferenceLatency(llmElapsed);
@@ -322,8 +406,9 @@ public class SmartReActAgent {
             // ⭐ 将 assistant 的 tool_call 请求加入对话
             messages.add(assistantMsg);
 
-            // ⭐ 执行工具（支持并行）
-            List<ToolResponseMessage.ToolResponse> toolResponses = executeTools(toolCalls, toolMap);
+            // ⭐ 执行工具（支持并行，带追踪跨度）
+            List<ToolResponseMessage.ToolResponse> toolResponses = TraceSpan.of(observationRegistry, "agent-tool-execute")
+                    .run(() -> executeTools(toolCalls, toolMap));
 
             // ⭐ 连续无增量检测：防止重复调同类工具陷入循环
             String currentHash = toolCalls.stream().map(tc -> tc.name()).sorted()
@@ -332,7 +417,9 @@ public class SmartReActAgent {
                 noIncrementCount++;
                 if (noIncrementCount >= NO_INCREMENT_LIMIT) {
                     log.warn("[SmartReActAgent] 连续 {} 次相同工具调用，强制停止", noIncrementCount);
-                    return "执行过程中检测到重复调用，已为您整理了当前能获取的最佳信息。请尝试换一种方式描述您的问题。";
+                    recoveryService.logRecovery(AgentErrorCode.SYSTEM_NO_INCREMENT, RecoveryAction.RETRY_ALTERNATIVE,
+                            "consecutive=" + noIncrementCount, iteration);
+                    return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_NO_INCREMENT, null);
                 }
             } else {
                 lastToolCallHash = currentHash;
@@ -342,34 +429,58 @@ public class SmartReActAgent {
             messages.add(ToolResponseMessage.builder()
                     .responses(toolResponses)
                     .build());
+
+            // ⭐ PrecomputedCompact：消息数接近阈值时后台异步预压缩
+            if (enableCompress && precomputedCompactFuture == null
+                    && messages.size() > compressThreshold - 3) {
+                List<Message> snapshot = new ArrayList<>(messages);
+                precomputedCompactFuture = CompletableFuture.supplyAsync(() -> compressHistory(snapshot));
+            }
             // 继续循环
         }
 
         // ⭐ 达到最大迭代次数
         log.warn("[SmartReActAgent] 达到最大迭代次数 {}", maxIterations);
         metrics.recordMaxIterationHit();
-        return "已达到最大执行次数上限，请总结当前进度并询问用户是否继续。";
+        recoveryService.logRecovery(AgentErrorCode.SYSTEM_MAX_ITERATIONS, RecoveryAction.FALLBACK_AGENT,
+                "maxIterations=" + maxIterations, maxIterations);
+        return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_MAX_ITERATIONS, null);
     }
 
     // ==================== 上下文压缩 ====================
 
-    /** 摘要生成提示词 */
+    /** ⭐ 增强摘要生成提示词（9 段式，参考 Claude Code 设计） */
     private static final String SUMMARY_PROMPT = """
-            请把下面的对话历史压缩成简明摘要，保留：
-            1. 用户的关键诉求与目标
-            2. Agent 已完成的关键操作（调用了哪些工具、返回了什么核心结果）
-            3. 已达成的共识或结论
-            4. 仍未解决的问题或待办
-            
-            不要复述每条原文，不要列举所有工具调用细节，不要保留无关闲聊。
-            输出 1-3 段中文，不要用列表，不要加任何前缀或元描述。
+            请把下面的对话历史压缩成结构化摘要。
+
+            必须包含以下 9 个部分：
+            1. 用户的核心诉求与初始目标
+            2. 关键技术概念与业务上下文
+            3. 涉及的文件、服务或数据
+            4. 错误与修复记录
+            5. 问题解决过程（哪些成功了，哪些失败了）
+            6. 用户的关键反馈与偏好
+            7. 已完成的待办事项
+            8. 仍未解决的问题或待办
+            9. 后续建议与下一步计划
+
+            要求：
+            - 按以上 9 个部分编号输出，每个部分 1-3 句
+            - 保留所有重要的技术细节、错误信息和用户反馈
+            - 不要遗漏已完成的工具调用及其核心结果
+            - 如果某部分无内容，标注「无」
+            不要复述每条原文，不要保留无关闲聊。
             """;
 
     /**
-     * 压缩对话历史。
+     * 压缩对话历史（带 MicroCompact 工具结果清理 + 增量更新）。
      * <p>
-     * 策略：保留最近 {@code keepRounds} 轮完整工具调用，
-     * 更早的对话由 LLM 生成摘要替换。
+     * 策略：
+     * <ol>
+     *   <li><b>增量更新</b>：如果已存在摘要，只对新内容追加压缩</li>
+     *   <li><b>MicroCompact</b>：替换旧工具结果为简洁摘要，保留调用结构</li>
+     *   <li><b>LLM 摘要</b>：用 9 段式 SUMMARY_PROMPT 生成结构化摘要</li>
+     * </ol>
      * 切割点保证落在完整轮次边界，不拆散 tool_call/tool_result 对。
      *
      * @param messages 当前消息列表
@@ -379,12 +490,24 @@ public class SmartReActAgent {
         // 至少需要: System + User + 至少 2 轮工具调用才值得压缩
         if (messages.size() < 6) return messages;
 
+        // ⭐ 检测是否已存在摘要（增量更新模式）
+        String existingSummary = findExistingSummary(messages);
+
         // ⭐ 从末尾向前扫描，定位保留的起始索引
         int keepStart = findKeepStart(messages);
         if (keepStart <= 1) return messages; // 所有消息都在保留范围内
 
         // ⭐ 将保留起点之前的消息（不含 SystemMessage）转为文本
         StringBuilder rawBuilder = new StringBuilder();
+        // 如果存在旧摘要，先加入
+        if (existingSummary != null) {
+            rawBuilder.append("【已有摘要】\n").append(existingSummary).append("\n\n");
+            rawBuilder.append("【新对话内容】\n");
+        } else if (!summaryChain.isEmpty()) {
+            // #3: 递归滚动 — 从摘要链中取上一代摘要
+            rawBuilder.append("【上一代摘要】\n").append(summaryChain.get(0)).append("\n\n");
+            rawBuilder.append("【新对话内容】\n");
+        }
         for (int i = 1; i < keepStart; i++) {
             Message msg = messages.get(i);
             String role;
@@ -397,7 +520,7 @@ public class SmartReActAgent {
                 content = a.getText() != null ? a.getText() : "(工具调用)";
             } else if (msg instanceof ToolResponseMessage) {
                 role = "工具结果";
-                content = "(返回数据)";
+                content = "(已压缩)";
             } else {
                 role = "其他";
                 content = "";
@@ -434,6 +557,27 @@ public class SmartReActAgent {
             if (truncated) {
                 summary += "\n\n(部分对话因过长被截断，截断部分未纳入摘要)";
             }
+
+            // ⭐ #1: 将当前摘要加入摘要链（#3: 递归滚动 — 每生成一代替换上一代）
+            summaryGeneration++;
+            synchronized (summaryChain) {
+                if (summaryGeneration <= 1) {
+                    summaryChain.add(summary);
+                } else {
+                    // 滚动替换：只有最新的摘要保留在链中，前面的由摘要自身携带历史信息
+                    summaryChain.set(0, summary);
+                }
+            }
+            log.info("[SmartReActAgent] 摘要链: 第{}代, 长度={}", summaryGeneration, summary.length());
+
+            // ⭐ 方案 A: 持久化存储摘要到向量数据库（异步安全，异常静默降级）
+            if (summaryStore != null) {
+                try {
+                    summaryStore.store(null, null, null, summary, summaryGeneration);
+                } catch (Exception e) {
+                    log.warn("[SmartReActAgent] 摘要持久化失败: {}", e.getMessage());
+                }
+            }
         } catch (Exception e) {
             log.warn("[SmartReActAgent] 摘要生成失败: {}，跳过压缩", e.getMessage());
             return messages; // 降级：不压缩
@@ -450,6 +594,25 @@ public class SmartReActAgent {
         }
 
         return compressed;
+    }
+
+    /**
+     * 检测消息列表中是否已存在摘要（用于增量更新）。
+     * <p>
+     * 查找格式为 "以下是对之前对话的摘要：\n\n..." 的 UserMessage。
+     *
+     * @return 已有摘要文本；不存在时返回 null
+     */
+    private String findExistingSummary(List<Message> messages) {
+        for (Message msg : messages) {
+            if (msg instanceof UserMessage u) {
+                String text = u.getText();
+                if (text != null && text.startsWith("以下是对之前对话的摘要：")) {
+                    return text.replace("以下是对之前对话的摘要：\n\n", "").trim();
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -489,18 +652,25 @@ public class SmartReActAgent {
 
     // ==================== 并行工具执行 ====================
 
-    /** 工具执行线程池（延迟初始化） */
+    /** 工具执行线程池（延迟初始化，JDK 21 虚拟线程，每工具一线程） */
     private volatile ExecutorService toolExecutor;
+
+    /**
+     * ⭐ 工具并发限流闸门。
+     * <p>虚拟线程执行器是无界的，为保留原 {@code newFixedThreadPool(maxConcurrency)} 隐含的
+     * “单批工具最多 maxConcurrency 个并行”语义（避免对外部工具 API / 搜索接口造成过高并发），
+     * 用 {@link Semaphore} 维持该并发上限。与 toolExecutor 一同延迟初始化，以读取最终的 maxConcurrency。</p>
+     */
+    private volatile Semaphore toolConcurrencyLimiter;
 
     private ExecutorService getToolExecutor() {
         if (toolExecutor == null) {
             synchronized (this) {
                 if (toolExecutor == null) {
-                    toolExecutor = Executors.newFixedThreadPool(maxConcurrency, r -> {
-                        Thread t = new Thread(r, "tool-executor");
-                        t.setDaemon(true);
-                        return t;
-                    });
+                    // 限流闸门与执行器同步初始化（此时 maxConcurrency 已为最终值）
+                    toolConcurrencyLimiter = new Semaphore(maxConcurrency);
+                    // I/O 阻塞型工具（搜索 / HTTP / 汇率等）：每次调用一根虚拟线程，阻塞期间释放载体线程
+                    toolExecutor = Executors.newVirtualThreadPerTaskExecutor();
                 }
             }
         }
@@ -532,29 +702,17 @@ public class SmartReActAgent {
         List<CompletableFuture<ToolResponseMessage.ToolResponse>> futures = new ArrayList<>();
         for (var tc : toolCalls) {
             futures.add(CompletableFuture.supplyAsync(() -> {
-                long toolStart = System.currentTimeMillis();
-                ToolCallback callback = toolMap.get(tc.name());
-
-                if (callback == null) {
-                    log.warn("[SmartReActAgent] 未知工具: {}", tc.name());
-                    metrics.recordToolHallucination();
-                    return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                            "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: " + tc.name()
-                                    + "\",\"retryable\":false}");
-                }
-
                 try {
-                    log.info("[SmartReActAgent] 并行执行工具: {} (id={})", tc.name(), tc.id());
-                    String result = callback.call(tc.arguments());
-                    long elapsed = System.currentTimeMillis() - toolStart;
-                    log.info("[SmartReActAgent] 工具 {} 完成 (耗时 {}ms)", tc.name(), elapsed);
-                    return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                            result != null ? result : "null");
-                } catch (Exception e) {
-                    log.error("[SmartReActAgent] 工具执行异常: {} - {}", tc.name(), e.getMessage());
-                    return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                            "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
-                                    + e.getMessage() + "\",\"retryable\":true}");
+                    // ⭐ 虚拟线程无界，用限流闸门保留“单批最多 maxConcurrency 个工具并行”的上限
+                    toolConcurrencyLimiter.acquire();
+                    try {
+                        return executeToolCallWithRetry(tc, toolMap);
+                    } finally {
+                        toolConcurrencyLimiter.release();
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new CompletionException(ie);
                 }
             }, getToolExecutor()));
         }
@@ -602,27 +760,147 @@ public class SmartReActAgent {
 
         List<ToolResponseMessage.ToolResponse> results = new ArrayList<>();
         for (var tc : toolCalls) {
-            ToolCallback callback = toolMap.get(tc.name());
-            if (callback == null) {
-                log.warn("[SmartReActAgent] 未知工具: {}", tc.name());
-                results.add(new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                        "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: " + tc.name()
-                                + "\",\"retryable\":false}"));
-                continue;
-            }
-            try {
-                log.info("[SmartReActAgent] 串行执行工具: {} (id={})", tc.name(), tc.id());
-                String result = callback.call(tc.arguments());
-                results.add(new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                        result != null ? result : "null"));
-            } catch (Exception e) {
-                log.error("[SmartReActAgent] 工具执行异常: {} - {}", tc.name(), e.getMessage());
-                results.add(new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                        "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
-                                + e.getMessage() + "\",\"retryable\":true}"));
-            }
+            results.add(executeToolCallWithRetry(tc, toolMap));
         }
         return results;
+    }
+
+    /**
+     * 执行单个工具调用并自动重试（基于 ErrorRecoveryService 表驱动决策）。
+     * <p>
+     * 工具返回的 JSON 结果如果包含 {@code error_code} 字段，会按 AgentErrorCode
+     * 映射到恢复策略，决定是否自动重试。
+     * </p>
+     */
+    private ToolResponseMessage.ToolResponse executeToolCallWithRetry(
+            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap) {
+        ToolCallback callback = toolMap.get(tc.name());
+        if (callback == null) {
+            log.warn("[SmartReActAgent] 未知工具: {}", tc.name());
+            metrics.recordToolHallucination();
+            recoveryService.logRecovery(AgentErrorCode.UNKNOWN_TOOL, RecoveryAction.CLARIFY_USER,
+                    "tool=" + tc.name(), 0);
+            return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
+                    "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: "
+                            + tc.name() + "\",\"retryable\":false}");
+        }
+
+        int attempt = 0;
+        Exception lastException = null;
+        String lastErrorCode = null;
+
+        while (true) {
+            attempt++;
+            try {
+                log.info("[SmartReActAgent] {}执行工具: {} (id={}, attempt={})",
+                        parallelExecution ? "并行" : "串行", tc.name(), tc.id(), attempt);
+                long toolStart = System.currentTimeMillis();
+                String result = callback.call(tc.arguments());
+                long elapsed = System.currentTimeMillis() - toolStart;
+                log.info("[SmartReActAgent] 工具 {} 完成 (耗时 {}ms)", tc.name(), elapsed);
+
+                // ⭐ 检查工具返回结果是否包含 error_code
+                String errorCode = extractErrorCode(result);
+                if (errorCode == null) {
+                    // 正常结果，直接返回
+                    return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
+                            result != null ? result : "null");
+                }
+
+                // 工具返回了错误码，判断是否需要重试
+                lastErrorCode = errorCode;
+                AgentErrorCode agentCode = AgentErrorCode.fromCode(errorCode);
+                if (agentCode != null && recoveryService.shouldRetry(agentCode, attempt)) {
+                    long delay = recoveryService.getRetryDelayMs(agentCode, attempt - 1);
+                    log.warn("[SmartReActAgent] 工具返回错误(第{}次): tool={}, code={}, {}ms后重试",
+                            attempt, tc.name(), errorCode, delay);
+                    recoveryService.logRecovery(agentCode, recoveryService.resolve(agentCode),
+                            "tool=" + tc.name() + ", result=" + truncate64(result), attempt);
+                    try { Thread.sleep(delay); }
+                    catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    continue;
+                }
+
+                // 不可重试或已达上限，返回原始错误
+                log.warn("[SmartReActAgent] 工具返回不可重试错误(尝试{}次): tool={}, code={}",
+                        attempt, tc.name(), errorCode);
+                return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(), result);
+
+            } catch (AgentException e) {
+                // 标准化的工具异常
+                lastErrorCode = e.getErrorCode().getCode();
+                if (recoveryService.shouldRetry(e.getErrorCode(), attempt)) {
+                    long delay = recoveryService.getRetryDelayMs(e.getErrorCode(), attempt - 1);
+                    log.warn("[SmartReActAgent] 工具异常(第{}次): tool={}, code={}, {}ms后重试",
+                            attempt, tc.name(), e.getErrorCode().getCode(), delay);
+                    recoveryService.logRecovery(e.getErrorCode(), recoveryService.resolve(e.getErrorCode()),
+                            "tool=" + tc.name() + ", msg=" + e.getMessage(), attempt);
+                    try { Thread.sleep(delay); }
+                    catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    continue;
+                }
+                return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(), e.toToolResultJson());
+
+            } catch (Exception e) {
+                // 普通异常（工具抛出非AgentException的异常）
+                lastException = e;
+                AgentErrorCode code = AgentErrorCode.TOOL_EXECUTION_ERROR;
+                if (recoveryService.shouldRetry(code, attempt)) {
+                    long delay = recoveryService.getRetryDelayMs(code, attempt - 1);
+                    log.warn("[SmartReActAgent] 工具异常(第{}次): tool={}, {}ms后重试",
+                            attempt, tc.name(), delay);
+                    try { Thread.sleep(delay); }
+                    catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    continue;
+                }
+                log.error("[SmartReActAgent] 工具执行失败(最后一次尝试): {} - {}", tc.name(), e.getMessage());
+                return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
+                        "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
+                                + e.getMessage() + "\",\"retryable\":true}");
+            }
+        }
+
+        // 中断或重试耗尽
+        String reason = lastErrorCode != null
+                ? "工具返回错误: " + lastErrorCode
+                : (lastException != null ? lastException.getMessage() : "工具执行失败");
+        log.error("[SmartReActAgent] 工具执行失败(重试{}次): tool={}, reason={}", attempt - 1, tc.name(), reason);
+        return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
+                "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
+                        + reason + "\",\"retryable\":false}");
+    }
+
+    /**
+     * 从工具返回的 JSON 结果中提取 error_code 字段值。
+     * 仅检查格式为 {"error_code":"CODE",...} 的 JSON 对象，不依赖 Jackson。
+     */
+    private String extractErrorCode(String result) {
+        if (result == null || result.isBlank()) return null;
+        String trimmed = result.trim();
+        if (!trimmed.startsWith("{")) return null;
+        int keyIdx = trimmed.indexOf("\"error_code\"");
+        if (keyIdx < 0) return null;
+        // 查找冒号后的第一个引号
+        int startQuote = trimmed.indexOf('"', keyIdx + 12);
+        if (startQuote < 0) return null;
+        int endQuote = trimmed.indexOf('"', startQuote + 1);
+        if (endQuote <= startQuote) return null;
+        return trimmed.substring(startQuote + 1, endQuote);
+    }
+
+    /** 截断字符串到64字符（用于日志） */
+    private static String truncate64(String str) {
+        if (str == null) return "";
+        return str.length() > 64 ? str.substring(0, 64) + "..." : str;
     }
 
     /**

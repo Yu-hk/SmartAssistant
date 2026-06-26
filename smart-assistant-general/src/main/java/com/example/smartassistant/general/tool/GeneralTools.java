@@ -8,10 +8,11 @@
 package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.common.correction.CorrectionService;
+import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.tool.ToolResult;
+import com.example.smartassistant.general.sandbox.ScriptSandbox;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.objecthunter.exp4j.Expression;
 import net.objecthunter.exp4j.ExpressionBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,15 +28,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 通用工具集 - 数学计算与单位转换
@@ -49,8 +46,19 @@ public class GeneralTools {
 
     private final CorrectionService correctionService;
 
-    public GeneralTools(CorrectionService correctionService) {
+    /** 脚本运行时沙箱：为 executeScript 提供资源限制 + 超时熔断 */
+    private final ScriptSandbox scriptSandbox;
+
+    /**
+     * ⭐ I/O 阻塞型虚拟线程执行器：用于热点新闻等并发 HTTP 抓取（JDK 21）。
+     * <p>替代原先 {@code supplyAsync} 默认使用的 ForkJoin commonPool —— 用 commonPool 跑阻塞 I/O
+     * 会占用有限的公共池线程，属反模式；虚拟线程每任务一线程，阻塞期间释放载体线程。</p>
+     */
+    private final ExecutorService ioVirtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
+
+    public GeneralTools(CorrectionService correctionService, ScriptSandbox scriptSandbox) {
         this.correctionService = correctionService;
+        this.scriptSandbox = scriptSandbox;
     }
 
     // ==================== 数学计算 ====================
@@ -69,8 +77,8 @@ public class GeneralTools {
             return formatted;
         } catch (Exception e) {
             log.warn("[GeneralTools] 计算失败: {}", e.getMessage());
-            return ToolResult.error("EXPRESSION_PARSE_ERROR", "无法解析表达式",
-                    false, "支持的运算符：+ - * / () ^ sqrt() abs() sin() cos() tan() log()");
+            return ToolResult.error(AgentErrorCode.VALIDATION_EXPRESSION_PARSE, "无法解析表达式",
+                    "支持的运算符：+ - * / () ^ sqrt() abs() sin() cos() tan() log()");
         }
     }
 
@@ -105,7 +113,7 @@ public class GeneralTools {
             return formatResult(result) + unitLabel;
         } catch (Exception e) {
             log.warn("[GeneralTools] 温度转换失败: {}", e.getMessage());
-            return ToolResult.error("CONVERSION_ERROR", "温度转换失败", true);
+            return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR, "温度转换失败");
         }
     }
 
@@ -123,7 +131,7 @@ public class GeneralTools {
             return formatResult(result) + " " + toUnit.getSymbol();
         } catch (Exception e) {
             log.warn("[GeneralTools] 长度转换失败: {}", e.getMessage());
-            return ToolResult.error("CONVERSION_ERROR", "长度转换失败", true);
+            return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR, "长度转换失败");
         }
     }
 
@@ -141,7 +149,7 @@ public class GeneralTools {
             return formatResult(result) + " " + toUnit.getSymbol();
         } catch (Exception e) {
             log.warn("[GeneralTools] 重量转换失败: {}", e.getMessage());
-            return ToolResult.error("CONVERSION_ERROR", "重量转换失败", true);
+            return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR, "重量转换失败");
         }
     }
 
@@ -157,9 +165,9 @@ public class GeneralTools {
                 String json = fetchJson("https://tenapi.cn/v2/hotlist");
                 if (json != null) return formatHotNews(json);
                 return null;
-            });
+            }, ioVirtualExecutor);
 
-            var future2 = CompletableFuture.supplyAsync(this::fetchBaiduNews);
+            var future2 = CompletableFuture.supplyAsync(this::fetchBaiduNews, ioVirtualExecutor);
 
             // 先到先用，最多等 4 秒
             String result = (String) CompletableFuture.anyOf(future1, future2)
@@ -168,10 +176,10 @@ public class GeneralTools {
 
             log.info("[GeneralTools] 新闻获取完成, 耗时={}ms", System.currentTimeMillis() - start);
             if (result != null) return result;
-            return ToolResult.error("NEWS_UNAVAILABLE", "暂无热点数据", true, "请稍后重试");
+            return ToolResult.error(AgentErrorCode.SERVICE_NEWS_UNAVAILABLE, "暂无热点数据", "请稍后重试");
         } catch (Exception e) {
             log.warn("[GeneralTools] 获取新闻失败: {}", e.getMessage());
-            return ToolResult.error("NEWS_UNAVAILABLE", "新闻服务暂时不可用", true);
+            return ToolResult.error(AgentErrorCode.SERVICE_NEWS_UNAVAILABLE, "新闻服务暂时不可用");
         }
     }
 
@@ -475,7 +483,7 @@ public class GeneralTools {
             String url = "https://www.bing.com/search?q=" + encoded + "&mkt=zh-CN";
             String html = fetchJson(url);
             if (html == null) {
-                return ToolResult.error("SEARCH_UNAVAILABLE", "搜索服务暂时不可用", true, "请稍后重试");
+                return ToolResult.error(AgentErrorCode.SERVICE_SEARCH_UNAVAILABLE, "搜索服务暂时不可用", "请稍后重试");
             }
 
             StringBuilder sb = new StringBuilder();
@@ -521,13 +529,13 @@ public class GeneralTools {
             }
 
             if (count == 0) {
-                return ToolResult.error("NO_RESULTS", "未找到相关结果", false, "请尝试更换关键词");
+                return ToolResult.error(AgentErrorCode.NO_RESULTS, "未找到相关结果", "请尝试更换关键词");
             }
             sb.append("--- 共找到 ").append(count).append(" 条结果");
             return sb.toString();
         } catch (Exception e) {
             log.warn("[GeneralTools] Bing 搜索也失败: {}", e.getMessage());
-            return ToolResult.error("SEARCH_UNAVAILABLE", "搜索服务暂时不可用", true, "请稍后重试");
+            return ToolResult.error(AgentErrorCode.SERVICE_SEARCH_UNAVAILABLE, "搜索服务暂时不可用", "请稍后重试");
         }
     }
 
@@ -607,15 +615,15 @@ public class GeneralTools {
             String url = "https://open.er-api.com/v6/latest/" + from;
             String json = fetchJson(url);
             if (json == null) {
-                return ToolResult.error("RATE_UNAVAILABLE", "获取汇率失败", true, "请稍后重试");
+                return ToolResult.error(AgentErrorCode.SERVICE_RATE_UNAVAILABLE, "获取汇率失败", "请稍后重试");
             }
 
             // 解析 JSON 提取目标汇率
             String searchKey = "\"" + to + "\":";
             int idx = json.indexOf(searchKey);
             if (idx == -1) {
-                return ToolResult.error("INVALID_CURRENCY", "不支持的货币代码: " + to,
-                        false, "支持的货币：CNY/USD/EUR/GBP/JPY/HKD/KRW/THB/AUD/CAD");
+                return ToolResult.error(AgentErrorCode.VALIDATION_INVALID_CURRENCY, "不支持的货币代码: " + to,
+                        "支持的货币：CNY/USD/EUR/GBP/JPY/HKD/KRW/THB/AUD/CAD");
             }
 
             int start = idx + searchKey.length();
@@ -629,7 +637,7 @@ public class GeneralTools {
             return formatResult(result) + " " + to + "（当前汇率: 1 " + from + " = " + formatResult(rate) + " " + to + "）";
         } catch (Exception e) {
             log.warn("[GeneralTools] 汇率转换失败: {}", e.getMessage());
-            return ToolResult.error("CONVERSION_ERROR", "汇率转换失败", true);
+            return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR, "汇率转换失败");
         }
     }
 
@@ -671,102 +679,15 @@ public class GeneralTools {
     @Tool(description = "执行多步计算脚本，支持变量赋值和跨行引用，适用于复利计算、工程公式、分步推导等复杂场景。格式：每行一条语句，'变量名 = 表达式' 或直接写表达式，# 开头为注释。示例：'r=0.05\\nyears=10\\nresult=10000*(1+r)^years'")
     public String executeScript(
             @ToolParam(description = "多行计算脚本，换行用 \\n 分隔，如 'a=3\\nb=4\\nc=sqrt(a^2+b^2)'", required = true) String script) {
-        log.info("[GeneralTools] 执行计算脚本: script={}", script.replace("\n", " | "));
+        log.info("[GeneralTools] 执行计算脚本: script={}",
+                script == null ? "<null>" : script.replace("\n", " | "));
 
-        // 安全检查：禁止脚本注入危险关键字
-        if (containsDangerousPattern(script)) {
-            log.warn("[GeneralTools] 脚本包含危险关键字: {}", script);
-            return ToolResult.error("SCRIPT_REJECTED", "脚本包含不允许的内容，仅支持数学运算和变量赋值。",
-                    false, "请检查是否包含 import/exec/system 等关键字");
+        // 委派给运行时沙箱：资源限制（长度/行数/变量数）+ 超时熔断 + 危险关键字拦截
+        ScriptSandbox.SandboxResult result = scriptSandbox.execute(script);
+        if (result.success()) {
+            return result.output();
         }
-
-        String[] lines = script.replace("\\n", "\n").split("\n");
-        Map<String, Double> variables = new LinkedHashMap<>();
-        StringBuilder sb = new StringBuilder();
-        sb.append("📊 计算过程\n\n");
-
-        int stepCount = 0;
-        for (String rawLine : lines) {
-            String line = rawLine.trim();
-            if (line.isEmpty()) continue;
-
-            // 注释行
-            if (line.startsWith("#")) {
-                sb.append("  ").append(line.substring(1).trim()).append("\n");
-                continue;
-            }
-
-            // 变量赋值：var = expr
-            Matcher assignMatcher = Pattern.compile("^([a-zA-Z_][a-zA-Z0-9_]*)\\s*=\\s*(.+)$").matcher(line);
-            if (assignMatcher.matches()) {
-                String varName = assignMatcher.group(1);
-                String expr = assignMatcher.group(2).trim();
-                try {
-                    double val = evalExpression(expr, variables);
-                    variables.put(varName, val);
-                    stepCount++;
-                    sb.append("  ").append(varName).append(" = ").append(formatResult(val)).append("\n");
-                } catch (Exception e) {
-                    sb.append("  ").append(varName).append(" = [计算失败: ").append(e.getMessage()).append("]\n");
-                }
-                continue;
-            }
-
-            // 纯表达式：直接计算并输出
-            try {
-                double val = evalExpression(line, variables);
-                stepCount++;
-                sb.append("  ").append(line).append(" = ").append(formatResult(val)).append("\n");
-            } catch (Exception e) {
-                sb.append("  [").append(line).append("] 无法解析: ").append(e.getMessage()).append("\n");
-            }
-        }
-
-        if (stepCount == 0) {
-            return ToolResult.error("SCRIPT_EMPTY", "脚本中没有有效的计算语句", false,
-                    "格式：每行一条语句，'变量名 = 表达式' 或直接写表达式");
-        }
-
-        // 最终结果：取最后一个变量或最后一个纯表达式的值
-        if (!variables.isEmpty()) {
-            List<Map.Entry<String, Double>> entries = new ArrayList<>(variables.entrySet());
-            Map.Entry<String, Double> last = entries.get(entries.size() - 1);
-            sb.append("\n✅ 最终结果：").append(last.getKey()).append(" = ").append(formatResult(last.getValue()));
-        }
-
-        return sb.toString();
-    }
-
-    /**
-     * 使用 exp4j 计算表达式，支持已定义的变量。
-     */
-    private double evalExpression(String expr, Map<String, Double> variables) {
-        if (variables.isEmpty()) {
-            return new ExpressionBuilder(expr)
-                    .implicitMultiplication(false)
-                    .build()
-                    .evaluate();
-        }
-        ExpressionBuilder builder = new ExpressionBuilder(expr)
-                .implicitMultiplication(false)
-                .variables(variables.keySet());
-        Expression e = builder.build();
-        for (Map.Entry<String, Double> entry : variables.entrySet()) {
-            e.setVariable(entry.getKey(), entry.getValue());
-        }
-        return e.evaluate();
-    }
-
-    /**
-     * 安全检查：防止脚本注入。
-     * 仅允许数字、字母、下划线、基本运算符和常见函数名。
-     */
-    private static final Pattern DANGEROUS_PATTERN = Pattern.compile(
-            "(?i)(class|import|exec|eval|runtime|process|system|file|socket|url|jdbc|http|reflect|new\\s|;\\s*\\w)"
-    );
-
-    private boolean containsDangerousPattern(String script) {
-        return DANGEROUS_PATTERN.matcher(script).find();
+        return ToolResult.error(result.errorCode(), result.message(), result.hint());
     }
 
     private String formatResult(double value) {

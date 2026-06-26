@@ -92,11 +92,37 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- ⭐ Micrometer Observation（追踪跨度，各模块通过 spring-boot-starter-actuator 引入） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-observation</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- ⭐ Micrometer Core（指标采集，各模块通过 spring-boot-starter-actuator 引入） -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <!-- ⭐ Caffeine 缓存（EntityConflictResolver / ReadBeforeEditGuard） -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- ⭐ Milvus 向量数据库 SDK（替换 pgvector 持久化方案） -->
+        <dependency>
+            <groupId>io.milvus</groupId>
+            <artifactId>milvus-sdk-java</artifactId>
+            <version>2.5.5</version>
+        </dependency>
+
+        <!-- ⭐ Spring JDBC（PgVectorKnowledgeBase 使用 JdbcTemplate，保留作为兜底） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
         <!-- Test -->
