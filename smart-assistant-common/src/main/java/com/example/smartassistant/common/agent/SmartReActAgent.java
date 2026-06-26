@@ -119,6 +119,11 @@ public class SmartReActAgent {
     /** ⭐ 预计算压缩结果（PrecomputedCompact：后台异步压缩，下一轮直接使用） */
     private volatile CompletableFuture<List<Message>> precomputedCompactFuture;
 
+    /** ⭐ 递归滚动摘要链（#1 对话历史 + #3 递归滚动）：每轮压缩生成的摘要累加到此链 */
+    private final List<String> summaryChain = new ArrayList<>();
+    /** 每触发一次压缩后递增的摘要代数 */
+    private int summaryGeneration = 0;
+
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
     }
@@ -488,6 +493,10 @@ public class SmartReActAgent {
         if (existingSummary != null) {
             rawBuilder.append("【已有摘要】\n").append(existingSummary).append("\n\n");
             rawBuilder.append("【新对话内容】\n");
+        } else if (!summaryChain.isEmpty()) {
+            // #3: 递归滚动 — 从摘要链中取上一代摘要
+            rawBuilder.append("【上一代摘要】\n").append(summaryChain.get(0)).append("\n\n");
+            rawBuilder.append("【新对话内容】\n");
         }
         for (int i = 1; i < keepStart; i++) {
             Message msg = messages.get(i);
@@ -538,6 +547,18 @@ public class SmartReActAgent {
             if (truncated) {
                 summary += "\n\n(部分对话因过长被截断，截断部分未纳入摘要)";
             }
+
+            // ⭐ #1: 将当前摘要加入摘要链（#3: 递归滚动 — 每生成一代替换上一代）
+            summaryGeneration++;
+            synchronized (summaryChain) {
+                if (summaryGeneration <= 1) {
+                    summaryChain.add(summary);
+                } else {
+                    // 滚动替换：只有最新的摘要保留在链中，前面的由摘要自身携带历史信息
+                    summaryChain.set(0, summary);
+                }
+            }
+            log.info("[SmartReActAgent] 摘要链: 第{}代, 长度={}", summaryGeneration, summary.length());
         } catch (Exception e) {
             log.warn("[SmartReActAgent] 摘要生成失败: {}，跳过压缩", e.getMessage());
             return messages; // 降级：不压缩
