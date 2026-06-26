@@ -73,11 +73,13 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- ⭐ ONNX Runtime（BGE 向量推理，从华为云镜像下载） -->
+        <!-- ⭐ ONNX Runtime（BGE 向量推理，从华为云镜像下载）
+             注意: 1.21.0+ 版本用 VS 2022 17.12+ 编译，与 Oracle JDK 21 内置的 VC++ 14.36 不兼容
+             降级到 1.20.0 以匹配 JDK 的 VC++ 运行时版本 -->
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>
             <artifactId>onnxruntime</artifactId>
-            <version>1.26.0</version>
+            <version>1.20.0</version>
         </dependency>
 
         <!-- ⭐ Spring AI Model（SmartReActAgent 依赖 ChatModel） -->
