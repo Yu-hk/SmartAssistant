@@ -9,6 +9,7 @@ package com.example.smartassistant.controller;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.memory.AgentMemoryService;
+import com.example.smartassistant.common.memory.MemoryExtractor;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
 import com.example.smartassistant.service.core.OrderRagService;
@@ -17,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Agent HTTP 直调控制器
@@ -44,15 +46,19 @@ public class OrderAgentController {
     private final OrderRagService ragService;
     /** Agent 独立记忆：用户粒度的键值偏好存储（Order Agent 专属） */
     private final AgentMemoryService memoryService;
+    /** 记忆后台提取器：对话结束后自动提取用户偏好 */
+    private final MemoryExtractor memoryExtractor;
 
     public OrderAgentController(SmartReActAgent orderAgent,
                                 OrderIntentService intentService,
                                 OrderRagService ragService,
-                                AgentMemoryService memoryService) {
+                                AgentMemoryService memoryService,
+                                MemoryExtractor memoryExtractor) {
         this.orderAgent = orderAgent;
         this.intentService = intentService;
         this.ragService = ragService;
         this.memoryService = memoryService;
+        this.memoryExtractor = memoryExtractor;
     }
 
     /**
@@ -111,6 +117,15 @@ public class OrderAgentController {
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("[OrderAgent] 处理完成: intent={},耗时={}ms,结果长度={}",
                     intent.getLabel(), elapsed, result != null ? result.length() : 0);
+
+            // ⭐ Step 5: 后台自动提取偏好（不阻塞响应）
+            if (result != null && userId != null && !userId.isBlank() && !"null".equals(userId)) {
+                final String finalQuestion = question;
+                final String finalResult = result;
+                CompletableFuture.runAsync(() ->
+                    memoryExtractor.extractFromConversation("order", userId, finalQuestion, finalResult));
+            }
+
             return result != null ? result : "⚠️ Agent 返回空结果";
 
         } catch (Exception e) {
