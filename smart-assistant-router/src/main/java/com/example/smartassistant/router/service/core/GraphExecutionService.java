@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.router.model.HandoffCommand;
 import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
@@ -160,6 +161,116 @@ public class GraphExecutionService {
 
         log.info("[GraphExecutor] 执行完成: completed={}/{}, rounds={}", completedMap.size(), totalNodes, round);
         return allResults;
+    }
+
+    /**
+     * 执行意图图，支持 Handoff 显式交接。
+     *
+     * <p>在 {@link #execute(IntentGraph, Long, String, String)} 的标准 DAG 并行执行基础上，
+     * 增加 Handoff 检测：每轮执行完毕后，检查是否有子任务返回了 {@link HandoffCommand}。
+     * 如有，动态创建新节点并加入待执行队列，实现「Agent A → 命令交 → Agent B」的显式移交。</p>
+     *
+     * <p>Handoff 场景示例：</p>
+     * <ul>
+     *   <li>General Agent 检测到复杂订单查询 → {@code HandoffCommand(order_agent, ...)}</li>
+     *   <li>Order Agent 发现商品相关问题 → {@code HandoffCommand(product_agent, ...)}</li>
+     * </ul>
+     *
+     * @param graph     意图图（初始 DAG）
+     * @param userId    用户 ID
+     * @param eventsKey SSE 事件 key（可为 null）
+     * @param requestId 请求 ID
+     * @return 所有子任务结果列表（含 Handoff 动态追加的节点结果）
+     */
+    public List<SubTaskResult> executeWithHandoff(IntentGraph graph, Long userId,
+                                                   String eventsKey, String requestId) {
+        // 执行标准 DAG（同 execute 方法逻辑）
+        List<SubTaskResult> results = execute(graph, userId, eventsKey, requestId);
+
+        // ⭐ 检测是否有 Handoff 请求
+        List<SubTaskResult> handoffResults = processHandoffs(results, graph, userId, eventsKey, requestId);
+        while (!handoffResults.isEmpty()) {
+            results.addAll(handoffResults);
+            handoffResults = processHandoffs(results, graph, userId, eventsKey, requestId);
+        }
+
+        return results;
+    }
+
+    /**
+     * 处理一轮 Handoff 交接：遍历所有结果，发现有 HandoffCommand 的立即执行目标 Agent。
+     */
+    private List<SubTaskResult> processHandoffs(List<SubTaskResult> results, IntentGraph graph,
+                                                 Long userId, String eventsKey, String requestId) {
+        List<SubTaskResult> newResults = new ArrayList<>();
+
+        for (SubTaskResult result : results) {
+            if (result == null || !result.hasHandoff()) continue;
+
+            HandoffCommand cmd = result.getHandoffCommand();
+
+            if (cmd.handoffType() == HandoffCommand.HandoffType.COMPLETE) {
+                log.info("[GraphExecutor] Handoff COMPLETE: 源自 {}", result.getAgentName());
+                continue;
+            }
+            if (cmd.handoffType() == HandoffCommand.HandoffType.FAILED) {
+                log.warn("[GraphExecutor] Handoff FAILED: agent={}, 尝试兜底", result.getAgentName());
+                continue;
+            }
+
+            log.info("[GraphExecutor] 🔀 Handoff: {} → {}, question={}",
+                    result.getAgentName(), cmd.targetAgent(),
+                    truncate(cmd.question(), 100));
+
+            // 执行 Handoff 目标 Agent
+            SubTaskResult handoffResult = executeHandoffNode(cmd, userId, eventsKey, requestId);
+            if (handoffResult != null) {
+                newResults.add(handoffResult);
+            }
+        }
+
+        return newResults;
+    }
+
+    /**
+     * 执行 Handoff 命令指定的目标 Agent。
+     */
+    private SubTaskResult executeHandoffNode(HandoffCommand cmd, Long userId,
+                                              String eventsKey, String requestId) {
+        String handoffTaskId = "handoff_" + cmd.targetAgent() + "_" + System.currentTimeMillis();
+        try {
+            String enrichedQuestion = cmd.question();
+            if (cmd.contextPayload() != null && !cmd.contextPayload().isBlank()) {
+                enrichedQuestion = cmd.question()
+                        + "\n\n[Handoff 上下文]\n" + cmd.contextPayload()
+                        + "\n\n请结合以上上下文回答，避免重复。";
+            }
+
+            var agentResult = agentCallerService.callAgentAndExtractTitles(
+                    cmd.targetAgent(), enrichedQuestion, userId, requestId);
+            String resultText = agentResult.getResponse();
+
+            if (resultText != null && !resultText.isBlank()) {
+                log.info("[GraphExecutor] Handoff 成功: {} → {}, resultLen={}",
+                        cmd.targetAgent(), cmd.handoffType(), resultText.length());
+                return new SubTaskResult(handoffTaskId,
+                        "Handoff: " + cmd.targetAgent(), cmd.targetAgent(),
+                        resultText, true,
+                        agentResult.getRealTitles(), agentResult.getTagsByTitle());
+            }
+        } catch (Exception e) {
+            log.warn("[GraphExecutor] Handoff 执行异常: {} → {}, error={}",
+                    cmd.targetAgent(), cmd.handoffType(), e.getMessage());
+        }
+
+        return new SubTaskResult(handoffTaskId,
+                "Handoff: " + cmd.targetAgent(), cmd.targetAgent(), "", false);
+    }
+
+    /** 截断长文本（日志用） */
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 
     /**

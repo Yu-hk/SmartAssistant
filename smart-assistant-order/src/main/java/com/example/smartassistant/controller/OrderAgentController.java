@@ -8,6 +8,9 @@
 package com.example.smartassistant.controller;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.memory.AgentMemoryService;
+import com.example.smartassistant.common.memory.ContextOrchestrator;
+import com.example.smartassistant.common.memory.MemoryExtractor;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
 import com.example.smartassistant.service.core.OrderRagService;
@@ -15,7 +18,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Agent HTTP 直调控制器
@@ -41,13 +47,25 @@ public class OrderAgentController {
     private final SmartReActAgent orderAgent;
     private final OrderIntentService intentService;
     private final OrderRagService ragService;
+    /** Agent 独立记忆：用户粒度的键值偏好存储（Order Agent 专属） */
+    private final AgentMemoryService memoryService;
+    /** 记忆后台提取器：对话结束后自动提取用户偏好 */
+    private final MemoryExtractor memoryExtractor;
+    /** 上下文协调器：统一调度四层记忆预算 */
+    private final ContextOrchestrator orchestrator;
 
     public OrderAgentController(SmartReActAgent orderAgent,
                                 OrderIntentService intentService,
-                                OrderRagService ragService) {
+                                OrderRagService ragService,
+                                AgentMemoryService memoryService,
+                                MemoryExtractor memoryExtractor,
+                                ContextOrchestrator orchestrator) {
         this.orderAgent = orderAgent;
         this.intentService = intentService;
         this.ragService = ragService;
+        this.memoryService = memoryService;
+        this.memoryExtractor = memoryExtractor;
+        this.orchestrator = orchestrator;
     }
 
     /**
@@ -78,19 +96,40 @@ public class OrderAgentController {
         try {
             // Step 1: 意图识别
             IntentType intent = intentService.detect(question);
-            log.info("[OrderAgent] 意图识别: {}", intent.getLabel());
 
-            // Step 2: RAG 预检索 + 上下文注入
-            String enhancedQuestion = ragService.buildEnhancedMessage(intent, question);
-            if (!enhancedQuestion.equals(question)) {
-                log.info("[OrderAgent] RAG 预检索已注入上下文");
+            // Step 2: ⭐ 上下文协调器 — 统一调度四层记忆预算
+            String userId = request.get("userId");
+            List<String> extras = new ArrayList<>();
+
+            // Step 3: RAG 预检索作为额外上下文
+            if (ragService != null) {
+                String ragContext = ragService.buildEnhancedMessage(intent, question);
+                if (!ragContext.equals(question)) {
+                    extras.add(ragContext);
+                    log.info("[OrderAgent] RAG 预检索已注入上下文");
+                }
             }
 
-            // Step 3: Agent 执行
+            // 通过 Orchestrator 构建分层 prompt
+            String enhancedQuestion = orchestrator.buildPrompt(question, userId, "order",
+                    extras.isEmpty() ? null : extras);
+            log.info("[OrderAgent] 状态锚点已强制注入: userId={}", userId != null ? userId : "访客");
+
+            // Step 4: Agent 执行
+            log.info("[OrderAgent] 意图识别: {}, userId={}, 记忆注入={}", intent.getLabel(), userId, userId != null);
             String result = orderAgent.execute(enhancedQuestion);
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("[OrderAgent] 处理完成: intent={},耗时={}ms,结果长度={}",
                     intent.getLabel(), elapsed, result != null ? result.length() : 0);
+
+            // ⭐ Step 5: 后台自动提取偏好（不阻塞响应）
+            if (result != null && userId != null && !userId.isBlank() && !"null".equals(userId)) {
+                final String finalQuestion = question;
+                final String finalResult = result;
+                CompletableFuture.runAsync(() ->
+                    memoryExtractor.extractFromConversation("order", userId, finalQuestion, finalResult));
+            }
+
             return result != null ? result : "⚠️ Agent 返回空结果";
 
         } catch (Exception e) {

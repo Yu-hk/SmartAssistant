@@ -1,0 +1,41 @@
+FROM bellsoft/liberica-openjdk-debian:21-cds
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl netcat-openbsd && rm -rf /var/lib/apt/lists/*
+
+# Copy all JAR files
+COPY smart-assistant-user/target/smart-assistant-user-1.0.0-SNAPSHOT.jar app-user.jar
+COPY smart-assistant-gateway/target/smart-assistant-gateway-1.0.0-SNAPSHOT.jar app-gateway.jar
+COPY smart-assistant-router/target/smart-assistant-router-1.0.0-SNAPSHOT.jar app-router.jar
+COPY smart-assistant-order/target/smart-assistant-order-1.0.0-SNAPSHOT.jar app-order.jar
+COPY embedding_mock.py .
+
+# Wait for PostgreSQL and Nacos, then start services
+CMD echo "Waiting for PostgreSQL..." && \
+    while ! nc -z smart-postgres 5432; do sleep 1; done && \
+    echo "PostgreSQL ready" && \
+    while ! nc -z smart-nacos 8848; do sleep 1; done && \
+    echo "Nacos ready" && \
+    python3 -m pip install flask -q && \
+    python3 embedding_mock.py &
+    sleep 3 && \
+    java -jar app-user.jar --server.port=8086 \
+      --spring.datasource.url=jdbc:postgresql://smart-postgres:5432/a2a_system \
+      --spring.datasource.password=postgres123 \
+      --spring.ai.deepseek.api-key=test-key &
+    sleep 15 && \
+    java -jar app-gateway.jar --server.port=8081 \
+      --spring.ai.deepseek.api-key=test-key &
+    sleep 10 && \
+    java -jar app-router.jar --server.port=8083 \
+      --spring.datasource.url=jdbc:postgresql://smart-postgres:5432/a2a_system \
+      --spring.datasource.password=postgres123 \
+      --spring.ai.deepseek.api-key=test-key &
+    sleep 10 && \
+    java -jar app-order.jar --server.port=8085 \
+      --spring.datasource.url=jdbc:postgresql://smart-postgres:5432/a2a_system \
+      --spring.datasource.password=postgres123 \
+      --spring.ai.deepseek.api-key=test-key \
+      --embedding.service.url=http://localhost:8091 &
+    sleep 20 && \
+    echo "All services started" && \
+    tail -f /dev/null

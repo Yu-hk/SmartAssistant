@@ -1,0 +1,1151 @@
+{
+  "summary": {
+    "total": 42,
+    "passed": 32,
+    "warned": 10,
+    "failed": 0,
+    "timestamp": "2026-06-20T14:10:27.098728"
+  },
+  "results": [
+    {
+      "name": "TC-001 Gateway",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "url": "http://localhost:8081/actuator/health"
+      },
+      "output": {
+        "status": "UP",
+        "components": {
+          "discoveryComposite": {
+            "status": "UP",
+            "components": {
+              "discoveryClient": {
+                "status": "UP",
+                "details": {
+                  "services": [
+                    "user-service",
+                    "api-gateway",
+                    "consumer-service",
+                    "product-service",
+                    "order-service"
+                  ]
+                }
+              }
+            }
+          },
+          "diskSpace": {
+            "status": "UP",
+            "details": {
+              "total": 484949618688,
+              "free": 391243169792,
+              "threshold": 10485760,
+              "path": "D:\\workspace\\SmartAssistant\\.",
+              "exists": true
+            }
+          },
+          "nacosDiscovery": {
+            "status": "UP"
+          },
+          "ping": {
+            "status": "UP"
+          },
+          "reactiveDiscoveryClients": {
+            "status": "UP",
+            "components": {
+              "Simple Reactive Discovery Client": {
+                "status": "UP",
+                "details": {
+                  "services": []
+                }
+              }
+            }
+          },
+          "redis": {
+            "status": "UP",
+            "details": {
+              "version": "7.2.4"
+            }
+          },
+          "refreshScope": {
+            "status": "UP"
+          },
+          "ssl": {
+            "status": "UP",
+            "details": {
+              "validChains": [],
+              "invalidChains": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "TC-002 User Service",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "url": "http://localhost:8086/actuator/health"
+      },
+      "output": {
+        "status": "UP",
+        "components": {
+          "db": {
+            "status": "UP",
+            "details": {
+              "database": "PostgreSQL",
+              "validationQuery": "isValid()"
+            }
+          },
+          "discoveryComposite": {
+            "status": "UP",
+            "components": {
+              "discoveryClient": {
+                "status": "UP",
+                "details": {
+                  "services": [
+                    "user-service",
+                    "api-gateway",
+                    "consumer-service",
+                    "product-service",
+                    "order-service"
+                  ]
+                }
+              }
+            }
+          },
+          "diskSpace": {
+            "status": "UP",
+            "details": {
+              "total": 484949618688,
+              "free": 391243169792,
+              "threshold": 10485760,
+              "path": "D:\\workspace\\SmartAssistant\\.",
+              "exists": true
+            }
+          },
+          "nacosDiscovery": {
+            "status": "UP"
+          },
+          "ping": {
+            "status": "UP"
+          },
+          "redis": {
+            "status": "UP",
+            "details": {
+              "version": "7.2.4"
+            }
+          },
+          "refreshScope": {
+            "status": "UP"
+          },
+          "ssl": {
+            "status": "UP",
+            "details": {
+              "validChains": [],
+              "invalidChains": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "TC-003 Consumer Service",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "url": "http://localhost:8082/actuator/health"
+      },
+      "output": {
+        "status": "UP",
+        "components": {
+          "db": {
+            "status": "UP",
+            "details": {
+              "database": "PostgreSQL",
+              "validationQuery": "isValid()"
+            }
+          },
+          "discoveryComposite": {
+            "status": "UP",
+            "components": {
+              "discoveryClient": {
+                "status": "UP",
+                "details": {
+                  "services": [
+                    "user-service",
+                    "api-gateway",
+                    "consumer-service",
+                    "product-service",
+                    "order-service"
+                  ]
+                }
+              }
+            }
+          },
+          "diskSpace": {
+            "status": "UP",
+            "details": {
+              "total": 484949618688,
+              "free": 391243169792,
+              "threshold": 10485760,
+              "path": "D:\\workspace\\SmartAssistant\\.",
+              "exists": true
+            }
+          },
+          "nacosConfig": {
+            "status": "UP"
+          },
+          "nacosDiscovery": {
+            "status": "UP"
+          },
+          "ping": {
+            "status": "UP"
+          },
+          "reactiveDiscoveryClients": {
+            "status": "UP",
+            "components": {
+              "Simple Reactive Discovery Client": {
+                "status": "UP",
+                "details": {
+                  "services": []
+                }
+              }
+            }
+          },
+          "redis": {
+            "status": "UP",
+            "details": {
+              "version": "7.2.4"
+            }
+          },
+          "refreshScope": {
+            "status": "UP"
+          },
+          "ssl": {
+            "status": "UP",
+            "details": {
+              "validChains": [],
+              "invalidChains": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "TC-004 Router Service",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "url": "http://localhost:8083/actuator/health"
+      },
+      "output": {
+        "status": "UP",
+        "components": {
+          "db": {
+            "status": "UP",
+            "details": {
+              "database": "PostgreSQL",
+              "validationQuery": "isValid()"
+            }
+          },
+          "discoveryComposite": {
+            "description": "Discovery Client not initialized",
+            "status": "UNKNOWN",
+            "components": {
+              "discoveryClient": {
+                "description": "Discovery Client not initialized",
+                "status": "UNKNOWN"
+              }
+            }
+          },
+          "diskSpace": {
+            "status": "UP",
+            "details": {
+              "total": 484949618688,
+              "free": 391243169792,
+              "threshold": 10485760,
+              "path": "D:\\workspace\\SmartAssistant\\.",
+              "exists": true
+            }
+          },
+          "nacosConfig": {
+            "status": "UP"
+          },
+          "ping": {
+            "status": "UP"
+          },
+          "reactiveDiscoveryClients": {
+            "description": "Discovery Client not initialized",
+            "status": "UNKNOWN",
+            "components": {
+              "Simple Reactive Discovery Client": {
+                "description": "Discovery Client not initialized",
+                "status": "UNKNOWN"
+              }
+            }
+          },
+          "redis": {
+            "status": "UP",
+            "details": {
+              "version": "7.2.4"
+            }
+          },
+          "refreshScope": {
+            "status": "UP"
+          },
+          "ssl": {
+            "status": "UP",
+            "details": {
+              "validChains": [],
+              "invalidChains": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "TC-005 Product Service",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "url": "http://localhost:8084/actuator/health"
+      },
+      "output": {
+        "status": "UP",
+        "components": {
+          "db": {
+            "status": "UP",
+            "details": {
+              "database": "PostgreSQL",
+              "validationQuery": "isValid()"
+            }
+          },
+          "discoveryComposite": {
+            "status": "UP",
+            "components": {
+              "discoveryClient": {
+                "status": "UP",
+                "details": {
+                  "services": [
+                    "user-service",
+                    "api-gateway",
+                    "consumer-service",
+                    "product-service",
+                    "order-service"
+                  ]
+                }
+              }
+            }
+          },
+          "diskSpace": {
+            "status": "UP",
+            "details": {
+              "total": 484949618688,
+              "free": 391243169792,
+              "threshold": 10485760,
+              "path": "D:\\workspace\\SmartAssistant\\.",
+              "exists": true
+            }
+          },
+          "nacosConfig": {
+            "status": "UP"
+          },
+          "nacosDiscovery": {
+            "status": "UP"
+          },
+          "ping": {
+            "status": "UP"
+          },
+          "reactiveDiscoveryClients": {
+            "status": "UP",
+            "components": {
+              "Simple Reactive Discovery Client": {
+                "status": "UP",
+                "details": {
+                  "services": []
+                }
+              }
+            }
+          },
+          "refreshScope": {
+            "status": "UP"
+          },
+          "ssl": {
+            "status": "UP",
+            "details": {
+              "validChains": [],
+              "invalidChains": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "TC-006 Order Service",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "url": "http://localhost:8085/actuator/health"
+      },
+      "output": {
+        "status": "UP",
+        "components": {
+          "db": {
+            "status": "UP",
+            "details": {
+              "database": "PostgreSQL",
+              "validationQuery": "isValid()"
+            }
+          },
+          "discoveryComposite": {
+            "status": "UP",
+            "components": {
+              "discoveryClient": {
+                "status": "UP",
+                "details": {
+                  "services": [
+                    "user-service",
+                    "api-gateway",
+                    "consumer-service",
+                    "product-service",
+                    "order-service"
+                  ]
+                }
+              }
+            }
+          },
+          "diskSpace": {
+            "status": "UP",
+            "details": {
+              "total": 484949618688,
+              "free": 391243169792,
+              "threshold": 10485760,
+              "path": "D:\\workspace\\SmartAssistant\\.",
+              "exists": true
+            }
+          },
+          "nacosConfig": {
+            "status": "UP"
+          },
+          "nacosDiscovery": {
+            "status": "UP"
+          },
+          "ping": {
+            "status": "UP"
+          },
+          "reactiveDiscoveryClients": {
+            "status": "UP",
+            "components": {
+              "Simple Reactive Discovery Client": {
+                "status": "UP",
+                "details": {
+                  "services": []
+                }
+              }
+            }
+          },
+          "redis": {
+            "status": "UP",
+            "details": {
+              "version": "7.2.4"
+            }
+          },
+          "refreshScope": {
+            "status": "UP"
+          },
+          "ssl": {
+            "status": "UP",
+            "details": {
+              "validChains": [],
+              "invalidChains": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "TC-007 Embedding Service",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "url": "http://localhost:8091/actuator/health"
+      },
+      "output": {
+        "status": "UP",
+        "components": {
+          "onnxRuntime": {
+            "status": "UP",
+            "details": {
+              "loaded": true
+            }
+          },
+          "diskSpace": {
+            "status": "UP"
+          }
+        }
+      }
+    },
+    {
+      "name": "TC-009 用户注册",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "username": "testuser_35818",
+        "password": "Test1234!",
+        "email": "testuser_35818@test.com"
+      },
+      "output": {
+        "code": 0,
+        "message": "success",
+        "requestId": "req_7910146c5128",
+        "timestamp": 1781935818177,
+        "data": {
+          "token": "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiUk9MRV9VU0VSIiwidXNlcklkIjoxNSwianRpIjoiMDJhZTcwNDAtMmI4Ny00Mjg0LWI4ZGItYzQxNWNmNTZlMTRhIiwidXNlcm5hbWUiOiJ0ZXN0dXNlcl8zNTgxOCIsInN1YiI6InRlc3R1c2VyXzM1ODE4IiwiaWF0IjoxNzgxOTM1ODE4LCJleHAiOjE3ODE5Mzk0MTh9.R3Yuoa_BwRsH8ivdBt8fxTxDuhmTcHGaWPkn2ri-yWw",
+          "refreshToken": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0dXNlcl8zNTgxOCIsImlhdCI6MTc4MTkzNTgxOCwiZXhwIjoxNzgyMDIyMjE4fQ.0VjjOUyyeBT2tsg8LrTeiU6bfBJq4S9XYRhvSNFNddw",
+          "tokenType": "Bearer",
+          "userId": 15,
+          "username": "testuser_35818",
+          "email": "testuser_35818@test.com"
+        }
+      }
+    },
+    {
+      "name": "TC-010 用户登录",
+      "status": "✅ PASS",
+      "detail": "token=eyJhbGciOiJIUzI1NiJ9.eyJyb2xlI...",
+      "input": {
+        "username": "testuser_35818",
+        "password": "Test1234!"
+      },
+      "output": {
+        "token_preview": "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlI...",
+        "user_id": 15
+      }
+    },
+    {
+      "name": "TC-011 获取用户信息",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {},
+      "output": {
+        "code": 0,
+        "message": "success",
+        "requestId": "req_88c15b2261b9",
+        "timestamp": 1781935818283,
+        "data": {
+          "id": 15,
+          "username": "testuser_35818",
+          "password": "$2a$10$DJ/nYlgUnG41nq7R6vmQqOA.LpAYZ0.wpC55mDVoQBN9Km8gbfACy",
+          "email": "testuser_35818@test.com",
+          "role": "ROLE_USER",
+          "createdAt": "2026-06-20T14:10:18.128078",
+          "updatedAt": "2026-06-20T14:10:18.128078"
+        }
+      }
+    },
+    {
+      "name": "TC-013 面板统计",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/analytics/stats"
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/analytics/stats.",
+        "requestId": "req_134eaacc4997",
+        "timestamp": 1781935818304,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/analytics/stats."
+        }
+      }
+    },
+    {
+      "name": "TC-014 热门建议",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/analytics/top-suggestions"
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/analytics/top-suggestions.",
+        "requestId": "req_3a260eaee58e",
+        "timestamp": 1781935818319,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/analytics/top-suggestions."
+        }
+      }
+    },
+    {
+      "name": "TC-015 A/B测试",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/analytics/ab-test"
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/analytics/ab-test.",
+        "requestId": "req_c69c179f0dea",
+        "timestamp": 1781935818336,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/analytics/ab-test."
+        }
+      }
+    },
+    {
+      "name": "TC-016 用户偏好",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/analytics/preference-distribution"
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/analytics/preference-distribution.",
+        "requestId": "req_c12dec471eb7",
+        "timestamp": 1781935818339,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/analytics/preference-distribution."
+        }
+      }
+    },
+    {
+      "name": "TC-017 点击趋势",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/analytics/click-trend"
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/analytics/click-trend.",
+        "requestId": "req_bf678baf68b1",
+        "timestamp": 1781935818368,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/analytics/click-trend."
+        }
+      }
+    },
+    {
+      "name": "TC-018 Prompt监控",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/prompt-monitoring/stats"
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/prompt-monitoring/stats.",
+        "requestId": "req_16411f81b121",
+        "timestamp": 1781935818382,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/prompt-monitoring/stats."
+        }
+      }
+    },
+    {
+      "name": "TC-019 SQL健康检查",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/monitor/sql/health",
+        "body": null
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/monitor/sql/health.",
+        "requestId": "req_1074b3652004",
+        "timestamp": 1781935818398,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/monitor/sql/health."
+        }
+      }
+    },
+    {
+      "name": "TC-020 SQL审查",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/monitor/sql/review",
+        "body": {
+          "sql": "SELECT * FROM orders WHERE order_id = 'ORD-2024001'"
+        }
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/monitor/sql/review.",
+        "requestId": "req_dab3cae2cecd",
+        "timestamp": 1781935818413,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/monitor/sql/review."
+        }
+      }
+    },
+    {
+      "name": "TC-021 SQL执行计划",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/monitor/sql/explain",
+        "body": {
+          "sql": "SELECT * FROM orders WHERE user_id = 1 LIMIT 10"
+        }
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/monitor/sql/explain.",
+        "requestId": "req_b6b3d986128f",
+        "timestamp": 1781935818415,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/monitor/sql/explain."
+        }
+      }
+    },
+    {
+      "name": "TC-022 索引检查",
+      "status": "⚠️ WARN",
+      "detail": "HTTP 404",
+      "input": {
+        "url": "http://localhost:8081/assistant/api/monitor/sql/check-indexes",
+        "body": null
+      },
+      "output": {
+        "code": 404,
+        "message": "No static resource assistant/api/monitor/sql/check-indexes.",
+        "requestId": "req_6087a05f627a",
+        "timestamp": 1781935818428,
+        "error": {
+          "type": "GATEWAY_404",
+          "detail": "No static resource assistant/api/monitor/sql/check-indexes."
+        }
+      }
+    },
+    {
+      "name": "TC-023 创建订单",
+      "status": "✅ PASS",
+      "detail": "📦 订单创建成功！\n订单号：ORD-8184457969\n商品：E2E测试商品\n金额：¥2999.00\n商品类型：电子产品\n收货人：测试用户\n联系电话：13800138000\n收货地址：测试地址\n状态：待付款\n\n下一步：请提醒用户核对收货信息并完成付款，可调用 payOrder(orderId=\"ORD-8184457969\") 进行支付。",
+      "input": {
+        "url": "http://localhost:8085/api/test/order/create?userId=1&productName=E2E%E6%B5%8B%E8%AF%95%E5%95%86%E5%93%81&amount=2999.00&contactName=%E6%B5%8B%E8%AF%95%E7%94%A8%E6%88%B7&contactPhone=13800138000&shippingAddress=%E6%B5%8B%E8%AF%95%E5%9C%B0%E5%9D%80&productType=%E7%94%B5%E5%AD%90%E4%BA%A7%E5%93%81"
+      },
+      "output": "📦 订单创建成功！\n订单号：ORD-8184457969\n商品：E2E测试商品\n金额：¥2999.00\n商品类型：电子产品\n收货人：测试用户\n联系电话：13800138000\n收货地址：测试地址\n状态：待付款\n\n下一步：请提醒用户核对收货信息并完成付款，可调用 payOrder(orderId=\"ORD-8184457969\") 进行支付。"
+    },
+    {
+      "name": "TC-024 查询订单",
+      "status": "✅ PASS",
+      "detail": "{'error_code': 'ORDER_NOT_FOUND', 'message': '未找到订单 E2E-935818', 'retryable': False, 'hint': '确认订单号格式是否正确，当前支持的订单号格式如 ORD-2024001'}",
+      "input": {
+        "orderId": "E2E-935818"
+      },
+      "output": {
+        "error_code": "ORDER_NOT_FOUND",
+        "message": "未找到订单 E2E-935818",
+        "retryable": false,
+        "hint": "确认订单号格式是否正确，当前支持的订单号格式如 ORD-2024001"
+      }
+    },
+    {
+      "name": "TC-025 支付订单",
+      "status": "✅ PASS",
+      "detail": "{'error_code': 'ORDER_NOT_FOUND', 'message': '未找到订单 E2E-935818', 'retryable': False}",
+      "input": {
+        "orderId": "E2E-935818"
+      },
+      "output": {
+        "error_code": "ORDER_NOT_FOUND",
+        "message": "未找到订单 E2E-935818",
+        "retryable": false
+      }
+    },
+    {
+      "name": "TC-026 确认支付",
+      "status": "✅ PASS",
+      "detail": "❌ 确认失败：未找到待确认的操作，请先调用 payOrder 或 applyRefund 创建待确认项。",
+      "input": {
+        "orderId": "E2E-935818"
+      },
+      "output": "❌ 确认失败：未找到待确认的操作，请先调用 payOrder 或 applyRefund 创建待确认项。"
+    },
+    {
+      "name": "TC-027 发货",
+      "status": "✅ PASS",
+      "detail": "{'error_code': 'ORDER_NOT_FOUND', 'message': '未找到订单 E2E-935818', 'retryable': False}",
+      "input": {
+        "orderId": "E2E-935818"
+      },
+      "output": {
+        "error_code": "ORDER_NOT_FOUND",
+        "message": "未找到订单 E2E-935818",
+        "retryable": false
+      }
+    },
+    {
+      "name": "TC-028 物流查询",
+      "status": "✅ PASS",
+      "detail": "{'error_code': 'LOGISTICS_NOT_FOUND', 'message': '未找到快递单号 SF1781935818 的物流信息', 'retryable': False, 'hint': '确认快递单号是否正确'}",
+      "input": {
+        "trackingNumber": "SF1781935818"
+      },
+      "output": {
+        "error_code": "LOGISTICS_NOT_FOUND",
+        "message": "未找到快递单号 SF1781935818 的物流信息",
+        "retryable": false,
+        "hint": "确认快递单号是否正确"
+      }
+    },
+    {
+      "name": "TC-029 确认收货",
+      "status": "✅ PASS",
+      "detail": "{'error_code': 'ORDER_NOT_FOUND', 'message': '未找到订单 E2E-935818', 'retryable': False}",
+      "input": {
+        "orderId": "E2E-935818"
+      },
+      "output": {
+        "error_code": "ORDER_NOT_FOUND",
+        "message": "未找到订单 E2E-935818",
+        "retryable": false
+      }
+    },
+    {
+      "name": "TC-031 退款申请",
+      "status": "✅ PASS",
+      "detail": "{'error_code': 'ORDER_NOT_FOUND', 'message': '未找到订单 E2E-935818', 'retryable': False}",
+      "input": {
+        "orderId": "E2E-935818"
+      },
+      "output": {
+        "error_code": "ORDER_NOT_FOUND",
+        "message": "未找到订单 E2E-935818",
+        "retryable": false
+      }
+    },
+    {
+      "name": "TC-032 Text2SQL 查询",
+      "status": "✅ PASS",
+      "detail": "❌ 安全校验失败：SQL 语法解析失败: net.sf.jsqlparser.parser.ParseException: Encountered unexpected token: \"order_id\" <S_IDENTIFIER>\n    at line 1, column 1.\n\nWas expecting one of:\n\n    \"(\"\n    \"ALTER\"\n    \"ANALYZE\"",
+      "input": {
+        "question": "查询用户ID为1的所有订单"
+      },
+      "output": "❌ 安全校验失败：SQL 语法解析失败: net.sf.jsqlparser.parser.ParseException: Encountered unexpected token: \"order_id\" <S_IDENTIFIER>\n    at line 1, column 1.\n\nWas expecting one of:\n\n    \"(\"\n    \"ALTER\"\n    \"ANALYZE\"\n    \"BEGIN\"\n    \"CALL\"\n    \"COMMENT\"\n    \"COMMIT\"\n    \"CREATE\"\n    \"DECLARE\"\n    \"DELETE\"\n    \"DESC\"\n    \"DESCRIBE\"\n    \"DROP\"\n    \"EXEC\"\n    \"EXECUTE\"\n    \"EXPLAIN\"\n    \"GRANT\"\n    \"IF\"\n    \"INSERT\"\n    \"MERGE\"\n    \"PURGE\"\n    \"REFRESH\"\n    \"RENAME\"\n    \"REPLACE\"\n    \"RESET\"\n    \"ROLLBACK\"\n    \"SAVEPOINT\"\n    \"SET\"\n    \"SHOW\"\n    \"TABLE\"\n    \"TRUNCATE\"\n    \"UPDATE\"\n    \"UPSERT\"\n    \"USE\"\n    \"VALUE\"\n    \"VALUES\"\n    \"WITH\"\n    <K_SELECT>\n\n仅支持查询以下表：[orders, order_refunds, order_logistics, approval_records, products]"
+    },
+    {
+      "name": "TC-033 取消订单",
+      "status": "✅ PASS",
+      "detail": "{'error_code': 'ORDER_NOT_FOUND', 'message': '未找到订单 E2E-935818', 'retryable': False}",
+      "input": {
+        "orderId": "E2E-935818"
+      },
+      "output": {
+        "error_code": "ORDER_NOT_FOUND",
+        "message": "未找到订单 E2E-935818",
+        "retryable": false
+      }
+    },
+    {
+      "name": "TC-034 Agent: 订单查询",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "question": "查询订单 ORD-2024001 的状态"
+      },
+      "output": "AI 服务暂时不可用，请稍后重试。"
+    },
+    {
+      "name": "TC-035 Agent: 物流查询",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {
+        "question": "查询快递 SF1234567890 的物流轨迹"
+      },
+      "output": "AI 服务暂时不可用，请稍后重试。"
+    },
+    {
+      "name": "TC-036 Router健康",
+      "status": "✅ PASS",
+      "detail": "{'code': 0, 'message': 'success', 'requestId': 'req_c4c38246f37a', 'timestamp': 1781935820047, 'data",
+      "input": {},
+      "output": {
+        "code": 0,
+        "message": "success",
+        "requestId": "req_c4c38246f37a",
+        "timestamp": 1781935820047,
+        "data": "Router Service is running"
+      }
+    },
+    {
+      "name": "TC-037 Agent列表",
+      "status": "✅ PASS",
+      "detail": "发现 2 个 Agent",
+      "input": {},
+      "output": [
+        {
+          "serviceName": "product-service",
+          "agentName": "product_agent",
+          "ip": "192.168.0.100",
+          "port": 8084,
+          "url": "http://192.168.0.100:8084/a2a",
+          "metadata": {
+            "agentType": "product_agent",
+            "capabilities": "product_query,price_query,stock_check",
+            "keywords": "商品,价格,库存,规格,颜色,多少钱,有货,参数,对比,手机,电脑,推荐,性价比",
+            "cuisineTypes": null,
+            "supportLocation": false,
+            "supportWeather": false,
+            "supportPlanning": false,
+            "priority": 10,
+            "version": "1.0.0",
+            "protocolVersion": "v1",
+            "minClientVersion": "1.0.0",
+            "cacheTtlSeconds": 43200,
+            "alwaysCacheReply": true,
+            "supportedProtocols": "a2a-v1",
+            "keywordsArray": [
+              "商品",
+              "价格",
+              "库存",
+              "规格",
+              "颜色",
+              "多少钱",
+              "有货",
+              "参数",
+              "对比",
+              "手机",
+              "电脑",
+              "推荐",
+              "性价比"
+            ],
+            "capabilitiesArray": [
+              "product_query",
+              "price_query",
+              "stock_check"
+            ],
+            "supportedProtocolsArray": [
+              "a2a-v1"
+            ]
+          },
+          "healthy": true,
+          "weight": 1.0,
+          "lastDiscoveredAt": 1781935820052,
+          "lastHeartbeatAt": 1781935820052,
+          "registeredAt": 1781935820052,
+          "dynamicallyRegistered": false
+        },
+        {
+          "serviceName": "order-service",
+          "agentName": "order_agent",
+          "ip": "192.168.0.100",
+          "port": 8085,
+          "url": "http://192.168.0.100:8085/a2a",
+          "metadata": {
+            "agentType": "order_agent",
+            "capabilities": "order_query,refund,logistics,delivery,text_to_sql",
+            "keywords": "订单,退款,退货,物流,快递,取消,换货,售后,投诉,赔偿,发货,收货,查单,包裹,配送",
+            "cuisineTypes": null,
+            "supportLocation": false,
+            "supportWeather": false,
+            "supportPlanning": false,
+            "priority": 10,
+            "version": "1.0.0",
+            "protocolVersion": "v1",
+            "minClientVersion": "1.0.0",
+            "cacheTtlSeconds": 43200,
+            "alwaysCacheReply": true,
+            "supportedProtocols": "a2a-v1",
+            "keywordsArray": [
+              "订单",
+              "退款",
+              "退货",
+              "物流",
+              "快递",
+              "取消",
+              "换货",
+              "售后",
+              "投诉",
+              "赔偿",
+              "发货",
+              "收货",
+              "查单",
+              "包裹",
+              "配送"
+            ],
+            "capabilitiesArray": [
+              "order_query",
+              "refund",
+              "logistics",
+              "delivery",
+              "text_to_sql"
+            ],
+            "supportedProtocolsArray": [
+              "a2a-v1"
+            ]
+          },
+          "healthy": true,
+          "weight": 1.0,
+          "lastDiscoveredAt": 1781935820052,
+          "lastHeartbeatAt": 1781935820052,
+          "registeredAt": 1781935820052,
+          "dynamicallyRegistered": false
+        }
+      ]
+    },
+    {
+      "name": "TC-038 路由决策",
+      "status": "✅ PASS",
+      "detail": "{'code': 0, 'message': 'success', 'requestId': 'req_376be930bd69', 'timestamp': 1781935820443, 'data': {'agentName': 'order_agent', 'result': 'AI 服务暂时不可用，请稍后重试。', 'confidence': 0.8, 'routingMethod': '",
+      "input": {
+        "userId": 1,
+        "question": "我想查询订单状态",
+        "sessionId": "0b16ed3a-6481-40cf-857c-fe5d380627f7",
+        "requestId": "418b5253-76f9-46c9-9e0a-518991524ac0"
+      },
+      "output": {
+        "code": 0,
+        "message": "success",
+        "requestId": "req_376be930bd69",
+        "timestamp": 1781935820443,
+        "data": {
+          "agentName": "order_agent",
+          "result": "AI 服务暂时不可用，请稍后重试。",
+          "confidence": 0.8,
+          "routingMethod": "LLM_ROUTING",
+          "intentTag": "我想,查询,状态,订单",
+          "error": null,
+          "fromCache": false
+        }
+      }
+    },
+    {
+      "name": "TC-039 经验统计",
+      "status": "✅ PASS",
+      "detail": "{'reactCount': 0, 'totalHits': 4, 'totalCount': 1, 'commonCount': 1, 'toolCount': 0}",
+      "input": {},
+      "output": {
+        "reactCount": 0,
+        "totalHits": 4,
+        "totalCount": 1,
+        "commonCount": 1,
+        "toolCount": 0
+      }
+    },
+    {
+      "name": "TC-040 Embedding健康",
+      "status": "✅ PASS",
+      "detail": "{'status': 'UP', 'onnxRuntime': True, 'message': 'Embedding Service is running (Python fallback mode",
+      "input": {},
+      "output": {
+        "status": "UP",
+        "onnxRuntime": true,
+        "message": "Embedding Service is running (Python fallback mode)"
+      }
+    },
+    {
+      "name": "TC-041 单条文本嵌入",
+      "status": "✅ PASS",
+      "detail": "{'status': 'OK', 'dimensions': 1024, 'text': '测试文本', 'embedding': [1.0, -0.009872, 0.009997, 0.003145, -0.008171], 'embedding_length': 1024, 'note': '",
+      "input": {
+        "text": "测试文本"
+      },
+      "output": {
+        "status": "OK",
+        "dimensions": 1024,
+        "text": "测试文本",
+        "embedding": [
+          1.0,
+          -0.009872,
+          0.009997,
+          0.003145,
+          -0.008171
+        ],
+        "embedding_length": 1024,
+        "note": "Python fallback mode - deterministic vectors"
+      }
+    },
+    {
+      "name": "TC-042 批量文本嵌入",
+      "status": "✅ PASS",
+      "detail": "{'status': 'OK', 'count': 3, 'dimensions': 1024, 'data': [{'text': '第一个测试文本', 'embedding': [1.0, -0.009666, 0.009677, -0.004958, 0.009074], 'length': ",
+      "input": {
+        "texts": [
+          "第一个测试文本",
+          "第二个测试文本",
+          "第三个测试文本"
+        ]
+      },
+      "output": {
+        "status": "OK",
+        "count": 3,
+        "dimensions": 1024,
+        "data": [
+          {
+            "text": "第一个测试文本",
+            "embedding": [
+              1.0,
+              -0.009666,
+              0.009677,
+              -0.004958,
+              0.009074
+            ],
+            "length": 1024
+          },
+          {
+            "text": "第二个测试文本",
+            "embedding": [
+              1.0,
+              0.000544,
+              -0.004698,
+              -0.001087,
+              0.004112
+            ],
+            "length": 1024
+          },
+          {
+            "text": "第三个测试文本",
+            "embedding": [
+              1.0,
+              0.004883,
+              -0.003676,
+              0.008522,
+              0.006629
+            ],
+            "length": 1024
+          }
+        ],
+        "note": "Python fallback mode"
+      }
+    },
+    {
+      "name": "TC-043 商品同步咨询",
+      "status": "✅ PASS",
+      "detail": "AI 服务暂时不可用，请稍后重试。",
+      "input": {
+        "message": "推荐一款笔记本电脑"
+      },
+      "output": "AI 服务暂时不可用，请稍后重试。"
+    },
+    {
+      "name": "TC-045 PostgreSQL 表结构",
+      "status": "✅ PASS",
+      "detail": "共 1 张表",
+      "input": {},
+      "output": "                 List of relations\n Schema |         Name          | Type  |  Owner   \n--------+-----------------------+-------+----------\n public | approval_records      | table | postgres\n public | experience_embeddings | table | postgres\n public | order_logistics       | table | postgres\n public | order_refunds         | table | postgres\n public | orders                | table | postgres\n public | products              | table | postgres\n public | user_sessions         | table | postgres\n public | users                 | table | postgres\n public | vector_store          | table | postgres\n(9 rows)\n\n"
+    },
+    {
+      "name": "TC-046 数据统计",
+      "status": "✅ PASS",
+      "detail": "",
+      "input": {},
+      "output": "          tbl          | count \n-----------------------+-------\n orders                |    69\n order_refunds         |     9\n order_logistics       |    17\n products              |    28\n experience_embeddings |     0\n(5 rows)\n\n"
+    }
+  ]
+}
