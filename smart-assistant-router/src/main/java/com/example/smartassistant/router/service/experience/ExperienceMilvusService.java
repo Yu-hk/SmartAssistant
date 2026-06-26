@@ -37,11 +37,13 @@ import java.util.concurrent.TimeUnit;
  * <p>Milvus Collection 设计：</p>
  * <pre>
  * Collection: experience_embeddings
- * ├── id        (Int64, 主键, auto_id=false)
- * ├── exp_id    (VarChar, 经验 ID, maxLength=128)
+ * ├── id         (Int64, 主键, auto_id=false)
+ * ├── exp_id     (VarChar, 经验 ID, maxLength=128)
  * ├── agent_name (VarChar, maxLength=64)
  * ├── intent_tag (VarChar, maxLength=64)
- * ├── embedding (FloatVector, dim=384)
+ * ├── tenant_id  (VarChar, 64)    ← 🔴 ACL：租户隔离
+ * ├── version    (VarChar, 32)    ← 🔴 版本：灰度回滚
+ * ├── embedding  (FloatVector, dim=384)
  * └── created_at (Int64)
  * </pre>
  */
@@ -98,6 +100,11 @@ public class ExperienceMilvusService {
                             .withName("agent_name").withDataType(DataType.VarChar).withMaxLength(64).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("intent_tag").withDataType(DataType.VarChar).withMaxLength(64).build())
+                    // ⭐ 生产级 ACL + 版本字段
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("tenant_id").withDataType(DataType.VarChar).withMaxLength(64).build())
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("version").withDataType(DataType.VarChar).withMaxLength(32).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("embedding").withDataType(DataType.FloatVector).withDimension(DIMENSIONS).build())
                     .addFieldType(FieldType.newBuilder()
@@ -122,9 +129,20 @@ public class ExperienceMilvusService {
     }
 
     /**
-     * 插入或更新经验向量。
+     * 插入或更新经验向量（含 ACL + 版本字段）。
      */
     public void upsert(String expId, String agentName, String intentTag, List<Float> embedding) {
+        upsert(expId, agentName, intentTag, embedding, "public", "v1");
+    }
+
+    /**
+     * 插入或更新经验向量（完整生产字段）。
+     *
+     * @param tenantId 租户 ID（ACL 过滤），默认 "public"
+     * @param version  版本号（灰度回滚），默认 "v1"
+     */
+    public void upsert(String expId, String agentName, String intentTag,
+                       List<Float> embedding, String tenantId, String version) {
         try {
             long milvusId = Math.abs((long) expId.hashCode());
             List<Field> fields = new ArrayList<>();
@@ -132,6 +150,8 @@ public class ExperienceMilvusService {
             fields.add(new Field("exp_id", List.of(expId)));
             fields.add(new Field("agent_name", List.of(agentName)));
             fields.add(new Field("intent_tag", List.of(intentTag)));
+            fields.add(new Field("tenant_id", List.of(tenantId != null ? tenantId : "public")));
+            fields.add(new Field("version", List.of(version != null ? version : "v1")));
             fields.add(new Field("embedding", List.of(embedding)));
             fields.add(new Field("created_at", List.of(System.currentTimeMillis())));
 
