@@ -13,10 +13,10 @@ import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.service.monitoring.OrderMetricsCollector;
 import com.example.smartassistant.tools.CouponTools;
 import com.example.smartassistant.tools.OrderAnalyticsTool;
-import com.example.smartassistant.tools.OrderAnalyticsTool;
 import com.example.smartassistant.tools.OrderKnowledgeTool;
 import com.example.smartassistant.tools.OrderMemoryTool;
 import com.example.smartassistant.tools.OrderTools;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
@@ -60,7 +60,8 @@ public class OrderAgentConfig {
             CouponTools couponTools,
             OrderKnowledgeTool orderKnowledgeTool,
             OrderMemoryTool orderMemoryTool,
-            OrderMetricsCollector metricsCollector) {
+            OrderMetricsCollector metricsCollector,
+            ObservationRegistry observationRegistry) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
@@ -77,6 +78,7 @@ public class OrderAgentConfig {
                 .withMetrics(metricsCollector)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)
+                .withObservationRegistry(observationRegistry)
                 .withPreset(PromptBuilder.build()
                         .withServicePrompt(buildSystemPrompt())
                         .assemble(), toolList);

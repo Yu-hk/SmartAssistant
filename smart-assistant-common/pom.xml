@@ -92,6 +92,13 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- ⭐ Micrometer Observation（追踪跨度，各模块通过 spring-boot-starter-actuator 引入） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-observation</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- ⭐ Micrometer Core（指标采集，各模块通过 spring-boot-starter-actuator 引入） -->
         <dependency>
             <groupId>io.micrometer</groupId>
