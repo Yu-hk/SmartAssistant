@@ -20,7 +20,13 @@ import java.time.LocalDateTime;
  * <p>
  * 所有 Router API 的错误响应均使用此格式。
  * 包含错误码、服务标识、请求追踪号，方便排查问题。
+ * <p>
+ * <b>已废弃：</b>请使用 {@link com.example.smartassistant.common.response.ApiResponse} 替代。
+ * 此 class 保留用于兼容旧调用方。所有新的异常处理已迁移至 {@code ApiResponse} 格式。
+ *
+ * @deprecated since v3.0 — 由 {@link com.example.smartassistant.common.response.ApiResponse} 统一替代
  */
+@Deprecated
 @Data
 @Builder
 @NoArgsConstructor

@@ -7,7 +7,9 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.common.response.ApiResponse;
 import com.example.smartassistant.common.tool.ToolLogContext;
+import com.example.smartassistant.consumer.model.ChatResponse;
 import com.example.smartassistant.consumer.service.cache.AnswerCacheService;
 import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationService;
 import com.example.smartassistant.consumer.service.core.ChatConsumerService;
@@ -73,7 +75,7 @@ public class ChatController {
      */
     @PostMapping("/chat")
     @RateLimiter(name = "chatRateLimiter")
-    public Mono<Map<String, Object>> chat(
+    public Mono<ApiResponse<ChatResponse>> chat(
             @RequestHeader(value = "X-User-Id", required = false) String userIdFromHeader,
             @RequestHeader(value = "X-User-Role", required = false) String userRoleFromHeader,
             @RequestBody Map<String, String> request) {
@@ -224,13 +226,18 @@ public class ChatController {
                         endTime - startTime);
 
                 // 8. 构建响应
-                Map<String, Object> response = new HashMap<>();
-                response.put("reply", cleanReply);
-                response.put("suggestions", suggestions);
-                response.put("sessionId", sessionId);
-                response.put("duration_ms", endTime - startTime);
+                ChatResponse chatResp = ChatResponse.builder()
+                        .reply(cleanReply)
+                        .suggestions(suggestions)
+                        .sessionId(sessionId)
+                        .agentName((String) routerResponse.get("agentName"))
+                        .intentTag((String) routerResponse.get("intentTag"))
+                        .fromCache((Boolean) routerResponse.getOrDefault("fromCache", false))
+                        .toolInvoked((Boolean) routerResponse.getOrDefault("toolInvoked", false))
+                        .durationMs(endTime - startTime)
+                        .build();
 
-                return Mono.just(response);
+                return Mono.just(ApiResponse.success(chatResp));
             });
     }
 
@@ -281,14 +288,15 @@ public class ChatController {
      * POST /api/math/cache/stats
      */
     @PostMapping("/cache/stats")
-    public Mono<Map<String, Object>> getCacheStats(
+    public Mono<ApiResponse<Map<String, Object>>> getCacheStats(
             @RequestHeader(value = "X-User-Role", required = false) String userRoleFromHeader) {
         String role = (userRoleFromHeader != null) ? userRoleFromHeader : "ROLE_USER";
         if (!isAdmin(role)) {
             log.warn("[Auth] ⛔ 拒绝缓存统计请求: role={}", role);
-            return Mono.just(buildForbiddenResponse("缓存统计功能仅限管理员使用"));
+            return Mono.just(ApiResponse.error(403, "缓存统计功能仅限管理员使用"));
         }
         return answerCacheService.getCacheStats()
+            .map(ApiResponse::success)
             .doOnNext(stats -> {
                 log.info("[AnswerCache] 📊 缓存统计: {}", stats);
             });
