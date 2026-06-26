@@ -1032,6 +1032,12 @@ chat:
 | POST | `/assistant/api/data/query` | ⭐ 数据查询（仅 ADMIN，独立端点，不混入对话流） |
 | WebSocket | `/assistant/ws/conversation` | WebSocket 实时对话 |
 
+### 用户反馈接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/feedback` | 提交用户对 Agent 回复的评价（like/dislike）。请求体：`{userId, sessionId, question, response, rating, reason}` |
+
 ### 通用助手工具（General Agent）
 
 | 工具 | 说明 | 依赖 |
@@ -1043,6 +1049,16 @@ chat:
 | `convertCurrency(value, from, to)` | 货币汇率转换 | 实时汇率 API |
 | `executeScript(script)` | **沙箱保护**的多步计算脚本执行（关键字黑名单/资源限制/超时熔断） | — |
 | `queryWeather(city)` | 天气查询 | — |
+| `savePreference(userId, key, value)` | 保存用户偏好（Order/Product/General 三 Agent 均有） | AgentMemoryService |
+| `recallMemories(userId)` | 获取用户保存的所有偏好记忆 | AgentMemoryService |
+
+### Agent 控制接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/order/agent/process` | Order Agent 直调（支持 userId 可选，自动注入记忆和后台提取偏好） |
+| POST | `/product/chat/sync` | Product Agent 同步对话 |
+| GET | `/product/stream/chat` | Product Agent SSE 流式对话 |
 
 ### 路由接口
 
@@ -1063,6 +1079,12 @@ chat:
 | GET | `/actuator/health` | 服务健康状态 |
 | GET | `/actuator/prometheus` | Prometheus 指标 |
 | GET | `/actuator/info` | 服务信息 |
+
+### 离线评测
+
+| 工具 | 路径 | 说明 |
+|------|------|------|
+| 黄金测试集 | `docs/eval/sample-test-set.json` | 14 个测试用例覆盖 Order/Product/General 三个 Agent。运行：`java com.example.smartassistant.common.eval.GoldenTestRunner docs/eval/sample-test-set.json` |
 
 ---
 
