@@ -95,7 +95,7 @@ services:
     ports:
       - "9187:9187"
     environment:
-      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@host.docker.internal:5432/a2a_system?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@host.docker.internal:5433/a2a_system?sslmode=disable"
     networks:
       - monitoring
     restart: unless-stopped

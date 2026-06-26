@@ -53,7 +53,7 @@ services:
     image: pgvector/pgvector:0.8.0-pg16
     container_name: smart-postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-a2a_system}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -80,7 +80,48 @@ services:
       - "9411:9411"
     restart: unless-stopped
 
+  # === Prometheus 指标采集 (端口 9090) ⭐ ===
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: smart-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # === Grafana 可视化面板 (端口 3000) ⭐ ===
+  grafana:
+    image: grafana/grafana:latest
+    container_name: smart-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-dashboard.json:/dashboards/smartassistant.json:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/dashboards/smartassistant.json
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
 volumes:
   redis-data:
   nacos-data:
   postgres-data:
+  prometheus-data:
+  grafana-data:
