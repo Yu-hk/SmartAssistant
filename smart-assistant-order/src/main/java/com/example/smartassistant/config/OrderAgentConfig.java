@@ -13,7 +13,10 @@ import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.service.monitoring.OrderMetricsCollector;
 import com.example.smartassistant.tools.CouponTools;
 import com.example.smartassistant.tools.OrderAnalyticsTool;
+import com.example.smartassistant.tools.OrderKnowledgeTool;
+import com.example.smartassistant.tools.OrderMemoryTool;
 import com.example.smartassistant.tools.OrderTools;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
@@ -55,23 +58,27 @@ public class OrderAgentConfig {
             OrderTools orderTools,
             OrderAnalyticsTool analyticsTool,
             CouponTools couponTools,
-            OrderMetricsCollector metricsCollector) {
+            OrderKnowledgeTool orderKnowledgeTool,
+            OrderMemoryTool orderMemoryTool,
+            OrderMetricsCollector metricsCollector,
+            ObservationRegistry observationRegistry) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
         List<ToolCallback> allCallbacks = new ArrayList<>();
-        for (var tool : List.of(orderTools, analyticsTool, couponTools)) {
+        for (var tool : List.of(orderTools, analyticsTool, couponTools, orderKnowledgeTool, orderMemoryTool)) {
             allCallbacks.addAll(List.of(
                     MethodToolCallbackProvider.builder().toolObjects(tool).build().getToolCallbacks()));
         }
 
         List<ToolCallback> toolList = new ArrayList<>(allCallbacks);
-        log.info("[OrderAgent] 注册 {} 个工具（订单处理 + 预定义分析查询）", toolList.size());
+        log.info("[OrderAgent] 注册 {} 个工具（订单处理 + 分析 + 优惠券 + 知识库 + 记忆）", toolList.size());
 
         return new SmartReActAgent(chatModel)
                 .withMetrics(metricsCollector)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)
+                .withObservationRegistry(observationRegistry)
                 .withPreset(PromptBuilder.build()
                         .withServicePrompt(buildSystemPrompt())
                         .assemble(), toolList);

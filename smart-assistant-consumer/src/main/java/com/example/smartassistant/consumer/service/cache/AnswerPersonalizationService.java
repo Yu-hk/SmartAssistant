@@ -15,6 +15,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -62,12 +64,12 @@ public class AnswerPersonalizationService {
     private final Counter preloadSkippedCounter;
     private final Timer preloadTimer;
     
-    public AnswerPersonalizationService(ChatClient.Builder chatClientBuilder,
+    public AnswerPersonalizationService(@Qualifier("lightChatModel") ChatModel lightModel,
                                         ReactiveStringRedisTemplate redisTemplate,
                                         UserProfileService userProfileService,
                                         ObjectMapper objectMapper,
                                         MeterRegistry meterRegistry) {
-        this.chatClient = chatClientBuilder.build();
+        this.chatClient = ChatClient.create(lightModel);
         this.redisTemplate = redisTemplate;
         this.userProfileService = userProfileService;
         this.objectMapper = objectMapper;

@@ -31,13 +31,16 @@
     </modules>
 
     <properties>
-        <java.version>17</java.version>
-        <spring-ai-alibaba.version>1.1.2.2</spring-ai-alibaba.version>
-        <spring-ai.version>1.1.2</spring-ai.version>
+        <java.version>21</java.version>
+        <spring-ai.version>2.0.0</spring-ai.version>
         <spring-cloud-alibaba.version>2023.0.3.2</spring-cloud-alibaba.version>
         <spring-cloud.version>2024.0.0</spring-cloud.version>
         <!-- ⭐ 强制使用 Nacos 3.x 客户端以支持 A2A -->
         <nacos-client.version>3.1.0</nacos-client.version>
+        <!-- JetBrains Annotations — 原由 spring-ai-alibaba 传递引入 -->
+        <jetbrains-annotations.version>26.0.2</jetbrains-annotations.version>
+        <!-- ⭐ JDK Windows 长类路径修复（Surefire 长 classpath bug，JDK 21 下仍保留该系统属性，无害） -->
+        <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
         <!-- ⭐ 统一管理的第三方依赖版本 -->
         <mybatis-plus.version>3.5.9</mybatis-plus.version>
         <jjwt.version>0.12.5</jjwt.version>
@@ -76,14 +79,6 @@
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
                 <version>${spring-cloud.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <!-- Spring AI Alibaba BOM -->
-            <dependency>
-                <groupId>com.alibaba.cloud.ai</groupId>
-                <artifactId>spring-ai-alibaba-bom</artifactId>
-                <version>${spring-ai-alibaba.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -153,6 +148,13 @@
                 <groupId>com.github.ben-manes.caffeine</groupId>
                 <artifactId>caffeine</artifactId>
                 <version>${caffeine.version}</version>
+            </dependency>
+
+            <!-- ⭐ JetBrains Annotations -->
+            <dependency>
+                <groupId>org.jetbrains</groupId>
+                <artifactId>annotations</artifactId>
+                <version>${jetbrains-annotations.version}</version>
             </dependency>
 
             <!-- ⭐ Spring Cloud Bootstrap -->

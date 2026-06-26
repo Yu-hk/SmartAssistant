@@ -9,10 +9,12 @@ package com.example.smartassistant.consumer.service.session;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +25,7 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -67,16 +70,34 @@ public class ConversationDocumentService {
     private static final int MIN_CONTENT_FOR_SUMMARIZE = 1000;
     private static final int MIN_TURN_FOR_SUMMARIZE = 3;
 
-    // ★ 文件锁缓存，按 sessionId 粒度同步（使用 Caffeine 缓存，30 分钟自动过期，最大 5000 条目）
-    private final Cache<String, Object> fileLocks = Caffeine.newBuilder()
+    // ★ 文件锁缓存，按 sessionId 粒度同步（Caffeine 缓存，30 分钟自动过期，最大 5000 条目）
+    // ⭐ JDK 21 虚拟线程：使用 ReentrantLock 而非 synchronized + Object，避免在持锁做阻塞 I/O 时
+    //    钉住(pin)载体线程（synchronized 块内阻塞会使虚拟线程退化为平台线程行为）
+    private final Cache<String, ReentrantLock> fileLocks = Caffeine.newBuilder()
             .expireAfterAccess(30, TimeUnit.MINUTES)
             .maximumSize(5000)
             .build();
+
+    /** 写入重试最大次数 */
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+    /** 重试初始等待（毫秒），指数退避 ×2 */
+    private static final long RETRY_INITIAL_DELAY_MS = 200;
 
     private final String basePath;
 
     // ★ 叙事摘要服务
     private final ConversationSummarizationService summarizationService;
+
+    // ★ Redis 镜像存储（可选，水平扩展时开启）
+    @Autowired(required = false)
+    private StringRedisTemplate redisTemplate;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${app.memory.redis-enabled:false}")
+    private boolean redisEnabled;
+
+    private static final String REDIS_MEMORY_KEY_PREFIX = "user:memory:";
 
     @Autowired
     public ConversationDocumentService(
@@ -96,31 +117,89 @@ public class ConversationDocumentService {
      */
     @Async("taskExecutor")
     public void saveValuableConversation(ConversationValueService.ConversationValueContext ctx) {
-        try {
-            Path userDir = Paths.get(basePath, String.valueOf(ctx.userId()), "memories");
-            Files.createDirectories(userDir);
-
-            String sessionKey = sanitize(ctx.sessionId());
-            String entryContent = buildEntryContent(ctx);
-
-            // ★ 同步写（session 粒度，防并发读-改-写冲突）
-            synchronized (getFileLock(ctx.sessionId())) {
-                // ★ session 优先：查找已有记忆文件（跨天不换文件）
-                Path existingFile = findExistingSessionFile(userDir, sessionKey);
-
-                if (existingFile != null) {
-                    appendToMemoryFile(existingFile, ctx, entryContent);
-                } else {
-                    // 不存在则创建新文件（带当前日期）
-                    String filename = LocalDate.now().format(DATE_FMT) + "_" + sessionKey + ".md";
-                    createMemoryFile(userDir.resolve(filename), ctx, entryContent);
+        int attempt = 0;
+        Exception lastException = null;
+        while (attempt < MAX_RETRY_ATTEMPTS) {
+            attempt++;
+            try {
+                doSave(ctx);
+                return; // 成功直接返回
+            } catch (Exception e) {
+                lastException = e;
+                if (attempt < MAX_RETRY_ATTEMPTS) {
+                    long delay = RETRY_INITIAL_DELAY_MS * (1L << (attempt - 1)); // 200ms, 400ms, 800ms
+                    log.warn("[UserMemory] 保存记忆失败(第{}次), {}ms后重试: userId={}, error={}",
+                            attempt, delay, ctx.userId(), e.getMessage());
+                    try {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
+        }
+        // 所有重试均失败
+        log.warn("[UserMemory] 保存记忆失败(已重试{}次): userId={}, error={}",
+                MAX_RETRY_ATTEMPTS, ctx.userId(),
+                lastException != null ? lastException.getMessage() : "unknown");
+    }
 
-            log.info("[UserMemory] 记忆已保存: userId={}, sessionId={}", ctx.userId(), ctx.sessionId());
+    /**
+     * 执行文件保存操作（被 {@link #saveValuableConversation} 重试包裹）
+     */
+    private void doSave(ConversationValueService.ConversationValueContext ctx) throws Exception {
+        Path userDir = Paths.get(basePath, String.valueOf(ctx.userId()), "memories");
+        Files.createDirectories(userDir);
 
+        String sessionKey = sanitize(ctx.sessionId());
+        String entryContent = buildEntryContent(ctx);
+
+        // ★ 同步写（session 粒度，防并发读-改-写冲突）
+        // ⭐ 用 ReentrantLock 替代 synchronized：虚拟线程持锁期间做文件 I/O 不会 pin 载体线程
+        ReentrantLock fileLock = getFileLock(ctx.sessionId());
+        fileLock.lock();
+        try {
+            // ★ session 优先：查找已有记忆文件（跨天不换文件）
+            Path existingFile = findExistingSessionFile(userDir, sessionKey);
+
+            if (existingFile != null) {
+                appendToMemoryFile(existingFile, ctx, entryContent);
+            } else {
+                // 不存在则创建新文件（带当前日期）
+                String filename = LocalDate.now().format(DATE_FMT) + "_" + sessionKey + ".md";
+                createMemoryFile(userDir.resolve(filename), ctx, entryContent);
+            }
+        } finally {
+            fileLock.unlock();
+        }
+
+        log.info("[UserMemory] 记忆已保存: userId={}, sessionId={}", ctx.userId(), ctx.sessionId());
+
+        // ★ Redis 镜像（可选，多实例共享记忆）
+        saveToRedisIfEnabled(ctx, entryContent);
+    }
+
+    /**
+     * 当 Redis 镜像开启时，将记忆同步写入 Redis（与文件保存解耦，失败不影响主流程）。
+     * Key: user:memory:{userId}:{sessionId}
+     * Value: JSON {content, turnCount, intentTag, savedAt}
+     * TTL: 7 天
+     */
+    private void saveToRedisIfEnabled(ConversationValueService.ConversationValueContext ctx, String entryContent) {
+        if (!redisEnabled || redisTemplate == null) return;
+        try {
+            String redisKey = REDIS_MEMORY_KEY_PREFIX + ctx.userId() + ":" + sanitize(ctx.sessionId());
+            java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+            data.put("content", entryContent);
+            data.put("turnCount", ctx.turnCount());
+            data.put("intentTag", ctx.intentTag());
+            data.put("savedAt", System.currentTimeMillis());
+            String json = objectMapper.writeValueAsString(data);
+            redisTemplate.opsForValue().set(redisKey, json, 7, TimeUnit.DAYS);
+            log.debug("[UserMemory] Redis 镜像已保存: key={}", redisKey);
         } catch (Exception e) {
-            log.warn("[UserMemory] 保存记忆失败: userId={}, error={}", ctx.userId(), e.getMessage());
+            log.warn("[UserMemory] Redis 镜像保存失败: {}", e.getMessage());
         }
     }
 
@@ -292,8 +371,8 @@ public class ConversationDocumentService {
     /**
      * 获取 sessionId 粒度的同步锁对象（使用 Caffeine 缓存，自动过期）
      */
-    private Object getFileLock(String sessionId) {
-        return fileLocks.get(sessionId, k -> new Object());
+    private ReentrantLock getFileLock(String sessionId) {
+        return fileLocks.get(sessionId, k -> new ReentrantLock());
     }
 
     /**

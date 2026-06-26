@@ -7,6 +7,8 @@ import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -36,8 +38,9 @@ public class TaskPlannerService {
     private final ChatClient chatClient;
     private final AgentDiscoveryService agentDiscovery;
 
-    public TaskPlannerService(ChatClient.Builder builder, AgentDiscoveryService agentDiscovery) {
-        this.chatClient = builder.build();
+    public TaskPlannerService(@Qualifier("lightChatModel") ChatModel lightModel,
+                               AgentDiscoveryService agentDiscovery) {
+        this.chatClient = ChatClient.create(lightModel);
         this.agentDiscovery = agentDiscovery;
     }
 
