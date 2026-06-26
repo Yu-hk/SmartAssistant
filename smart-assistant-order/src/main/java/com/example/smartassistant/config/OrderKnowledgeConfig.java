@@ -12,7 +12,7 @@ import com.example.smartassistant.common.rag.BgeReranker;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
-import com.example.smartassistant.common.rag.PgVectorKnowledgeBase;
+import com.example.smartassistant.common.rag.MilvusKnowledgeBase;
 import com.example.smartassistant.common.rag.Reranker;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
@@ -73,29 +73,31 @@ public class OrderKnowledgeConfig {
         return kb;
     }
 
-    /** pgvector 持久化知识库（按配置启用） */
+    /** Milvus 持久化知识库（按配置启用，替换 pgvector） */
     @Bean
-    @ConditionalOnProperty(name = "app.knowledge.pgvector-enabled", havingValue = "true")
-    public PgVectorKnowledgeBase orderPgVectorKnowledgeBase(
+    @ConditionalOnProperty(name = "app.milvus.enabled", havingValue = "true")
+    public MilvusKnowledgeBase orderMilvusKnowledgeBase(
             BgeEmbeddingModel embeddingModel,
-            JdbcTemplate jdbcTemplate,
-            ChineseTokenizer tokenizer) {
-        log.info("[OrderKnowledge] 初始化 pgvector 持久化知识库...");
-        PgVectorKnowledgeBase kb = new PgVectorKnowledgeBase(
-                KnowledgeSeedData.ORDER_KB, embeddingModel, jdbcTemplate, tokenizer);
-        log.info("[OrderKnowledge] pgvector 知识库就绪");
+            ChineseTokenizer tokenizer,
+            @Value("${app.milvus.host:localhost}") String milvusHost,
+            @Value("${app.milvus.port:19530}") int milvusPort) {
+        log.info("[OrderKnowledge] 初始化 Milvus 持久化知识库: {}:{}", milvusHost, milvusPort);
+        MilvusKnowledgeBase kb = new MilvusKnowledgeBase(
+                KnowledgeSeedData.ORDER_KB, embeddingModel, milvusHost, milvusPort, tokenizer);
+        log.info("[OrderKnowledge] Milvus 知识库就绪");
         return kb;
     }
 
     @Bean
     public KnowledgeRetrievalService orderKnowledgeRetrievalService(
             InMemoryKnowledgeBase orderKnowledgeBase,
-            ObjectProvider<PgVectorKnowledgeBase> pgVectorProvider) {
+            ObjectProvider<MilvusKnowledgeBase> milvusProvider) {
         KnowledgeRetrievalService service = new KnowledgeRetrievalService()
                 .register(orderKnowledgeBase);
-        PgVectorKnowledgeBase pgKb = pgVectorProvider.getIfAvailable();
-        if (pgKb != null) {
-            service.register(pgKb);
+        MilvusKnowledgeBase milvusKb = milvusProvider.getIfAvailable();
+        if (milvusKb != null) {
+            service.register(milvusKb);
+            log.info("[OrderKnowledge] Milvus 知识库已注册到检索服务");
         }
         return service;
     }

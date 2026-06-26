@@ -112,7 +112,14 @@
             <artifactId>caffeine</artifactId>
         </dependency>
 
-        <!-- ⭐ Spring JDBC（PgVectorKnowledgeBase 使用 JdbcTemplate） -->
+        <!-- ⭐ Milvus 向量数据库 SDK（替换 pgvector 持久化方案） -->
+        <dependency>
+            <groupId>io.milvus</groupId>
+            <artifactId>milvus-sdk-java</artifactId>
+            <version>2.5.5</version>
+        </dependency>
+
+        <!-- ⭐ Spring JDBC（PgVectorKnowledgeBase 使用 JdbcTemplate，保留作为兜底） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
