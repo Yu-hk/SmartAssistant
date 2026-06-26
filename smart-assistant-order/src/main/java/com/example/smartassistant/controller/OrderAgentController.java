@@ -94,7 +94,7 @@ public class OrderAgentController {
             String userId = request.get("userId");
             String enhancedQuestion = question;
             if (userId != null && !userId.isBlank() && !"null".equals(userId)) {
-                String userMemory = memoryService.getAllFormatted("order", userId);
+                String userMemory = memoryService.getAllFormatted("order", userId, question);
                 if (!userMemory.isBlank()) {
                     enhancedQuestion = userMemory + "\n[用户问题]\n" + question;
                     log.info("[OrderAgent] 用户记忆已注入: userId={}, memories={}",
