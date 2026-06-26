@@ -116,6 +116,9 @@ public class SmartReActAgent {
     /** ⭐ 追踪跨度注册表（可选，用于生成 Jaeger 嵌套跨度） */
     private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
 
+    /** ⭐ 预计算压缩结果（PrecomputedCompact：后台异步压缩，下一轮直接使用） */
+    private volatile CompletableFuture<List<Message>> precomputedCompactFuture;
+
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
     }
@@ -312,9 +315,21 @@ public class SmartReActAgent {
             }
 
             // ⭐ 上下文压缩检查（消息数过多时触发）
+            // 优先使用后台预计算的结果，避免阻塞
             if (enableCompress && messages.size() > compressThreshold) {
-                List<Message> compressed = compressHistory(messages);
-                if (compressed != messages) { // 压缩实际发生
+                List<Message> compressed = null;
+                if (precomputedCompactFuture != null && precomputedCompactFuture.isDone()) {
+                    try {
+                        compressed = precomputedCompactFuture.get();
+                        precomputedCompactFuture = null;
+                    } catch (Exception e) {
+                        log.debug("[SmartReActAgent] 预计算压缩结果无效，回退同步: {}", e.getMessage());
+                    }
+                }
+                if (compressed == null) {
+                    compressed = compressHistory(messages);
+                }
+                if (compressed != messages) {
                     log.info("[SmartReActAgent] 上下文压缩: {} → {} 条消息", messages.size(), compressed.size());
                     messages = compressed;
                     metrics.recordContextCompression();
@@ -399,6 +414,13 @@ public class SmartReActAgent {
             messages.add(ToolResponseMessage.builder()
                     .responses(toolResponses)
                     .build());
+
+            // ⭐ PrecomputedCompact：消息数接近阈值时后台异步预压缩
+            if (enableCompress && precomputedCompactFuture == null
+                    && messages.size() > compressThreshold - 3) {
+                List<Message> snapshot = new ArrayList<>(messages);
+                precomputedCompactFuture = CompletableFuture.supplyAsync(() -> compressHistory(snapshot));
+            }
             // 继续循环
         }
 
