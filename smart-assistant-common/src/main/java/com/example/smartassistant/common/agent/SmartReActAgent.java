@@ -11,6 +11,7 @@ import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.AgentException;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.common.error.RecoveryAction;
+import com.example.smartassistant.common.memory.ConversationSummaryStore;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.tool.ToolGroupManager;
 import com.example.smartassistant.common.trace.TraceSpan;
@@ -124,6 +125,9 @@ public class SmartReActAgent {
     /** 每触发一次压缩后递增的摘要代数 */
     private int summaryGeneration = 0;
 
+    /** ⭐ 对话摘要持久化存储（可选：方案 A — 压缩摘要写入向量数据库） */
+    private ConversationSummaryStore summaryStore;
+
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
     }
@@ -232,6 +236,12 @@ public class SmartReActAgent {
 
     public SmartReActAgent withObservationRegistry(ObservationRegistry registry) {
         if (registry != null) this.observationRegistry = registry;
+        return this;
+    }
+
+    /** 配置对话摘要持久化存储（方案 A：压缩摘要写入向量数据库） */
+    public SmartReActAgent withSummaryStore(ConversationSummaryStore summaryStore) {
+        this.summaryStore = summaryStore;
         return this;
     }
 
@@ -559,6 +569,15 @@ public class SmartReActAgent {
                 }
             }
             log.info("[SmartReActAgent] 摘要链: 第{}代, 长度={}", summaryGeneration, summary.length());
+
+            // ⭐ 方案 A: 持久化存储摘要到向量数据库（异步安全，异常静默降级）
+            if (summaryStore != null) {
+                try {
+                    summaryStore.store(null, null, null, summary, summaryGeneration);
+                } catch (Exception e) {
+                    log.warn("[SmartReActAgent] 摘要持久化失败: {}", e.getMessage());
+                }
+            }
         } catch (Exception e) {
             log.warn("[SmartReActAgent] 摘要生成失败: {}，跳过压缩", e.getMessage());
             return messages; // 降级：不压缩
