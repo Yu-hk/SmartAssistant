@@ -123,6 +123,26 @@ public class AgentMemoryService {
     }
 
     /**
+     * 获取结构化状态锚点（始终返回，不依赖是否有记忆）。
+     *
+     * <p>状态锚点是每轮对话中固定注入的结构化信息锚点，防止上下文漂移。
+     * 即使没有用户偏好，也会返回"未登录访客"占位锚点。
+     * 参考文章⑧：状态管理区是"不被稀释的系统锚点"。</p>
+     */
+    public String getStateAnchor(String userId) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("## 状态锚点\n");
+        if (userId != null && !userId.isBlank() && !"null".equals(userId)) {
+            sb.append("- 当前用户：").append(userId).append("\n");
+            sb.append("- 偏好状态：").append(hasMemory("order", userId) || hasMemory("product", userId)
+                    || hasMemory("general", userId) ? "有保存的偏好" : "无偏好").append("\n");
+        } else {
+            sb.append("- 当前用户：未登录访客\n");
+        }
+        return sb.toString();
+    }
+
+    /**
      * 获取该 Agent + 用户的所有记忆，按问题上下文排序。
      *
      * <p>当传入 {@code context} 时，记忆条目按与上下文的匹配度排序
