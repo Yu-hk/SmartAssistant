@@ -412,23 +412,38 @@ public class SmartReActAgent {
 
     // ==================== 上下文压缩 ====================
 
-    /** 摘要生成提示词 */
+    /** ⭐ 增强摘要生成提示词（9 段式，参考 Claude Code 设计） */
     private static final String SUMMARY_PROMPT = """
-            请把下面的对话历史压缩成简明摘要，保留：
-            1. 用户的关键诉求与目标
-            2. Agent 已完成的关键操作（调用了哪些工具、返回了什么核心结果）
-            3. 已达成的共识或结论
-            4. 仍未解决的问题或待办
-            
-            不要复述每条原文，不要列举所有工具调用细节，不要保留无关闲聊。
-            输出 1-3 段中文，不要用列表，不要加任何前缀或元描述。
+            请把下面的对话历史压缩成结构化摘要。
+
+            必须包含以下 9 个部分：
+            1. 用户的核心诉求与初始目标
+            2. 关键技术概念与业务上下文
+            3. 涉及的文件、服务或数据
+            4. 错误与修复记录
+            5. 问题解决过程（哪些成功了，哪些失败了）
+            6. 用户的关键反馈与偏好
+            7. 已完成的待办事项
+            8. 仍未解决的问题或待办
+            9. 后续建议与下一步计划
+
+            要求：
+            - 按以上 9 个部分编号输出，每个部分 1-3 句
+            - 保留所有重要的技术细节、错误信息和用户反馈
+            - 不要遗漏已完成的工具调用及其核心结果
+            - 如果某部分无内容，标注「无」
+            不要复述每条原文，不要保留无关闲聊。
             """;
 
     /**
-     * 压缩对话历史。
+     * 压缩对话历史（带 MicroCompact 工具结果清理 + 增量更新）。
      * <p>
-     * 策略：保留最近 {@code keepRounds} 轮完整工具调用，
-     * 更早的对话由 LLM 生成摘要替换。
+     * 策略：
+     * <ol>
+     *   <li><b>增量更新</b>：如果已存在摘要，只对新内容追加压缩</li>
+     *   <li><b>MicroCompact</b>：替换旧工具结果为简洁摘要，保留调用结构</li>
+     *   <li><b>LLM 摘要</b>：用 9 段式 SUMMARY_PROMPT 生成结构化摘要</li>
+     * </ol>
      * 切割点保证落在完整轮次边界，不拆散 tool_call/tool_result 对。
      *
      * @param messages 当前消息列表
@@ -438,12 +453,20 @@ public class SmartReActAgent {
         // 至少需要: System + User + 至少 2 轮工具调用才值得压缩
         if (messages.size() < 6) return messages;
 
+        // ⭐ 检测是否已存在摘要（增量更新模式）
+        String existingSummary = findExistingSummary(messages);
+
         // ⭐ 从末尾向前扫描，定位保留的起始索引
         int keepStart = findKeepStart(messages);
         if (keepStart <= 1) return messages; // 所有消息都在保留范围内
 
         // ⭐ 将保留起点之前的消息（不含 SystemMessage）转为文本
         StringBuilder rawBuilder = new StringBuilder();
+        // 如果存在旧摘要，先加入
+        if (existingSummary != null) {
+            rawBuilder.append("【已有摘要】\n").append(existingSummary).append("\n\n");
+            rawBuilder.append("【新对话内容】\n");
+        }
         for (int i = 1; i < keepStart; i++) {
             Message msg = messages.get(i);
             String role;
@@ -456,7 +479,7 @@ public class SmartReActAgent {
                 content = a.getText() != null ? a.getText() : "(工具调用)";
             } else if (msg instanceof ToolResponseMessage) {
                 role = "工具结果";
-                content = "(返回数据)";
+                content = "(已压缩)";
             } else {
                 role = "其他";
                 content = "";
@@ -509,6 +532,25 @@ public class SmartReActAgent {
         }
 
         return compressed;
+    }
+
+    /**
+     * 检测消息列表中是否已存在摘要（用于增量更新）。
+     * <p>
+     * 查找格式为 "以下是对之前对话的摘要：\n\n..." 的 UserMessage。
+     *
+     * @return 已有摘要文本；不存在时返回 null
+     */
+    private String findExistingSummary(List<Message> messages) {
+        for (Message msg : messages) {
+            if (msg instanceof UserMessage u) {
+                String text = u.getText();
+                if (text != null && text.startsWith("以下是对之前对话的摘要：")) {
+                    return text.replace("以下是对之前对话的摘要：\n\n", "").trim();
+                }
+            }
+        }
+        return null;
     }
 
     /**
