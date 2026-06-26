@@ -90,17 +90,19 @@ public class OrderAgentController {
             // Step 1: 意图识别
             IntentType intent = intentService.detect(question);
 
-            // Step 2: 用户记忆注入（userId 为可选字段）
+            // Step 2: ⭐ 状态锚点强制注入（始终执行，防止上下文漂移）
             String userId = request.get("userId");
-            String enhancedQuestion = question;
+            String anchor = memoryService.getStateAnchor(userId);
+            String enhancedQuestion = anchor;
+            // 同时注入 Agent 专属记忆（如有）
             if (userId != null && !userId.isBlank() && !"null".equals(userId)) {
                 String userMemory = memoryService.getAllFormatted("order", userId, question);
                 if (!userMemory.isBlank()) {
-                    enhancedQuestion = userMemory + "\n[用户问题]\n" + question;
-                    log.info("[OrderAgent] 用户记忆已注入: userId={}, memories={}",
-                            userId, userMemory.replace("\n", " | "));
+                    enhancedQuestion = anchor + "\n" + userMemory;
+                    log.info("[OrderAgent] 状态锚点+记忆已注入: userId={}", userId);
                 }
             }
+            enhancedQuestion += "\n[用户问题]\n" + question;
 
             // Step 3: RAG 预检索 + 上下文注入
             if (ragService != null) {
