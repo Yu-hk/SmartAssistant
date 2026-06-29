@@ -1,10 +1,12 @@
 package com.example.smartassistant.router.service.fusion;
 
 import com.example.smartassistant.router.model.TaskAnalysisResult;
+import com.example.smartassistant.router.service.monitoring.NewMetricsCollector;
 import com.example.smartassistant.router.service.routing.KeywordFastRouteService;
 import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -35,6 +37,9 @@ public class IntentFusionService {
     private final LightweightIntentClassifier classifier;
     private final TaskAnalysisService taskAnalysisService;
 
+    @Autowired(required = false)
+    private NewMetricsCollector metricsCollector;
+
     public IntentFusionService(KeywordFastRouteService fastRouteService,
                                LightweightIntentClassifier classifier,
                                TaskAnalysisService taskAnalysisService) {
@@ -58,6 +63,7 @@ public class IntentFusionService {
             long elapsed = System.currentTimeMillis() - start;
             log.info("[IntentFusion] ⚡ 规则命中: intent={}, conf={}, elapsed={}ms",
                     ruleResult.getIntentTag(), ruleResult.getConfidence(), elapsed);
+            if (metricsCollector != null) metricsCollector.recordFusion("RULE");
             return IntentFusionResult.ruleHit(
                     ruleResult.getIntentTag(), ruleResult.getConfidence(),
                     mapAgentToCategory(ruleResult.getTargetAgent()), elapsed);
@@ -81,6 +87,7 @@ public class IntentFusionService {
             long elapsed = System.currentTimeMillis() - start;
             log.info("[IntentFusion] 🔬 小模型命中: intent={}, conf={}, elapsed={}ms",
                     classifyResult.intentTag(), classifyResult.confidence(), elapsed);
+            if (metricsCollector != null) metricsCollector.recordFusion("CLASSIFIER");
             return IntentFusionResult.classifierHit(
                     classifyResult.intentTag(), classifyResult.confidence(),
                     classifyResult.category(), elapsed);
@@ -102,6 +109,7 @@ public class IntentFusionService {
         // ===== 全部失败 =====
         long elapsed = System.currentTimeMillis() - start;
         log.warn("[IntentFusion] ❌ 全部路径未命中: elapsed={}ms", elapsed);
+        if (metricsCollector != null) metricsCollector.recordFusion("FALLBACK");
         return IntentFusionResult.fallback(elapsed);
     }
 

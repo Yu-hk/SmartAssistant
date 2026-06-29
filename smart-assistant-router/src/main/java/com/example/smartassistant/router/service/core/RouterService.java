@@ -19,6 +19,7 @@ import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.evaluation.BadCaseMinerService;
+import com.example.smartassistant.router.service.monitoring.NewMetricsCollector;
 import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.quality.QualityEvaluationService;
@@ -131,6 +132,9 @@ public class RouterService {
     // ⭐ P1 预算追踪
     @Autowired(required = false)
     private BudgetTracker budgetTracker;
+    // ⭐ P2 新指标采集
+    @Autowired(required = false)
+    private NewMetricsCollector newMetrics;
 
     // ⭐ 关键词快车道服务（P2 改进：高频明确意图跳过 LLM 分诊）
     private final KeywordFastRouteService keywordFastRouteService;
@@ -588,6 +592,7 @@ public class RouterService {
             var budgetStatus = budgetTracker.checkSession();
             if (budgetStatus.exceeded()) {
                 log.warn("[Router] ⚠️ 会话预算超限: {}", budgetStatus.reason());
+                if (newMetrics != null) newMetrics.recordBudgetExceeded();
             }
             budgetTracker.endSession();
         }
