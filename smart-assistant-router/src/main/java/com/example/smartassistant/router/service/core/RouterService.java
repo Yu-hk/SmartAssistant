@@ -234,59 +234,64 @@ public class RouterService {
                                 request));
                     }
 
-                    // Step 0b: 并行调用所有 Agent（虚拟线程）
-                    java.util.concurrent.CompletableFuture<?>[] futures =
-                            new java.util.concurrent.CompletableFuture<?>[multiAgentTasks.size()];
-                    String[] agentResults = new String[multiAgentTasks.size()];
-                    String[] agentNames = new String[multiAgentTasks.size()];
+                    // Step 0b: 并行调用所有 Agent（JDK 21 虚拟线程）
+                    //   创建共享虚拟线程执行器，所有 Agent 调用各占一个虚拟线程
+                    var virtExec = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
+                    try {
+                        String[] agentResults = new String[multiAgentTasks.size()];
+                        @SuppressWarnings("unchecked")
+                        java.util.concurrent.CompletableFuture<Void>[] futures =
+                                new java.util.concurrent.CompletableFuture[multiAgentTasks.size()];
 
-                    for (int i = 0; i < multiAgentTasks.size(); i++) {
-                        final int idx = i;
-                        final AgentTask task = multiAgentTasks.get(idx);
-                        agentNames[idx] = task.getAgentName();
-                        futures[idx] = java.util.concurrent.CompletableFuture.supplyAsync(() ->
-                                agentCallerService.callAgent(
-                                        task.getAgentName(), task.getQuestion(),
-                                        request.getUserId(), request.getRequestId()),
-                                java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
-                        ).thenAccept(r -> agentResults[idx] = r);
-                    }
+                        for (int i = 0; i < multiAgentTasks.size(); i++) {
+                            final int idx = i;
+                            final AgentTask task = multiAgentTasks.get(idx);
+                            futures[idx] = java.util.concurrent.CompletableFuture
+                                    .supplyAsync(() -> agentCallerService.callAgent(
+                                            task.getAgentName(), task.getQuestion(),
+                                            request.getUserId(), request.getRequestId()),
+                                            virtExec) // 共享同一个虚拟线程执行器
+                                    .thenAccept(r -> agentResults[idx] = r);
+                        }
 
-                    // Step 0c: 等待全部完成
-                    java.util.concurrent.CompletableFuture.allOf(futures).join();
+                        // Step 0c: 等待全部完成
+                        java.util.concurrent.CompletableFuture.allOf(futures).join();
 
-                    // Step 0d: 合并结果
-                    StringBuilder merged = new StringBuilder();
-                    String primaryResult = null;
-                    String primaryAgent = multiAgentTasks.get(0).getAgentName();
-                    String primaryIntent = multiAgentTasks.get(0).getIntentTag();
-                    double primaryConfidence = multiAgentTasks.get(0).getConfidence();
+                        // Step 0d: 合并结果
+                        StringBuilder merged = new StringBuilder();
+                        String primaryResult = null;
+                        String primaryAgent = multiAgentTasks.get(0).getAgentName();
+                        String primaryIntent = multiAgentTasks.get(0).getIntentTag();
+                        double primaryConfidence = multiAgentTasks.get(0).getConfidence();
 
-                    for (int i = 0; i < agentResults.length; i++) {
-                        if (agentResults[i] != null && !agentResults[i].isBlank()) {
-                            if (i == 0) {
-                                primaryResult = agentResults[i];
-                            } else {
-                                merged.append("\n").append(agentResults[i]);
+                        for (int i = 0; i < agentResults.length; i++) {
+                            if (agentResults[i] != null && !agentResults[i].isBlank()) {
+                                if (i == 0) {
+                                    primaryResult = agentResults[i];
+                                } else {
+                                    merged.append("\n").append(agentResults[i]);
+                                }
                             }
                         }
-                    }
 
-                    // 主结果 + 合并副结果
-                    String finalReply = primaryResult != null
-                            ? primaryResult + merged.toString()
-                            : merged.toString();
-                    if (finalReply.isBlank()) {
-                        finalReply = "抱歉，暂时无法处理您的问题，请稍后再试。";
-                    }
+                        String finalReply = primaryResult != null
+                                ? primaryResult + merged
+                                : merged.toString();
+                        if (finalReply.isBlank()) {
+                            finalReply = "抱歉，暂时无法处理您的问题，请稍后再试。";
+                        }
 
-                    RoutingResult result = RoutingResult.builder()
-                            .result(finalReply)
-                            .agentName(primaryAgent)
-                            .confidence(primaryConfidence)
-                            .intentTag(primaryIntent)
-                            .build();
-                    return finalizeRouting(result, request, question);
+                        RoutingResult result = RoutingResult.builder()
+                                .result(finalReply)
+                                .agentName(primaryAgent)
+                                .confidence(primaryConfidence)
+                                .intentTag(primaryIntent)
+                                .build();
+                        return finalizeRouting(result, request, question);
+
+                    } finally {
+                        virtExec.shutdown();
+                    }
                 }
 
                 if (!skipExperienceShortCircuit) {
