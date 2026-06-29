@@ -1,25 +1,36 @@
+/*
+ * Copyright (c) 2025-2026 SmartAssistant Project. All rights reserved.
+ *
+ * Licensed under the MIT License. See LICENSE file in the project root for
+ * full license information.
+ */
+
 package com.example.smartassistant.consumer.config;
 
-import com.example.smartassistant.common.config.OllamaApiClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.ollama.OllamaChatModel;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Flux;
 
-import java.util.ArrayList;
-import java.util.List;
-
+/**
+ * 轻量 LLM 推理通道配置。
+ * <p>
+ * 基于 {@link OllamaChatModel} 委托模式实现，注入 Spring AI 自动配置的原生
+ * OllamaChatModel 实例，但通过自定义 {@link OllamaChatOptions} 覆盖默认参数（小模型 +
+ * 低温度），实现轻量调用通道。用于：对话摘要、偏好提取、缓存改写、关键词提取、意图识别等辅助任务。
+ * <p>
+ * 采用委托而非新建 OllamaChatModel 实例，避免重复构造 ToolCallingManager、
+ * ObservationRegistry 等复杂依赖。
+ */
 @Configuration
 public class LightChatModelConfig {
 
@@ -28,66 +39,49 @@ public class LightChatModelConfig {
     @Bean
     @Qualifier("lightChatModel")
     public ChatModel lightChatModel(
-            @Value("${spring.ai.ollama.base-url:http://localhost:11434}") String baseUrl,
+            OllamaChatModel ollamaChatModel,
             @Value("${consumer.light-model.name:qwen2.5:3b}") String model,
             @Value("${consumer.light-model.temperature:0.1}") double temperature) {
-        log.info("[Consumer LightChatModel] initialized (model={})", model);
-        return new LightOllamaChatModel(baseUrl, model, temperature);
+
+        var lightOptions = OllamaChatOptions.builder()
+                .model(model)
+                .temperature(temperature)
+                .build();
+
+        log.info("[LightChatModel] initialized via delegation: model={}, temperature={}",
+                model, temperature);
+        return new LightDelegatingChatModel(ollamaChatModel, lightOptions);
     }
 
-    public static class LightOllamaChatModel implements ChatModel {
-        private final OllamaApiClient apiClient;
-        private final String model;
-        private final double temperature;
+    /**
+     * 委托 ChatModel 实现。将所有 call/stream 请求转发给底层 OllamaChatModel，
+     * 但在每个请求上覆盖默认选项（模型名、温度等），实现"轻量"通道效果。
+     */
+    private static class LightDelegatingChatModel implements ChatModel {
 
-        public LightOllamaChatModel(String baseUrl, String model, double temperature) {
-            this.apiClient = new OllamaApiClient(baseUrl);
-            this.model = model;
-            this.temperature = temperature;
+        private final OllamaChatModel delegate;
+        private final OllamaChatOptions lightOptions;
+
+        LightDelegatingChatModel(OllamaChatModel delegate, OllamaChatOptions lightOptions) {
+            this.delegate = delegate;
+            this.lightOptions = lightOptions;
         }
 
-        @Override public ChatResponse call(Prompt prompt) {
-            try {
-                String json = apiClient.buildRequestJson(model, temperature, buildMessages(prompt));
-                return parseResponse(apiClient.sendRequest(json));
-            } catch (Exception e) {
-                throw new RuntimeException("LightModel call failed: " + e.getMessage(), e);
-            }
-        }
-        @Override public Flux<ChatResponse> stream(Prompt prompt) { return Flux.just(call(prompt)); }
-        @Override public ChatOptions getDefaultOptions() { return null; }
-
-        private com.fasterxml.jackson.databind.node.ArrayNode buildMessages(Prompt prompt) {
-            var msgs = apiClient.getObjectMapper().createArrayNode();
-            for (var inst : prompt.getInstructions()) {
-                var msg = msgs.addObject();
-                if (inst.getMessageType() == MessageType.USER)
-                    msg.put("role", "user").put("content", inst.getText());
-                else if (inst.getMessageType() == MessageType.SYSTEM)
-                    msg.put("role", "system").put("content", inst.getText());
-                else if (inst.getMessageType() == MessageType.ASSISTANT) {
-                    AssistantMessage am = (AssistantMessage) inst;
-                    msg.put("role", "assistant").put("content", am.getText() != null ? am.getText() : "");
-                    if (!am.getToolCalls().isEmpty()) {
-                        var tools = msg.putArray("tool_calls");
-                        for (var tc : am.getToolCalls()) {
-                            var t = tools.addObject();
-                            t.put("id", tc.id()).put("type", "function");
-                            t.putObject("function").put("name", tc.name()).put("arguments", tc.arguments());
-                        }
-                    }
-                } else if (inst.getMessageType() == MessageType.TOOL) {
-                    for (var r : ((ToolResponseMessage) inst).getResponses())
-                        msgs.addObject().put("role", "tool").put("tool_call_id", r.id()).put("content", r.responseData());
-                }
-            }
-            return msgs;
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            var lightPrompt = new Prompt(prompt.getInstructions(), lightOptions);
+            return delegate.call(lightPrompt);
         }
 
-        private ChatResponse parseResponse(String body) throws Exception {
-            List<Generation> gens = new ArrayList<>();
-            gens.add(new Generation(AssistantMessage.builder().content(apiClient.parseResponseText(body)).build()));
-            return new ChatResponse(gens);
+        @Override
+        public Flux<ChatResponse> stream(Prompt prompt) {
+            var lightPrompt = new Prompt(prompt.getInstructions(), lightOptions);
+            return delegate.stream(lightPrompt);
+        }
+
+        @Override
+        public ChatOptions getDefaultOptions() {
+            return lightOptions;
         }
     }
 }

@@ -25,10 +25,9 @@ spring:
   application:
     name: consumer-service
 
-  # ⭐ 排除 DeepSeek + DashScope 自动配置（使用本地 Ollama 不需要 API Key）
+  # ⭐ 排除 DashScope 自动配置（Consumer 使用 Ollama，不依赖云端 API）
   autoconfigure:
     exclude:
-      - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeImageAutoConfiguration

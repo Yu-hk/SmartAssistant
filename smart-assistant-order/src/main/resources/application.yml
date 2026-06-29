@@ -11,11 +11,10 @@ spring:
   application:
     name: order-service
 
-  # ⭐ 排除 Spring Security + DeepSeek 自动配置
+  # ⭐ 排除 Spring Security 自动配置
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
-      - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration
 
   # Spring Cloud 配置
   cloud:
@@ -70,7 +69,16 @@ spring:
     driver-class-name: org.postgresql.Driver
 
   ai:
-    # ⭐ Ollama 本地模型配置（本地推理主通道）
+    # ⭐ DeepSeek 云端推理（主推理通道，带工具调用支持）
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY:}
+      chat:
+        options:
+          model: deepseek-v4-flash
+          temperature: 0.5
+          max-tokens: 4096
+
+    # ⭐ Ollama 本地模型配置（兜底降级通道）
     ollama:
       base-url: http://localhost:11434
       chat:
