@@ -1,7 +1,10 @@
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.spi.ProductBackend;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -21,10 +24,21 @@ public class ProductTools {
     private static final Logger log = LoggerFactory.getLogger(ProductTools.class);
 
     private final ProductBackend productBackend;
+    private final ToolRegistry toolRegistry;
 
-    public ProductTools(ProductBackend productBackend) {
+    public ProductTools(ProductBackend productBackend, ToolRegistry toolRegistry) {
         this.productBackend = productBackend;
+        this.toolRegistry = toolRegistry;
         log.info("[ProductTool] 初始化完成, backend={}", productBackend.getClass().getSimpleName());
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.registerAll(java.util.List.of(
+                ToolDefinition.read("queryProductInfo", "查询商品详细信息"),
+                ToolDefinition.read("checkStock", "查询商品库存状态"),
+                ToolDefinition.read("getPrice", "查询商品价格")
+        ));
     }
 
     @Tool(description = "查询商品详细信息，包括价格、规格、颜色、库存状态等")

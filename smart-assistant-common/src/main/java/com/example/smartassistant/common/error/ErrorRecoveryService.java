@@ -1,177 +1,149 @@
-/*
- * Copyright (c) 2025-2026 SmartAssistant Project. All rights reserved.
- *
- * Licensed under the MIT License. See LICENSE file in the project root for
- * full license information.
- */
-
 package com.example.smartassistant.common.error;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.EnumMap;
-import java.util.Map;
-
 /**
- * 表驱动恢复路由器——根据 {@link AgentErrorCode} 自动决定恢复策略。
+ * 错误恢复服务。
  * <p>
- * 核心设计思想（参照 ThinkingAgent）：
- * <ol>
- *   <li>每个错误码关联一个默认的 {@link RecoveryAction}</li>
- *   <li>恢复策略按代价从低到高排列，避免过度恢复</li>
- *   <li>支持分类级覆盖规则（如所有 SERVICE 类错误可统一降级）</li>
- *   <li>恢复动作可带参数（重试次数/退避基数/恢复消息）</li>
- * </ol>
+ * 根据错误码和尝试次数决定恢复策略：是否重试、延迟多久、采用哪种方式恢复。
+ * 使用表驱动方式管理策略映射，便于扩展和维护。
  * </p>
  *
- * <h3>恢复策略优先级</h3>
- * <pre>
- * RETRY (最低代价) → RETRY_BACKOFF → RETRY_ALTERNATIVE
- * → CLARIFY_USER → FALLBACK_AGENT → TERMINATE (最高代价)
- * </pre>
- *
- * <p>
- * 可作为 Spring Bean 注入（{@code @Autowired}），也可作为纯工具类直接实例化。
- * 提供默认静态实例 {@link #DEFAULT} 供非 Spring 环境使用。
- * </p>
- *
- * @see AgentErrorCode
- * @see RecoveryAction
+ * @author Yu-hk
+ * @since 2026-06-29
  */
 public class ErrorRecoveryService {
 
     private static final Logger log = LoggerFactory.getLogger(ErrorRecoveryService.class);
 
-    /** 默认全局实例，供非 Spring 环境直接使用（如 SmartReActAgent） */
+    /** 默认实例（单例） */
     public static final ErrorRecoveryService DEFAULT = new ErrorRecoveryService();
 
-    /**
-     * 错误码 → 恢复动作映射表（核心驱动表）。
-     * <p>
-     * AgentErrorCode 枚举中已定义了默认恢复动作，此表提供覆盖能力。
-     * 如果枚举默认值已满足需求，此表可保持为空。
-     */
-    private static final Map<AgentErrorCode, RecoveryAction> CUSTOM_RECOVERY_TABLE = new EnumMap<>(AgentErrorCode.class);
+    /** 最大重试次数 */
+    private static final int MAX_RETRIES = 3;
+
+    /** 基础重试延迟（毫秒） */
+    private static final long BASE_DELAY_MS = 1000L;
+
+    // ==================== 核心方法 ====================
 
     /**
-     * 分类级恢复动作覆盖。
-     * 当某个错误码未在 CUSTOM_RECOVERY_TABLE 中时，按此分类表一级匹配。
-     */
-    private static final Map<ErrorCategory, RecoveryAction> CATEGORY_FALLBACK_TABLE = new EnumMap<>(ErrorCategory.class);
-
-    static {
-        // 分类级兜底：如果某个分类的多数错误需要统一动作，在此配置
-        CATEGORY_FALLBACK_TABLE.put(ErrorCategory.SYSTEM, RecoveryAction.FALLBACK_AGENT);
-        CATEGORY_FALLBACK_TABLE.put(ErrorCategory.SECURITY, RecoveryAction.TERMINATE);
-    }
-
-    /**
-     * 解析错误码对应的恢复动作。
-     * <p>
-     * 查找顺序：
-     * <ol>
-     *   <li>优先查找 {@link #CUSTOM_RECOVERY_TABLE} 表</li>
-     *   <li>回退到错误码枚举的默认动作 {@link AgentErrorCode#getDefaultAction()}</li>
-     * </ol>
-     * </p>
-     */
-    public RecoveryAction resolve(AgentErrorCode code) {
-        if (code == null) return RecoveryAction.TERMINATE;
-
-        // 1. 查自定义映射表
-        RecoveryAction customAction = CUSTOM_RECOVERY_TABLE.get(code);
-        if (customAction != null) return customAction;
-
-        // 2. 查分类级兜底表
-        RecoveryAction categoryAction = CATEGORY_FALLBACK_TABLE.get(code.getCategory());
-        if (categoryAction != null) return categoryAction;
-
-        // 3. 回退到枚举默认值
-        return code.getDefaultAction();
-    }
-
-    /**
-     * 根据错误码和当前重试次数判断是否应该继续重试。
-     */
-    public boolean shouldRetry(AgentErrorCode code, int attempt) {
-        if (code == null || !code.isRetryable()) return false;
-        RecoveryAction action = resolve(code);
-        int maxAttempts;
-        switch (action) {
-            case RETRY:
-                maxAttempts = 3;
-                break;
-            case RETRY_BACKOFF:
-                maxAttempts = 3;
-                break;
-            case RETRY_ALTERNATIVE:
-                maxAttempts = 2;
-                break;
-            default:
-                maxAttempts = 1;
-        }
-        return attempt < maxAttempts;
-    }
-
-    /**
-     * 获取重试等待时间（毫秒），按退避策略计算。
-     */
-    public long getRetryDelayMs(AgentErrorCode code, int attempt) {
-        RecoveryAction action = resolve(code);
-        switch (action) {
-            case RETRY:
-                return 200L;
-            case RETRY_BACKOFF:
-                return (long) (200 * Math.pow(2, attempt));
-            case RETRY_ALTERNATIVE:
-                return 500L;
-            default:
-                return 0L;
-        }
-    }
-
-    /**
-     * 根据错误码生成向用户返回的友好提示信息。
+     * 判断给定错误码在指定尝试次数后是否应该重试。
      *
-     * @param code    错误码
-     * @param details 原始错误描述（可为 null）
-     * @return 面向用户的友好提示
+     * @param errorCode 当前错误码
+     * @param attempt   已尝试次数（从 1 开始）
+     * @return 如果错误码可重试且未超过最大次数，返回 true
      */
-    public String resolveUserMessage(AgentErrorCode code, String details) {
-        if (code == null) return "系统内部错误，请稍后重试。";
-
-        RecoveryAction action = resolve(code);
-        String hint = code.getDefaultHint();
-
-        switch (action) {
-            case RETRY:
-            case RETRY_BACKOFF:
-                return hint + "……";
-            case RETRY_ALTERNATIVE:
-                return hint + "，已为您整理当前可获取的最佳信息。";
-            case CLARIFY_USER:
-                if (details != null && !details.isBlank()) {
-                    return details;
-                }
-                return hint + "，请检查后重新尝试。";
-            case FALLBACK_AGENT:
-                return hint + "，已为您切换到备用模式。";
-            case TERMINATE:
-                return hint;
-            default:
-                return hint;
+    public boolean shouldRetry(AgentErrorCode errorCode, int attempt) {
+        if (errorCode == null) {
+            return false;
         }
+        // 错误码本身不可重试 → 不重试
+        if (!errorCode.isRetryable()) {
+            return false;
+        }
+        // 超过最大重试次数 → 不重试
+        if (attempt >= MAX_RETRIES) {
+            return false;
+        }
+        return true;
     }
 
     /**
-     * 记录错误恢复的审计日志。
+     * 获取当前重试轮次的延迟时间（毫秒）。
+     * <p>
+     * 采用指数退避策略：baseDelay * 2^attempt。
+     * </p>
+     *
+     * @param errorCode 当前错误码（用于未来支持差异化延迟）
+     * @param attempt   已尝试次数（从 0 开始）
+     * @return 延迟毫秒数
      */
-    public void logRecovery(AgentErrorCode code, RecoveryAction action,
-                            String context, int attempt) {
-        if (code == null) return;
-        log.warn("[Recovery] code={}, action={}, context={}, attempt={}/{}",
-                code.getCode(), action, context, attempt,
-                action == RecoveryAction.TERMINATE ? "-" : "3");
+    public long getRetryDelayMs(AgentErrorCode errorCode, int attempt) {
+        if (errorCode == null) {
+            return BASE_DELAY_MS;
+        }
+        // 指数退避：base * 2^attempt
+        return BASE_DELAY_MS * (1L << Math.min(attempt, 5));
+    }
+
+    /**
+     * 根据错误码解析恢复策略。
+     *
+     * @param errorCode 当前错误码
+     * @return 对应的恢复动作
+     */
+    public RecoveryAction resolve(AgentErrorCode errorCode) {
+        if (errorCode == null) {
+            return RecoveryAction.TERMINATE;
+        }
+        return switch (errorCode) {
+            // 可重试错误 → RETRY_BACKOFF
+            case AGENT_TIMEOUT,
+                 AGENT_EMPTY_REPLY,
+                 TOOL_EXECUTION_FAILED,
+                 TOOL_EXECUTION_ERROR,
+                 TOOL_IMAGE_GENERATION_FAILED,
+                 TOOL_IMAGE_GENERATION_TIMEOUT,
+                 VALIDATION_IMAGE_ANALYSIS,
+                 SERVICE_NEWS_UNAVAILABLE,
+                 SERVICE_SEARCH_UNAVAILABLE,
+                 SERVICE_RATE_UNAVAILABLE,
+                 SERVICE_WEATHER_UNAVAILABLE,
+                 SERVICE_COUPON_QUERY_FAILED,
+                 SERVICE_COUPON_CALC_FAILED,
+                 UPDATE_FAILED,
+                 SECURITY_SCRIPT_TIMEOUT ->
+                    RecoveryAction.RETRY_BACKOFF;
+
+            // 数据未找到 → CLARIFY_USER
+            case DATA_NOT_FOUND,
+                 ORDER_NOT_FOUND,
+                 PRODUCT_NOT_FOUND,
+                 LOGISTICS_NOT_FOUND,
+                 WEATHER_NO_DATA,
+                 NO_RESULTS ->
+                    RecoveryAction.CLARIFY_USER;
+
+            // 安全校验错误 → TERMINATE
+            case SECURITY_SCRIPT_REJECTED,
+                 SECURITY_SCRIPT_RESOURCE_LIMIT,
+                 PERMISSION_DENIED ->
+                    RecoveryAction.TERMINATE;
+
+            // 其他不可重试错误 → CLARIFY_USER
+            default -> RecoveryAction.CLARIFY_USER;
+        };
+    }
+
+    /**
+     * 记录恢复操作日志。
+     *
+     * @param errorCode 错误码
+     * @param action    执行的恢复动作
+     * @param detail    详细上下文
+     * @param attempt   当前尝试次数
+     */
+    public void logRecovery(AgentErrorCode errorCode, RecoveryAction action,
+                            String detail, int attempt) {
+        log.warn("[ErrorRecovery] code={}, action={}, attempt={}, detail={}",
+                errorCode != null ? errorCode.getCode() : "null",
+                action, attempt, detail != null ? detail : "");
+    }
+
+    /**
+     * 根据错误码和详细消息生成用户友好的提示。
+     *
+     * @param errorCode 错误码
+     * @param detailMessage 详细错误消息（可能包含内部信息，需脱敏）
+     * @return 用户友好的提示消息
+     */
+    public String resolveUserMessage(AgentErrorCode errorCode, String detailMessage) {
+        if (errorCode == null) {
+            return "系统暂时无法处理您的请求，请稍后再试";
+        }
+        // 使用枚举自带的 defaultHint
+        return errorCode.getDefaultHint();
     }
 }

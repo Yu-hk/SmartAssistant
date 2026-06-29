@@ -8,7 +8,11 @@
 package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
 import com.example.smartassistant.common.tool.ToolResult;
+import jakarta.annotation.PostConstruct;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -39,6 +43,7 @@ public class ImageTools {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final String dashscopeApiKey;
+    private final ToolRegistry toolRegistry;
 
     /** Qwen-VL 多模态模型（图片解读） */
     private static final String VL_MODEL = "qwen-vl-max";
@@ -52,12 +57,22 @@ public class ImageTools {
     /** DashScope 任务查询端点 */
     private static final String DASHSCOPE_TASK_URL = "https://dashscope.aliyuncs.com/api/v1/tasks/";
 
-    public ImageTools(@Value("${spring.ai.dashscope.api-key:}") String dashscopeApiKey) {
+    public ImageTools(@Value("${spring.ai.dashscope.api-key:}") String dashscopeApiKey,
+                      ToolRegistry toolRegistry) {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         this.objectMapper = new ObjectMapper();
         this.dashscopeApiKey = dashscopeApiKey;
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.registerAll(java.util.List.of(
+                ToolDefinition.write("analyzeImage", "分析图片内容", ToolRiskLevel.LOW),
+                ToolDefinition.write("generateImage", "根据文字生成图片", ToolRiskLevel.LOW)
+        ));
     }
 
     // ==================== 图片解读 ====================

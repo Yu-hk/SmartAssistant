@@ -1,6 +1,9 @@
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -20,9 +23,16 @@ public class KnowledgeQueryTool {
     private static final Logger log = LoggerFactory.getLogger(KnowledgeQueryTool.class);
 
     private final KnowledgeRetrievalService retrievalService;
+    private final ToolRegistry toolRegistry;
 
-    public KnowledgeQueryTool(KnowledgeRetrievalService retrievalService) {
+    public KnowledgeQueryTool(KnowledgeRetrievalService retrievalService, ToolRegistry toolRegistry) {
         this.retrievalService = retrievalService;
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.register(ToolDefinition.read("queryKnowledge", "查询商品知识库"));
     }
 
     @Tool(description = "查询产品知识库：从商品咨询的知识库中检索商品信息、分类说明、价格政策、"

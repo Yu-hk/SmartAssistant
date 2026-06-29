@@ -8,11 +8,14 @@
 package com.example.smartassistant.tools;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.tool.ToolPageResult;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.spi.CouponBackend;
 import com.example.smartassistant.spi.CouponModels.CouponRecommendation;
 import com.example.smartassistant.spi.CouponModels.UserCoupon;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -34,9 +37,19 @@ public class CouponTools {
     private static final Logger log = LoggerFactory.getLogger(CouponTools.class);
 
     private final CouponBackend couponBackend;
+    private final ToolRegistry toolRegistry;
 
-    public CouponTools(CouponBackend couponBackend) {
+    public CouponTools(CouponBackend couponBackend, ToolRegistry toolRegistry) {
         this.couponBackend = couponBackend;
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.registerAll(java.util.List.of(
+                ToolDefinition.read("queryUserCoupons", "查询用户可用优惠券"),
+                ToolDefinition.read("findBestCoupon", "计算最优优惠券方案")
+        ));
     }
 
     /**

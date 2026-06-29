@@ -7,6 +7,10 @@
 
 package com.example.smartassistant.consumer.tool;
 
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
+import jakarta.annotation.PostConstruct;
 import org.knowm.xchart.XYChart;
 import org.knowm.xchart.XYChartBuilder;
 import org.knowm.xchart.XYSeries;
@@ -43,6 +47,18 @@ public class DataGifTool {
     // ⭐ GIF 缓存：避免 400KB+ Base64 数据直接流过 LLM 上下文
     private static final ConcurrentHashMap<String, byte[]> gifCache = new ConcurrentHashMap<>();
     private static final String GIF_CACHE_PREFIX = "GIF_CACHE:";
+
+    private final ToolRegistry toolRegistry;
+
+    public DataGifTool(ToolRegistry toolRegistry) {
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.register(new ToolDefinition("generateTrendGif", "生成趋势动画GIF",
+                ToolRiskLevel.LOW, java.time.Duration.ofSeconds(30), false, 1, 5, new String[0]));
+    }
 
     /**
      * 从缓存中获取 GIF 数据并清理
