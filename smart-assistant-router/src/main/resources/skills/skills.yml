@@ -1,0 +1,196 @@
+skill:
+  skills:
+    # ===== Order 技能 =====
+    - id: order_query
+      name: "订单查询"
+      description: "查询订单状态和详细信息"
+      category: "order"
+      routeTo: "order"
+      intentTag: "订单查询"
+      priority: 10
+      triggers:
+        - "查订单"
+        - "订单状态"
+        - "我的订单"
+        - "物流"
+      examples:
+        - "查一下我的订单"
+        - "订单号是什么"
+        - "物流信息"
+      slots:
+        orderId:
+          name: "orderId"
+          type: "string"
+          required: false
+          askPrompt: "请问订单号是什么？"
+      riskLevel: "LOW"
+      enabled: true
+
+    - id: order_refund
+      name: "退款申请"
+      description: "提交退款申请"
+      category: "order"
+      routeTo: "order"
+      intentTag: "退款申请"
+      priority: 10
+      triggers:
+        - "退款"
+        - "退货"
+        - "退钱"
+      examples:
+        - "我要退款"
+        - "申请退货"
+        - "退钱"
+      slots:
+        orderId:
+          name: "orderId"
+          type: "string"
+          required: true
+          askPrompt: "请问需要退哪个订单？"
+        reason:
+          name: "reason"
+          type: "string"
+          required: false
+          askPrompt: "请问退款原因是什么？"
+      riskLevel: "HIGH"
+      enabled: true
+
+    - id: order_cancel
+      name: "取消订单"
+      description: "取消指定订单"
+      category: "order"
+      routeTo: "order"
+      intentTag: "取消订单"
+      priority: 10
+      triggers:
+        - "取消订单"
+        - "撤销订单"
+        - "不买了"
+      examples:
+        - "取消订单"
+        - "不想要了"
+      riskLevel: "HIGH"
+      enabled: true
+
+    # ===== Product 技能 =====
+    - id: product_query
+      name: "商品查询"
+      description: "查询商品详细信息和价格"
+      category: "product"
+      routeTo: "product"
+      intentTag: "商品查询"
+      priority: 20
+      triggers:
+        - "查商品"
+        - "价格"
+        - "多少钱"
+        - "有没有"
+      examples:
+        - "这个商品多少钱"
+        - "有没有 iPhone"
+        - "推荐手机"
+      riskLevel: "LOW"
+      enabled: true
+
+    - id: stock_check
+      name: "库存查询"
+      description: "查询商品库存状态"
+      category: "product"
+      routeTo: "product"
+      intentTag: "库存查询"
+      priority: 20
+      triggers:
+        - "库存"
+        - "有没有货"
+        - "现货"
+      examples:
+        - "有货吗"
+        - "库存充足吗"
+      riskLevel: "LOW"
+      enabled: true
+
+    # ===== General 技能 =====
+    - id: greeting
+      name: "问候"
+      description: "打招呼和闲聊"
+      category: "general"
+      routeTo: "general"
+      intentTag: "问候"
+      priority: 5
+      triggers:
+        - "你好"
+        - "您好"
+        - "在吗"
+        - "hi"
+        - "hello"
+      examples:
+        - "你好"
+        - "在吗"
+      riskLevel: "LOW"
+      enabled: true
+
+    - id: weather_query
+      name: "天气查询"
+      description: "查询城市天气预报"
+      category: "general"
+      routeTo: "general"
+      intentTag: "天气查询"
+      priority: 20
+      triggers:
+        - "天气"
+        - "下雨"
+        - "气温"
+        - "多少度"
+      examples:
+        - "今天天气怎么样"
+        - "北京下雨吗"
+      slots:
+        city:
+          name: "city"
+          type: "string"
+          required: true
+          askPrompt: "请问要查询哪个城市的天气？"
+      riskLevel: "LOW"
+      enabled: true
+
+    - id: hot_news
+      name: "新闻热点"
+      description: "查询当前热点新闻"
+      category: "general"
+      routeTo: "general"
+      intentTag: "新闻热点"
+      priority: 25
+      triggers:
+        - "新闻"
+        - "热点"
+        - "热搜"
+        - "最新消息"
+      examples:
+        - "今天有什么新闻"
+        - "热点话题"
+      riskLevel: "LOW"
+      enabled: true
+
+    - id: calculate
+      name: "数学计算"
+      description: "数学表达式计算"
+      category: "general"
+      routeTo: "general"
+      intentTag: "数学计算"
+      priority: 25
+      triggers:
+        - "计算"
+        - "等于"
+        - "加减乘除"
+        - "算一下"
+      examples:
+        - "计算 2+3"
+        - "15*4等于多少"
+      slots:
+        expression:
+          name: "expression"
+          type: "string"
+          required: true
+          askPrompt: "请输入要计算的表达式"
+      riskLevel: "LOW"
+      enabled: true
