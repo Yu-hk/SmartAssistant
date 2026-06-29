@@ -34,8 +34,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -118,8 +116,8 @@ class RouterServiceEndToEndTest {
 
         // ── 构造 RouterService ──
         routerService = new RouterService(
-                agentCallerService, chatClientBuilder,
-                Runnable::run, redisTemplate,
+                agentCallerService,
+                redisTemplate,
                 ragService, semanticCache, taskPlanner, resultMerger,
                 reflectionService, modelRoutingService, experienceService,
                 graphExecutionService, taskAnalysisService, qualityEvaluationService,
