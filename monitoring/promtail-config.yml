@@ -65,34 +65,6 @@ scrape_configs:
           firstline: '^\d{4}-\d{2}-\d{2}'
           max_wait_time: 3s
 
-  # Travel Service Logs
-  - job_name: a2a-travel
-    static_configs:
-      - targets:
-          - localhost
-        labels:
-          job: a2a-logs
-          service: travel-service
-          __path__: /var/log/services/travel-service.log*
-    pipeline_stages:
-      - multiline:
-          firstline: '^\d{4}-\d{2}-\d{2}'
-          max_wait_time: 3s
-
-  # Food Service Logs
-  - job_name: a2a-food
-    static_configs:
-      - targets:
-          - localhost
-        labels:
-          job: a2a-logs
-          service: food-service
-          __path__: /var/log/services/food-service.log*
-    pipeline_stages:
-      - multiline:
-          firstline: '^\d{4}-\d{2}-\d{2}'
-          max_wait_time: 3s
-
   # General Agent Service Logs
   - job_name: a2a-general
     static_configs:
