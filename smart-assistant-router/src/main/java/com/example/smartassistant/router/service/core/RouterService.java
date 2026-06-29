@@ -111,9 +111,6 @@ public class RouterService {
     );
     private final AtomicInteger fallbackIndex = new AtomicInteger(0);
 
-    // ⭐ 经验匹配检测到的多意图提示（跳过后注入 enhancedQuestion）
-    private String experienceMultiIntentHint;
-
     // ⭐ P1 Agent 执行事件总线（可选：无 Redis 时不记录事件）
     @Autowired(required = false)
     private AgentEventBus agentEventBus;
@@ -204,28 +201,92 @@ public class RouterService {
                     }
                 }
 
-                // ⭐⭐ 多意图保护：有副意图时跳过经验直通，走全管道让 LLM 处理
-                //    但经验匹配的结果不浪费——注入 enhancedQuestion，下游 Step 5 可直接消费
+                // ⭐⭐ 多意图：Step 0 直接并行调度多个 Agent，不走 LLM 全管道
+                //    经验匹配的 secondaryIntents 已明确哪些 Agent 需要参与
                 boolean skipExperienceShortCircuit = experienceMatch.secondaryIntents != null
                         && !experienceMatch.secondaryIntents.isEmpty();
 
                 if (skipExperienceShortCircuit) {
-                    // 构建多意图提示，注入问题中供下游 TaskPlanner 使用
-                    // 格式: "【多意图提醒: 订单查询(经验), 天气查询(经验)】原问题..."
-                    StringBuilder hintBuilder = new StringBuilder();
-                    hintBuilder.append("【多意图提醒: ")
-                            .append(experienceMatch.experience.getIntentTag())
-                            .append("(").append(experienceMatch.agentName).append(")");
-                    if (experienceMatch.secondaryIntents != null) {
-                        for (var si : experienceMatch.secondaryIntents) {
-                            hintBuilder.append(", ").append(si.intentTag)
-                                    .append("(").append(si.agentName).append(")");
+                    log.info("[Router] 🔀 多意图经验命中，Step 0 直接并行调度: "
+                                    + "primary={}({}), secondaryCount={}",
+                            experienceMatch.agentName, experienceMatch.experience.getIntentTag(),
+                            experienceMatch.secondaryIntents.size());
+
+                    // Step 0a: 收集所有需要调用的 Agent 任务
+                    List<AgentTask> multiAgentTasks = new java.util.ArrayList<>();
+
+                    // 主意图 → 构建任务
+                    multiAgentTasks.add(buildAgentTask(
+                            experienceMatch.agentName,
+                            experienceMatch.reroutedQuestion != null
+                                    ? experienceMatch.reroutedQuestion : question,
+                            experienceMatch.experience.getIntentTag(),
+                            experienceMatch.matchScore,
+                            request));
+
+                    // 副意图 → 各构建独立任务
+                    for (var si : experienceMatch.secondaryIntents) {
+                        multiAgentTasks.add(buildAgentTask(
+                                si.agentName,
+                                question, // 各 Agent 拿同一问题自行解析
+                                si.intentTag,
+                                si.score,
+                                request));
+                    }
+
+                    // Step 0b: 并行调用所有 Agent（虚拟线程）
+                    java.util.concurrent.CompletableFuture<?>[] futures =
+                            new java.util.concurrent.CompletableFuture<?>[multiAgentTasks.size()];
+                    String[] agentResults = new String[multiAgentTasks.size()];
+                    String[] agentNames = new String[multiAgentTasks.size()];
+
+                    for (int i = 0; i < multiAgentTasks.size(); i++) {
+                        final int idx = i;
+                        final AgentTask task = multiAgentTasks.get(idx);
+                        agentNames[idx] = task.getAgentName();
+                        futures[idx] = java.util.concurrent.CompletableFuture.supplyAsync(() ->
+                                agentCallerService.callAgent(
+                                        task.getAgentName(), task.getQuestion(),
+                                        request.getUserId(), request.getRequestId()),
+                                java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
+                        ).thenAccept(r -> agentResults[idx] = r);
+                    }
+
+                    // Step 0c: 等待全部完成
+                    java.util.concurrent.CompletableFuture.allOf(futures).join();
+
+                    // Step 0d: 合并结果
+                    StringBuilder merged = new StringBuilder();
+                    String primaryResult = null;
+                    String primaryAgent = multiAgentTasks.get(0).getAgentName();
+                    String primaryIntent = multiAgentTasks.get(0).getIntentTag();
+                    double primaryConfidence = multiAgentTasks.get(0).getConfidence();
+
+                    for (int i = 0; i < agentResults.length; i++) {
+                        if (agentResults[i] != null && !agentResults[i].isBlank()) {
+                            if (i == 0) {
+                                primaryResult = agentResults[i];
+                            } else {
+                                merged.append("\n").append(agentResults[i]);
+                            }
                         }
                     }
-                    hintBuilder.append("】");
-                    // 暂存到临时字段，Step 3 RAG 增强后注入
-                    experienceMultiIntentHint = hintBuilder.toString();
-                    log.info("[Router] 🔀 多意图经验结果注入: {}", hintBuilder);
+
+                    // 主结果 + 合并副结果
+                    String finalReply = primaryResult != null
+                            ? primaryResult + merged.toString()
+                            : merged.toString();
+                    if (finalReply.isBlank()) {
+                        finalReply = "抱歉，暂时无法处理您的问题，请稍后再试。";
+                    }
+
+                    RoutingResult result = RoutingResult.builder()
+                            .result(finalReply)
+                            .agentName(primaryAgent)
+                            .confidence(primaryConfidence)
+                            .intentTag(primaryIntent)
+                            .build();
+                    return finalizeRouting(result, request, question);
                 }
 
                 if (!skipExperienceShortCircuit) {
@@ -418,15 +479,8 @@ public class RouterService {
                 // ⭐ 多 Agent 协作（所有提问均走规划→执行→合并）
                 // 简单问题 plan() 返回单个子任务，merge() 直接返回
                 // 复杂问题自动分解为多个子任务并行执行
-                // ⭐ 多意图提示注入：经验匹配检测到的副意图指导 TaskPlanner 分解决策
-                String finalQuestion = enhancedQuestion;
-                if (experienceMultiIntentHint != null && !experienceMultiIntentHint.isBlank()) {
-                    finalQuestion = experienceMultiIntentHint + " " + enhancedQuestion;
-                    experienceMultiIntentHint = null; // 消费后清除
-                    log.info("[Router] 🔀 多意图提示已注入: {}", truncate(finalQuestion, 100));
-                }
-                log.info("[Router] 🤝 启动多 Agent 协作: question={}", truncate(finalQuestion, 80));
-                result = executeCollaborative(finalQuestion, userId, request.getRequestId());
+                log.info("[Router] 🤝 启动多 Agent 协作: question={}", truncate(enhancedQuestion, 80));
+                result = executeCollaborative(enhancedQuestion, userId, request.getRequestId());
             }
 
             // ⭐ 生成意图标签（用于用户画像统计），设置到 result
@@ -767,6 +821,38 @@ public class RouterService {
                 .agentName(firstAgent)
                 .confidence(0.8)
                 .build();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ⭐ 共享：调用 Agent 并构建路由结果（消除 3 处重复）
+    // ═══════════════════════════════════════════════════════════
+
+    // ═══════════════════════════════════════════════════════════
+    // ⭐ 共享：构建 Agent 任务（用于多意图并行调度）
+    // ═══════════════════════════════════════════════════════════
+
+    private static class AgentTask {
+        final String agentName;
+        final String question;
+        final String intentTag;
+        final double confidence;
+        AgentTask(String agentName, String question, String intentTag, double confidence) {
+            this.agentName = agentName;
+            this.question = question;
+            this.intentTag = intentTag;
+            this.confidence = confidence;
+        }
+        String getAgentName() { return agentName; }
+        String getQuestion() { return question; }
+        String getIntentTag() { return intentTag; }
+        double getConfidence() { return confidence; }
+    }
+
+    /** 从经验匹配结果构建一个 Agent 调用任务 */
+    private AgentTask buildAgentTask(String agentName, String question,
+                                      String intentTag, double confidence,
+                                      RouteRequest request) {
+        return new AgentTask(agentName, question, intentTag, confidence);
     }
 
     // ═══════════════════════════════════════════════════════════
