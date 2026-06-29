@@ -231,6 +231,43 @@ class KeywordFastRouteBenchmarkTest {
                 "问候匹配置信度应 ≥ 0.98");
     }
 
+    // ═══════════════════════════════════════════════════
+    // 🧪 多意图检测测试（P4 新增）
+    // ═══════════════════════════════════════════════════
+
+    @Test
+    @DisplayName("多意图保护：跨 Agent 复合查询应跳过快车道")
+    void testMultiIntentCrossAgentSkipsFastLane() {
+        // "退款"→order + "你好"→general → 跨 Agent 多意图 → 应返回 null
+        var result = fastRouteService.match("退款后说你好");
+        assertNull(result, "跨 Agent 多意图应跳过快车道: 退款(order)+问候(general)");
+    }
+
+    @Test
+    @DisplayName("多意图保护：同 Agent 内多关键词不应拦截")
+    void testMultiIntentSameAgentPassesThrough() {
+        // "退款"+订单号 → 同 Agent(order) 多关键词 → 应正常匹配
+        var result = fastRouteService.match("我要退款，订单号 ORD-12345");
+        assertNotNull(result, "同 Agent 多关键词不应拦截");
+        assertEquals("order", result.getTargetAgent());
+    }
+
+    @Test
+    @DisplayName("多意图保护：单 Agent 明确意图正常通过")
+    void testSingleIntentPassesThrough() {
+        var result = fastRouteService.match("我想退款");
+        assertNotNull(result, "单意图问题应正常命中");
+        assertEquals("order", result.getTargetAgent());
+
+        result = fastRouteService.match("查一下我的订单");
+        assertNotNull(result);
+        assertEquals("order", result.getTargetAgent());
+
+        result = fastRouteService.match("你好");
+        assertNotNull(result);
+        assertEquals("general", result.getTargetAgent());
+    }
+
     // ==================== 多线程并发测试 ====================
 
     @Test

@@ -200,30 +200,37 @@ public class RouterService {
                                 si.agentName, si.intentTag, String.format("%.2f", si.score));
                     }
                 }
-                
-                // TOOL 经验：直接把 reroutedQuestion 发往目标 Agent
-                if (experienceMatch.isToolExperience) {
-                    RoutingResult result = callAgentAndFinalize(
-                            experienceMatch.agentName,
-                            experienceMatch.reroutedQuestion,
-                            experienceMatch.matchScore,
-                            experienceMatch.experience.getIntentTag(),
-                            request, question);
-                    if (result != null) return result;
-                }
 
-                // COMMON / REACT 经验：设置路由目标，跳过 TaskPlanner
-                if (experienceMatch.skipTaskPlanning) {
-                    String agentQuestion = experienceMatch.reroutedQuestion != null
-                            ? experienceMatch.reroutedQuestion : question;
-                    RoutingResult result = callAgentAndFinalize(
-                            experienceMatch.agentName, agentQuestion,
-                            experienceMatch.matchScore,
-                            experienceMatch.experience.getIntentTag(),
-                            request, question);
-                    if (result != null) return result;
-                }
-            }
+                // ⭐⭐ 多意图保护：有副意图时跳过经验直通，走全管道让 LLM 处理
+                //    避免"查订单+退款"类复合问题被经验单路截断
+                boolean skipExperienceShortCircuit = experienceMatch.secondaryIntents != null
+                        && !experienceMatch.secondaryIntents.isEmpty();
+
+                if (!skipExperienceShortCircuit) {
+                    // TOOL 经验：直接把 reroutedQuestion 发往目标 Agent
+                    if (experienceMatch.isToolExperience) {
+                        RoutingResult result = callAgentAndFinalize(
+                                experienceMatch.agentName,
+                                experienceMatch.reroutedQuestion,
+                                experienceMatch.matchScore,
+                                experienceMatch.experience.getIntentTag(),
+                                request, question);
+                        if (result != null) return result;
+                    }
+
+                    // COMMON / REACT 经验：设置路由目标，跳过 TaskPlanner
+                    if (experienceMatch.skipTaskPlanning) {
+                        String agentQuestion = experienceMatch.reroutedQuestion != null
+                                ? experienceMatch.reroutedQuestion : question;
+                        RoutingResult result = callAgentAndFinalize(
+                                experienceMatch.agentName, agentQuestion,
+                                experienceMatch.matchScore,
+                                experienceMatch.experience.getIntentTag(),
+                                request, question);
+                        if (result != null) return result;
+                    }
+                } // end skipExperienceShortCircuit
+            } // end experienceMatch != null
 
             // Step 0.5: 关键词快车道（P2 改进：高频明确意图跳过 LLM 分诊）
             // 优先级：经验匹配 > 关键词快车道 > 语义缓存 > LLM 意图识别
