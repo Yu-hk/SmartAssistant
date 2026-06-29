@@ -164,10 +164,10 @@ groups:
           summary: "Router Service 宕机"
           description: "Prometheus 无法抓取 Router 指标，服务可能已停止 (port 8083)"
 
-      # 3. Agent 服务不可达
+      # 3. Agent 服务不可达（已移除 travel/food，当前需要监控的是 order/product/general）
       - alert: AgentServiceDown
         expr: |
-          up{job=~"a2a-travel|a2a-food"} == 0
+          up{job=~"a2a-order|a2a-product|a2a-general"} == 0
         for: 2m
         labels:
           severity: warning

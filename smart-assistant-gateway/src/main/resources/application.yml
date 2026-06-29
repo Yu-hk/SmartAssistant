@@ -58,22 +58,6 @@ spring:
             - Path=/assistant/api/router/**
           filters:
             - StripPrefix=1  # 移除 /assistant，保留 /api/router
-        
-        # Travel Service 路由（A2A Agent）
-        - id: travel-service
-          uri: lb://travel-service
-          predicates:
-            - Path=/assistant/api/travel/**
-          filters:
-            - StripPrefix=1  # 移除 /assistant，保留 /api/travel
-        
-        # Food Service 路由（A2A Agent）
-        - id: food-service
-          uri: lb://food-service
-          predicates:
-            - Path=/assistant/api/food/**
-          filters:
-            - StripPrefix=1  # 移除 /assistant，保留 /api/food
 
     # Nacos 配置
     nacos:

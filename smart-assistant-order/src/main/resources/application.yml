@@ -116,18 +116,6 @@ management:
       export:
         enabled: true
 
-# Travel RAG 配置
-travel:
-  rag:
-    enabled: true                     # 是否启用 RAG 功能
-    top-k: 5                          # 返回最相关的 K 个结果（TopN 筛选数量）
-    similarity-threshold: 0.5        # 相似度阈值
-    chunk:
-      strategy: semantic              # fixed | semantic（分块策略）
-      semantic-threshold: 0.45        # 语义分块相似度阈值（经实测调整）
-      min-chunk-size: 80             # 最小分块长度（字符）
-      max-chunk-size: 800            # 最大分块长度（字符）
-
 # ⭐ BGE embedding 配置（1.2GB 模型从项目级共享目录加载）
 bge:
   model:
