@@ -142,7 +142,6 @@ public class RouterService {
                          TaskPlannerService taskPlanner,
                          ResultMerger resultMerger,
                          ReflectionService reflectionService,
-                         ModelRoutingService modelRoutingService,
                          ExperienceService experienceService,
                          GraphExecutionService graphExecutionService,
                          TaskAnalysisService taskAnalysisService,
