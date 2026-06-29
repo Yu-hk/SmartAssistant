@@ -1,6 +1,8 @@
 package com.example.smartassistant.router.service.fusion;
 
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
+import com.example.smartassistant.router.service.skill.SkillDefinition;
+import com.example.smartassistant.router.service.skill.SkillRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,22 +39,42 @@ public class LightweightIntentClassifier {
     private final Map<String, IntentMeta> intentMeta = new ConcurrentHashMap<>();
 
     private final BgeOnnxEmbeddingService embeddingService;
+    private final SkillRepository skillRepository;
 
-    public LightweightIntentClassifier(BgeOnnxEmbeddingService embeddingService) {
+    public LightweightIntentClassifier(BgeOnnxEmbeddingService embeddingService,
+                                       SkillRepository skillRepository) {
         this.embeddingService = embeddingService;
+        this.skillRepository = skillRepository;
     }
 
     @PostConstruct
     public void init() {
-        loadIntentCentroids();
+        // 从 SkillRepository 加载意图中心向量
+        var examples = skillRepository.getExamplesMap();
+        for (var entry : examples.entrySet()) {
+            String skillId = entry.getKey();
+            List<String> skillExamples = entry.getValue();
+            if (skillExamples.isEmpty()) continue;
+
+            SkillDefinition def = skillRepository.get(skillId);
+            String category = def != null ? def.category() : "unknown";
+            String intentTag = def != null ? def.intentTag() : skillId;
+            registerIntent(intentTag, category, skillExamples.toArray(new String[0]));
+        }
+
+        // 回退：如果技能仓库未定义示例，加载内置默认
+        if (intentCentroids.isEmpty()) {
+            log.warn("[IntentClassifier] SkillRepository 未提供示例，使用内置默认");
+            loadHardcodedIntents();
+        }
+
         log.info("[IntentClassifier] 初始化完成: intents={}", intentCentroids.size());
     }
 
     /**
-     * 加载预定义的意图中心向量。
-     * 每个意图类由一组典型表达的 BGE 向量平均得到。
+     * 加载硬编码的意图中心向量（回退方案）。
      */
-    private void loadIntentCentroids() {
+    private void loadHardcodedIntents() {
         registerIntent("退款申请", "order",
                 "我要退款", "申请退款", "退货", "退钱", "不想要了", "退款处理", "取消订单退款");
         registerIntent("订单查询", "order",
