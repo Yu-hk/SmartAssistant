@@ -7,8 +7,12 @@
 
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
 import com.example.smartassistant.common.sql.SqlSecurityValidator;
 import com.example.smartassistant.config.McpTableWhitelistConfig;
+import jakarta.annotation.PostConstruct;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -79,15 +83,24 @@ public class TextToSqlTool {
     private final McpTableWhitelistConfig whitelistConfig;
     private final String ollamaBaseUrl;
     private final String ollamaModel;
+    private final ToolRegistry toolRegistry;
 
     public TextToSqlTool(JdbcTemplate jdbcTemplate,
                          McpTableWhitelistConfig whitelistConfig,
                          @Value("${spring.ai.ollama.base-url}") String ollamaBaseUrl,
-                         @Value("${spring.ai.ollama.chat.options.model:deepseek-r1:7b}") String ollamaModel) {
+                         @Value("${spring.ai.ollama.chat.options.model:deepseek-r1:7b}") String ollamaModel,
+                         ToolRegistry toolRegistry) {
         this.jdbcTemplate = jdbcTemplate;
         this.whitelistConfig = whitelistConfig;
         this.ollamaBaseUrl = ollamaBaseUrl;
         this.ollamaModel = ollamaModel;
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.register(new ToolDefinition("textToSql", "文本转SQL查询",
+                ToolRiskLevel.MEDIUM, java.time.Duration.ofSeconds(30), true, 1, 5, new String[0]));
     }
 
     @Tool(description = "⭐ 文本转SQL查询工具。将用户用自然语言提出的数据问题，"

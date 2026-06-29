@@ -1,209 +1,205 @@
-/*
- * Copyright (c) 2025-2026 SmartAssistant Project. All rights reserved.
- *
- * Licensed under the MIT License. See LICENSE file in the project root for
- * full license information.
- */
-
 package com.example.smartassistant.common.error;
 
 /**
- * 统一错误码枚举——全项目工具层与 Agent 层的标准化错误码。
+ * Agent 错误码枚举。
  * <p>
- * 每个错误码关联：错误分类 {@link ErrorCategory}、恢复动作 {@link RecoveryAction}、
- * 是否可重试、默认提示信息。
- * 由 {@link ErrorRecoveryService} 通过表驱动方式实现恢复策略路由。
+ * 统一标识 Agent 执行过程中的错误类型，每个错误码携带机器可读的编码、
+ * 是否可重试标志和默认提示信息。上游 {@link ErrorRecoveryService}
+ * 和 {@link com.example.smartassistant.common.tool.ToolResult} 据此定位恢复策略。
  * </p>
  *
- * <h3>命名规范</h3>
- * <ul>
- *   <li>TOOL_* ：工具执行类</li>
- *   <li>SERVICE_* ：外部服务不可用</li>
- *   <li>VALIDATION_* ：参数校验/输入错误</li>
- *   <li>SECURITY_* ：安全限制</li>
- *   <li>SYSTEM_* ：系统内部错误</li>
- * </ul>
- *
- * @see ErrorCategory
- * @see RecoveryAction
- * @see ErrorRecoveryService
+ * @author Yu-hk
+ * @since 2026-06-29
  */
 public enum AgentErrorCode {
 
-    // ==================== 工具执行类 ====================
+    // ==================== 路由相关 ====================
 
-    /** 工具执行时抛出未预期异常 */
-    TOOL_EXECUTION_ERROR("TOOL_EXECUTION_ERROR", true, ErrorCategory.TOOL,
-            RecoveryAction.RETRY, "工具执行异常，正在尝试重新执行"),
-    /** 工具执行超时（默认 30s） */
-    TOOL_TIMEOUT("TOOL_TIMEOUT", true, ErrorCategory.TOOL,
-            RecoveryAction.RETRY_BACKOFF, "工具执行超时，正在退避重试"),
-    /** LLM 调用了系统不存在的工具名 */
-    UNKNOWN_TOOL("UNKNOWN_TOOL", false, ErrorCategory.TOOL,
-            RecoveryAction.CLARIFY_USER, "未知工具调用，已阻止执行"),
-    /** 模型调用失败（LLM 接口异常） */
-    MODEL_CALL_FAILED("MODEL_CALL_FAILED", true, ErrorCategory.TOOL,
-            RecoveryAction.RETRY_BACKOFF, "AI 服务暂时不可用，请稍后重试"),
-    /** 图片生成失败 */
-    TOOL_IMAGE_GENERATION_FAILED("IMAGE_GENERATION_FAILED", true, ErrorCategory.TOOL,
-            RecoveryAction.RETRY, "图片生成失败，正在重试"),
-    /** 图片生成超时 */
-    TOOL_IMAGE_GENERATION_TIMEOUT("IMAGE_GENERATION_TIMEOUT", true, ErrorCategory.TOOL,
-            RecoveryAction.RETRY_BACKOFF, "图片生成超时，正在退避重试"),
+    /** 路由失败（不可重试） */
+    SYSTEM_ROUTE_FAILED("SYSTEM_ROUTE_FAILED", false, "系统路由暂时不可用，请稍后再试"),
 
-    // ==================== 数据查找类 ====================
+    /** Agent 调用超时（可重试） */
+    AGENT_TIMEOUT("AGENT_TIMEOUT", true, "系统响应超时，请稍后再试"),
 
-    /** 订单不存在 */
-    ORDER_NOT_FOUND("ORDER_NOT_FOUND", false, ErrorCategory.DATA,
-            RecoveryAction.CLARIFY_USER, "未找到该订单，请确认订单号是否正确"),
-    /** 商品不存在 */
-    PRODUCT_NOT_FOUND("PRODUCT_NOT_FOUND", false, ErrorCategory.DATA,
-            RecoveryAction.CLARIFY_USER, "未找到该商品，请确认商品名称或编码"),
-    /** 物流信息不存在 */
-    LOGISTICS_NOT_FOUND("LOGISTICS_NOT_FOUND", false, ErrorCategory.DATA,
-            RecoveryAction.CLARIFY_USER, "未找到物流信息，请确认快递单号"),
-    /** 搜索无结果 */
-    NO_RESULTS("NO_RESULTS", false, ErrorCategory.DATA,
-            RecoveryAction.CLARIFY_USER, "未找到相关结果，请换一种描述"),
-    /** 天气数据不存在 */
-    WEATHER_NO_DATA("WEATHER_NO_DATA", false, ErrorCategory.DATA,
-            RecoveryAction.CLARIFY_USER, "未找到该城市的天气数据"),
+    /** Agent 返回空结果（可重试） */
+    AGENT_EMPTY_REPLY("AGENT_EMPTY_REPLY", true, "暂时无法获取回复，请重新描述问题"),
 
-    // ==================== 状态冲突类 ====================
+    /** 智能体调用超时（不可重试） */
+    SYSTEM_AGENT_TIMEOUT("SYSTEM_AGENT_TIMEOUT", false, "智能体调用超时，请稍后重试"),
 
-    /** 订单状态与操作不匹配 */
-    INVALID_STATUS("INVALID_STATUS", false, ErrorCategory.STATE,
-            RecoveryAction.CLARIFY_USER, "当前订单状态不支持该操作"),
-    /** 已在退款处理中 */
-    ALREADY_REFUNDING("ALREADY_REFUNDING", false, ErrorCategory.STATE,
-            RecoveryAction.CLARIFY_USER, "该订单已在退款处理中"),
-    /** 缺少物流单号 */
-    TRACKING_REQUIRED("TRACKING_REQUIRED", false, ErrorCategory.STATE,
-            RecoveryAction.CLARIFY_USER, "请提供快递单号以便查询"),
-    /** 状态更新写入失败 */
-    UPDATE_FAILED("UPDATE_FAILED", true, ErrorCategory.STATE,
-            RecoveryAction.RETRY, "状态更新写入失败，正在重试"),
+    /** 智能体预算超限（不可重试） */
+    SYSTEM_BUDGET_EXCEEDED("SYSTEM_BUDGET_EXCEEDED", false, "系统预算已超限，无法继续执行"),
 
-    // ==================== 外部服务类 ====================
+    /** 模型调用失败（可重试） */
+    MODEL_CALL_FAILED("MODEL_CALL_FAILED", true, "模型调用失败，请稍后重试"),
 
-    /** 新闻服务不可用 */
-    SERVICE_NEWS_UNAVAILABLE("NEWS_UNAVAILABLE", true, ErrorCategory.SERVICE,
-            RecoveryAction.FALLBACK_AGENT, "新闻服务暂不可用"),
-    /** 搜索服务不可用 */
-    SERVICE_SEARCH_UNAVAILABLE("SEARCH_UNAVAILABLE", true, ErrorCategory.SERVICE,
-            RecoveryAction.FALLBACK_AGENT, "搜索服务暂不可用"),
-    /** 天气服务不可用 */
-    SERVICE_WEATHER_UNAVAILABLE("WEATHER_UNAVAILABLE", true, ErrorCategory.SERVICE,
-            RecoveryAction.RETRY, "天气服务暂时无法访问"),
-    /** 汇率服务不可用 */
-    SERVICE_RATE_UNAVAILABLE("RATE_UNAVAILABLE", true, ErrorCategory.SERVICE,
-            RecoveryAction.RETRY_BACKOFF, "汇率服务暂时不可用"),
-    /** 优惠券查询失败 */
-    SERVICE_COUPON_QUERY_FAILED("COUPON_QUERY_FAILED", true, ErrorCategory.SERVICE,
-            RecoveryAction.RETRY, "查询优惠券失败，正在重试"),
-    /** 优惠计算失败 */
-    SERVICE_COUPON_CALC_FAILED("COUPON_CALC_FAILED", true, ErrorCategory.SERVICE,
-            RecoveryAction.RETRY, "计算优惠方案失败，正在重试"),
+    /** 智能体无进展（不可重试） */
+    SYSTEM_NO_INCREMENT("SYSTEM_NO_INCREMENT", false, "系统未能取得进展，请尝试其他方式"),
 
-    // ==================== 参数校验类 ====================
+    /** 智能体达最大迭代次数（不可重试） */
+    SYSTEM_MAX_ITERATIONS("SYSTEM_MAX_ITERATIONS", false, "处理步骤超出限制，请简化您的请求"),
 
-    /** 数学表达式解析失败 */
-    VALIDATION_EXPRESSION_PARSE("EXPRESSION_PARSE_ERROR", false, ErrorCategory.VALIDATION,
-            RecoveryAction.CLARIFY_USER, "数学表达式格式有误，请检查输入"),
-    /** 不支持的货币代码 */
-    VALIDATION_INVALID_CURRENCY("INVALID_CURRENCY", false, ErrorCategory.VALIDATION,
-            RecoveryAction.CLARIFY_USER, "不支持的货币代码，请使用标准货币代码"),
-    /** 空计算脚本 */
-    VALIDATION_SCRIPT_EMPTY("SCRIPT_EMPTY", false, ErrorCategory.VALIDATION,
-            RecoveryAction.CLARIFY_USER, "计算脚本为空，请输入计算表达式"),
-    /** 图片分析失败 */
-    VALIDATION_IMAGE_ANALYSIS("IMAGE_ANALYSIS_FAILED", false, ErrorCategory.VALIDATION,
-            RecoveryAction.CLARIFY_USER, "图片分析失败，请确认图片内容"),
-    /** 单位转换失败（温度/长度/重量/汇率） */
-    VALIDATION_CONVERSION_ERROR("CONVERSION_ERROR", true, ErrorCategory.VALIDATION,
-            RecoveryAction.RETRY, "单位转换失败，正在重试"),
+    /** 未知工具（不可重试） */
+    UNKNOWN_TOOL("UNKNOWN_TOOL", false, "未知的工具调用，请检查工具名称"),
 
-    // ==================== 安全限制类 ====================
+    // ==================== 工具相关 ====================
 
-    /** 脚本包含危险操作被拒绝 */
-    SECURITY_SCRIPT_REJECTED("SCRIPT_REJECTED", false, ErrorCategory.SECURITY,
-            RecoveryAction.TERMINATE, "脚本包含不允许的操作，已拒绝执行"),
-    /** 脚本执行超时（沙箱超时熔断，保护请求线程不被长任务占用） */
-    SECURITY_SCRIPT_TIMEOUT("SCRIPT_TIMEOUT", false, ErrorCategory.SECURITY,
-            RecoveryAction.CLARIFY_USER, "脚本执行超时，请简化计算步骤后重试"),
-    /** 脚本超出资源限制（长度/行数/变量数，防 CPU/内存耗尽） */
-    SECURITY_SCRIPT_RESOURCE_LIMIT("SCRIPT_RESOURCE_LIMIT", false, ErrorCategory.SECURITY,
-            RecoveryAction.CLARIFY_USER, "脚本规模超出限制，请缩减脚本长度或步骤数"),
+    /** 工具执行失败（可重试） */
+    TOOL_EXECUTION_FAILED("TOOL_EXECUTION_FAILED", true, "工具执行失败，请检查输入后重试"),
 
-    // ==================== 系统内部类 ====================
+    /** 工具执行错误 */
+    TOOL_EXECUTION_ERROR("TOOL_EXECUTION_ERROR", true, "工具执行异常，请稍后重试"),
 
-    /** 错误序列化失败 */
-    SYSTEM_SERIALIZATION_ERROR("SERIALIZATION_ERROR", false, ErrorCategory.SYSTEM,
-            RecoveryAction.TERMINATE, "系统内部错误"),
-    /** Token 预算耗尽 */
-    SYSTEM_BUDGET_EXCEEDED("BUDGET_EXCEEDED", false, ErrorCategory.SYSTEM,
-            RecoveryAction.CLARIFY_USER, "Token 预算即将耗尽，请总结当前进度"),
-    /** Agent 执行超时 */
-    SYSTEM_AGENT_TIMEOUT("AGENT_TIMEOUT", false, ErrorCategory.SYSTEM,
-            RecoveryAction.FALLBACK_AGENT, "系统处理超时，请简化问题后重试"),
-    /** 达到最大迭代次数 */
-    SYSTEM_MAX_ITERATIONS("MAX_ITERATIONS", false, ErrorCategory.SYSTEM,
-            RecoveryAction.FALLBACK_AGENT, "已达到最大执行次数上限"),
-    /** 连续重复调用检测 */
-    SYSTEM_NO_INCREMENT("NO_INCREMENT", false, ErrorCategory.SYSTEM,
-            RecoveryAction.RETRY_ALTERNATIVE, "检测到重复调用，已切换策略"),
-    /** 路由层整体失败 */
-    SYSTEM_ROUTE_FAILED("ROUTE_FAILED", false, ErrorCategory.SYSTEM,
-            RecoveryAction.FALLBACK_AGENT, "路由处理失败，请稍后重试");
+    /** 工具参数无效（不可重试） */
+    TOOL_INVALID_ARGUMENT("TOOL_INVALID_ARGUMENT", false, "输入参数不正确，请核对后重新提交"),
+
+    /** 图片生成失败（可重试） */
+    TOOL_IMAGE_GENERATION_FAILED("TOOL_IMAGE_GENERATION_FAILED", true, "图片生成失败，请稍后重试"),
+
+    /** 图片生成超时（可重试） */
+    TOOL_IMAGE_GENERATION_TIMEOUT("TOOL_IMAGE_GENERATION_TIMEOUT", true, "图片生成超时，请稍后重试"),
+
+    // ==================== 校验相关 ====================
+
+    /** 脚本为空（不可重试） */
+    VALIDATION_SCRIPT_EMPTY("VALIDATION_SCRIPT_EMPTY", false, "脚本内容为空"),
+
+    /** 安全拒绝（不可重试） */
+    SECURITY_SCRIPT_REJECTED("SECURITY_SCRIPT_REJECTED", false, "脚本包含危险操作，已被安全机制拦截"),
+
+    /** 资源超限（不可重试） */
+    SECURITY_SCRIPT_RESOURCE_LIMIT("SECURITY_SCRIPT_RESOURCE_LIMIT", false, "脚本超出资源限制"),
+
+    /** 脚本超时（可重试） */
+    SECURITY_SCRIPT_TIMEOUT("SECURITY_SCRIPT_TIMEOUT", true, "脚本执行超时"),
+
+    /** 表达式解析失败（不可重试） */
+    VALIDATION_EXPRESSION_PARSE("VALIDATION_EXPRESSION_PARSE", false, "表达式解析失败"),
+
+    /** 转换错误（不可重试） */
+    VALIDATION_CONVERSION_ERROR("VALIDATION_CONVERSION_ERROR", false, "单位转换失败"),
+
+    /** 无效货币代码（不可重试） */
+    VALIDATION_INVALID_CURRENCY("VALIDATION_INVALID_CURRENCY", false, "不支持的货币代码"),
+
+    /** 图片分析失败（可重试） */
+    VALIDATION_IMAGE_ANALYSIS("VALIDATION_IMAGE_ANALYSIS", true, "图片分析失败，请检查图片URL后重试"),
+
+    // ==================== 服务相关 ====================
+
+    /** 新闻服务不可用（可重试） */
+    SERVICE_NEWS_UNAVAILABLE("SERVICE_NEWS_UNAVAILABLE", true, "新闻服务暂时不可用，请稍后重试"),
+
+    /** 搜索服务不可用（可重试） */
+    SERVICE_SEARCH_UNAVAILABLE("SERVICE_SEARCH_UNAVAILABLE", true, "搜索服务暂时不可用，请稍后重试"),
+
+    /** 汇率服务不可用（可重试） */
+    SERVICE_RATE_UNAVAILABLE("SERVICE_RATE_UNAVAILABLE", true, "汇率服务暂时不可用，请稍后重试"),
+
+    /** 天气服务不可用（可重试） */
+    SERVICE_WEATHER_UNAVAILABLE("SERVICE_WEATHER_UNAVAILABLE", true, "天气服务暂时不可用，请稍后重试"),
+
+    /** 优惠券查询失败（可重试） */
+    SERVICE_COUPON_QUERY_FAILED("SERVICE_COUPON_QUERY_FAILED", true, "查询优惠券失败，请稍后重试"),
+
+    /** 优惠计算失败（可重试） */
+    SERVICE_COUPON_CALC_FAILED("SERVICE_COUPON_CALC_FAILED", true, "计算优惠方案失败，请稍后重试"),
+
+    // ==================== 数据相关 ====================
+
+    /** 数据不存在（不可重试） */
+    DATA_NOT_FOUND("DATA_NOT_FOUND", false, "未找到相关数据"),
+
+    /** 数据格式错误（不可重试） */
+    DATA_FORMAT_ERROR("DATA_FORMAT_ERROR", false, "数据格式错误，请联系技术支持"),
+
+    /** 订单未找到（不可重试） */
+    ORDER_NOT_FOUND("ORDER_NOT_FOUND", false, "未找到该订单"),
+
+    /** 商品未找到（不可重试） */
+    PRODUCT_NOT_FOUND("PRODUCT_NOT_FOUND", false, "未找到该商品"),
+
+    /** 状态无效（不可重试） */
+    INVALID_STATUS("INVALID_STATUS", false, "当前订单状态不允许此操作"),
+
+    /** 更新失败（可重试） */
+    UPDATE_FAILED("UPDATE_FAILED", true, "更新失败，请稍后重试"),
+
+    /** 已在退款中（不可重试） */
+    ALREADY_REFUNDING("ALREADY_REFUNDING", false, "该订单已在退款处理中"),
+
+    /** 物流信息未找到（不可重试） */
+    LOGISTICS_NOT_FOUND("LOGISTICS_NOT_FOUND", false, "未找到物流信息"),
+
+    /** 需要快递单号（不可重试） */
+    TRACKING_REQUIRED("TRACKING_REQUIRED", false, "请提供快递单号"),
+
+    /** 天气数据不存在（不可重试） */
+    WEATHER_NO_DATA("WEATHER_NO_DATA", false, "未找到该城市的天气数据"),
+
+    /** 无结果（不可重试） */
+    NO_RESULTS("NO_RESULTS", false, "未找到相关结果"),
+
+    // ==================== 权限相关 ====================
+
+    /** 权限不足（不可重试） */
+    PERMISSION_DENIED("PERMISSION_DENIED", false, "您没有权限执行此操作"),
+
+    /** 审批未通过（不可重试） */
+    APPROVAL_REJECTED("APPROVAL_REJECTED", false, "操作未通过审批，如有疑问请联系管理员");
 
     // ==================== 字段 ====================
 
-    /** 字符串形式的错误码（保持与现有 ToolResult 格式兼容） */
     private final String code;
-
-    /** 是否可重试 */
     private final boolean retryable;
-
-    /** 错误分类 */
-    private final ErrorCategory category;
-
-    /** 默认恢复动作 */
-    private final RecoveryAction defaultAction;
-
-    /** 默认用户提示信息 */
     private final String defaultHint;
 
-    AgentErrorCode(String code, boolean retryable, ErrorCategory category,
-                   RecoveryAction defaultAction, String defaultHint) {
+    // ==================== 构造 ====================
+
+    AgentErrorCode(String code, boolean retryable, String defaultHint) {
         this.code = code;
         this.retryable = retryable;
-        this.category = category;
-        this.defaultAction = defaultAction;
         this.defaultHint = defaultHint;
     }
 
-    // ==================== Getters ====================
+    // ==================== 方法 ====================
 
-    public String getCode() { return code; }
-    public boolean isRetryable() { return retryable; }
-    public ErrorCategory getCategory() { return category; }
-    public RecoveryAction getDefaultAction() { return defaultAction; }
-    public String getDefaultHint() { return defaultHint; }
-
-    // ==================== 查找方法 ====================
-
-    /** 按字符串代码查找枚举，未找到返回 null */
-    public static AgentErrorCode fromCode(String code) {
-        if (code == null || code.isBlank()) return null;
-        for (AgentErrorCode e : values()) {
-            if (e.code.equals(code)) return e;
-        }
-        return null;
+    /** 获取机器可读的错误码字符串 */
+    public String getCode() {
+        return code;
     }
 
-    /** 按字符串代码查找，未找到时兜底返回 SYSTEM_SERIALIZATION_ERROR */
-    public static AgentErrorCode fromCodeOrDefault(String code) {
-        AgentErrorCode found = fromCode(code);
-        return found != null ? found : SYSTEM_SERIALIZATION_ERROR;
+    /** 是否可重试（true=临时故障可重试，false=不可恢复） */
+    public boolean isRetryable() {
+        return retryable;
+    }
+
+    /** 获取默认提示信息 */
+    public String getDefaultHint() {
+        return defaultHint;
+    }
+
+    /** 获取错误码的描述（默认返回枚举名） */
+    public String getDescription() {
+        return name();
+    }
+
+    /**
+     * 根据错误码字符串查找对应的枚举值。
+     *
+     * @param code 机器可读的错误码字符串（如 "ORDER_NOT_FOUND"）
+     * @return 匹配的枚举值；未匹配返回 null
+     */
+    public static AgentErrorCode fromCode(String code) {
+        if (code == null || code.isBlank()) {
+            return null;
+        }
+        String upper = code.toUpperCase().trim();
+        for (AgentErrorCode value : values()) {
+            if (value.code.equals(upper) || value.name().equals(upper)) {
+                return value;
+            }
+        }
+        return null;
     }
 }

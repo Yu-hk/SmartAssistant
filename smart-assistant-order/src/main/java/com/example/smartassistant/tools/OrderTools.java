@@ -8,6 +8,8 @@
 package com.example.smartassistant.tools;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.memory.ConflictResult;
 import com.example.smartassistant.common.memory.EntityConflictResolver;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
@@ -22,6 +24,7 @@ import com.example.smartassistant.service.ApprovalService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -69,19 +72,39 @@ public class OrderTools {
     private final OrderLogisticsMapper orderLogisticsMapper;
     private final ReadBeforeEditGuard readGuard;
     private final EntityConflictResolver conflictResolver;
+    private final ToolRegistry toolRegistry;
 
     public OrderTools(ApprovalService approvalService,
                       OrderMapper orderMapper,
                       OrderRefundMapper orderRefundMapper,
                       OrderLogisticsMapper orderLogisticsMapper,
                       ReadBeforeEditGuard readGuard,
-                      EntityConflictResolver conflictResolver) {
+                      EntityConflictResolver conflictResolver,
+                      ToolRegistry toolRegistry) {
         this.approvalService = approvalService;
         this.orderMapper = orderMapper;
         this.orderRefundMapper = orderRefundMapper;
         this.orderLogisticsMapper = orderLogisticsMapper;
         this.readGuard = readGuard;
         this.conflictResolver = conflictResolver;
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.registerAll(java.util.List.of(
+                ToolDefinition.read("queryOrder", "查询订单详情"),
+                ToolDefinition.read("trackLogistics", "查询物流轨迹"),
+                ToolDefinition.highRisk("createOrder", "创建新订单", true),
+                ToolDefinition.highRisk("payOrder", "完成订单支付", true),
+                ToolDefinition.highRisk("cancelOrder", "取消订单", true),
+                ToolDefinition.highRisk("applyRefund", "提交退款申请", true),
+                new ToolDefinition("shipOrder", "商家发货", com.example.smartassistant.common.gateway.tool.ToolRiskLevel.MEDIUM,
+                        java.time.Duration.ofSeconds(15), true, 1, 10, new String[0]),
+                new ToolDefinition("confirmDelivery", "确认收货", com.example.smartassistant.common.gateway.tool.ToolRiskLevel.MEDIUM,
+                        java.time.Duration.ofSeconds(15), true, 1, 10, new String[0]),
+                ToolDefinition.highRisk("confirmAction", "确认支付/退款操作", true)
+        ));
     }
 
     // ==================== 下单 ====================

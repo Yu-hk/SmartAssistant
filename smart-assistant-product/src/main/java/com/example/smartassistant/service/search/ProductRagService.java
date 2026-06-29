@@ -7,10 +7,12 @@
 
 package com.example.smartassistant.service.search;
 
+import com.example.smartassistant.service.graph.ProductGraphService;
 import com.example.smartassistant.spi.ProductBackend;
 import com.example.smartassistant.tools.KnowledgeQueryTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -41,61 +43,44 @@ public class ProductRagService {
     /** Top-K 结果数 */
     private static final int TOP_K = 5;
 
+    /** 质量分数归一化上限（RRF 理论最大值约为 4 paths × 1/RRF_K） */
+    private static final double RRF_MAX = 4.0 / (RRF_K + 1);
+
+    @Value("${product.rag.quality-threshold:0.05}")
+    private double qualityThreshold;
+
     private final ProductBackend productBackend;
     private final Bm25Scorer bm25Scorer;
     private final KnowledgeQueryTool knowledgeQueryTool;
+    /** P3: 商品知识图谱 */
+    private final ProductGraphService productGraphService;
 
     /** 产品数据缓存（用于 BM25 评分） */
     private Map<String, String> productTextCache;
 
     public ProductRagService(ProductBackend productBackend,
                              Bm25Scorer bm25Scorer,
-                             KnowledgeQueryTool knowledgeQueryTool) {
+                             KnowledgeQueryTool knowledgeQueryTool,
+                             ProductGraphService productGraphService) {
         this.productBackend = productBackend;
         this.bm25Scorer = bm25Scorer;
         this.knowledgeQueryTool = knowledgeQueryTool;
+        this.productGraphService = productGraphService;
         this.productTextCache = new ConcurrentHashMap<>();
     }
 
     /**
-     * 多路 RAG 检索 + RRF 融合。
+     * 多路 RAG 检索 + RRF 融合（兼容旧调用，无质量评估）。
+     *
+     * <p>新代码请使用 {@link #retrieveWithQuality(String)} 以获取质量分数和兜底提示。</p>
      *
      * @param query 用户查询文本
-     * @return 融合后的检索结果字符串
+     * @return 融合后的检索结果字符串（质量低时可能返回空字符串）
      */
     public String retrieve(String query) {
-        if (query == null || query.isBlank()) return "";
-
-        long start = System.currentTimeMillis();
-        List<RetrievalPathResult> allPaths = new ArrayList<>();
-
-        // Path 1: 精确匹配（尝试将 query 作为 productCode）
-        allPaths.add(retrievePath1(query));
-
-        // Path 2: 关键词搜索
-        allPaths.add(retrievePath2(query));
-
-        // Path 3: BM25 评分
-        allPaths.add(retrievePath3(query));
-
-        // Path 4: 知识库经验检索
-        allPaths.add(retrievePath4(query));
-
-        // RRF 融合
-        List<RankedItem> fused = rrfFuse(allPaths);
-        log.info("[ProductRAG] 检索完成: query={}, paths={}, fused={},耗时={}ms",
-                query, allPaths.stream().filter(p -> !p.items.isEmpty()).count(),
-                fused.size(), System.currentTimeMillis() - start);
-
-        // 格式化输出
-        if (fused.isEmpty()) return "";
-        StringBuilder sb = new StringBuilder("【商品检索结果】\n");
-        int rank = 1;
-        for (RankedItem item : fused) {
-            sb.append(rank).append(". ").append(item.content).append("\n");
-            rank++;
-        }
-        return sb.toString().trim();
+        RetrievalResult result = retrieveWithQuality(query);
+        // 质量低时返回空字符串（旧行为），但记录日志已在 retrieveWithQuality 中输出
+        return result.highQuality() ? result.content() : "";
     }
 
     // ==================== 各检索路径 ====================
@@ -190,6 +175,40 @@ public class ProductRagService {
     }
 
     /**
+     * ⭐ Path 5: Graph 图检索 — 商品关系图谱。
+     * <p>P3 新增：从用户查询中提取商品编码，查询关系图谱获取同类/配件/替代品推荐。</p>
+     */
+    private RetrievalPathResult retrievePath5(String query) {
+        List<String> results = new ArrayList<>();
+        try {
+            String matchedCode = productGraphService.matchProduct(query);
+            if (matchedCode != null) {
+                String name = productGraphService.getProductName(matchedCode);
+                // 综合推荐（同类 + 配件 + 替代等）
+                var recommendations = productGraphService.queryRecommendations(matchedCode, 3);
+                if (!recommendations.isEmpty()) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("【关联推荐】基于 ").append(name != null ? name : matchedCode).append("：\n");
+                    int rank = 1;
+                    for (var rec : recommendations) {
+                        sb.append("  ").append(rank).append(". ")
+                                .append(rec.getProductName())
+                                .append(" (").append(rec.getRelationType().name()).append(")")
+                                .append("\n");
+                        rank++;
+                    }
+                    results.add(sb.toString().trim());
+                    log.info("[ProductRAG] Path5 Graph检索命中: query={}, matchedCode={}, recommendations={}",
+                            query, matchedCode, recommendations.size());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[ProductRAG] Path5 失败: {}", e.getMessage());
+        }
+        return new RetrievalPathResult("图谱检索", results);
+    }
+
+    /**
      * 从 ProductBackend 重建产品文本缓存（用于 BM25）。
      */
     public void rebuildProductCache() {
@@ -275,5 +294,86 @@ public class ProductRagService {
 
         void addScore(double score) { this.rrfScore += score; }
         double getRrfScore() { return rrfScore; }
+    }
+
+    /**
+     * P1 RAG 质量评分结果。
+     *
+     * @param content       检索到的上下文文本
+     * @param qualityScore  质量分数（0.0~1.0，RRF 分数归一化）
+     * @param highQuality   是否高于质量阈值
+     * @param fallback      兜底提示（当 highQuality=false 时使用）
+     */
+    public record RetrievalResult(
+            String content,
+            double qualityScore,
+            boolean highQuality,
+            String fallback
+    ) {}
+
+    /**
+     * P1 带质量评估的 RAG 检索。
+     *
+     * <p>在 RRF 融合后评估 Top-1 的 RRF 分数，低于阈值时触发降级兜底。</p>
+     *
+     * @param query 用户查询
+     * @return 检索结果（含质量分数和兜底提示）
+     */
+    public RetrievalResult retrieveWithQuality(String query) {
+        if (query == null || query.isBlank()) {
+            return new RetrievalResult("",
+                    0.0, false,
+                    "请提供商品查询关键词，例如：iPhone 15 Pro 价格");
+        }
+
+        long start = System.currentTimeMillis();
+        List<RetrievalPathResult> allPaths = new ArrayList<>();
+
+        allPaths.add(retrievePath1(query));
+        allPaths.add(retrievePath2(query));
+        allPaths.add(retrievePath3(query));
+        allPaths.add(retrievePath4(query));
+        // ⭐ P3: Graph 检索 — 商品关系图谱（推荐同类/配件/替代品）
+        allPaths.add(retrievePath5(query));
+
+        // RRF 融合（返回带分数的列表）
+        List<RankedItem> fused = rrfFuse(allPaths);
+        int activePaths = (int) allPaths.stream().filter(p -> !p.items.isEmpty()).count();
+        long elapsed = System.currentTimeMillis() - start;
+
+        if (fused.isEmpty()) {
+            log.warn("[ProductRAG] ⚠️ 全部路径未召回: query={}, activePaths={}, 耗时={}ms",
+                    query, activePaths, elapsed);
+            return new RetrievalResult("",
+                    0.0, false,
+                    "未找到相关商品信息，请尝试更换关键词或联系人工客服。");
+        }
+
+        // 质量分数 = Top-1 RRF 分数归一化到 0~1
+        double topRrf = fused.get(0).getRrfScore();
+        double qualityScore = Math.min(1.0, topRrf / RRF_MAX);
+        boolean highQuality = qualityScore >= qualityThreshold;
+
+        // 格式化输出
+        StringBuilder sb = new StringBuilder("【商品检索结果】\n");
+        int rank = 1;
+        for (RankedItem item : fused) {
+            sb.append(rank).append(". ").append(item.content).append("\n");
+            rank++;
+        }
+        String content = sb.toString().trim();
+
+        if (!highQuality) {
+            log.warn("[ProductRAG] ⚠️ 检索质量低: query={}, qualityScore={}, threshold={}, topRrf={}, 耗时={}ms",
+                    query, String.format("%.4f", qualityScore),
+                    qualityThreshold, String.format("%.4f", topRrf), elapsed);
+        } else {
+            log.info("[ProductRAG] ✅ 检索完成: query={}, qualityScore={}, activePaths={}, fused={}, 耗时={}ms",
+                    query, String.format("%.4f", qualityScore), activePaths, fused.size(), elapsed);
+        }
+
+        String fallback = highQuality ? null :
+                "（检索结果质量较低，建议核对商品名称或联系人工客服）";
+        return new RetrievalResult(content, qualityScore, highQuality, fallback);
     }
 }

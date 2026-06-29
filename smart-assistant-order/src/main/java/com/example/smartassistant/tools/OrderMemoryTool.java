@@ -7,7 +7,10 @@
 
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.memory.AgentMemoryService;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -35,9 +38,21 @@ public class OrderMemoryTool {
     private static final String AGENT_NAME = "order";
 
     private final AgentMemoryService memoryService;
+    private final ToolRegistry toolRegistry;
 
-    public OrderMemoryTool(AgentMemoryService memoryService) {
+    public OrderMemoryTool(AgentMemoryService memoryService, ToolRegistry toolRegistry) {
         this.memoryService = memoryService;
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.registerAll(java.util.List.of(
+                ToolDefinition.read("recallMemories", "获取用户订单偏好"),
+                new ToolDefinition("savePreference", "保存用户订单偏好",
+                        com.example.smartassistant.common.gateway.tool.ToolRiskLevel.LOW,
+                        java.time.Duration.ofSeconds(5), false, 1, 0, new String[0])
+        ));
     }
 
     /**
