@@ -119,7 +119,7 @@ class RouterServiceEndToEndTest {
                 agentCallerService,
                 redisTemplate,
                 ragService, semanticCache, taskPlanner, resultMerger,
-                reflectionService, modelRoutingService, experienceService,
+                reflectionService, experienceService,
                 graphExecutionService, taskAnalysisService, qualityEvaluationService,
                 queryRewriter, keywordFastRouteService, routingToolChecker,
                 lightChatModel, null // BadCaseMinerService = null

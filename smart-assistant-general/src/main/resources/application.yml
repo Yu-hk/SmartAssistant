@@ -13,11 +13,10 @@ spring:
   main:
     allow-bean-definition-overriding: true  # ⭐ 允许覆盖 auto-config 的 deepSeekChatModel
 
-  # 排除 Spring Security 和 DeepSeek 自动配置
+  # 排除 Spring Security 自动配置
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
-      - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration  # ⭐ 使用自定义 DeepSeekChatModel
 
   # Spring Cloud 配置
   cloud:
@@ -49,6 +48,15 @@ spring:
 
   # DeepSeek 模型配置（V4-Flash 最新模型）
   ai:
+    # ⭐ DeepSeek 云端推理
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY:}
+      chat:
+        options:
+          model: deepseek-v4-flash
+          temperature: 0.5
+          max-tokens: 4096
+
     # ⭐ Ollama 本地模型配置（本地推理主通道）
     ollama:
       base-url: http://localhost:11434
