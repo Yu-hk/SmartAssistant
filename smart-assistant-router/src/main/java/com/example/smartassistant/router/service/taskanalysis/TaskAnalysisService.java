@@ -10,6 +10,7 @@ package com.example.smartassistant.router.service.taskanalysis;
 import com.example.smartassistant.router.model.TaskAnalysisResult;
 import com.example.smartassistant.router.service.core.ModelRoutingService;
 import com.example.smartassistant.router.service.evaluation.IntentEvaluationService;
+import com.example.smartassistant.router.service.prompt.RouterStageAwareService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -50,6 +51,8 @@ public class TaskAnalysisService {
     private final ObjectMapper objectMapper;
     /** 意图向量检索器：动态检索与用户问题最相关的意图定义 */
     private final IntentRetriever intentRetriever;
+    /** P2 对话阶段感知 Prompt */
+    private final RouterStageAwareService stageAwareService;
 
     /**
      * 任务分析 prompt，支持通过 Nacos Config 动态刷新（@RefreshScope）。
@@ -139,10 +142,12 @@ public class TaskAnalysisService {
 
     public TaskAnalysisService(ModelRoutingService modelRoutingService,
                                IntentEvaluationService intentEvaluationService,
-                               IntentRetriever intentRetriever) {
+                               IntentRetriever intentRetriever,
+                               RouterStageAwareService stageAwareService) {
         this.modelRoutingService = modelRoutingService;
         this.intentEvaluationService = intentEvaluationService;
         this.intentRetriever = intentRetriever;
+        this.stageAwareService = stageAwareService;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -173,9 +178,16 @@ public class TaskAnalysisService {
 
         long start = System.currentTimeMillis();
         try {
+            // ⭐ P2 对话阶段感知：推断当前阶段，注入聚焦指令
+            int turnCount = conversationHistory != null ? (conversationHistory.size() / 2) + 1 : 1;
+            var stage = stageAwareService.inferStage(turnCount, null,
+                    conversationHistory != null && !conversationHistory.isEmpty()
+                            ? conversationHistory.get(conversationHistory.size() - 1) : null);
+
             // ⭐ 动态构建 prompt：检索与用户问题最相关的意图定义，替换全量硬编码
             //     多轮场景：注入对话历史，提升指代消解和意图连贯性
-            String finalPrompt = buildDynamicPrompt(question, conversationHistory);
+            String basePrompt = buildDynamicPrompt(question, conversationHistory);
+            String finalPrompt = stageAwareService.wrapPrompt(basePrompt, stage);
             String rawResponse = modelRoutingService.call(finalPrompt, buildUserMessage(question, conversationHistory));
 
             if (rawResponse == null || rawResponse.isBlank()) {
