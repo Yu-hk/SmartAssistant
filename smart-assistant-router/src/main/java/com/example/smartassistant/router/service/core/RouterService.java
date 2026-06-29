@@ -39,7 +39,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -65,14 +64,12 @@ public class RouterService {
     private static final Logger log = LoggerFactory.getLogger(RouterService.class);
     
     private final AgentCallerService agentCallerService;
-    private final ChatClient chatClient;
     private final StringRedisTemplate redisTemplate;
     private final RouterRagService ragService;
     private final SemanticRouteCacheService semanticCache;
     private final TaskPlannerService taskPlanner;
     private final ResultMerger resultMerger;
     private final ReflectionService reflectionService;
-    private final ModelRoutingService modelRoutingService;
     private final ExperienceService experienceService;
 
     // ⭐ 基于图的意图执行引擎
@@ -96,11 +93,8 @@ public class RouterService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // ⭐ 并行 Agent 执行线程池（用于独立子任务的真正并行执行）
-    private final Executor parallelExecutor;
 
     // ⭐ 子任务单 Agent 超时（毫秒）
-    @Value("${router.parallel.agent-timeout-ms:30000}")
-    private long agentTimeoutMs;
 
     @Value("${router.agent.rag.enabled:false}")
     private boolean ragEnabled;
@@ -142,8 +136,6 @@ public class RouterService {
     private final RoutingToolChecker routingToolChecker;
 
     public RouterService(AgentCallerService agentCallerService,
-                         ChatClient.Builder chatClientBuilder,
-                         @Qualifier("routerParallelAgentExecutor") Executor routerParallelAgentExecutor,
                          @Autowired(required = false) StringRedisTemplate redisTemplate,
                          RouterRagService ragService,
                          SemanticRouteCacheService semanticCache,
@@ -161,14 +153,12 @@ public class RouterService {
                          @Qualifier("lightChatModel") ChatModel lightModel,
                          @Autowired(required = false) BadCaseMinerService badCaseMinerService) {
         this.agentCallerService = agentCallerService;
-        this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
         this.ragService = ragService;
         this.semanticCache = semanticCache;
         this.taskPlanner = taskPlanner;
         this.resultMerger = resultMerger;
         this.reflectionService = reflectionService;
-        this.modelRoutingService = modelRoutingService;
         this.experienceService = experienceService;
         this.graphExecutionService = graphExecutionService;
         this.taskAnalysisService = taskAnalysisService;
@@ -177,7 +167,6 @@ public class RouterService {
         this.keywordFastRouteService = keywordFastRouteService;
         this.routingToolChecker = routingToolChecker;
         this.lightChatClient = ChatClient.create(lightModel);
-        this.parallelExecutor = routerParallelAgentExecutor;
         this.badCaseMinerService = badCaseMinerService;
     }
 
@@ -214,39 +203,25 @@ public class RouterService {
                 
                 // TOOL 经验：直接把 reroutedQuestion 发往目标 Agent
                 if (experienceMatch.isToolExperience) {
-                    String agentReply = agentCallerService.callAgent(
+                    RoutingResult result = callAgentAndFinalize(
                             experienceMatch.agentName,
                             experienceMatch.reroutedQuestion,
-                            request.getUserId(),
-                            request.getRequestId());
-                    if (agentReply != null && !agentReply.isBlank()) {
-                        RoutingResult result = RoutingResult.builder()
-                                .result(agentReply)
-                                .agentName(experienceMatch.agentName)
-                                .confidence(experienceMatch.matchScore)
-                                .intentTag(experienceMatch.experience.getIntentTag())
-                                .build();
-                        return finalizeRouting(result, request, question);
-                    }
+                            experienceMatch.matchScore,
+                            experienceMatch.experience.getIntentTag(),
+                            request, question);
+                    if (result != null) return result;
                 }
-                
+
                 // COMMON / REACT 经验：设置路由目标，跳过 TaskPlanner
                 if (experienceMatch.skipTaskPlanning) {
-                    String agentReply = agentCallerService.callAgent(
-                            experienceMatch.agentName,
-                            experienceMatch.reroutedQuestion != null ? 
-                                    experienceMatch.reroutedQuestion : question,
-                            request.getUserId(),
-                            request.getRequestId());
-                    if (agentReply != null && !agentReply.isBlank()) {
-                        RoutingResult result = RoutingResult.builder()
-                                .result(agentReply)
-                                .agentName(experienceMatch.agentName)
-                                .confidence(experienceMatch.matchScore)
-                                .intentTag(experienceMatch.experience.getIntentTag())
-                                .build();
-                        return finalizeRouting(result, request, question);
-                    }
+                    String agentQuestion = experienceMatch.reroutedQuestion != null
+                            ? experienceMatch.reroutedQuestion : question;
+                    RoutingResult result = callAgentAndFinalize(
+                            experienceMatch.agentName, agentQuestion,
+                            experienceMatch.matchScore,
+                            experienceMatch.experience.getIntentTag(),
+                            request, question);
+                    if (result != null) return result;
                 }
             }
 
@@ -257,21 +232,11 @@ public class RouterService {
                 log.info("[Router] ⚡ 关键词快车道命中: rule={}, agent={}, intent={}, confidence={}",
                         keywordMatch.getMatchedRuleName(), keywordMatch.getTargetAgent(),
                         keywordMatch.getIntentTag(), keywordMatch.getConfidence());
-                // 直接调用目标 Agent
-                String agentReply = agentCallerService.callAgent(
-                        keywordMatch.getTargetAgent(),
-                        question,
-                        request.getUserId(),
-                        request.getRequestId());
-                if (agentReply != null && !agentReply.isBlank()) {
-                    RoutingResult result = RoutingResult.builder()
-                            .result(agentReply)
-                            .agentName(keywordMatch.getTargetAgent())
-                            .confidence(keywordMatch.getConfidence())
-                            .intentTag(keywordMatch.getIntentTag())
-                            .build();
-                    return finalizeRouting(result, request, question);
-                }
+                RoutingResult result = callAgentAndFinalize(
+                        keywordMatch.getTargetAgent(), question,
+                        keywordMatch.getConfidence(), keywordMatch.getIntentTag(),
+                        request, question);
+                if (result != null) return result;
             }
 
             // Step 1: 检查语义缓存（仅存 agent 名，不存回复内容）
@@ -320,7 +285,7 @@ public class RouterService {
                         log.warn("[Router] 缓存命中但 agent={} 无可用 Agent，降级到内联兜底", cached.agentName);
                         return inlineFallback(enhancedQuestion);
                     }
-                    if (cached.agentName != null && !"none".equals(cached.agentName)) {
+                    if (cached.agentName != null) {
                         String agentReply = agentCallerService.callAgent(cached.agentName, enhancedQuestion, userId, request.getRequestId());
                         if (agentReply != null) {
                             result.setResult(agentReply);
@@ -372,7 +337,6 @@ public class RouterService {
                     );
                     if (taskAnalysis != null && taskAnalysis.isMeaningful()) {
                         intentTag = taskAnalysis.getIntentCategory();
-                        confidence = taskAnalysis.getConfidence();
                     }
                 }
 
@@ -661,37 +625,39 @@ public class RouterService {
 
         // 检测工具调用模式：回复中包含特定的关键词表明使用了某个工具
         // Order Agent 工具模式
-        if ("order_agent".equals(agentName)) {
-            if (reply.contains("订单") && (reply.contains("状态") || reply.contains("查询") || reply.contains("ORD-"))) {
-                String params = extractOrderParams(question);
-                experienceService.extractToolExperience(question, agentName, intentTag,
-                        "queryOrder", params, "订单{orderId}当前状态为{status}");
+        switch (agentName) {
+            case "order_agent" -> {
+                if (reply.contains("订单") && (reply.contains("状态") || reply.contains("查询") || reply.contains("ORD-"))) {
+                    String params = extractOrderParams(question);
+                    experienceService.extractToolExperience(question, agentName, intentTag,
+                            "queryOrder", params, "订单{orderId}当前状态为{status}");
+                }
+                if (reply.contains("退款") || reply.contains("退货")) {
+                    experienceService.extractToolExperience(question, agentName, intentTag,
+                            "refundOrder", "{\"orderId\": \"" + extractOrderId(question) + "\"}", "退款申请已提交");
+                }
             }
-            if (reply.contains("退款") || reply.contains("退货")) {
-                experienceService.extractToolExperience(question, agentName, intentTag,
-                        "refundOrder", "{\"orderId\": \"" + extractOrderId(question) + "\"}", "退款申请已提交");
+            // Product Agent 工具模式
+            case "product_agent" -> {
+                if (reply.contains("价格") || reply.contains("多少钱") || reply.contains("报价")) {
+                    experienceService.extractToolExperience(question, agentName, intentTag,
+                            "queryPrice", "{\"product\": \"" + extractProductName(question) + "\"}", "{product}的价格为{price}");
+                }
+                if (reply.contains("库存") || reply.contains("有货") || reply.contains("缺货")) {
+                    experienceService.extractToolExperience(question, agentName, intentTag,
+                            "checkStock", "{\"product\": \"" + extractProductName(question) + "\"}", "{product}的库存状态为{status}");
+                }
             }
-        }
-        // Product Agent 工具模式
-        else if ("product_agent".equals(agentName)) {
-            if (reply.contains("价格") || reply.contains("多少钱") || reply.contains("报价")) {
-                experienceService.extractToolExperience(question, agentName, intentTag,
-                        "queryPrice", "{\"product\": \"" + extractProductName(question) + "\"}", "{product}的价格为{price}");
-            }
-            if (reply.contains("库存") || reply.contains("有货") || reply.contains("缺货")) {
-                experienceService.extractToolExperience(question, agentName, intentTag,
-                        "checkStock", "{\"product\": \"" + extractProductName(question) + "\"}", "{product}的库存状态为{status}");
-            }
-        }
-        // General Agent 工具模式
-        else if ("general_agent".equals(agentName)) {
-            if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
-                experienceService.extractToolExperience(question, agentName, intentTag,
-                        "getWeather", "{\"location\": \"" + extractLocation(question) + "\"}", "{location}当前天气为{weather}");
-            }
-            if (reply.contains("新闻") || reply.contains("热点") || reply.contains("头条")) {
-                experienceService.extractToolExperience(question, agentName, intentTag,
-                        "getHotNews", "{}", "以下是近期热点新闻");
+            // General Agent 工具模式
+            case "general_agent" -> {
+                if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
+                    experienceService.extractToolExperience(question, agentName, intentTag,
+                            "getWeather", "{\"location\": \"" + extractLocation(question) + "\"}", "{location}当前天气为{weather}");
+                }
+                if (reply.contains("新闻") || reply.contains("热点") || reply.contains("头条")) {
+                    experienceService.extractToolExperience(question, agentName, intentTag,
+                            "getHotNews", "{}", "以下是近期热点新闻");
+                }
             }
         }
     }
@@ -767,55 +733,26 @@ public class RouterService {
                 .build();
     }
 
-    /**
-     * 多 Agent 顺序执行带共享上下文累积。
-     * <p>
-     * <b>已弃用</b>：请使用 {@link GraphExecutionService#execute} 替代。
-     * 保留此方法仅用于后向兼容和回退参考。
-     * </p>
-     *
-     * @deprecated 使用 {@link GraphExecutionService#execute(IntentGraph, Long, String, String)} 替代
-     */
-    @Deprecated
-    private List<SubTaskResult> executeTasksWithSharedContext(List<SubTask> tasks, Long userId, String eventsKey, String requestId) {
-        List<SubTaskResult> results = new ArrayList<>();
-        StringBuilder sharedContext = new StringBuilder();
+    // ═══════════════════════════════════════════════════════════
+    // ⭐ 共享：调用 Agent 并构建路由结果（消除 3 处重复）
+    // ═══════════════════════════════════════════════════════════
 
-        for (SubTask task : tasks) {
-            // 将已有共享上下文附加到子任务描述中
-            String enrichedDesc = task.getDescription();
-            if (!sharedContext.isEmpty()) {
-                enrichedDesc = enrichedDesc + "\n\n[已知信息]\n" + sharedContext.toString().trim()
-                        + "\n\n请结合以上已知信息回答，避免重复，侧重补充新内容。";
-            }
-
-            storeSseEvent(eventsKey, "routed",
-                    "🎯 正在处理: " + task.getDescription(), task.getTargetAgent());
-
-            try {
-                var agentResult = agentCallerService.callAgentAndExtractTitles(
-                        task.getTargetAgent(), enrichedDesc, userId, requestId);
-                String resultText = agentResult.getResponse();
-                if (resultText != null && !resultText.isBlank()) {
-                    // 将结果加入共享上下文，供后续 Agent 使用
-                    sharedContext.append("【").append(task.getTargetAgent()).append("】")
-                            .append(resultText).append("\n\n");
-                    results.add(new SubTaskResult(task.getId(), task.getDescription(),
-                            task.getTargetAgent(), resultText, true, agentResult.getRealTitles(), agentResult.getTagsByTitle()));
-                    storeSseEvent(eventsKey, "response",
-                            resultText.substring(0, Math.min(200, resultText.length())),
-                            task.getTargetAgent());
-                } else {
-                    results.add(new SubTaskResult(task.getId(), task.getDescription(),
-                            task.getTargetAgent(), "", false, agentResult.getRealTitles()));
-                }
-            } catch (Exception e) {
-                log.warn("[Collaborative] 子任务失败: task={}, error={}", task.getId(), e.getMessage());
-                results.add(new SubTaskResult(task.getId(), task.getDescription(),
-                        task.getTargetAgent(), "", false));
-            }
+    /** 调用 Agent → 构建 RoutingResult → finalizeRouting 后处理。空回复返回 null。 */
+    private RoutingResult callAgentAndFinalize(String agentName, String agentQuestion,
+                                                double confidence, String intentTag,
+                                                RouteRequest request, String rawQuestion) {
+        String agentReply = agentCallerService.callAgent(
+                agentName, agentQuestion, request.getUserId(), request.getRequestId());
+        if (agentReply == null || agentReply.isBlank()) {
+            return null;
         }
-        return results;
+        RoutingResult result = RoutingResult.builder()
+                .result(agentReply)
+                .agentName(agentName)
+                .confidence(confidence)
+                .intentTag(intentTag)
+                .build();
+        return finalizeRouting(result, request, rawQuestion);
     }
 
     /**
