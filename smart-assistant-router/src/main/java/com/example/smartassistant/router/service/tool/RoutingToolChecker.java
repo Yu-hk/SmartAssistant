@@ -111,7 +111,7 @@ public class RoutingToolChecker {
             this.unhealthyTools = unhealthyTools;
         }
 
-        static ToolHealthResult healthy(String agentName, String message) {
+        public static ToolHealthResult healthy(String agentName, String message) {
             return new ToolHealthResult(agentName, true, message, List.of());
         }
 
