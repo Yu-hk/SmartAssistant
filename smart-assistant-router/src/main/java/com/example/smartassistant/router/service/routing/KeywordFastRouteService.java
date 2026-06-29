@@ -187,21 +187,43 @@ public class KeywordFastRouteService {
 
         String normalized = question.toLowerCase(Locale.CHINESE);
 
-        for (KeywordRule rule : activeRules) {
-            if (matchesRule(normalized, rule)) {
-                log.info("[KeywordFastRoute] 规则命中: rule={}, agent={}, intent={}, question={}",
-                        rule.getName(), rule.getTargetAgent(), rule.getIntentTag(),
-                        truncate(question, 50));
-                return new MatchResult(
-                        rule.getTargetAgent(),
-                        rule.getIntentTag(),
-                        rule.getConfidence(),
-                        rule.getName()
-                );
+        // ⭐ 两阶段匹配：先找第一命中，再检查是否有多意图
+        MatchResult firstMatch = null;
+        int firstIndex = -1;
+
+        for (int i = 0; i < activeRules.size(); i++) {
+            if (matchesRule(normalized, activeRules.get(i))) {
+                if (firstMatch == null) {
+                    firstMatch = new MatchResult(
+                            activeRules.get(i).getTargetAgent(),
+                            activeRules.get(i).getIntentTag(),
+                            activeRules.get(i).getConfidence(),
+                            activeRules.get(i).getName()
+                    );
+                    firstIndex = i;
+                } else {
+                    // ⭐ 多意图检测：后续规则也命中，且指向不同 Agent
+                    //    同 Agent 下多关键词（如"退款+订单号"）不视为多意图
+                    KeywordRule second = activeRules.get(i);
+                    if (!second.getTargetAgent().equals(activeRules.get(firstIndex).getTargetAgent())) {
+                        log.info("[KeywordFastRoute] ⚠️ 多意图问题跳过快车道: "
+                                        + "first={}(agent={}), second={}(agent={}), question={}",
+                                activeRules.get(firstIndex).getName(),
+                                activeRules.get(firstIndex).getTargetAgent(),
+                                second.getName(), second.getTargetAgent(),
+                                truncate(question, 50));
+                        return null; // 走全管道让 LLM 处理多意图
+                    }
+                }
             }
         }
 
-        return null;
+        if (firstMatch != null) {
+            log.info("[KeywordFastRoute] 规则命中: rule={}, agent={}, intent={}, question={}",
+                    firstMatch.matchedRuleName, firstMatch.targetAgent,
+                    firstMatch.intentTag, truncate(question, 50));
+        }
+        return firstMatch;
     }
 
     /**
