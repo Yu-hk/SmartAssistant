@@ -57,20 +57,6 @@ public class GlobalExceptionHandler {
                 ApiResponse.error(HttpStatus.BAD_REQUEST.value(), e.getMessage(), error));
     }
 
-    // ========== Agent 推理异常 ==========
-
-    @ExceptionHandler(com.alibaba.cloud.ai.graph.exception.GraphStateException.class)
-    public ResponseEntity<ApiResponse<Void>> handleGraphStateException(
-            com.alibaba.cloud.ai.graph.exception.GraphStateException e, HttpServletRequest request) {
-        log.error("[FOOD_003] Agent 推理异常 | path={} | msg={}",
-                request.getRequestURI(), e.getMessage());
-
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(
-                "FOOD_003", truncate(e.getMessage(), 300), null, getTraceId());
-        return ResponseEntity.internalServerError().body(
-                ApiResponse.error(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Agent 推理执行失败，请稍后重试", error));
-    }
-
     // ========== 数据访问异常 ==========
 
     @ExceptionHandler(org.springframework.dao.DataAccessException.class)

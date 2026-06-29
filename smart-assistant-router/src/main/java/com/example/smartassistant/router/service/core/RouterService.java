@@ -7,31 +7,26 @@
 
 package com.example.smartassistant.router.service.core;
 
-import com.example.smartassistant.router.model.IntentGraph;
-import com.example.smartassistant.router.model.QualityEvaluationResult;
-import com.example.smartassistant.router.model.ReflectionResult;
-import com.example.smartassistant.router.model.RouteRequest;
-import com.example.smartassistant.router.model.RoutingResult;
-import com.example.smartassistant.router.model.SubTask;
-import com.example.smartassistant.router.model.SubTaskResult;
-import com.example.smartassistant.router.model.TaskAnalysisResult;
+import com.example.smartassistant.common.agent.AgentEventBus;
+import com.example.smartassistant.common.agent.AgentExecutionState;
+import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.error.ErrorRecoveryService;
+import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
-
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
-import com.example.smartassistant.router.service.experience.ExperienceModel;
+import com.example.smartassistant.router.service.evaluation.BadCaseMinerService;
+import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.quality.QualityEvaluationService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
+import com.example.smartassistant.router.service.routing.KeywordFastRouteService;
 import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
-import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.error.ErrorRecoveryService;
+import com.example.smartassistant.router.service.tool.RoutingToolChecker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -87,6 +82,9 @@ public class RouterService {
     // ⭐ 意图引导的查询改写服务
     private final IntentGuidedQueryRewriter queryRewriter;
 
+    // ⭐ P1 Bad Case 自动挖掘服务
+    private final BadCaseMinerService badCaseMinerService;
+
     // ⭐ 轻量模型（用于兜底回复等简单推理）
     private final ChatClient lightChatClient;
 
@@ -114,6 +112,15 @@ public class RouterService {
     );
     private final AtomicInteger fallbackIndex = new AtomicInteger(0);
 
+    // ⭐ P1 Agent 执行事件总线（可选：无 Redis 时不记录事件）
+    @Autowired(required = false)
+    private AgentEventBus agentEventBus;
+
+    // ⭐ 关键词快车道服务（P2 改进：高频明确意图跳过 LLM 分诊）
+    private final KeywordFastRouteService keywordFastRouteService;
+    // ⭐ 路由级工具健康检查
+    private final RoutingToolChecker routingToolChecker;
+
     public RouterService(AgentCallerService agentCallerService,
                          ChatClient.Builder chatClientBuilder,
                          @Qualifier("routerParallelAgentExecutor") Executor routerParallelAgentExecutor,
@@ -129,7 +136,10 @@ public class RouterService {
                          TaskAnalysisService taskAnalysisService,
                          QualityEvaluationService qualityEvaluationService,
                          IntentGuidedQueryRewriter queryRewriter,
-                         @Qualifier("lightChatModel") ChatModel lightModel) {
+                         KeywordFastRouteService keywordFastRouteService,
+                         RoutingToolChecker routingToolChecker,
+                         @Qualifier("lightChatModel") ChatModel lightModel,
+                         @Autowired(required = false) BadCaseMinerService badCaseMinerService) {
         this.agentCallerService = agentCallerService;
         this.chatClient = chatClientBuilder.build();
         this.redisTemplate = redisTemplate;
@@ -144,8 +154,11 @@ public class RouterService {
         this.taskAnalysisService = taskAnalysisService;
         this.qualityEvaluationService = qualityEvaluationService;
         this.queryRewriter = queryRewriter;
+        this.keywordFastRouteService = keywordFastRouteService;
+        this.routingToolChecker = routingToolChecker;
         this.lightChatClient = ChatClient.create(lightModel);
         this.parallelExecutor = routerParallelAgentExecutor;
+        this.badCaseMinerService = badCaseMinerService;
     }
     
     /**
@@ -212,6 +225,30 @@ public class RouterService {
                 }
             }
 
+            // Step 0.5: 关键词快车道（P2 改进：高频明确意图跳过 LLM 分诊）
+            // 优先级：经验匹配 > 关键词快车道 > 语义缓存 > LLM 意图识别
+            KeywordFastRouteService.MatchResult keywordMatch = keywordFastRouteService.match(question);
+            if (keywordMatch != null) {
+                log.info("[Router] ⚡ 关键词快车道命中: rule={}, agent={}, intent={}, confidence={}",
+                        keywordMatch.getMatchedRuleName(), keywordMatch.getTargetAgent(),
+                        keywordMatch.getIntentTag(), keywordMatch.getConfidence());
+                // 直接调用目标 Agent
+                String agentReply = agentCallerService.callAgent(
+                        keywordMatch.getTargetAgent(),
+                        question,
+                        request.getUserId(),
+                        request.getRequestId());
+                if (agentReply != null && !agentReply.isBlank()) {
+                    RoutingResult result = RoutingResult.builder()
+                            .result(agentReply)
+                            .agentName(keywordMatch.getTargetAgent())
+                            .confidence(keywordMatch.getConfidence())
+                            .intentTag(keywordMatch.getIntentTag())
+                            .build();
+                    return finalizeRouting(result, request, question);
+                }
+            }
+
             // Step 1: 检查语义缓存（仅存 agent 名，不存回复内容）
             SemanticRouteCacheService.CachedRouteDecision cached = semanticCache.getCachedDecision(question);
             
@@ -268,7 +305,19 @@ public class RouterService {
             } else {
                 // ⭐ Step 3.5: 任务分析（非缓存命中时执行）
                 // 结构化提取实体/约束/风险/工具评分，存入 Redis 供下游 Agent 使用
-                TaskAnalysisResult taskAnalysis = taskAnalysisService.analyze(question);
+                // P0 多轮上下文注入：从 context 取出对话历史，传入 analyze()
+                @SuppressWarnings("unchecked")
+                List<String> conversationHistory =
+                        (List<String>) context.get("conversationHistory");
+                if (conversationHistory != null && !conversationHistory.isEmpty()) {
+                    log.info("[Router] 📜 多轮上下文注入: historySize={}, latest={}",
+                            conversationHistory.size(),
+                            truncate(conversationHistory.get(conversationHistory.size() - 1), 50));
+                }
+                TaskAnalysisResult taskAnalysis = taskAnalysisService.analyze(
+                        question,
+                        conversationHistory != null ? conversationHistory : Collections.emptyList()
+                );
                 if (taskAnalysis.isMeaningful()) {
                     storeTaskAnalysisToRedis(request.getRequestId(), taskAnalysis);
                 }
@@ -314,6 +363,17 @@ public class RouterService {
 
         } catch (Exception e) {
             log.error("[Router] 路由失败: {}", e.getMessage(), e);
+
+            // ⭐ P1 执行事件：记录失败
+            if (agentEventBus != null) {
+                agentEventBus.publishEvent(
+                        request.getRequestId(), "unknown",
+                        AgentExecutionState.State.RUNNING, AgentExecutionState.State.FAILED,
+                        AgentExecutionState.EventType.TIMEOUT_REACHED,
+                        "路由异常: " + e.getMessage(), 0, 0
+                );
+            }
+
             String errorMsg = ErrorRecoveryService.DEFAULT.resolveUserMessage(
                     AgentErrorCode.SYSTEM_ROUTE_FAILED, e.getMessage());
             return RoutingResult.builder()
@@ -335,6 +395,15 @@ public class RouterService {
         if (intentTag == null || intentTag.isBlank()) {
             intentTag = semanticCache.generateIntentTag(question);
             result.setIntentTag(intentTag);
+        }
+
+        // ⭐ P1 工具健康检查：路由到 Agent 前检查关键工具是否就绪
+        if (result.getAgentName() != null) {
+            var health = routingToolChecker.checkAgentHealth(result.getAgentName());
+            if (!health.isHealthy()) {
+                log.warn("[Router] ⚠️ 路由到 Agent={} 但工具不健康: {}",
+                        result.getAgentName(), health.getMessage());
+            }
         }
 
         // ⭐⭐ 反思器：对非缓存的新结果进行质量评估（纯规则评分，不调 LLM）
@@ -405,6 +474,20 @@ public class RouterService {
             }
         }
 
+        // ⭐ P1 Agent 执行事件：记录路由决策完成
+        if (agentEventBus != null) {
+            agentEventBus.publishEvent(
+                    request.getRequestId(), result.getAgentName(),
+                    AgentExecutionState.State.RUNNING,
+                    result.getResult() != null ? AgentExecutionState.State.COMPLETED
+                            : AgentExecutionState.State.FAILED,
+                    AgentExecutionState.EventType.EXECUTION_COMPLETED,
+                    "路由决策完成, agent=" + result.getAgentName()
+                            + ", confidence=" + result.getConfidence() + ", intent=" + intentTag,
+                    0, 0
+            );
+        }
+
         // ⭐ 将完整决策写入 Redis，供 Consumer 阻塞读取
         if (requestId != null && !requestId.isBlank() && agentName != null) {
             semanticCache.saveFullDecisionForConsumer(requestId, agentName,
@@ -412,6 +495,18 @@ public class RouterService {
 
             // ⭐ 如有任务分析结果，追加到完整决策中
             appendTaskAnalysisToFullDecision(requestId);
+        }
+
+        // P1 ⭐ Bad Case 自动挖掘：低置信度路由决策写入 Redis
+        if (badCaseMinerService != null) {
+            badCaseMinerService.record(new BadCaseMinerService.RoutingDecision(
+                    request.getQuestion(),
+                    result.getIntentTag(),
+                    result.getConfidence(),
+                    result.getAgentName(),
+                    request.getSessionId(),
+                    request.getUserId()
+            ));
         }
 
         return result;

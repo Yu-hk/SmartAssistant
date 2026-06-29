@@ -1,0 +1,68 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: smart-assistant-recommend
+
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+        namespace: public
+        group: DEFAULT_GROUP
+      config:
+        server-addr: localhost:8848
+        namespace: public
+        group: DEFAULT_GROUP
+        prefix: ${spring.application.name}
+        file-extension: yml
+        refresh-enabled: true
+
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# ⭐ Feign 配置
+feign:
+  client:
+    config:
+      default:
+        connect-timeout: 5000
+        read-timeout: 10000
+        logger-level: BASIC
+  compression:
+    request:
+      enabled: true
+    response:
+      enabled: true
+
+# ⭐ Resilience4j 熔断
+resilience4j:
+  circuitbreaker:
+    instances:
+      product-service:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+      order-service:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+
+logging:
+  level:
+    com.example.smartassistant.recommend: INFO
+    com.example.smartassistant.recommend.client: DEBUG

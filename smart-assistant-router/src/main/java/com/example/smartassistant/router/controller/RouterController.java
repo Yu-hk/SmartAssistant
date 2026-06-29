@@ -1,19 +1,24 @@
 package com.example.smartassistant.router.controller;
 
+import com.example.smartassistant.common.agent.AgentEventBus;
+import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.response.ApiResponse;
 import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RouteResponse;
 import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.router.service.core.RouterService;
+import com.example.smartassistant.router.service.tool.RoutingToolChecker;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -29,11 +34,17 @@ public class RouterController {
 
     private final RouterService routerService;
     private final DistributedTracingService tracingService;
+    private final RoutingToolChecker routingToolChecker;
+    private final AgentEventBus agentEventBus;
 
     public RouterController(RouterService routerService,
-                           DistributedTracingService tracingService) {
+                           DistributedTracingService tracingService,
+                           RoutingToolChecker routingToolChecker,
+                           @Autowired(required = false) AgentEventBus agentEventBus) {
         this.routerService = routerService;
         this.tracingService = tracingService;
+        this.routingToolChecker = routingToolChecker;
+        this.agentEventBus = agentEventBus;
     }
 
     /**
@@ -199,6 +210,26 @@ public class RouterController {
                 latency, routingResult.getResult() != null ? routingResult.getResult().length() : 0);
 
         return ApiResponse.success(response);
+    }
+
+    /**
+     * 工具健康检查端点。
+     */
+    @GetMapping("/tools/health")
+    public ApiResponse<Map<String, Object>> toolHealth() {
+        return ApiResponse.success(routingToolChecker.getAllAgentsHealth());
+    }
+
+    /**
+     * Agent 执行事件查看端点。
+     */
+    @GetMapping("/events/{requestId}")
+    public ApiResponse<List<AgentExecutionState.StateTransition>> getEvents(
+            @PathVariable("requestId") String requestId) {
+        List<AgentExecutionState.StateTransition> events = agentEventBus != null
+                ? agentEventBus.getEvents(requestId)
+                : List.of();
+        return ApiResponse.success(events);
     }
 
     // ========== 工具方法 ==========

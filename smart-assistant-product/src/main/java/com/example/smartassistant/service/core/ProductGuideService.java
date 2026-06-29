@@ -31,7 +31,10 @@ public class ProductGuideService {
     }
 
     /**
-     * 处理商品咨询并生成带下单引导的回复。
+     * 处理商品咨询并生成带下单引导的回复（P1 质量感知版）。
+     *
+     * <p>使用 {@link ProductRagService#retrieveWithQuality(String)} 获取质量分数，
+     * 质量低于阈值时使用兜底提示，避免将低质量检索结果传入 LLM。</p>
      *
      * @param query 用户查询
      * @return 格式化后的完整回复
@@ -39,16 +42,27 @@ public class ProductGuideService {
     public String processAndGuide(String query) {
         if (query == null || query.isBlank()) return "";
 
-        // 1. 多路 RAG 检索
-        String ragResult = productRagService.retrieve(query);
+        // 1. 多路 RAG 检索（含质量评估）
+        ProductRagService.RetrievalResult result = productRagService.retrieveWithQuality(query);
 
         // 2. 构建带引导的回复
         StringBuilder response = new StringBuilder();
 
-        if (!ragResult.isBlank()) {
-            response.append(ragResult).append("\n\n");
+        if (result.highQuality()) {
+            // 质量合格：附加检索结果
+            response.append(result.content()).append("\n\n");
+            log.info("[ProductGuide] RAG 质量合格: query={}, qualityScore={}",
+                    query, String.format("%.4f", result.qualityScore()));
         } else {
-            response.append("抱歉，我没有找到相关商品信息。请提供更详细的商品名称或编码。\n\n");
+            // 质量低：使用兜底提示，不附加低质量检索结果
+            log.warn("[ProductGuide] RAG 质量低，使用兜底: query={}, qualityScore={}, threshold={}",
+                    query, String.format("%.4f", result.qualityScore()),
+                    "0.05");
+            if (result.fallback() != null) {
+                response.append(result.fallback()).append("\n\n");
+            } else {
+                response.append("未找到相关商品信息，请提供更详细的商品名称或编码。\n\n");
+            }
         }
 
         // 3. 追加询问语气引导
@@ -58,7 +72,8 @@ public class ProductGuideService {
         response.append("• 您的收货地址和联系方式\n\n");
         response.append("我会帮您完成下单流程 😊");
 
-        log.info("[ProductGuide] 生成引导回复: query={}, ragResultLen={}", query, ragResult.length());
+        log.info("[ProductGuide] 生成引导回复: query={}, ragResultLen={}, highQuality={}",
+                query, result.content().length(), result.highQuality());
         return response.toString();
     }
 }

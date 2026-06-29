@@ -7,7 +7,10 @@
 
 package com.example.smartassistant.tools;
 
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.tool.ToolPageResult;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -29,9 +32,21 @@ public class OrderAnalyticsTool {
     private static final Logger log = LoggerFactory.getLogger(OrderAnalyticsTool.class);
 
     private final JdbcTemplate jdbcTemplate;
+    private final ToolRegistry toolRegistry;
 
-    public OrderAnalyticsTool(JdbcTemplate jdbcTemplate) {
+    public OrderAnalyticsTool(JdbcTemplate jdbcTemplate, ToolRegistry toolRegistry) {
         this.jdbcTemplate = jdbcTemplate;
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.registerAll(java.util.List.of(
+                ToolDefinition.read("queryOrdersByStatus", "查询指定状态的订单列表"),
+                ToolDefinition.read("countOrdersByStatus", "统计各状态订单数量"),
+                ToolDefinition.read("queryTopRefunds", "查询退款金额最高的订单排行"),
+                ToolDefinition.read("queryUserRefunds", "查询用户退款记录")
+        ));
     }
 
     @Tool(description = "查询指定状态的订单列表（支持分页）。"

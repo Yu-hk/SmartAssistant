@@ -9,8 +9,12 @@ package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.common.correction.CorrectionService;
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.general.sandbox.ScriptSandbox;
+import jakarta.annotation.PostConstruct;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.objecthunter.exp4j.ExpressionBuilder;
@@ -45,20 +49,32 @@ public class GeneralTools {
     private static final Logger log = LoggerFactory.getLogger(GeneralTools.class);
 
     private final CorrectionService correctionService;
-
-    /** 脚本运行时沙箱：为 executeScript 提供资源限制 + 超时熔断 */
     private final ScriptSandbox scriptSandbox;
+    private final ToolRegistry toolRegistry;
 
-    /**
-     * ⭐ I/O 阻塞型虚拟线程执行器：用于热点新闻等并发 HTTP 抓取（JDK 21）。
-     * <p>替代原先 {@code supplyAsync} 默认使用的 ForkJoin commonPool —— 用 commonPool 跑阻塞 I/O
-     * 会占用有限的公共池线程，属反模式；虚拟线程每任务一线程，阻塞期间释放载体线程。</p>
-     */
     private final ExecutorService ioVirtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public GeneralTools(CorrectionService correctionService, ScriptSandbox scriptSandbox) {
+    public GeneralTools(CorrectionService correctionService, ScriptSandbox scriptSandbox,
+                        ToolRegistry toolRegistry) {
         this.correctionService = correctionService;
         this.scriptSandbox = scriptSandbox;
+        this.toolRegistry = toolRegistry;
+    }
+
+    @PostConstruct
+    public void initTools() {
+        toolRegistry.registerAll(java.util.List.of(
+                ToolDefinition.read("calculate", "数学表达式计算"),
+                ToolDefinition.read("convertTemperature", "温度单位转换"),
+                ToolDefinition.read("convertLength", "长度单位转换"),
+                ToolDefinition.read("convertWeight", "重量单位转换"),
+                ToolDefinition.write("getHotNews", "获取热点新闻", ToolRiskLevel.LOW),
+                ToolDefinition.write("searchWeb", "联网搜索", ToolRiskLevel.LOW),
+                ToolDefinition.write("convertCurrency", "货币汇率转换", ToolRiskLevel.LOW),
+                ToolDefinition.read("queryCorrections", "查询历史纠错记录"),
+                new ToolDefinition("executeScript", "执行多步计算脚本", ToolRiskLevel.MEDIUM,
+                        java.time.Duration.ofSeconds(10), true, 1, 5, new String[0])
+        ));
     }
 
     // ==================== 数学计算 ====================

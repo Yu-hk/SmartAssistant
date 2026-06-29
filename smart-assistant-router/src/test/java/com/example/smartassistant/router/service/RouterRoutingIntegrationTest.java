@@ -90,7 +90,7 @@ class RouterRoutingIntegrationTest {
         lenient().when(reflectionService.retry(anyString(), anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn("retry result");
         new RouterService(agentCallerService, chatClientBuilder,
-                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, modelRoutingService, experienceService, graphExecutionService, taskAnalysisService, qualityEvaluationService, queryRewriter, lightChatModel);
+                Runnable::run, redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, modelRoutingService, experienceService, graphExecutionService, taskAnalysisService, qualityEvaluationService, queryRewriter, null, lightChatModel, null);
     }
 
     @Test

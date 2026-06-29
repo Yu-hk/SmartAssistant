@@ -8,6 +8,8 @@
 package com.example.smartassistant.service;
 
 import com.example.smartassistant.entity.ApprovalRecordEntity;
+import com.example.smartassistant.entity.ApprovalRecordEntity.ApprovalStatus;
+import com.example.smartassistant.entity.ApprovalStateException;
 import com.example.smartassistant.mapper.ApprovalRecordMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 
 /**
- * 操作审批服务（数据库持久化版）
+ * 操作审批服务（数据库持久化版 + 充血状态机）
  * <p>
  * 为敏感操作（如退款）提供二阶段确认机制：
  * <ol>
@@ -27,8 +29,13 @@ import java.time.LocalDateTime;
  * </ol>
  * </p>
  * <p>
- * ⭐ 重构说明：从 ConcurrentHashMap 内存存储迁移到 PostgreSQL 数据库持久化，
- * 服务重启后数据不丢失。
+ * P0 充血状态机改造要点：
+ * <ul>
+ *   <li>状态转换逻辑内聚在 {@link ApprovalRecordEntity} 中，
+ *       调用 {@code entity.confirm()}/{@code consume()}/{@code cancel()} 校验不变量</li>
+ *   <li>DB 层保留 WHERE status= 原子更新作为最终防线</li>
+ *   <li>终态（CONSUMED / CANCELLED）不可再转换，重复操作返回 409 语义</li>
+ * </ul>
  * </p>
  */
 @Service
@@ -45,6 +52,8 @@ public class ApprovalService {
     /**
      * 创建待确认操作项（数据库持久化）。
      *
+     * <p>同一订单同一操作类型已有待确认项时，先取消旧记录再创建新记录。</p>
+     *
      * @param orderId    订单号
      * @param actionType 操作类型，如 "refund"
      * @param reason     操作原因
@@ -52,23 +61,23 @@ public class ApprovalService {
      */
     @Transactional
     public Long createApproval(String orderId, String actionType, String reason) {
-        // 先取消之前同订单同类型的待确认记录
+        // 取消之前同订单同类型的待确认记录（调用实体 cancel() 校验状态机）
         ApprovalRecordEntity existing = approvalRecordMapper.findPending(orderId, actionType);
         if (existing != null) {
-            existing.setStatus("cancelled");
-            approvalRecordMapper.updateById(existing);
-            log.info("[ApprovalService] 取消旧待确认操作: key={}:{}, id={}", orderId, actionType, existing.getId());
+            try {
+                existing.cancel();  // PENDING → CANCELLED（终态）
+                approvalRecordMapper.updateById(existing);
+                log.info("[ApprovalService] 取消旧待确认操作: orderId={}, actionType={}, id={}",
+                        orderId, actionType, existing.getId());
+            } catch (ApprovalStateException e) {
+                // 旧记录已为非 PENDING（如已被确认），记录日志但不阻塞新记录创建
+                log.warn("[ApprovalService] 旧记录状态异常，跳过取消: orderId={}, actionType={}, status={}, reason={}",
+                        orderId, actionType, existing.getStatus(), e.getMessage());
+            }
         }
 
-        // 创建新的待确认记录
-        ApprovalRecordEntity record = ApprovalRecordEntity.builder()
-                .orderId(orderId)
-                .actionType(actionType)
-                .reason(reason)
-                .status("pending")
-                .createdAt(LocalDateTime.now())
-                .build();
-
+        // 创建新的待确认记录（使用实体静态工厂方法）
+        ApprovalRecordEntity record = ApprovalRecordEntity.createPending(orderId, actionType, reason);
         approvalRecordMapper.insert(record);
         log.info("[ApprovalService] 创建待确认操作: orderId={}, actionType={}, reason={}, id={}",
                 orderId, actionType, reason, record.getId());
@@ -76,36 +85,64 @@ public class ApprovalService {
     }
 
     /**
-     * 确认一个待处理的操作。
+     * 确认一个待处理的操作（PENDING → CONFIRMED）。
      *
-     * @param orderId    订单号
-     * @param actionType 操作类型，如 "refund"
-     * @return true 确认成功，false 无待确认项
+     * <p>先加载实体并调用 {@link ApprovalRecordEntity#confirm(String, String)} 校验状态机，
+     * 再执行 DB 原子更新（WHERE status='pending' 兜底）。</p>
+     *
+     * @param orderId     订单号
+     * @param actionType  操作类型，如 "refund"
+     * @param operator    操作人（审计字段）
+     * @param operatorIp  操作人 IP（审计字段）
+     * @return true 确认成功，false 无待确认项或状态已变化
      */
     @Transactional
-    public boolean confirmAction(String orderId, String actionType) {
+    public boolean confirmAction(String orderId, String actionType, String operator, String operatorIp) {
         ApprovalRecordEntity pending = approvalRecordMapper.findPending(orderId, actionType);
         if (pending == null) {
             log.warn("[ApprovalService] 未找到待确认操作: orderId={}, actionType={}", orderId, actionType);
             return false;
         }
 
-        int updated = approvalRecordMapper.confirmById(pending.getId());
+        // ⭐ 充血状态机校验：实体层面拦截非法状态转换
+        try {
+            pending.confirm(operator, operatorIp);
+        } catch (ApprovalStateException e) {
+            log.warn("[ApprovalService] 确认操作状态异常: orderId={}, actionType={}, reason={}",
+                    orderId, actionType, e.getMessage());
+            return false;
+        }
+
+        // DB 原子更新（WHERE status='pending' 兜底，防止并发下实体校验通过后状态被其他线程修改）
+        int updated = approvalRecordMapper.confirmById(pending.getId(), operator, operatorIp);
         if (updated > 0) {
-            log.info("[ApprovalService] 操作已确认: orderId={}, actionType={}, id={}", orderId, actionType, pending.getId());
+            log.info("[ApprovalService] 操作已确认: orderId={}, actionType={}, id={}, operator={}",
+                    orderId, actionType, pending.getId(), operator);
             return true;
         }
 
-        log.warn("[ApprovalService] 确认失败（并发冲突）: id={}", pending.getId());
+        // DB 更新失败（并发场景下其他线程已确认）
+        log.warn("[ApprovalService] 确认失败（并发冲突或状态已变化）: id={}, orderId={}, actionType={}",
+                pending.getId(), orderId, actionType);
         return false;
     }
 
     /**
-     * 检查并消费确认状态（调用一次后失效）。
+     * 确认一个待处理的操作（无审计字段版本，兼容旧调用）。
+     */
+    @Transactional
+    public boolean confirmAction(String orderId, String actionType) {
+        return confirmAction(orderId, actionType, "SYSTEM", "0.0.0.0");
+    }
+
+    /**
+     * 检查并消费确认状态（CONFIRMED → CONSUMED，调用一次后失效）。
+     *
+     * <p>先加载实体校验状态机，再执行 DB 原子更新。</p>
      *
      * @param orderId    订单号
      * @param actionType 操作类型
-     * @return true 已确认，false 未确认或已过期
+     * @return true 已确认并可执行，false 未确认或已消费
      */
     @Transactional
     public boolean checkAndConsume(String orderId, String actionType) {
@@ -114,13 +151,25 @@ public class ApprovalService {
             return false;
         }
 
+        // ⭐ 充血状态机校验
+        try {
+            confirmed.consume();
+        } catch (ApprovalStateException e) {
+            log.warn("[ApprovalService] 消费操作状态异常: orderId={}, actionType={}, reason={}",
+                    orderId, actionType, e.getMessage());
+            return false;
+        }
+
+        // DB 原子更新（WHERE status='confirmed' 兜底）
         int updated = approvalRecordMapper.consumeById(confirmed.getId());
         if (updated > 0) {
-            log.info("[ApprovalService] 消费确认状态: orderId={}, actionType={}, id={}", orderId, actionType, confirmed.getId());
+            log.info("[ApprovalService] 消费确认状态: orderId={}, actionType={}, id={}",
+                    orderId, actionType, confirmed.getId());
             return true;
         }
 
-        log.warn("[ApprovalService] 消费失败（可能已被其他线程消费）: id={}", confirmed.getId());
+        log.warn("[ApprovalService] 消费失败（并发冲突或状态已变化）: id={}, orderId={}, actionType={}",
+                confirmed.getId(), orderId, actionType);
         return false;
     }
 
@@ -136,17 +185,20 @@ public class ApprovalService {
         if (entity == null) {
             return null;
         }
-        return new PendingApproval(entity.getOrderId(), entity.getActionType(), entity.getReason(), false);
+        return new PendingApproval(entity.getOrderId(), entity.getActionType(),
+                entity.getReason(), ApprovalStatus.CONFIRMED.name().equalsIgnoreCase(entity.getStatus()));
     }
 
+    // ==================== 兼容旧接口的内部类 ====================
+
     /**
-     * 待确认操作内部数据类（兼容对外接口）。
+     * 待确认操作信息（兼容对外接口，新代码应直接使用 {@link ApprovalRecordEntity}）。
      */
     public static class PendingApproval {
         private final String orderId;
         private final String actionType;
         private final String reason;
-        private volatile boolean confirmed;
+        private final boolean confirmed;
 
         public PendingApproval(String orderId, String actionType, String reason, boolean confirmed) {
             this.orderId = orderId;
@@ -159,6 +211,5 @@ public class ApprovalService {
         public String getActionType() { return actionType; }
         public String getReason() { return reason; }
         public boolean isConfirmed() { return confirmed; }
-        public void setConfirmed(boolean confirmed) { this.confirmed = confirmed; }
     }
 }

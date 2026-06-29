@@ -13,11 +13,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
+
 /**
  * ⭐ 订单 RAG 检索服务。
  * <p>
  * 根据 {@link IntentType} 预检索相关数据，为 Agent 提供上下文。
  * 检索结果注入到用户消息中，Agent 在 ReAct 循环中可直接使用。
+ * </p>
+ * <p>
+ * P1 改进：返回 {@link RetrievalResult} 含 {@code foundData} 质量标志，
+ * 未找到数据时调用方可以触发兜底或引导用户补充信息。
  * </p>
  */
 @Service
@@ -32,27 +38,36 @@ public class OrderRagService {
     }
 
     /**
-     * 根据意图类型预检索数据。
+     * P1 带质量标志的 RAG 检索。
+     *
+     * @param intent  检测到的意图
+     * @param message 原始用户消息
+     * @return 检索结果（含是否找到数据的质量标志）
+     */
+    public RetrievalResult retrieveWithQuality(IntentType intent, String message) {
+        if (intent == null || message == null) {
+            return new RetrievalResult("", false);
+        }
+
+        return switch (intent) {
+            case QUERY_ORDER -> retrieveForQuery(message);
+            case REFUND -> retrieveForRefund(message);
+            case CREATE_ORDER -> retrieveForCreate(message);
+            case CANCEL -> retrieveForCancel(message);
+            default -> new RetrievalResult("", false);
+        };
+    }
+
+    /**
+     * 根据意图类型预检索数据（兼容旧调用，无质量标志）。
      *
      * @param intent  检测到的意图
      * @param message 原始用户消息
      * @return 预检索到的上下文文本（可能为空）
      */
     public String retrieve(IntentType intent, String message) {
-        if (intent == null || message == null) return "";
-
-        switch (intent) {
-            case QUERY_ORDER:
-                return retrieveForQuery(message);
-            case REFUND:
-                return retrieveForRefund(message);
-            case CREATE_ORDER:
-                return retrieveForCreate(message);
-            case CANCEL:
-                return retrieveForCancel(message);
-            default:
-                return "";
-        }
+        RetrievalResult result = retrieveWithQuality(intent, message);
+        return result.content();
     }
 
     /**
@@ -70,67 +85,80 @@ public class OrderRagService {
     // ==================== 各意图的检索策略 ====================
 
     /** 查询订单意图：尝试提取订单号并预查 */
-    private String retrieveForQuery(String message) {
+    private RetrievalResult retrieveForQuery(String message) {
         String orderId = extractOrderId(message);
         if (orderId != null) {
             try {
-                // 预查订单信息
                 String orderInfo = orderTools.queryOrder(orderId);
                 String logistics = orderTools.trackLogistics(orderId);
                 StringBuilder sb = new StringBuilder();
+                boolean found = false;
                 if (orderInfo != null && !orderInfo.contains("ORDER_NOT_FOUND")) {
                     sb.append("【订单信息】").append(orderInfo).append("\n");
+                    found = true;
                 }
                 if (logistics != null && !logistics.contains("ORDER_NOT_FOUND") && !logistics.contains("暂无物流")) {
                     sb.append("【物流信息】").append(logistics);
+                    found = true;
                 }
-                if (sb.length() > 0) {
+                if (found) {
                     log.info("[OrderRAG] 查询意图预检索成功: orderId={}", orderId);
-                    return sb.toString().trim();
+                    return new RetrievalResult(sb.toString().trim(), true);
                 }
             } catch (Exception e) {
                 log.warn("[OrderRAG] 查询意图预检索失败: {}", e.getMessage());
             }
         }
-        return "";
+        return new RetrievalResult("请提供订单号（格式：ORD-xxx）以便查询订单信息。", false);
     }
 
     /** 退款意图：预查退款相关规则 */
-    private String retrieveForRefund(String message) {
+    private RetrievalResult retrieveForRefund(String message) {
         String orderId = extractOrderId(message);
         if (orderId != null) {
             try {
                 String orderInfo = orderTools.queryOrder(orderId);
                 if (orderInfo != null && !orderInfo.contains("ORDER_NOT_FOUND")) {
-                    return "【订单信息】" + orderInfo + "\n\n【退款规则】\n• 仅已发货/已签收的订单可申请退款\n• 退款需二次确认\n• 退款金额以实际支付金额为准";
+                    return new RetrievalResult(
+                            "【订单信息】" + orderInfo + "\n\n【退款规则】\n• 仅已发货/已签收的订单可申请退款\n• 退款需二次确认\n• 退款金额以实际支付金额为准",
+                            true);
                 }
             } catch (Exception e) {
                 log.warn("[OrderRAG] 退款意图预检索失败: {}", e.getMessage());
             }
         }
-        return "【退款提示】请提供订单号以便查询退款信息。";
+        return new RetrievalResult(
+                "请提供订单号（格式：ORD-xxx）以便查询退款信息。",
+                false);
     }
 
-    /** 下单意图：引导提示 */
-    private String retrieveForCreate(String message) {
-        return "【下单引导】请让用户提供以下信息：\n• 商品名称\n• 购买数量\n• 收货人姓名、电话、地址\n• 支付方式\n确认信息后调用 createOrder 创建订单。";
+    /** 下单意图：引导提示（始终视为高质量） */
+    private RetrievalResult retrieveForCreate(String message) {
+        return new RetrievalResult(
+                "【下单引导】请让用户提供以下信息：\n• 商品名称\n• 购买数量\n• 收货人姓名、电话、地址\n• 支付方式\n确认信息后调用 createOrder 创建订单。",
+                true);
     }
 
     /** 取消意图：预查订单状态 */
-    private String retrieveForCancel(String message) {
+    private RetrievalResult retrieveForCancel(String message) {
         String orderId = extractOrderId(message);
         if (orderId != null) {
             try {
                 String orderInfo = orderTools.queryOrder(orderId);
                 if (orderInfo != null && !orderInfo.contains("ORDER_NOT_FOUND")) {
-                    return "【订单信息】" + orderInfo + "\n\n【取消规则】仅「待付款」和「待发货」状态的订单可取消";
+                    return new RetrievalResult(
+                            "【订单信息】" + orderInfo + "\n\n【取消规则】仅「待付款」和「待发货」状态的订单可取消",
+                            true);
                 }
             } catch (Exception e) {
                 log.warn("[OrderRAG] 取消意图预检索失败: {}", e.getMessage());
             }
         }
-        return "";
+        return new RetrievalResult("", false);
     }
+
+    /** P1 RAG 检索结果（含质量标志） */
+    public record RetrievalResult(String content, boolean foundData) {}
 
     /**
      * 从消息中提取订单号（ORD-xxx 格式）。

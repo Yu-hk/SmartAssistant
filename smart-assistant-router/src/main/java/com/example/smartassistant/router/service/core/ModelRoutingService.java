@@ -7,6 +7,9 @@
 
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.common.gateway.llm.AgentLLMGateway;
+import com.example.smartassistant.common.gateway.llm.LLMCallConfig;
+import com.example.smartassistant.common.gateway.llm.LLMCallResult;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,10 +20,8 @@ import org.springframework.stereotype.Service;
  * 模型推理服务 — 纯本地推理引擎
  * <p>
  * SmartAssistant 所有推理请求统一通过此服务调用本地 Ollama 模型。
- * 主推理模型：deepseek-r1:7b（由 application.yml 配置）
- * 备选推理模型：qwen2.5:7b（改配置即可切换）
- * <p>
- * 无云端依赖，所有数据不出本机。
+ * 使用 {@link AgentLLMGateway} 统一管理超时、重试、熔断。
+ * </p>
  */
 @Service
 public class ModelRoutingService {
@@ -28,37 +29,45 @@ public class ModelRoutingService {
     private static final Logger log = LoggerFactory.getLogger(ModelRoutingService.class);
 
     private final ChatClient chatClient;
+    private final AgentLLMGateway llmGateway;
 
-    public ModelRoutingService(ChatClient.Builder chatClientBuilder) {
-        // ⭐ Ollama 为 @Primary ChatModel，ChatClient.Builder 自动注入
+    public ModelRoutingService(ChatClient.Builder chatClientBuilder,
+                               AgentLLMGateway llmGateway) {
         this.chatClient = chatClientBuilder.build();
-        log.info("[ModelRouting] 纯本地推理引擎初始化完成（Ollama）");
+        this.llmGateway = llmGateway;
+        log.info("[ModelRouting] 纯本地推理引擎初始化完成（Ollama + LLMGateway）");
     }
 
     /**
      * 调用本地 Ollama 模型推理。
      * <p>
-     * 使用 Resilience4j 指数退避重试：
-     * 200ms → 400ms → 800ms，最多 3 次。
+     * 使用 AgentLLMGateway 统一管理超时（30s）、重试（2次）、熔断。
      * </p>
      */
     @Retry(name = "modelRoutingRetry")
     public String call(String systemPrompt, String userMessage) {
-        long start = System.currentTimeMillis();
-        try {
-            String reply = chatClient.prompt()
-                    .system(systemPrompt != null ? systemPrompt : "")
-                    .user(userMessage)
-                    .call()
-                    .content();
-            long elapsed = System.currentTimeMillis() - start;
+        LLMCallConfig config = systemPrompt != null && !systemPrompt.isBlank()
+                ? new LLMCallConfig(systemPrompt, 2048, java.time.Duration.ofSeconds(30), 2, 0.5, false)
+                : LLMCallConfig.simple();
+
+        LLMCallResult result = llmGateway.call(() -> {
+                    var builder = chatClient.prompt().user(userMessage);
+                    if (systemPrompt != null && !systemPrompt.isBlank()) {
+                        builder.system(systemPrompt);
+                    }
+                    return builder.call().content();
+                },
+                "ollama-deepseek-r1:7b",
+                config);
+
+        if (result.success()) {
             log.info("[ModelRouting] 推理完成: {} chars, {}ms",
-                    reply != null ? reply.length() : 0, elapsed);
-            return reply;
-        } catch (Exception e) {
-            log.error("[ModelRouting] 推理失败: {}", e.getMessage());
-            throw new RuntimeException("Ollama local model call failed: " + e.getMessage(), e);
+                    result.content() != null ? result.content().length() : 0, result.elapsedMs());
+            return result.content();
         }
+
+        log.error("[ModelRouting] 推理失败: {}", result.errorMessage());
+        throw new RuntimeException("Ollama model call failed: " + result.errorMessage());
     }
 
     /**
