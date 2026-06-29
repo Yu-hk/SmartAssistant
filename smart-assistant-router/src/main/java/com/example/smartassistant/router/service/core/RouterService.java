@@ -111,6 +111,9 @@ public class RouterService {
     );
     private final AtomicInteger fallbackIndex = new AtomicInteger(0);
 
+    // ⭐ 经验匹配检测到的多意图提示（跳过后注入 enhancedQuestion）
+    private String experienceMultiIntentHint;
+
     // ⭐ P1 Agent 执行事件总线（可选：无 Redis 时不记录事件）
     @Autowired(required = false)
     private AgentEventBus agentEventBus;
@@ -202,9 +205,28 @@ public class RouterService {
                 }
 
                 // ⭐⭐ 多意图保护：有副意图时跳过经验直通，走全管道让 LLM 处理
-                //    避免"查订单+退款"类复合问题被经验单路截断
+                //    但经验匹配的结果不浪费——注入 enhancedQuestion，下游 Step 5 可直接消费
                 boolean skipExperienceShortCircuit = experienceMatch.secondaryIntents != null
                         && !experienceMatch.secondaryIntents.isEmpty();
+
+                if (skipExperienceShortCircuit) {
+                    // 构建多意图提示，注入问题中供下游 TaskPlanner 使用
+                    // 格式: "【多意图提醒: 订单查询(经验), 天气查询(经验)】原问题..."
+                    StringBuilder hintBuilder = new StringBuilder();
+                    hintBuilder.append("【多意图提醒: ")
+                            .append(experienceMatch.experience.getIntentTag())
+                            .append("(").append(experienceMatch.agentName).append(")");
+                    if (experienceMatch.secondaryIntents != null) {
+                        for (var si : experienceMatch.secondaryIntents) {
+                            hintBuilder.append(", ").append(si.intentTag)
+                                    .append("(").append(si.agentName).append(")");
+                        }
+                    }
+                    hintBuilder.append("】");
+                    // 暂存到临时字段，Step 3 RAG 增强后注入
+                    experienceMultiIntentHint = hintBuilder.toString();
+                    log.info("[Router] 🔀 多意图经验结果注入: {}", hintBuilder);
+                }
 
                 if (!skipExperienceShortCircuit) {
                     // TOOL 经验：直接把 reroutedQuestion 发往目标 Agent
@@ -396,8 +418,15 @@ public class RouterService {
                 // ⭐ 多 Agent 协作（所有提问均走规划→执行→合并）
                 // 简单问题 plan() 返回单个子任务，merge() 直接返回
                 // 复杂问题自动分解为多个子任务并行执行
-                log.info("[Router] 🤝 启动多 Agent 协作: question={}", truncate(enhancedQuestion, 80));
-                result = executeCollaborative(enhancedQuestion, userId, request.getRequestId());
+                // ⭐ 多意图提示注入：经验匹配检测到的副意图指导 TaskPlanner 分解决策
+                String finalQuestion = enhancedQuestion;
+                if (experienceMultiIntentHint != null && !experienceMultiIntentHint.isBlank()) {
+                    finalQuestion = experienceMultiIntentHint + " " + enhancedQuestion;
+                    experienceMultiIntentHint = null; // 消费后清除
+                    log.info("[Router] 🔀 多意图提示已注入: {}", truncate(finalQuestion, 100));
+                }
+                log.info("[Router] 🤝 启动多 Agent 协作: question={}", truncate(finalQuestion, 80));
+                result = executeCollaborative(finalQuestion, userId, request.getRequestId());
             }
 
             // ⭐ 生成意图标签（用于用户画像统计），设置到 result
