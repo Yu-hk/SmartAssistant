@@ -10,6 +10,8 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.router.service.fusion.IntentFusionResult;
+import com.example.smartassistant.router.service.fusion.IntentFusionService;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
@@ -115,6 +117,10 @@ public class RouterService {
     // ⭐ P1 Agent 执行事件总线（可选：无 Redis 时不记录事件）
     @Autowired(required = false)
     private AgentEventBus agentEventBus;
+
+    // ⭐ L3 三路并行意图融合引擎（可选：降级走原 LLM 路径）
+    @Autowired(required = false)
+    private IntentFusionService intentFusionService;
 
     // ⭐ 关键词快车道服务（P2 改进：高频明确意图跳过 LLM 分诊）
     private final KeywordFastRouteService keywordFastRouteService;
@@ -303,22 +309,55 @@ public class RouterService {
                     }
                 }
             } else {
-                // ⭐ Step 3.5: 任务分析（非缓存命中时执行）
-                // 结构化提取实体/约束/风险/工具评分，存入 Redis 供下游 Agent 使用
-                // P0 多轮上下文注入：从 context 取出对话历史，传入 analyze()
+                // ⭐ Step 3.5: L3 三路并行意图融合 + 任务分析
+                // 规则+小模型+LLM 三路融合，命中高置信路径则跳过 LLM
                 @SuppressWarnings("unchecked")
                 List<String> conversationHistory =
                         (List<String>) context.get("conversationHistory");
-                if (conversationHistory != null && !conversationHistory.isEmpty()) {
-                    log.info("[Router] 📜 多轮上下文注入: historySize={}, latest={}",
-                            conversationHistory.size(),
-                            truncate(conversationHistory.get(conversationHistory.size() - 1), 50));
+
+                // L3 融合：规则/小模型/LLM 并行
+                IntentFusionResult fusionResult = null;
+                if (intentFusionService != null) {
+                    fusionResult = intentFusionService.fuse(
+                            enhancedQuestion,
+                            conversationHistory != null ? conversationHistory : Collections.emptyList()
+                    );
                 }
-                TaskAnalysisResult taskAnalysis = taskAnalysisService.analyze(
-                        question,
-                        conversationHistory != null ? conversationHistory : Collections.emptyList()
-                );
-                if (taskAnalysis.isMeaningful()) {
+
+                TaskAnalysisResult taskAnalysis = null;
+                String intentTag = null;
+                double confidence = 0.7;
+
+                if (fusionResult != null && fusionResult.isValid()
+                        && !"LLM".equals(fusionResult.source())) {
+                    // 规则或小模型命中 → 跳过 LLM，使用融合结果
+                    intentTag = fusionResult.intentTag();
+                    confidence = fusionResult.confidence();
+                    log.info("[Router] ⚡ L3 融合命中: source={}, intent={}, conf={}, elapsed={}ms",
+                            fusionResult.source(), intentTag, confidence, fusionResult.elapsedMs());
+
+                    // 构造一个空的 TaskAnalysisResult（只设 intentTag，下游 Agent 可用）
+                    taskAnalysis = new TaskAnalysisResult();
+                    taskAnalysis.setIntentCategory(intentTag);
+                    taskAnalysis.setConfidence(confidence);
+
+                } else {
+                    // LLM 路径或融合降级
+                    if (fusionResult != null) {
+                        log.info("[Router] 🤖 L3 融合走 LLM 路径: source={}, elapsed={}ms",
+                                fusionResult.source(), fusionResult.elapsedMs());
+                    }
+                    taskAnalysis = taskAnalysisService.analyze(
+                            enhancedQuestion,
+                            conversationHistory != null ? conversationHistory : Collections.emptyList()
+                    );
+                    if (taskAnalysis != null && taskAnalysis.isMeaningful()) {
+                        intentTag = taskAnalysis.getIntentCategory();
+                        confidence = taskAnalysis.getConfidence();
+                    }
+                }
+
+                if (taskAnalysis != null && taskAnalysis.isMeaningful()) {
                     storeTaskAnalysisToRedis(request.getRequestId(), taskAnalysis);
                 }
 
