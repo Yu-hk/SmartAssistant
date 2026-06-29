@@ -9,6 +9,7 @@ package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.AgentExecutionState;
+import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.router.service.context.IntentDriftDetector;
 import com.example.smartassistant.router.service.fusion.IntentFusionResult;
@@ -127,6 +128,10 @@ public class RouterService {
     @Autowired(required = false)
     private IntentDriftDetector intentDriftDetector;
 
+    // ⭐ P1 预算追踪
+    @Autowired(required = false)
+    private BudgetTracker budgetTracker;
+
     // ⭐ 关键词快车道服务（P2 改进：高频明确意图跳过 LLM 分诊）
     private final KeywordFastRouteService keywordFastRouteService;
     // ⭐ 路由级工具健康检查
@@ -171,7 +176,7 @@ public class RouterService {
         this.parallelExecutor = routerParallelAgentExecutor;
         this.badCaseMinerService = badCaseMinerService;
     }
-    
+
     /**
      * 执行路由决策并调用目标 Agent（统一入口）
      * 只识别并处理第一个意图
@@ -179,6 +184,11 @@ public class RouterService {
     public RoutingResult route(RouteRequest request) {
         log.info("[Router] 收到路由请求: userId={}, sessionId={}, question={}",
                 request.getUserId(), request.getSessionId(), truncate(request.getQuestion(), 100));
+
+        // ⭐ P1 预算追踪：会话开始
+        if (budgetTracker != null) {
+            budgetTracker.startSession();
+        }
 
         try {
             // Step 0: 经验匹配（优先级最高，在语义缓存之上）
@@ -425,6 +435,9 @@ public class RouterService {
         } catch (Exception e) {
             log.error("[Router] 路由失败: {}", e.getMessage(), e);
 
+            // ⭐ P1 预算清理
+            if (budgetTracker != null) budgetTracker.endSession();
+
             // ⭐ P1 执行事件：记录失败
             if (agentEventBus != null) {
                 agentEventBus.publishEvent(
@@ -568,6 +581,15 @@ public class RouterService {
                     request.getSessionId(),
                     request.getUserId()
             ));
+        }
+
+        // ⭐ P1 预算追踪：结束会话并检查超限
+        if (budgetTracker != null) {
+            var budgetStatus = budgetTracker.checkSession();
+            if (budgetStatus.exceeded()) {
+                log.warn("[Router] ⚠️ 会话预算超限: {}", budgetStatus.reason());
+            }
+            budgetTracker.endSession();
         }
 
         return result;
