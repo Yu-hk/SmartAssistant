@@ -146,8 +146,12 @@ public class AgentCallerService {
 
             log.info("[AgentCaller] HTTP 直调 URL: {}", processUrl);
 
-            // 构建请求体 {question: "..."}
-            Map<String, String> requestBody = Map.of("question", question);
+            // 构建请求体 {question: "...", userId: "..."}
+            Map<String, String> requestBody = new java.util.LinkedHashMap<>();
+            requestBody.put("question", question);
+            if (userId != null) {
+                requestBody.put("userId", String.valueOf(userId));
+            }
             String jsonBody = objectMapper.writeValueAsString(requestBody);
 
             HttpHeaders headers = new HttpHeaders();
