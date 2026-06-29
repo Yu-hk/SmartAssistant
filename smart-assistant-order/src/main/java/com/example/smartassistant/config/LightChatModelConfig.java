@@ -71,7 +71,7 @@ public class LightChatModelConfig {
         }
 
         @Override
-        public ChatOptions getDefaultOptions() {
+        public ChatOptions getOptions() {
             return lightOptions;
         }
     }
