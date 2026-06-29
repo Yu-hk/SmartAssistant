@@ -216,6 +216,44 @@
         ],
         "fieldConfig": { "defaults": { "unit": "s" } },
         "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      },
+      {
+        "id": 12, "title": "L3 意图融合来源分布", "type": "piechart",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 33 },
+        "targets": [
+          { "expr": "sum(rate(a2a_intent_fusion_source{source=\"rule\"}[5m]))", "legendFormat": "规则" },
+          { "expr": "sum(rate(a2a_intent_fusion_source{source=\"classifier\"}[5m]))", "legendFormat": "小模型" },
+          { "expr": "sum(rate(a2a_intent_fusion_source{source=\"llm\"}[5m]))", "legendFormat": "LLM" },
+          { "expr": "sum(rate(a2a_intent_fusion_source{source=\"fallback\"}[5m]))", "legendFormat": "兜底" }
+        ],
+        "options": {
+          "legend": { "displayMode": "table", "placement": "right" },
+          "pieType": "pie",
+          "reduceOptions": { "calcs": ["lastNotNull"] }
+        },
+        "fieldConfig": { "defaults": { "unit": "cps" } }
+      },
+      {
+        "id": 13, "title": "意图漂移 & 预算超限", "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 33 },
+        "targets": [
+          { "expr": "sum(rate(a2a_intent_drift_total{level=\"drift\"}[5m]))", "legendFormat": "漂移" },
+          { "expr": "sum(rate(a2a_intent_drift_total{level=\"strong\"}[5m]))", "legendFormat": "强漂移" },
+          { "expr": "sum(rate(a2a_budget_exceeded_total[5m]))", "legendFormat": "预算超限" }
+        ],
+        "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+        "fieldConfig": { "defaults": { "unit": "cps" } }
+      },
+      {
+        "id": 14, "title": "工具执行状态 & 熔断", "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 33 },
+        "targets": [
+          { "expr": "sum(rate(a2a_tool_execution_result{status=\"success\"}[5m]))", "legendFormat": "执行成功" },
+          { "expr": "sum(rate(a2a_tool_execution_result{status=\"failed\"}[5m]))", "legendFormat": "执行失败" },
+          { "expr": "sum(rate(a2a_tool_circuit_breaker[5m]))", "legendFormat": "熔断触发" }
+        ],
+        "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+        "fieldConfig": { "defaults": { "unit": "cps" } }
       }
     ]
   },
