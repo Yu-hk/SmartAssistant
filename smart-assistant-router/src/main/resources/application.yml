@@ -136,7 +136,13 @@ router:
     routing:
       confidence-threshold: 0.8  # 最低置信度阈值
       max-retries: 2             # 最大重试次数
-    
+
+    # ⭐ P4 Hot Agent + 调度配置（默认关闭）
+    scheduler:
+      enabled: false                  # 设为 true 启用异步任务队列调度
+      worker-count: 4                 # Worker 线程数
+      poll-timeout: 10                # BRPOP 轮询超时（秒）
+
     # ⭐ 语义路由缓存配置
     semantic-cache:
       enabled: true              # 是否启用语义路由缓存
