@@ -10,6 +10,7 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.router.service.context.IntentDriftDetector;
 import com.example.smartassistant.router.service.fusion.IntentFusionResult;
 import com.example.smartassistant.router.service.fusion.IntentFusionService;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
@@ -121,6 +122,10 @@ public class RouterService {
     // ⭐ L3 三路并行意图融合引擎（可选：降级走原 LLM 路径）
     @Autowired(required = false)
     private IntentFusionService intentFusionService;
+
+    // ⭐ L5 意图漂移检测
+    @Autowired(required = false)
+    private IntentDriftDetector intentDriftDetector;
 
     // ⭐ 关键词快车道服务（P2 改进：高频明确意图跳过 LLM 分诊）
     private final KeywordFastRouteService keywordFastRouteService;
@@ -354,6 +359,23 @@ public class RouterService {
                     if (taskAnalysis != null && taskAnalysis.isMeaningful()) {
                         intentTag = taskAnalysis.getIntentCategory();
                         confidence = taskAnalysis.getConfidence();
+                    }
+                }
+
+                // ⭐ L5 意图漂移检测：多轮对话中检测用户意图是否漂移
+                if (intentDriftDetector != null && intentTag != null
+                        && conversationHistory != null && !conversationHistory.isEmpty()) {
+                    var drift = intentDriftDetector.detect(enhancedQuestion, conversationHistory);
+                    if (drift.driftDetected()) {
+                        log.warn("[Router] 🔄 意图漂移: from='{}' to='{}', similarity={}, strong={}",
+                                truncate(drift.previousQuestion(), 30),
+                                intentTag,
+                                String.format("%.4f", drift.similarity()),
+                                drift.strongDrift());
+                        // 强漂移时标记 intentTag（下游可据此重置上下文）
+                        if (drift.strongDrift()) {
+                            log.info("[Router] 🔄 强漂移检测: 新意图={}, 上下文需重置", intentTag);
+                        }
                     }
                 }
 
