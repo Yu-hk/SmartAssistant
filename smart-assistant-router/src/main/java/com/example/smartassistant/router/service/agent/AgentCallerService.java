@@ -7,6 +7,10 @@
 
 package com.example.smartassistant.router.service.agent;
 
+import com.example.smartassistant.common.scheduler.AgentSchedulerService;
+import com.example.smartassistant.common.scheduler.AgentTask;
+import com.example.smartassistant.common.scheduler.AgentTaskFactory;
+import com.example.smartassistant.common.scheduler.AgentTaskStatus;
 import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.RouteDecision;
 import com.example.smartassistant.router.service.extraction.KeywordExtractionService;
@@ -55,6 +59,9 @@ public class AgentCallerService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
+    // ⭐ P4 调度服务（可选：降级走同步 HTTP）
+    private AgentSchedulerService schedulerService;
+
     public AgentCallerService(AgentDiscoveryService agentDiscoveryService,
                              KeywordExtractionService keywordExtractionService,
                              AgentVersionNegotiator versionNegotiator) {
@@ -62,6 +69,13 @@ public class AgentCallerService {
         this.versionNegotiator = versionNegotiator;
         this.restTemplate = new RestTemplate();
         this.objectMapper = new ObjectMapper();
+    }
+
+    /**
+     * 注入调度服务（支持延迟注入，允许先初始化 AgentCallerService 再启动调度器）
+     */
+    public void setSchedulerService(AgentSchedulerService schedulerService) {
+        this.schedulerService = schedulerService;
     }
 
     // ==================== 公开方法 ====================
@@ -103,6 +117,61 @@ public class AgentCallerService {
             log.error("[AgentCaller] Agent 调用失败: {}, 错误: {}", agentName, e.getMessage(), e);
             return new AgentCallResult("❌ 调用 Agent 失败: " + e.getMessage());
         }
+    }
+
+    // ═════════════════════════════════════════════════════
+    // ⭐ P4 异步 Agent 调用（任务队列模式）
+    // ═════════════════════════════════════════════════════
+
+    /**
+     * 异步调用 Agent（通过任务队列调度）。
+     * <p>
+     * 任务入队后立即返回 taskId，调用方通过 {@code taskId} 轮询结果。
+     * 降级策略：调度服务不可用时，退化为同步 HTTP 调用。
+     * </p>
+     *
+     * @param agentName 目标 Agent 名称
+     * @param question  Agent 处理的问题
+     * @param userId    用户 ID
+     * @param requestId 路由请求 ID
+     * @param intentTag 意图标签
+     * @param confidence 置信度
+     * @return taskId（异步模式）或 null（降级为同步）
+     */
+    public String callAgentAsync(String agentName, String question, String originalQuestion,
+                                  Long userId, String requestId, String intentTag, double confidence) {
+        if (schedulerService == null) {
+            log.warn("[AgentCaller] 调度服务不可用，降级为同步调用: agent={}", agentName);
+            return null; // 调用方应降级到同步模式
+        }
+
+        AgentTask task = AgentTaskFactory.createTaskWithContext(
+                agentName, question, originalQuestion, userId, requestId, null, intentTag, confidence);
+        task.setPriority(15); // 异步任务默认较高优先级
+
+        return schedulerService.submitAsync(task);
+    }
+
+    /**
+     * 轮询异步任务结果。
+     *
+     * @param taskId 任务 ID
+     * @return 任务（含结果），可能为 empty 表示尚未完成
+     */
+    public java.util.Optional<AgentTask> pollAsyncResult(String taskId) {
+        if (schedulerService == null || taskId == null) {
+            return java.util.Optional.empty();
+        }
+        return schedulerService.pollResult(taskId);
+    }
+
+    /**
+     * 判断异步任务是否已完成。
+     */
+    public boolean isAsyncTaskDone(String taskId) {
+        return pollAsyncResult(taskId)
+                .map(t -> t.isTerminal())
+                .orElse(false);
     }
 
     public String callAgentWithContext(String agentName, String question, Long userId,
