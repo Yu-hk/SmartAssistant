@@ -294,9 +294,8 @@ public class RouterService {
                     }
                 }
 
-                if (!skipExperienceShortCircuit) {
-                    // TOOL 经验：直接把 reroutedQuestion 发往目标 Agent
-                    if (experienceMatch.isToolExperience) {
+                // ⭐ 单意图：TOOL / COMMON / REACT 经验直接短路
+                if (experienceMatch.isToolExperience) {
                         RoutingResult result = callAgentAndFinalize(
                                 experienceMatch.agentName,
                                 experienceMatch.reroutedQuestion,
@@ -317,8 +316,7 @@ public class RouterService {
                                 request, question);
                         if (result != null) return result;
                     }
-                } // end skipExperienceShortCircuit
-            } // end experienceMatch != null
+                } // end experienceMatch != null
 
             // Step 0.5: 关键词快车道（P2 改进：高频明确意图跳过 LLM 分诊）
             // 优先级：经验匹配 > 关键词快车道 > 语义缓存 > LLM 意图识别
