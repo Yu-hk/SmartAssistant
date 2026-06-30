@@ -34,11 +34,16 @@ import java.util.stream.Collectors;
  *     keywords TEXT,
  *     effective_at BIGINT DEFAULT -1,
  *     expire_at BIGINT DEFAULT -1,
- *     embedding vector(384),  -- BGE-small-zh 维度
+ *     tenant_id VARCHAR(64) DEFAULT '',      -- 🔴 ACL：租户隔离
+ *     version VARCHAR(32) DEFAULT 'v1',       -- 🔴 版本：灰度回滚
+ *     source_url VARCHAR(1024) DEFAULT '',    -- 🟡 来源：引用回链
+ *     chunk_index INT DEFAULT -1,             -- 🟡 段落：跨段拼接
+ *     embedding vector(384),                  -- BGE-small-zh 维度
  *     created_at BIGINT NOT NULL
  * );
  * CREATE INDEX IF NOT EXISTS idx_knowledge_embedding ON knowledge_docs
  *     USING hnsw (embedding vector_cosine_ops);
+ * CREATE INDEX IF NOT EXISTS idx_knowledge_tenant ON knowledge_docs (tenant_id);
  * </pre>
  */
 public class PgVectorKnowledgeBase implements KnowledgeBase {
@@ -60,6 +65,9 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
 
     /** BM25 混合权重 */
     private static final double BM25_MIX_WEIGHT = 0.3;
+
+    /** 版本优先级衰减权重 */
+    private static final double VERSION_PENALTY_RATE = 0.1;
 
     /** 余弦相似度阈值 */
     private static final double MIN_SIMILARITY = 0.30;
@@ -88,6 +96,10 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "keywords TEXT,"
                 + "effective_at BIGINT DEFAULT -1,"
                 + "expire_at BIGINT DEFAULT -1,"
+                + "tenant_id VARCHAR(64) DEFAULT '',"
+                + "version VARCHAR(32) DEFAULT 'v1',"
+                + "source_url VARCHAR(1024) DEFAULT '',"
+                + "chunk_index INT DEFAULT -1,"
                 + "embedding vector(" + DIMENSIONS + "),"
                 + "created_at BIGINT NOT NULL"
                 + ")");
@@ -97,6 +109,12 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         } catch (Exception e) {
             log.warn("[PgVectorKB:{}] HNSW 索引创建失败（可能已存在或 pgvector 版本问题）: {}",
                     name, e.getMessage());
+        }
+        try {
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_tenant_acl"
+                    + " ON " + TABLE + " (tenant_id)");
+        } catch (Exception e) {
+            log.warn("[PgVectorKB:{}] ACL 索引创建失败: {}", name, e.getMessage());
         }
     }
 
@@ -111,15 +129,21 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
 
         jdbcTemplate.update(
                 "INSERT INTO " + TABLE + " (id, title, content, category, keywords, "
-                        + "effective_at, expire_at, embedding, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, " + (vecStr != null ? "?::vector" : "NULL") + ", ?) "
+                        + "effective_at, expire_at, tenant_id, version, source_url, chunk_index, "
+                        + "embedding, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                        + (vecStr != null ? "?::vector" : "NULL") + ", ?) "
                         + "ON CONFLICT (id) DO UPDATE SET "
                         + "title=EXCLUDED.title, content=EXCLUDED.content, "
                         + "category=EXCLUDED.category, keywords=EXCLUDED.keywords, "
+                        + "tenant_id=EXCLUDED.tenant_id, version=EXCLUDED.version, "
+                        + "source_url=EXCLUDED.source_url, chunk_index=EXCLUDED.chunk_index, "
                         + "embedding=" + (vecStr != null ? "EXCLUDED.embedding" : "NULL"),
                 doc.getId(), doc.getTitle(), doc.getContent(),
                 doc.getCategory(), doc.getKeywords(),
                 doc.getEffectiveAt(), doc.getExpireAt(),
+                doc.getTenantId(), doc.getVersion(),
+                doc.getSourceUrl(), doc.getChunkIndex(),
                 vecStr, System.currentTimeMillis());
     }
 
@@ -130,6 +154,11 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
 
     @Override
     public List<KnowledgeHit> search(String query, int topK) {
+        return search(query, topK, KnowledgeBase.PUBLIC_TENANT);
+    }
+
+    @Override
+    public List<KnowledgeHit> search(String query, int topK, String tenantId) {
         if (query == null || query.isBlank()) return Collections.emptyList();
         int k = (topK > 0) ? topK : 5;
 
@@ -137,25 +166,32 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         float[] queryVec = embeddingModel.embedding(query);
         if (queryVec == null) {
             log.warn("[PgVectorKB:{}] 嵌入不可用，降级到关键词搜索", name);
-            return fallbackSearch(query, k);
+            return fallbackSearch(query, k, tenantId);
         }
 
-        // 向量搜索 + 过滤过期文档
+        // 向量搜索 + 过滤过期文档 + 🔴 ACL 检索前过滤
         String vecStr = arrayToPgVector(queryVec);
         long now = System.currentTimeMillis();
+        String aclClause = buildAclClause(tenantId);
         List<KnowledgeDocument> candidates = jdbcTemplate.query(
-                "SELECT id, title, content, category, keywords, effective_at, expire_at, created_at, "
+                "SELECT id, title, content, category, keywords, effective_at, expire_at, "
+                        + "tenant_id, version, source_url, chunk_index, created_at, "
                         + "(embedding <-> ?::vector) AS dist "
                         + "FROM " + TABLE + " "
                         + "WHERE (effective_at <= 0 OR effective_at <= ?) "
                         + "AND (expire_at <= 0 OR expire_at > ?) "
+                        + aclClause
                         + "ORDER BY embedding <-> ?::vector LIMIT ?",
                 (ResultSet rs, int rowNum) -> {
                     KnowledgeDocument doc = new KnowledgeDocument(
                             rs.getString("id"), rs.getString("title"),
                             rs.getString("content"), rs.getString("category"),
                             rs.getString("keywords"),
-                            rs.getLong("effective_at"), rs.getLong("expire_at"));
+                            rs.getLong("effective_at"), rs.getLong("expire_at"),
+                            safeString(rs, "tenant_id"),
+                            safeString(rs, "version"),
+                            safeString(rs, "source_url"),
+                            rs.getInt("chunk_index"));
                     return doc;
                 },
                 vecStr, now, now, vecStr, 50); // 粗筛 50 条
@@ -217,19 +253,26 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         rs.getLong("effective_at"), rs.getLong("expire_at")));
     }
 
-    private List<KnowledgeHit> fallbackSearch(String query, int topK) {
+    private List<KnowledgeHit> fallbackSearch(String query, int topK, String tenantId) {
         String q = "%" + query + "%";
+        String aclClause = buildAclClause(tenantId);
         return jdbcTemplate.query(
-                "SELECT id, title, content, category, keywords, effective_at, expire_at, created_at "
+                "SELECT id, title, content, category, keywords, effective_at, expire_at, "
+                        + "tenant_id, version, source_url, chunk_index, created_at "
                         + "FROM " + TABLE + " "
                         + "WHERE (title ILIKE ? OR content ILIKE ? OR keywords ILIKE ?) "
+                        + aclClause
                         + "LIMIT ?",
                 (ResultSet rs, int rowNum) -> {
                     KnowledgeDocument doc = new KnowledgeDocument(
                             rs.getString("id"), rs.getString("title"),
                             rs.getString("content"), rs.getString("category"),
                             rs.getString("keywords"),
-                            rs.getLong("effective_at"), rs.getLong("expire_at"));
+                            rs.getLong("effective_at"), rs.getLong("expire_at"),
+                            safeString(rs, "tenant_id"),
+                            safeString(rs, "version"),
+                            safeString(rs, "source_url"),
+                            rs.getInt("chunk_index"));
                     return new KnowledgeHit(doc, 0.5);
                 },
                 q, q, q, topK);
@@ -243,12 +286,14 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 timeDecay = Math.exp(-TIME_DECAY_LAMBDA * (365 - daysToExpire));
             }
         }
+        // 版本优先级（v1=1.0, v2=1.1, v3=1.2）
+        double versionBoost = 1.0 + doc.getVersionPriority() * VERSION_PENALTY_RATE;
         double bm25Score = 0;
         if (bm25Scorer != null && bm25Scorer.isInitialized()) {
             bm25Score = Math.tanh(bm25Scorer.score(doc, query));
             bm25Score = Math.min(bm25Score, 1.0);
         }
-        return cosSim * timeDecay * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
+        return cosSim * timeDecay * versionBoost * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
     }
 
     /** float[] → pgvector 字符串格式 '[0.1,0.2,...]' */
@@ -260,6 +305,30 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         }
         sb.append("]");
         return sb.toString();
+    }
+
+    // ==================== ACL 辅助方法 ====================
+
+    /**
+     * 构建 ACL 过滤 SQL 子句。
+     * 检索前过滤：仅返回 tenant_id 为空（公开）或与请求 tenantId 匹配的文档。
+     */
+    private static String buildAclClause(String tenantId) {
+        if (tenantId == null || tenantId.isEmpty()) {
+            return "AND (tenant_id IS NULL OR tenant_id = '') ";
+        }
+        return "AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = '"
+                + tenantId.replace("'", "''") + "') ";
+    }
+
+    /** 安全获取可能为 null 的字符串字段 */
+    private static String safeString(ResultSet rs, String column) {
+        try {
+            String val = rs.getString(column);
+            return val != null ? val : "";
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private static class ScoredDoc {

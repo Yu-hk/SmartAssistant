@@ -7,6 +7,9 @@
 
 package com.example.smartassistant.common.rag;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
  * 知识文档——RAG 检索的基本单元。
  * <p>
@@ -14,8 +17,18 @@ package com.example.smartassistant.common.rag;
  * 参考字节面试考点：向量数据库至少需要 6 类字段——embedding、chunk_text、
  * doc_id、metadata、权限标签(ACL)、版本号，每一类对应一种生产事故。
  * </p>
+ *
+ * <p>版本控制约定：</p>
+ * <ul>
+ *   <li>docId 格式：{baseId}[-v{version}][-s{seq}]，例如 "ORD-REFUND-001-v2-s3"</li>
+ *   <li>version 字段格式：v1, v2, v3... 或日期格式 2026-01</li>
+ *   <li>isSupersededBy(other): 同 baseId 且版本更新时返回 true</li>
+ * </ul>
  */
 public class KnowledgeDocument {
+
+    /** 版本号提取模式（支持 v1, v2.1, 2026-01 等格式） */
+    private static final Pattern VERSION_PATTERN = Pattern.compile("(\\d+)(?:\\.(\\d+))?");
 
     // ==================== 原有字段 ====================
 
@@ -112,4 +125,77 @@ public class KnowledgeDocument {
     public String getVersion() { return version; }
     public String getSourceUrl() { return sourceUrl; }
     public int getChunkIndex() { return chunkIndex; }
+
+    // ==================== 版本控制方法 ====================
+
+    /**
+     * 获取基础文档 ID（去除版本和 chunk 后缀）。
+     * <p>
+     * 例如 "ORD-REFUND-001-v2-s3" → "ORD-REFUND-001"。
+     * 用于判断不同版本的文档是否属于同一内容实体。
+     * </p>
+     */
+    public String getBaseDocId() {
+        String base = id;
+        // 去除最后的 "-g{seq}" 或 "-c{chunk}" 块编号
+        base = base.replaceAll("-g\\d+(-c\\d+)?$", "");
+        // 去除版本后缀 "-v{N}"
+        base = base.replaceAll("-v\\d+(\\.\\d+)?$", "");
+        return base;
+    }
+
+    /**
+     * 判断本文档是否被另一文档取代。
+     * <p>
+     * 同 baseDocId，版本更高，且版本字段非默认时返回 true。
+     * 用于 reindex 时清理旧版本，或 composeScore 中优先返回新版。
+     * </p>
+     *
+     * @param other 另一个文档
+     * @return 如果 other 是本文档的新版则返回 true
+     */
+    public boolean isSupersededBy(KnowledgeDocument other) {
+        if (other == null) return false;
+        // 不同 baseId 不构成取代关系
+        if (!this.getBaseDocId().equals(other.getBaseDocId())) return false;
+        // 取自身版本和对方版本
+        int[] thisVer = parseVersion(this.version);
+        int[] otherVer = parseVersion(other.version);
+        // 如果没有有效版本号，默认不被取代
+        if (thisVer == null || otherVer == null) return false;
+        // 比较主版本号和次版本号
+        if (otherVer[0] != thisVer[0]) return otherVer[0] > thisVer[0];
+        if (otherVer.length > 1 && thisVer.length > 1) return otherVer[1] > thisVer[1];
+        return false;
+    }
+
+    /**
+     * 获取文档版本优先级（数字越大越新）。
+     * <p>
+     * 用于 composeScore 中作为排序因子。
+     * 默认 v1 返回 1.0，v2 返回 2.0，以此类推。
+     * 无法解析版本时返回 0。
+     * </p>
+     */
+    public double getVersionPriority() {
+        int[] ver = parseVersion(this.version);
+        if (ver == null) return 0;
+        double priority = ver[0];
+        if (ver.length > 1) priority += ver[1] / 100.0;
+        return priority;
+    }
+
+    /** 解析版本号字符串为数字数组 */
+    private static int[] parseVersion(String version) {
+        if (version == null || version.isBlank() || "v1".equals(version)) return null;
+        Matcher m = VERSION_PATTERN.matcher(version);
+        if (m.find()) {
+            int major = Integer.parseInt(m.group(1));
+            if (m.group(2) != null) {
+                return new int[]{major, Integer.parseInt(m.group(2))};
+            }
+            return new int[]{major};
+        }
+        return null;
+    }
 }

@@ -15,7 +15,8 @@ import java.util.*;
 public class BgeEmbeddingModel implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(BgeEmbeddingModel.class);
-    private static final int MAX_LEN = 128;
+    /** 最大 Token 数（BGE-small/large 系列支持 512，之前 128 导致长文本被截断） */
+    private static final int MAX_LEN = 512;
 
     private final OrtEnvironment env;
     private final OrtSession session;

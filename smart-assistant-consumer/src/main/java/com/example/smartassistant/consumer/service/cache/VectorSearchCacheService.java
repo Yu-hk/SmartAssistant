@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.service.cache;
 
+import com.example.smartassistant.common.cache.CacheVersionManager;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -67,6 +68,9 @@ public class VectorSearchCacheService {
     @Value("${cache.vector-search.top-k:3}")
     private int topK;
     
+    // ⭐ 缓存版本管理器
+    private final CacheVersionManager cacheVersionManager;
+
     // ⭐ 统计指标
     private final Counter vectorCacheHitCounter;
     private final Counter vectorCacheMissCounter;
@@ -77,10 +81,12 @@ public class VectorSearchCacheService {
     public VectorSearchCacheService(ReactiveStringRedisTemplate redisTemplate,
                                     VectorStore vectorStore,
                                     AnswerPersonalizationService personalizationService,
-                                    MeterRegistry meterRegistry) {
+                                    MeterRegistry meterRegistry,
+                                    CacheVersionManager cacheVersionManager) {
         this.redisTemplate = redisTemplate;
         this.vectorStore = vectorStore;
-        this.personalizationService = personalizationService;  // ⭐
+        this.personalizationService = personalizationService;
+        this.cacheVersionManager = cacheVersionManager;
 
         // 初始化 Micrometer 指标
         this.vectorCacheHitCounter = Counter.builder("answer.vector.cache.hits")
@@ -114,6 +120,14 @@ public class VectorSearchCacheService {
         return redisTemplate.opsForValue().get(cacheKey)
             .doOnSubscribe(s -> log.debug("[VectorCache] L2a: 检查向量检索缓存（组={}）", userGroupId))
             .flatMap(cached -> {
+                // ⭐ 缓存版本检查：缓存的版本与当前版本不一致时跳过
+                long currentVersion = cacheVersionManager.getCurrentVersion();
+                if (!isCacheVersionValid(cached, currentVersion)) {
+                    log.info("[VectorCache] 缓存版本过期: groupId={}, 跳过缓存, 当前版本=v{}",
+                            userGroupId, currentVersion);
+                    return Mono.empty();
+                }
+
                 long duration = System.currentTimeMillis() - startTime;
                 vectorCacheHitCounter.increment();
                 vectorCacheHits.incrementAndGet();
@@ -121,7 +135,8 @@ public class VectorSearchCacheService {
                 log.info("[VectorCache] ✅ L2a 命中向量检索缓存: groupId={}, duration={}ms", userGroupId, duration);
                 
                 // ⭐ 对缓存答案进行个性化重述
-                return personalizationService.personalizeAnswer(cached, question, userId)
+                String actualAnswer = stripVersionPrefix(cached);
+                return personalizationService.personalizeAnswer(actualAnswer, question, userId)
                     .map(rewritten -> {
                         log.debug("[VectorCache] 已个性化重述答案");
                         return rewritten;
@@ -179,9 +194,11 @@ public class VectorSearchCacheService {
                         vectorSearchTimer.record(searchDuration, java.util.concurrent.TimeUnit.MILLISECONDS);
                         
                         if (answer != null) {
-                            // 存入 L2a: Redis 缓存（按组隔离的 Key）
+                            // 存入 L2a: Redis 缓存（包含版本信息，版本不一致时跳过）
+                            long currentVersion = cacheVersionManager.getCurrentVersion();
+                            String versionedAnswer = currentVersion + "|" + answer;
                             redisTemplate.opsForValue()
-                                .set(cacheKey, answer, Duration.ofMinutes(vectorCacheTtlMinutes))
+                                .set(cacheKey, versionedAnswer, Duration.ofMinutes(vectorCacheTtlMinutes))
                                 .subscribe();
                             
                             vectorCacheMissCounter.increment();
@@ -265,5 +282,36 @@ public class VectorSearchCacheService {
             log.error("[VectorCache] SHA-256 算法不可用", e);
             return Integer.toString(Math.abs(input.hashCode()));
         }
+    }
+
+    // ==================== 缓存版本控制 ====================
+
+    /**
+     * 检查缓存的版本是否有效。
+     * 缓存值格式："{version}|{answer}"，解析出版本号与当前版本对比。
+     */
+    private boolean isCacheVersionValid(String cachedValue, long currentVersion) {
+        if (cachedValue == null) return false;
+        int pipe = cachedValue.indexOf('|');
+        if (pipe < 0) {
+            // 旧版缓存（无版本标记），默认通过 — 兼容过渡期
+            return true;
+        }
+        try {
+            long cachedVer = Long.parseLong(cachedValue.substring(0, pipe));
+            return cachedVer == currentVersion;
+        } catch (NumberFormatException e) {
+            return true; // 降级通过
+        }
+    }
+
+    /**
+     * 从缓存值中去除版本前缀，提取原始答案。
+     */
+    private String stripVersionPrefix(String cachedValue) {
+        if (cachedValue == null) return null;
+        int pipe = cachedValue.indexOf('|');
+        if (pipe < 0) return cachedValue;
+        return cachedValue.substring(pipe + 1);
     }
 }

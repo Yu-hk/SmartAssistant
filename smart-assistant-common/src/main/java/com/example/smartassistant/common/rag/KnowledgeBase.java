@@ -13,9 +13,13 @@ import java.util.List;
  * 知识库接口——支持向量检索的知识库抽象。
  * <p>
  * 支持增删文档、BGE 向量嵌入、余弦相似度搜索、两级检索（粗筛+精排）。
+ * 所有检索都支持可选的租户隔离（tenantId），权限过滤在检索前完成。
  * </p>
  */
 public interface KnowledgeBase {
+
+    /** 默认公开租户 ID */
+    String PUBLIC_TENANT = "";
 
     /** 知识库名称 */
     String getName();
@@ -32,13 +36,30 @@ public interface KnowledgeBase {
     void removeDocument(String id);
 
     /**
-     * 检索最相关的文档。
+     * 检索最相关的文档（不限租户）。
      *
      * @param query  检索查询（自然语言）
      * @param topK   返回条数
      * @return 按相关度降序排列的结果
      */
-    List<KnowledgeHit> search(String query, int topK);
+    default List<KnowledgeHit> search(String query, int topK) {
+        return search(query, topK, PUBLIC_TENANT);
+    }
+
+    /**
+     * 检索最相关的文档（按租户隔离）。
+     * <p>
+     * 权限过滤在检索前完成：仅返回 tenantId 为空（公开）或与请求 tenantId 匹配的文档。
+     * 参考 RAG 文章的生产原则：权限过滤必须在检索前完成，
+     * 如果先召回高权限内容再让模型"不要说出来"，这不是安全，是自欺欺人。
+     * </p>
+     *
+     * @param query    检索查询（自然语言）
+     * @param topK     返回条数
+     * @param tenantId 租户 ID（空字符串表示查询公开文档）
+     * @return 按相关度降序排列的结果
+     */
+    List<KnowledgeHit> search(String query, int topK, String tenantId);
 
     /** 获取文档总数 */
     int size();

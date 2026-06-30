@@ -24,6 +24,9 @@ import io.milvus.response.QueryResultsWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -202,8 +205,8 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                 return;
             }
 
-            // 使用 doc.getId() 的 hashCode 作为 Int64 ID
-            long milvusId = Math.abs((long) doc.getId().hashCode());
+            // 使用 SHA-256 截断为 64 位作为 Milvus Int64 ID（避免 hashCode 冲突）
+            long milvusId = hashToLong(doc.getId());
 
             List<Field> fields = new ArrayList<>();
 
@@ -249,7 +252,7 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
     @Override
     public void removeDocument(String id) {
         try {
-            long milvusId = Math.abs((long) id.hashCode());
+            long milvusId = hashToLong(id);
             client.delete(DeleteParam.newBuilder()
                     .withCollectionName(collectionName)
                     .withExpr("id in [" + milvusId + "]")
@@ -261,6 +264,11 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
 
     @Override
     public List<KnowledgeHit> search(String query, int topK) {
+        return search(query, topK, KnowledgeBase.PUBLIC_TENANT);
+    }
+
+    @Override
+    public List<KnowledgeHit> search(String query, int topK, String tenantId) {
         if (query == null || query.isBlank()) return Collections.emptyList();
         int k = (topK > 0) ? topK : 5;
 
@@ -277,6 +285,9 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
         queryVectors.add(floatVec);
 
         try {
+            // 🔴 ACL 检索前过滤：构建 filter expression
+            String expr = buildAclExpr(tenantId);
+
             SearchParam searchParam = SearchParam.newBuilder()
                     .withCollectionName(collectionName)
                     .withMetricType(MetricType.COSINE)
@@ -286,6 +297,7 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                     .withTopK(k)
                     .withVectors(queryVectors)
                     .withParams(SEARCH_PARAM)
+                    .withExpr(expr)
                     .build();
 
             R<SearchResults> resp = client.search(searchParam);
@@ -406,11 +418,60 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                 timeDecay = Math.exp(-0.01 * (365 - daysToExpire));
             }
         }
+        // 版本优先级
+        double versionBoost = 1.0 + doc.getVersionPriority() * 0.1;
         double bm25Score = 0;
         if (bm25Scorer != null && bm25Scorer.isInitialized()) {
             bm25Score = Math.tanh(bm25Scorer.score(doc, query));
             bm25Score = Math.min(bm25Score, 1.0);
         }
-        return cosSim * timeDecay * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
+        return cosSim * timeDecay * versionBoost * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
+    }
+
+    // ==================== ACL 辅助方法 ====================
+
+    /**
+     * 构建 Milvus 检索过滤表达式。
+     * 检索前过滤：仅返回 tenant_id 为空（公开）或与请求 tenantId 匹配的文档。
+     * <p>
+     * Milvus 表达式语法约定：
+     * - 字符串值用双引号
+     * - in 操作符用于多值匹配
+     * - VarChar 空字符串用 "" 表示
+     * </p>
+     */
+    private static String buildAclExpr(String tenantId) {
+        if (tenantId == null || tenantId.isEmpty()) {
+            // 请求公开数据：只返回 tenant_id == "" 的文档
+            return "tenant_id == \"\"";
+        }
+        // 请求特定租户：返回公开文档 + 该租户文档
+        String safeTenant = tenantId.replace("\"", "\\\"");
+        return "tenant_id in [\"\", \"" + safeTenant + "\"]";
+    }
+
+    // ==================== 哈希辅助方法 ====================
+
+    /**
+     * 将字符串映射为 64 位哈希（用于 Milvus Int64 主键）。
+     * <p>
+     * 使用 SHA-256 取前 8 字节，碰撞概率远低于 hashCode()。
+     * 对于 10 万条文档，碰撞概率约 2.7×10⁻¹⁰。
+     * </p>
+     */
+    private static long hashToLong(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            // 取前 8 字节构造 long
+            long hash = 0;
+            for (int i = 0; i < 8; i++) {
+                hash = (hash << 8) | (digest[i] & 0xFF);
+            }
+            return hash == Long.MIN_VALUE ? 0 : Math.abs(hash);
+        } catch (NoSuchAlgorithmException e) {
+            // fallback: 原始 hashCode（极低概率触发）
+            return Math.abs((long) input.hashCode());
+        }
     }
 }
