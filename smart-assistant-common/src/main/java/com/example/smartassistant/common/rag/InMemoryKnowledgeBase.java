@@ -48,6 +48,9 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     /** BM25 关键词加分权重（与 BM25 分数的混合比例，0=不使用 BM25） */
     private static final double BM25_MIX_WEIGHT = 0.3;
 
+    /** 版本优先级衰减权重（同内容但旧版本文档的分数折扣） */
+    private static final double VERSION_PENALTY_RATE = 0.1;
+
     /** 余弦相似度阈值（低于此值不返回） */
     private static final double MIN_SIMILARITY = 0.30;
 
@@ -96,6 +99,11 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
 
     @Override
     public List<KnowledgeHit> search(String query, int topK) {
+        return search(query, topK, KnowledgeBase.PUBLIC_TENANT);
+    }
+
+    @Override
+    public List<KnowledgeHit> search(String query, int topK, String tenantId) {
         if (query == null || query.isBlank() || docs.isEmpty()) return Collections.emptyList();
         int k = (topK > 0) ? topK : DEFAULT_TOP_K;
 
@@ -103,7 +111,7 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         float[] queryVec = embeddingModel.embedding(query);
         if (queryVec == null) {
             log.warn("[KnowledgeBase:{}] 嵌入服务不可用，降级到关键词匹配", name);
-            return fallbackKeywordSearch(query, k);
+            return fallbackKeywordSearch(query, k, tenantId);
         }
         queryVec = normalize(queryVec);
 
@@ -111,6 +119,10 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         for (var entry : vectors.entrySet()) {
             KnowledgeDocument doc = docs.get(entry.getKey());
             if (doc == null || !doc.isActive()) continue;
+
+            // 🔴 ACL 检索前过滤：仅返回匹配 tenantId 或公开文档
+            if (!tenantMatches(doc, tenantId)) continue;
+
             double cosSim = cosineSimilarity(queryVec, entry.getValue());
             if (cosSim < MIN_SIMILARITY) continue;
 
@@ -141,7 +153,11 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     @Override
     public void reindex() {
         vectors.clear();
+
+        // ★ 清理被新版本取代的旧文档
         List<KnowledgeDocument> allDocs = new ArrayList<>(docs.values());
+        removeSuperseded(allDocs);
+
         for (KnowledgeDocument doc : allDocs) {
             float[] vec = embeddingModel.embedding(doc.toEmbedText());
             if (vec != null) vectors.put(doc.getId(), normalize(vec));
@@ -158,10 +174,42 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         log.info("[KnowledgeBase:{}] 重新索引完成: {} 篇文档", name, docs.size());
     }
 
+    /**
+     * 清理被新版本取代的旧文档。
+     * 同 baseDocId 且版本更低的文档会被移除。
+     */
+    private void removeSuperseded(List<KnowledgeDocument> allDocs) {
+        // 按 baseDocId 分组
+        Map<String, List<KnowledgeDocument>> grouped = allDocs.stream()
+                .collect(Collectors.groupingBy(KnowledgeDocument::getBaseDocId));
+
+        for (var entry : grouped.entrySet()) {
+            List<KnowledgeDocument> group = entry.getValue();
+            if (group.size() <= 1) continue;
+            // 找出版本最高的文档
+            KnowledgeDocument newest = group.stream()
+                    .max(Comparator.comparingDouble(KnowledgeDocument::getVersionPriority))
+                    .orElse(null);
+            if (newest == null) continue;
+            // 移除所有被 newest 取代的文档
+            for (KnowledgeDocument doc : group) {
+                if (doc != newest && doc.isSupersededBy(newest)) {
+                    log.info("[KnowledgeBase:{}] 清理旧版本: baseId={}, old={}, new={}",
+                            name, entry.getKey(), doc.getVersion(), newest.getVersion());
+                    docs.remove(doc.getId());
+                }
+            }
+        }
+    }
+
     // ==================== 精排 ====================
 
     /**
-     * 组合评分 = 余弦相似度 × 时间衰减 + BM25 × 混合权重
+     * 组合评分 = 余弦相似度 × 时间衰减 × 版本优先级 + BM25 × 混合权重
+     * <p>
+     * 版本优先级：v1 为 1.0，v2 为 1.1，v3 为 1.2（更高版本优先）。
+     * 被同一 baseId 的新版本取代的文档会被降低分数。
+     * </p>
      */
     private double composeScore(double cosSim, KnowledgeDocument doc, String query) {
         // 时间衰减
@@ -173,6 +221,11 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
             }
         }
 
+        // 版本优先级（v1=1.0, v2=1.1, v3=1.2）
+        double versionPriority = 1.0 + doc.getVersionPriority() * VERSION_PENALTY_RATE;
+        // 如果还有其他版本的文档，检查是否被取代
+        double versionBoost = versionPriority;
+
         // BM25 分数（标准化到 0~1 范围）
         double bm25Score = 0;
         if (bm25Scorer != null && bm25Scorer.isInitialized()) {
@@ -180,15 +233,16 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
             bm25Score = Math.min(bm25Score, 1.0); // 上限保护
         }
 
-        return cosSim * timeDecay * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
+        return cosSim * timeDecay * versionBoost * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
     }
 
     // ==================== 兜底搜索 ====================
 
-    private List<KnowledgeHit> fallbackKeywordSearch(String query, int topK) {
+    private List<KnowledgeHit> fallbackKeywordSearch(String query, int topK, String tenantId) {
         String q = query.toLowerCase();
         return docs.values().stream()
                 .filter(KnowledgeDocument::isActive)
+                .filter(doc -> tenantMatches(doc, tenantId))
                 .map(doc -> {
                     double score = 0;
                     if (doc.getTitle().toLowerCase().contains(q)) score += 0.5;
@@ -230,5 +284,21 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         final KnowledgeDocument doc;
         final double score;
         ScoredDoc(KnowledgeDocument doc, double score) { this.doc = doc; this.score = score; }
+    }
+
+    // ==================== ACL 辅助方法 ====================
+
+    /**
+     * 检查文档是否对指定租户可见。
+     * 文档 tenantId 为空（公开）或与请求的 tenantId 匹配时返回 true。
+     */
+    private static boolean tenantMatches(KnowledgeDocument doc, String requestTenantId) {
+        String docTenant = doc.getTenantId();
+        // 公开文档对所有用户可见
+        if (docTenant == null || docTenant.isEmpty()) return true;
+        // 请求为空时只返回公开文档
+        if (requestTenantId == null || requestTenantId.isEmpty()) return false;
+        // 精确匹配租户
+        return docTenant.equals(requestTenantId);
     }
 }

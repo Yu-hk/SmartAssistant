@@ -25,17 +25,39 @@ public class KnowledgeHit {
 
     /** 格式化为 LLM 可读的上下文片段 */
     public String toContext() {
-        String validity = "";
+        StringBuilder sb = new StringBuilder();
+
+        // 版本信息（LLM 判断时效性的依据）
+        String version = document.getVersion();
+        if (version != null && !version.isBlank() && !"v1".equals(version)) {
+            sb.append(" [版本: ").append(version).append("]");
+        }
+
+        // 来源信息
+        String sourceUrl = document.getSourceUrl();
+        if (sourceUrl != null && !sourceUrl.isBlank()) {
+            sb.append(" [来源: ").append(sourceUrl).append("]");
+        }
+
+        // 租户信息（调试用途）
+        String tenantId = document.getTenantId();
+        if (tenantId != null && !tenantId.isBlank()) {
+            sb.append(" [租户: ").append(tenantId).append("]");
+        }
+
+        // 过期警告
         if (document.getExpireAt() > 0) {
             long daysLeft = (document.getExpireAt() - System.currentTimeMillis()) / 86400000;
             if (daysLeft > 0 && daysLeft < 30) {
-                validity = " [⚠️ 距过期还有 " + daysLeft + " 天]";
+                sb.append(" [⚠️ 距过期还有 ").append(daysLeft).append(" 天]");
             } else if (daysLeft <= 0) {
-                validity = " [⚠️ 已过期]";
+                sb.append(" [⚠️ 已过期]");
             }
         }
+
+        String meta = sb.toString();
         return "【" + document.getTitle() + "】（相关度: "
-                + String.format("%.0f%%", score * 100) + "）" + validity
+                + String.format("%.0f%%", score * 100) + "）" + meta
                 + "\n" + document.getContent() + "\n";
     }
 
