@@ -21,6 +21,12 @@ import java.util.stream.Collectors;
  * 输出相关性分数。精度显著优于 Bi-Encoder 的余弦相似度。
  * </p>
  *
+ * <p><strong>⚠️ 实验性功能</strong>：当前 tokenizer 为自定义贪心 BPE 实现，
+ * 与 HuggingFace transformers 的标准 SentencePiece tokenizer 存在差异，
+ * 可能影响重排质量。建议在正式上线前通过对抗式测试集验证效果。
+ * 默认通过 {@code app.rag.reranker.enabled=false} 关闭。
+ * </p>
+ *
  * <p>
  * 模型来源：BAAI/bge-reranker-v2-m3（HuggingFace），需先导出为 ONNX 格式。
  * 导出脚本见 scripts/download_reranker.py。
@@ -29,7 +35,8 @@ import java.util.stream.Collectors;
  * <p>使用方式：</p>
  * <pre>{@code
  * BgeReranker reranker = new BgeReranker("models/bge-reranker-v2-m3.onnx", "models/tokenizer.json");
- * List<KnowledgeHit> reranked = reranker.rerank(hits, query, 5);
+ * SafeReranker safe = new SafeReranker(reranker);
+ * List<KnowledgeHit> reranked = safe.rerank(hits, query, 5);
  * }</pre>
  */
 public class BgeReranker implements Reranker {
@@ -122,8 +129,9 @@ public class BgeReranker implements Reranker {
 
         long start = System.currentTimeMillis();
 
-        // 对每个 (query, doc) pair 评分
-        List<ScoredHit> scored = hits.parallelStream()
+        // 对每个 (query, doc) pair 评分（使用 stream 而非 parallelStream，
+        // 因为 ONNX Runtime session.run() 非线程安全）
+        List<ScoredHit> scored = hits.stream()
                 .map(hit -> {
                     double score = scorePair(query, hit.getDocument().toEmbedText());
                     return new ScoredHit(hit, score);

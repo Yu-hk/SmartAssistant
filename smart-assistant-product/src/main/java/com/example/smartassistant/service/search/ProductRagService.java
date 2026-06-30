@@ -46,7 +46,7 @@ public class ProductRagService {
     /** 质量分数归一化上限（RRF 理论最大值约为 4 paths × 1/RRF_K） */
     private static final double RRF_MAX = 4.0 / (RRF_K + 1);
 
-    @Value("${product.rag.quality-threshold:0.05}")
+    @Value("${product.rag.quality-threshold:0.30}")
     private double qualityThreshold;
 
     private final ProductBackend productBackend;
@@ -323,7 +323,7 @@ public class ProductRagService {
         if (query == null || query.isBlank()) {
             return new RetrievalResult("",
                     0.0, false,
-                    "请提供商品查询关键词，例如：iPhone 15 Pro 价格");
+                    "INSUFFICIENT_EVIDENCE: 请提供商品查询关键词，例如：iPhone 15 Pro 价格");
         }
 
         long start = System.currentTimeMillis();
@@ -346,7 +346,7 @@ public class ProductRagService {
                     query, activePaths, elapsed);
             return new RetrievalResult("",
                     0.0, false,
-                    "未找到相关商品信息，请尝试更换关键词或联系人工客服。");
+                    "INSUFFICIENT_EVIDENCE: 知识库中未找到与 '" + query + "' 相关的商品信息,请尝试更换关键词或联系人工客服。");
         }
 
         // 质量分数 = Top-1 RRF 分数归一化到 0~1
@@ -373,7 +373,9 @@ public class ProductRagService {
         }
 
         String fallback = highQuality ? null :
-                "（检索结果质量较低，建议核对商品名称或联系人工客服）";
+                "INSUFFICIENT_EVIDENCE: 检索结果质量较低（qualityScore="
+                        + String.format("%.2f", qualityScore)
+                        + "），知识库中未找到足够依据支持准确回答。请核对问题或联系人工客服。";
         return new RetrievalResult(content, qualityScore, highQuality, fallback);
     }
 }

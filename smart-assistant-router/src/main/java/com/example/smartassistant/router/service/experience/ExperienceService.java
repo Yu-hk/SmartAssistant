@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.experience;
 
+import com.example.smartassistant.common.cache.CacheVersionManager;
 import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
@@ -79,13 +80,16 @@ public class ExperienceService {
     private final ExperienceValidator experienceValidator;
     /** Milvus 向量检索服务（可选，替代 pgvector） */
     private final ExperienceMilvusService milvusService;
+    /** 缓存版本管理器：经验更新时递增版本号 */
+    private final CacheVersionManager cacheVersionManager;
 
     public ExperienceService(StringRedisTemplate redisTemplate,
                              SemanticRouteCacheService semanticCache,
                              BgeOnnxEmbeddingService bgeEmbedding,
                              ExperienceEmbeddingMapper embeddingMapper,
                              ExperienceValidator experienceValidator,
-                             ObjectProvider<ExperienceMilvusService> milvusProvider) {
+                             ObjectProvider<ExperienceMilvusService> milvusProvider,
+                             CacheVersionManager cacheVersionManager) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.semanticCache = semanticCache;
@@ -93,6 +97,7 @@ public class ExperienceService {
         this.embeddingMapper = embeddingMapper;
         this.experienceValidator = experienceValidator;
         this.milvusService = milvusProvider != null ? milvusProvider.getIfAvailable() : null;
+        this.cacheVersionManager = cacheVersionManager;
         if (milvusService != null) {
             log.info("[Experience] Milvus 经验向量服务已加载");
         }
@@ -523,6 +528,9 @@ public class ExperienceService {
         } catch (JsonProcessingException e) {
             log.warn("[Experience] 序列化经验失败: id={}, error={}", experience.getId(), e.getMessage());
         }
+
+        // 经验变更后递增缓存版本号，通知 Consumer 侧缓存失效
+        cacheVersionManager.incrementVersion();
     }
 
     /**

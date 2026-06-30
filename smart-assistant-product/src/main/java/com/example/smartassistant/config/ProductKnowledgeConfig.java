@@ -12,6 +12,7 @@ import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
 import com.example.smartassistant.common.rag.Reranker;
+import com.example.smartassistant.common.rag.SafeReranker;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,10 @@ public class ProductKnowledgeConfig {
     @Value("${bge.vocab.path:models/tokenizer.json}")
     private String vocabPath;
 
+    /** Reranker 默认关闭（实验性功能） */
+    @Value("${app.rag.reranker.enabled:false}")
+    private boolean rerankerEnabled;
+
     @Bean
     @ConditionalOnMissingBean
     public BgeEmbeddingModel productBgeEmbeddingModel() {
@@ -46,13 +51,21 @@ public class ProductKnowledgeConfig {
     public InMemoryKnowledgeBase productKnowledgeBase(BgeEmbeddingModel productBgeEmbeddingModel,
                                                        ChineseTokenizer tokenizer,
                                                        ObjectProvider<Reranker> rerankerProvider) {
-        // Reranker 为可选依赖：未配置 Reranker bean 时降级为恒等映射，绝不传 null
-        Reranker reranker = rerankerProvider.getIfAvailable();
-        if (reranker == null) {
+        Reranker reranker;
+        if (rerankerEnabled) {
+            Reranker raw = rerankerProvider.getIfAvailable();
+            if (raw != null) {
+                reranker = new SafeReranker(raw);
+                log.info("[ProductKnowledge] Reranker 已启用: {} (SafeReranker 包装)", raw.getClass().getSimpleName());
+            } else {
+                reranker = Reranker.identity();
+                log.info("[ProductKnowledge] Reranker 启用但无可用实例，降级为恒等映射");
+            }
+        } else {
             reranker = Reranker.identity();
+            log.info("[ProductKnowledge] Reranker 未启用 (app.rag.reranker.enabled=false)");
         }
-        log.info("[ProductKnowledge] 初始化产品知识库 (BGE + BM25), Reranker={}",
-                reranker != Reranker.identity() ? "已启用" : "未启用(恒等映射)");
+
         InMemoryKnowledgeBase kb = KnowledgeSeedData.createProductKnowledgeBase(
                 productBgeEmbeddingModel, tokenizer, reranker);
         log.info("[ProductKnowledge] 产品知识库就绪: {} 篇文档", kb.size());

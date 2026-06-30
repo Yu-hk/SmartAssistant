@@ -47,30 +47,50 @@ public class KnowledgeRetrievalService {
      * @return 格式化的上下文字符串
      */
     public String search(String kbName, String query, int topK) {
+        return search(kbName, query, topK, KnowledgeBase.PUBLIC_TENANT);
+    }
+
+    /**
+     * 从指定知识库中检索（带租户隔离）。
+     *
+     * @param kbName   知识库名称
+     * @param query    检索查询
+     * @param topK     返回条数
+     * @param tenantId 租户 ID（空字符串表示查询公开文档）
+     * @return 格式化的上下文字符串
+     */
+    public String search(String kbName, String query, int topK, String tenantId) {
         KnowledgeBase kb = bases.get(kbName);
         if (kb == null) {
             return "知识库 '" + kbName + "' 不存在。";
         }
-        List<KnowledgeHit> hits = kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K);
+        List<KnowledgeHit> hits = kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K, tenantId);
         if (hits.isEmpty()) {
-            return "知识库中未找到与 '" + query + "' 相关的信息。";
+            return "INSUFFICIENT_EVIDENCE: 知识库 '" + kbName + "' 中未找到与 '" + query + "' 相关的信息。";
         }
         return formatResults(kbName, hits);
     }
 
     /**
-     * 跨所有知识库检索。
+     * 跨所有知识库检索（带租户隔离）。
      */
-    public String searchAll(String query, int topK) {
+    public String searchAll(String query, int topK, String tenantId) {
         List<KnowledgeHit> allHits = new ArrayList<>();
         for (var kb : bases.values()) {
-            allHits.addAll(kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K));
+            allHits.addAll(kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K, tenantId));
         }
         allHits.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
         if (allHits.isEmpty()) {
-            return "所有知识库中均未找到与 '" + query + "' 相关的信息。";
+            return "INSUFFICIENT_EVIDENCE: 所有知识库中均未找到与 '" + query + "' 相关的信息。";
         }
         return formatResults("全部知识库", allHits.subList(0, Math.min(topK, allHits.size())));
+    }
+
+    /**
+     * 跨所有知识库检索（旧兼容签名）。
+     */
+    public String searchAll(String query, int topK) {
+        return searchAll(query, topK, KnowledgeBase.PUBLIC_TENANT);
     }
 
     /** 获取知识库中文档数 */
