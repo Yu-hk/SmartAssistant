@@ -30,10 +30,10 @@ public interface ChunkStrategy {
     List<Chunk> chunk(String text, int maxTokens, int overlap);
 
     /**
-     * 默认分块参数：BGE-small-zh 支持 512 token，取 80% 安全边界
+     * 默认分块参数：BGE-small-zh 支持 512 token，与模型原生能力对齐
      */
     static int defaultMaxTokens() {
-        return 400;
+        return 512;
     }
 
     static int defaultOverlap() {
