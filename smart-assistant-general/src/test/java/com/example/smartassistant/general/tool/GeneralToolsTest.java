@@ -9,6 +9,8 @@ package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.general.sandbox.ScriptSandbox;
 import com.example.smartassistant.general.sandbox.ScriptSandboxProperties;
+import com.example.smartassistant.common.correction.CorrectionService;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -20,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class GeneralToolsTest {
 
     private final GeneralTools tools =
-            new GeneralTools(null, new ScriptSandbox(new ScriptSandboxProperties()));
+            new GeneralTools(null, new ScriptSandbox(new ScriptSandboxProperties()), null);
 
     // ========== 数学计算 ==========
 

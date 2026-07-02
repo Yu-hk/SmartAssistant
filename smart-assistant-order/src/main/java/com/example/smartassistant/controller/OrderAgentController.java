@@ -8,7 +8,6 @@
 package com.example.smartassistant.controller;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
-import com.example.smartassistant.common.memory.AgentMemoryService;
 import com.example.smartassistant.common.memory.ContextOrchestrator;
 import com.example.smartassistant.common.memory.MemoryExtractor;
 import com.example.smartassistant.service.core.OrderIntentService;
@@ -47,8 +46,6 @@ public class OrderAgentController {
     private final SmartReActAgent orderAgent;
     private final OrderIntentService intentService;
     private final OrderRagService ragService;
-    /** Agent 独立记忆：用户粒度的键值偏好存储（Order Agent 专属） */
-    private final AgentMemoryService memoryService;
     /** 记忆后台提取器：对话结束后自动提取用户偏好 */
     private final MemoryExtractor memoryExtractor;
     /** 上下文协调器：统一调度四层记忆预算 */
@@ -57,13 +54,11 @@ public class OrderAgentController {
     public OrderAgentController(SmartReActAgent orderAgent,
                                 OrderIntentService intentService,
                                 OrderRagService ragService,
-                                AgentMemoryService memoryService,
                                 MemoryExtractor memoryExtractor,
                                 ContextOrchestrator orchestrator) {
         this.orderAgent = orderAgent;
         this.intentService = intentService;
         this.ragService = ragService;
-        this.memoryService = memoryService;
         this.memoryExtractor = memoryExtractor;
         this.orchestrator = orchestrator;
     }

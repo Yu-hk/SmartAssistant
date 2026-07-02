@@ -11,6 +11,7 @@ import com.example.smartassistant.router.model.HandoffCommand;
 import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
+import com.example.smartassistant.router.model.SubTaskResult.ErrorType;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,11 +47,17 @@ public class GraphExecutionService {
 
     private final AgentCallerService agentCallerService;
     private final Executor parallelExecutor;
+    private final ReflectionService reflectionService;
+    private final TaskPlannerService taskPlannerService;
 
     public GraphExecutionService(AgentCallerService agentCallerService,
-                                 @Qualifier("routerParallelAgentExecutor") Executor parallelExecutor) {
+                                 @Qualifier("routerParallelAgentExecutor") Executor parallelExecutor,
+                                 ReflectionService reflectionService,
+                                 TaskPlannerService taskPlannerService) {
         this.agentCallerService = agentCallerService;
         this.parallelExecutor = parallelExecutor;
+        this.reflectionService = reflectionService;
+        this.taskPlannerService = taskPlannerService;
     }
 
     /**
@@ -120,9 +127,10 @@ public class GraphExecutionService {
                         })
                         .exceptionally(ex -> {
                             log.error("[GraphExecutor] 节点执行异常: node={}, error={}", node.getId(), ex.getMessage());
+                            ErrorType errorType = classifyException(ex);
                             completedMap.put(node.getId(), new SubTaskResult(
                                     node.getId(), node.getDescription(),
-                                    node.getTargetAgent(), "", false));
+                                    node.getTargetAgent(), "", false, errorType));
                             return null;
                         });
                 futures.add(future);
@@ -133,11 +141,12 @@ public class GraphExecutionService {
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(60, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
                 log.warn("[GraphExecutor] 第{}轮超时(60s): completed={}/{}", round, completedMap.size(), totalNodes);
-                // 超时的节点标记为失败
+                // 超时的节点标记为 RETRYABLE_FAILED（瞬时错误）
                 for (IntentNode node : executableNodes) {
                     completedMap.putIfAbsent(node.getId(), new SubTaskResult(
                             node.getId(), node.getDescription(),
-                            node.getTargetAgent(), "", false));
+                            node.getTargetAgent(), "", false,
+                            SubTaskResult.ErrorType.RETRYABLE_FAILED));
                 }
             } catch (Exception e) {
                 log.warn("[GraphExecutor] 第{}轮异常: {}", round, e.getMessage());
@@ -157,6 +166,15 @@ public class GraphExecutionService {
                 staleRounds = 0;
             }
             previousCompleted = currentCompleted;
+
+            // ⭐ 重规划检测：本轮执行完毕后，检查是否有 NEED_REPLAN 节点
+            int replanCount = triggerReplanIfNeeded(graph, completedMap, allResults,
+                    userId, eventsKey, requestId);
+            if (replanCount > 0) {
+                // 恢复计数，因为新增了节点需要继续执行
+                staleRounds = 0;
+                previousCompleted = completedMap.size();
+            }
         }
 
         log.info("[GraphExecutor] 执行完成: completed={}/{}, rounds={}", completedMap.size(), totalNodes, round);
@@ -274,10 +292,57 @@ public class GraphExecutionService {
     }
 
     /**
-     * 执行单个图节点。
+     * 异常分类——根据异常类型映射到 {@link SubTaskResult.ErrorType}。
      * <p>
-     * 从 {@code completedMap} 中按节点的依赖关系组装共享上下文，
-     * 注入到子任务描述中，然后调用 Agent 执行。
+     * 分类规则：
+     * <ul>
+     *   <li>{@link java.util.concurrent.TimeoutException} → RETRYABLE_FAILED</li>
+     *   <li>{@link java.net.SocketTimeoutException} → RETRYABLE_FAILED</li>
+     *   <li>{@link java.io.IOException} 含 "timeout"/"connect"/"refused" → RETRYABLE_FAILED</li>
+     *   <li>其他异常 → FATAL_FAILED（默认不可重试）</li>
+     * </ul>
+     * </p>
+     */
+    static SubTaskResult.ErrorType classifyException(Throwable ex) {
+        if (ex == null) return SubTaskResult.ErrorType.FATAL_FAILED;
+
+        // 超时类异常 → 可重试
+        if (ex instanceof java.util.concurrent.TimeoutException) {
+            return SubTaskResult.ErrorType.RETRYABLE_FAILED;
+        }
+        if (ex instanceof java.net.SocketTimeoutException) {
+            return SubTaskResult.ErrorType.RETRYABLE_FAILED;
+        }
+
+        // IO 异常中含超时/连接关键词 → 可重试
+        if (ex instanceof java.io.IOException) {
+            String msg = ex.getMessage();
+            if (msg != null && (msg.contains("timeout") || msg.contains("connect")
+                    || msg.contains("refused") || msg.contains("reset"))) {
+                return SubTaskResult.ErrorType.RETRYABLE_FAILED;
+            }
+        }
+
+        // 检查 cause 链
+        Throwable cause = ex.getCause();
+        if (cause != null && cause != ex) {
+            return classifyException(cause); // 递归检查 cause
+        }
+
+        return SubTaskResult.ErrorType.FATAL_FAILED;
+    }
+
+    /**
+     * 执行单个图节点（含指数退避重试 + 验收标准检查）。
+     * <p>
+     * 执行策略：
+     * <ol>
+     *   <li>从 {@code completedMap} 中按节点的依赖关系组装共享上下文</li>
+     *   <li>调用 Agent 执行，失败时根据 {@link ErrorType} 决定是否重试</li>
+     *   <li>{@link ErrorType#RETRYABLE_FAILED}：指数退避重试（最多 3 次）</li>
+     *   <li>{@link ErrorType#FATAL_FAILED}：立即返回</li>
+     *   <li>成功后调用 {@link ReflectionService#checkCriteria} 做验收检查</li>
+     * </ol>
      * </p>
      */
     private SubTaskResult executeNode(IntentNode node, IntentGraph graph,
@@ -295,26 +360,186 @@ public class GraphExecutionService {
                     + "\n\n请结合以上已知信息回答，避免重复，侧重补充新内容。";
         }
 
-        try {
-            var agentResult = agentCallerService.callAgentAndExtractTitles(
-                    node.getTargetAgent(), enrichedDesc, userId, requestId);
-            String resultText = agentResult.getResponse();
-            if (resultText != null && !resultText.isBlank()) {
-                log.info("[GraphExecutor] 节点成功: {}|{}, resultLen={}", node.getId(), node.getTargetAgent(), resultText.length());
+        int maxRetries = 3;
+        long baseDelayMs = 1000;
+
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                var agentResult = agentCallerService.callAgentAndExtractTitles(
+                        node.getTargetAgent(), enrichedDesc, userId, requestId);
+                String resultText = agentResult.getResponse();
+
+                if (resultText != null && !resultText.isBlank()) {
+                    // ⭐ 验收标准检查
+                    ErrorType criteriaResult = reflectionService.checkCriteria(
+                            resultText, node.getSuccessCriteria());
+                    if (criteriaResult == ErrorType.NEED_REPLAN) {
+                        log.warn("[GraphExecutor] 验收不通过: node={}|{}, criteria={}",
+                                node.getId(), node.getTargetAgent(), node.getSuccessCriteria());
+                        return new SubTaskResult(node.getId(), node.getDescription(),
+                                node.getTargetAgent(), resultText, false,
+                                ErrorType.NEED_REPLAN);
+                    }
+                    log.info("[GraphExecutor] 节点成功: {}|{}, resultLen={}",
+                            node.getId(), node.getTargetAgent(), resultText.length());
+                    return new SubTaskResult(node.getId(), node.getDescription(),
+                            node.getTargetAgent(), resultText, true,
+                            agentResult.getRealTitles(), agentResult.getTagsByTitle());
+                }
+
+                // 结果为空 → 可重试
+                if (attempt < maxRetries) {
+                    long delay = backoffDelay(baseDelayMs, attempt);
+                    log.warn("[GraphExecutor] 节点返回空，重试: {}|{}, attempt={}/{}, delay={}ms",
+                            node.getId(), node.getTargetAgent(), attempt + 1, maxRetries, delay);
+                    backoffSleep(delay);
+                    continue;
+                }
+                log.warn("[GraphExecutor] 节点返回空（已达最大重试）: {}|{}", node.getId(), node.getTargetAgent());
                 return new SubTaskResult(node.getId(), node.getDescription(),
-                        node.getTargetAgent(), resultText, true,
-                        agentResult.getRealTitles(), agentResult.getTagsByTitle());
-            } else {
-                log.warn("[GraphExecutor] 节点返回空: {}|{}", node.getId(), node.getTargetAgent());
+                        node.getTargetAgent(), "", false, ErrorType.FATAL_FAILED);
+
+            } catch (Exception e) {
+                ErrorType errorType = classifyException(e);
+
+                if (errorType == ErrorType.RETRYABLE_FAILED && attempt < maxRetries) {
+                    long delay = backoffDelay(baseDelayMs, attempt);
+                    log.warn("[GraphExecutor] 节点异常(可重试): {}|{}, error={}, attempt={}/{}, delay={}ms",
+                            node.getId(), node.getTargetAgent(), e.getMessage(),
+                            attempt + 1, maxRetries, delay);
+                    backoffSleep(delay);
+                    continue;
+                }
+
+                log.warn("[GraphExecutor] 节点异常(不可重试): {}|{}, error={}, type={}",
+                        node.getId(), node.getTargetAgent(), e.getMessage(), errorType);
                 return new SubTaskResult(node.getId(), node.getDescription(),
-                        node.getTargetAgent(), "", false);
+                        node.getTargetAgent(), "", false, errorType);
             }
-        } catch (Exception e) {
-            log.warn("[GraphExecutor] 节点异常: {}|{}, error={}", node.getId(), node.getTargetAgent(), e.getMessage());
-            return new SubTaskResult(node.getId(), node.getDescription(),
-                    node.getTargetAgent(), "", false);
+        }
+
+        return new SubTaskResult(node.getId(), node.getDescription(),
+                node.getTargetAgent(), "", false, ErrorType.FATAL_FAILED);
+    }
+
+    // ========================================================================
+    // 辅助方法：重试 & 重规划
+    // ========================================================================
+
+    /** 指数退避延迟计算：1s → 2s → 4s */
+    private static long backoffDelay(long baseMs, int attempt) {
+        return baseMs * (1L << Math.min(attempt, 10));
+    }
+
+    /** 带中断保护的 sleep */
+    private static void backoffSleep(long delayMs) {
+        try {
+            Thread.sleep(delayMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
+
+    /**
+     * 检查本轮结果中是否有 NEED_REPLAN 节点，触发重规划。
+     *
+     * @return 触发重规划的节点数
+     */
+    private int triggerReplanIfNeeded(IntentGraph graph,
+                                       ConcurrentHashMap<String, SubTaskResult> completedMap,
+                                       List<SubTaskResult> allResults,
+                                       Long userId, String eventsKey, String requestId) {
+        // 找出 NEED_REPLAN 的节点（本轮刚完成的）
+        List<SubTaskResult> needReplan = allResults.stream()
+                .filter(r -> r.needsReplan() && completedMap.containsKey(r.getTaskId()))
+                .collect(Collectors.toList());
+
+        if (needReplan.isEmpty()) return 0;
+
+        int count = 0;
+        for (SubTaskResult failedResult : needReplan) {
+            log.info("[GraphExecutor] 🔄 触发重规划: node={}, agent={}, criteria={}",
+                    failedResult.getTaskId(), failedResult.getAgentName(),
+                    truncate(failedResult.getDescription(), 80));
+
+            List<IntentGraph.IntentNode> newNodes = replanFailedNode(
+                    graph, failedResult, completedMap, allResults);
+
+            if (newNodes != null && !newNodes.isEmpty()) {
+                // 从已完成中移除旧节点（它失败了，需要新节点替代）
+                completedMap.remove(failedResult.getTaskId());
+
+                // 追加新节点到图
+                graph.addNodes(newNodes);
+                log.info("[GraphExecutor] 重规划完成: 新增 {} 个节点 (原node={})",
+                        newNodes.size(), failedResult.getTaskId());
+                count++;
+            } else {
+                log.warn("[GraphExecutor] 重规划失败，保留原结果: node={}", failedResult.getTaskId());
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 对失败节点进行重规划。
+     * <p>
+     * 以原始问题 + 已完成成功的节点结果 + 当前失败节点上下文为输入，
+     * 调用 TaskPlannerService 生成新的子任务图，替代原失败节点。
+     * </p>
+     */
+    private List<IntentGraph.IntentNode> replanFailedNode(IntentGraph graph,
+                                                           SubTaskResult failedResult,
+                                                           Map<String, SubTaskResult> completedMap,
+                                                           List<SubTaskResult> allResults) {
+        // 收集已成功的上下文
+        StringBuilder completedContext = new StringBuilder();
+        for (SubTaskResult r : allResults) {
+            if (r.isSuccess() && r.getResult() != null && !r.getResult().isBlank()
+                    && !r.getTaskId().equals(failedResult.getTaskId())) {
+                completedContext.append("【").append(r.getAgentName())
+                        .append("】").append(truncate(r.getResult(), 300)).append("\n");
+            }
+        }
+
+        String replanPrompt = String.format("""
+                原始问题：%s
+
+                已完成任务的结果：
+                %s
+
+                当前失败的任务【%s】：%s
+                验收标准：%s
+                失败原因：Agent 输出不满足验收标准。
+
+                请为失败的任务重新规划子任务。考虑：
+                1. 是否可以拆分任务使之更简单？
+                2. 是否应该换一个 Agent 重试？
+                3. 是否需要调整任务描述以引导 Agent 更精准地回答？
+
+                输出格式与标准规划相同：子任务ID|描述|助理名|依赖ID列表(逗号分隔)|验收标准
+                """,
+                graph.getQuestion(),
+                completedContext.length() > 0 ? completedContext.toString() : "（无）",
+                failedResult.getTaskId(), failedResult.getDescription(),
+                failedResult.getDescription() != null ? failedResult.getDescription() : "");
+
+        try {
+            IntentGraph replanGraph = taskPlannerService.replan(replanPrompt);
+            if (replanGraph != null && replanGraph.getNodeCount() > 0) {
+                return new ArrayList<>(replanGraph.getAllNodes());
+            }
+        } catch (Exception e) {
+            log.warn("[GraphExecutor] 重规划调用异常: node={}, error={}",
+                    failedResult.getTaskId(), e.getMessage());
+        }
+
+        return List.of();
+    }
+
+    // ========================================================================
+    // 辅助方法：上下文构建 & 截断
+    // ========================================================================
 
     /**
      * 从已完成节点中，按当前节点的依赖关系构建共享上下文文本。

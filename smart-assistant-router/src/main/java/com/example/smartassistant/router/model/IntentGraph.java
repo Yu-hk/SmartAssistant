@@ -145,7 +145,8 @@ public class IntentGraph {
      */
     public static IntentGraph fromFlatTasks(String question, List<SubTask> tasks) {
         List<IntentNode> nodes = tasks.stream()
-                .map(t -> new IntentNode(t.getId(), t.getDescription(), t.getTargetAgent(), t.getDependsOn()))
+                .map(t -> new IntentNode(t.getId(), t.getDescription(), t.getTargetAgent(),
+                        t.getDependsOn(), t.getSuccessCriteria()))
                 .collect(Collectors.toList());
         return new IntentGraph(question, nodes);
     }
@@ -160,18 +161,26 @@ public class IntentGraph {
         private final String description;
         private final String targetAgent;
         private final List<String> dependsOn;
+        /** ⭐ 验收标准（来自 SubTask.successCriteria） */
+        private final String successCriteria;
 
         public IntentNode(String id, String description, String targetAgent, List<String> dependsOn) {
+            this(id, description, targetAgent, dependsOn, null);
+        }
+
+        public IntentNode(String id, String description, String targetAgent, List<String> dependsOn, String successCriteria) {
             this.id = id;
             this.description = description;
             this.targetAgent = targetAgent;
             this.dependsOn = dependsOn != null ? dependsOn : List.of();
+            this.successCriteria = successCriteria;
         }
 
         public String getId() { return id; }
         public String getDescription() { return description; }
         public String getTargetAgent() { return targetAgent; }
         public List<String> getDependsOn() { return dependsOn; }
+        public String getSuccessCriteria() { return successCriteria; }
 
         @Override
         public String toString() {
@@ -179,7 +188,69 @@ public class IntentGraph {
         }
     }
 
+    // ==================== 动态节点追加（用于重规划） ====================
+
+    /**
+     * 动态追加节点到图中（重规划场景）。
+     * <p>
+     * 新节点被加入 nodeMap，并基于其依赖关系重建邻接表和入度。
+     * 如果需要为"替换旧节点"语义，调用方应先使用 {@link #removeNode(String)}。
+     * </p>
+     *
+     * @param newNodes 要追加的节点列表
+     */
+    public void addNodes(List<IntentNode> newNodes) {
+        if (newNodes == null || newNodes.isEmpty()) return;
+        for (IntentNode node : newNodes) {
+            // 避免重复添加
+            if (nodeMap.containsKey(node.getId())) {
+                log.warn("[IntentGraph] 节点已存在，跳过: {}", node.getId());
+                continue;
+            }
+            nodeMap.put(node.getId(), node);
+            adjacency.put(node.getId(), new ArrayList<>());
+
+            // 建立依赖关系
+            List<String> deps = node.getDependsOn();
+            if (deps != null && !deps.isEmpty()) {
+                for (String depId : deps) {
+                    adjacency.computeIfAbsent(depId, k -> new ArrayList<>()).add(node.getId());
+                }
+                inDegree.put(node.getId(), deps.size());
+            } else {
+                inDegree.put(node.getId(), 0);
+            }
+        }
+    }
+
+    /**
+     * 移除节点（重规划时替换旧节点用）。
+     */
+    public void removeNode(String nodeId) {
+        IntentNode removed = nodeMap.remove(nodeId);
+        if (removed == null) return;
+
+        // 清理邻接表
+        adjacency.remove(nodeId);
+        inDegree.remove(nodeId);
+
+        // 从其他节点的邻接列表中移除引用
+        for (List<String> targets : adjacency.values()) {
+            targets.remove(nodeId);
+        }
+
+        // ⭐ 重新计算受影响的节点入度
+        for (IntentNode node : nodeMap.values()) {
+            List<String> deps = node.getDependsOn();
+            if (deps != null && deps.contains(nodeId)) {
+                inDegree.put(node.getId(), Math.max(0, inDegree.getOrDefault(node.getId(), 0) - 1));
+            }
+        }
+    }
+
     public String getQuestion() { return question; }
     public Collection<IntentNode> getAllNodes() { return nodeMap.values(); }
     public int getNodeCount() { return nodeMap.size(); }
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(IntentGraph.class);
 }

@@ -145,7 +145,7 @@ export function SettingsPage({
       setLoginStatus({
         isLoggedIn: data.loggedIn,
         checking: false,
-        method: data.loggedIn ? '已登录' : '未登录',
+        method: data.loggedIn ? 'env' : undefined,
         envConfigured: data.envConfigured,
         cliConfigured: data.cliConfigured,
         error: data.error,
@@ -180,13 +180,13 @@ export function SettingsPage({
       } as Record<string, string>);
       
       if (data.success) {
-        MessagePlugin.success(data.message);
+        MessagePlugin.success((data as any).message);
         setShowEnvConfig(false);
         setEnvConfig({ apiKey: '', authToken: '', internetEnv: '', baseUrl: '' });
         // 重新检查登录状态
         checkLoginStatus();
       } else {
-        MessagePlugin.error(data.error || '保存失败');
+        MessagePlugin.error((data as any).error || '保存失败');
       }
     } catch (error: any) {
       MessagePlugin.error(error?.message || '保存失败');
@@ -246,6 +246,8 @@ export function SettingsPage({
   const handleUseTemplate = (template: typeof PRESET_TEMPLATES[0]) => {
     setFormData({
       ...template,
+      color: '#0052d9',
+      permissionMode: 'default' as PermissionMode,
       description: template.description,
     });
     setIsCreating(true);

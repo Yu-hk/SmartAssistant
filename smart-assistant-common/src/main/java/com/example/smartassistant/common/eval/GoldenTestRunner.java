@@ -12,7 +12,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -59,7 +58,8 @@ public class GoldenTestRunner {
      */
     public List<TestCase> load(Path jsonPath) throws IOException {
         Map<String, Object> root = jsonMapper.readValue(jsonPath.toFile(),
-                new TypeReference<Map<String, Object>>() {});
+                new TypeReference<>() {
+                });
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> cases = (List<Map<String, Object>>) root.get("test_cases");
         List<TestCase> result = new ArrayList<>();
