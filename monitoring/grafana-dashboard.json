@@ -254,6 +254,61 @@
         ],
         "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
         "fieldConfig": { "defaults": { "unit": "cps" } }
+      },
+      {
+        "id": 15, "title": "工具错误类型分布", "type": "piechart",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 41 },
+        "targets": [
+          { "expr": "sum(rate(a2a_tool_error_type[5m])) by (error)", "legendFormat": "{{error}}" }
+        ],
+        "options": {
+          "legend": { "displayMode": "table", "placement": "right", "values": ["percent"] },
+          "pieType": "pie",
+          "reduceOptions": { "calcs": ["sum"], "fields": "/.*/" },
+          "tooltip": { "mode": "single", "sort": "desc" }
+        },
+        "fieldConfig": {
+          "defaults": { "unit": "cps" },
+          "overrides": [
+            { "matcher": { "id": "byName", "options": "retryable" },
+              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#f2cc60" } }] },
+            { "matcher": { "id": "byName", "options": "fatal" },
+              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#e24d42" } }] }
+          ]
+        }
+      },
+      {
+        "id": 16, "title": "工具执行延迟分位数(p50/p95/p99)", "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 41 },
+        "targets": [
+          { "expr": "histogram_quantile(0.50, sum(rate(a2a_tool_execution_latency_percentile_bucket[5m])) by (le))", "legendFormat": "p50" },
+          { "expr": "histogram_quantile(0.95, sum(rate(a2a_tool_execution_latency_percentile_bucket[5m])) by (le))", "legendFormat": "p95" },
+          { "expr": "histogram_quantile(0.99, sum(rate(a2a_tool_execution_latency_percentile_bucket[5m])) by (le))", "legendFormat": "p99" }
+        ],
+        "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+        "fieldConfig": { "defaults": { "unit": "ms" } }
+      },
+      {
+        "id": 17, "title": "按工具分类的错误类型", "type": "bargauge",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 41 },
+        "targets": [
+          { "expr": "sum(rate(a2a_tool_error_type[5m])) by (tool, error)", "legendFormat": "{{tool}} - {{error}}" }
+        ],
+        "options": {
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "horizontal",
+          "reduceOptions": { "values": false, "calcs": ["sum"] }
+        },
+        "fieldConfig": {
+          "defaults": { "unit": "cps", "min": 0 },
+          "overrides": [
+            { "matcher": { "id": "byRegexp", "options": ".*retryable.*" },
+              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#f2cc60" } }] },
+            { "matcher": { "id": "byRegexp", "options": ".*fatal.*" },
+              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#e24d42" } }] }
+          ]
+        }
       }
     ]
   },

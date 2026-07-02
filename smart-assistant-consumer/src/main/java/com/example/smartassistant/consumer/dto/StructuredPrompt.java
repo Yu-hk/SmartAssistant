@@ -33,6 +33,7 @@ public class StructuredPrompt {
     /**
      * 协议版本号（用于兼容性检查）
      */
+    @Builder.Default
     private String version = "1.1";
     
     /**
@@ -58,6 +59,7 @@ public class StructuredPrompt {
     /**
      * 是否启用压缩（针对超长历史对话）
      */
+    @Builder.Default
     private Boolean compressed = false;
     
     /**

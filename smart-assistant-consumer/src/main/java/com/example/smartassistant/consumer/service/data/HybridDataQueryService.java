@@ -56,7 +56,7 @@ public class HybridDataQueryService {
         if (syncMcpToolCallbackProvider != null) {
             log.info("[HybridDataQueryService] 发现 SyncMcpToolCallbackProvider，注册 MCP 工具");
             this.mcpChatClient = chatClientBuilder
-                .defaultToolCallbacks(syncMcpToolCallbackProvider.getToolCallbacks())
+                .defaultTools((Object[]) syncMcpToolCallbackProvider.getToolCallbacks())
                 .build();
         } else {
             log.warn("[HybridDataQueryService] 未发现 SyncMcpToolCallbackProvider");
