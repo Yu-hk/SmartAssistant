@@ -92,10 +92,12 @@
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
-        <!-- ⭐ Spring Cloud Gateway 依赖 gRPC Netty，但未被传递引入 -->
+        <!-- ⭐ Spring Cloud Gateway 依赖 gRPC Netty，GrpcSslConfigurer 引用 io.grpc.netty.NettyChannelBuilder -->
+        <!-- 注意：使用 grpc-netty 而非 grpc-netty-shaded，因为 shaded 版将包名重定位为
+             io.grpc.netty.shaded，导致 ClassNotFoundException: io.grpc.netty.NettyChannelBuilder -->
         <dependency>
             <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty-shaded</artifactId>
+            <artifactId>grpc-netty</artifactId>
             <version>1.68.0</version>
         </dependency>
 
