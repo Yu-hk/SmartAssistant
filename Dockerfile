@@ -1,15 +1,19 @@
-FROM eclipse-temurin:17-jre-alpine
+FROM bellsoft/liberica-openjdk-debian:21-cds
+
 LABEL maintainer="Yu-hk <github.com/Yu-hk>"
 LABEL description="SmartAssistant - Multi-Agent AI Conversation Platform"
 
 WORKDIR /app
+
+# 安装网络工具（健康检查）
+RUN apt-get update && apt-get install -y curl wget && rm -rf /var/lib/apt/lists/*
 
 # 创建日志目录
 RUN mkdir -p /app/logs
 
 # 复制 JAR（构建时由 CI/CD 传入）
 ARG SERVICE_NAME
-COPY target/${SERVICE_NAME}-*.jar /app/app.jar
+COPY ${SERVICE_NAME}/target/${SERVICE_NAME}-*.jar /app/app.jar
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
@@ -21,7 +25,6 @@ ENV JWT_SECRET="" \
     REDIS_PASSWORD="" \
     NACOS_PASSWORD="" \
     DEEPSEEK_API_KEY="" \
-    DASHSCOPE_API_KEY="" \
     JAVA_OPTS="-Dfile.encoding=UTF-8 -Xmx512m -Xms256m"
 
 EXPOSE ${PORT:-8080}

@@ -18,8 +18,6 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/order")
 public class OrderRecommendController {
 
-    private static final Logger log = LoggerFactory.getLogger(OrderRecommendController.class);
-
     private final OrderGraphService orderGraphService;
 
     public OrderRecommendController(OrderGraphService orderGraphService) {

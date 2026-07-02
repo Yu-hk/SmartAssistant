@@ -1,4 +1,4 @@
-import { Dialog, Button, Tag, Descriptions } from 'tdesign-react';
+import { Dialog, Button, Tag } from 'tdesign-react';
 import { 
   TerminalIcon, 
   FileIcon, 
@@ -149,28 +149,28 @@ export function PermissionDialog({ visible, request, onAllow, onDeny }: Permissi
               </pre>
             </div>
           ) : inputItems.length > 0 ? (
-            // 其他工具使用描述列表
-            <Descriptions 
-              column={1} 
-              itemStyle={{ 
-                paddingBottom: '8px'
-              }}
-              labelStyle={{
-                width: '80px',
-                color: 'var(--td-text-color-secondary)'
-              }}
-              contentStyle={{
-                fontFamily: 'monospace',
-                fontSize: '13px',
-                wordBreak: 'break-all'
-              }}
-            >
+            // 其他工具使用简单表格布局
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {inputItems.map((item, index) => (
-                <Descriptions.Item key={index} label={item.label}>
-                  {item.content}
-                </Descriptions.Item>
+                <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                  <span style={{ 
+                    width: '80px', 
+                    flexShrink: 0, 
+                    fontSize: '13px',
+                    color: 'var(--td-text-color-secondary)'
+                  }}>
+                    {item.label}
+                  </span>
+                  <span style={{ 
+                    fontFamily: 'monospace', 
+                    fontSize: '13px', 
+                    wordBreak: 'break-all' 
+                  }}>
+                    {item.content}
+                  </span>
+                </div>
               ))}
-            </Descriptions>
+            </div>
           ) : (
             <div 
               className="text-sm"

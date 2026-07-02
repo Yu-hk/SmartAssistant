@@ -274,6 +274,10 @@ public class ExperienceService {
 
     /** COMMON 经验去重：关键词 Jaccard 相似度阈值 */
     private static final double DEDUP_JACCARD_THRESHOLD = 0.35;
+    /** ⭐ BGE 语义合并：余弦相似度阈值（高于此值即视为语义等价） */
+    private static final double BGE_MERGE_THRESHOLD = 0.85;
+    /** ⭐ BGE 语义合并召回上限 */
+    private static final int BGE_MERGE_TOPK = 10;
 
     /**
      * 从一次成功的 Agent 调用中提取 COMMON 经验。
@@ -292,24 +296,16 @@ public class ExperienceService {
             // ⭐ 先按 agent + 关键词相似度查找已存在的同类经验
             ExperienceModel similar = findSimilarExperience(agentName, keywords, ExperienceModel.Type.COMMON);
             if (similar instanceof CommonExperience commonExp) {
-                // 合并到已有经验
-                commonExp.setHitCount(commonExp.getHitCount() + 1);
-                commonExp.setLastHitAt(System.currentTimeMillis());
-                commonExp.setConfidence(Math.min(1.0, commonExp.getConfidence() + 0.05));
+                mergeCommonExperience(commonExp, keywords, intentTag);
+                return;
+            }
 
-                Set<String> merged = new HashSet<>(commonExp.getTriggerKeywords());
-                merged.addAll(keywords);
-                commonExp.setTriggerKeywords(new ArrayList<>(merged));
-
-                // 合并意图标签（保留更丰富的标签）
-                if (!commonExp.getIntentTag().contains(intentTag)) {
-                    commonExp.setIntentTag(commonExp.getIntentTag() + "," + intentTag);
-                }
-
-                saveExperience(commonExp);
-                upsertEmbedding(commonExp.getId(), agentName, commonExp.getIntentTag());
-                log.debug("[Experience] COMMON 经验已合并: id={}, agent={}, hits={}, newKeywords={}",
-                        commonExp.getId(), agentName, commonExp.getHitCount(), keywords);
+            // ⭐ BGE 语义合并：Jaccard 未命中但 BGE 语义相似度高时自动合并
+            ExperienceModel bgeSimilar = findSimilarByBGE(question, agentName, ExperienceModel.Type.COMMON);
+            if (bgeSimilar instanceof CommonExperience commonExp) {
+                log.info("[Experience] 🔗 BGE 语义合并触发: jaccard未命中, bgeMatch={}",
+                        commonExp.getId());
+                mergeCommonExperience(commonExp, keywords, intentTag);
                 return;
             }
 
@@ -395,24 +391,16 @@ public class ExperienceService {
             // ⭐ 先按 toolName + 关键词相似度查找已存在的同类 TOOL 经验
             ExperienceModel similar = findSimilarExperience(agentName, keywords, ExperienceModel.Type.TOOL);
             if (similar instanceof ToolExperience toolExp && toolName.equals(toolExp.getToolName())) {
-                // 合并到已有 TOOL 经验
-                toolExp.setHitCount(toolExp.getHitCount() + 1);
-                toolExp.setSuccessCount(toolExp.getSuccessCount() + 1);
-                toolExp.setLastHitAt(System.currentTimeMillis());
-                toolExp.setConfidence(Math.min(1.0, toolExp.getConfidence() + 0.05));
+                mergeToolExperience(toolExp, keywords, intentTag);
+                return;
+            }
 
-                Set<String> merged = new HashSet<>(toolExp.getTriggerKeywords());
-                merged.addAll(keywords);
-                toolExp.setTriggerKeywords(new ArrayList<>(merged));
-
-                if (!toolExp.getIntentTag().contains(intentTag)) {
-                    toolExp.setIntentTag(toolExp.getIntentTag() + "," + intentTag);
-                }
-
-                saveExperience(toolExp);
-                upsertEmbedding(toolExp.getId(), agentName, toolExp.getIntentTag());
-                log.debug("[Experience] TOOL 经验已合并: tool={}, agent={}, hits={}",
-                        toolName, agentName, toolExp.getHitCount());
+            // ⭐ BGE 语义合并：Jaccard 未命中但 BGE 语义相似度高时自动合并
+            ExperienceModel bgeSimilar = findSimilarByBGE(question, agentName, ExperienceModel.Type.TOOL);
+            if (bgeSimilar instanceof ToolExperience toolExp && toolName.equals(toolExp.getToolName())) {
+                log.info("[Experience] 🔗 BGE语义合并(TOOL): jaccard未命中, tool={}, bgeMatch={}",
+                        toolName, toolExp.getId());
+                mergeToolExperience(toolExp, keywords, intentTag);
                 return;
             }
 
@@ -434,6 +422,163 @@ public class ExperienceService {
         } catch (Exception e) {
             log.warn("[Experience] 提取 TOOL 经验失败: {}", e.getMessage());
         }
+    }
+
+    // ==================== 经验合并辅助方法 ====================
+
+    /** 合并 COMMON 经验到已有记录 */
+    private void mergeCommonExperience(CommonExperience commonExp, List<String> keywords, String intentTag) {
+        commonExp.setHitCount(commonExp.getHitCount() + 1);
+        commonExp.setLastHitAt(System.currentTimeMillis());
+        commonExp.setConfidence(Math.min(1.0, commonExp.getConfidence() + 0.05));
+
+        Set<String> merged = new HashSet<>(commonExp.getTriggerKeywords());
+        merged.addAll(keywords);
+        commonExp.setTriggerKeywords(new ArrayList<>(merged));
+
+        if (!commonExp.getIntentTag().contains(intentTag)) {
+            commonExp.setIntentTag(commonExp.getIntentTag() + "," + intentTag);
+        }
+
+        saveExperience(commonExp);
+        upsertEmbedding(commonExp.getId(), commonExp.getAgentName(), commonExp.getIntentTag());
+        log.debug("[Experience] COMMON 经验已合并: id={}, agent={}, hits={}, newKeywords={}",
+                commonExp.getId(), commonExp.getAgentName(), commonExp.getHitCount(), keywords);
+    }
+
+    /** 合并 TOOL 经验到已有记录 */
+    private void mergeToolExperience(ToolExperience toolExp, List<String> keywords, String intentTag) {
+        toolExp.setHitCount(toolExp.getHitCount() + 1);
+        toolExp.setSuccessCount(toolExp.getSuccessCount() + 1);
+        toolExp.setLastHitAt(System.currentTimeMillis());
+        toolExp.setConfidence(Math.min(1.0, toolExp.getConfidence() + 0.05));
+
+        Set<String> merged = new HashSet<>(toolExp.getTriggerKeywords());
+        merged.addAll(keywords);
+        toolExp.setTriggerKeywords(new ArrayList<>(merged));
+
+        if (!toolExp.getIntentTag().contains(intentTag)) {
+            toolExp.setIntentTag(toolExp.getIntentTag() + "," + intentTag);
+        }
+
+        saveExperience(toolExp);
+        upsertEmbedding(toolExp.getId(), toolExp.getAgentName(), toolExp.getIntentTag());
+        log.debug("[Experience] TOOL 经验已合并: tool={}, agent={}, hits={}",
+                toolExp.getToolName(), toolExp.getAgentName(), toolExp.getHitCount());
+    }
+
+    /**
+     * ⭐ 基于 BGE 语义相似度的经验合并——当 Jaccard 关键词去重失败时启用。
+     * <p>
+     * 场景：两条经验关键词重叠少（如 "查订单状态" vs "看下订单到哪了"），
+     * 但语义高度相似。Jaccard 阈值 0.35 无法捕获，此时需通过 BGE 余弦相似度补充判断。
+     * </p>
+     * <p>
+     * 检索流程：
+     * <ol>
+     *   <li>将当前问题文本做 BGE 嵌入</li>
+     *   <li>对同 agentName + 同 type 的已有经验计算 BGE cosine</li>
+     *   <li>cosine ≥ {@link #BGE_MERGE_THRESHOLD} 视为语义等价，触发合并</li>
+     *   <li>优先使用 Milvus 向量检索，降级 pgvector，再降级全量遍历</li>
+     * </ol>
+     * </p>
+     *
+     * @param question 用户原始问题（用于 BGE 嵌入）
+     * @param agentName 目标 Agent 名称
+     * @param type 经验类型
+     * @return BGE 相似度最高的已有经验；无匹配返回 null
+     */
+    private ExperienceModel findSimilarByBGE(String question, String agentName, ExperienceModel.Type type) {
+        if (bgeEmbedding == null || !bgeEmbedding.isAvailable()) return null;
+
+        try {
+            float[] queryVec = bgeEmbedding.embed(question);
+            if (queryVec == null) return null;
+
+            // 候选经验集：优先 Milvus，降级 pgvector，再降级全量
+            Map<String, Double> vecScoreMap = new HashMap<>();
+
+            if (milvusService != null) {
+                List<Float> queryFloatVec = new ArrayList<>(queryVec.length);
+                for (float v : queryVec) queryFloatVec.add(v);
+                List<ExperienceMilvusService.SearchResult> milvusResults =
+                        milvusService.findSimilar(queryFloatVec, BGE_MERGE_THRESHOLD, BGE_MERGE_TOPK);
+                if (milvusResults != null) {
+                    for (ExperienceMilvusService.SearchResult sr : milvusResults) {
+                        vecScoreMap.put(sr.getExpId(), sr.getSimilarity());
+                    }
+                }
+            } else {
+                String vectorStr = floatsToPgVector(queryVec);
+                if (vectorStr != null) {
+                    List<ExperienceEmbeddingMapper.EmbeddingSearchResult> pgResults =
+                            embeddingMapper.findSimilar(vectorStr, BGE_MERGE_THRESHOLD, BGE_MERGE_TOPK);
+                    if (pgResults != null) {
+                        for (ExperienceEmbeddingMapper.EmbeddingSearchResult sr : pgResults) {
+                            vecScoreMap.put(sr.getExpId(), sr.getSimilarity());
+                        }
+                    }
+                }
+            }
+
+            // 降级：向量检索无结果时遍历全量
+            if (vecScoreMap.isEmpty()) {
+                Set<String> allIds = listExperienceIds();
+                if (allIds.isEmpty()) return null;
+                for (String id : allIds) {
+                    ExperienceModel exp = loadExperience(id);
+                    if (exp == null || !agentName.equals(exp.getAgentName())) continue;
+                    if (exp.getType() != type) continue;
+                    float[] expVec = exp.getEmbedding();
+                    if (expVec == null) continue;
+                    double cosine = cosineSimilarity(queryVec, expVec);
+                    if (cosine >= BGE_MERGE_THRESHOLD) {
+                        vecScoreMap.put(id, cosine);
+                    }
+                }
+            }
+
+            if (vecScoreMap.isEmpty()) return null;
+
+            // 过滤：同 agentName + 同 type
+            ExperienceModel best = null;
+            double bestScore = 0;
+            for (Map.Entry<String, Double> entry : vecScoreMap.entrySet()) {
+                ExperienceModel exp = loadExperience(entry.getKey());
+                if (exp == null || !agentName.equals(exp.getAgentName())) continue;
+                if (exp.getType() != type) continue;
+                if (entry.getValue() > bestScore) {
+                    bestScore = entry.getValue();
+                    best = exp;
+                }
+            }
+
+            if (best != null) {
+                log.info("[Experience] BGE 语义匹配: question='{}', matchId={}, agent={}, cosine={:.4f}",
+                        truncateText(question, 50), best.getId(), agentName, bestScore);
+            }
+            return best;
+
+        } catch (Exception e) {
+            log.warn("[Experience] BGE 语义合并异常: question='{}', err={}", truncateText(question, 30), e.getMessage());
+            return null;
+        }
+    }
+
+    /** BGE 归一化向量余弦相似度（等效于点积） */
+    private static double cosineSimilarity(float[] a, float[] b) {
+        if (a == null || b == null || a.length != b.length) return 0;
+        double dot = 0;
+        for (int i = 0; i < a.length; i++) {
+            dot += (double) a[i] * b[i];
+        }
+        return dot;
+    }
+
+    /** 截断文本用于日志 */
+    private static String truncateText(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 
     /**

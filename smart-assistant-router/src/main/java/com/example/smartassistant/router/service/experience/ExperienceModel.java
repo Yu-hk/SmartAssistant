@@ -100,6 +100,48 @@ public abstract class ExperienceModel {
         TOOL
     }
 
+    /**
+     * ⭐ 冲突状态枚举——记忆体系中的冲突检测机制。
+     * <p>
+     * 当新经验与已有经验语义相似但内容矛盾时，标记此状态。
+     * 供 {@link ExperienceService} 在 merging 时判断是新事实/更新/冲突。
+     * </p>
+     */
+    public enum ConflictStatus {
+        /** 无冲突——独立事实或首次录入 */
+        NONE,
+        /** 已被新经验取代（此经验已过时） */
+        RESOLVED_BY_NEWER,
+        /** 语义矛盾（两条经验同时有效但内容冲突） */
+        CONTRADICTED
+    }
+
+    // ==================== 冲突检测字段 ====================
+
+    /**
+     * ⭐ 取代者 ID——当此经验被新经验 supersede 时，记录新经验的 id。
+     * <p>
+     * 非空表示此经验已过时，应优先使用 supersedesId 指向的新经验。
+     * 检索命中此经验时，自动重定向到新 id 的经验。
+     * </p>
+     */
+    private String supersedesId;
+
+    /**
+     * ⭐ 矛盾经验 ID——与此经验语义矛盾的另一个经验的 id。
+     * <p>
+     * 两条经验在相似意图下给出了不同的路由/工具建议，
+     * 标记后供人工复核或通过后续收集数据自动裁决。
+     * </p>
+     */
+    private String contradictsId;
+
+    /**
+     * ⭐ 冲突状态——当前经验在记忆体系中的冲突检测状态。
+     * 默认 {@link ConflictStatus#NONE}。
+     */
+    private ConflictStatus conflictStatus = ConflictStatus.NONE;
+
     // ==================== COMMON 经验 ====================
 
     /**
@@ -293,4 +335,21 @@ public abstract class ExperienceModel {
 
     public String getProductType() { return productType; }
     public void setProductType(String productType) { this.productType = productType; }
+
+    // ==================== 冲突检测 Getters / Setters ====================
+
+    public String getSupersedesId() { return supersedesId; }
+    public void setSupersedesId(String supersedesId) { this.supersedesId = supersedesId; }
+
+    public String getContradictsId() { return contradictsId; }
+    public void setContradictsId(String contradictsId) { this.contradictsId = contradictsId; }
+
+    public ConflictStatus getConflictStatus() { return conflictStatus; }
+    public void setConflictStatus(ConflictStatus conflictStatus) { this.conflictStatus = conflictStatus; }
+
+    /** 此经验是否已被新经验取代 */
+    public boolean isSuperseded() { return conflictStatus == ConflictStatus.RESOLVED_BY_NEWER && supersedesId != null; }
+
+    /** 此经验是否存在语义矛盾 */
+    public boolean isContradicted() { return conflictStatus == ConflictStatus.CONTRADICTED && contradictsId != null; }
 }

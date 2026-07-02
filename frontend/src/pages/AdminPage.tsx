@@ -249,7 +249,7 @@ export function AdminPage({ onBack }: AdminPageProps) {
             faqEditItem={faqEditItem}
             faqForm={faqForm}
             onSetFaqForm={setFaqForm}
-            onEditFaq={faq => { setFaqEditItem(faq); setFaqForm({ category: faq.category, question: faq.question, answer: faq.answer, keywords: faq.keywords }); }}
+            onEditFaq={(faq: FaqItem) => { setFaqEditItem(faq); setFaqForm({ category: faq.category, question: faq.question, answer: faq.answer, keywords: faq.keywords }); }}
             onCancelEdit={() => { setFaqEditItem(null); setFaqForm({ category: 'general', question: '', answer: '', keywords: '' }); }}
             onSaveFaq={handleSaveFaq}
             onDeleteFaq={handleDeleteFaq}

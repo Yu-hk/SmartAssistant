@@ -1,7 +1,42 @@
-target/
-*.jar
-*.class
-*.log
+# =============================================================================
+# Docker build context 忽略文件
+# 减少发送到 Docker 守护进程的文件体积
+# =============================================================================
+
+# 版本控制
+.git
+.gitignore
+
+# 开发构建产物
+**/target/
+**/build/
+**/node_modules/
+**/logs/
+**/dumpstream/
+
+# 大文件
+models/  # 模型文件单独 volume 挂载，不包含在镜像中
+data/
+
+# 前端构建会单独处理
+frontend/node_modules/
+
+# IDE 配置
 .idea/
 .vscode/
 *.iml
+*.swp
+
+# 监控配置（部署时单独管理）
+monitoring/
+
+# 旧 Docker 文件（已迁移到 deploy/）
+docker-compose.yml
+docker-compose-infra.yml
+docker-compose.deploy.yml
+Dockerfile.services
+
+# 系统文件
+*.log
+*.gz
+*.tmp

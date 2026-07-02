@@ -109,8 +109,8 @@ public class CouponTools {
             + "支持满减券、折扣券、现金券的智能对比。"
             + "下单前调用此方法，系统会自动帮用户选出最优优惠券。")
     public String findBestCoupon(
-            @ToolParam(description = "用户ID，如 12345", required = true) Long userId,
-            @ToolParam(description = "商品金额，如 8999.00", required = true) BigDecimal amount) {
+            @ToolParam(description = "用户ID，如 12345") Long userId,
+            @ToolParam(description = "商品金额，如 8999.00") BigDecimal amount) {
         log.info("[CouponTool] 寻找最优优惠券: userId={}, amount={}", userId, amount);
 
         try {
@@ -124,17 +124,16 @@ public class CouponTools {
                 return ToolResult.success("当前没有满足条件的优惠券，直接下单即可。");
             }
 
-            StringBuilder sb = new StringBuilder();
-            sb.append("💰 最优优惠方案\n");
-            sb.append("━━━━━━━━━━━━━━━━━━\n");
-            sb.append("原价：¥").append(best.getOriginalAmount().toPlainString()).append("\n");
-            sb.append("优惠：¥").append(best.getDiscountAmount().toPlainString()).append("\n");
-            sb.append("实付：¥").append(best.getFinalAmount().toPlainString()).append("\n");
-            sb.append("━━━━━━━━━━━━━━━━━━\n");
-            sb.append(best.getReason()).append("\n\n");
-            sb.append("💬 请问您要使用这张优惠券下单吗？");
+            String sb = "💰 最优优惠方案\n" +
+                    "━━━━━━━━━━━━━━━━━━\n" +
+                    "原价：¥" + best.getOriginalAmount().toPlainString() + "\n" +
+                    "优惠：¥" + best.getDiscountAmount().toPlainString() + "\n" +
+                    "实付：¥" + best.getFinalAmount().toPlainString() + "\n" +
+                    "━━━━━━━━━━━━━━━━━━\n" +
+                    best.getReason() + "\n\n" +
+                    "💬 请问您要使用这张优惠券下单吗？";
 
-            return ToolResult.success(sb.toString().trim());
+            return ToolResult.success(sb.trim());
         } catch (Exception e) {
             log.error("[CouponTool] 计算最优方案失败: {}", e.getMessage(), e);
             return ToolResult.error(AgentErrorCode.SERVICE_COUPON_CALC_FAILED, "计算优惠方案失败，请稍后重试");

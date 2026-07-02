@@ -10,8 +10,6 @@ package com.example.smartassistant.tools;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.memory.ConflictResult;
-import com.example.smartassistant.common.memory.EntityConflictResolver;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.entity.OrderEntity;
@@ -71,7 +69,6 @@ public class OrderTools {
     private final OrderRefundMapper orderRefundMapper;
     private final OrderLogisticsMapper orderLogisticsMapper;
     private final ReadBeforeEditGuard readGuard;
-    private final EntityConflictResolver conflictResolver;
     private final ToolRegistry toolRegistry;
 
     public OrderTools(ApprovalService approvalService,
@@ -79,14 +76,12 @@ public class OrderTools {
                       OrderRefundMapper orderRefundMapper,
                       OrderLogisticsMapper orderLogisticsMapper,
                       ReadBeforeEditGuard readGuard,
-                      EntityConflictResolver conflictResolver,
                       ToolRegistry toolRegistry) {
         this.approvalService = approvalService;
         this.orderMapper = orderMapper;
         this.orderRefundMapper = orderRefundMapper;
         this.orderLogisticsMapper = orderLogisticsMapper;
         this.readGuard = readGuard;
-        this.conflictResolver = conflictResolver;
         this.toolRegistry = toolRegistry;
     }
 
@@ -113,21 +108,16 @@ public class OrderTools {
     @Tool(description = "【下单】创建新的订单。用户提供商品名称、金额和收货信息，系统自动生成订单号。"
             + "下单成功后状态为「待付款」，后续可调用 payOrder 完成支付。")
     public String createOrder(
-            @ToolParam(description = "用户ID，如 12345", required = true) Long userId,
-            @ToolParam(description = "商品名称，如 iPhone 15 Pro 256GB", required = true) String productName,
-            @ToolParam(description = "商品金额，如 8999.00", required = true) BigDecimal amount,
-            @ToolParam(description = "收货人姓名", required = true) String contactName,
-            @ToolParam(description = "收货人电话", required = true) String contactPhone,
-            @ToolParam(description = "收货地址", required = true) String shippingAddress,
+            @ToolParam(description = "用户ID，如 12345") Long userId,
+            @ToolParam(description = "商品名称，如 iPhone 15 Pro 256GB") String productName,
+            @ToolParam(description = "商品金额，如 8999.00") BigDecimal amount,
+            @ToolParam(description = "收货人姓名") String contactName,
+            @ToolParam(description = "收货人电话") String contactPhone,
+            @ToolParam(description = "收货地址") String shippingAddress,
             @ToolParam(description = "商品类型，如 电子产品/定制商品/生鲜食品，留空则自动识别", required = false) String productType) {
         log.info("[OrderTool] 创建订单: userId={}, productName={}, amount={}", userId, productName, amount);
 
         // ★ 冲突检测：检查收货信息是否在本次会话中变更过
-        String sessionKey = "user:" + userId;
-        ConflictResult addrConflict = conflictResolver.update(
-                sessionKey, "shipping_address", String.valueOf(userId), shippingAddress);
-        ConflictResult nameConflict = conflictResolver.update(
-                sessionKey, "contact_name", String.valueOf(userId), contactName);
 
         String orderId = String.format("ORD-%d%04d",
                 System.currentTimeMillis() % 1000000,
@@ -155,10 +145,18 @@ public class OrderTools {
         log.info("[OrderTool] ✅ 订单创建成功: orderId={}", orderId);
 
         return String.format(
-                "📦 订单创建成功！\n订单号：%s\n商品：%s\n金额：¥%.2f\n商品类型：%s\n"
-                + "收货人：%s\n联系电话：%s\n收货地址：%s\n"
-                + "状态：待付款\n\n"
-                + "下一步：请提醒用户核对收货信息并完成付款，可调用 payOrder(orderId=\"%s\") 进行支付。",
+                """
+                        📦 订单创建成功！
+                        订单号：%s
+                        商品：%s
+                        金额：¥%.2f
+                        商品类型：%s
+                        收货人：%s
+                        联系电话：%s
+                        收货地址：%s
+                        状态：待付款
+                        
+                        下一步：请提醒用户核对收货信息并完成付款，可调用 payOrder(orderId="%s") 进行支付。""",
                 orderId, productName, amount, type,
                 contactName, contactPhone, shippingAddress,
                 orderId);
@@ -172,8 +170,8 @@ public class OrderTools {
             + "流程：首次调用→创建确认项→用户确认→confirmAction→再次调用payOrder执行。"
             + "不适用场景：退款操作（请用 applyRefund）；查询订单（请用 queryOrder）。")
     public String payOrder(
-            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
-            @ToolParam(description = "支付方式，如 微信支付/支付宝/银行卡", required = true) String paymentMethod) {
+            @ToolParam(description = "订单号，如 ORD-2024001") String orderId,
+            @ToolParam(description = "支付方式，如 微信支付/支付宝/银行卡") String paymentMethod) {
         log.info("[OrderTool] 支付订单: {}, paymentMethod={}", orderId, paymentMethod);
 
         // ★ Read-before-Edit：必须事先查询过该订单
@@ -198,15 +196,26 @@ public class OrderTools {
 
             log.info("[OrderTool] ✅ 支付成功: orderId={}, paymentMethod={}", orderId, paymentMethod);
             return String.format(
-                    "✅ 支付成功！\n订单号：%s\n商品：%s\n金额：¥%s\n付款方式：%s\n状态：待发货\n\n"
-                    + "下一步：商家会尽快安排发货，发货后可调用 shipOrder 更新物流信息。",
+                    """
+                            ✅ 支付成功！
+                            订单号：%s
+                            商品：%s
+                            金额：¥%s
+                            付款方式：%s
+                            状态：待发货
+                            
+                            下一步：商家会尽快安排发货，发货后可调用 shipOrder 更新物流信息。""",
                     orderId, order.getProductName(), order.getAmount().toPlainString(), paymentMethod);
         }
 
         // ⭐ 未确认：创建待确认项，返回支付详情让用户确认
         String paymentDetail = String.format(
-                "商品：%s\n订单金额：¥%s\n付款方式：%s\n\n"
-                + "请确认上述信息和金额是否正确？",
+                """
+                        商品：%s
+                        订单金额：¥%s
+                        付款方式：%s
+                        
+                        请确认上述信息和金额是否正确？""",
                 order.getProductName(), order.getAmount().toPlainString(), paymentMethod);
 
         approvalService.createApproval(orderId, "payment", paymentDetail);
@@ -250,8 +259,15 @@ public class OrderTools {
 
         log.info("[OrderTool] ✅ 订单已取消: orderId={}", orderId);
         return String.format(
-                "✅ 订单已取消。\n订单号：%s\n商品：%s\n金额：¥%s\n取消原因：%s\n状态：已取消\n\n"
-                + "如为已付款订单，退款将在 3-7 个工作日原路返回。",
+                """
+                        ✅ 订单已取消。
+                        订单号：%s
+                        商品：%s
+                        金额：¥%s
+                        取消原因：%s
+                        状态：已取消
+                        
+                        如为已付款订单，退款将在 3-7 个工作日原路返回。""",
                 orderId, order.getProductName(), order.getAmount().toPlainString(), reason);
     }
 
@@ -262,9 +278,9 @@ public class OrderTools {
             + "需要提供物流公司名称和快递单号。发货后状态变为「已发货」。"
             + "发货后用户可通过 trackLogistics 查询物流轨迹。")
     public String shipOrder(
-            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
-            @ToolParam(description = "物流公司，如 顺丰速运", required = true) String carrier,
-            @ToolParam(description = "快递单号，如 SF1234567890", required = true) String trackingNo) {
+            @ToolParam(description = "订单号，如 ORD-2024001") String orderId,
+            @ToolParam(description = "物流公司，如 顺丰速运") String carrier,
+            @ToolParam(description = "快递单号，如 SF1234567890") String trackingNo) {
         log.info("[OrderTool] 发货: orderId={}, carrier={}, trackingNo={}", orderId, carrier, trackingNo);
 
         // ★ Read-before-Edit
@@ -317,9 +333,16 @@ public class OrderTools {
 
         log.info("[OrderTool] ✅ 发货成功: orderId={}, trackingNo={}", orderId, trackingNo);
         return String.format(
-                "✅ 发货成功！\n订单号：%s\n商品：%s\n物流公司：%s\n快递单号：%s\n状态：已发货\n\n"
-                + "下一步：用户可通过 trackLogistics(trackingNumber=\"%s\") 查询物流轨迹，"
-                + "收到货后可调用 confirmDelivery(orderId=\"%s\") 确认收货。",
+                """
+                        ✅ 发货成功！
+                        订单号：%s
+                        商品：%s
+                        物流公司：%s
+                        快递单号：%s
+                        状态：已发货
+                        
+                        下一步：用户可通过 trackLogistics(trackingNumber="%s") 查询物流轨迹，\
+                        收到货后可调用 confirmDelivery(orderId="%s") 确认收货。""",
                 orderId, order.getProductName(), carrier, trackingNo, trackingNo, orderId);
     }
 
@@ -386,7 +409,7 @@ public class OrderTools {
             + "适用场景：用户提供订单号要查详情。"
             + "不适用场景：查物流轨迹（请用 trackLogistics）；统计数据（请用 queryOrdersByStatus 等分析工具）。")
     public String queryOrder(
-            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId) {
+            @ToolParam(description = "订单号，如 ORD-2024001") String orderId) {
         log.info("[OrderTool] 查询订单: {}", orderId);
 
         OrderEntity order = orderMapper.findByOrderId(orderId);
@@ -457,8 +480,8 @@ public class OrderTools {
             + "流程：首次调用→创建确认项→用户确认→confirmAction→再次调用applyRefund执行。"
             + "不适用场景：待付款/待发货订单取消（请用 cancelOrder）")
     public String applyRefund(
-            @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId,
-            @ToolParam(description = "退款原因，如 '商品质量问题'/'七天无理由退货'", required = true) String reason) {
+            @ToolParam(description = "订单号，如 ORD-2024001") String orderId,
+            @ToolParam(description = "退款原因，如 '商品质量问题'/'七天无理由退货'") String reason) {
         log.info("[OrderTool] 退款请求: orderId={}, reason={}", orderId, reason);
 
         // ★ Read-before-Edit：必须事先查询过该订单
@@ -631,7 +654,6 @@ public class OrderTools {
                     + "收到货后，可调用 confirmDelivery(orderId=\"" + orderId + "\") 确认收货。";
             case "已签收" ->
                     "💡 提示：商品已签收。如有售后问题，可申请退款。";
-            case "已取消" -> null;
             case "退款中" ->
                     "💡 提示：退款处理中，预计 3-7 个工作日到账。";
             default -> null;

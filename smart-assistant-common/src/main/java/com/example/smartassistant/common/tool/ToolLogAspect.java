@@ -29,8 +29,9 @@ import java.util.concurrent.TimeUnit;
  * 同时采集 Prometheus 指标：
  * <ul>
  *   <li>{@code a2a_tool_call_total{tool="xxx"}} — 工具调用次数</li>
- *   <li>{@code a2a_tool_execution_latency{tool="xxx"}} — 工具执行耗时</li>
+ *   <li>{@code a2a_tool_execution_latency{tool="xxx"}} — 工具执行耗时（含 p50/p95/p99 分位数直方图）</li>
  *   <li>{@code a2a_tool_error_total{tool="xxx"}} — 工具错误次数</li>
+ *   <li>{@code a2a_tool_error_type{tool="xxx",error="retryable|fatal"}} — 按错误类型分类</li>
  * </ul>
  * </p>
  */
@@ -57,6 +58,9 @@ public class ToolLogAspect {
 
     /** 工具执行计时器缓存 */
     private final ConcurrentHashMap<String, Timer> toolLatencyTimers = new ConcurrentHashMap<>();
+
+    /** ⭐ 工具错误类型计数器缓存：toolName_errorType → Counter */
+    private final ConcurrentHashMap<String, Counter> toolErrorTypeCounters = new ConcurrentHashMap<>();
 
     public ToolLogAspect(@Autowired(required = false) MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
@@ -103,6 +107,10 @@ public class ToolLogAspect {
             // 记录工具错误
             recordToolError(methodName);
             recordToolLatency(methodName, duration);
+
+            // ⭐ 按错误类型分类记录
+            String errorType = classifyToolError(ex);
+            recordToolErrorByType(methodName, errorType);
             throw ex;
         }
     }
@@ -135,8 +143,61 @@ public class ToolLogAspect {
                 Timer.builder("a2a_tool_execution_latency")
                         .description("Tool execution latency")
                         .tag("tool", name)
+                        .publishPercentiles(0.5, 0.95, 0.99)
                         .register(meterRegistry)
         ).record(millis, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * ⭐ 按错误类型分类记录工具错误。
+     * <p>
+     * 与 {@code a2a_tool_error_total} 不同，此指标进一步标记错误类型：
+     * <ul>
+     *   <li>{@code retryable} — 可重试错误（超时/连接问题）</li>
+     *   <li>{@code fatal} — 不可恢复错误（业务逻辑/数据问题）</li>
+     * </ul>
+     * </p>
+     */
+    private void recordToolErrorByType(String toolName, String errorType) {
+        if (meterRegistry == null) return;
+        if (errorType == null || errorType.isBlank()) return;
+        String key = toolName + "_" + errorType;
+        toolErrorTypeCounters.computeIfAbsent(key, k ->
+                Counter.builder("a2a_tool_error_type")
+                        .description("Tool error classified by type")
+                        .tag("tool", toolName)
+                        .tag("error", errorType)
+                        .register(meterRegistry)
+        ).increment();
+    }
+
+    /**
+     * ⭐ 分类工具异常类型：retryable（可重试）或 fatal（不可恢复）。
+     * <p>
+     * 与 {@link com.example.smartassistant.router.service.core.GraphExecutionService#classifyException(Throwable)}
+     * 使用相同的判断逻辑：超时/连接类异常归类为 retryable，其余为 fatal。
+     * </p>
+     */
+    static String classifyToolError(Throwable ex) {
+        if (ex == null) return "fatal";
+
+        if (ex instanceof java.util.concurrent.TimeoutException) return "retryable";
+        if (ex instanceof java.net.SocketTimeoutException) return "retryable";
+
+        if (ex instanceof java.io.IOException) {
+            String msg = ex.getMessage();
+            if (msg != null && (msg.contains("timeout") || msg.contains("connect")
+                    || msg.contains("refused") || msg.contains("reset"))) {
+                return "retryable";
+            }
+        }
+
+        Throwable cause = ex.getCause();
+        if (cause != null && cause != ex) {
+            return classifyToolError(cause);
+        }
+
+        return "fatal";
     }
 
     /**

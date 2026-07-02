@@ -14,22 +14,57 @@ public class SubTaskResult {
     /** ⭐ Handoff 交接命令：执行完毕后如果需显式移交其他 Agent，非空表示有交接请求 */
     private HandoffCommand handoffCommand;
 
+    /**
+     * 错误分类枚举——替代原来仅 boolean success 的粗粒度结果。
+     * <p>
+     * 设计目的：让执行引擎能根据错误类型采取差异化恢复策略，
+     * 而非将所有失败一视同仁。
+     * </p>
+     */
+    public enum ErrorType {
+        /** 无错误（success=true 时自动为此值） */
+        NONE,
+        /** 可重试失败：网络超时、临时不可用、并发冲突等瞬时错误 */
+        RETRYABLE_FAILED,
+        /** 致命失败：数据不存在、权限不足、参数非法等不可恢复错误 */
+        FATAL_FAILED,
+        /** 需重规划：目标偏离、产物不合格、关键输入缺失 */
+        NEED_REPLAN
+    }
+
+    /** 错误类型（success=true 时自动为 NONE） */
+    private ErrorType errorType = ErrorType.NONE;
+
     public SubTaskResult() {}
 
     public SubTaskResult(String taskId, String description, String agentName, String result, boolean success) {
-        this(taskId, description, agentName, result, success, List.of(), Map.of());
+        this(taskId, description, agentName, result, success, ErrorType.NONE, List.of(), Map.of());
+    }
+
+    public SubTaskResult(String taskId, String description, String agentName, String result, boolean success,
+                         ErrorType errorType) {
+        this(taskId, description, agentName, result, success, errorType, List.of(), Map.of());
     }
 
     public SubTaskResult(String taskId, String description, String agentName, String result, boolean success, List<String> realTitles) {
-        this(taskId, description, agentName, result, success, realTitles, Map.of());
+        this(taskId, description, agentName, result, success, ErrorType.NONE, realTitles, Map.of());
     }
 
     public SubTaskResult(String taskId, String description, String agentName, String result, boolean success, List<String> realTitles, Map<String, String> tagsByTitle) {
+        this(taskId, description, agentName, result, success, ErrorType.NONE, realTitles, tagsByTitle);
+    }
+
+    /**
+     * ⭐ 全参数构造器（含错误类型）。
+     */
+    public SubTaskResult(String taskId, String description, String agentName, String result, boolean success,
+                         ErrorType errorType, List<String> realTitles, Map<String, String> tagsByTitle) {
         this.taskId = taskId;
         this.description = description;
         this.agentName = agentName;
         this.result = result;
         this.success = success;
+        this.errorType = (success && errorType == ErrorType.NONE) ? ErrorType.NONE : errorType;
         this.realTitles = realTitles != null ? realTitles : List.of();
         this.tagsByTitle = tagsByTitle != null ? tagsByTitle : Map.of();
     }
@@ -43,7 +78,22 @@ public class SubTaskResult {
     public String getResult() { return result; }
     public void setResult(String result) { this.result = result; }
     public boolean isSuccess() { return success; }
-    public void setSuccess(boolean success) { this.success = success; }
+    public void setSuccess(boolean success) {
+        this.success = success;
+        if (success) this.errorType = ErrorType.NONE;
+    }
+
+    public ErrorType getErrorType() { return errorType; }
+    public void setErrorType(ErrorType errorType) { this.errorType = errorType; }
+
+    /** 判断是否为可重试失败 */
+    public boolean isRetryable() { return errorType == ErrorType.RETRYABLE_FAILED; }
+
+    /** 判断是否为致命失败 */
+    public boolean isFatal() { return errorType == ErrorType.FATAL_FAILED; }
+
+    /** 判断是否需要重规划 */
+    public boolean needsReplan() { return errorType == ErrorType.NEED_REPLAN; }
     public List<String> getRealTitles() { return realTitles; }
     public void setRealTitles(List<String> realTitles) { this.realTitles = realTitles != null ? realTitles : List.of(); }
     public Map<String, String> getTagsByTitle() { return tagsByTitle; }

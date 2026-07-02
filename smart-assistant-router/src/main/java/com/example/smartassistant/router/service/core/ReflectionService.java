@@ -8,12 +8,14 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.router.model.ReflectionResult;
+import com.example.smartassistant.router.model.SubTaskResult.ErrorType;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -340,6 +342,78 @@ public class ReflectionService {
     // ========================================================================
     // 辅助方法
     // ========================================================================
+
+    // ========================================================================
+    // 验收标准检查（P1 新增）
+    // ========================================================================
+
+    /**
+     * 基于 successCriteria 对 Agent 输出进行目标达成度校验。
+     * <p>
+     * 调用 LLM 轻量 prompt 判断回复是否满足验收标准：
+     * <ul>
+     *   <li>返回 {@link ErrorType#NONE}：满足标准，可继续</li>
+     *   <li>返回 {@link ErrorType#RETRYABLE_FAILED}：结果为空/不可用，可重试同节点</li>
+     *   <li>返回 {@link ErrorType#NEED_REPLAN}：不满足标准，需重新规划</li>
+     * </ul>
+     * </p>
+     *
+     * @param result          Agent 输出
+     * @param successCriteria 验收标准（可空，空则跳过检查）
+     * @return 错误类型
+     */
+    public ErrorType checkCriteria(String result, String successCriteria) {
+        if (successCriteria == null || successCriteria.isBlank()) {
+            return ErrorType.NONE;  // 无验收标准，跳过检查
+        }
+        if (result == null || result.isBlank()) {
+            log.warn("[Reflect] 结果为空，验收标准: {}", truncate(successCriteria, 80));
+            return ErrorType.RETRYABLE_FAILED;
+        }
+
+        try {
+            String prompt = String.format("""
+                    判断以下 AI 回复是否满足验收标准。
+
+                    验收标准：%s
+
+                    回复内容：
+                    %s
+
+                    只回答一个词：PASS 或 FAIL。不要解释。
+                    """, successCriteria, truncate(result, 2000));
+
+            String llmResponse = fallbackChatClient.prompt().user(prompt).call().content();
+            if (llmResponse == null || llmResponse.isBlank()) {
+                log.warn("[Reflect] LLM 验收检查返回空，默认通过");
+                return ErrorType.NONE;
+            }
+
+            boolean passed = llmResponse.toUpperCase().contains("PASS") && !llmResponse.toUpperCase().contains("FAIL");
+            if (passed) {
+                log.debug("[Reflect] 验收通过: criteria={}", truncate(successCriteria, 80));
+                return ErrorType.NONE;
+            } else {
+                log.warn("[Reflect] ⚠️ 验收不通过: criteria={}, llmResponse={}",
+                        truncate(successCriteria, 80), llmResponse);
+                return ErrorType.NEED_REPLAN;
+            }
+        } catch (Exception e) {
+            log.warn("[Reflect] 验收检查异常: criteria={}, error={}",
+                    truncate(successCriteria, 80), e.getMessage());
+            return ErrorType.NONE;  // 检查失败默认放行，避免误杀
+        }
+    }
+
+    // ========================================================================
+    // 辅助方法
+    // ========================================================================
+
+    /** 截断文本 */
+    private static String truncate(String s, int maxLen) {
+        if (s == null) return "";
+        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
+    }
 
     /**
      * 选择 fallback Agent（排除当前 Agent）
