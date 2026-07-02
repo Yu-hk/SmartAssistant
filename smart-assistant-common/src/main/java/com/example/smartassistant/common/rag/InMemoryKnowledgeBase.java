@@ -98,6 +98,26 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     }
 
     @Override
+    public void removeByBaseDocId(String baseDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return;
+        List<String> toRemove = docs.entrySet().stream()
+                .filter(e -> {
+                    String docBaseId = e.getValue().getBaseDocId();
+                    return docBaseId != null && docBaseId.equals(baseDocId);
+                })
+                .map(Map.Entry::getKey)
+                .toList();
+        toRemove.forEach(id -> {
+            docs.remove(id);
+            vectors.remove(id);
+        });
+        if (!toRemove.isEmpty()) {
+            log.info("[KnowledgeBase:{}] 按 baseDocId 删除: baseId={}, removed={} chunks",
+                    name, baseDocId, toRemove.size());
+        }
+    }
+
+    @Override
     public List<KnowledgeHit> search(String query, int topK) {
         return search(query, topK, KnowledgeBase.PUBLIC_TENANT);
     }

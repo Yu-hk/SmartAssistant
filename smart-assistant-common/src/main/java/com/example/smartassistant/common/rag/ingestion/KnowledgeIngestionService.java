@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -55,6 +56,9 @@ public class KnowledgeIngestionService {
     /** ⭐ 内容哈希缓存——用于变更检测 */
     private final ContentHashCache hashCache;
 
+    /** ⭐ 缓存失效回调——知识库更新后自动失效相关缓存 */
+    private final java.util.List<Runnable> cacheInvalidationHooks;
+
     /** 是否启用变更检测（默认 true） */
     private boolean changeDetectionEnabled = true;
 
@@ -72,6 +76,14 @@ public class KnowledgeIngestionService {
         this.chunker = chunker;
         this.knowledgeBase = knowledgeBase;
         this.hashCache = hashCache != null ? hashCache : new ContentHashCache();
+        this.cacheInvalidationHooks = new java.util.ArrayList<>();
+    }
+
+    /** ⭐ 注册缓存失效回调——知识库更新后自动调用 */
+    public void addCacheInvalidationHook(Runnable hook) {
+        if (hook != null) {
+            this.cacheInvalidationHooks.add(hook);
+        }
     }
 
     /** 启用或禁用变更检测 */
@@ -177,6 +189,16 @@ public class KnowledgeIngestionService {
                         .toList();
             }
 
+            // ⭐ Step 4.5: 先删后增——写入前删除旧版本的 chunk
+            Set<String> baseDocIds = docs.stream()
+                    .map(KnowledgeDocument::getBaseDocId)
+                    .filter(b -> b != null && !b.isBlank())
+                    .collect(Collectors.toSet());
+            for (String baseDocId : baseDocIds) {
+                knowledgeBase.removeByBaseDocId(baseDocId);
+                log.debug("[Ingestion] 先删后增: baseDocId={}", baseDocId);
+            }
+
             // Step 5: 批量入库
             knowledgeBase.addDocuments(docs);
 
@@ -191,6 +213,9 @@ public class KnowledgeIngestionService {
             if (changeDetectionEnabled) {
                 updateHashCache(parsed);
             }
+
+            // ⭐ Step 8: 失效相关缓存
+            fireCacheInvalidationHooks();
 
             return new IngestionResult(docs.size(), elapsed, List.of());
 
@@ -225,6 +250,23 @@ public class KnowledgeIngestionService {
         base = base.replaceAll("-v\\d+(\\.\\d+)?$", "");
         base = base.replaceAll("-s\\d+$", "");
         return base;
+    }
+
+    /**
+     * ⭐ 触发缓存失效回调（知识库更新后调用）。
+     * <p>
+     * 注册方（如 {@code AnswerCacheService}）实现 {@link Runnable#run()} 来失效相关缓存。
+     * 确保知识库变更后，旧的缓存回答不再被返回。
+     * </p>
+     */
+    private void fireCacheInvalidationHooks() {
+        for (Runnable hook : cacheInvalidationHooks) {
+            try {
+                hook.run();
+            } catch (Exception e) {
+                log.warn("[Ingestion] 缓存失效回调异常: {}", e.getMessage());
+            }
+        }
     }
 
     /**
