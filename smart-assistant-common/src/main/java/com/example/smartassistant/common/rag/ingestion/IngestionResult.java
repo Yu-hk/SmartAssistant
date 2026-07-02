@@ -38,6 +38,11 @@ public record IngestionResult(
         return docCount == 0 && !errors.isEmpty();
     }
 
+    /** 是否跳过（变更检测命中，文档未变更） */
+    public boolean isSkipped() {
+        return docCount == 0 && errors.isEmpty() && elapsedMs > 0;
+    }
+
     /** 空结果（解析为空） */
     public static IngestionResult empty(String reason) {
         return new IngestionResult(0, 0, List.of(reason));
@@ -53,9 +58,22 @@ public record IngestionResult(
         return new IngestionResult(docCount, elapsedMs, Collections.emptyList());
     }
 
+    /**
+     * 跳过结果（变更检测命中，文档未变更）。
+     *
+     * @param reason    跳过原因
+     * @param docCount  跳过的文档数
+     * @param elapsedMs 检测耗时
+     */
+    public static IngestionResult skipped(String reason, int docCount, long elapsedMs) {
+        return new IngestionResult(docCount, elapsedMs, List.of("SKIPPED: " + reason));
+    }
+
     @Override
     public String toString() {
-        if (isSuccess()) {
+        if (isSkipped()) {
+            return "IngestionResult{跳过, 耗时=" + elapsedMs + "ms}";
+        } else if (isSuccess()) {
             return "IngestionResult{成功, docs=" + docCount + ", 耗时=" + elapsedMs + "ms}";
         } else if (isPartial()) {
             return "IngestionResult{部分成功, docs=" + docCount + ", errors=" + errors + "}";
