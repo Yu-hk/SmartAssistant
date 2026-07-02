@@ -60,7 +60,7 @@ public class ExperienceServiceTest {
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
 
         // 创建带 mock 的 experienceService（不依赖 SemanticRouteCacheService、BGE 和 Mapper）
-        experienceService = new ExperienceService(redisTemplate, null, null, null, mock(ExperienceValidator.class), null) {
+        experienceService = new ExperienceService(redisTemplate, null, null, null, mock(ExperienceValidator.class), null, null) {
             @Override
             protected List<String> extractKeywords(String question) {
                 // 提供一个简单的测试用关键词提取

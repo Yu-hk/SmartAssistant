@@ -69,6 +69,7 @@ export interface Session {
   id: string;
   title: string;
   model: string;
+  agentId?: string;
   sdk_session_id?: string | null;
   intent: IntentType;
   status: SessionStatus;
@@ -112,6 +113,28 @@ export interface AdminStats {
 }
 
 export type Theme = 'light' | 'dark';
+
+export interface Agent {
+  id: string;
+  name: string;
+  description?: string;
+  systemPrompt?: string;
+  icon: string;
+  color: string;
+  permissionMode?: PermissionMode;
+}
+
+export interface CustomAgent {
+  id: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  icon: string;
+  color: string;
+  permissionMode: PermissionMode;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface PermissionRequest {
   requestId: string;

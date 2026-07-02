@@ -134,7 +134,7 @@ public class OrderAnalyticsTool {
             + "适用于：'查一下XX用户的退款情况'、'这个用户退过多少次'等。"
             + "不适用于：统计整体退款趋势（请用 queryTopRefunds）。")
     public String queryUserRefunds(
-            @ToolParam(description = "用户ID，如 12345", required = true) Long userId) {
+            @ToolParam(description = "用户ID，如 12345") Long userId) {
 
         log.info("[Analytics] queryUserRefunds: userId={}", userId);
 
@@ -159,9 +159,9 @@ public class OrderAnalyticsTool {
         if (rows.isEmpty()) { sb.append("(无数据)\n"); return sb.toString(); }
 
         // Header
-        List<String> keys = new ArrayList<>(rows.get(0).keySet());
+        List<String> keys = new ArrayList<>(rows.getFirst().keySet());
         sb.append("| ").append(String.join(" | ", keys)).append(" |\n");
-        sb.append("|").append("---|".repeat(keys.size())).append("\n");
+        sb.append("|").repeat("---|", keys.size()).append("\n");
 
         // Rows
         for (Map<String, Object> row : rows) {

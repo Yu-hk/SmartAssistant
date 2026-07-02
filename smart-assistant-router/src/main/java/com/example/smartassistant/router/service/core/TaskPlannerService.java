@@ -68,16 +68,16 @@ public class TaskPlannerService {
 
         String fallback = findFallbackAgent();
         String prompt = String.format("""
-                将用户的问题分配给最合适的助理，并标注任务间的依赖关系。
+                将用户的问题分配给最合适的助理，并标注任务间的依赖关系和验收标准。
 
                 助理（只能从以下选择）：
                 %s
 
-                输出格式（每行一条）：子任务ID|描述|助理名|依赖ID列表(逗号分隔,无依赖填none)
+                输出格式（每行一条）：子任务ID|描述|助理名|依赖ID列表(逗号分隔,无依赖填none)|验收标准
                 示例：
-                t1|查询北京热门景点|location_weather|none
-                t2|推荐北京川菜馆|food_recommendation|t1
-                t3|查今天北京天气|location_weather|none
+                t1|查询北京热门景点|location_weather|none|返回城市名和至少3个景点名
+                t2|推荐北京川菜馆|food_recommendation|t1|返回至少2家餐厅及评分
+                t3|查今天北京天气|location_weather|none|包含温度和天气状况描述
 
                 规则：
                 - ID 格式：t1, t2, t3 ...
@@ -87,6 +87,7 @@ public class TaskPlannerService {
                 - 如果任务间无依赖关系，依赖填 none
                 - 不匹配时使用兜底：%s
                 - 无依赖的多个任务可以并行执行
+                - 验收标准说明"完成此任务需要什么"，如"返回至少3条结果""包含价格和评分"
 
                 用户：%s
                 """, agentList, fallback, question);
@@ -154,35 +155,41 @@ public class TaskPlannerService {
     // ==================== 图格式解析 ====================
 
     /**
-     * 解析四段式 LLM 输出 {@code id|desc|agent|deps} 为图节点列表。
+     * 解析四段/五段式 LLM 输出 {@code id|desc|agent|deps} 或 {@code id|desc|agent|deps|successCriteria}
+     * 为图节点列表。
      * <p>
-     * 后向兼容：当 LLM 输出旧格式 {@code id|desc|agent} 时自动降级（deps 填空）。
+     * 后向兼容：当 LLM 输出旧格式 {@code id|desc|agent} 时自动降级（deps 和 successCriteria 为空）。
      */
     private List<IntentGraph.IntentNode> parseGraphTasks(String response) {
         List<IntentGraph.IntentNode> nodes = new ArrayList<>();
         if (response == null || response.isBlank()) return nodes;
 
-        // 尝试四段格式：id|desc|agent|deps
-        Matcher matcher = GRAPH_PATTERN.matcher(response);
-        while (matcher.find()) {
-            String id = matcher.group(1).trim();
-            String desc = matcher.group(2).trim();
-            String agent = matcher.group(3).trim();
-            String depsStr = matcher.group(4).trim();
-            List<String> deps = parseDeps(depsStr);
-            nodes.add(new IntentGraph.IntentNode(id, desc, agent, deps));
-        }
+        // ⭐ 尝试五段格式：id|desc|agent|deps|successCriteria
+        // 使用 limit=5 的 split，确保验收标准中的 | 不被错误截断
+        for (String line : response.split("\\n")) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
 
-        // 四段格式解析成功 → 返回
+            String[] parts = line.split("\\|", 5);
+            if (parts.length >= 4) {
+                String id = parts[0].trim();
+                String desc = parts[1].trim();
+                String agent = parts[2].trim();
+                String depsStr = parts[3].trim();
+                String successCriteria = parts.length >= 5 ? parts[4].trim() : null;
+                List<String> deps = parseDeps(depsStr);
+                nodes.add(new IntentGraph.IntentNode(id, desc, agent, deps, successCriteria));
+            }
+        }
         if (!nodes.isEmpty()) return nodes;
 
-        // 降级：尝试旧三段格式 id|desc|agent（deps 为空）
+        // 降级：尝试旧三段格式 id|desc|agent（deps 和 successCriteria 为空）
         Matcher standardMatcher = STANDARD_PATTERN.matcher(response);
         while (standardMatcher.find()) {
             String id = standardMatcher.group(1).trim();
             String desc = standardMatcher.group(2).trim();
             String agent = standardMatcher.group(3).trim();
-            nodes.add(new IntentGraph.IntentNode(id, desc, agent, List.of()));
+            nodes.add(new IntentGraph.IntentNode(id, desc, agent, List.of(), null));
         }
         if (!nodes.isEmpty()) return nodes;
 
@@ -192,7 +199,7 @@ public class TaskPlannerService {
             String id = flexMatcher.group(1).trim();
             String desc = flexMatcher.group(2).trim();
             String agent = flexMatcher.group(3).trim();
-            nodes.add(new IntentGraph.IntentNode(id, desc, agent, List.of()));
+            nodes.add(new IntentGraph.IntentNode(id, desc, agent, List.of(), null));
         }
 
         return nodes;
@@ -220,8 +227,71 @@ public class TaskPlannerService {
      */
     private IntentGraph createSingleNodeGraph(String question, String fallbackAgent) {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
-                "t1", question, fallbackAgent, List.of());
+                "t1", question, fallbackAgent, List.of(), null);
         return new IntentGraph(question, List.of(node));
+    }
+
+    /**
+     * ⭐ 重规划：基于已完成结果和失败节点信息重新生成子任务图。
+     * <p>
+     * 与 {@link #planToGraph(String)} 的区别：
+     * <ul>
+     *   <li>不使用原始用户问题作为 LLM 输入</li>
+     *   <li>使用重规划上下文（已完成结果 + 失败原因）引导 LLM </li>
+     *   <li>输出格式保持一致（兼容 parseGraphTasks）</li>
+     * </ul>
+     * </p>
+     *
+     * @param replanContext 重规划上下文（含原始问题、已完成结果、失败节点信息）
+     * @return 新意图图
+     */
+    public IntentGraph replan(String replanContext) {
+        String agentList = buildAgentList();
+        if (agentList.isEmpty()) {
+            log.warn("[TaskPlanner] 重规划失败：无可用 Agent");
+            return null;
+        }
+
+        String fallback = findFallbackAgent();
+        String prompt = String.format("""
+                以下是一个多步骤任务执行过程中的状态。某个子任务执行失败，
+                需要你重新规划该失败任务及后续未执行的任务。
+
+                可用的助理（只能从以下选择）：
+                %s
+
+                %s
+
+                请为失败的任务和后续未完成任务重新规划。
+                输出格式（每行一条）：子任务ID|描述|助理名|依赖ID列表(逗号分隔,无依赖填none)|验收标准
+                示例：
+                t1_r|查询北京今日天气|general|none|包含温度和天气描述
+                t2_r|推荐北京特色餐厅|product|t1_r|返回至少2家餐厅及评分
+
+                规则：
+                - ID 格式：原ID后加 _r1, _r2 ...（如 t2_r1, t2_r2）
+                - 可以拆分原任务为多个更简单的子任务
+                - 可以更换 Agent
+                - 只能从上面的助理名单中选择
+                - 不匹配时使用兜底：%s
+                - 验收标准要具体可检查
+
+                请输出规划结果：
+                """, agentList, replanContext, fallback);
+
+        try {
+            String response = chatClient.prompt().user(prompt).call().content();
+            List<IntentGraph.IntentNode> nodes = parseGraphTasks(response);
+            if (nodes.isEmpty()) {
+                log.warn("[TaskPlanner] 重规划 LLM 返回格式异常。响应: {}", response);
+                return null;
+            }
+            log.info("[TaskPlanner] 重规划完成: {} 个节点", nodes.size());
+            return new IntentGraph("replan", nodes);
+        } catch (Exception e) {
+            log.warn("[TaskPlanner] 重规划 LLM 调用失败: {}", e.getMessage());
+            return null;
+        }
     }
 
     // ==================== 原有方法（保留后向兼容） ====================

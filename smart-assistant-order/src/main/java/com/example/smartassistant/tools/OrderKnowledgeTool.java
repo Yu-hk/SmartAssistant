@@ -47,8 +47,8 @@ public class OrderKnowledgeTool {
             + "优惠券规则、客服联系方式等需要查询知识库的问题。"
             + "输入需要查询的意图或问题关键词。")
     public String queryOrderKnowledge(
-            @ToolParam(description = "查询关键词，如 '退款多久到账'、'发货时间'、'取消订单规则'、'优惠券怎么用'",
-                    required = true) String query) {
+            @ToolParam(description = "查询关键词，如 '退款多久到账'、'发货时间'、'取消订单规则'、'优惠券怎么用'"
+            ) String query) {
         log.info("[OrderKnowledgeTool] 查询订单知识库: query={}", query);
 
         String result = retrievalService.search("order_knowledge", query, 5);

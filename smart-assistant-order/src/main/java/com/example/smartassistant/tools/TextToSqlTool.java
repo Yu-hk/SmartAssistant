@@ -252,7 +252,7 @@ public class TextToSqlTool {
         for (String line : lines) {
             String trimmed = line.trim();
             if (trimmed.toUpperCase().startsWith("SELECT") || trimmed.startsWith("-- UNSUPPORTED") || trimmed.startsWith("--UNSUPPORTED")) {
-                return trimmed.endsWith(";") ? trimmed : trimmed;
+                return trimmed;
             }
         }
 

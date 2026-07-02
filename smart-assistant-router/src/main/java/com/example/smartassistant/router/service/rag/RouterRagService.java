@@ -13,8 +13,12 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ⭐ Router RAG 服务
@@ -39,6 +43,9 @@ public class RouterRagService {
 
     @Value("${router.agent.rag.summary-max-tokens:500}")
     private int summaryMaxTokens;
+
+    @Value("${router.agent.rag.backref-enabled:true}")
+    private boolean backrefEnabled;
 
     public RouterRagService(ChatClient.Builder chatClientBuilder) {
         this.chatClient = chatClientBuilder.build();
@@ -74,8 +81,18 @@ public class RouterRagService {
             // Step 2: 构建摘要
             String summary = generateContextSummary(question, conversationHistory);
 
-            // Step 3: 拼接增强后的问题
-            String enhancedQuestion = buildEnhancedQuestion(question, summary);
+            // ⭐ Step 2.5: 提取实体并生成回指文本
+            String backReferences = "";
+            if (backrefEnabled) {
+                List<EntityRef> entities = extractEntities(question, conversationHistory);
+                if (!entities.isEmpty()) {
+                    backReferences = generateBackReferences(entities);
+                    log.debug("[RouterRAG] 回指: {} 个实体", entities.size());
+                }
+            }
+
+            // Step 3: 拼接增强后的问题（含回指）
+            String enhancedQuestion = buildEnhancedQuestion(question, summary, backReferences);
 
             log.info("[RouterRAG] RAG 增强完成: 原始问题={} 字符, 增强后={} 字符, 摘要={} 字符",
                     question.length(), enhancedQuestion.length(), summary.length());
@@ -162,21 +179,167 @@ public class RouterRagService {
     }
 
     /**
-     * 构建增强后的问题
+     * 构建增强后的问题（包含上下文摘要和实体回指）。
      */
-    private String buildEnhancedQuestion(String question, String contextSummary) {
-        if (contextSummary == null || contextSummary.isBlank()) {
-            return question;
+    private String buildEnhancedQuestion(String question, String contextSummary, String backReferences) {
+        StringBuilder sb = new StringBuilder();
+
+        if (contextSummary != null && !contextSummary.isBlank()) {
+            sb.append("【上下文】\n").append(contextSummary.trim()).append("\n\n");
         }
 
-        return String.format("""
-                【上下文】
+        if (backReferences != null && !backReferences.isBlank()) {
+            sb.append("【历史引用】\n").append(backReferences.trim()).append("\n\n");
+        }
+
+        sb.append("【当前问题】\n").append(question);
+
+        if (sb.length() == question.length() + "【当前问题】\n".length()) {
+            return question; // 无增强，返回原问题
+        }
+        return sb.toString();
+    }
+
+    /**
+     * ⭐ 从对话历史中提取关键实体。
+     * <p>
+     * 使用 LLM 识别用户和 Agent 消息中提及的实体，
+     * 包括：订单号、商品名、金额、日期、操作动作、决策结果等。
+     * </p>
+     *
+     * @param currentQuestion 当前问题
+     * @param conversationHistory 历史对话
+     * @return 实体引用列表
+     */
+    private List<EntityRef> extractEntities(String currentQuestion, List<String> conversationHistory) {
+        StringBuilder historyBuilder = new StringBuilder();
+        for (int i = 0; i < Math.min(conversationHistory.size(), maxHistoryMessages); i++) {
+            historyBuilder.append(conversationHistory.get(i)).append("\n");
+        }
+        String historyText = historyBuilder.toString();
+
+        String entityPrompt = String.format("""
+                从以下对话历史中提取所有关键实体。每个实体包含类型和值。
+
+                对话历史：
                 %s
 
-                【当前问题】
-                %s
-                """, contextSummary.trim(), question);
+                实体类型包括：
+                - ORDER_ID：订单编号（如 ORD-001、A20231001）
+                - PRODUCT：商品名称（如 iPhone 15、MacBook Pro）
+                - AMOUNT：金额（如 ¥5999、99元）
+                - DATE：日期时间（如 2024-01-15、昨天）
+                - ACTION：用户操作（如 查询、退订、购买、取消）
+                - DECISION：Agent 决策（如 推荐order_agent、使用queryOrder工具）
+
+                输出格式（每行一个实体）：类型|值|来源消息索引
+                示例：
+                ORDER_ID|ORD-001|0
+                ACTION|查询订单|1
+                DECISION|路由到order_agent|2
+
+                只输出实体列表，不要其他文字。
+                """, historyText);
+
+        try {
+            String response = chatClient.prompt()
+                    .user(entityPrompt)
+                    .call()
+                    .content();
+
+            if (response == null || response.isBlank()) return List.of();
+
+            List<EntityRef> entities = new ArrayList<>();
+            for (String line : response.split("\n")) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+                String[] parts = line.split("\\|", 3);
+                if (parts.length >= 2) {
+                    entities.add(new EntityRef(
+                            parts[0].trim(),
+                            parts[1].trim(),
+                            parts.length > 2 ? parts[2].trim() : ""));
+                }
+            }
+            return entities;
+        } catch (Exception e) {
+            log.debug("[RouterRAG] 实体提取失败: {}", e.getMessage());
+            return List.of();
+        }
     }
+
+    /**
+     * ⭐ 基于提取的实体生成回指文本。
+     * <p>
+     * 将实体按类型分组，生成结构化引用，帮助 LLM 快速定位上下文：
+     * <pre>
+     * - 订单: ORD-001 (第1轮) → 当前处于"已支付"状态
+     * - 操作: 查询订单 (第2轮) → 已由 order_agent 处理
+     * - 商品: iPhone 15 (第1轮) → 用户关注的商品
+     * </pre>
+     * </p>
+     */
+    private String generateBackReferences(List<EntityRef> entities) {
+        // 按类型分组
+        Map<String, List<EntityRef>> byType = new LinkedHashMap<>();
+        for (EntityRef e : entities) {
+            byType.computeIfAbsent(e.type, k -> new ArrayList<>()).add(e);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        // 优先输出：决策 → 操作 → 实体
+        String[] priorityTypes = {"DECISION", "ACTION", "ORDER_ID", "PRODUCT", "AMOUNT", "DATE"};
+        Set<String> rendered = new HashSet<>();
+
+        for (String type : priorityTypes) {
+            List<EntityRef> refs = byType.get(type);
+            if (refs == null || refs.isEmpty()) continue;
+
+            // 去重（同类型同值只取首次）
+            Set<String> seen = new HashSet<>();
+            List<String> uniqueValues = new ArrayList<>();
+            for (EntityRef ref : refs) {
+                if (seen.add(ref.value)) {
+                    uniqueValues.add(ref.value);
+                }
+            }
+            rendered.add(type);
+            sb.append("- ").append(typeLabel(type)).append(": ")
+                    .append(String.join(", ", uniqueValues)).append("\n");
+        }
+
+        // 其他未渲染类型
+        for (Map.Entry<String, List<EntityRef>> entry : byType.entrySet()) {
+            if (rendered.contains(entry.getKey())) continue;
+            Set<String> seen = new HashSet<>();
+            List<String> uniqueValues = new ArrayList<>();
+            for (EntityRef ref : entry.getValue()) {
+                if (seen.add(ref.value)) uniqueValues.add(ref.value);
+            }
+            sb.append("- ").append(typeLabel(entry.getKey())).append(": ")
+                    .append(String.join(", ", uniqueValues)).append("\n");
+        }
+
+        return sb.toString();
+    }
+
+    /** 实体类型中文标签 */
+    private static String typeLabel(String type) {
+        return switch (type) {
+            case "ORDER_ID" -> "订单号";
+            case "PRODUCT" -> "商品";
+            case "AMOUNT" -> "金额";
+            case "DATE" -> "日期";
+            case "ACTION" -> "用户操作";
+            case "DECISION" -> "系统决策";
+            default -> type;
+        };
+    }
+
+    /**
+     * ⭐ 实体引用——从对话历史中提取的关键实体。
+     */
+    record EntityRef(String type, String value, String sourceIndex) {}
 
     /**
      * ⭐ 截断字符串（用于日志）

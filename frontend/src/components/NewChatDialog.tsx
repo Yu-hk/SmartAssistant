@@ -14,7 +14,7 @@ interface NewChatDialogProps {
   defaultAgentId?: string;
 }
 
-const ICON_MAP: Record<string, React.ComponentType<{ size?: number; color?: string }>> = {
+const ICON_MAP: Record<string, React.ElementType> = {
   Bot,
   Sparkles,
   Code,
