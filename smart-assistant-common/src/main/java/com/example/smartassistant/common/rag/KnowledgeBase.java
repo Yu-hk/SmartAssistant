@@ -36,6 +36,23 @@ public interface KnowledgeBase {
     void removeDocument(String id);
 
     /**
+     * ⭐ 按基础文档 ID 删除所有关联的 chunk（先删后增）。
+     * <p>
+     * 文档修改时，先调用此方法删除旧版本的所有 chunk，
+     * 再调用 {@link #addDocument(KnowledgeDocument)} 写入新版本。
+     * 避免旧 chunk 残留导致检索混入过期结果。
+     * </p>
+     * <p>
+     * 默认实现是 no-op，子类应覆盖提供物理删除逻辑。
+     * </p>
+     *
+     * @param baseDocId 基础文档 ID（去除版本后缀，如 "ORD-REFUND-001"）
+     */
+    default void removeByBaseDocId(String baseDocId) {
+        // 默认 no-op，子类按需覆盖
+    }
+
+    /**
      * 检索最相关的文档（不限租户）。
      *
      * @param query  检索查询（自然语言）

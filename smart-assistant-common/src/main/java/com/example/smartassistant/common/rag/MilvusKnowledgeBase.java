@@ -263,6 +263,28 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
     }
 
     @Override
+    public void removeByBaseDocId(String baseDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return;
+        try {
+            String expr = "doc_id like \"" + escapeMilvusStr(baseDocId) + "-%\" "
+                    + "or doc_id == \"" + escapeMilvusStr(baseDocId) + "\"";
+            client.delete(DeleteParam.newBuilder()
+                    .withCollectionName(collectionName)
+                    .withExpr(expr)
+                    .build());
+            log.info("[MilvusKB:{}] 按 baseDocId 删除: baseId={}", name, baseDocId);
+        } catch (Exception e) {
+            log.warn("[MilvusKB:{}] 按 baseDocId 删除失败: {} - {}", name, baseDocId, e.getMessage());
+        }
+    }
+
+    /** Milvus 字符串转义（防注入） */
+    private static String escapeMilvusStr(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    @Override
     public List<KnowledgeHit> search(String query, int topK) {
         return search(query, topK, KnowledgeBase.PUBLIC_TENANT);
     }

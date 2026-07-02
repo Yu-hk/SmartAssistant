@@ -153,6 +153,18 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     }
 
     @Override
+    public void removeByBaseDocId(String baseDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return;
+        int deleted = jdbcTemplate.update(
+                "DELETE FROM " + TABLE + " WHERE id LIKE ? || '-%' OR id = ?",
+                baseDocId, baseDocId);
+        if (deleted > 0) {
+            log.info("[PgVectorKB:{}] 按 baseDocId 删除: baseId={}, removed={} rows",
+                    name, baseDocId, deleted);
+        }
+    }
+
+    @Override
     public List<KnowledgeHit> search(String query, int topK) {
         return search(query, topK, KnowledgeBase.PUBLIC_TENANT);
     }
