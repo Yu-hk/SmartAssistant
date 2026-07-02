@@ -57,6 +57,11 @@ public class StreamChatController {
     /** ⭐ SSE 等待决策的最大超时时间（毫秒） */
     private static final long DECISION_TIMEOUT_MS = 60000;  // 60 秒超时
     
+    /** ⭐ SSE 事件缓冲区 Redis key 前缀 */
+    private static final String SSE_BUFFER_PREFIX = "sse:buffer:";
+    /** ⭐ SSE 事件缓冲区 TTL（秒）— 5 分钟，足够用户刷新页面重连 */
+    private static final long SSE_BUFFER_TTL_SECONDS = 300;
+    
     private final RouterClient routerClient;
     private final AgentStreamClient agentStreamClient;
     private final StringRedisTemplate redisTemplate;
@@ -91,10 +96,13 @@ public class StreamChatController {
             @RequestParam String message,
             @RequestParam(required = false) String requestId,
             @RequestParam(required = false, defaultValue = "true") boolean showThinking,
+            @RequestParam(required = false) String sessionId,
+            @RequestParam(required = false) String model,
+            @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId,
             jakarta.servlet.http.HttpServletResponse response) {
         
-        logger.info("[StreamChat] 收到流式请求: messageLength={}, requestId={}, showThinking={}", 
-                message != null ? message.length() : 0, requestId, showThinking);
+        logger.info("[StreamChat] 收到流式请求: messageLength={}, requestId={}, showThinking={}, lastEventId={}", 
+                message != null ? message.length() : 0, requestId, showThinking, lastEventId);
 
         // 2. 初始化 SSE 响应
         try {
@@ -105,6 +113,12 @@ public class StreamChatController {
         } catch (Exception e) {
             logger.error("[StreamChat] 初始化 SSE 失败: {}", e.getMessage());
             return;
+        }
+        
+        // ⭐ 2.5 断线续传：从 Redis 读取已缓存的事件并补发
+        boolean resumed = false;
+        if (requestId != null && lastEventId != null && !lastEventId.isBlank()) {
+            resumed = resumeFromBuffer(response, requestId, lastEventId);
         }
         
         // 3. ⭐ 从 Redis 获取路由决策（chat 接口已触发 Router 决策并存入 Redis）
@@ -180,7 +194,8 @@ public class StreamChatController {
         String fullUrl = agentUrl + "?message=" + encodeUrl(message) + "&showThinking=" + showThinking;
         
         try {
-            forwardSSE(response, fullUrl);
+            // ⭐ 使用带缓存版本的 forwardSSE（传递 requestId 用于事件缓存）
+            forwardSSE(response, fullUrl, requestId, null);
         } finally {
             // ⭐ 释放 LLM 槽位（如果之前获取了槽位）
             if (requestId != null && !requestId.isBlank()) {
@@ -203,7 +218,7 @@ public class StreamChatController {
                 ? (Boolean) request.get("showThinking") 
                 : true;
         
-        streamChat(message, requestId, showThinking, httpResponse);
+        streamChat(message, requestId, showThinking, null, null, null, httpResponse);
     }
 
     /**
@@ -331,6 +346,97 @@ public class StreamChatController {
     }
     
     /**
+     * ⭐ 从 Redis 缓冲区读取已缓存的事件并补发（断线续传）。
+     * <p>
+     * 前端断开后重新连接时，通过 {@code lastEventId} 定位断点，
+     * 从 Redis Hash {@code sse:buffer:{requestId}} 中读取 seqNo > lastEventId 的事件并补发。
+     * </p>
+     *
+     * @param response   SSE 响应
+     * @param requestId  请求 ID
+     * @param lastEventId 前端最后收到的事件 ID
+     * @return true 表示已成功补发历史事件
+     */
+    private boolean resumeFromBuffer(HttpServletResponse response, String requestId, String lastEventId) {
+        String redisKey = SSE_BUFFER_PREFIX + requestId;
+        if (redisTemplate == null) return false;
+
+        try {
+            // 检查是否存在缓冲区
+            Boolean hasKey = redisTemplate.hasKey(redisKey);
+            if (hasKey == null || !hasKey) {
+                logger.info("[StreamChat] 无缓冲区, lastEventId={} 被忽略", lastEventId);
+                return false;
+            }
+
+            long lastSeq;
+            try {
+                lastSeq = Long.parseLong(lastEventId);
+            } catch (NumberFormatException e) {
+                logger.warn("[StreamChat] 无效的 lastEventId: {}", lastEventId);
+                return false;
+            }
+
+            // 获取所有字段名（事件序号）
+            java.util.Set<Object> fields = redisTemplate.opsForHash().keys(redisKey);
+            if (fields == null || fields.isEmpty()) return false;
+
+            // 找出大于 lastEventId 的序号并排序
+            java.util.List<Long> pendingSeqs = new java.util.ArrayList<>();
+            for (Object field : fields) {
+                try {
+                    long seq = Long.parseLong(field.toString());
+                    if (seq > lastSeq) pendingSeqs.add(seq);
+                } catch (NumberFormatException ignored) {}
+            }
+
+            if (pendingSeqs.isEmpty()) {
+                logger.info("[StreamChat] 无待补发事件: requestId={}, lastEventId={}", requestId, lastEventId);
+                return false;
+            }
+
+            java.util.Collections.sort(pendingSeqs);
+            logger.info("[StreamChat] 🔄 断线续传: requestId={}, lastEventId={}, 补发事件数={}",
+                    requestId, lastEventId, pendingSeqs.size());
+
+            // 补发事件
+            for (long seq : pendingSeqs) {
+                Object data = redisTemplate.opsForHash().get(redisKey, String.valueOf(seq));
+                if (data == null) continue;
+
+                // 注入事件 ID
+                String idLine = "id: " + seq + "\n";
+                response.getOutputStream().write(idLine.getBytes(StandardCharsets.UTF_8));
+                response.getOutputStream().write(("data: " + data + "\n\n").getBytes(StandardCharsets.UTF_8));
+                response.getOutputStream().flush();
+            }
+
+            return !pendingSeqs.isEmpty();
+
+        } catch (Exception e) {
+            logger.warn("[StreamChat] 断线续传异常: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * ⭐ 从 SSE 事件格式中提取 data: 部分。
+     * <p>
+     * 例如输入 {@code "event: thinking\ndata: {\"type\":\"thinking\"}\n"} → {@code "{\"type\":\"thinking\"}"}
+     * </p>
+     */
+    private String extractDataPart(String sseEvent) {
+        if (sseEvent == null || sseEvent.isBlank()) return null;
+        for (String line : sseEvent.split("\n")) {
+            if (line.startsWith("data:")) {
+                String data = line.substring(5).trim();
+                return data.isEmpty() ? null : data;
+            }
+        }
+        return null;
+    }
+
+    /**
      * ⭐ 发送超时事件
      */
     private void sendTimeoutEvent(HttpServletResponse response, String message) {
@@ -346,9 +452,23 @@ public class StreamChatController {
     }
     
     /**
-     * ⭐ 转发 SSE 事件流
+     * ⭐ 转发 SSE 事件流（含事件 ID 注入 + Redis 缓冲区）
+     * <p>
+     * 每转发一条 SSE 事件，注入递增的事件 ID 并缓存到 Redis。
+     * 前端断开后可通过 {@code lastEventId} 从断点续传。
+     * </p>
      */
     private void forwardSSE(jakarta.servlet.http.HttpServletResponse response, String agentUrl) {
+        forwardSSE(response, agentUrl, null, null);
+    }
+
+    /**
+     * ⭐ 转发 SSE 事件流（含 requestId 用于缓存）。
+     *
+     * @param requestId 请求 ID（用于 Redis 事件缓存，null 表示不缓存）
+     */
+    private void forwardSSE(jakarta.servlet.http.HttpServletResponse response, String agentUrl,
+                             String requestId, Long initialSeqNo) {
         HttpURLConnection connection = null;
         InputStream inputStream = null;
         
@@ -386,17 +506,55 @@ public class StreamChatController {
             response.setHeader("Cache-Control", "no-cache");
             response.setHeader("Connection", "keep-alive");
             
-            // 转发 SSE 事件
+            // ⭐ 使用行解析方式读取 SSE，以便注入事件 ID
             inputStream = connection.getInputStream();
-            byte[] buffer = new byte[8192];
-            int bytesRead;
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(inputStream, StandardCharsets.UTF_8));
             
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                response.getOutputStream().write(buffer, 0, bytesRead);
-                response.getOutputStream().flush();
+            String line;
+            StringBuilder currentEvent = new StringBuilder();
+            boolean hasData = false;
+            long seqNo = (initialSeqNo != null) ? initialSeqNo : 1;
+            String redisKey = (requestId != null && redisTemplate != null) 
+                    ? SSE_BUFFER_PREFIX + requestId : null;
+            
+            while ((line = reader.readLine()) != null) {
+                // 空行 = SSE 事件结束
+                if (line.isEmpty()) {
+                    if (hasData && currentEvent.length() > 0) {
+                        // 注入事件 ID
+                        String idLine = "id: " + seqNo + "\n";
+                        response.getOutputStream().write(idLine.getBytes(StandardCharsets.UTF_8));
+                        response.getOutputStream().write(currentEvent.toString().getBytes(StandardCharsets.UTF_8));
+                        response.getOutputStream().write("\n".getBytes());
+                        response.getOutputStream().flush();
+                        
+                        // ⭐ 缓存事件到 Redis（用于断线续传）
+                        if (redisKey != null) {
+                            String dataPart = extractDataPart(currentEvent.toString());
+                            if (dataPart != null) {
+                                try {
+                                    redisTemplate.opsForHash().put(redisKey, String.valueOf(seqNo), dataPart);
+                                    redisTemplate.expire(redisKey, SSE_BUFFER_TTL_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
+                                } catch (Exception e) {
+                                    logger.debug("[StreamChat] 缓存 SSE 事件失败: seqNo={}", seqNo);
+                                }
+                            }
+                        }
+                        
+                        seqNo++;
+                    }
+                    currentEvent = new StringBuilder();
+                    hasData = false;
+                } else {
+                    currentEvent.append(line).append("\n");
+                    if (line.startsWith("data:")) {
+                        hasData = true;
+                    }
+                }
             }
             
-            logger.info("[StreamChat] SSE 转发完成");
+            logger.info("[StreamChat] SSE 转发完成, 事件数={}", seqNo - (initialSeqNo != null ? initialSeqNo : 1));
             
         } catch (Exception e) {
             logger.error("[StreamChat] SSE 转发失败: {}", e.getMessage(), e);
