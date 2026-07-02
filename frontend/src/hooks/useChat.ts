@@ -105,187 +105,9 @@ export function useChat(options: UseChatOptions) {
     setQueuePosition(null);
     setQueueEstimatedWait(null);
 
+    // ⭐ 使用 EventSource 实现 SSE 流式连接（支持自动重连 + Last-Event-ID）
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, message: messageContent, model: selectedModel }),
-      });
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let fullContent = '';
-      let currentToolCalls: ToolCall[] = [];
-      let contentBlocks: ContentBlock[] = [];
-      let currentTextBlock = '';
-      let realSessionId: string = sessionId!;
-      let realAssistantMessageId = tempAssistantMessageId;
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const data = JSON.parse(line.slice(6));
-
-              if (data.type === 'init') {
-                realSessionId = data.sessionId || sessionId!;
-                realAssistantMessageId = data.assistantMessageId || tempAssistantMessageId;
-
-                // 更新意图
-                if (data.intent && data.intent !== 'unknown') {
-                  setSessions(prev => prev.map(s =>
-                    s.id === realSessionId ? { ...s, intent: data.intent as IntentType } : s
-                  ));
-                }
-                // FAQ 建议
-                if (data.faqSuggestions?.length) {
-                  setFaqSuggestions(data.faqSuggestions);
-                }
-                // 同步消息ID
-                if (realAssistantMessageId !== tempAssistantMessageId) {
-                  setSessions(prev => prev.map(s => {
-                    if (s.id === realSessionId) {
-                      return {
-                        ...s,
-                        messages: s.messages.map(m =>
-                          m.id === tempAssistantMessageId ? { ...m, id: realAssistantMessageId } : m
-                        ),
-                      };
-                    }
-                    return s;
-                  }));
-                }
-              } else if (data.type === 'text') {
-                fullContent += data.content;
-                currentTextBlock += data.content;
-                const lastBlock = contentBlocks[contentBlocks.length - 1];
-                if (lastBlock && lastBlock.type === 'text') {
-                  lastBlock.text = currentTextBlock;
-                } else if (currentTextBlock) {
-                  contentBlocks.push({ type: 'text', text: currentTextBlock });
-                }
-                setSessions(prev => prev.map(s => {
-                  if (s.id === realSessionId) {
-                    return {
-                      ...s,
-                      messages: s.messages.map(m =>
-                        m.id === realAssistantMessageId
-                          ? { ...m, content: fullContent, toolCalls: [...currentToolCalls], contentBlocks: [...contentBlocks] }
-                          : m
-                      ),
-                    };
-                  }
-                  return s;
-                }));
-              } else if (data.type === 'tool') {
-                currentTextBlock = '';
-                const toolCall: ToolCall = { id: data.id || uuidv4(), name: data.name, input: data.input, status: 'running' };
-                currentToolCalls.push(toolCall);
-                contentBlocks.push({ type: 'tool_use', toolCall });
-                setSessions(prev => prev.map(s => {
-                  if (s.id === realSessionId) {
-                    return {
-                      ...s,
-                      messages: s.messages.map(m =>
-                        m.id === realAssistantMessageId
-                          ? { ...m, toolCalls: [...currentToolCalls], contentBlocks: [...contentBlocks] }
-                          : m
-                      ),
-                    };
-                  }
-                  return s;
-                }));
-              } else if (data.type === 'tool_result') {
-                const idx = data.toolId
-                  ? currentToolCalls.findIndex(t => t.id === data.toolId)
-                  : currentToolCalls.length - 1;
-                if (idx >= 0) {
-                  currentToolCalls[idx].status = data.isError ? 'error' : 'completed';
-                  currentToolCalls[idx].result = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
-                  const blockIdx = contentBlocks.findIndex(b => b.type === 'tool_use' && b.toolCall.id === currentToolCalls[idx].id);
-                  if (blockIdx >= 0) (contentBlocks[blockIdx] as any).toolCall = { ...currentToolCalls[idx] };
-                  setSessions(prev => prev.map(s => {
-                    if (s.id === realSessionId) {
-                      return {
-                        ...s,
-                        messages: s.messages.map(m =>
-                          m.id === realAssistantMessageId
-                            ? { ...m, toolCalls: [...currentToolCalls], contentBlocks: [...contentBlocks] }
-                            : m
-                        ),
-                      };
-                    }
-                    return s;
-                  }));
-                }
-              } else if (data.type === 'transfer_to_human') {
-                setSessions(prev => prev.map(s =>
-                  s.id === realSessionId ? { ...s, status: 'human_transfer' } : s
-                ));
-                setTransferPending(true);
-              } else if (data.type === 'done') {
-                setSessions(prev => prev.map(s => {
-                  if (s.id === realSessionId) {
-                    return {
-                      ...s,
-                      messages: s.messages.map(m =>
-                        m.id === realAssistantMessageId ? { ...m, isStreaming: false } : m
-                      ),
-                    };
-                  }
-                  return s;
-                }));
-                // 对话结束后延迟显示满意度
-                setTimeout(() => setShowSatisfaction(true), 2000);
-              } else if (data.type === 'permission_request') {
-                setPermissionRequest({
-                  requestId: data.requestId,
-                  toolUseId: data.toolUseId,
-                  toolName: data.toolName,
-                  input: data.input,
-                  sessionId: data.sessionId,
-                  timestamp: data.timestamp,
-                });
-              } else if (data.type === 'error') {
-                setSessions(prev => prev.map(s => {
-                  if (s.id === realSessionId) {
-                    return {
-                      ...s,
-                      messages: s.messages.map(m =>
-                        m.id === realAssistantMessageId
-                          ? { ...m, content: `⚠️ ${data.content || data.message}`, isStreaming: false }
-                          : m
-                      ),
-                    };
-                  }
-                  return s;
-                }));
-              }
-              
-              // ⭐ 排队事件处理
-              if (data.type === 'queued') {
-                setQueuePosition(data.position);
-                setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
-              } else if (data.type === 'queue_position') {
-                setQueuePosition(data.position);
-                setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
-              } else if (data.type === 'processing') {
-                setQueuePosition(null);
-                setQueueEstimatedWait(null);
-              } else if (data.type === 'timeout') {
-                setQueuePosition(null);
-                setQueueEstimatedWait(null);
-              }
-            } catch { /* ignore */ }
-          }
-        }
-      }
+      await streamWithEventSource(messageContent, sessionId!, selectedModel, tempAssistantMessageId);
     } catch (error) {
       console.error('Chat error:', error);
       setSessions(prev => prev.map(s => {
@@ -305,6 +127,223 @@ export function useChat(options: UseChatOptions) {
       setIsLoading(false);
     }
   }, [currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId, isLoading]);
+
+  /**
+   * ⭐ 使用 EventSource 实现 SSE 流式连接。
+   * <p>
+   * 浏览器原生 EventSource API 支持：
+   * <ul>
+   *   <li>自动重连连接断开</li>
+   *   <li>自动发送 {@code Last-Event-ID} 请求头</li>
+   *   <li>服务端可从断点续传未送达事件</li>
+   * </ul>
+   * </p>
+   */
+  const streamWithEventSource = useCallback((
+    message: string,
+    sessionId: string,
+    model: string,
+    assistantMessageId: string
+  ): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      let fullContent = '';
+      let currentToolCalls: ToolCall[] = [];
+      let contentBlocks: ContentBlock[] = [];
+      let currentTextBlock = '';
+      let realSessionId: string = sessionId;
+      let realAssistantMessageId = assistantMessageId;
+      let isDone = false;
+
+      const url = `/api/math/stream/chat?message=${encodeURIComponent(message)}&sessionId=${encodeURIComponent(sessionId)}&model=${encodeURIComponent(model)}`;
+      const es = new EventSource(url);
+
+      // ⭐ 通用事件处理：解析 data: JSON
+      const handleEvent = (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'init') {
+            realSessionId = data.sessionId || sessionId;
+            realAssistantMessageId = data.assistantMessageId || assistantMessageId;
+            if (data.intent && data.intent !== 'unknown') {
+              setSessions(prev => prev.map(s =>
+                s.id === realSessionId ? { ...s, intent: data.intent as IntentType } : s
+              ));
+            }
+            if (data.faqSuggestions?.length) {
+              setFaqSuggestions(data.faqSuggestions);
+            }
+            if (realAssistantMessageId !== assistantMessageId) {
+              setSessions(prev => prev.map(s => {
+                if (s.id === realSessionId) {
+                  return {
+                    ...s,
+                    messages: s.messages.map(m =>
+                      m.id === assistantMessageId ? { ...m, id: realAssistantMessageId } : m
+                    ),
+                  };
+                }
+                return s;
+              }));
+            }
+
+          } else if (data.type === 'text') {
+            fullContent += data.content;
+            currentTextBlock += data.content;
+            const lastBlock = contentBlocks[contentBlocks.length - 1];
+            if (lastBlock && lastBlock.type === 'text') {
+              lastBlock.text = currentTextBlock;
+            } else if (currentTextBlock) {
+              contentBlocks.push({ type: 'text', text: currentTextBlock });
+            }
+            setSessions(prev => prev.map(s => {
+              if (s.id === realSessionId) {
+                return {
+                  ...s,
+                  messages: s.messages.map(m =>
+                    m.id === realAssistantMessageId
+                      ? { ...m, content: fullContent, toolCalls: [...currentToolCalls], contentBlocks: [...contentBlocks] }
+                      : m
+                  ),
+                };
+              }
+              return s;
+            }));
+
+          } else if (data.type === 'tool') {
+            currentTextBlock = '';
+            const toolCall: ToolCall = { id: data.id || uuidv4(), name: data.name, input: data.input, status: 'running' };
+            currentToolCalls.push(toolCall);
+            contentBlocks.push({ type: 'tool_use', toolCall });
+            setSessions(prev => prev.map(s => {
+              if (s.id === realSessionId) {
+                return {
+                  ...s,
+                  messages: s.messages.map(m =>
+                    m.id === realAssistantMessageId
+                      ? { ...m, toolCalls: [...currentToolCalls], contentBlocks: [...contentBlocks] }
+                      : m
+                  ),
+                };
+              }
+              return s;
+            }));
+
+          } else if (data.type === 'tool_result') {
+            const idx = data.toolId
+              ? currentToolCalls.findIndex(t => t.id === data.toolId)
+              : currentToolCalls.length - 1;
+            if (idx >= 0) {
+              currentToolCalls[idx].status = data.isError ? 'error' : 'completed';
+              currentToolCalls[idx].result = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
+              const blockIdx = contentBlocks.findIndex(b => b.type === 'tool_use' && b.toolCall.id === currentToolCalls[idx].id);
+              if (blockIdx >= 0) (contentBlocks[blockIdx] as any).toolCall = { ...currentToolCalls[idx] };
+              setSessions(prev => prev.map(s => {
+                if (s.id === realSessionId) {
+                  return {
+                    ...s,
+                    messages: s.messages.map(m =>
+                      m.id === realAssistantMessageId
+                        ? { ...m, toolCalls: [...currentToolCalls], contentBlocks: [...contentBlocks] }
+                        : m
+                    ),
+                  };
+                }
+                return s;
+              }));
+            }
+
+          } else if (data.type === 'transfer_to_human') {
+            setSessions(prev => prev.map(s =>
+              s.id === realSessionId ? { ...s, status: 'human_transfer' } : s
+            ));
+            setTransferPending(true);
+
+          } else if (data.type === 'done') {
+            isDone = true;
+            setSessions(prev => prev.map(s => {
+              if (s.id === realSessionId) {
+                return {
+                  ...s,
+                  messages: s.messages.map(m =>
+                    m.id === realAssistantMessageId ? { ...m, isStreaming: false } : m
+                  ),
+                };
+              }
+              return s;
+            }));
+            setTimeout(() => setShowSatisfaction(true), 2000);
+            es.close();
+            resolve();
+
+          } else if (data.type === 'permission_request') {
+            setPermissionRequest({
+              requestId: data.requestId,
+              toolUseId: data.toolUseId,
+              toolName: data.toolName,
+              input: data.input,
+              sessionId: data.sessionId,
+              timestamp: data.timestamp,
+            });
+
+          } else if (data.type === 'error') {
+            setSessions(prev => prev.map(s => {
+              if (s.id === realSessionId) {
+                return {
+                  ...s,
+                  messages: s.messages.map(m =>
+                    m.id === realAssistantMessageId
+                      ? { ...m, content: `⚠️ ${data.content || data.message}`, isStreaming: false }
+                      : m
+                  ),
+                };
+              }
+              return s;
+            }));
+            es.close();
+            resolve();
+          }
+
+          // ⭐ 排队事件
+          if (data.type === 'queued') {
+            setQueuePosition(data.position);
+            setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
+          } else if (data.type === 'queue_position') {
+            setQueuePosition(data.position);
+            setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
+          } else if (data.type === 'processing') {
+            setQueuePosition(null);
+            setQueueEstimatedWait(null);
+          } else if (data.type === 'timeout') {
+            setQueuePosition(null);
+            setQueueEstimatedWait(null);
+          }
+        } catch { /* ignore invalid JSON */ }
+      };
+
+      // 监听所有 SSE 命名事件类型
+      const eventTypes = ['thinking', 'tool_call', 'tool_result', 'waiting', 'queued',
+        'queue_position', 'processing', 'response', 'done', 'error', 'init', 'text',
+        'tool', 'routed', 'timeout', 'transfer_to_human', 'permission_request'];
+      eventTypes.forEach(type => es.addEventListener(type, handleEvent));
+
+      // ⭐ 回退：监听未命名事件（EventSource 标准消息）
+      es.onmessage = handleEvent;
+
+      // 监听错误（含自动重连）
+      es.onerror = (error) => {
+        // EventSource 会自动重连，不要在 onerror 中直接 reject
+        // 但如果已经收到 done 事件后的错误，忽略
+        if (isDone) return;
+        // EventSource readyState:
+        // 0=CONNECTING, 1=OPEN, 2=CLOSED
+        if (es.readyState === EventSource.CLOSED && !isDone) {
+          console.error('EventSource closed unexpectedly');
+          reject(error);
+        }
+      };
+    });
+  }, [setSessions, setFaqSuggestions, setTransferPending, setShowSatisfaction, setPermissionRequest, setQueuePosition, setQueueEstimatedWait]);
 
   // 转人工
   const handleTransferToHuman = useCallback(async () => {
