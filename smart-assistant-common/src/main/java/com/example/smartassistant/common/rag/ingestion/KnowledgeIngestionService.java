@@ -10,12 +10,14 @@ package com.example.smartassistant.common.rag.ingestion;
 import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.common.rag.chunking.DocumentChunker;
+import com.example.smartassistant.common.rag.chunking.ParentChildDocumentChunker;
 import com.example.smartassistant.common.rag.document.DocumentParseRouter;
 import com.example.smartassistant.common.rag.document.ParsedDocument;
 import com.example.smartassistant.common.rag.util.HashUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +53,10 @@ public class KnowledgeIngestionService {
 
     private final DocumentParseRouter router;
     private final DocumentChunker chunker;
+
+    /** ⭐ Parent-Child 双粒度分块器（可选，非 null 时替代 chunker） */
+    private final ParentChildDocumentChunker parentChildChunker;
+
     private final KnowledgeBase knowledgeBase;
 
     /** ⭐ 内容哈希缓存——用于变更检测 */
@@ -65,15 +71,31 @@ public class KnowledgeIngestionService {
     public KnowledgeIngestionService(DocumentParseRouter router,
                                       DocumentChunker chunker,
                                       KnowledgeBase knowledgeBase) {
-        this(router, chunker, knowledgeBase, new ContentHashCache());
+        this(router, chunker, null, knowledgeBase, new ContentHashCache());
+    }
+
+    /**
+     * ⭐ 支持 Parent-Child 双粒度分块的构造器。
+     * <p>
+     * 当提供 {@code parentChildChunker} 时，使用 Parent-Child 策略代替普通分块：
+     * 子块（256 tokens）用于向量检索，父块（1024 tokens）用于 LLM 阅读。
+     * </p>
+     */
+    public KnowledgeIngestionService(DocumentParseRouter router,
+                                      DocumentChunker chunker,
+                                      ParentChildDocumentChunker parentChildChunker,
+                                      KnowledgeBase knowledgeBase) {
+        this(router, chunker, parentChildChunker, knowledgeBase, new ContentHashCache());
     }
 
     public KnowledgeIngestionService(DocumentParseRouter router,
                                       DocumentChunker chunker,
+                                      ParentChildDocumentChunker parentChildChunker,
                                       KnowledgeBase knowledgeBase,
                                       ContentHashCache hashCache) {
         this.router = router;
         this.chunker = chunker;
+        this.parentChildChunker = parentChildChunker;
         this.knowledgeBase = knowledgeBase;
         this.hashCache = hashCache != null ? hashCache : new ContentHashCache();
         this.cacheInvalidationHooks = new java.util.ArrayList<>();
@@ -172,8 +194,22 @@ public class KnowledgeIngestionService {
                 }
             }
 
-            // Step 3: 语义分块
-            List<KnowledgeDocument> docs = chunker.chunk(parsed);
+            // Step 3: 分块（支持 Parent-Child 双粒度）
+            List<KnowledgeDocument> docs;
+            if (parentChildChunker != null) {
+                // ⭐ Parent-Child 策略：子块建索引（检索用），父块也入库（通过 parentDocId 关联）
+                ParentChildDocumentChunker.ParentChildResult pcResult =
+                        parentChildChunker.chunkParentChild(parsed);
+                List<KnowledgeDocument> childDocs = pcResult.childDocs();
+                List<KnowledgeDocument> parentDocs = pcResult.parentDocs();
+                docs = new ArrayList<>(childDocs.size() + parentDocs.size());
+                docs.addAll(childDocs);
+                docs.addAll(parentDocs);
+                log.info("[Ingestion] Parent-Child 分块: children={}, parents={}",
+                        childDocs.size(), parentDocs.size());
+            } else {
+                docs = chunker.chunk(parsed);
+            }
 
             // Step 4: 注入租户 ID（当解析阶段未指定时）
             if (tenantId != null && !tenantId.isBlank()) {

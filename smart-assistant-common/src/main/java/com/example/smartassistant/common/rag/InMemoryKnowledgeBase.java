@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.rag;
 
+import com.example.smartassistant.common.rag.trace.RetrievalTrace;
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
@@ -14,6 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -59,6 +61,9 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
 
     /** 重排序器（Cross-Encoder，可选） */
     private Reranker reranker;
+
+    /** ⭐ 检索链路追溯消费者（可选，null 时不追蹤） */
+    private Consumer<RetrievalTrace> traceConsumer;
 
     /**
      * @param name           知识库名称
@@ -127,11 +132,21 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         if (query == null || query.isBlank() || docs.isEmpty()) return Collections.emptyList();
         int k = (topK > 0) ? topK : DEFAULT_TOP_K;
 
+        // ⭐ 检索链路追溯
+        RetrievalTrace trace = traceConsumer != null
+                ? new RetrievalTrace("kb:" + name + ":" + System.currentTimeMillis(), query)
+                : null;
+
         // Stage 1: 向量粗筛 (Bi-Encoder)
         float[] queryVec = embeddingModel.embedding(query);
         if (queryVec == null) {
             log.warn("[KnowledgeBase:{}] 嵌入服务不可用，降级到关键词匹配", name);
-            return fallbackKeywordSearch(query, k, tenantId);
+            List<KnowledgeHit> fallback = fallbackKeywordSearch(query, k, tenantId);
+            if (trace != null) {
+                trace.hit(!fallback.isEmpty()).durationMs(System.currentTimeMillis());
+                traceConsumer.accept(trace);
+            }
+            return fallback;
         }
         queryVec = normalize(queryVec);
 
@@ -153,6 +168,16 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
 
         // 排序取 Top-K（粗排结果用于 Reranker）
         roughResults.sort((a, b) -> Double.compare(b.score, a.score));
+
+        // ⭐ 记录向量检索步
+        if (trace != null) {
+            for (int i = 0; i < roughResults.size(); i++) {
+                ScoredDoc sd = roughResults.get(i);
+                trace.addStep("向量检索+" + (bm25Scorer != null ? "BM25" : ""),
+                        query, i + 1, sd.doc.getId(), sd.doc.getTitle(), sd.score);
+            }
+        }
+
         List<KnowledgeHit> hits = roughResults.stream()
                 .limit(Math.max(k, 20)) // 给 Reranker 留更多候选
                 .map(sd -> new KnowledgeHit(sd.doc, sd.score))
@@ -164,7 +189,112 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         } else {
             hits = hits.size() <= k ? hits : hits.subList(0, k);
         }
+
+        // ⭐ 记录最终结果
+        if (trace != null) {
+            for (KnowledgeHit hit : hits) {
+                trace.addFinalContext(hit.toContext());
+            }
+            trace.hit(!hits.isEmpty()).durationMs(System.currentTimeMillis());
+            traceConsumer.accept(trace);
+        }
+
         return hits;
+    }
+
+    /**
+     * 设置检索链路追溯消费者。
+     *
+     * @param traceConsumer 消费者，接收每个查询的 RetrievalTrace（Redis 存储等）
+     */
+    public void setTraceConsumer(Consumer<RetrievalTrace> traceConsumer) {
+        this.traceConsumer = traceConsumer;
+    }
+
+    /**
+     * ⭐ Multi-Query 检索：多个查询分别检索后 RRF 融合。
+     * <p>
+     * 每个 query 单独走完整检索链路（向量→精排→Rerank），
+     * 结果通过 Reciprocal Rank Fusion 融合，
+     * 解决"用户换说法就搜不到"的问题。
+     * </p>
+     *
+     * @param queries  多个查询变体
+     * @param topK     最终返回条数
+     * @param tenantId 租户 ID（空字符串 = 公开）
+     * @return RRF 融合后按分数降序排列的结果
+     */
+    public List<KnowledgeHit> searchMultiQuery(List<String> queries, int topK, String tenantId) {
+        if (queries == null || queries.isEmpty()) return Collections.emptyList();
+        int k = (topK > 0) ? topK : DEFAULT_TOP_K;
+
+        // 每路召回取更多候选，给 RRF 融合留足空间
+        int perQueryK = Math.max(k * 2, 10);
+
+        // 各路查回的排名：每个元素是 docId 列表（按 rank 顺序）
+        List<List<String>> allRankings = new ArrayList<>();
+
+        // ⭐ 检索链路追溯
+        RetrievalTrace trace = traceConsumer != null
+                ? new RetrievalTrace("kb:multi:" + name + ":" + System.currentTimeMillis(),
+                queries.get(0))
+                : null;
+        if (trace != null) {
+            queries.forEach(trace::addVariant);
+        }
+
+        for (String query : queries) {
+            if (query == null || query.isBlank()) continue;
+            List<KnowledgeHit> hits = search(query, perQueryK, tenantId);
+            List<String> ranking = hits.stream()
+                    .map(h -> h.getDocument().getId())
+                    .collect(Collectors.toList());
+            allRankings.add(ranking);
+
+            if (trace != null) {
+                for (int i = 0; i < hits.size(); i++) {
+                    KnowledgeHit hit = hits.get(i);
+                    trace.addStep("Multi-Query:" + query, query, i + 1,
+                            hit.getDocument().getId(), hit.getDocument().getTitle(), hit.getScore());
+                }
+            }
+        }
+
+        // RRF 融合（K=60）
+        Map<String, Double> rrfScores = new LinkedHashMap<>();
+        int rrfK = 60;
+        for (List<String> ranking : allRankings) {
+            for (int i = 0; i < ranking.size(); i++) {
+                rrfScores.merge(ranking.get(i), 1.0 / (rrfK + i + 1), Double::sum);
+            }
+        }
+
+        // 按 RRF 分数排序，去重取 Top-K
+        List<Map.Entry<String, Double>> sorted = rrfScores.entrySet().stream()
+                .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+                .limit(k)
+                .collect(Collectors.toList());
+
+        List<KnowledgeHit> fusedHits = new ArrayList<>();
+        for (Map.Entry<String, Double> entry : sorted) {
+            KnowledgeDocument doc = docs.get(entry.getKey());
+            if (doc != null) {
+                KnowledgeHit hit = new KnowledgeHit(doc, entry.getValue());
+                fusedHits.add(hit);
+                if (trace != null) {
+                    trace.addFused(entry.getKey(), doc.getTitle(), entry.getValue(), fusedHits.size());
+                }
+            }
+        }
+
+        // 记录最终上下文
+        if (trace != null) {
+            fusedHits.forEach(h -> trace.addFinalContext(h.toContext()));
+            trace.hit(!fusedHits.isEmpty()).durationMs(System.currentTimeMillis());
+            traceConsumer.accept(trace);
+        }
+
+        return fusedHits;
     }
 
     @Override
