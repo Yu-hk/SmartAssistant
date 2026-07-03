@@ -94,14 +94,8 @@
         <!-- Micrometer Tracing (分布式追踪) ⭐ -->
         <dependency>
             <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing-bridge-brave</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.zipkin.reporter2</groupId>
-            <artifactId>zipkin-reporter-brave</artifactId>
-        </dependency>
-
-        <!-- Spring Boot Actuator (健康检查 + 指标端点) ⭐ -->
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency><!-- Spring Boot Actuator (健康检查 + 指标端点) ⭐ -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>

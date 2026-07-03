@@ -53,6 +53,8 @@
         <ik-analyzer.version>8.4.0</ik-analyzer.version>
         <jsqlparser.version>4.9</jsqlparser.version>
         <mybatis-spring.version>3.0.3</mybatis-spring.version>
+        <!-- ⭐ OpenTelemetry（Langfuse 集成用） -->
+        <otel.version>2.17.0</otel.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
@@ -88,6 +90,15 @@
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>
                 <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- ⭐ OpenTelemetry BOM（Langfuse 集成，统一版本管理） -->
+            <dependency>
+                <groupId>io.opentelemetry.instrumentation</groupId>
+                <artifactId>opentelemetry-instrumentation-bom</artifactId>
+                <version>${otel.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
