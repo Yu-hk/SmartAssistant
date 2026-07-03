@@ -70,13 +70,16 @@ public class KnowledgeDocument {
     /** 🟡 Chunk 序号：跨段拼接），默认 0 */
     private final int chunkIndex;
 
+    /** 🟡 Parent-Child Chunking：父块 ID，子块通过此字段关联到父块以获取完整上下文 */
+    private final String parentDocId;
+
     // ==================== 构造器 ====================
 
     public KnowledgeDocument(String id, String title, String content,
                              String category, String keywords,
                              long effectiveAt, long expireAt) {
         this(id, title, content, category, keywords, effectiveAt, expireAt,
-                "", "v1", "", 0);
+                "", "v1", "", 0, "");
     }
 
     public KnowledgeDocument(String id, String title, String content,
@@ -84,6 +87,16 @@ public class KnowledgeDocument {
                              long effectiveAt, long expireAt,
                              String tenantId, String version,
                              String sourceUrl, int chunkIndex) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, "");
+    }
+
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId) {
         this.id = id;
         this.title = title;
         this.content = content;
@@ -96,6 +109,7 @@ public class KnowledgeDocument {
         this.version = version != null ? version : "v1";
         this.sourceUrl = sourceUrl != null ? sourceUrl : "";
         this.chunkIndex = chunkIndex;
+        this.parentDocId = parentDocId != null ? parentDocId : "";
     }
 
     /** 文档是否在有效期内 */
@@ -125,6 +139,7 @@ public class KnowledgeDocument {
     public String getVersion() { return version; }
     public String getSourceUrl() { return sourceUrl; }
     public int getChunkIndex() { return chunkIndex; }
+    public String getParentDocId() { return parentDocId; }
 
     // ==================== 版本控制方法 ====================
 
