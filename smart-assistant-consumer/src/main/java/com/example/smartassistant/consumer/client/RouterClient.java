@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -59,7 +60,11 @@ public class RouterClient {
     public RouterClient(
             @Autowired(required = false) StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper) {
-        this.restTemplate = new RestTemplate();
+        // ⭐ 配置 RestTemplate 超时：连接 3s、读取 5s
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(3000);
+        factory.setReadTimeout(5000);
+        this.restTemplate = new RestTemplate(factory);
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         

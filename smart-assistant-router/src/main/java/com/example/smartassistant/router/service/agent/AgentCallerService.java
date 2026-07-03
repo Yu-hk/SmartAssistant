@@ -15,12 +15,14 @@ import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.RouteDecision;
 import com.example.smartassistant.router.service.extraction.KeywordExtractionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -54,6 +56,10 @@ public class AgentCallerService {
      */
     private static final String DEFAULT_PROTOCOL_VERSION = "a2a-v1";
 
+    /** ⭐ Agent 调用超时配置（与文章建议的"核心链路同步 3s 超时"一致） */
+    private static final int AGENT_CONNECT_TIMEOUT_MS = 3000;   // 连接超时 3s
+    private static final int AGENT_READ_TIMEOUT_MS = 5000;      // 读取超时 5s
+
     private final AgentDiscoveryService agentDiscoveryService;
     private final AgentVersionNegotiator versionNegotiator;
     private final RestTemplate restTemplate;
@@ -67,7 +73,11 @@ public class AgentCallerService {
                              AgentVersionNegotiator versionNegotiator) {
         this.agentDiscoveryService = agentDiscoveryService;
         this.versionNegotiator = versionNegotiator;
-        this.restTemplate = new RestTemplate();
+        // ⭐ 配置 RestTemplate 超时：连接 3s、读取 5s，与文章建议一致
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(AGENT_CONNECT_TIMEOUT_MS);
+        factory.setReadTimeout(AGENT_READ_TIMEOUT_MS);
+        this.restTemplate = new RestTemplate(factory);
         this.objectMapper = new ObjectMapper();
     }
 
@@ -106,17 +116,40 @@ public class AgentCallerService {
         return callAgentAndExtractTitles(agentName, question, userId, null);
     }
 
+    /**
+     * 调用 Agent 并提取标题（主入口）。
+     * <p>
+     * <b>熔断保护</b>：当 Agent 连续失败率超过 50% 时触发熔断，
+     * 直接返回 fallback 响应，避免雪崩。
+     * </p>
+     */
+    @CircuitBreaker(name = "agentCall", fallbackMethod = "callAgentAndExtractTitlesFallback")
     public AgentCallResult callAgentAndExtractTitles(String agentName, String question, Long userId, String requestId) {
         log.info("[AgentCaller] callAgentAndExtractTitles: agent={}, userId={}, questionLength={}, requestId={}",
                 agentName, userId, question != null ? question.length() : 0, requestId);
 
-        try {
-            String result = callAgentWithContext(agentName, question, userId, null, requestId);
-            return new AgentCallResult(result);
-        } catch (Exception e) {
-            log.error("[AgentCaller] Agent 调用失败: {}, 错误: {}", agentName, e.getMessage(), e);
-            return new AgentCallResult("❌ 调用 Agent 失败: " + e.getMessage());
+        String result = callAgentWithContext(agentName, question, userId, null, requestId);
+
+        // ⭐ 检查 Agent 调用是否返回错误（callAgentWithContext 内部 catch 了异常并转为错误字符串）
+        if (result != null && (result.startsWith("❌") || result.startsWith("⚠️"))) {
+            throw new RuntimeException("Agent '" + agentName + "' 调用失败: " + result);
         }
+
+        return new AgentCallResult(result);
+    }
+
+    /**
+     * ⭐ Circuit Breaker fallback — 当 Agent 服务熔断时返回降级响应。
+     * <p>
+     * 熔断期间不再尝试 HTTP 调用，直接返回提示信息给上游（GraphExecutionService），
+     * 由 DAG 执行引擎决定是否重试或跳转其他 Agent。
+     * </p>
+     */
+    private AgentCallResult callAgentAndExtractTitlesFallback(String agentName, String question, Long userId, String requestId, Throwable t) {
+        log.warn("[AgentCaller] 🔴 Agent 调用熔断: agent={}, errorType={}, message={}",
+                agentName, t != null ? t.getClass().getSimpleName() : "unknown",
+                t != null ? t.getMessage() : "熔断器触发");
+        return new AgentCallResult("⚠️ Agent '" + agentName + "' 暂时不可用（熔断中），请稍后重试。");
     }
 
     // ═════════════════════════════════════════════════════
