@@ -9,6 +9,7 @@ package com.example.smartassistant.consumer.service.core;
 
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.infrastructure.DataMaskingService;
+import com.example.smartassistant.common.sentiment.SentimentAnalysisService;
 import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
 import com.example.smartassistant.common.memory.EntityProfileService;
@@ -47,6 +48,7 @@ public class ChatConsumerService {
     private final DistributedTracingService tracingService; // ⭐ 分布式追踪
     private final DataMaskingService maskingService; // ⭐ 数据脱敏
     private final EntityProfileService entityProfileService;
+    private final SentimentAnalysisService sentimentAnalysisService;
 
     public ChatConsumerService(
             SessionManagementService sessionManagementService,
@@ -55,7 +57,8 @@ public class ChatConsumerService {
             RoutingCallLogService routingCallLogService,
             DistributedTracingService tracingService,
             DataMaskingService maskingService,
-            EntityProfileService entityProfileService) {
+            EntityProfileService entityProfileService,
+            SentimentAnalysisService sentimentAnalysisService) {
         this.sessionManagementService = sessionManagementService;
         this.userProfileService = userProfileService; // ⭐ 用户画像服务
         this.routerClient = routerClient;
@@ -63,6 +66,7 @@ public class ChatConsumerService {
         this.tracingService = tracingService;
         this.maskingService = maskingService;
         this.entityProfileService = entityProfileService;
+        this.sentimentAnalysisService = sentimentAnalysisService;
     }
 
     /**
@@ -159,6 +163,27 @@ public class ChatConsumerService {
         tracingService.injectToLog("收到请求(含session): userId=" + maskingService.maskUsername(userId != null ? userId : "anonymous"));
 
         log.info("[Consumer] 收到请求(含session): userId={}, sessionId={}, question={}", userId, sessionId, question);
+
+        // ⭐ Step 0.5: 情感分析 — 检测用户情绪并影响回复策略
+        var sentimentResult = sentimentAnalysisService.analyze(question, sessionId);
+        if (sentimentResult.needHandoff()) {
+            log.warn("[Consumer] 检测到负面情绪，建议转人工: userId={}, level={}, sentiment={}",
+                    userId, sentimentResult.level(), sentimentResult.name());
+            // 返回转人工响应，不再继续路由
+            Map<String, Object> handoffResponse = new java.util.HashMap<>();
+            handoffResponse.put("result", sentimentAnalysisService.getTonePrefix(sentimentResult.level())
+                    + "正在为您转接人工客服，请稍候。");
+            handoffResponse.put("agentName", "human_service");
+            handoffResponse.put("sentiment", sentimentResult.level());
+            return handoffResponse;
+        }
+        if (sentimentResult.level() >= 3 || sentimentResult.escalated()) {
+            // 轻微负面或情绪升级：在问题前注入情感上下文，让下游 Agent 调整语气
+            String sentimentPrefix = "[用户情绪:" + sentimentResult.name()
+                    + "(等级" + sentimentResult.level() + ")] ";
+            question = sentimentPrefix + question;
+            log.info("[Consumer] 注入情感上下文: question='{}'", question);
+        }
 
         // Step 1: 更新用户画像
         if (userIdLong != null && isPreferenceWorthyRequest(question)) {
