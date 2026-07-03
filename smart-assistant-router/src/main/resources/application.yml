@@ -217,8 +217,21 @@ logging:
       max-history: 7
       total-size-cap: 100MB
 
-# ⭐ Resilience4j 重试配置（指数退避）
+# ⭐ Resilience4j 重试 + 熔断配置
 resilience4j:
+  circuitbreaker:
+    instances:
+      # ⭐ Agent HTTP 调用熔断器 — 解决"通信越可靠异常越多"的反常识问题
+      agentCall:
+        sliding-window-size: 10              # 滑动窗口（10个请求）
+        sliding-window-type: COUNT_BASED     # 基于计数
+        minimum-number-of-calls: 5           # 最少5次才触发判断
+        failure-rate-threshold: 50           # 失败率超过50%熔断
+        wait-duration-in-open-state: 30s     # 30s后尝试半开
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - java.lang.RuntimeException       # 捕获 callAgentAndExtractTitles 抛出的失败异常
   retry:
     instances:
       modelRoutingRetry:

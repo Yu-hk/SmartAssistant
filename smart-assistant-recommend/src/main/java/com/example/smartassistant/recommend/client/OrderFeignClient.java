@@ -13,7 +13,8 @@ import java.util.Map;
  * 通过 Nacos 服务发现调用 smart-assistant-order。
  * </p>
  */
-@FeignClient(name = "smart-assistant-order", path = "/api/order")
+@FeignClient(name = "smart-assistant-order", path = "/api/order",
+             fallbackFactory = OrderFeignClientFallbackFactory.class)
 public interface OrderFeignClient {
 
     /**

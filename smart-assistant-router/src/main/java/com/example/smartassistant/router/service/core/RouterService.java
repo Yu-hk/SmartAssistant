@@ -135,6 +135,9 @@ public class RouterService {
     // ⭐ 路由级工具健康检查
     private final RoutingToolChecker routingToolChecker;
 
+    // ⭐ 异常率降级服务（解决反常识2：异常处理本身制造异常的负反馈循环）
+    private final DegradationService degradationService;
+
     public RouterService(AgentCallerService agentCallerService,
                          @Autowired(required = false) StringRedisTemplate redisTemplate,
                          RouterRagService ragService,
@@ -149,6 +152,7 @@ public class RouterService {
                          IntentGuidedQueryRewriter queryRewriter,
                          KeywordFastRouteService keywordFastRouteService,
                          RoutingToolChecker routingToolChecker,
+                         DegradationService degradationService,
                          @Qualifier("lightChatModel") ChatModel lightModel,
                          @Autowired(required = false) BadCaseMinerService badCaseMinerService) {
         this.agentCallerService = agentCallerService;
@@ -165,6 +169,7 @@ public class RouterService {
         this.queryRewriter = queryRewriter;
         this.keywordFastRouteService = keywordFastRouteService;
         this.routingToolChecker = routingToolChecker;
+        this.degradationService = degradationService;
         this.lightChatClient = ChatClient.create(lightModel);
         this.badCaseMinerService = badCaseMinerService;
     }
@@ -771,6 +776,24 @@ public class RouterService {
         if (agentCallerService.getAvailableAgentCount() == 0) {
             log.warn("[Collaborative] 无可用 Agent，降级到内联 ChatClient 兜底");
             return inlineFallback(question);
+        }
+
+        // ⭐ Step 0.5: 降级检测 — 解决反常识 2（异常处理本身会制造异常）
+        DegradationService.DegradationLevel degLevel = degradationService.getDegradationLevel();
+        if (degLevel == DegradationService.DegradationLevel.HEAVY) {
+            log.warn("[Collaborative] 🔴 重度降级(错误率>40%)，跳过所有 Agent 调用，回退到内联兜底");
+            return inlineFallback(question);
+        }
+        if (degLevel == DegradationService.DegradationLevel.LIGHT) {
+            log.warn("[Collaborative] 🟡 轻度降级(错误率>20%)，跳过复杂 DAG，降级为单 Agent 通用回复");
+            // 轻度降级：不走 DAG 分解，直接使用 General Agent 简化回复
+            String reply = agentCallerService.callAgent("general_agent", question, userId, requestId);
+            if (reply == null || reply.isBlank() || reply.startsWith("❌")) {
+                return inlineFallback(question);
+            }
+            long elapsed = System.currentTimeMillis() - start;
+            log.info("[Collaborative] 降级单 Agent 完成: elapsed={}ms, replyLen={}", elapsed, reply.length());
+            return RoutingResult.builder().result(reply).agentName("general_agent").confidence(1.0).build();
         }
 
         // Step 1: 图分解（带依赖关系的 DAG）
