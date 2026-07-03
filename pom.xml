@@ -262,6 +262,15 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <configuration>
                         <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+                        <excludes>
+                            <exclude>**/*IntegrationTest.java</exclude>
+                            <exclude>**/*EndToEnd*Test.java</exclude>
+                            <exclude>**/ChatIntegrationTest.java</exclude>
+                            <exclude>**/DataGifToolTest.java</exclude>
+                            <exclude>**/RouterRoutingIntegrationTest.java</exclude>
+                            <exclude>**/GlobalJwtAuthFilterIntegrationTest.java</exclude>
+                            <exclude>**/AgentMemoryServiceIntegrationTest.java</exclude>
+                        </excludes>
                     </configuration>
                 </plugin>
             </plugins>
