@@ -47,6 +47,49 @@ spring:
           min-client-version: "1.0.0"
           supported-protocols: "a2a-v1"
 
+# ⭐ Nacos A2A Registry 配置（AgentCard 注册）
+# 默认关闭，开启后自动向 Nacos A2A Registry 注册 ProductAgent AgentCard。
+nacos:
+  a2a:
+    registry:
+      enabled: false
+      agent-card:
+        name: ProductAgent
+        description: "商品咨询智能体，支持商品查询、价格查询、库存查询和参数对比"
+        version: 1.0.0
+        protocol-version: 0.3.0
+        preferred-transport: JSONRPC
+        url: http://localhost:${server.port}/a2a
+        skills:
+          - id: query-product
+            name: 查询商品
+            description: 根据关键词或分类查询商品信息
+            tags: product,query
+            examples:
+              - 帮我查一下 iPhone 15 的价格
+              - 有哪些手机在卖
+          - id: query-price
+            name: 查询价格
+            description: 查询指定商品的价格和折扣信息
+            tags: price,product
+            examples:
+              - 这个多少钱
+              - 价格多少
+          - id: check-stock
+            name: 查询库存
+            description: 查询指定商品是否有货
+            tags: stock,product
+            examples:
+              - 有货吗
+              - 库存还有吗
+          - id: compare-product
+            name: 商品对比
+            description: 对比多个商品的参数和价格
+            tags: product,compare
+            examples:
+              - 帮我对比这两款手机
+              - 哪个更好
+
   # 数据源配置（PostgreSQL + JdbcTemplate）
   datasource:
     url: jdbc:postgresql://localhost:5433/a2a_system
