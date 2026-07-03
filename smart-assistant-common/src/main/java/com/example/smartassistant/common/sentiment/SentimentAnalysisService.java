@@ -7,8 +7,10 @@
 
 package com.example.smartassistant.common.sentiment;
 
+import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -38,13 +40,33 @@ public class SentimentAnalysisService {
 
     private static final Logger log = LoggerFactory.getLogger(SentimentAnalysisService.class);
 
-    /** 5级情感定义 */
+    /** 5级情感定义（大幅扩展关键词库） */
     private static final List<SentimentLevel> SENTIMENT_LEVELS = List.of(
-            new SentimentLevel(1, "正面", "礼貌感谢", List.of("谢谢", "感谢", "好的", "满意", "很棒", "不错")),
-            new SentimentLevel(2, "中性", "正常回复", List.of("你好", "在吗", "请问", "咨询", "查询")),
-            new SentimentLevel(3, "轻微负面", "道歉+改进建议", List.of("有点慢", "不太方便", "一般", "还行吧")),
-            new SentimentLevel(4, "负面", "道歉+加快处理", List.of("太慢了", "等了很久", "不满意", "差劲", "太久")),
-            new SentimentLevel(5, "愤怒", "立即转人工", List.of("投诉", "太差了", "垃圾", "骗子", "赔偿", "举报"))
+            new SentimentLevel(1, "正面", "礼貌感谢", List.of(
+                    "谢谢", "感谢", "好的", "满意", "很棒", "不错", "好评",
+                    "太棒了", "非常好", "很满意", "赞", "给力", "优秀",
+                    "效率高", "服务好", "靠谱", "专业", "贴心", "周到",
+                    "速度快", "体验好", "超出预期", "值得推荐", "辛苦了")),
+            new SentimentLevel(2, "中性", "正常回复", List.of(
+                    "你好", "在吗", "请问", "咨询", "查询", "了解一下",
+                    "帮我", "看看", "我想", "有没有", "怎么", "为什么",
+                    "什么", "多少", "哪里", "哪个", "能否", "可以吗")),
+            new SentimentLevel(3, "轻微负面", "道歉+改进建议", List.of(
+                    "有点慢", "不太方便", "一般", "还行吧", "不怎么好",
+                    "有点麻烦", "不太满意", "能不能快点", "等很久了",
+                    "一般般", "凑合", "马马虎虎", "不怎么样", "不太好",
+                    "有点失望", "不够好", "不算好", "不太行")),
+            new SentimentLevel(4, "负面", "道歉+加快处理", List.of(
+                    "太慢了", "等了很久", "不满意", "差劲", "太差",
+                    "非常失望", "太糟糕", "服务差", "效率低", "太离谱",
+                    "受不了", "忍不了", "搞什么", "怎么回事", "太差劲",
+                    "太让人失望", "很不满意", "体验很差", "浪费时间")),
+            new SentimentLevel(5, "愤怒", "立即转人工", List.of(
+                    "投诉", "太差了", "垃圾", "骗子", "赔偿", "举报",
+                    "太过分", "无法容忍", "欺诈", "告你", "曝光",
+                    "律师函", "315", "消费者协会", "退款赔偿",
+                    "你们等着", "没完", "别想糊弄", "什么玩意",
+                    "气死我了", "烦死了", "什么破玩意", "滚"))
     );
 
     /** 关键词→等级映射表 */
@@ -52,6 +74,9 @@ public class SentimentAnalysisService {
 
     /** LLM 调用接口（可选，复杂情绪用 LLM 识别） */
     private final Function<String, Integer> llmAnalyzer;
+
+    /** ⭐ BGE 语义情感分析器（可选，处理语义相似但字面不同的表达） */
+    private final BgeSentimentAnalyzer bgeAnalyzer;
 
     /** 跨轮次情绪追踪（sessionId → 最近5轮情绪等级） */
     private final Map<String, int[]> emotionHistory = new ConcurrentHashMap<>();
@@ -63,11 +88,18 @@ public class SentimentAnalysisService {
     private static final int ESCALATION_WARN_LEVEL = 3;
 
     public SentimentAnalysisService() {
-        this(null);
+        this(null, null);
     }
 
     public SentimentAnalysisService(Function<String, Integer> llmAnalyzer) {
+        this(llmAnalyzer, null);
+    }
+
+    public SentimentAnalysisService(
+            @Autowired(required = false) Function<String, Integer> llmAnalyzer,
+            @Autowired(required = false) BgeEmbeddingModel embeddingModel) {
         this.llmAnalyzer = llmAnalyzer;
+        this.bgeAnalyzer = embeddingModel != null ? new BgeSentimentAnalyzer(embeddingModel) : null;
         buildKeywordMap();
     }
 
@@ -104,7 +136,17 @@ public class SentimentAnalysisService {
         // Step 1: 关键词快速匹配
         int level = keywordMatch(userInput);
 
-        // Step 2: 关键词未命中且 LLM 可用时，用 LLM 识别复杂情绪
+        // Step 2: 关键词未命中或结果模糊时，用 BGE 语义分析
+        // BGE 能处理"语义相似但字面不同"的表达，例如"效率低下"→负面
+        if (level == 0 && bgeAnalyzer != null) {
+            int bgeLevel = bgeAnalyzer.analyze(userInput);
+            if (bgeLevel > 0) {
+                log.debug("[Sentiment] BGE 语义匹配: level={}", bgeLevel);
+                level = bgeLevel;
+            }
+        }
+
+        // Step 3: 仍无法确定且 LLM 可用时，用 LLM 识别复杂情绪
         if (level == 0 && llmAnalyzer != null) {
             try {
                 level = llmAnalyzer.apply(userInput);
