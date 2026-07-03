@@ -1,0 +1,32 @@
+# ⭐ OpenTelemetry 共享配置（Langfuse LLM 可观测性集成）
+# 所有模块继承此配置，各模块可在自己的 application.yml 中按需覆盖
+spring:
+  ai:
+    chat:
+      observations:
+        log-prompt: true        # 将 prompt 内容写入 OTel span（Langfuse 需要）
+        log-completion: true    # 将 completion 内容写入 OTel span
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0          # 100% 采样（生产环境可调低）
+  observations:
+    annotations:
+      enabled: true
+    enable:
+      "http.server.requests": false   # 抑制重复的 HTTP server span
+      "http.client.requests": false   # 抑制重复的 HTTP client span
+
+otel:
+  instrumentation:
+    spring-webmvc:
+      enabled: false                  # 抑制重复的 OTel HTTP server span
+    spring-web:
+      enabled: false                  # 抑制重复的 OTel HTTP client span
+
+# ⭐ Langfuse OTLP 端点配置（通过环境变量注入）
+# OTEL_EXPORTER_OTLP_ENDPOINT: Langfuse OTLP 地址（如 https://cloud.langfuse.com/api/public/otel）
+# OTEL_EXPORTER_OTLP_HEADERS: 认证头（Authorization=Basic base64(publicKey:secretKey)）
+# 同时向 Jaeger 发送时，可部署 OTel Collector 或配置双导出器。
+# 当前 Jaeger OTLP gRPC 地址: http://localhost:4317
