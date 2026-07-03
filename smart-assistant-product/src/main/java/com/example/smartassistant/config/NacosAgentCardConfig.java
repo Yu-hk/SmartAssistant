@@ -26,10 +26,9 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 
 /**
- * Nacos A2A Registry 配置 — 以 Order Agent 身份注册 AgentCard。
+ * Nacos A2A Registry 配置 — 以 Product Agent 身份注册 AgentCard。
  * <p>
- * AgentCard 元数据（名称/描述/skills）从 {@code nacos.a2a.registry.agent-card.*}
- * 配置读取，修改 application.yml 即可变更，无需修改 Java 代码。
+ * AgentCard 元数据从 {@code nacos.a2a.registry.agent-card.*} 配置读取。
  *
  * @since 1.0.0
  */
@@ -59,7 +58,7 @@ public class NacosAgentCardConfig {
     }
 
     @Bean
-    public AgentCard orderAgentCard() {
+    public AgentCard productAgentCard() {
         AgentCard card = new AgentCard();
         card.setName(properties.getName());
         card.setDescription(properties.getDescription());

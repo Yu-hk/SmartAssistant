@@ -133,8 +133,44 @@ nacos:
   a2a:
     registry:
       enabled: false
+      agent-card:
+        name: OrderAgent
+        description: "订单管理智能体，支持创建订单、查询订单、退款处理和取消操作"
+        version: 1.0.0
+        protocol-version: 0.3.0
+        preferred-transport: JSONRPC
+        url: http://localhost:${server.port}/a2a
+        skills:
+          - id: create-order
+            name: 创建订单
+            description: 根据用户需求创建新的订单
+            tags: order,create
+            examples:
+              - 帮我创建一个订单
+              - 帮我下单
+          - id: query-order
+            name: 查询订单
+            description: 根据订单号或用户信息查询订单状态
+            tags: order,query
+            examples:
+              - 查询订单12345的状态
+              - 我的订单有哪些
+          - id: refund-order
+            name: 退款处理
+            description: 处理订单退款申请
+            tags: order,refund
+            examples:
+              - 我要退款
+              - 申请退款
+          - id: cancel-order
+            name: 取消订单
+            description: 取消未发货的订单
+            tags: order,cancel
+            examples:
+              - 取消订单
+              - 我不想要了
 
-# ⭐ BGE embedding 配置（1.2GB 模型从项目级共享目录加载）
+  # ⭐ BGE embedding 配置（1.2GB 模型从项目级共享目录加载）
 bge:
   model:
     path: ${BGE_MODEL_PATH:D:\\workspace\\SmartAssistant\\models\\bge-large-zh-v1.5.onnx}
