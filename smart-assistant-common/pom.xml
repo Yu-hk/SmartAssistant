@@ -124,6 +124,12 @@
             <artifactId>opentelemetry-exporter-otlp</artifactId>
         </dependency>
 
+        <!-- ⭐ SpringDoc OpenAPI（各模块自动继承，API 文档 /swagger-ui.html） -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
+
         <!-- ⭐ Caffeine 缓存（EntityConflictResolver / ReadBeforeEditGuard） -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
