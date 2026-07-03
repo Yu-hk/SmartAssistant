@@ -220,6 +220,22 @@ public class StreamChatController {
     }
 
     /**
+     * ⭐ 取消正在进行的 SSE 请求。
+     * <p>
+     * 前端用户点击「停止生成」时调用，释放 LLM 槽位。
+     * 即使 SSE 连接已断开，此端点确保槽位被正确回收。
+     * </p>
+     */
+    @PostMapping("/chat/cancel")
+    public void cancelChat(@RequestBody Map<String, String> request) {
+        String requestId = request.get("requestId");
+        if (requestId != null && !requestId.isBlank()) {
+            requestQueueService.complete(requestId);
+            logger.info("[StreamChat] 用户取消请求, 已释放槽位: requestId={}", requestId);
+        }
+    }
+
+    /**
      * ⭐ 从 Redis 获取路由决策
      * <p>
      * chat 接口已触发 Router 决策并存入 Redis，SSE 接口从这里获取

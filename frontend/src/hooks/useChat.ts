@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ToolCall, PermissionRequest, Session, ContentBlock, IntentType, FaqItem } from '../types';
 import { sessions as sessionApi } from '../api';
@@ -26,6 +26,9 @@ export function useChat(options: UseChatOptions) {
   // ⭐ 排队状态
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [queueEstimatedWait, setQueueEstimatedWait] = useState<number | null>(null);
+
+  // ⭐ 当前的 EventSource 引用（用于取消请求）
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const sendMessage = useCallback(async (
     messageContent: string,
@@ -156,6 +159,7 @@ export function useChat(options: UseChatOptions) {
 
       const url = `/api/math/stream/chat?message=${encodeURIComponent(message)}&sessionId=${encodeURIComponent(sessionId)}&model=${encodeURIComponent(model)}`;
       const es = new EventSource(url);
+      eventSourceRef.current = es; // ⭐ 保存引用，供 handleStop 关闭
 
       // ⭐ 通用事件处理：解析 data: JSON
       const handleEvent = (event: MessageEvent) => {
@@ -273,6 +277,7 @@ export function useChat(options: UseChatOptions) {
               return s;
             }));
             setTimeout(() => setShowSatisfaction(true), 2000);
+            eventSourceRef.current = null; // 清除引用
             es.close();
             resolve();
 
@@ -301,6 +306,7 @@ export function useChat(options: UseChatOptions) {
               return s;
             }));
             es.close();
+            eventSourceRef.current = null; // 清除引用
             resolve();
           }
 
@@ -382,7 +388,27 @@ export function useChat(options: UseChatOptions) {
     setPermissionRequest(null);
   }, [permissionRequest]);
 
-  const handleStop = useCallback(() => setIsLoading(false), []);
+  /**
+   * ⭐ 停止生成：关闭 EventSource 连接，真正取消后端请求。
+   * <p>
+   * 后端 Consumer 的 forwardSSE() 检测到客户端断开后：
+   * 1. 释放 LLM 槽位 (slots.release())
+   * 2. 关闭与 Agent 的 HTTP 连接
+   * 3. 最终 finally 块清理资源
+   * </p>
+   */
+  const handleStop = useCallback(() => {
+    // 关闭 EventSource，触发后端断开检测
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    // 通知后端释放 LLM 槽位（冗余保障）
+    try {
+      navigator.sendBeacon('/api/math/stream/chat/cancel', JSON.stringify({ requestId: currentSessionId }));
+    } catch { /* ignore */ }
+    setIsLoading(false);
+  }, [currentSessionId]);
 
   return {
     isLoading,
