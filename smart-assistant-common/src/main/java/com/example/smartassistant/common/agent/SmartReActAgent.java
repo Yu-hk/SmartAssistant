@@ -80,6 +80,35 @@ public class SmartReActAgent {
     /** ⭐ 连续无增量检测阈值：连续几次工具调用结果相似时强制停止 */
     private static final int NO_INCREMENT_LIMIT = 2;
 
+    // ═══════════════════════════════════════════════════════════════
+    // ⭐ 工具输出截断常量（保头保尾砍中间）
+    // ═══════════════════════════════════════════════════════════════
+
+    /** 单次工具输出的最大 token 数（超出则截断），参考文章二 L1 实时截断 */
+    private static final int MAX_TOOL_OUTPUT_CHARS = 10_000;
+
+    /** 截断时保留的头部比例 */
+    private static final double TRUNCATE_HEAD_RATIO = 0.3;
+
+    /** 截断时保留的尾部比例 */
+    private static final double TRUNCATE_TAIL_RATIO = 0.3;
+
+    /** 截断间隔标记 */
+    private static final String TRUNCATE_MARKER = "\n\n...[中间省略 %d 字符]...\n\n";
+
+    // ═══════════════════════════════════════════════════════════════
+    // ⭐ 双阈值压缩常量（Scoped + Full Window）
+    // ═══════════════════════════════════════════════════════════════
+
+    /** Scoped 阈值：窗口净增长超过此比例时触发压缩 */
+    private static final double SCOPED_RATIO = 0.9;
+
+    /** Full Window 阈值：总 token 数超过此比例时强制压缩 */
+    private static final double FULL_WINDOW_RATIO = 0.95;
+
+    /** 压缩后重置的 prefill 基线（首次压缩后设为摘要占据的 token） */
+    private int prefillBaseline = 0;
+
     private final ChatModel chatModel;
 
     private int maxIterations = DEFAULT_MAX_ITERATIONS;
@@ -329,9 +358,20 @@ public class SmartReActAgent {
                 return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_BUDGET_EXCEEDED, null);
             }
 
-            // ⭐ 上下文压缩检查（消息数过多时触发）
-            // 优先使用后台预计算的结果，避免阻塞
-            if (enableCompress && messages.size() > compressThreshold) {
+            // ⭐ 上下文压缩检查（双阈值：Scoped 提前触发 + Full Window 绝对兜底）
+            // 参考文章二：Scoped 管增速，Full Window 做绝对兜底
+            // Scoped 阈值：净增长超过窗口的 90% 时触发
+            // Full Window 阈值：消息数超过硬上限时触发
+            int scopedThreshold = (int) (prefillBaseline
+                    + (compressThreshold - prefillBaseline) * SCOPED_RATIO);
+            boolean scopedTriggered = enableCompress
+                    && prefillBaseline > 0
+                    && messages.size() > scopedThreshold;
+            boolean fullWindowTriggered = enableCompress
+                    && messages.size() > compressThreshold;
+
+            if (scopedTriggered || fullWindowTriggered) {
+                // 优先使用后台预计算的结果，避免阻塞
                 List<Message> compressed = null;
                 if (precomputedCompactFuture != null && precomputedCompactFuture.isDone()) {
                     try {
@@ -345,9 +385,12 @@ public class SmartReActAgent {
                     compressed = compressHistory(messages);
                 }
                 if (compressed != messages) {
-                    log.info("[SmartReActAgent] 上下文压缩: {} → {} 条消息", messages.size(), compressed.size());
+                    log.info("[SmartReActAgent] 上下文压缩: {} → {} 条消息 (Scoped={}, FullWindow={})",
+                            messages.size(), compressed.size(), scopedTriggered, fullWindowTriggered);
                     messages = compressed;
                     metrics.recordContextCompression();
+                    // ⭐ 压缩后更新 prefill 基线：新基线 = 压缩后的消息数 + 系统消息
+                    prefillBaseline = messages.size();
                 }
             }
 
@@ -802,9 +845,10 @@ public class SmartReActAgent {
                 // ⭐ 检查工具返回结果是否包含 error_code
                 String errorCode = extractErrorCode(result);
                 if (errorCode == null) {
-                    // 正常结果，直接返回
+                    // 正常结果，先截断再返回
+                    String truncatedResult = truncateToolResult(result, tc.name());
                     return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
-                            result != null ? result : "null");
+                            truncatedResult != null ? truncatedResult : "null");
                 }
 
                 // 工具返回了错误码，判断是否需要重试
@@ -901,6 +945,45 @@ public class SmartReActAgent {
     private static String truncate64(String str) {
         if (str == null) return "";
         return str.length() > 64 ? str.substring(0, 64) + "..." : str;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ⭐ 工具输出截断（保头保尾砍中间）
+    // 参考文章二 "L1 实时截断"：头部保留结构信息，尾部保留结论，
+    // 中间的大量数据行被压缩，避免 100K token 的工具输出撑爆上下文。
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 截断工具输出——保头保尾砍中间。
+     * <p>
+     * 只截输出不截输入（tool arguments 是模型生成的，tool output 是外部系统返回的）。
+     * 可按工具类型配置不同截断策略。
+     * </p>
+     *
+     * @param result   原始工具输出
+     * @param toolName 工具名称（用于日志，未来可按工具类型配置策略）
+     * @return 截断后的工具输出
+     */
+    private String truncateToolResult(String result, String toolName) {
+        if (result == null || result.length() <= MAX_TOOL_OUTPUT_CHARS) {
+            return result;
+        }
+
+        int totalLen = result.length();
+        int headLen = (int) (totalLen * TRUNCATE_HEAD_RATIO);
+        int tailLen = (int) (totalLen * TRUNCATE_TAIL_RATIO);
+        int omitted = totalLen - headLen - tailLen;
+
+        String head = result.substring(0, headLen);
+        String tail = result.substring(totalLen - tailLen);
+        String marker = String.format(TRUNCATE_MARKER, omitted);
+
+        String truncated = head + marker + tail;
+
+        log.info("[SmartReActAgent] 工具输出截断: tool={}, original={} chars → {} chars (省略 {} chars)",
+                toolName, totalLen, truncated.length(), omitted);
+
+        return truncated;
     }
 
     /**

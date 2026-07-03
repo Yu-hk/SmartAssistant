@@ -9,6 +9,10 @@ package com.example.smartassistant.common.rag;
 
 /**
  * 检索结果——知识库单次匹配的结果，含相关度评分和文档。
+ * <p>
+ * {@link #toContext()} 输出的格式包含稳定引用 ID {@code [CID:doc-id]}，
+ * LLM 可在答案中引用此 ID，实现答案结论到来源的追溯。
+ * </p>
  */
 public class KnowledgeHit {
 
@@ -23,9 +27,22 @@ public class KnowledgeHit {
     public KnowledgeDocument getDocument() { return document; }
     public double getScore() { return score; }
 
-    /** 格式化为 LLM 可读的上下文片段 */
+    /**
+     * 格式化为 LLM 可读的上下文片段（含稳定引用 ID）。
+     * <p>
+     * 输出格式：
+     * <pre>
+     * [CID:doc-001] [版本: v2] [来源: URL]
+     * 【标题】（相关度: 95%）
+     * 正文内容...
+     * </pre>
+     * </p>
+     */
     public String toContext() {
         StringBuilder sb = new StringBuilder();
+
+        // ⭐ 稳定引用 ID：[CID:doc-001]，供 LLM 在答案中引用
+        sb.append("[CID:").append(document.getId()).append("]");
 
         // 版本信息（LLM 判断时效性的依据）
         String version = document.getVersion();
