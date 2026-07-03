@@ -55,6 +55,8 @@
         <mybatis-spring.version>3.0.3</mybatis-spring.version>
         <!-- ⭐ OpenTelemetry（Langfuse 集成用） -->
         <otel.version>2.17.0</otel.version>
+        <!-- ⭐ SpringDoc OpenAPI（自动 API 文档） -->
+        <springdoc.version>2.6.0</springdoc.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
@@ -101,6 +103,13 @@
                 <version>${otel.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+
+            <!-- ⭐ SpringDoc OpenAPI（API 文档自动生成） -->
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
             </dependency>
 
             <!-- ⭐ MyBatis Plus -->
