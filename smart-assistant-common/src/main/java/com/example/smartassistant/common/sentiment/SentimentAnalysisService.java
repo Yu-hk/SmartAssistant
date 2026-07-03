@@ -9,6 +9,7 @@ package com.example.smartassistant.common.sentiment;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,7 @@ import java.util.function.Function;
  *   <tr><td>5</td><td>愤怒</td><td>立即转人工</td></tr>
  * </table>
  */
+@Service
 public class SentimentAnalysisService {
 
     private static final Logger log = LoggerFactory.getLogger(SentimentAnalysisService.class);
