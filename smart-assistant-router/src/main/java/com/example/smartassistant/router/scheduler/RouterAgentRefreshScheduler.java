@@ -7,9 +7,11 @@
 
 package com.example.smartassistant.router.scheduler;
 
+import com.example.smartassistant.router.service.agent.A2aAgentMetadataProvider;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -30,10 +32,13 @@ public class RouterAgentRefreshScheduler {
     private long refreshInterval;
 
     private final AgentDiscoveryService agentDiscoveryService;
+    private final A2aAgentMetadataProvider a2aMetadataProvider;
     
     public RouterAgentRefreshScheduler(
-            AgentDiscoveryService agentDiscoveryService) {
+            AgentDiscoveryService agentDiscoveryService,
+            @Autowired(required = false) A2aAgentMetadataProvider a2aMetadataProvider) {
         this.agentDiscoveryService = agentDiscoveryService;
+        this.a2aMetadataProvider = a2aMetadataProvider;
     }
     
     /**
@@ -66,18 +71,25 @@ public class RouterAgentRefreshScheduler {
     
     /**
      * ⭐ 定期扫描并订阅新服务（解决启动时服务未注册的问题）
+     * 同时扫描 A2A AgentCard 元数据订阅，确保动态上下线的 Agent 被覆盖。
      */
     private void rescanAndSubscribeNewServices() {
         try {
-            // ⭐ 调用 AgentDiscoveryService 的新方法，自动扫描并订阅新服务
+            // ⭐ 1. NamingService 层：扫描新 Agent 服务实例
             int newSubscribed = agentDiscoveryService.scanAndSubscribeNewServices();
-            
             if (newSubscribed > 0) {
                 log.info("[RouterAgentRefresh] ✅ 发现并订阅 {} 个新 Agent 服务", newSubscribed);
             } else {
                 log.debug("[RouterAgentRefresh] 🔍 没有新服务需要订阅");
             }
-            
+
+            // ⭐ 2. A2A Registry 层：扫描新 AgentCard 元数据
+            if (a2aMetadataProvider != null) {
+                int newA2aSubscribed = a2aMetadataProvider.scanAndSubscribeNewAgents();
+                if (newA2aSubscribed > 0) {
+                    log.info("[RouterAgentRefresh] ✅ 发现并订阅 {} 个新 A2A AgentCard", newA2aSubscribed);
+                }
+            }
         } catch (Exception e) {
             log.warn("[RouterAgentRefresh] ⚠️ 定期扫描失败: {}", e.getMessage());
         }
