@@ -10,14 +10,13 @@ package com.example.smartassistant.consumer.service.core;
 import com.example.smartassistant.consumer.config.ChatQueueConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 请求排队服务
@@ -38,29 +37,69 @@ public class RequestQueueService {
     // ⭐ LLM 并发槽位 — 公平模式确保等待较久的线程优先获取
     private final Semaphore slots;
 
-    // ⭐ 等待队列（FIFO，仅用于跟踪位置）
-    private final LinkedList<QueuedRequest> waitingQueue = new LinkedList<>();
+    // ⭐ 等待队列（FIFO 或优先级，默认 FIFO）
+    private final PriorityBlockingQueue<QueuedRequest> waitingQueue;
 
     // ⭐ requestId → 等待中的请求（用于查询位置和取消）
     private final Map<String, QueuedRequest> requestMap = new ConcurrentHashMap<>();
+
+    // ⭐ L2: 会话级并发控制 — 每 sessionId 当前并发请求数
+    private final ConcurrentHashMap<String, AtomicInteger> sessionConcurrency = new ConcurrentHashMap<>();
+
+    // ⭐ L2: 每 session 最大并发数
+    @Value("${queue.session-max-concurrency:1}")
+    private int sessionMaxConcurrency;
+
+    // ⭐ L3: 是否启用优先级队列（默认 false）
+    @Value("${queue.priority-enabled:false}")
+    private boolean priorityEnabled;
 
     private final ChatQueueConfig config;
 
     public RequestQueueService(ChatQueueConfig config) {
         this.config = config;
         this.slots = new Semaphore(config.getMaxConcurrent(), true); // 公平模式
-        log.info("[Queue] 初始化: maxConcurrent={}, maxQueueSize={}, queueTimeoutMs={}",
-                config.getMaxConcurrent(), config.getMaxQueueSize(), config.getQueueTimeoutMs());
+        // ⭐ L3: 优先级队列（priority 低值优先）或 FIFO（按插入时间排序）
+        this.waitingQueue = new PriorityBlockingQueue<>(1000, (a, b) -> {
+            if (priorityEnabled) {
+                int cmp = Integer.compare(a.priority, b.priority);
+                return cmp != 0 ? cmp : Long.compare(a.enqueueTime, b.enqueueTime);
+            }
+            return Long.compare(a.enqueueTime, b.enqueueTime);
+        });
+        log.info("[Queue] 初始化: maxConcurrent={}, maxQueueSize={}, queueTimeoutMs={}, sessionMaxConcurrency={}, priorityEnabled={}",
+                config.getMaxConcurrent(), config.getMaxQueueSize(), config.getQueueTimeoutMs(),
+                sessionMaxConcurrency, priorityEnabled);
     }
 
     /**
-     * 尝试获取 LLM 槽位或加入排队队列
+     * 尝试获取 LLM 槽位或加入排队队列。
      * <p>
-     * - {@link SlotResult#ACQUIRED}: 有槽位，可以立即处理
-     * - {@link SlotResult#QUEUED}: 进入排队队列
-     * - {@link SlotResult#QUEUE_FULL}: 队列已满，拒绝请求
+     * L1: 全局 Semaphore 并发控制<br>
+     * L2: 会话级并发控制（每 sessionId 最多 {@link #sessionMaxConcurrency}）<br>
+     * L3: 优先级队列（可选）
+     * </p>
      */
     public SlotResult tryAcquireWithQueue(String requestId) {
+        return tryAcquireWithQueue(requestId, null, 0);
+    }
+
+    /**
+     * 尝试获取 LLM 槽位或加入排队队列（含会话级流控和优先级）。
+     *
+     * @param requestId  请求 ID
+     * @param sessionId  会话 ID（用于 L2 会话级限流，null 跳过）
+     * @param priority   优先级（越小越优先，L3 启用时有效）
+     */
+    public SlotResult tryAcquireWithQueue(String requestId, String sessionId, int priority) {
+        // ⭐ L2: 会话级并发控制
+        if (sessionId != null && !sessionId.isBlank()) {
+            if (!tryAcquireSessionSlot(sessionId)) {
+                log.warn("[Queue] ❌ 会话并发超限: sessionId={}, max={}", sessionId, sessionMaxConcurrency);
+                return SlotResult.QUEUE_FULL; // 同一会话已有请求在处理
+            }
+        }
+
         // 1. 先尝试非阻塞获取槽位
         if (slots.tryAcquire()) {
             log.debug("[Queue] ✅ 立即获取槽位: requestId={}", requestId);
@@ -69,24 +108,25 @@ public class RequestQueueService {
 
         // 2. 检查队列是否已满
         if (waitingQueue.size() >= config.getMaxQueueSize()) {
+            // L2: 释放之前加上的会话槽位
+            if (sessionId != null && !sessionId.isBlank()) releaseSessionSlot(sessionId);
             log.warn("[Queue] ❌ 队列已满: requestId={}, queueSize={}", requestId, waitingQueue.size());
             return SlotResult.QUEUE_FULL;
         }
 
-        // 3. 加入等待队列
-        QueuedRequest queued = new QueuedRequest(requestId, System.currentTimeMillis());
-        synchronized (waitingQueue) {
-            // ⭐ 二次检查（在获取锁期间可能槽位被释放）
-            if (slots.tryAcquire()) {
-                log.debug("[Queue] ✅ 二次检查获取槽位成功: requestId={}", requestId);
-                return SlotResult.ACQUIRED;
-            }
-            queued.position = waitingQueue.size() + 1;
-            waitingQueue.addLast(queued);
-            requestMap.put(requestId, queued);
+        // 3. 加入等待队列（PriorityBlockingQueue 自动按优先级+时间排序）
+        QueuedRequest queued = new QueuedRequest(requestId, sessionId, priority, System.currentTimeMillis());
+        // ⭐ 二次检查（在加锁期间可能槽位被释放）
+        if (slots.tryAcquire()) {
+            if (sessionId != null && !sessionId.isBlank()) releaseSessionSlot(sessionId);
+            log.debug("[Queue] ✅ 二次检查获取槽位成功: requestId={}", requestId);
+            return SlotResult.ACQUIRED;
         }
+        queued.position = waitingQueue.size() + 1;
+        waitingQueue.add(queued);
+        requestMap.put(requestId, queued);
 
-        log.info("[Queue] ⏳ 进入排队: requestId={}, position={}", requestId, queued.position);
+        log.info("[Queue] ⏳ 进入排队: requestId={}, position={}, priority={}", requestId, queued.position, priority);
         return SlotResult.QUEUED;
     }
 
@@ -125,12 +165,13 @@ public class RequestQueueService {
     }
 
     /**
-     * 完成处理，释放 LLM 槽位
-     * <p>
-     * 释放 Semaphore 许可证，自动唤醒 Semaphore 等待队列中的下一个线程。
+     * 完成处理，释放 LLM 槽位和会话槽位。
      */
     public void complete(String requestId) {
-        requestMap.remove(requestId);
+        QueuedRequest queued = requestMap.remove(requestId);
+        if (queued != null && queued.sessionId != null) {
+            releaseSessionSlot(queued.sessionId);
+        }
         slots.release();
         log.debug("[Queue] 释放槽位(已排队={})", waitingQueue.size());
     }
@@ -141,12 +182,10 @@ public class RequestQueueService {
     public int getQueuePosition(String requestId) {
         QueuedRequest queued = requestMap.get(requestId);
         if (queued == null) return 0;
-        synchronized (waitingQueue) {
-            int pos = 1;
-            for (QueuedRequest q : waitingQueue) {
-                if (q.requestId.equals(requestId)) return pos;
-                pos++;
-            }
+        int pos = 1;
+        for (QueuedRequest q : waitingQueue) {
+            if (q.requestId.equals(requestId)) return pos;
+            pos++;
         }
         return 0;
     }
@@ -171,16 +210,52 @@ public class RequestQueueService {
      * 从等待队列中移除指定 requestId
      */
     private void removeFromQueue(String requestId) {
-        synchronized (waitingQueue) {
-            Iterator<QueuedRequest> it = waitingQueue.iterator();
-            while (it.hasNext()) {
-                if (it.next().requestId.equals(requestId)) {
-                    it.remove();
-                    break;
-                }
+        for (QueuedRequest q : waitingQueue) {
+            if (q.requestId.equals(requestId)) {
+                waitingQueue.remove(q);
+                if (q.sessionId != null) releaseSessionSlot(q.sessionId);
+                break;
             }
         }
         requestMap.remove(requestId);
+    }
+
+    /**
+     * ⭐ L2: 尝试获取会话级并发槽位。
+     *
+     * @return true 表示可以处理该会话的请求
+     */
+    boolean tryAcquireSessionSlot(String sessionId) {
+        AtomicInteger counter = sessionConcurrency.computeIfAbsent(
+                sessionId, k -> new AtomicInteger(0));
+        int current = counter.incrementAndGet();
+        if (current > sessionMaxConcurrency) {
+            counter.decrementAndGet();
+            if (current - 1 <= 0) sessionConcurrency.remove(sessionId);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * ⭐ L2: 释放会话级并发槽位。
+     */
+    void releaseSessionSlot(String sessionId) {
+        AtomicInteger counter = sessionConcurrency.get(sessionId);
+        if (counter != null) {
+            int remaining = counter.decrementAndGet();
+            if (remaining <= 0) {
+                sessionConcurrency.remove(sessionId);
+            }
+        }
+    }
+
+    /**
+     * ⭐ L2: 获取指定会话的当前并发数。
+     */
+    public int getSessionConcurrency(String sessionId) {
+        AtomicInteger counter = sessionConcurrency.get(sessionId);
+        return counter != null ? counter.get() : 0;
     }
 
     // ==================== 内部类 ====================
@@ -198,15 +273,19 @@ public class RequestQueueService {
     }
 
     /**
-     * 等待队列中的请求
+     * 等待队列中的请求（含会话 ID 和优先级）
      */
     private static class QueuedRequest {
         final String requestId;
+        final String sessionId;
+        final int priority;
         final long enqueueTime;
         volatile int position;
 
-        QueuedRequest(String requestId, long enqueueTime) {
+        QueuedRequest(String requestId, String sessionId, int priority, long enqueueTime) {
             this.requestId = requestId;
+            this.sessionId = sessionId;
+            this.priority = priority;
             this.enqueueTime = enqueueTime;
         }
     }
