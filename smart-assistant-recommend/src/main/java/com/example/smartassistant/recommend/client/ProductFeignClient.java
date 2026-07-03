@@ -13,7 +13,8 @@ import java.util.Map;
  * 通过 Nacos 服务发现调用 smart-assistant-product。
  * </p>
  */
-@FeignClient(name = "smart-assistant-product", path = "/api/product")
+@FeignClient(name = "smart-assistant-product", path = "/api/product",
+             fallbackFactory = ProductFeignClientFallbackFactory.class)
 public interface ProductFeignClient {
 
     /**

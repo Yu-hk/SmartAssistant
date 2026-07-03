@@ -52,6 +52,9 @@ public class GraphExecutionService {
     private final ReflectionService reflectionService;
     private final TaskPlannerService taskPlannerService;
 
+    /** ⭐ 异常率降级服务 */
+    private final DegradationService degradationService;
+
     /** ⭐ 异步 Agent 事件总线（可选，null 时降级为同步 Handoff） */
     private final com.example.smartassistant.common.gateway.AgentEventBus agentEventBus;
 
@@ -59,15 +62,20 @@ public class GraphExecutionService {
     @Value("${router.graph.async-handoff-enabled:false}")
     private boolean asyncHandoffEnabled;
 
+    /** ⭐ 单 Graph 执行期间每个 Agent 的连续失败计数（节点级熔断） */
+    private static final int NODE_LEVEL_BREAKER_THRESHOLD = 2; // 连续失败2次后熔断该 Agent
+
     public GraphExecutionService(AgentCallerService agentCallerService,
                                  @Qualifier("routerParallelAgentExecutor") Executor parallelExecutor,
                                  ReflectionService reflectionService,
                                  TaskPlannerService taskPlannerService,
+                                 DegradationService degradationService,
                                  @Autowired(required = false) com.example.smartassistant.common.gateway.AgentEventBus agentEventBus) {
         this.agentCallerService = agentCallerService;
         this.parallelExecutor = parallelExecutor;
         this.reflectionService = reflectionService;
         this.taskPlannerService = taskPlannerService;
+        this.degradationService = degradationService;
         this.agentEventBus = agentEventBus;
     }
 
@@ -95,6 +103,8 @@ public class GraphExecutionService {
         final ConcurrentHashMap<String, SubTaskResult> completedMap = new ConcurrentHashMap<>();
         // 所有结果（有序）
         final List<SubTaskResult> allResults = new CopyOnWriteArrayList<>();
+        // ⭐ 节点级熔断计数器：Agent 名 → 连续失败次数（不混入 completedMap）
+        final ConcurrentHashMap<String, Integer> breakerFailureCounts = new ConcurrentHashMap<>();
 
         int totalNodes = graph.getNodeCount();
         log.info("[GraphExecutor] 开始执行意图图: {} 个节点, hasDeps={}, maxParallelism={}",
@@ -129,7 +139,7 @@ public class GraphExecutionService {
             List<CompletableFuture<Void>> futures = new ArrayList<>();
             for (IntentNode node : executableNodes) {
                 CompletableFuture<Void> future = CompletableFuture
-                        .supplyAsync(() -> executeNode(node, graph, completedMap, userId, eventsKey, requestId), parallelExecutor)
+                        .supplyAsync(() -> executeNode(node, graph, completedMap, breakerFailureCounts, userId, eventsKey, requestId), parallelExecutor)
                         .thenAccept(result -> {
                             if (result != null) {
                                 completedMap.put(node.getId(), result);
@@ -213,14 +223,17 @@ public class GraphExecutionService {
      */
     public List<SubTaskResult> executeWithHandoff(IntentGraph graph, Long userId,
                                                    String eventsKey, String requestId) {
-        // 执行标准 DAG（同 execute 方法逻辑）
+        // 执行标准 DAG（同 execute 方法逻辑），含节点级熔断
         List<SubTaskResult> results = execute(graph, userId, eventsKey, requestId);
 
+        // ⭐ Handoff 阶段的节点级熔断计数器（与 execute() 独立）
+        final ConcurrentHashMap<String, Integer> handoffBreakerCounts = new ConcurrentHashMap<>();
+
         // ⭐ 检测是否有 Handoff 请求
-        List<SubTaskResult> handoffResults = processHandoffs(results, graph, userId, eventsKey, requestId);
+        List<SubTaskResult> handoffResults = processHandoffs(results, graph, userId, eventsKey, requestId, handoffBreakerCounts);
         while (!handoffResults.isEmpty()) {
             results.addAll(handoffResults);
-            handoffResults = processHandoffs(results, graph, userId, eventsKey, requestId);
+            handoffResults = processHandoffs(results, graph, userId, eventsKey, requestId, handoffBreakerCounts);
         }
 
         return results;
@@ -234,7 +247,8 @@ public class GraphExecutionService {
      * </p>
      */
     private List<SubTaskResult> processHandoffs(List<SubTaskResult> results, IntentGraph graph,
-                                                 Long userId, String eventsKey, String requestId) {
+                                                 Long userId, String eventsKey, String requestId,
+                                                 ConcurrentHashMap<String, Integer> breakerFailureCounts) {
         List<SubTaskResult> newResults = new ArrayList<>();
 
         for (SubTaskResult result : results) {
@@ -260,8 +274,8 @@ public class GraphExecutionService {
                 publishAsyncHandoff(cmd);
                 // 异步 Handoff 不产生即时结果
             } else {
-                // 同步模式：HTTP 调用等待返回（旧逻辑）
-                SubTaskResult handoffResult = executeHandoffNode(cmd, userId, eventsKey, requestId);
+                // 同步模式：HTTP 调用等待返回（旧逻辑），含节点级熔断
+                SubTaskResult handoffResult = executeHandoffNode(cmd, userId, eventsKey, requestId, breakerFailureCounts);
                 if (handoffResult != null) {
                     newResults.add(handoffResult);
                 }
@@ -290,10 +304,27 @@ public class GraphExecutionService {
 
     /**
      * 执行 Handoff 命令指定的目标 Agent。
+     * <p>
+     * <b>节点级熔断</b>：连续失败 {@link #NODE_LEVEL_BREAKER_THRESHOLD} 次后跳过该 Agent。
+     * <b>降级统计</b>：成功/失败均记录到 {@link DegradationService}。
+     * </p>
      */
     private SubTaskResult executeHandoffNode(HandoffCommand cmd, Long userId,
-                                              String eventsKey, String requestId) {
-        String handoffTaskId = "handoff_" + cmd.targetAgent() + "_" + System.currentTimeMillis();
+                                              String eventsKey, String requestId,
+                                              ConcurrentHashMap<String, Integer> breakerFailureCounts) {
+        String targetAgent = cmd.targetAgent();
+        String handoffTaskId = "handoff_" + targetAgent + "_" + System.currentTimeMillis();
+
+        // ⭐ 节点级熔断检测
+        int failCount = breakerFailureCounts.getOrDefault(targetAgent, 0);
+        if (failCount >= NODE_LEVEL_BREAKER_THRESHOLD) {
+            log.warn("[GraphExecutor] ⚡ Handoff 节点级熔断触发: agent={}, failCount={}",
+                    targetAgent, failCount);
+            degradationService.recordCall(false);
+            return new SubTaskResult(handoffTaskId,
+                    "Handoff: " + targetAgent, targetAgent, "", false);
+        }
+
         try {
             String enrichedQuestion = cmd.question();
             if (cmd.contextPayload() != null && !cmd.contextPayload().isBlank()) {
@@ -303,24 +334,36 @@ public class GraphExecutionService {
             }
 
             var agentResult = agentCallerService.callAgentAndExtractTitles(
-                    cmd.targetAgent(), enrichedQuestion, userId, requestId);
+                    targetAgent, enrichedQuestion, userId, requestId);
             String resultText = agentResult.getResponse();
 
             if (resultText != null && !resultText.isBlank()) {
                 log.info("[GraphExecutor] Handoff 成功: {} → {}, resultLen={}",
-                        cmd.targetAgent(), cmd.handoffType(), resultText.length());
+                        targetAgent, cmd.handoffType(), resultText.length());
+                // ⭐ 成功：重置连续失败计数 + 记录降级统计
+                breakerFailureCounts.put(targetAgent, 0);
+                degradationService.recordCall(true);
                 return new SubTaskResult(handoffTaskId,
-                        "Handoff: " + cmd.targetAgent(), cmd.targetAgent(),
+                        "Handoff: " + targetAgent, targetAgent,
                         resultText, true,
                         agentResult.getRealTitles(), agentResult.getTagsByTitle());
             }
+
+            // 结果为空：递增失败计数 + 记录降级统计
+            log.warn("[GraphExecutor] Handoff 返回空: {} → {}", targetAgent, cmd.handoffType());
+            breakerFailureCounts.put(targetAgent, failCount + 1);
+            degradationService.recordCall(false);
+
         } catch (Exception e) {
             log.warn("[GraphExecutor] Handoff 执行异常: {} → {}, error={}",
-                    cmd.targetAgent(), cmd.handoffType(), e.getMessage());
+                    targetAgent, cmd.handoffType(), e.getMessage());
+            // ⭐ 异常：递增失败计数 + 记录降级统计
+            breakerFailureCounts.put(targetAgent, failCount + 1);
+            degradationService.recordCall(false);
         }
 
         return new SubTaskResult(handoffTaskId,
-                "Handoff: " + cmd.targetAgent(), cmd.targetAgent(), "", false);
+                "Handoff: " + targetAgent, targetAgent, "", false);
     }
 
     /** 截断长文本（日志用） */
@@ -371,22 +414,28 @@ public class GraphExecutionService {
     }
 
     /**
-     * 执行单个图节点（含指数退避重试 + 验收标准检查）。
+     * 执行单个图节点（含指数退避重试 + 验收标准检查 + 节点级熔断）。
      * <p>
-     * 执行策略：
-     * <ol>
-     *   <li>从 {@code completedMap} 中按节点的依赖关系组装共享上下文</li>
-     *   <li>调用 Agent 执行，失败时根据 {@link ErrorType} 决定是否重试</li>
-     *   <li>{@link ErrorType#RETRYABLE_FAILED}：指数退避重试（最多 3 次）</li>
-     *   <li>{@link ErrorType#FATAL_FAILED}：立即返回</li>
-     *   <li>成功后调用 {@link ReflectionService#checkCriteria} 做验收检查</li>
-     * </ol>
+     * <b>节点级熔断</b>：当同一个 Agent 在本次 Graph 执行中连续失败
+     * {@link #NODE_LEVEL_BREAKER_THRESHOLD} 次后，后续指向该 Agent 的节点
+     * 将直接跳过（返回 SKIPPED），避免"异常处理制造更多异常"的负反馈循环。
      * </p>
      */
     private SubTaskResult executeNode(IntentNode node, IntentGraph graph,
                                        ConcurrentHashMap<String, SubTaskResult> completedMap,
+                                       ConcurrentHashMap<String, Integer> breakerFailureCounts,
                                        Long userId, String eventsKey, String requestId) {
         log.debug("[GraphExecutor] 执行节点: {}|{}|{}", node.getId(), node.getDescription(), node.getTargetAgent());
+
+        // ⭐ 节点级熔断检测：如果目标 Agent 已连续失败 NODE_LEVEL_BREAKER_THRESHOLD 次，跳过该节点
+        String targetAgent = node.getTargetAgent();
+        int failCount = breakerFailureCounts.getOrDefault(targetAgent, 0);
+        if (failCount >= NODE_LEVEL_BREAKER_THRESHOLD) {
+            log.warn("[GraphExecutor] ⚡ 节点级熔断触发: agent={}, failCount={}, node={}|{}",
+                    targetAgent, failCount, node.getId(), node.getDescription());
+            return new SubTaskResult(node.getId(), node.getDescription(),
+                    targetAgent, "", false, ErrorType.RETRYABLE_FAILED);
+        }
 
         // 从依赖节点构建共享上下文
         String sharedContext = buildSharedContext(node, completedMap);
@@ -420,6 +469,9 @@ public class GraphExecutionService {
                     }
                     log.info("[GraphExecutor] 节点成功: {}|{}, resultLen={}",
                             node.getId(), node.getTargetAgent(), resultText.length());
+                    // ⭐ 节点成功：重置该 Agent 的连续失败计数 + 记录降级统计
+                    breakerFailureCounts.put(targetAgent, 0);
+                    degradationService.recordCall(true);
                     return new SubTaskResult(node.getId(), node.getDescription(),
                             node.getTargetAgent(), resultText, true,
                             agentResult.getRealTitles(), agentResult.getTagsByTitle());
@@ -434,6 +486,9 @@ public class GraphExecutionService {
                     continue;
                 }
                 log.warn("[GraphExecutor] 节点返回空（已达最大重试）: {}|{}", node.getId(), node.getTargetAgent());
+                // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计
+                breakerFailureCounts.put(targetAgent, failCount + 1);
+                degradationService.recordCall(false);
                 return new SubTaskResult(node.getId(), node.getDescription(),
                         node.getTargetAgent(), "", false, ErrorType.FATAL_FAILED);
 
@@ -451,11 +506,18 @@ public class GraphExecutionService {
 
                 log.warn("[GraphExecutor] 节点异常(不可重试): {}|{}, error={}, type={}",
                         node.getId(), node.getTargetAgent(), e.getMessage(), errorType);
+                // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计
+                breakerFailureCounts.put(targetAgent, failCount + 1);
+                degradationService.recordCall(false);
                 return new SubTaskResult(node.getId(), node.getDescription(),
                         node.getTargetAgent(), "", false, errorType);
             }
         }
 
+        log.warn("[GraphExecutor] 节点执行耗尽重试次数: {}|{}", node.getId(), node.getTargetAgent());
+        // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计
+        breakerFailureCounts.put(targetAgent, failCount + 1);
+        degradationService.recordCall(false);
         return new SubTaskResult(node.getId(), node.getDescription(),
                 node.getTargetAgent(), "", false, ErrorType.FATAL_FAILED);
     }

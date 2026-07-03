@@ -13,8 +13,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -45,6 +47,10 @@ public class AgentEventBus {
     /** BLPOP 轮询超时（秒） */
     private static final long BLPOP_TIMEOUT_SECONDS = 5;
 
+    /** ⭐ 事件去重键前缀（SETNX），每个事件最多重入队一次 */
+    private static final String DEDUP_KEY_PREFIX = "agent:events:dedup:";
+    private static final long DEDUP_KEY_TTL_SECONDS = 300; // 5 分钟自动过期
+
     /** 已启动的消费者线程标记 */
     private final ConcurrentHashMap<String, Boolean> consumerStarted = new ConcurrentHashMap<>();
 
@@ -71,6 +77,7 @@ public class AgentEventBus {
         String key = EVENT_KEY_PREFIX + targetAgent;
         try {
             Map<String, Object> event = new LinkedHashMap<>();
+            event.put("eventId", UUID.randomUUID().toString()); // ⭐ 唯一事件 ID，用于去重
             event.put("type", eventType);
             event.put("payload", payload);
             event.put("timestamp", System.currentTimeMillis());
@@ -109,8 +116,21 @@ public class AgentEventBus {
                         try {
                             handler.accept(eventJson);
                         } catch (Exception e) {
-                            log.warn("[AgentEventBus] 事件处理异常, 重新入队: agent={}", agentName);
-                            redisTemplate.opsForList().rightPush(key, eventJson);
+                            // ⭐ 幂等去重：同一事件仅允许重新入队一次，防止"异常处理制造异常"的负反馈循环
+                            String eventId = extractEventId(eventJson);
+                            if (eventId != null) {
+                                String dedupKey = DEDUP_KEY_PREFIX + eventId;
+                                Boolean firstEnqueue = redisTemplate.opsForValue().setIfAbsent(
+                                        dedupKey, "1", Duration.ofSeconds(DEDUP_KEY_TTL_SECONDS));
+                                if (Boolean.TRUE.equals(firstEnqueue)) {
+                                    log.warn("[AgentEventBus] 事件处理异常, 重新入队: agent={}, eventId={}", agentName, eventId);
+                                    redisTemplate.opsForList().rightPush(key, eventJson);
+                                } else {
+                                    log.warn("[AgentEventBus] 事件已重入队过, 丢弃: agent={}, eventId={}", agentName, eventId);
+                                }
+                            } else {
+                                log.warn("[AgentEventBus] 事件处理异常(无法提取eventId), 丢弃: agent={}", agentName, eventJson.length());
+                            }
                         }
                     } catch (Exception e) {
                         if (Thread.currentThread().isInterrupted()) break;
@@ -133,5 +153,25 @@ public class AgentEventBus {
     public long getQueueSize(String agentName) {
         Long size = redisTemplate.opsForList().size(EVENT_KEY_PREFIX + agentName);
         return size != null ? size : 0;
+    }
+
+    /**
+     * 从事件 JSON 中提取 eventId。
+     * <p>
+     * 快速解析（不依赖完整反序列化），失败时返回 null。
+     * </p>
+     */
+    private String extractEventId(String eventJson) {
+        if (eventJson == null || eventJson.length() < 20) return null;
+        try {
+            // 快速查找 "eventId":"..." 模式
+            int idIdx = eventJson.indexOf("\"eventId\":\"");
+            if (idIdx < 0) return null;
+            int start = idIdx + "\"eventId\":\"".length();
+            int end = eventJson.indexOf('"', start);
+            return end > start ? eventJson.substring(start, end) : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
