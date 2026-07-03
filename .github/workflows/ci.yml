@@ -1,7 +1,7 @@
 # SmartAssistant CI Pipeline
 # 每次 push 到 main 或 PR 时自动执行：
 # 1. 编译所有模块
-# 2. 运行全部测试（集成测试自动跳过不可用基础设施）
+# 2. 运行全部测试（CI 内置 Redis）
 # 3. 上传测试报告
 
 name: CI
@@ -30,7 +30,7 @@ jobs:
         ports:
           - 6379:6379
         options: >-
-          --health-cmd "redis-cli ping"
+          --health-cmd "redis-cli -a redis123 ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -54,9 +54,8 @@ jobs:
         env:
           REDIS_PASSWORD: redis123
 
-      - name: Run unit tests (skip integration tests needing Docker)
-        run: ./mvnw test -q -Dsurefire.failIfNoSpecifiedTests=false \
-          -Dtest='!*IntegrationTest,!*EndToEnd*Test,!*ConcurrencyLoad*'
+      - name: Run all tests
+        run: ./mvnw test -q
         env:
           REDIS_PASSWORD: redis123
 
@@ -66,12 +65,3 @@ jobs:
         with:
           name: test-results
           path: '**/target/surefire-reports/'
-
-      - name: Notify on failure
-        if: failure()
-        run: |
-          echo "::error::CI pipeline failed. Check test results artifact for details."
-          echo "Common issues:"
-          echo "  - Missing environment variables (REDIS_PASSWORD, etc.)"
-          echo "  - Test failures in surefire reports"
-          echo "  - Compilation errors in changed modules"
