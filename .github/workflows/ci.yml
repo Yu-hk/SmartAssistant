@@ -55,7 +55,8 @@ jobs:
           REDIS_PASSWORD: redis123
 
       - name: Run unit tests (skip integration tests needing Docker)
-        run: ./mvnw test -q -Dtest='!*IntegrationTest,!*EndToEnd*Test,!*ConcurrencyLoad*'
+        run: ./mvnw test -q -Dsurefire.failIfNoSpecifiedTests=false \
+          -Dtest='!*IntegrationTest,!*EndToEnd*Test,!*ConcurrencyLoad*'
         env:
           REDIS_PASSWORD: redis123
 
