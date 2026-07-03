@@ -37,7 +37,7 @@
         <spring-cloud-alibaba.version>2023.0.3.2</spring-cloud-alibaba.version>
         <spring-cloud.version>2024.0.0</spring-cloud.version>
         <!-- ⭐ 强制使用 Nacos 3.x 客户端以支持 A2A -->
-        <nacos-client.version>3.1.0</nacos-client.version>
+        <nacos-client.version>3.2.0</nacos-client.version>
         <!-- JetBrains Annotations — 原由 spring-ai-alibaba 传递引入 -->
         <jetbrains-annotations.version>26.0.2</jetbrains-annotations.version>
         <!-- ⭐ JDK Windows 长类路径修复（Surefire 长 classpath bug，JDK 21 下仍保留该系统属性，无害） -->

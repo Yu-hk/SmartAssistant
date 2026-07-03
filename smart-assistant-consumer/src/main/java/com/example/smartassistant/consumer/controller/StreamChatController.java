@@ -96,8 +96,6 @@ public class StreamChatController {
             @RequestParam String message,
             @RequestParam(required = false) String requestId,
             @RequestParam(required = false, defaultValue = "true") boolean showThinking,
-            @RequestParam(required = false) String sessionId,
-            @RequestParam(required = false) String model,
             @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId,
             jakarta.servlet.http.HttpServletResponse response) {
         
@@ -218,7 +216,7 @@ public class StreamChatController {
                 ? (Boolean) request.get("showThinking") 
                 : true;
         
-        streamChat(message, requestId, showThinking, null, null, null, httpResponse);
+        streamChat(message, requestId, showThinking, null, httpResponse);
     }
 
     /**
@@ -348,8 +346,9 @@ public class StreamChatController {
     /**
      * ⭐ 从 Redis 缓冲区读取已缓存的事件并补发（断线续传）。
      * <p>
-     * 前端断开后重新连接时，通过 {@code lastEventId} 定位断点，
-     * 从 Redis Hash {@code sse:buffer:{requestId}} 中读取 seqNo > lastEventId 的事件并补发。
+     * 使用 Redis Sorted Set（score=seqNo）存储 SSE 事件。
+     * 续传时通过 {@code ZRANGEBYSCORE key (lastSeq +inf} O(log n) 范围查询，
+     * 仅返回 seqNo > lastEventId 的待补发事件，避免全量读取。
      * </p>
      *
      * @param response   SSE 响应
@@ -377,41 +376,30 @@ public class StreamChatController {
                 return false;
             }
 
-            // 获取所有字段名（事件序号）
-            java.util.Set<Object> fields = redisTemplate.opsForHash().keys(redisKey);
-            if (fields == null || fields.isEmpty()) return false;
+            // ⭐ 使用 ZRANGEBYSCORE O(log n) 范围查询，仅返回 seqNo > lastEventId 的事件
+            java.util.Set<String> pendingEvents = redisTemplate.opsForZSet().rangeByScore(
+                    redisKey, lastSeq + 1, Long.MAX_VALUE);
 
-            // 找出大于 lastEventId 的序号并排序
-            java.util.List<Long> pendingSeqs = new java.util.ArrayList<>();
-            for (Object field : fields) {
-                try {
-                    long seq = Long.parseLong(field.toString());
-                    if (seq > lastSeq) pendingSeqs.add(seq);
-                } catch (NumberFormatException ignored) {}
-            }
-
-            if (pendingSeqs.isEmpty()) {
+            if (pendingEvents == null || pendingEvents.isEmpty()) {
                 logger.info("[StreamChat] 无待补发事件: requestId={}, lastEventId={}", requestId, lastEventId);
                 return false;
             }
 
-            java.util.Collections.sort(pendingSeqs);
             logger.info("[StreamChat] 🔄 断线续传: requestId={}, lastEventId={}, 补发事件数={}",
-                    requestId, lastEventId, pendingSeqs.size());
+                    requestId, lastEventId, pendingEvents.size());
 
-            // 补发事件
-            for (long seq : pendingSeqs) {
-                Object data = redisTemplate.opsForHash().get(redisKey, String.valueOf(seq));
-                if (data == null) continue;
-
-                // 注入事件 ID
-                String idLine = "id: " + seq + "\n";
+            // ⭐ ZRANGEBYSCORE 自带排序（升序），直接从 minScore 开始
+            long currentSeq = lastSeq + 1;
+            for (String data : pendingEvents) {
+                // 注入事件 ID（递增）
+                String idLine = "id: " + currentSeq + "\n";
                 response.getOutputStream().write(idLine.getBytes(StandardCharsets.UTF_8));
                 response.getOutputStream().write(("data: " + data + "\n\n").getBytes(StandardCharsets.UTF_8));
                 response.getOutputStream().flush();
+                currentSeq++;
             }
 
-            return !pendingSeqs.isEmpty();
+            return !pendingEvents.isEmpty();
 
         } catch (Exception e) {
             logger.warn("[StreamChat] 断线续传异常: {}", e.getMessage());
@@ -529,12 +517,12 @@ public class StreamChatController {
                         response.getOutputStream().write("\n".getBytes());
                         response.getOutputStream().flush();
                         
-                        // ⭐ 缓存事件到 Redis（用于断线续传）
+                        // ⭐ 缓存事件到 Redis（Sorted Set，用于断线续传）
                         if (redisKey != null) {
                             String dataPart = extractDataPart(currentEvent.toString());
                             if (dataPart != null) {
                                 try {
-                                    redisTemplate.opsForHash().put(redisKey, String.valueOf(seqNo), dataPart);
+                                    redisTemplate.opsForZSet().add(redisKey, dataPart, seqNo);
                                     redisTemplate.expire(redisKey, SSE_BUFFER_TTL_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
                                 } catch (Exception e) {
                                     logger.debug("[StreamChat] 缓存 SSE 事件失败: seqNo={}", seqNo);

@@ -124,6 +124,16 @@ management:
       export:
         enabled: true
 
+# ⭐ Nacos A2A Registry 配置（AgentCard 注册）
+# 启用后，启动时自动向 Nacos A2A Registry 注册 Order AgentCard。
+# 默认关闭，需显式开启 —— 与现有 Nacos Naming 注册共存，分工不同：
+#   Naming → 服务实例发现（IP:Port）
+#   A2A   → Agent 元数据发现（skills/description/version）
+nacos:
+  a2a:
+    registry:
+      enabled: false
+
 # ⭐ BGE embedding 配置（1.2GB 模型从项目级共享目录加载）
 bge:
   model:
