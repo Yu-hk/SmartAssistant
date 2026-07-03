@@ -7,16 +7,19 @@
 
 package com.example.smartassistant.service.search;
 
+import com.example.smartassistant.common.rag.MultiQueryService;
 import com.example.smartassistant.service.graph.ProductGraphService;
 import com.example.smartassistant.spi.ProductBackend;
 import com.example.smartassistant.tools.KnowledgeQueryTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -24,6 +27,7 @@ import java.util.stream.Collectors;
  * <p>
  * 实现多路召回 + RRF 融合管道：
  * <ol>
+ *   <li><b>Step 0（可选）</b>：Multi-Query 查询扩展，生成 3 个角度变体提升覆盖率</li>
  *   <li><b>Path 1（精确匹配）</b>：ProductBackend.queryProductInfo() — 按商品编码精确查询</li>
  *   <li><b>Path 2（关键词搜索）</b>：ProductBackend.searchProduct() — 关键词模糊匹配</li>
  *   <li><b>Path 3（BM25 语义评分）</b>：Bm25Scorer — 对所有产品数据做 BM25 排序</li>
@@ -55,17 +59,25 @@ public class ProductRagService {
     /** P3: 商品知识图谱 */
     private final ProductGraphService productGraphService;
 
+    /** ⭐ Multi-Query 查询扩展（可选，null 时跳过） */
+    private final MultiQueryService multiQueryService;
+
+    @Value("${product.rag.multi-query.enabled:false}")
+    private boolean multiQueryEnabled;
+
     /** 产品数据缓存（用于 BM25 评分） */
     private Map<String, String> productTextCache;
 
     public ProductRagService(ProductBackend productBackend,
                              Bm25Scorer bm25Scorer,
                              KnowledgeQueryTool knowledgeQueryTool,
-                             ProductGraphService productGraphService) {
+                             ProductGraphService productGraphService,
+                             @Autowired(required = false) MultiQueryService multiQueryService) {
         this.productBackend = productBackend;
         this.bm25Scorer = bm25Scorer;
         this.knowledgeQueryTool = knowledgeQueryTool;
         this.productGraphService = productGraphService;
+        this.multiQueryService = multiQueryService;
         this.productTextCache = new ConcurrentHashMap<>();
     }
 
@@ -327,18 +339,46 @@ public class ProductRagService {
         }
 
         long start = System.currentTimeMillis();
-        List<RetrievalPathResult> allPaths = new ArrayList<>();
 
-        allPaths.add(retrievePath1(query));
-        allPaths.add(retrievePath2(query));
-        allPaths.add(retrievePath3(query));
-        allPaths.add(retrievePath4(query));
-        // ⭐ P3: Graph 检索 — 商品关系图谱（推荐同类/配件/替代品）
-        allPaths.add(retrievePath5(query));
+        // ⭐ Step 0: Multi-Query 查询扩展（可选）
+        // 生成 3 个角度变体，每个变体分别走 5 路召回，再统一 RRF 融合
+        List<String> queryVariants = new ArrayList<>();
+        queryVariants.add(query); // 始终保留原始 query
+
+        if (multiQueryEnabled && multiQueryService != null) {
+            try {
+                List<String> variants = multiQueryService.withCount(3).generate(query);
+                for (String v : variants) {
+                    if (!queryVariants.contains(v)) {
+                        queryVariants.add(v);
+                    }
+                }
+                log.info("[ProductRAG] 🔀 Multi-Query 扩展: query='{}' → {} 个变体", query, queryVariants.size());
+            } catch (Exception e) {
+                log.warn("[ProductRAG] Multi-Query 失败，使用原始 query: {}", e.getMessage());
+            }
+        }
+
+        // 每个 query variant 走 5 路召回，结果统一 RRF 融合
+        List<List<RetrievalPathResult>> allVariantPaths = new ArrayList<>();
+        for (String variant : queryVariants) {
+            List<RetrievalPathResult> paths = new ArrayList<>();
+            paths.add(retrievePath1(variant));
+            paths.add(retrievePath2(variant));
+            paths.add(retrievePath3(variant));
+            paths.add(retrievePath4(variant));
+            paths.add(retrievePath5(variant));
+            allVariantPaths.add(paths);
+        }
+
+        // 将所有 variant 的所有 path 合并为一个 RRF 融合
+        List<RetrievalPathResult> mergedPaths = allVariantPaths.stream()
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
 
         // RRF 融合（返回带分数的列表）
-        List<RankedItem> fused = rrfFuse(allPaths);
-        int activePaths = (int) allPaths.stream().filter(p -> !p.items.isEmpty()).count();
+        List<RankedItem> fused = rrfFuse(mergedPaths);
+        int activePaths = (int) mergedPaths.stream().filter(p -> !p.items.isEmpty()).count();
         long elapsed = System.currentTimeMillis() - start;
 
         if (fused.isEmpty()) {

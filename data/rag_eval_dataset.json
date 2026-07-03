@@ -1,0 +1,233 @@
+[
+  {
+    "id": "eval-001",
+    "category": "订单查询",
+    "question": "我的订单 ORD-001 现在是什么状态？",
+    "expected_doc_ids": ["ORD-STATUS-v1"],
+    "expected_keywords": ["订单状态", "ORD-001"]
+  },
+  {
+    "id": "eval-002",
+    "category": "订单查询",
+    "question": "查一下我的订单到哪了",
+    "expected_doc_ids": ["ORD-TRACKING-v1"],
+    "expected_keywords": ["物流跟踪", "订单运输"]
+  },
+  {
+    "id": "eval-003",
+    "category": "订单查询",
+    "question": "申请退款要多久到账",
+    "expected_doc_ids": ["ORD-REFUND-POLICY-v2"],
+    "expected_keywords": ["退款", "到账时间"]
+  },
+  {
+    "id": "eval-004",
+    "category": "商品查询",
+    "question": "iPhone 15 Pro Max 多少钱？",
+    "expected_doc_ids": ["PRD-iPhone15ProMax-PRICE-v1"],
+    "expected_keywords": ["iPhone 15 Pro Max", "价格"]
+  },
+  {
+    "id": "eval-005",
+    "category": "商品查询",
+    "question": "南屿 Watch S3 有货吗？",
+    "expected_doc_ids": ["PRD-WatchS3-STOCK-v1"],
+    "expected_keywords": ["南屿 Watch S3", "库存"]
+  },
+  {
+    "id": "eval-006",
+    "category": "商品查询",
+    "question": "这款手机性价比怎么样",
+    "expected_doc_ids": ["PRD-iPhone15ProMax-REVIEW-v1"],
+    "expected_keywords": ["性价比", "评测"]
+  },
+  {
+    "id": "eval-007",
+    "category": "售后政策",
+    "question": "退货需要什么条件？",
+    "expected_doc_ids": ["POLICY-RETURN-v2"],
+    "expected_keywords": ["退货条件", "退货政策"]
+  },
+  {
+    "id": "eval-008",
+    "category": "售后政策",
+    "question": "商品有问题怎么换货",
+    "expected_doc_ids": ["POLICY-EXCHANGE-v1"],
+    "expected_keywords": ["换货流程", "质量问题"]
+  },
+  {
+    "id": "eval-009",
+    "category": "售后政策",
+    "question": "七天无理由退货运费谁出",
+    "expected_doc_ids": ["POLICY-RETURN-v2"],
+    "expected_keywords": ["七天无理由", "退货运费"]
+  },
+  {
+    "id": "eval-010",
+    "category": "商品查询",
+    "question": "AirPods 和 iPhone 能一起买吗",
+    "expected_doc_ids": ["PRD-AirPods-BUNDLE-v1"],
+    "expected_keywords": ["捆绑", "组合购买"]
+  },
+  {
+    "id": "eval-011",
+    "category": "物流查询",
+    "question": "发货后几天能到北京",
+    "expected_doc_ids": ["ORD-SHIPPING-TIME-v1"],
+    "expected_keywords": ["发货时间", "配送时效"]
+  },
+  {
+    "id": "eval-012",
+    "category": "订单查询",
+    "question": "取消订单后钱退到哪里",
+    "expected_doc_ids": ["ORD-CANCEL-REFUND-v1"],
+    "expected_keywords": ["取消订单", "退款渠道"]
+  },
+  {
+    "id": "eval-013",
+    "category": "商品查询",
+    "question": "MacBook Pro 和 Air 有什么区别",
+    "expected_doc_ids": ["PRD-MacBook-COMPARE-v1"],
+    "expected_keywords": ["MacBook Pro", "MacBook Air", "对比"]
+  },
+  {
+    "id": "eval-014",
+    "category": "售后政策",
+    "question": "保修期内维修要钱吗",
+    "expected_doc_ids": ["POLICY-WARRANTY-v2"],
+    "expected_keywords": ["保修", "维修费用"]
+  },
+  {
+    "id": "eval-015",
+    "category": "订单查询",
+    "question": "为什么我的订单还在审核中",
+    "expected_doc_ids": ["ORD-AUDIT-PROCESS-v1"],
+    "expected_keywords": ["订单审核", "审核状态"]
+  },
+  {
+    "id": "eval-016",
+    "category": "商品查询",
+    "question": "这个商品有优惠券吗",
+    "expected_doc_ids": ["PRD-COUPON-POLICY-v1"],
+    "expected_keywords": ["优惠券", "折扣"]
+  },
+  {
+    "id": "eval-017",
+    "category": "售后政策",
+    "question": "退款金额怎么计算",
+    "expected_doc_ids": ["ORD-REFUND-POLICY-v2"],
+    "expected_keywords": ["退款计算", "退款金额"]
+  },
+  {
+    "id": "eval-018",
+    "category": "物流查询",
+    "question": "可以改配送地址吗",
+    "expected_doc_ids": ["ORD-ADDRESS-CHANGE-v1"],
+    "expected_keywords": ["修改地址", "配送地址"]
+  },
+  {
+    "id": "eval-019",
+    "category": "商品查询",
+    "question": "这个耳机音质怎么样",
+    "expected_doc_ids": ["PRD-AirPods-REVIEW-v1"],
+    "expected_keywords": ["耳机", "音质评价"]
+  },
+  {
+    "id": "eval-020",
+    "category": "订单查询",
+    "question": "用优惠券的订单能退款吗",
+    "expected_doc_ids": ["ORD-COUPON-REFUND-v1"],
+    "expected_keywords": ["优惠券退款", "折扣订单"]
+  },
+  {
+    "id": "eval-021",
+    "category": "商品查询",
+    "question": "Apple Watch 哪个型号性价比最高",
+    "expected_doc_ids": ["PRD-Watch-COMPARE-v1"],
+    "expected_keywords": ["Apple Watch", "型号对比"]
+  },
+  {
+    "id": "eval-022",
+    "category": "售后政策",
+    "question": "超过退货期限怎么办",
+    "expected_doc_ids": ["POLICY-RETURN-v2"],
+    "expected_keywords": ["退货期限", "超期"]
+  },
+  {
+    "id": "eval-023",
+    "category": "物流查询",
+    "question": "快递单号怎么查",
+    "expected_doc_ids": ["ORD-TRACKING-v1"],
+    "expected_keywords": ["快递单号", "物流查询"]
+  },
+  {
+    "id": "eval-024",
+    "category": "订单查询",
+    "question": "上次买的东西还能再买吗",
+    "expected_doc_ids": ["PRD-REORDER-v1"],
+    "expected_keywords": ["重新购买", "历史订单"]
+  },
+  {
+    "id": "eval-025",
+    "category": "商品查询",
+    "question": "它支持无线充电吗",
+    "expected_doc_ids": ["PRD-iPhone15ProMax-SPEC-v1"],
+    "expected_keywords": ["无线充电", "规格参数"]
+  },
+  {
+    "id": "eval-026",
+    "category": "商品查询",
+    "question": "iPhone 15 Pro Max 为什么卖这么贵",
+    "expected_doc_ids": ["PRD-iPhone15ProMax-PRICE-v1", "PRD-iPhone15ProMax-REVIEW-v1"],
+    "expected_keywords": ["定价", "高价原因"]
+  },
+  {
+    "id": "eval-027",
+    "category": "售后政策",
+    "question": "换货和退货哪个更快",
+    "expected_doc_ids": ["POLICY-EXCHANGE-v1", "POLICY-RETURN-v2"],
+    "expected_keywords": ["换货时效", "退货时效"]
+  },
+  {
+    "id": "eval-028",
+    "category": "订单查询",
+    "question": "怎么查看历史订单记录",
+    "expected_doc_ids": ["ORD-HISTORY-v1"],
+    "expected_keywords": ["历史订单", "订单记录"]
+  },
+  {
+    "id": "eval-029",
+    "category": "商品查询",
+    "question": "刚买完就降价了能退差价吗",
+    "expected_doc_ids": ["PRD-PRICE-PROTECTION-v1"],
+    "expected_keywords": ["价格保护", "退差价"]
+  },
+  {
+    "id": "eval-030",
+    "category": "物流查询",
+    "question": "周六日送货吗",
+    "expected_doc_ids": ["ORD-SHIPPING-TIME-v1"],
+    "expected_keywords": ["周末配送", "送货时间"]
+  },
+  {
+    "id": "eval-031",
+    "category": "售后政策",
+    "question": "保外维修多少钱",
+    "expected_doc_ids": ["POLICY-WARRANTY-v2"],
+    "expected_keywords": ["保外维修", "维修价格"]
+  },
+  {
+    "id": "eval-032",
+    "category": "商品查询",
+    "question": "这款平板适合学生用吗",
+    "expected_doc_ids": ["PRD-iPad-EDUCATION-v1"],
+    "expected_keywords": ["平板", "学生使用"]
+  },
+  {
+    "id": "eval-033",
+    "category": "订单查询",
+    "question": "怎么用积分抵扣订单金额",
+    "expected_doc_ids": ["ORD-POINTS-DEDUCTION-v1"],
+    "expected_keywords": ["积分抵扣", "积分使用"]
+  }
+]
