@@ -81,9 +81,9 @@ public class AgentSafetyService {
             // 重写系统提示
             Pattern.compile("重写(系统|初始|你的)?(提示|指令|prompt|role)", Pattern.CASE_INSENSITIVE),
             // 泄露系统提示
-            Pattern.compile("泄露|输出|出示).{0,20}(系统|初始|你的).{0,10}(提示|指令|prompt)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(泄露|输出|出示).{0,20}(系统|初始|你的).{0,10}(提示|指令|prompt)", Pattern.CASE_INSENSITIVE),
             // 假装已完成
-            Pattern.compile("假装|假设).{0,10}(已经|已).{0,10}(完成|处理|执行)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(假装|假设).{0,10}(已经|已).{0,10}(完成|处理|执行)", Pattern.CASE_INSENSITIVE),
             // 越权指令
             Pattern.compile("请(忘记|忽略|删除|覆盖).{0,10}(所有|之前|以上).{0,10}(规则|指令|约束)", Pattern.CASE_INSENSITIVE)
     );

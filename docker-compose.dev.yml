@@ -1,0 +1,90 @@
+# SmartAssistant 本地开发环境 — 一键启动全部服务
+# 使用: docker compose -f docker-compose.dev.yml up -d
+# 停止: docker compose -f docker-compose.dev.yml down
+# 查看日志: docker compose -f docker-compose.dev.yml logs -f
+#
+# 前置条件:
+#   1. Docker Desktop 已安装
+#   2. 项目已构建（mvn compile）
+#
+# 启动后访问:
+#   - Gateway:  http://localhost:8081
+#   - Router:   http://localhost:8083
+#   - Consumer: http://localhost:8082
+#   - Redis:    localhost:6379
+#   - Nacos:    http://localhost:8848/nacos
+#
+# 注意:
+#   - 本地开发推荐在 IDE 中直接启动服务（热重载）
+#   - 此 compose 仅启动基础设施 + 可选的服务构建
+#   - 服务通过环境变量 SPRING_PROFILES_ACTIVE=dev 切换配置
+
+services:
+  # === Redis 缓存 ===
+  redis:
+    image: redis:7.2.4
+    container_name: smart-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - smart-network
+
+  # === PostgreSQL 数据库 ===
+  postgres:
+    image: postgres:16
+    container_name: smart-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres123}
+      POSTGRES_DB: a2a_system
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - smart-network
+
+  # === Nacos 服务注册与发现 ===
+  nacos:
+    image: nacos/nacos-server:v3.1.0
+    container_name: smart-nacos
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    environment:
+      - MODE=standalone
+      - JVM_XMS=256m
+      - JVM_XMX=512m
+      - NACOS_AUTH_ENABLE=false
+    volumes:
+      - nacos-data:/home/nacos/data
+    restart: unless-stopped
+    networks:
+      - smart-network
+
+  # === 监控栈（可选，默认不启动） ===
+  # 如需监控，取消下方注释或单独运行 monitoring/docker-compose.yml
+
+networks:
+  smart-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  postgres-data:
+  nacos-data:
