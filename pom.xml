@@ -256,22 +256,10 @@
                         </annotationProcessorPaths>
                     </configuration>
                 </plugin>
-                <!-- ⭐ Surefire 配置（子模块无测试时不报错） -->
+                <!-- ⭐ Surefire 配置 -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <configuration>
-                        <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
-                        <excludes>
-                            <exclude>**/*IntegrationTest.java</exclude>
-                            <exclude>**/*EndToEnd*Test.java</exclude>
-                            <exclude>**/ChatIntegrationTest.java</exclude>
-                            <exclude>**/DataGifToolTest.java</exclude>
-                            <exclude>**/RouterRoutingIntegrationTest.java</exclude>
-                            <exclude>**/GlobalJwtAuthFilterIntegrationTest.java</exclude>
-                            <exclude>**/AgentMemoryServiceIntegrationTest.java</exclude>
-                        </excludes>
-                    </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>
