@@ -18,12 +18,11 @@ import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * 订单知识库配置——BGE + BM25 + pgvector 持久化。
@@ -33,27 +32,17 @@ public class OrderKnowledgeConfig {
 
     private static final Logger log = LoggerFactory.getLogger(OrderKnowledgeConfig.class);
 
-    @Value("${reranker.model.path:models/bge-reranker-v2-m3.onnx}")
-    private String rerankerModelPath;
-
-    @Value("${reranker.vocab.path:models/bge-reranker-tokenizer.json}")
-    private String rerankerVocabPath;
-
-    @Value("${bge.vocab.path:models/tokenizer.json}")
-    private String bgeVocabPath;
-
-    /** bge-reranker Cross-Encoder（按配置启用） */
+    /** ⭐ bge-reranker Cross-Encoder（改为注入 BgeEmbeddingModel，替换旧有 model+vocab 文件路径） */
     @Bean
     @ConditionalOnProperty(name = "reranker.enabled", havingValue = "true")
-    public Reranker orderReranker() {
-        log.info("[OrderKnowledge] 初始化 bge-reranker: model={}, vocab={}",
-                rerankerModelPath, rerankerVocabPath);
-        BgeReranker reranker = new BgeReranker(rerankerModelPath, rerankerVocabPath);
-        if (reranker.isAvailable()) {
-            log.info("[OrderKnowledge] bge-reranker 就绪");
-        } else {
-            log.warn("[OrderKnowledge] bge-reranker 不可用，降级为恒等映射");
+    public Reranker orderReranker(BgeEmbeddingModel embeddingModel) {
+        if (embeddingModel == null || !embeddingModel.isAvailable()) {
+            log.warn("[OrderKnowledge] BGE 嵌入模型不可用，Reranker 降级为恒等映射");
+            return Reranker.identity();
         }
+        log.info("[OrderKnowledge] 初始化 BgeReranker: using BgeEmbeddingModel");
+        BgeReranker reranker = new BgeReranker(embeddingModel);
+        log.info("[OrderKnowledge] BgeReranker 就绪");
         return reranker;
     }
 
