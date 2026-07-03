@@ -53,6 +53,12 @@ public class BgeReranker implements Reranker {
         if (hits == null || hits.isEmpty()) return List.of();
         if (topK <= 0) topK = 5;
 
+        // ⭐ 嵌入模型不可用时降级为恒等排序
+        if (embeddingModel == null) {
+            log.warn("[BgeReranker] 嵌入模型未配置，返回原始排序");
+            return hits.size() <= topK ? hits : hits.subList(0, topK);
+        }
+
         long start = System.currentTimeMillis();
 
         // 计算 query 的 embedding（复用，只计算一次）
