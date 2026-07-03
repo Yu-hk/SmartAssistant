@@ -15,7 +15,9 @@ import com.example.smartassistant.router.model.SubTaskResult.ErrorType;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -50,14 +52,23 @@ public class GraphExecutionService {
     private final ReflectionService reflectionService;
     private final TaskPlannerService taskPlannerService;
 
+    /** ⭐ 异步 Agent 事件总线（可选，null 时降级为同步 Handoff） */
+    private final com.example.smartassistant.common.gateway.AgentEventBus agentEventBus;
+
+    /** ⭐ 是否启用异步 Handoff（默认 false） */
+    @Value("${router.graph.async-handoff-enabled:false}")
+    private boolean asyncHandoffEnabled;
+
     public GraphExecutionService(AgentCallerService agentCallerService,
                                  @Qualifier("routerParallelAgentExecutor") Executor parallelExecutor,
                                  ReflectionService reflectionService,
-                                 TaskPlannerService taskPlannerService) {
+                                 TaskPlannerService taskPlannerService,
+                                 @Autowired(required = false) com.example.smartassistant.common.gateway.AgentEventBus agentEventBus) {
         this.agentCallerService = agentCallerService;
         this.parallelExecutor = parallelExecutor;
         this.reflectionService = reflectionService;
         this.taskPlannerService = taskPlannerService;
+        this.agentEventBus = agentEventBus;
     }
 
     /**
@@ -216,7 +227,11 @@ public class GraphExecutionService {
     }
 
     /**
-     * 处理一轮 Handoff 交接：遍历所有结果，发现有 HandoffCommand 的立即执行目标 Agent。
+     * 处理一轮 Handoff 交接。
+     * <p>
+     * 根据 {@link #asyncHandoffEnabled} 配置，选择同步 HTTP 调用
+     * 或异步 Redis List 事件总线模式。
+     * </p>
      */
     private List<SubTaskResult> processHandoffs(List<SubTaskResult> results, IntentGraph graph,
                                                  Long userId, String eventsKey, String requestId) {
@@ -240,14 +255,37 @@ public class GraphExecutionService {
                     result.getAgentName(), cmd.targetAgent(),
                     truncate(cmd.question(), 100));
 
-            // 执行 Handoff 目标 Agent
-            SubTaskResult handoffResult = executeHandoffNode(cmd, userId, eventsKey, requestId);
-            if (handoffResult != null) {
-                newResults.add(handoffResult);
+            if (asyncHandoffEnabled && agentEventBus != null) {
+                // ⭐ 异步模式：发布事件到 Redis List，不等待返回
+                publishAsyncHandoff(cmd);
+                // 异步 Handoff 不产生即时结果
+            } else {
+                // 同步模式：HTTP 调用等待返回（旧逻辑）
+                SubTaskResult handoffResult = executeHandoffNode(cmd, userId, eventsKey, requestId);
+                if (handoffResult != null) {
+                    newResults.add(handoffResult);
+                }
             }
         }
 
         return newResults;
+    }
+
+    /**
+     * ⭐ 异步 Handoff：将 Handoff 命令发布到 Redis List 事件总线。
+     * <p>
+     * Router 不等待结果，Agent 通过 BLPOP 异步消费。
+     * 适用于无需立即返回结果的 Agent 间协作。
+     * </p>
+     */
+    private void publishAsyncHandoff(HandoffCommand cmd) {
+        if (agentEventBus == null) return;
+        agentEventBus.publishEvent(cmd.targetAgent(), "HANDOFF", Map.of(
+                "question", cmd.question(),
+                "contextPayload", cmd.contextPayload() != null ? cmd.contextPayload() : "",
+                "handoffType", cmd.handoffType().name()
+        ));
+        log.info("[GraphExecutor] 📨 异步 Handoff 已发布: → {}", cmd.targetAgent());
     }
 
     /**
