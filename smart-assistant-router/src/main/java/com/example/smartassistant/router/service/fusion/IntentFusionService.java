@@ -7,13 +7,15 @@ import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisServic
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 
 /**
- * L3 三路并行意图融合引擎。
+ * L3 三路并行意图融合引擎（含 Intent Prior Bias）。
  * <p>
  * 核心逻辑（文章推荐策略）：
  * <ol>
@@ -25,8 +27,11 @@ import java.util.concurrent.*;
  * </ol>
  * </p>
  *
- * @author Yu-hk
- * @since 2026-06-29
+ * <p>⭐ Intent Prior Bias（2026-07-03）：
+ * 给 ORDER/PRODUCT 等业务意图增加先验偏置，抑制 GENERAL 兜底意图的排序偏置。
+ * 参考文章《意图识别系统：从分类模型到检索式路由的演进》的 Intent Prior Bias 方案。
+ * 偏置值在语义分数差距大时不会翻转结果，仅在边界 case 推动正确意图胜出。
+ * </p>
  */
 @Service
 public class IntentFusionService {
@@ -39,6 +44,22 @@ public class IntentFusionService {
 
     @Autowired(required = false)
     private NewMetricsCollector metricsCollector;
+
+    /**
+     * ⭐ Intent Prior Bias：意图先验偏置。
+     * <p>
+     * 在语义分数中加入轻微偏置，抑制 GENERAL 兜底意图的排序偏置。
+     * ORDER/PRODUCT 等业务意图增加 0.15 偏置，COMPLEX 增加 0.05。
+     * 当语义分数差距大时（如 GENERAL=0.85 vs ORDER=0.55），偏置 0.15 不会翻转结果。
+     * 仅在边界 case（如 ORDER=0.72 vs GENERAL=0.70）时推动正确意图胜出。
+     * </p>
+     */
+    private final Map<String, Double> intentPriorBias = Map.of(
+            "ORDER", 0.15,
+            "PRODUCT", 0.15,
+            "COMPLEX", 0.05
+            // GENERAL 和 UNKNOWN 不加偏置（基准）
+    );
 
     public IntentFusionService(KeywordFastRouteService fastRouteService,
                                LightweightIntentClassifier classifier,
@@ -116,6 +137,9 @@ public class IntentFusionService {
     /**
      * 将三路结果融合。
      * 规则 > 小模型 > 大模型（冲突时高优先级覆盖低）
+     * <p>
+     * ⭐ Intent Prior Bias：在比较置信度时，为 ORDER/PRODUCT 等业务意图增加先验偏置。
+     * </p>
      */
     private IntentFusionResult fuseWithLLM(
             KeywordFastRouteService.MatchResult ruleResult,
@@ -124,14 +148,14 @@ public class IntentFusionService {
             long startTime) {
 
         String llmIntent = llmResult.getIntentCategory();
-        double llmConf = llmResult.getConfidence();  // primitive double
+        double llmConf = applyBias(llmIntent, llmResult.getConfidence());
 
         String ruleIntent = ruleResult != null ? ruleResult.getIntentTag() : null;
-        double ruleConf = ruleResult != null ? ruleResult.getConfidence() : 0;
+        double ruleConf = applyBias(ruleIntent, ruleResult != null ? ruleResult.getConfidence() : 0);
         String classifierIntent = classifyResult != null ? classifyResult.intentTag() : null;
-        double classifierConf = classifyResult != null ? classifyResult.confidence() : 0;
+        double classifierConf = applyBias(classifierIntent, classifyResult != null ? classifyResult.confidence() : 0);
 
-        // 融合逻辑：规则 > 小模型 > 大模型
+        // 融合逻辑：规则 > 小模型 > 大模型（置信度已含 Intent Prior Bias）
         if (ruleResult != null && ruleConf >= 0.6) {
             // 规则命中且置信度足够，优先采用
             long elapsed = System.currentTimeMillis() - startTime;
@@ -150,12 +174,30 @@ public class IntentFusionService {
                     llmIntent, llmConf, elapsed);
         }
 
-        // LLM 兜底
+        // LLM 兜底（置信度已含 Intent Prior Bias）
         long elapsed = System.currentTimeMillis() - startTime;
         return new IntentFusionResult(llmIntent, llmConf,
                 llmIntent != null ? llmIntent.toLowerCase() : "unknown", "LLM",
                 ruleIntent, ruleConf, classifierIntent, classifierConf,
                 llmIntent, llmConf, elapsed);
+    }
+
+    /**
+     * ⭐ 应用 Intent Prior Bias：为业务意图增加先验偏置。
+     * <p>
+     * 当 intent 为空或不在偏置映射中时，返回原始分数。
+     * 偏置仅在语义分数边界 case 时翻转结果，不会压倒强信号。
+     * </p>
+     *
+     * @param intentTag 意图标签（如 "ORDER"、"PRODUCT"、"GENERAL"）
+     * @param score     原始语义分数
+     * @return 加上先验偏置后的分数
+     */
+    private double applyBias(String intentTag, double score) {
+        if (intentTag == null) return score;
+        Double bias = intentPriorBias.get(intentTag);
+        if (bias == null) return score;
+        return score + bias;
     }
 
     // ==================== 工具方法 ====================
