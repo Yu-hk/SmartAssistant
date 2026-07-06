@@ -7,6 +7,7 @@
 
 package com.example.smartassistant;
 
+import com.example.smartassistant.common.interceptor.EnableServiceInterceptor;
 import com.example.smartassistant.spi.InMemoryProductBackend;
 import com.example.smartassistant.spi.ProductBackend;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +15,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 
 /**
  * Product Service 启动类
@@ -21,7 +23,19 @@ import org.springframework.context.annotation.Bean;
  */
 @Slf4j
 @SpringBootApplication
+@EnableServiceInterceptor(
+        basePackages = {
+                "com.example.smartassistant.controller",
+                "com.example.smartassistant.service",
+                "com.example.smartassistant.mapper"
+        },
+        slowThresholdMs = 1000
+)
 @EnableDiscoveryClient
+@ComponentScan({
+        "com.example.smartassistant",
+        "com.example.smartassistant.common"
+})
 public class ProductServiceApplication {
 
     @Bean

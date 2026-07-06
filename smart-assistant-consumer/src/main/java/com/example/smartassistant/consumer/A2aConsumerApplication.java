@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer;
 
+import com.example.smartassistant.common.interceptor.EnableServiceInterceptor;
 import lombok.extern.slf4j.Slf4j;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
@@ -20,6 +21,14 @@ import org.springframework.scheduling.annotation.EnableScheduling;  // ⭐ 启�
  */
 @Slf4j
 @SpringBootApplication
+@EnableServiceInterceptor(
+        basePackages = {
+                "com.example.smartassistant.consumer.controller",
+                "com.example.smartassistant.consumer.service",
+                "com.example.smartassistant.consumer.auth.mapper"
+        },
+        slowThresholdMs = 1000
+)
 @EnableScheduling  // ⭐ 启用定时任务调度
 @MapperScan({
         "com.example.smartassistant.consumer.mapper"  // 主 Mapper

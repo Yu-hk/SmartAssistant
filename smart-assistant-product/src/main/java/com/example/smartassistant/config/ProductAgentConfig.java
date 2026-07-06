@@ -8,8 +8,8 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
-import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.common.skill.SkillPackageManager;
 import com.example.smartassistant.service.monitoring.ProductMetricsCollector;
 import com.example.smartassistant.tools.KnowledgeQueryTool;
 import com.example.smartassistant.tools.ProductMemoryTool;
@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -53,7 +54,8 @@ public class ProductAgentConfig {
             ProductTools productTools,
             KnowledgeQueryTool knowledgeQueryTool,
             ProductMemoryTool productMemoryTool,
-            ProductMetricsCollector metricsCollector) {
+            ProductMetricsCollector metricsCollector,
+            @Autowired(required = false) SkillPackageManager skillPackageManager) {
 
         log.info("[ProductAgent] 初始化 Agent: agentName={}", agentName);
 
@@ -78,12 +80,24 @@ public class ProductAgentConfig {
 
         log.info("[ProductAgent] 注册 {} 个工具（商品查询 + 知识库 + 记忆）", toolList.size());
 
+        // 构建系统 prompt（含技能包指令）
+        String basePrompt = buildSystemPrompt();
+        String skillPrompt = "";
+        if (skillPackageManager != null) {
+            skillPrompt = skillPackageManager.buildAgentSkillPrompt(agentName);
+            if (!skillPrompt.isBlank()) {
+                log.info("[ProductAgent] 注入 {} 个技能包到 Agent", 
+                        skillPackageManager.getAgentSkills(agentName).size());
+            }
+        }
+        String fullSystemPrompt = skillPrompt.isBlank() ? basePrompt : basePrompt + "\n" + skillPrompt;
+
         return new SmartReActAgent(chatModel)
                 .withMetrics(metricsCollector)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)
                 .withPreset(PromptBuilder.build()
-                        .withServicePrompt(buildSystemPrompt())
+                        .withServicePrompt(fullSystemPrompt)
                         .assemble(), toolList);
     }
 
