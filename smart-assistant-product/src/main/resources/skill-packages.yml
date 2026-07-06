@@ -1,0 +1,43 @@
+# Product 模块技能包配置
+# 技能包通过 SKILL.md 指令注入 Agent system prompt，增强特定场景下的行为
+skill-package:
+  enabled: true
+  packages:
+    - id: product-price-comparison
+      name: 商品比价技能
+      description: 帮助用户比较不同商品的价格、配置和性价比
+      version: "1.0.0"
+      tags: [product, price, comparison]
+      instruction: |
+        当用户需要比较多个商品时，按以下步骤操作：
+        1. 先获取每个商品的完整信息（调用 queryProductInfo）
+        2. 提取关键对比维度（价格、配置、评分、库存）
+        3. 以表格形式呈现对比结果，突出差异
+        4. 给出客观的选购建议
+      bind-agents: [product-service]
+
+    - id: product-stock-alert
+      name: 库存查询与预警
+      description: 查询商品库存状态，缺货时提供替代方案
+      version: "1.0.0"
+      tags: [product, stock, inventory]
+      instruction: |
+        当用户查询库存时：
+        1. 优先调用 checkStock 检查当前库存
+        2. 如果缺货，自动推荐同类替代商品（调用 queryRecommendations）
+        3. 告知用户预计补货时间（如果有）
+        4. 提供到货通知或预订选项
+      bind-agents: [product-service]
+
+    - id: product-knowledge-qa
+      name: 商品知识问答
+      description: 回答关于商品参数、技术规格、使用方法的专业问题
+      version: "1.0.0"
+      tags: [product, knowledge, faq]
+      instruction: |
+        当用户询问商品专业知识时：
+        1. 优先从知识库检索（调用 queryKnowledge）
+        2. 如果知识库未命中，结合已获取的商品信息推理回答
+        3. 对于不确定的技术参数，明确告知用户需要核实
+        4. 引用来源（商品信息、知识库或经验数据）
+      bind-agents: [product-service]

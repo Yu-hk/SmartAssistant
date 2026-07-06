@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router;
 
+import com.example.smartassistant.common.interceptor.EnableServiceInterceptor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -20,6 +21,14 @@ import org.springframework.scheduling.annotation.EnableScheduling;  // ⭐ 启�
  */
 @Slf4j
 @SpringBootApplication
+@EnableServiceInterceptor(
+        basePackages = {
+                "com.example.smartassistant.router.controller",
+                "com.example.smartassistant.router.service",
+                "com.example.smartassistant.router.mapper"
+        },
+        slowThresholdMs = 1000
+)
 @EnableDiscoveryClient  // 启用 Nacos 服务发现
 @EnableScheduling       // ⭐ 启用定时任务调度（用于健康检查）
 @ComponentScan({

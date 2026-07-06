@@ -7,11 +7,13 @@
 
 package com.example.smartassistant;
 
+import com.example.smartassistant.common.interceptor.EnableServiceInterceptor;
 import lombok.extern.slf4j.Slf4j;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+import org.springframework.context.annotation.ComponentScan;
 
 /**
  * Order Service 启动类
@@ -19,8 +21,20 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  */
 @Slf4j
 @SpringBootApplication
+@EnableServiceInterceptor(
+        basePackages = {
+                "com.example.smartassistant.controller",
+                "com.example.smartassistant.service",
+                "com.example.smartassistant.mapper"
+        },
+        slowThresholdMs = 1000
+)
 @MapperScan("com.example.smartassistant.mapper")
 @EnableDiscoveryClient
+@ComponentScan({
+        "com.example.smartassistant",
+        "com.example.smartassistant.common"
+})
 public class OrderServiceApplication {
     public static void main(String[] args) {
         SpringApplication.run(OrderServiceApplication.class, args);

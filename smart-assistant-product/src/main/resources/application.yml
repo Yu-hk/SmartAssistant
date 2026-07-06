@@ -11,6 +11,10 @@ spring:
   application:
     name: product-service
 
+  # ⭐ 加载外部技能包配置
+  config:
+    import: classpath:skill-packages.yml
+
   # ⭐ 排除 Spring Security 自动配置（DeepSeek 改用原生自动配置）
   autoconfigure:
     exclude:
