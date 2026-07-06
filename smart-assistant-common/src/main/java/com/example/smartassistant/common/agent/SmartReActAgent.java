@@ -18,6 +18,7 @@ import com.example.smartassistant.common.trace.TraceSpan;
 import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.*;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -110,6 +111,9 @@ public class SmartReActAgent {
     private int prefillBaseline = 0;
 
     private final ChatModel chatModel;
+
+    /** ⭐ ChatClient（可选，含 Advisor 链）— 设置后优先使用，使 TokenUsage/ThinkingCollector 等 Advisor 生效 */
+    private ChatClient chatClient;
 
     private int maxIterations = DEFAULT_MAX_ITERATIONS;
     private long timeoutMs = DEFAULT_TIMEOUT_MS;
@@ -274,6 +278,21 @@ public class SmartReActAgent {
         return this;
     }
 
+    /**
+     * 配置 ChatClient（含 Advisor 链）。
+     *
+     * <p>设置后，Agent 使用 ChatClient (含 TokenUsageAdvisor / ThinkingCollectorAdvisor 等)
+     * 替换原始的 {@code chatModel.call()}，使 Advisor 链生效。
+     * 建议在创建 Agent 时通过 {@code ChatClient.builder(chatModel).defaultAdvisors(...).build()} 构建。
+     *
+     * @param chatClient 含 Advisor 链的 ChatClient 实例
+     * @return this
+     */
+    public SmartReActAgent withChatClient(ChatClient chatClient) {
+        this.chatClient = chatClient;
+        return this;
+    }
+
     // ==================== execute 重载 ====================
 
     /**
@@ -398,15 +417,28 @@ public class SmartReActAgent {
 
             metrics.recordIteration(iteration);
 
-            // ⭐ 调用 LLM（带追踪跨度）
+            // ⭐ 调用 LLM（带追踪跨度 + 优先使用 ChatClient/Advisor 链）
             ChatResponse response;
             long llmStart = System.currentTimeMillis();
             try {
                 injectToolsToModel(effectiveTools);
                 final List<Message> callMessages = messages;
                 final ToolCallingChatOptions callOptions = options;
-                response = TraceSpan.of(observationRegistry, "agent-llm-call")
-                        .run(() -> chatModel.call(new Prompt(callMessages, callOptions)));
+
+                if (chatClient != null) {
+                    // ⭐ 使用 ChatClient（含 Advisor 链：TokenUsage/ThinkingCollector/PromptAudit）
+                    // 通过 tools() 动态传递工具列表，通过 options() 传模型参数
+                    var spec = chatClient.prompt()
+                            .messages(callMessages);
+                    if (!effectiveTools.isEmpty()) {
+                        spec = spec.tools(effectiveTools.toArray(new ToolCallback[0]));
+                    }
+                    response = spec.call().chatResponse();
+                } else {
+                    // 兼容旧调用：直接使用 ChatModel
+                    response = TraceSpan.of(observationRegistry, "agent-llm-call")
+                            .run(() -> chatModel.call(new Prompt(callMessages, callOptions)));
+                }
             } catch (Exception e) {
                 log.error("[SmartReActAgent] LLM 调用失败: {}", e.getMessage());
                 recoveryService.logRecovery(AgentErrorCode.MODEL_CALL_FAILED, RecoveryAction.RETRY_BACKOFF,
