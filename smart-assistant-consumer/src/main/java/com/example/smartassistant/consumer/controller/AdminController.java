@@ -177,4 +177,15 @@ public class AdminController {
         }
         return ResponseEntity.ok(Map.of("success", true));
     }
+
+    // ==================== 成本看板 ====================
+
+    /**
+     * 成本统计数据。
+     * GET /api/admin/costs
+     */
+    @GetMapping("/admin/costs")
+    public ResponseEntity<?> getCosts() {
+        return ResponseEntity.ok(adminService.getCosts());
+    }
 }
