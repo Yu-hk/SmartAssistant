@@ -36,12 +36,13 @@ export interface SatisfactionRequest {
 
 /** 获取所有会话列表 */
 export async function fetchSessions(): Promise<Session[]> {
-  return apiClient.get<Session[]>('/sessions');
+  const resp = await apiClient.get<{ sessions: Session[] }>('/sessions');
+  return resp.sessions;
 }
 
 /** 获取单个会话详情（含消息） */
-export async function fetchSession(sessionId: string): Promise<Session> {
-  return apiClient.get<Session>(`/sessions/${sessionId}`);
+export async function fetchSession(sessionId: string): Promise<{ session: Session; messages: any[] }> {
+  return apiClient.get<{ session: Session; messages: any[] }>(`/sessions/${sessionId}`);
 }
 
 /** 删除会话 */
@@ -82,7 +83,8 @@ export async function denyPermission(requestId: string): Promise<void> {
 
 /** 获取 FAQ 列表 */
 export async function fetchFaqs(): Promise<FaqItem[]> {
-  return apiClient.get<FaqItem[]>('/faq');
+  const resp = await apiClient.get<{ faqs: FaqItem[] }>('/faq');
+  return resp.faqs;
 }
 
 /** 新增 FAQ */
