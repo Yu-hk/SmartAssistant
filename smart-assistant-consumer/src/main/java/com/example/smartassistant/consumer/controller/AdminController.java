@@ -7,9 +7,11 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.common.db.PermissionBridgeService;
 import com.example.smartassistant.consumer.service.admin.AdminService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,9 +31,12 @@ public class AdminController {
     private static final Logger log = LoggerFactory.getLogger(AdminController.class);
 
     private final AdminService adminService;
+    private final PermissionBridgeService permissionBridgeService;
 
-    public AdminController(AdminService adminService) {
+    public AdminController(AdminService adminService,
+                           @Autowired(required = false) PermissionBridgeService permissionBridgeService) {
         this.adminService = adminService;
+        this.permissionBridgeService = permissionBridgeService;
     }
 
     // ==================== 统计 ====================
@@ -144,6 +149,32 @@ public class AdminController {
     @PostMapping("/save-env-config")
     public ResponseEntity<?> saveEnvConfig(@RequestBody Map<String, Object> config) {
         log.info("[Admin] 保存环境配置: keys={}", config.keySet());
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    // ==================== 权限响应（前后端审批打通） ====================
+
+    /**
+     * 前端权限弹窗的用户响应。
+     * POST /api/permission-response
+     *
+     * <p>前端 InlinePermissionCard 点击"允许"/"拒绝"时调用此接口。
+     * Agent 端通过 {@link PermissionBridgeService#waitForResponse(String)} 阻塞等待。
+     */
+    @PostMapping("/permission-response")
+    public ResponseEntity<?> permissionResponse(@RequestBody Map<String, String> body) {
+        String requestId = body.get("requestId");
+        String behavior = body.getOrDefault("behavior", body.get("action"));
+        if (requestId == null || behavior == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "缺少 requestId 或 behavior"));
+        }
+        if (permissionBridgeService == null) {
+            return ResponseEntity.ok(Map.of("success", false, "error", "权限桥接服务未启用"));
+        }
+        boolean success = permissionBridgeService.respondToRequest(requestId, behavior);
+        if (!success) {
+            return ResponseEntity.ok(Map.of("success", false, "error", "请求不存在或已超时"));
+        }
         return ResponseEntity.ok(Map.of("success", true));
     }
 }
