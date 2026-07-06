@@ -13,6 +13,10 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
 /**
  * 分层提示词组装器。
@@ -25,11 +29,15 @@ import java.nio.charset.StandardCharsets;
  * </ol>
  * </p>
  *
+ * <p>支持模板变量替换（{@code ${var}} 格式）和条件注入。</p>
+ *
  * <p>使用方式：</p>
  * <pre>
  * String prompt = PromptBuilder.build()
  *     .withServicePrompt(servicePrompt)
  *     .withDynamicContext(userProfile)
+ *     .withVar("agentName", "商品咨询助手")
+ *     .withSection("工具说明", "可用工具：...")
  *     .assemble();
  * </pre>
  */
@@ -46,7 +54,17 @@ public class PromptBuilder {
     private String servicePrompt;
     private String dynamicContext;
 
-    private PromptBuilder() {}
+    /** ⭐ 模板变量映射：${var} → value */
+    private final Map<String, String> variables = new LinkedHashMap<>();
+
+    /** ⭐ 额外章节：章节名 → 内容（可选，在 service 层后追加） */
+    private final List<Map.Entry<String, String>> sections = new ArrayList<>();
+
+    private PromptBuilder() {
+        // 注入默认变量
+        withVar("currentDate", LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE));
+        withVar("currentTime", LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")));
+    }
 
     /**
      * 创建 PromptBuilder 实例。
@@ -72,28 +90,105 @@ public class PromptBuilder {
     }
 
     /**
+     * ⭐ 注入模板变量。
+     * <p>在最终提示词中替换 {@code ${varName}} 占位符。
+     * 内置变量：{@code ${currentDate}}, {@code ${currentTime}}。
+     *
+     * @param varName 变量名（不含 ${} 前缀）
+     * @param value   变量值
+     * @return this
+     */
+    public PromptBuilder withVar(String varName, String value) {
+        if (varName != null && value != null) {
+            variables.put(varName, value);
+        }
+        return this;
+    }
+
+    /**
+     * ⭐ 批量注入模板变量。
+     */
+    public PromptBuilder withVars(Map<String, String> vars) {
+        if (vars != null) {
+            variables.putAll(vars);
+        }
+        return this;
+    }
+
+    /**
+     * ⭐ 添加额外章节。
+     * <p>在 service 层之后、dynamic 层之前插入。
+     *
+     * @param title   章节标题
+     * @param content 章节内容
+     * @return this
+     */
+    public PromptBuilder withSection(String title, String content) {
+        if (title != null && content != null && !content.isBlank()) {
+            sections.add(Map.entry(title, content));
+        }
+        return this;
+    }
+
+    /**
+     * ⭐ 条件注入——仅在条件满足时添加章节。
+     *
+     * @param title    章节标题
+     * @param content  章节内容
+     * @param condition 条件
+     * @return this
+     */
+    public PromptBuilder withSectionIf(String title, String content, boolean condition) {
+        if (condition) {
+            withSection(title, content);
+        }
+        return this;
+    }
+
+    /**
      * 组装最终提示词。
      *
-     * @return 按 base → service → dynamic 顺序拼接的完整提示词
+     * @return 按 base → service → sections → dynamic 顺序拼接的完整提示词
      */
     public String assemble() {
         StringBuilder sb = new StringBuilder();
 
         // Layer 1: 基础规则
-        sb.append(getBasePrompt()).append("\n\n");
+        sb.append(resolveVars(getBasePrompt())).append("\n\n");
 
         // Layer 2: 业务特有指令
         if (servicePrompt != null && !servicePrompt.isBlank()) {
-            sb.append(servicePrompt);
+            sb.append(resolveVars(servicePrompt));
+        }
+
+        // Layer 2.5: 额外章节
+        for (Map.Entry<String, String> section : sections) {
+            sb.append("\n\n【").append(section.getKey()).append("】\n");
+            sb.append(resolveVars(section.getValue()));
         }
 
         // Layer 3: 动态上下文
         if (dynamicContext != null && !dynamicContext.isBlank()) {
-            sb.append("\n\n").append(dynamicContext);
+            sb.append("\n\n").append(resolveVars(dynamicContext));
         }
 
-        return sb.toString();
+        return sb.toString().trim();
     }
+
+    /**
+     * ⭐ 解析模板变量。
+     * <p>替换文本中所有 {@code ${varName}} 占位符。
+     */
+    private String resolveVars(String text) {
+        if (text == null || variables.isEmpty()) return text;
+        String result = text;
+        for (Map.Entry<String, String> entry : variables.entrySet()) {
+            result = result.replace("${" + entry.getKey() + "}", entry.getValue());
+        }
+        return result;
+    }
+
+    // ==================== 原 getBasePrompt 保持不变 ====================
 
     /**
      * 加载基础提示词（带缓存）。
