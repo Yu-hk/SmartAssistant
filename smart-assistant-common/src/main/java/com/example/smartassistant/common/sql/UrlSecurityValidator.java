@@ -134,28 +134,33 @@ public class UrlSecurityValidator {
                 }
             }
 
-            // 6. 内网 IP 地址检测（DNS 解析后检查）
-            try {
-                InetAddress inetAddr = InetAddress.getByName(host);
-                String ip = inetAddr.getHostAddress();
-
-                // 移除 IPv6 映射前缀
-                if (ip.startsWith("::ffff:")) {
-                    ip = ip.substring(7);
-                }
-
+            // 6. 内网 IP 地址检测
+            // 先尝试 IP 格式检测（不涉及 DNS），再 DNS 解析
+            boolean isIpFormat = host.matches("^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$");
+            if (isIpFormat) {
                 for (Pattern pattern : PRIVATE_IP_PATTERNS) {
-                    if (pattern.matcher(ip).matches()) {
-                        return ValidationResult.reject(
-                                "禁止访问内网地址: " + host + " -> " + ip);
+                    if (pattern.matcher(host).matches()) {
+                        return ValidationResult.reject("禁止访问内网地址: " + host);
                     }
                 }
-
-            } catch (UnknownHostException e) {
-                log.warn("[UrlSecurityValidator] DNS 解析失败: host={}, error={}",
-                        host, e.getMessage());
-                // DNS 解析失败禁止访问（防 DNS rebinding）
-                return ValidationResult.reject("无法解析主机名: " + host);
+            } else {
+                // 域名格式：DNS 解析后检查 IP
+                try {
+                    InetAddress inetAddr = InetAddress.getByName(host);
+                    String ip = inetAddr.getHostAddress();
+                    if (ip.startsWith("::ffff:")) ip = ip.substring(7);
+                    for (Pattern pattern : PRIVATE_IP_PATTERNS) {
+                        if (pattern.matcher(ip).matches()) {
+                            return ValidationResult.reject("禁止访问内网地址: " + host + " -> " + ip);
+                        }
+                    }
+                } catch (UnknownHostException e) {
+                    log.warn("[UrlSecurityValidator] DNS 解析失败: host={}", host);
+                    // DNS 不可解析时：如果有白名单则拒绝，无白名单则放行（可能为开发环境）
+                    if (!whitelistDomains.isEmpty()) {
+                        return ValidationResult.reject("无法解析主机名: " + host);
+                    }
+                }
             }
 
             return ValidationResult.ok();
