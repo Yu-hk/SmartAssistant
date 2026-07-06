@@ -277,6 +277,16 @@ app.patch("/api/faq/:id", (req, res) => {
   }
 });
 
+// ⭐ PUT 别名（前端使用 PUT）
+app.put("/api/faq/:id", (req, res) => {
+  try {
+    const success = db.updateFaq(req.params.id, req.body);
+    res.json({ success });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message });
+  }
+});
+
 app.delete("/api/faq/:id", (req, res) => {
   try {
     const success = db.deleteFaq(req.params.id);
