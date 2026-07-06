@@ -11,8 +11,10 @@ import com.example.smartassistant.common.embedding.EmbeddingClient;
 import com.example.smartassistant.common.rag.pipeline.AdaptiveWeightHandler;
 import com.example.smartassistant.common.rag.pipeline.DedupHandler;
 import com.example.smartassistant.common.rag.pipeline.EmbeddingScorer;
+import com.example.smartassistant.common.rag.pipeline.MetricsCollectorHandler;
 import com.example.smartassistant.common.rag.pipeline.QueryRewriteHandler;
 import com.example.smartassistant.common.rag.pipeline.RerankHandler;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -121,5 +123,18 @@ public class ProductRagPipelineConfig {
     public DedupHandler dedupHandler() {
         log.info("[ProductRagPipeline] 注册 DedupHandler（AGGRESSIVE 模式）");
         return new DedupHandler(dedupEnabled, DedupHandler.DedupMode.AGGRESSIVE, 0.85);
+    }
+
+    /**
+     * RAG 评估指标采集 Handler。
+     *
+     * <p>在 Pipeline 结束后采集 Recall@K、检索耗时等指标，
+     * 通过 Micrometer 暴露给 Prometheus/Grafana。
+     */
+    @Bean
+    @ConditionalOnProperty(name = "product.rag.metrics.enabled", havingValue = "true", matchIfMissing = true)
+    public MetricsCollectorHandler metricsCollectorHandler(MeterRegistry meterRegistry) {
+        log.info("[ProductRagPipeline] 注册 MetricsCollectorHandler");
+        return new MetricsCollectorHandler(meterRegistry, true);
     }
 }
