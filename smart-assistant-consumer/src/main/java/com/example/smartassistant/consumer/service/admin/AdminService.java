@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.service.admin;
 
+import com.example.smartassistant.common.db.DatabaseDialect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -29,13 +30,15 @@ public class AdminService {
     private static final Logger log = LoggerFactory.getLogger(AdminService.class);
 
     private final JdbcTemplate jdbcTemplate;
+    private final DatabaseDialect dialect;
 
-    /** FAQ 内存存储（无数据库表时的临时方案） */
+    /** FAQ 内存存储 */
     private final ConcurrentHashMap<String, FaqItem> faqStore = new ConcurrentHashMap<>();
     private final AtomicLong faqIdSeq = new AtomicLong(1);
 
-    public AdminService(JdbcTemplate jdbcTemplate) {
+    public AdminService(JdbcTemplate jdbcTemplate, DatabaseDialect dialect) {
         this.jdbcTemplate = jdbcTemplate;
+        this.dialect = dialect;
         initDefaultFaqs();
     }
 
@@ -199,6 +202,58 @@ public class AdminService {
 
     public boolean deleteFaq(String id) {
         return faqStore.remove(id) != null;
+    }
+
+    // ==================== 成本看板 ====================
+
+    /**
+     * 获取成本统计数据。
+     * 基于 routing_call_log 的 latency_ms 和路由信息，
+     * 结合各模型的 Token 单价估算成本。
+     */
+    public Map<String, Object> getCosts() {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        try {
+            // 按 Agent 汇总调用次数和耗时
+            List<Map<String, Object>> byAgent = jdbcTemplate.queryForList(
+                    "SELECT routed_agent, COUNT(*) as calls, " +
+                    "COALESCE(SUM(latency_ms), 0) as total_latency " +
+                    "FROM routing_call_log " +
+                    "WHERE created_at >= NOW() - INTERVAL '7 days' " +
+                    "GROUP BY routed_agent ORDER BY calls DESC " +
+                    dialect.limit(10));
+            result.put("byAgent", byAgent);
+
+            // 每日趋势
+            List<Map<String, Object>> daily = jdbcTemplate.queryForList(
+                    "SELECT " + dialect.dateFunc("created_at") + " as date, " +
+                    "COUNT(*) as call_count, " +
+                    "COALESCE(SUM(latency_ms), 0) as total_latency " +
+                    "FROM routing_call_log " +
+                    "WHERE created_at >= " + dialect.dateSub("7") + " " +
+                    "GROUP BY " + dialect.dateFunc("created_at") +
+                    " ORDER BY date");
+            result.put("daily", daily);
+
+            // 总概览
+            Map<String, Object> summary = new java.util.LinkedHashMap<>();
+            long totalCalls = queryLong(
+                    "SELECT COUNT(*) FROM routing_call_log " +
+                    "WHERE created_at >= " + dialect.dateSub("7"));
+            long totalLatency = queryLong(
+                    "SELECT COALESCE(SUM(latency_ms), 0) FROM routing_call_log " +
+                    "WHERE created_at >= " + dialect.dateSub("7"));
+            summary.put("totalCalls7d", totalCalls);
+            summary.put("totalLatencyMs7d", totalLatency);
+            summary.put("avgLatencyMs", totalCalls > 0 ? totalLatency / totalCalls : 0);
+            result.put("summary", summary);
+
+            log.info("[Admin] 成本数据查询成功: 7d calls={}", totalCalls);
+        } catch (Exception e) {
+            log.warn("[Admin] 成本数据查询失败: {}", e.getMessage());
+            result.put("error", e.getMessage());
+        }
+        return result;
     }
 
     // ==================== 工具方法 ====================
