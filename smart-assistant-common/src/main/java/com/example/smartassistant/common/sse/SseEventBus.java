@@ -17,7 +17,10 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * SSE 事件总线——发送和缓存 SSE 事件。
@@ -27,6 +30,7 @@ import java.util.concurrent.TimeUnit;
  *   <li>向 {@link HttpServletResponse} 写入 SSE 事件</li>
  *   <li>Redis Sorted Set 缓存（用于断线续传）</li>
  *   <li>代理 SSE 流的转发与事件 ID 注入</li>
+ *   <li>心跳检测 + 闲置超时释放</li>
  * </ul>
  */
 public class SseEventBus {
@@ -38,28 +42,37 @@ public class SseEventBus {
     /** 缓存 TTL（秒） */
     public static final long SSE_BUFFER_TTL_SECONDS = 300;
 
+    /** 心跳间隔（毫秒） */
+    private static final long HEARTBEAT_INTERVAL_MS = 15_000;
+    /** 闲置超时（毫秒）— 超过此时间无事件发送则自动关闭 */
+    private static final long IDLE_TIMEOUT_MS = 60_000;
+
     private final HttpServletResponse response;
     private final String redisKey;
     private final RedisZSetCache redisCache;
     private long seqNo = 1;
-    private boolean closed = false;
+    private volatile boolean closed = false;
 
-    /**
-     * @param response   SSE 响应流
-     * @param requestId  请求 ID（用于 Redis 缓存，null 不缓存）
-     * @param redisCache Redis ZSet 缓存（null 不缓存）
-     */
+    /** 上次发送事件的时间戳 */
+    private final AtomicLong lastActivityTime = new AtomicLong(System.currentTimeMillis());
+
+    /** 心跳定时任务 */
+    private ScheduledFuture<?> heartbeatFuture;
+
     public SseEventBus(HttpServletResponse response, String requestId, RedisZSetCache redisCache) {
         this.response = response;
         this.redisKey = requestId != null ? SSE_BUFFER_PREFIX + requestId : null;
         this.redisCache = redisCache;
         initResponse();
+        startHeartbeat();
     }
 
     /** 无缓存的构造 */
     public SseEventBus(HttpServletResponse response) {
         this(response, null, null);
     }
+
+    // ==================== 生命周期 ====================
 
     private void initResponse() {
         try {
@@ -71,6 +84,52 @@ public class SseEventBus {
         } catch (Exception e) {
             log.warn("[SseEventBus] 初始化失败: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 启动心跳线程。
+     * 每 15s 发送一次 comment 行保持连接，超过 60s 无事件则自动关闭。
+     */
+    private void startHeartbeat() {
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, r -> {
+            Thread t = new Thread(r, "sse-heartbeat");
+            t.setDaemon(true);
+            return t;
+        });
+        heartbeatFuture = scheduler.scheduleAtFixedRate(() -> {
+            try {
+                if (closed || response.isCommitted()) {
+                    close();
+                    return;
+                }
+                long idle = System.currentTimeMillis() - lastActivityTime.get();
+                if (idle > IDLE_TIMEOUT_MS) {
+                    log.info("[SseEventBus] 闲置超时 ({}ms)，关闭连接", idle);
+                    close();
+                    return;
+                }
+                // ⭐ 发送心跳 comment 行（保持连接活跃）
+                synchronized (this) {
+                    response.getOutputStream().write(": heartbeat\n\n".getBytes(StandardCharsets.UTF_8));
+                    response.getOutputStream().flush();
+                }
+            } catch (Exception e) {
+                log.debug("[SseEventBus] 心跳异常，连接可能已断开: {}", e.getMessage());
+                close();
+            }
+        }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * 主动关闭连接，释放资源。
+     */
+    public void close() {
+        if (closed) return;
+        closed = true;
+        if (heartbeatFuture != null) {
+            heartbeatFuture.cancel(false);
+        }
+        try { response.getOutputStream().close(); } catch (Exception ignored) {}
     }
 
     // ==================== 发送事件 ====================
@@ -88,9 +147,10 @@ public class SseEventBus {
 
             cacheEvent(event);
             seqNo++;
+            lastActivityTime.set(System.currentTimeMillis());
         } catch (Exception e) {
             log.debug("[SseEventBus] 发送事件失败: {}", e.getMessage());
-            closed = true;
+            close();
         }
     }
 

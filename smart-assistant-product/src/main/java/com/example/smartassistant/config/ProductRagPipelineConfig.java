@@ -8,6 +8,7 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.embedding.EmbeddingClient;
+import com.example.smartassistant.common.rag.pipeline.AdaptiveWeightHandler;
 import com.example.smartassistant.common.rag.pipeline.DedupHandler;
 import com.example.smartassistant.common.rag.pipeline.EmbeddingScorer;
 import com.example.smartassistant.common.rag.pipeline.QueryRewriteHandler;
@@ -44,17 +45,19 @@ public class ProductRagPipelineConfig {
     @Value("${product.rag.dedup.enabled:true}")
     private boolean dedupEnabled;
 
+    @Value("${product.rag.adaptive-weight.enabled:true}")
+    private boolean adaptiveWeightEnabled;
+
     /**
      * 查询重写 Handler。
      *
      * <p>利用 deepSeekChatModel 将用户查询改写为对检索更友好的形式。
-     * 通过 {@link QueryRewriteHandler#getOrder()} = 2 在 MultiQuery (Order=0) 之后执行。
      */
     @Bean
     @ConditionalOnProperty(name = "product.rag.query-rewrite.enabled", havingValue = "true", matchIfMissing = true)
     public QueryRewriteHandler queryRewriteHandler(
             @Qualifier("deepSeekChatModel") ChatModel chatModel) {
-        log.info("[ProductRagPipeline] 注册 QueryRewriteHandler（使用 deepSeekChatModel）");
+        log.info("[ProductRagPipeline] 注册 QueryRewriteHandler（deepSeekChatModel）");
 
         ChatClient chatClient = ChatClient.create(chatModel);
 
@@ -70,6 +73,18 @@ public class ProductRagPipelineConfig {
                 return "";
             }
         }, queryRewriteEnabled);
+    }
+
+    /**
+     * 动态自适应权重 Handler。
+     *
+     * <p>根据 query 长度、术语占比、口语化特征动态调整稠密/稀疏权重。
+     */
+    @Bean
+    @ConditionalOnProperty(name = "product.rag.adaptive-weight.enabled", havingValue = "true", matchIfMissing = true)
+    public AdaptiveWeightHandler adaptiveWeightHandler() {
+        log.info("[ProductRagPipeline] 注册 AdaptiveWeightHandler");
+        return new AdaptiveWeightHandler();
     }
 
     /**
