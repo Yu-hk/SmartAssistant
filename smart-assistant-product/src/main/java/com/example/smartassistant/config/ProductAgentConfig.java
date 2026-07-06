@@ -9,12 +9,15 @@ package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.common.rag.advisor.ThinkingCollectorAdvisor;
+import com.example.smartassistant.common.rag.advisor.TokenUsageAdvisor;
 import com.example.smartassistant.common.skill.SkillPackageManager;
 import com.example.smartassistant.service.monitoring.ProductMetricsCollector;
 import com.example.smartassistant.tools.KnowledgeQueryTool;
 import com.example.smartassistant.tools.ProductMemoryTool;
 import com.example.smartassistant.tools.ProductTools;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
@@ -55,7 +58,9 @@ public class ProductAgentConfig {
             KnowledgeQueryTool knowledgeQueryTool,
             ProductMemoryTool productMemoryTool,
             ProductMetricsCollector metricsCollector,
-            @Autowired(required = false) SkillPackageManager skillPackageManager) {
+            @Autowired(required = false) SkillPackageManager skillPackageManager,
+            @Autowired(required = false) TokenUsageAdvisor tokenUsageAdvisor,
+            @Autowired(required = false) ThinkingCollectorAdvisor thinkingCollectorAdvisor) {
 
         log.info("[ProductAgent] 初始化 Agent: agentName={}", agentName);
 
@@ -92,7 +97,16 @@ public class ProductAgentConfig {
         }
         String fullSystemPrompt = skillPrompt.isBlank() ? basePrompt : basePrompt + "\n" + skillPrompt;
 
+        // ⭐ 构建 ChatClient（含 Advisor 链）
+        ChatClient.Builder clientBuilder = ChatClient.builder(chatModel);
+        if (tokenUsageAdvisor != null) clientBuilder.defaultAdvisors(tokenUsageAdvisor);
+        if (thinkingCollectorAdvisor != null) clientBuilder.defaultAdvisors(thinkingCollectorAdvisor);
+        ChatClient chatClient = clientBuilder.build();
+        log.info("[ProductAgent] 注入 Advisor 链: TokenUsageAdvisor={}, ThinkingCollectorAdvisor={}",
+                tokenUsageAdvisor != null, thinkingCollectorAdvisor != null);
+
         return new SmartReActAgent(chatModel)
+                .withChatClient(chatClient)
                 .withMetrics(metricsCollector)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)
