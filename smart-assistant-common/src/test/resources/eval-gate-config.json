@@ -1,0 +1,12 @@
+{
+  "minRagPassRate": 1.0,
+  "requireAllRagPass": true,
+  "minAvgCompositeScore": 0.7,
+  "maxAvgHallucinationRate": 0.15,
+  "minAvgFaithfulnessScore": 0.7,
+  "minAvgNdcg": 0.5,
+  "enableAgentGate": false,
+  "minAgentPassRate": 0.8,
+  "compareToBaseline": true,
+  "maxRegression": 0.05
+}

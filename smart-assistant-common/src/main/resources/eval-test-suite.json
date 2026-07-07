@@ -10,7 +10,7 @@
       "relevantIds": ["doc-p001", "doc-p002"],
       "retrievedIds": ["doc-p001", "doc-p003", "doc-p002", "doc-p004", "doc-p005"],
       "topK": 5,
-      "context": "[doc-p001] 智能手表售价2999元，支持心率监测。\n[doc-p002] 无线耳机售价499元，续航30小时。\n[doc-p003] 智能手机售价5999元，1亿像素摄像头。",
+      "context": "[CID:doc-p001] 智能手表售价2999元，支持心率监测。\n[CID:doc-p002] 无线耳机售价499元，续航30小时。\n[CID:doc-p003] 智能手机售价5999元，1亿像素摄像头。",
       "answer": "智能手表售价2999元[CID:doc-p001]，无线耳机售价499元[CID:doc-p002]。"
     },
     {
@@ -19,7 +19,7 @@
       "relevantIds": ["doc-o001", "doc-o002"],
       "retrievedIds": ["doc-o001", "doc-o003", "doc-o002"],
       "topK": 3,
-      "context": "[doc-o001] 标准配送：3-5个工作日送达。\n[doc-o002] 加急配送：1-2个工作日送达，需额外支付20元。\n[doc-o003] 偏远地区配送：5-7个工作日送达。",
+      "context": "[CID:doc-o001] 标准配送：3-5个工作日送达。\n[CID:doc-o002] 加急配送：1-2个工作日送达，需额外支付20元。\n[CID:doc-o003] 偏远地区配送：5-7个工作日送达。",
       "answer": "标准配送3-5个工作日送达[CID:doc-o001]，加急配送1-2个工作日[CID:doc-o002]。"
     },
     {
@@ -28,16 +28,16 @@
       "relevantIds": ["doc-r001"],
       "retrievedIds": ["doc-r001", "doc-r002"],
       "topK": 3,
-      "context": "[doc-r001] 7天无理由退货：商品完好、不影响二次销售。\n[doc-r002] 15天质量问题换货：凭质检报告免费更换。",
+      "context": "[CID:doc-r001] 7天无理由退货：商品完好、不影响二次销售。\n[CID:doc-r002] 15天质量问题换货：凭质检报告免费更换。",
       "answer": "支持7天无理由退货[CID:doc-r001]。"
     },
     {
       "id": "RAG-004",
       "query": "商品库存不足通知",
-      "relevantIds": ["doc-s001"],
+      "relevantIds": ["doc-s003"],
       "retrievedIds": ["doc-s002", "doc-s003"],
       "topK": 3,
-      "context": "[doc-s002] 补货时间：每周一和周四下午更新库存。\n[doc-s003] 到货通知：开启后将在商品到货时通过短信通知您。",
+      "context": "[CID:doc-s002] 补货时间：每周一和周四下午更新库存。\n[CID:doc-s003] 到货通知：开启后将在商品到货时通过短信通知您。",
       "answer": "开启到货通知后将在到货时通知您[CID:doc-s003]。",
       "queryForEval": "如何设置到货通知"
     }

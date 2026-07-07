@@ -43,13 +43,14 @@ Common 全量回归：`tests=308, Failures=0, Errors=10`（10 Errors 为预存 R
 | **P1-2 AgentCallerService 结构化提取统一** | 🟡 中 | `AgentCallerService` 注入 `AiChatService` + `lightChatModel`，`callAgentAndExtractTitles` 通过 `entity()` 将 Agent 回复绑定为 `ExtractedTitles`（标题/标签），替代原 no-op；未注入时降级为空，向后兼容 | `AgentCallerTitleExtractionTest`（4 用例）✅ |
 | **P2-a chunk 级增量 diff** | 🟡 中 | `ContentHashCache` 新增 chunk 级哈希 API（`putChunk`/`hasChunkChanged`/`diffChunks`）；`KnowledgeIngestionService` Step 4.2 仅对内容变更的 chunk 重新摄入，跳过未变更 chunk 的重复向量化 | `ContentHashCacheChunkTest`（5 用例）✅ |
 | **P2-b 检索侧跨文档冲突消解（Q6 第二层）** | 🟡 中 | 新增 `common.rag.retrieval.CrossDocumentConflictResolver`：rerank 后跨文档冲突检测（复用 `ContextFaithfulnessChecker` 词表）→ AuthorityLevel→版本优先级 判定胜负 → 败方相对扣分（默认 0.30）/平局双方减半；输出 `ScoreBreakdown`(base/authority/penalty/final) 可观测 + `ConflictDecision` 审计；接入 `InMemoryKnowledgeBase.search` Stage 4 + `KnowledgeBaseConfig` 自动接线 | `CrossDocumentConflictResolverTest`（8 用例）✅ |
+| **评测闭环接入 CI（golden set 门槛）** | 🟡 中 | ① `EvaluationReportService` 扩展 `runRAGEvaluationDetailed()`/`runAgentEvaluationDetailed()`（向后兼容委托）；② 新增门禁四件套 `EvalGateConfig`(阈值POJO) / `EvalBaseline`(指标快照序列化) / `EvalGate`(绝对阈值+基线回归 `GateResult`) / `EvalReportExporter`(Markdown+JSON)；③ 编排器 `GoldenSuiteEvalGate`（加载黄金集+门禁+基线→跑评测→写报告→可选更新基线，可独立 `main` 重生成基线）；④ 修正黄金集 `RAG-004` 不一致（`relevantIds` 由缺失的 `doc-s001` 改为 `doc-s003`），并将 fixture 上下文标记统一为生产契约 `[CID:doc-id]`（修复 faithfulness 全 0 的 harness 缺陷）；⑤ 新增 `.github/workflows/eval-gate.yml`（push/PR 到 main 触发 compile-all + eval-gate 作业并上传报告） | `EvalGateTest`（4 用例：绝对通过/绝对失败/基线回归/基线内波动放行）+ `GoldenSuiteEvalGateTest`（1 用例，首次自举基线后通过）✅ |
 
-> **验证状态**：common 模块全量回归 `tests=338, Failures=0, Errors=10`（10 Errors 为预存 `EntityProfileServiceTest` Redis 环境错误，与本改动无关）；新增 P0+P1+P2a+P2b 测试共 40 用例全部通过。全模块 `mvn compile` 通过。
+> **验证状态**：common 模块全量回归 `tests=343, Failures=0, Errors=10`（10 Errors 为预存 `EntityProfileServiceTest` Redis 环境错误，与本改动无关）；新增 eval 门禁测试共 5 用例全部通过，既有 `AgentEvaluationResultTest`(5)/`GoldenTestRunnerTest`(5) 不受影响。全模块 `mvn compile` 通过。基线快照 `src/test/resources/eval-baseline.json` 已提交（faithfulness=1.0 / avgComposite=0.947 / passRate=1.0）。
 > **已知遗留**：router 模块 test 源码集中存在预存的编译错误（`SemanticRouteCacheService`/`RouterService` 构造器签名不匹配），与本轮改动无关，阻塞 router 整体 `mvn test`，但不影响 main 编译与 P1-2 生产代码（已通过隔离测试验证）。检索侧冲突消解当前仅接入 `InMemoryKnowledgeBase`（与 reranker/trace 接线同源模式）；PgVector/Milvus 待后续按同模式接入。
 
 ## 3. RAG 七问之外的工程化延伸
 
-- **评测闭环接入 CI**：已有 `RAGEvaluator` / `HallucinationDetector` / `RetrievalMetrics`（`common.rag.eval`），但未接入自动化回归（golden set 跑分门槛卡点）。落地后可防 RAG 质量回归。
+- **评测闭环接入 CI**：✅ 已落地（见第二节表格「评测闭环接入 CI」）。`RAGEvaluator`/`HallucinationDetector`/`RetrievalMetrics` 已通过 `EvalGate` 接入 CI 门禁，基线快照 + GitHub Actions 工作流已就位，可防 RAG 质量回归。
 - **多模态 RAG**：图片/截图攻略入库（travel 场景截图多）。当前纯文本，缺失视觉内容检索。
 - **检索可观测性**：trace 已有，但检索命中/丢弃原因未可视化，调参难。建议检索结果附带 `score_breakdown`（cosine/time/version/authority）。
 - **经验体系 × RAG 协同**：Router `ExperienceService` 与 RAG 命中质量未打通，路由决策可利用 RAG 命中率反馈。
