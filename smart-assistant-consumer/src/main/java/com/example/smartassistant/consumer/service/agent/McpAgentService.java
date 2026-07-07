@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.service.agent;
 
+import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
@@ -54,6 +55,9 @@ public class McpAgentService {
     // ⭐ 工具注册聚合器（收敛工具对象 → ToolCallback 列表样板）
     @Autowired(required = false)
     private AiToolRegistry aiToolRegistry;
+    // ⭐ 入口级 ReAct 画像注册表（可选；缺失时回退 DEFAULT）
+    @Autowired(required = false)
+    private ReActProfileRegistry reactProfileRegistry;
 
     private SmartReActAgent mcpAgent;
     
@@ -104,8 +108,7 @@ public class McpAgentService {
             // ⭐ 使用 SmartReActAgent 替代 ReactAgent
             this.mcpAgent = new SmartReActAgent(chatModel)
                 .withChatClient(chatClient)
-                .withMaxIterations(10)
-                .withTimeoutMs(60_000)
+                .withProfile("mcp", reactProfileRegistry)
                 .withPreset(PromptBuilder.build()
                     .withServicePrompt("""
                     你是一个专业的数据库查询与数据可视化助手。可以查询数据库获取真实数据，

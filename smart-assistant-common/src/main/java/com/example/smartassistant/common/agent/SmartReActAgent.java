@@ -38,6 +38,11 @@ import java.util.concurrent.*;
  * 替代 Spring AI Alibaba 的 {@code ReactAgent}，提供完全可控的循环逻辑，
  * 支持迭代次数限制、超时保护、Token 预算追踪、工具幻觉处理。
  * </p>
+ * <p>
+ * ⭐ 运行时画像（{@link ReActProfile}）：通过 {@link #withProfile(String, ReActProfileRegistry)}
+ * 按入口（order / general / product / mcp）差异化配置步数、超时、预算、并发，
+ * 实现「步数 / 预算按入口分级」。未配置时回退 {@link ReActProfile#DEFAULT}，行为不变。
+ * </p>
  *
  * <h3>使用方式</h3>
  * <pre>
@@ -45,14 +50,16 @@ import java.util.concurrent.*;
  * String result = agent
  *     .withMaxIterations(10)
  *     .withTimeoutMs(60_000)
+ *     .withProfile("order", reactProfileRegistry)   // 可选：入口分级覆盖
  *     .execute(userMessage, systemPrompt, toolCallbacks);
  * </pre>
  *
  * <h3>与 ReactAgent.call() 对比</h3>
  * <ul>
- *   <li>迭代次数限制 — 默认最多 10 轮工具调用</li>
+ *   <li>迭代次数限制 — 默认最多 10 轮工具调用（可按入口分级收紧）</li>
  *   <li>超时保护 — 默认 60 秒强制退出</li>
  *   <li>Token 预算 — 可追踪累积消耗，超过 80% 上下文窗口时自动终止</li>
+ *   <li>同工具同参数去重 — 连续无增量检测基于「名称+参数」指纹，防故障重放风暴</li>
  *   <li>工具幻觉 — 不存在的工具名返回结构化错误，让 LLM 自纠正</li>
  *   <li>工具错误 — 执行异常返回 {@code retryable: true} 结构化错误</li>
  * </ul>
@@ -116,11 +123,10 @@ public class SmartReActAgent {
     /** ⭐ ChatClient（可选，含 Advisor 链）— 设置后优先使用，使 TokenUsage/ThinkingCollector 等 Advisor 生效 */
     private ChatClient chatClient;
 
-    private int maxIterations = DEFAULT_MAX_ITERATIONS;
-    private long timeoutMs = DEFAULT_TIMEOUT_MS;
+    /** ⭐ 运行时画像（入口分级）：集中管理 maxIterations/timeoutMs/预算/并发等，支持按入口差异化 */
+    private ReActProfile profile = ReActProfile.DEFAULT;
+
     private boolean trackTokenBudget = true;
-    private double tokenBudgetRatio = DEFAULT_TOKEN_BUDGET_RATIO;
-    private int contextWindow = DEFAULT_CONTEXT_WINDOW;
     /** 是否启用上下文压缩 */
     private boolean enableCompress = true;
     /** 触发压缩的消息数阈值 */
@@ -129,10 +135,6 @@ public class SmartReActAgent {
     private int keepRounds = DEFAULT_KEEP_ROUNDS;
     /** 是否启用并行工具执行 */
     private boolean parallelExecution = true;
-    /** 最大并发工具数 */
-    private int maxConcurrency = DEFAULT_MAX_CONCURRENCY;
-    /** 单个工具超时 */
-    private long toolTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS;
 
     /** 预配置的系统提示词（可选，可在 execute 时传入） */
     private String presetSystemPrompt;
@@ -169,19 +171,37 @@ public class SmartReActAgent {
     // ==================== 配置方法 ====================
 
     public SmartReActAgent withMaxIterations(int maxIterations) {
-        this.maxIterations = maxIterations;
+        this.profile = this.profile.withMaxIterations(maxIterations);
         return this;
     }
 
     public SmartReActAgent withTimeoutMs(long timeoutMs) {
-        this.timeoutMs = timeoutMs;
+        this.profile = this.profile.withTimeoutMs(timeoutMs);
+        return this;
+    }
+
+    /** ⭐ 按入口 key 应用画像（入口分级）；registry 为 null 或 key 不存在时保持当前画像（默认 DEFAULT）。 */
+    public SmartReActAgent withProfile(String entryKey, ReActProfileRegistry registry) {
+        if (registry != null) {
+            ReActProfile p = registry.get(entryKey);
+            if (p != null) {
+                this.profile = p;
+            }
+        }
+        return this;
+    }
+
+    /** ⭐ 直接应用指定画像。 */
+    public SmartReActAgent withProfile(ReActProfile profile) {
+        if (profile != null) {
+            this.profile = profile;
+        }
         return this;
     }
 
     public SmartReActAgent withTokenBudget(boolean track, double budgetRatio, int contextWindow) {
         this.trackTokenBudget = track;
-        this.tokenBudgetRatio = budgetRatio;
-        this.contextWindow = contextWindow;
+        this.profile = this.profile.withTokenBudgetRatio(budgetRatio).withContextWindow(contextWindow);
         return this;
     }
 
@@ -210,8 +230,7 @@ public class SmartReActAgent {
      */
     public SmartReActAgent withParallelExecution(boolean enable, int concurrency, long toolTimeoutMs) {
         this.parallelExecution = enable;
-        this.maxConcurrency = concurrency;
-        this.toolTimeoutMs = toolTimeoutMs;
+        this.profile = this.profile.withMaxConcurrency(concurrency).withToolTimeoutMs(toolTimeoutMs);
         return this;
     }
 
@@ -339,7 +358,7 @@ public class SmartReActAgent {
         int iteration = 0;
         long totalInputTokens = 0;
         long totalOutputTokens = 0;
-        long maxBudgetTokens = (long) (contextWindow * tokenBudgetRatio);
+        long maxBudgetTokens = (long) (profile.contextWindow() * profile.tokenBudgetRatio());
 
         // ⭐ 工具循环检测：记录最近工具调用的哈希，用于检测连续无增量
         String lastToolCallHash = null;
@@ -356,12 +375,12 @@ public class SmartReActAgent {
             toolMap.put(tc.getToolDefinition().name(), tc);
         }
 
-        while (iteration < maxIterations) {
+        while (iteration < profile.maxIterations()) {
             iteration++;
             long elapsed = System.currentTimeMillis() - startTime;
 
             // ⭐ 超时检查
-            if (elapsed > timeoutMs) {
+            if (elapsed > profile.timeoutMs()) {
                 log.warn("[SmartReActAgent] ⏰ 超时 ({}ms, 迭代 {} 次)", elapsed, iteration);
                 metrics.recordTimeout();
                 recoveryService.logRecovery(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, RecoveryAction.FALLBACK_AGENT,
@@ -492,8 +511,13 @@ public class SmartReActAgent {
             List<ToolResponseMessage.ToolResponse> toolResponses = TraceSpan.of(observationRegistry, "agent-tool-execute")
                     .run(() -> executeTools(toolCalls, toolMap));
 
-            // ⭐ 连续无增量检测：防止重复调同类工具陷入循环
-            String currentHash = toolCalls.stream().map(tc -> tc.name()).sorted()
+            // ⭐ G1 连续无增量检测：防止重复调同类工具陷入循环。
+            // 哈希键加入参数指纹 —— 仅"名称 + 参数完全一致"判定为无增量，
+            // 实现文章《生产级 Agent 架构实战》要求的"同工具同参数去重"，
+            // 避免接口故障时同一请求被反复重放形成调用风暴。
+            String currentHash = toolCalls.stream()
+                    .map(tc -> tc.name() + "(" + Long.toHexString(argHash64(tc.arguments())) + ")")
+                    .sorted()
                     .collect(java.util.stream.Collectors.joining(","));
             if (currentHash.equals(lastToolCallHash)) {
                 noIncrementCount++;
@@ -522,10 +546,10 @@ public class SmartReActAgent {
         }
 
         // ⭐ 达到最大迭代次数
-        log.warn("[SmartReActAgent] 达到最大迭代次数 {}", maxIterations);
+        log.warn("[SmartReActAgent] 达到最大迭代次数 {}", profile.maxIterations());
         metrics.recordMaxIterationHit();
         recoveryService.logRecovery(AgentErrorCode.SYSTEM_MAX_ITERATIONS, RecoveryAction.FALLBACK_AGENT,
-                "maxIterations=" + maxIterations, maxIterations);
+                "maxIterations=" + profile.maxIterations(), profile.maxIterations());
         return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_MAX_ITERATIONS, null);
     }
 
@@ -750,7 +774,7 @@ public class SmartReActAgent {
             synchronized (this) {
                 if (toolExecutor == null) {
                     // 限流闸门与执行器同步初始化（此时 maxConcurrency 已为最终值）
-                    toolConcurrencyLimiter = new Semaphore(maxConcurrency);
+                    toolConcurrencyLimiter = new Semaphore(profile.maxConcurrency());
                     // I/O 阻塞型工具（搜索 / HTTP / 汇率等）：每次调用一根虚拟线程，阻塞期间释放载体线程
                     toolExecutor = Executors.newVirtualThreadPerTaskExecutor();
                 }
@@ -778,7 +802,7 @@ public class SmartReActAgent {
             return executeToolsSequential(toolCalls, toolMap);
         }
 
-        log.info("[SmartReActAgent] 并行执行 {} 个工具 (最大并发 {})", toolCalls.size(), maxConcurrency);
+        log.info("[SmartReActAgent] 并行执行 {} 个工具 (最大并发 {})", toolCalls.size(), profile.maxConcurrency());
 
         // ⭐ 创建所有工具的异步任务
         List<CompletableFuture<ToolResponseMessage.ToolResponse>> futures = new ArrayList<>();
@@ -803,14 +827,14 @@ public class SmartReActAgent {
         List<ToolResponseMessage.ToolResponse> results = new ArrayList<>();
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .get(toolTimeoutMs, TimeUnit.MILLISECONDS);
+                    .get(profile.toolTimeoutMs(), TimeUnit.MILLISECONDS);
 
             // ⭐ 按入参顺序收集结果
             for (var f : futures) {
                 results.add(f.get()); // 已完成的 future 立即返回
             }
         } catch (TimeoutException e) {
-            log.warn("[SmartReActAgent] 工具批次超时 ({}ms)，已超时的工具将返回错误", toolTimeoutMs);
+            log.warn("[SmartReActAgent] 工具批次超时 ({}ms)，已超时的工具将返回错误", profile.toolTimeoutMs());
             for (var f : futures) {
                 if (f.isDone()) {
                     try { results.add(f.get()); }
@@ -960,6 +984,24 @@ public class SmartReActAgent {
         return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
                 "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
                         + reason + "\",\"retryable\":false}");
+    }
+
+    /**
+     * 工具参数的稳定指纹（FNV-1a 64-bit）。
+     * <p>用于「同工具同参数」去重检测：相同参数序列得到相同指纹，
+     * 不同参数序列（即使仅差一个字符）得到不同指纹，从而精确识别重放调用，
+     * 避免接口故障时同一请求被反复重放形成调用风暴。</p>
+     */
+    private static long argHash64(String args) {
+        if (args == null) {
+            return 0L;
+        }
+        long hash = 0xcbf29ce484222325L;
+        for (int i = 0; i < args.length(); i++) {
+            hash ^= (args.charAt(i) & 0xff);
+            hash *= 0x100000001b3L;
+        }
+        return hash;
     }
 
     /**
