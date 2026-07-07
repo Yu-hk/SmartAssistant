@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.rag;
 
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
+import com.example.smartassistant.common.rag.retrieval.CrossDocumentConflictResolver;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import io.milvus.client.MilvusServiceClient;
 import io.milvus.grpc.*;
@@ -86,6 +87,9 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
     private final BgeEmbeddingModel embeddingModel;
     private final MilvusServiceClient client;
     private final Bm25Scorer bm25Scorer;
+
+    /** ⭐ 检索侧跨文档冲突消解器（Q6 第二层，可选，null 时不消解） */
+    private CrossDocumentConflictResolver conflictResolver;
 
     /** BM25 混合权重 */
     private static final double BM25_MIX_WEIGHT = 0.3;
@@ -501,12 +505,32 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
             }
 
             hits.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
-            return hits.stream().limit(k).collect(Collectors.toList());
+            List<KnowledgeHit> resolved = hits.stream().limit(k).collect(Collectors.toList());
+
+            // ⭐ 检索侧跨文档冲突消解（Q6 第二层）—按权威性/版本压制矛盾低权威来源
+            return applyConflictResolution(conflictResolver, resolved);
 
         } catch (Exception e) {
             log.warn("[MilvusKB:{}] 搜索异常: {}", name, e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * 设置检索侧跨文档冲突消解器（Q6 第二层）。
+     * <p>在精排之后、返回之前生效；null 时跳过消解。</p>
+     *
+     * @param conflictResolver 跨文档冲突消解器
+     */
+    public void setConflictResolver(CrossDocumentConflictResolver conflictResolver) {
+        this.conflictResolver = conflictResolver;
+    }
+
+    /** 冲突消解应用（与 InMemory/PgVector 同态，package-private 便于无基础设施单测） */
+    static List<KnowledgeHit> applyConflictResolution(
+            CrossDocumentConflictResolver resolver, List<KnowledgeHit> hits) {
+        if (resolver == null || hits == null || hits.size() < 2) return hits;
+        return resolver.resolveHits(hits);
     }
 
     @Override
