@@ -28,7 +28,7 @@ Common 全量回归：`tests=308, Failures=0, Errors=10`（10 Errors 为预存 R
 | **非覆盖式版本 + 入库审核/回滚** | Q7 真正闭环 | ✅ **已落地（2026-07-07）**：`KnowledgeBase` 新增 `markSupersededByBaseId`/`quarantine`/`restore`/`updateStatus`/`listIdsByBaseDocId`；`KnowledgeIngestionService` Step 4.5 改为标记旧版 SUPERSEDED 而非物理删；新增 `IngestAuditEvent`/`IngestAuditRecorder` 审计；`MilvusKnowledgeBase` 修正 `QueryResultsWrapper` API 误用。测试：`KnowledgeVersioningTest`/`KnowledgeIngestionVersioningTest`（10 用例通过） | ✅ 已落地 | — | 已完成 |
 | **PDF 表格 / 图片 / OCR 提取** | Q3 | `PdfDocumentParser` 仅 PDFBox 纯文本 + 双栏；grep `pdfplumber`/`Tabula`/`OCR` 无实现（仅注释提及） | 🔴 高 | 引入 pdfplumber/Tabula 或布局模型做表格结构识别；图片 OCR 走外部服务 | 引入新依赖 / 外部服务 |
 | **实体关系抽取 + 知识图谱** | Q4/Q5 深化 | `KnowledgeDocument` 元数据仅 6 字段，grep `entityExtract`/`relationExtract`/`知识图谱` 无结果 | 🟡 中 | LLM 抽取实体/关系写入图存储，支撑跨文档推理 | 需图存储或 PG 扩展 |
-| **检索侧冲突消解（第二层）** | Q6 | `ContextFaithfulnessChecker` 仅查上下文自冲突；无跨文档权威性矛盾检测 | 🟡 中 | rerank 阶段对同主题多源矛盾 chunk 降权/标注来源 | 依赖权威性字段（已具备） |
+| **检索侧冲突消解（第二层）** | Q6 | ✅ **已落地（2026-07-07 晚）**：新增 `common.rag.retrieval.CrossDocumentConflictResolver`，rerank 之后对候选 chunk 跨文档冲突检测（复用 `ContextFaithfulnessChecker` 词表），按 AuthorityLevel→版本优先级 判定胜负，败方相对扣分（默认 0.30）、平局双方减半扣分；输出 `ScoreBreakdown` 可观测明细 + `ConflictDecision` 审计；已接入 `InMemoryKnowledgeBase.search`（Stage 4）并经 `KnowledgeBaseConfig` 自动接线。测试 `CrossDocumentConflictResolverTest`（8 用例）✅ | ✅ 已落地 | — | 已接入 InMemory；PgVector/Milvus 暂未接入（与 reranker/trace 同模式，待后续） |
 | **chunk 级增量 diff** | Q5 深化 | `ContentHashCache` 文档级；大文档微调需整文档重算 | 🟡 中 | 对 chunk 内容单独哈希，仅重算变更 chunk | 需重构 hash 粒度 |
 | **多源结构化分流** | Q1 | 解析后未做结构化抽取（FAQ/表格/流程分流不同索引） | 🟢 低-中 | 解析后按类型路由到不同 collection/索引 | 索引 schema 扩展 |
 
@@ -42,9 +42,10 @@ Common 全量回归：`tests=308, Failures=0, Errors=10`（10 Errors 为预存 R
 | **P1-3 RedisChatMemory Bean 注册** | 🔴 高 | 新增 `ChatMemoryAutoConfiguration`：按 `chat.memory.type`（默认 inmemory / redis）注册 `ChatMemory` Bean；无 Redis 时自动降级 `InMemoryChatMemory`；`@ConditionalOnMissingBean` 允许下游覆盖 | `ChatMemoryAutoConfigurationTest`（4 用例：默认/redis/降级/覆盖）✅ |
 | **P1-2 AgentCallerService 结构化提取统一** | 🟡 中 | `AgentCallerService` 注入 `AiChatService` + `lightChatModel`，`callAgentAndExtractTitles` 通过 `entity()` 将 Agent 回复绑定为 `ExtractedTitles`（标题/标签），替代原 no-op；未注入时降级为空，向后兼容 | `AgentCallerTitleExtractionTest`（4 用例）✅ |
 | **P2-a chunk 级增量 diff** | 🟡 中 | `ContentHashCache` 新增 chunk 级哈希 API（`putChunk`/`hasChunkChanged`/`diffChunks`）；`KnowledgeIngestionService` Step 4.2 仅对内容变更的 chunk 重新摄入，跳过未变更 chunk 的重复向量化 | `ContentHashCacheChunkTest`（5 用例）✅ |
+| **P2-b 检索侧跨文档冲突消解（Q6 第二层）** | 🟡 中 | 新增 `common.rag.retrieval.CrossDocumentConflictResolver`：rerank 后跨文档冲突检测（复用 `ContextFaithfulnessChecker` 词表）→ AuthorityLevel→版本优先级 判定胜负 → 败方相对扣分（默认 0.30）/平局双方减半；输出 `ScoreBreakdown`(base/authority/penalty/final) 可观测 + `ConflictDecision` 审计；接入 `InMemoryKnowledgeBase.search` Stage 4 + `KnowledgeBaseConfig` 自动接线 | `CrossDocumentConflictResolverTest`（8 用例）✅ |
 
-> **验证状态**：common 模块全量回归 `tests=318, Failures=0, Errors=10`（10 Errors 为预存 `EntityProfileServiceTest` Redis 环境错误，与本改动无关）；新增 P0+P1+P2a 测试共 32 用例全部通过。全模块 `mvn compile` 通过。
-> **已知遗留**：router 模块 test 源码集中存在预存的编译错误（`SemanticRouteCacheService`/`RouterService` 构造器签名不匹配），与本轮改动无关，阻塞 router 整体 `mvn test`，但不影响 main 编译与 P1-2 生产代码（已通过隔离测试验证）。
+> **验证状态**：common 模块全量回归 `tests=338, Failures=0, Errors=10`（10 Errors 为预存 `EntityProfileServiceTest` Redis 环境错误，与本改动无关）；新增 P0+P1+P2a+P2b 测试共 40 用例全部通过。全模块 `mvn compile` 通过。
+> **已知遗留**：router 模块 test 源码集中存在预存的编译错误（`SemanticRouteCacheService`/`RouterService` 构造器签名不匹配），与本轮改动无关，阻塞 router 整体 `mvn test`，但不影响 main 编译与 P1-2 生产代码（已通过隔离测试验证）。检索侧冲突消解当前仅接入 `InMemoryKnowledgeBase`（与 reranker/trace 接线同源模式）；PgVector/Milvus 待后续按同模式接入。
 
 ## 3. RAG 七问之外的工程化延伸
 
