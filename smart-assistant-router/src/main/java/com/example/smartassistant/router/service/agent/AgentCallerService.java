@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.agent;
 
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.scheduler.AgentSchedulerService;
 import com.example.smartassistant.common.scheduler.AgentTask;
 import com.example.smartassistant.common.scheduler.AgentTaskFactory;
@@ -18,6 +19,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -64,15 +68,35 @@ public class AgentCallerService {
     private final AgentVersionNegotiator versionNegotiator;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    /**
+     * ⭐ 结构化输出封装（对标 OrderIntentService.entity() 约定）。
+     * 用于把 Agent 纯文本回复绑定为结构化 {@link ExtractedTitles}，
+     * 使 {@code callAgentAndExtractTitles} 真正产出标题/标签而非空集合。
+     * 注入为 null 时（如部分单元测试）自动降级为空结果，不破坏既有行为。
+     */
+    private final AiChatService aiChatService;
+    private final ChatModel lightModel;
 
     // ⭐ P4 调度服务（可选：降级走同步 HTTP）
     private AgentSchedulerService schedulerService;
 
+    /** 保留 3 参构造以兼容既有直接 new 的单元测试（标题抽取降级为空） */
     public AgentCallerService(AgentDiscoveryService agentDiscoveryService,
                              KeywordExtractionService keywordExtractionService,
                              AgentVersionNegotiator versionNegotiator) {
+        this(agentDiscoveryService, versionNegotiator, null, null);
+    }
+
+    /** 完整构造（Spring 注入用）：注入结构化抽取所需的 AiChatService 与轻量模型 */
+    @Autowired
+    public AgentCallerService(AgentDiscoveryService agentDiscoveryService,
+                             AgentVersionNegotiator versionNegotiator,
+                             AiChatService aiChatService,
+                             @Qualifier("lightChatModel") ChatModel lightModel) {
         this.agentDiscoveryService = agentDiscoveryService;
         this.versionNegotiator = versionNegotiator;
+        this.aiChatService = aiChatService;
+        this.lightModel = lightModel;
         // ⭐ 配置 RestTemplate 超时：连接 3s、读取 5s，与文章建议一致
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(AGENT_CONNECT_TIMEOUT_MS);
@@ -135,7 +159,38 @@ public class AgentCallerService {
             throw new RuntimeException("Agent '" + agentName + "' 调用失败: " + result);
         }
 
-        return new AgentCallResult(result);
+        // ⭐ 结构化抽取标题/标签（对标 OrderIntentService.entity() 约定），
+        // 替代原先 realTitles 恒为空的 no-op 实现。
+        ExtractedTitles extracted = extractTitles(result);
+        return new AgentCallResult(result, extracted.titles(), extracted.tagsByTitle());
+    }
+
+    /**
+     * 从 Agent 纯文本回复中结构化抽取真实标题与标签。
+     * <p>
+     * 复用 {@link AiChatService#entity(ChatModel, String, String, Class)} 将 LLM 输出
+     * 直接绑定为 {@link ExtractedTitles}，与项目结构化输出约定一致。
+     * 当未注入 {@code AiChatService}/{@code lightModel}（如单测）或抽取异常时，
+     * 降级为空结果，保证主链路不受影响。
+     * </p>
+     */
+    ExtractedTitles extractTitles(String response) {
+        if (aiChatService == null || lightModel == null || response == null || response.isBlank()) {
+            return ExtractedTitles.EMPTY;
+        }
+        try {
+            String system = """
+                    你是标题抽取器。从下面的 Agent 回复中提取真实存在的游记/攻略/商品标题，
+                    以及每个标题对应的标签（如城市、主题、品类）。
+                    只输出 JSON 结构 {"titles":["标题1","标题2"],"tagsByTitle":{"标题1":"标签"}}，
+                    无标题时返回空数组与空对象。""";
+            ExtractedTitles extracted = aiChatService.entity(
+                    lightModel, system, "Agent 回复：\n" + response, ExtractedTitles.class);
+            return extracted != null ? extracted : ExtractedTitles.EMPTY;
+        } catch (Exception e) {
+            log.warn("[AgentCaller] 标题结构化抽取失败，降级为空: {}", e.getMessage());
+            return ExtractedTitles.EMPTY;
+        }
     }
 
     /**
@@ -357,5 +412,16 @@ public class AgentCallerService {
         }
 
         return response;
+    }
+
+    /**
+     * Agent 回复结构化抽取载体——供 {@link #extractTitles(String)} 绑定，
+     * 与 {@code AiChatService.entity()} 约定一致，避免直接解析文本 JSON。
+     *
+     * @param titles       回复中真实存在的标题列表
+     * @param tagsByTitle  标题到标签的映射（如 城市/主题）
+     */
+    public record ExtractedTitles(List<String> titles, java.util.Map<String, String> tagsByTitle) {
+        public static final ExtractedTitles EMPTY = new ExtractedTitles(List.of(), java.util.Map.of());
     }
 }

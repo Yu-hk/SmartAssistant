@@ -44,6 +44,13 @@ public class ContentHashCache {
     private final ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();
 
     /**
+     * ⭐ chunk 级哈希缓存（P2-a）——key 为 chunk 的逻辑 baseDocId（跨版本稳定），
+     * value 为该 chunk 内容的 SHA-256。用于增量摄入时只重算变更 chunk，
+     * 而非整文档重算。与文档级 {@link #cache} 命名空间隔离（文档级 key 不含分块编号）。
+     */
+    private final ConcurrentHashMap<String, String> chunkCache = new ConcurrentHashMap<>();
+
+    /**
      * 获取指定文档的缓存哈希。
      *
      * @param baseDocId 基础文档 ID（去除版本后缀）
@@ -85,6 +92,59 @@ public class ContentHashCache {
      */
     public void remove(String baseDocId) {
         cache.remove(baseDocId);
+        chunkCache.remove(baseDocId);
+    }
+
+    // ══════════════════════════════════════════════════════
+    // ⭐ chunk 级增量 diff API（P2-a）
+    // ══════════════════════════════════════════════════════
+
+    /**
+     * 写入单个 chunk 的内容哈希（key 为 chunk 逻辑 baseDocId）。
+     */
+    public void putChunk(String chunkBaseId, String contentHash) {
+        if (chunkBaseId == null || chunkBaseId.isBlank()) return;
+        if (contentHash == null) contentHash = "";
+        chunkCache.put(chunkBaseId, contentHash);
+    }
+
+    /**
+     * 获取指定 chunk 的缓存哈希，从未缓存返回空字符串。
+     */
+    public String getChunkHash(String chunkBaseId) {
+        return chunkCache.getOrDefault(chunkBaseId, "");
+    }
+
+    /**
+     * 判断指定 chunk 是否已变更（内容哈希是否变化）。
+     *
+     * @param chunkBaseId chunk 逻辑 baseDocId（跨版本稳定）
+     * @param newHash     新计算的 SHA-256 哈希
+     * @return true 表示 chunk 已变更（首次摄入或内容变化），应重新摄入
+     */
+    public boolean hasChunkChanged(String chunkBaseId, String newHash) {
+        if (chunkBaseId == null || chunkBaseId.isBlank()) return true;
+        String oldHash = chunkCache.get(chunkBaseId);
+        if (oldHash == null || oldHash.isEmpty()) return true;
+        return !oldHash.equals(newHash);
+    }
+
+    /**
+     * 批量 diff：给定一批 chunk 的 (逻辑 baseDocId → 内容哈希)，
+     * 返回其中真正变更的 chunk（仅这些需要重新向量化与入库）。
+     *
+     * @param newChunkHashes 本次摄入的各 chunk 哈希
+     * @return 变更 chunk 的 baseDocId → 新哈希（有序）
+     */
+    public java.util.Map<String, String> diffChunks(java.util.Map<String, String> newChunkHashes) {
+        java.util.Map<String, String> changed = new java.util.LinkedHashMap<>();
+        if (newChunkHashes == null) return changed;
+        for (java.util.Map.Entry<String, String> e : newChunkHashes.entrySet()) {
+            if (hasChunkChanged(e.getKey(), e.getValue())) {
+                changed.put(e.getKey(), e.getValue());
+            }
+        }
+        return changed;
     }
 
     /** 当前缓存条目数 */
@@ -95,6 +155,7 @@ public class ContentHashCache {
     /** 清空全部缓存 */
     public void clear() {
         cache.clear();
+        chunkCache.clear();
         log.info("[ContentHashCache] 缓存已清空");
     }
 

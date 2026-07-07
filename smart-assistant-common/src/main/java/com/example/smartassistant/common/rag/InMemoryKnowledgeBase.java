@@ -123,6 +123,33 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     }
 
     @Override
+    public List<String> listIdsByBaseDocId(String baseDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return List.of();
+        return docs.entrySet().stream()
+                .filter(e -> baseDocId.equals(e.getValue().getBaseDocId()))
+                .map(Map.Entry::getKey)
+                .toList();
+    }
+
+    @Override
+    public void updateStatus(String docId, DocumentStatus status) {
+        if (docId == null || docId.isBlank() || status == null) return;
+        KnowledgeDocument old = docs.get(docId);
+        if (old == null) return;
+        // KnowledgeDocument 字段为 final，需重建
+        KnowledgeDocument updated = new KnowledgeDocument(
+                old.getId(), old.getTitle(), old.getContent(),
+                old.getCategory(), old.getKeywords(),
+                old.getEffectiveAt(), old.getExpireAt(),
+                old.getTenantId(), old.getVersion(),
+                old.getSourceUrl(), old.getChunkIndex(),
+                old.getParentDocId(),
+                old.getAuthorityLevel(), status);
+        docs.put(docId, updated);
+        log.info("[KnowledgeBase:{}] 状态更新: id={}, status={}", name, docId, status);
+    }
+
+    @Override
     public List<KnowledgeHit> search(String query, int topK) {
         return search(query, topK, KnowledgeBase.PUBLIC_TENANT);
     }
@@ -153,7 +180,7 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         List<ScoredDoc> roughResults = new ArrayList<>();
         for (var entry : vectors.entrySet()) {
             KnowledgeDocument doc = docs.get(entry.getKey());
-            if (doc == null || !doc.isActive()) continue;
+            if (doc == null || !doc.isRetrievable()) continue;
 
             // 🔴 ACL 检索前过滤：仅返回匹配 tenantId 或公开文档
             if (!tenantMatches(doc, tenantId)) continue;
@@ -391,7 +418,7 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     private List<KnowledgeHit> fallbackKeywordSearch(String query, int topK, String tenantId) {
         String q = query.toLowerCase();
         return docs.values().stream()
-                .filter(KnowledgeDocument::isActive)
+                .filter(KnowledgeDocument::isRetrievable)
                 .filter(doc -> tenantMatches(doc, tenantId))
                 .map(doc -> {
                     double score = 0;
