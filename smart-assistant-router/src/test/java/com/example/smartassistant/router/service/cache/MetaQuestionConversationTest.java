@@ -44,7 +44,7 @@ class MetaQuestionConversationTest {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOps);
         lenient().when(redisTemplate.delete(anyString())).thenReturn(true);
         cache = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
-                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding);
+                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding, null, null);
         ReflectionTestUtils.setField(cache, "cacheEnabled", true);
         lenient().when(agentDiscoveryService.getAgentTtl(anyString())).thenReturn(7200L);
         lenient().when(tokenizer.tokenize(anyString())).thenReturn(new LinkedHashSet<>(Arrays.asList("test")));

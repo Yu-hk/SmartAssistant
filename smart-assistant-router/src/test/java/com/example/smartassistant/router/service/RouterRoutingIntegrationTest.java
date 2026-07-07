@@ -82,7 +82,7 @@ class RouterRoutingIntegrationTest {
         vectorCache = new VectorCacheStore();
         bgeEmbedding = new BgeOnnxEmbeddingService();
         cacheService = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
-                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding);
+                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding, null, null);
         ReflectionTestUtils.setField(cacheService, "cacheEnabled", true);
         // ⭐ 反思器默认通过（测试环境下不触发反思逻辑）
         lenient().when(reflectionService.evaluate(anyString(), anyString(), anyString(), anyString(), any()))
@@ -90,7 +90,7 @@ class RouterRoutingIntegrationTest {
         lenient().when(reflectionService.retry(anyString(), anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn("retry result");
         new RouterService(agentCallerService,
-                redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, experienceService, graphExecutionService, taskAnalysisService, qualityEvaluationService, queryRewriter, null, null, lightChatModel, null);
+                redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, experienceService, graphExecutionService, taskAnalysisService, qualityEvaluationService, queryRewriter, null, null, null, lightChatModel, null);
     }
 
     @Test
