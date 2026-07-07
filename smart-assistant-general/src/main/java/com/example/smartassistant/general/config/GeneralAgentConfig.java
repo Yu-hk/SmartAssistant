@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.general.config;
 
+import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
@@ -62,7 +63,8 @@ public class GeneralAgentConfig {
             GeneralMemoryTool generalMemoryTool,
             GeneralMetricsCollector metricsCollector,
             AiChatService aiChatService,
-            AiToolRegistry aiToolRegistry) {
+            AiToolRegistry aiToolRegistry,
+            @Autowired(required = false) ReActProfileRegistry reactProfileRegistry) {
 
         log.info("[GeneralAgent] 初始化通用对话 Agent: agentName={}", agentName);
 
@@ -78,8 +80,7 @@ public class GeneralAgentConfig {
         return new SmartReActAgent(chatModel)
                 .withChatClient(chatClient)
                 .withMetrics(metricsCollector)
-                .withMaxIterations(10)
-                .withTimeoutMs(60_000)
+                .withProfile("general", reactProfileRegistry)
                 .withPreset(PromptBuilder.build()
                         .withServicePrompt(buildSystemPrompt())
                         .assemble(), toolCallbacks);

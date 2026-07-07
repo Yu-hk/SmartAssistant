@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.config;
 
+import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
@@ -67,7 +68,8 @@ public class OrderAgentConfig {
             OrderMetricsCollector metricsCollector,
             ObservationRegistry observationRegistry,
             AiChatService aiChatService,
-            AiToolRegistry aiToolRegistry) {
+            AiToolRegistry aiToolRegistry,
+            @Autowired(required = false) ReActProfileRegistry reactProfileRegistry) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
@@ -81,8 +83,7 @@ public class OrderAgentConfig {
         return new SmartReActAgent(chatModel)
                 .withChatClient(chatClient)
                 .withMetrics(metricsCollector)
-                .withMaxIterations(10)
-                .withTimeoutMs(60_000)
+                .withProfile("order", reactProfileRegistry)
                 .withObservationRegistry(observationRegistry)
                 .withPreset(PromptBuilder.build()
                         .withServicePrompt(buildSystemPrompt())
