@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.config;
 
+import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
@@ -60,7 +61,8 @@ public class ProductAgentConfig {
             ProductMetricsCollector metricsCollector,
             @Autowired(required = false) SkillPackageManager skillPackageManager,
             AiChatService aiChatService,
-            AiToolRegistry aiToolRegistry) {
+            AiToolRegistry aiToolRegistry,
+            @Autowired(required = false) ReActProfileRegistry reactProfileRegistry) {
 
         log.info("[ProductAgent] 初始化 Agent: agentName={}", agentName);
 
@@ -86,8 +88,7 @@ public class ProductAgentConfig {
         return new SmartReActAgent(chatModel)
                 .withChatClient(chatClient)
                 .withMetrics(metricsCollector)
-                .withMaxIterations(10)
-                .withTimeoutMs(60_000)
+                .withProfile("product", reactProfileRegistry)
                 .withPreset(PromptBuilder.build()
                         .withServicePrompt(fullSystemPrompt)
                         .assemble(), toolList);
