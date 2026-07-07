@@ -150,9 +150,9 @@ public class RouterService {
                          TaskAnalysisService taskAnalysisService,
                          QualityEvaluationService qualityEvaluationService,
                          IntentGuidedQueryRewriter queryRewriter,
-                         KeywordFastRouteService keywordFastRouteService,
-                         RoutingToolChecker routingToolChecker,
-                         DegradationService degradationService,
+                        KeywordFastRouteService keywordFastRouteService,
+                        @Autowired(required = false) RoutingToolChecker routingToolChecker,
+                        @Autowired(required = false) DegradationService degradationService,
                          @Qualifier("lightChatModel") ChatModel lightModel,
                          @Autowired(required = false) BadCaseMinerService badCaseMinerService) {
         this.agentCallerService = agentCallerService;
@@ -536,8 +536,8 @@ public class RouterService {
             result.setIntentTag(intentTag);
         }
 
-        // ⭐ P1 工具健康检查：路由到 Agent 前检查关键工具是否就绪
-        if (result.getAgentName() != null) {
+        // ⭐ P1 工具健康检查：路由到 Agent 前检查关键工具是否就绪（routingToolChecker 可为 null）
+        if (routingToolChecker != null && result.getAgentName() != null) {
             var health = routingToolChecker.checkAgentHealth(result.getAgentName());
             if (!health.isHealthy()) {
                 log.warn("[Router] ⚠️ 路由到 Agent={} 但工具不健康: {}",
@@ -779,7 +779,10 @@ public class RouterService {
         }
 
         // ⭐ Step 0.5: 降级检测 — 解决反常识 2（异常处理本身会制造异常）
-        DegradationService.DegradationLevel degLevel = degradationService.getDegradationLevel();
+        //   degradationService 可为 null（测试 / 未装配降级服务时默认 NORMAL 不降级）
+        DegradationService.DegradationLevel degLevel = (degradationService != null)
+                ? degradationService.getDegradationLevel()
+                : DegradationService.DegradationLevel.NORMAL;
         if (degLevel == DegradationService.DegradationLevel.HEAVY) {
             log.warn("[Collaborative] 🔴 重度降级(错误率>40%)，跳过所有 Agent 调用，回退到内联兜底");
             return inlineFallback(question);

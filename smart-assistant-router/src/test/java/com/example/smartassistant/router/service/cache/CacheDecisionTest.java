@@ -45,7 +45,7 @@ class CacheDecisionTest {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOps);
 
         cache = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
-                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding);
+                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding, null, null);
         ReflectionTestUtils.setField(cache, "cacheEnabled", true);
     }
 
