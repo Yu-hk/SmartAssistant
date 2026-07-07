@@ -87,7 +87,9 @@ public class ImageTools {
                 question);
 
         if (dashscopeApiKey == null || dashscopeApiKey.isBlank()) {
-            return "❌ DashScope API Key 未配置，请在 .env 中设置 DASHSCOPE_API_KEY";
+            return ToolResult.error(AgentErrorCode.TOOL_INVALID_ARGUMENT,
+                    "图片处理功能不可用：DashScope API Key 未配置",
+                    "请在 .env 文件中设置 DASHSCOPE_API_KEY 后重试");
         }
 
         try {
@@ -168,7 +170,9 @@ public class ImageTools {
         log.info("[ImageTools] 文生图: prompt={}, size={}, n={}", prompt, size, n);
 
         if (dashscopeApiKey == null || dashscopeApiKey.isBlank()) {
-            return "❌ DashScope API Key 未配置，请在 .env 中设置 DASHSCOPE_API_KEY";
+            return ToolResult.error(AgentErrorCode.TOOL_INVALID_ARGUMENT,
+                    "图片处理功能不可用：DashScope API Key 未配置",
+                    "请在 .env 文件中设置 DASHSCOPE_API_KEY 后重试");
         }
 
         // 参数默认值

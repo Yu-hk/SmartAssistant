@@ -10,15 +10,19 @@ package com.example.smartassistant.general.config;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.common.tool.AiToolRegistry;
 import com.example.smartassistant.general.service.monitoring.GeneralMetricsCollector;
 import com.example.smartassistant.general.tool.GeneralMemoryTool;
 import com.example.smartassistant.general.tool.GeneralTools;
 import com.example.smartassistant.general.tool.ImageTools;
 import com.example.smartassistant.general.tool.WeatherTool;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -56,36 +60,23 @@ public class GeneralAgentConfig {
             ImageTools imageTools,
             WeatherTool weatherTool,
             GeneralMemoryTool generalMemoryTool,
-            GeneralMetricsCollector metricsCollector) {
+            GeneralMetricsCollector metricsCollector,
+            AiChatService aiChatService,
+            AiToolRegistry aiToolRegistry) {
 
         log.info("[GeneralAgent] 初始化通用对话 Agent: agentName={}", agentName);
 
         // 注册所有工具（通用工具 + 图像工具 + 天气工具 + 记忆工具）
-        MethodToolCallbackProvider generalToolProvider = MethodToolCallbackProvider.builder()
-                .toolObjects(generalTools)
-                .build();
-        MethodToolCallbackProvider imageToolProvider = MethodToolCallbackProvider.builder()
-                .toolObjects(imageTools)
-                .build();
-        MethodToolCallbackProvider weatherToolProvider = MethodToolCallbackProvider.builder()
-                .toolObjects(weatherTool)
-                .build();
-        MethodToolCallbackProvider memoryToolProvider = MethodToolCallbackProvider.builder()
-                .toolObjects(generalMemoryTool)
-                .build();
-        List<ToolCallback> toolCallbacks = new ArrayList<>();
-        toolCallbacks.addAll(List.of(generalToolProvider.getToolCallbacks()));
-        toolCallbacks.addAll(List.of(imageToolProvider.getToolCallbacks()));
-        toolCallbacks.addAll(List.of(weatherToolProvider.getToolCallbacks()));
-        toolCallbacks.addAll(List.of(memoryToolProvider.getToolCallbacks()));
+        List<ToolCallback> toolCallbacks = aiToolRegistry.assemble(generalTools, imageTools, weatherTool, generalMemoryTool);
 
-        log.info("[GeneralAgent] 注册 {} 个工具（通用 {} + 图像 {} + 天气 {}）",
-                toolCallbacks.size(),
-                generalToolProvider.getToolCallbacks().length,
-                imageToolProvider.getToolCallbacks().length,
-                weatherToolProvider.getToolCallbacks().length);
+        log.info("[GeneralAgent] 注册 {} 个工具（通用 + 图像 + 天气 + 记忆）", toolCallbacks.size());
+
+        // ⭐ 构建 ChatClient（Advisor 链由 AiChatService 统一装配）
+        ChatClient chatClient = aiChatService.buildChatClient(chatModel);
+        log.info("[GeneralAgent] ChatClient 由 AiChatService 统一装配 Advisor 链");
 
         return new SmartReActAgent(chatModel)
+                .withChatClient(chatClient)
                 .withMetrics(metricsCollector)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)

@@ -807,8 +807,8 @@ public class RouterService {
 
         String eventsKey = requestId != null ? SSE_EVENTS_KEY_PREFIX + requestId : null;
 
-        // Step 2: 图执行（根据拓扑并行执行，支持 Handoff 显式交接）
-        List<SubTaskResult> results = graphExecutionService.executeWithHandoff(graph, userId, eventsKey, requestId);
+        // Step 2: 图执行（根据拓扑并行执行，支持 Checkpoint/条件边/Handoff）
+        List<SubTaskResult> results = graphExecutionService.executeWithResume(graph, userId, eventsKey, requestId);
 
         // Step 3: SSE — 汇总中
         storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);

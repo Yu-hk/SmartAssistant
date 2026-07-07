@@ -113,7 +113,9 @@ public class GeneralTools {
                 case C: celsius = value; break;
                 case F: celsius = (value - 32) * 5 / 9; break;
                 case K: celsius = value - 273.15; break;
-                default: return "不支持的温度单位: " + fromUnit;
+                default: return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR,
+                        "不支持的温度单位: " + fromUnit,
+                        "支持的源温度单位：C(°C)、F(°F)、K(K)");
             }
 
             // 从 Celsius 转到目标
@@ -123,7 +125,9 @@ public class GeneralTools {
                 case C: result = celsius; unitLabel = "°C"; break;
                 case F: result = celsius * 9 / 5 + 32; unitLabel = "°F"; break;
                 case K: result = celsius + 273.15; unitLabel = "K"; break;
-                default: return "不支持的温度单位: " + toUnit;
+                default: return ToolResult.error(AgentErrorCode.VALIDATION_CONVERSION_ERROR,
+                        "不支持的目标温度单位: " + toUnit,
+                        "支持的目标温度单位：C(°C)、F(°F)、K(K)");
             }
 
             return formatResult(result) + unitLabel;

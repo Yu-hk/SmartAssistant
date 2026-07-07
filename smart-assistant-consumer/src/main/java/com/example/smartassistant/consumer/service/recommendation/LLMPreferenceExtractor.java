@@ -7,14 +7,12 @@
 
 package com.example.smartassistant.consumer.service.recommendation;
 
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -26,20 +24,25 @@ import java.util.*;
  * 使用 DeepSeek 模型从用户问题中提取结构化偏好信息
  * <p>
  * ⭐ 使用中文分词器增强降级方案的提取能力
+ * <p>
+ * 偏好提取复用 {@link AiChatService#buildChatClient(ChatModel)} 接入统一 Advisor 链，
+ * 并以 {@code entity(ExtractedPreferences.class)} 将 LLM 响应直接绑定为结构化对象，
+ * 取代原来脆弱的文本 JSON 解析（手动清理 markdown + readTree + 逐字段映射）。
  */
 @Service
 public class LLMPreferenceExtractor {
     
     private static final Logger log = LoggerFactory.getLogger(LLMPreferenceExtractor.class);
     
-    private final ChatClient chatClient;
-    private final ObjectMapper objectMapper;
+    private final AiChatService aiChatService;
+    private final ChatModel lightModel;
     private final ChineseTokenizer tokenizer;
     
-    public LLMPreferenceExtractor(@Qualifier("lightChatModel") ChatModel lightModel,
+    public LLMPreferenceExtractor(AiChatService aiChatService,
+                                  @Qualifier("lightChatModel") ChatModel lightModel,
                                   ChineseTokenizer tokenizer) {
-        this.chatClient = ChatClient.create(lightModel);
-        this.objectMapper = new ObjectMapper();
+        this.aiChatService = aiChatService;
+        this.lightModel = lightModel;
         this.tokenizer = tokenizer;
     }
     
@@ -47,25 +50,27 @@ public class LLMPreferenceExtractor {
      * 从用户问题中提取结构化偏好
      * 
      * @param question 用户问题
-     * @return 提取的偏好信息（JSON 格式）
+     * @return 提取的偏好信息（结构化对象）
      */
     public ExtractedPreferences extract(String question) {
         if (question == null || question.isBlank()) {
-            return new ExtractedPreferences();
+            return ExtractedPreferences.empty();
         }
         
         try {
             String prompt = buildExtractionPrompt(question);
             
-            String response = chatClient.prompt()
+            ExtractedPreferences prefs = aiChatService.buildChatClient(lightModel)
+                    .prompt()
                     .user(prompt)
                     .call()
-                    .content();
+                    .entity(ExtractedPreferences.class);
             
-            log.debug("[LLM提取] 原始响应: {}", response);
-            
-            // 解析 JSON 响应
-            return parseResponse(response);
+            log.debug("[LLM提取] 结构化提取完成: {}", prefs);
+            if (prefs == null) {
+                return fallbackExtraction(question);
+            }
+            return prefs;
             
         } catch (Exception e) {
             log.error("[LLM提取] 提取失败，降级到正则提取: {}", e.getMessage());
@@ -161,132 +166,6 @@ public class LLMPreferenceExtractor {
     }
     
     /**
-     * 解析 LLM 响应（支持新的 user_profile 格式）
-     * <p>
-     * 新格式：user_profile 包含 positive 和 negative 两个数组
-     */
-    private ExtractedPreferences parseResponse(String response) {
-        try {
-            // 清理可能的 markdown 标记
-            String cleaned = response.replaceAll("```json\\s*", "").replaceAll("```\\s*$", "").trim();
-            
-            JsonNode json = objectMapper.readTree(cleaned);
-            
-            ExtractedPreferences prefs = new ExtractedPreferences();
-            
-            // 提取地点
-            if (json.has("location") && !json.get("location").isNull()) {
-                prefs.setLocation(json.get("location").asText());
-            }
-            
-            // 提取目的
-            if (json.has("purpose") && !json.get("purpose").isNull()) {
-                prefs.setPurpose(json.get("purpose").asText());
-            }
-            
-            // 提取时间
-            if (json.has("time") && !json.get("time").isNull()) {
-                prefs.setTime(json.get("time").asText());
-            }
-            
-            // 提取用户画像（positive 和 negative）
-            if (json.has("user_profile") && json.get("user_profile").isObject()) {
-                JsonNode profile = json.get("user_profile");
-                
-                // 正面偏好
-                if (profile.has("positive") && profile.get("positive").isArray()) {
-                    profile.get("positive").forEach(node -> {
-                        categorizePreference(prefs, node.asText());
-                    });
-                }
-                
-                // 负面偏好
-                if (profile.has("negative") && profile.get("negative").isArray()) {
-                    profile.get("negative").forEach(node -> {
-                        prefs.getDietaryRestrictions().add("不喜欢:" + node.asText());
-                    });
-                }
-            }
-            
-            // 兼容旧格式（如果 LLM 仍然返回 food_preferences 等字段）
-            if (json.has("food_preferences") && json.get("food_preferences").isArray()) {
-                json.get("food_preferences").forEach(node -> {
-                    categorizePreference(prefs, node.asText());
-                });
-            }
-            
-            if (json.has("travel_preferences") && json.get("travel_preferences").isArray()) {
-                json.get("travel_preferences").forEach(node -> {
-                    prefs.getTravelPreferences().add(node.asText());
-                });
-            }
-            
-            if (json.has("budget") && !json.get("budget").isNull()) {
-                prefs.setBudget(json.get("budget").asText());
-            }
-            
-            if (json.has("dietary_restrictions") && json.get("dietary_restrictions").isArray()) {
-                json.get("dietary_restrictions").forEach(node -> {
-                    prefs.getDietaryRestrictions().add(node.asText());
-                });
-            }
-            
-            log.info("[LLM提取] 成功: location={}, purpose={}, user_profile={}, dislikes={}",
-                    prefs.getLocation(), prefs.getPurpose(), 
-                    prefs.getFoodPreferences(), prefs.getDietaryRestrictions());
-            
-            return prefs;
-            
-        } catch (Exception e) {
-            log.error("[LLM提取] JSON 解析失败: {}", e.getMessage());
-            throw new RuntimeException("JSON 解析失败", e);
-        }
-    }
-    
-    /**
-     * 将偏好关键词分类到 food 或 travel
-     */
-    private void categorizePreference(ExtractedPreferences prefs, String pref) {
-        // 美食相关关键词
-        Set<String> foodKeywords = Set.of(
-            "辣", "麻辣", "香辣", "清淡", "甜", "甜品", "酸", "苦", "咸",
-            "川菜", "粤菜", "湘菜", "鲁菜", "浙菜", "苏菜", "闽菜", "徽菜", "京菜",
-            "火锅", "烧烤", "烤肉", "海鲜", "日料", "韩餐", "西餐", "自助餐",
-            "素食", "斋", "面食", "粥", "小吃", "点心", "甜点", "饮品",
-            "油炸", "煎", "蒸", "煮", "炖", "烤", "清淡"
-        );
-        
-        // 旅行相关关键词
-        Set<String> travelKeywords = Set.of(
-            "自然", "山水", "风景", "海岛", "沙滩", "森林", "草原", "沙漠",
-            "文化", "历史", "古迹", "博物馆", "寺庙", "古镇", "老街",
-            "休闲", "放松", "度假", "慢节奏", "SPA", "温泉",
-            "户外", "徒步", "登山", "滑雪", "潜水", "冲浪", "骑行",
-            "亲子", "家庭", "带孩子", "儿童", "乐园",
-            "购物", "夜市", "集市", "商圈"
-        );
-        
-        // 检测是否为美食相关
-        for (String food : foodKeywords) {
-            if (pref.contains(food) || food.contains(pref)) {
-                prefs.getFoodPreferences().add(pref);
-                return;
-            }
-        }
-        
-        // 检测是否为旅行相关
-        for (String travel : travelKeywords) {
-            if (pref.contains(travel) || travel.contains(pref)) {
-                prefs.getTravelPreferences().add(pref);
-                return;
-            }
-        }
-        
-        // 默认归类为美食偏好
-        prefs.getFoodPreferences().add(pref);
-    }
-    
-    /**
      * 降级方案：基于规则的提取
      * <p>
      * ⭐ 只有检测到情绪性表述时，才提取用户画像
@@ -294,7 +173,8 @@ public class LLMPreferenceExtractor {
     private ExtractedPreferences fallbackExtraction(String question) {
         log.info("[LLM提取] 使用降级方案（分词器增强提取）");
         
-        ExtractedPreferences prefs = new ExtractedPreferences();
+        ExtractedPreferences prefs = new ExtractedPreferences(
+                null, null, new ArrayList<>(), new ArrayList<>(), null, new ArrayList<>(), null);
         
         // 检测是否有情绪性表述
         Set<String> emotionalKeywords = Set.of(
@@ -309,38 +189,38 @@ public class LLMPreferenceExtractor {
             
             // ⭐ 正面偏好提取（基于情绪性关键词）
             if (tokenizer.containsAnyKeyword(question, Set.of("辣", "麻辣", "香辣"))) {
-                prefs.getFoodPreferences().add("辣");
+                prefs.foodPreferences().add("辣");
             }
             if (tokenizer.containsAnyKeyword(question, Set.of("清淡", "清香"))) {
-                prefs.getFoodPreferences().add("清淡");
+                prefs.foodPreferences().add("清淡");
             }
             if (tokenizer.containsAnyKeyword(question, Set.of("甜", "甜品", "甜点"))) {
-                prefs.getFoodPreferences().add("甜");
+                prefs.foodPreferences().add("甜");
             }
             if (tokenizer.containsAnyKeyword(question, Set.of("川菜", "粤菜", "湘菜"))) {
-                prefs.getFoodPreferences().add("川菜");
+                prefs.foodPreferences().add("川菜");
             }
             
             // ⭐ 负面偏好提取
             if (tokenizer.containsAnyKeyword(question, Set.of("讨厌", "厌烦", "不喜欢", "厌恶"))) {
                 // 尝试提取被讨厌的内容
                 if (tokenizer.containsAnyKeyword(question, Set.of("香菜"))) {
-                    prefs.getDietaryRestrictions().add("不喜欢:香菜");
+                    prefs.dietaryRestrictions().add("不喜欢:香菜");
                 }
                 if (tokenizer.containsAnyKeyword(question, Set.of("辣", "麻辣"))) {
-                    prefs.getDietaryRestrictions().add("不喜欢:辣");
+                    prefs.dietaryRestrictions().add("不喜欢:辣");
                 }
             }
             
             // ⭐ 旅行偏好提取
             if (tokenizer.containsAnyKeyword(question, Set.of("自然", "山水", "风景"))) {
-                prefs.getTravelPreferences().add("自然");
+                prefs.travelPreferences().add("自然");
             }
             if (tokenizer.containsAnyKeyword(question, Set.of("文化", "历史", "古迹"))) {
-                prefs.getTravelPreferences().add("文化");
+                prefs.travelPreferences().add("文化");
             }
             if (tokenizer.containsAnyKeyword(question, Set.of("休闲", "放松", "度假"))) {
-                prefs.getTravelPreferences().add("休闲");
+                prefs.travelPreferences().add("休闲");
             }
         } else {
             log.info("[LLM提取] 无情绪性表述，跳过用户画像提取");
@@ -349,41 +229,58 @@ public class LLMPreferenceExtractor {
         // 通用信息提取（不受情绪性表述限制）
         // 预算提取
         if (tokenizer.containsAnyKeyword(question, Set.of("便宜", "经济", "实惠", "相因"))) {
-            prefs.setBudget("low");
+            prefs = prefs.withBudget("low");
         } else if (tokenizer.containsAnyKeyword(question, Set.of("高端", "豪华", "奢侈"))) {
-            prefs.setBudget("high");
+            prefs = prefs.withBudget("high");
         } else if (tokenizer.containsAnyKeyword(question, Set.of("人均", "性价比"))) {
-            prefs.setBudget("medium");
+            prefs = prefs.withBudget("medium");
         }
         
         // 饮食限制提取（明确限制，非偏好）
         if (tokenizer.containsAnyKeyword(question, Set.of("素食", "斋"))) {
-            prefs.getDietaryRestrictions().add("素食");
+            prefs.dietaryRestrictions().add("素食");
         }
         if (tokenizer.containsAnyKeyword(question, Set.of("清真"))) {
-            prefs.getDietaryRestrictions().add("清真");
+            prefs.dietaryRestrictions().add("清真");
         }
         if (tokenizer.containsAnyKeyword(question, Set.of("无辣", "不辣", "少辣"))) {
-            prefs.getDietaryRestrictions().add("少辣");
+            prefs.dietaryRestrictions().add("少辣");
         }
         
         return prefs;
     }
     
     /**
-     * 提取的偏好数据结构
+     * 提取的偏好数据结构。
+     * <p>声明为不可变 {@code record} 以适配 {@link AiChatService#entity} 的结构化绑定
+     * （Spring AI 的 BeanOutputConverter 对 record + Jackson 兼容，直接映射 LLM 返回的 JSON）。</p>
+     *
+     * @param location             地点（城市/省份/景区），无则 null
+     * @param purpose              目的类型 food/travel/weather/other
+     * @param foodPreferences      美食偏好关键词
+     * @param travelPreferences    旅行偏好关键词
+     * @param budget               预算档位 low/medium/high
+     * @param dietaryRestrictions  饮食限制/负向偏好
+     * @param time                 时间信息
      */
-    @Setter
-    @Getter
-    public static class ExtractedPreferences {
-        // Getters and Setters
-        private String location;
-        private String purpose;
-        private List<String> foodPreferences = new ArrayList<>();
-        private List<String> travelPreferences = new ArrayList<>();
-        private String budget;
-        private List<String> dietaryRestrictions = new ArrayList<>();
-        private String time;
-
+        public record ExtractedPreferences(
+            String location,
+            String purpose,
+            List<String> foodPreferences,
+            List<String> travelPreferences,
+            String budget,
+            List<String> dietaryRestrictions,
+            String time) {
+        
+        /** 空偏好（无提取结果时的默认值） */
+        public static ExtractedPreferences empty() {
+            return new ExtractedPreferences(null, null, List.of(), List.of(), null, List.of(), null);
+        }
+        
+        /** 不可变更新：预算（record 不可变，upsert 用 with* 语义） */
+        public ExtractedPreferences withBudget(String budget) {
+            return new ExtractedPreferences(location, purpose, foodPreferences,
+                    travelPreferences, budget, dietaryRestrictions, time);
+        }
     }
 }
