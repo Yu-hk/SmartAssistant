@@ -8,6 +8,8 @@
 package com.example.smartassistant.router.service.experience;
 
 import com.example.smartassistant.common.cache.CacheVersionManager;
+import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
+import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
@@ -22,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -82,6 +85,10 @@ public class ExperienceService {
     private final ExperienceMilvusService milvusService;
     /** 缓存版本管理器：经验更新时递增版本号 */
     private final CacheVersionManager cacheVersionManager;
+
+    /** ⭐ 检索侧知识库（可选）：用于经验-知识协同，通过 RAG 命中质量调节经验置信度 */
+    @Autowired(required = false)
+    private InMemoryKnowledgeBase knowledgeBase;
 
     public ExperienceService(StringRedisTemplate redisTemplate,
                              SemanticRouteCacheService semanticCache,
@@ -176,13 +183,15 @@ public class ExperienceService {
             }
 
             // 5. 对候选经验计算综合分数（优先用 pgvector 的 BGE 分数）
+            // ⭐ 计算 RAG 检索质量因子：知识库命中率高 → 经验可信度高 → 降权幅度小
+            double ragQualityFactor = computeRagQualityFactor(question);
             List<ScoredExperience> allMatches = new ArrayList<>();
             for (String expId : matchedExpIds) {
                 ExperienceModel exp = loadExperience(expId);
                 if (exp == null) continue;
 
                 Double bgeScore = bgeScoreMap.get(expId);
-                double score = calculateBlendedScore(exp, keywords, bgeScore, useBge);
+                double score = calculateBlendedScore(exp, keywords, bgeScore, useBge, ragQualityFactor);
                 if (score >= MIN_CONFIDENCE) {
                     allMatches.add(new ScoredExperience(exp, score));
                 }
@@ -970,7 +979,8 @@ public class ExperienceService {
      * @param useBge    BGE 是否可用
      */
     private double calculateBlendedScore(ExperienceModel exp, List<String> queryKeywords,
-                                         Double bgeScore, boolean useBge) {
+                                         Double bgeScore, boolean useBge,
+                                         double ragQualityFactor) {
         if (exp.getTriggerKeywords() == null || exp.getTriggerKeywords().isEmpty()) return 0;
 
         // Jaccard 关键词相似度
@@ -996,10 +1006,37 @@ public class ExperienceService {
         // 历史命中加成（最多 +0.1）
         score += Math.min(0.1, exp.getHitCount() * 0.02);
 
-        // 置信度衰减
-        score *= exp.getConfidence();
+        // 置信度衰减 × RAG 检索质量因子（知识库命中率高 → 衰减少）
+        score *= (exp.getConfidence() * ragQualityFactor);
 
         return Math.min(1.0, score);
+    }
+
+    /**
+     * 计算 RAG 检索质量因子：查询知识库，根据命中质量返回 0.5~1.0 的因子。
+     * 知识库无数据或不可用时返回 1.0（无影响）。
+     */
+    private double computeRagQualityFactor(String question) {
+        if (knowledgeBase == null) return 1.0;
+        try {
+            List<com.example.smartassistant.common.rag.KnowledgeHit> hits = knowledgeBase.search(question, 5);
+            if (hits == null || hits.isEmpty()) return 1.0; // 无结果不影响经验
+
+            double avgScore = hits.stream().mapToDouble(com.example.smartassistant.common.rag.KnowledgeHit::getScore).average().orElse(0);
+            double topScore = hits.get(0).getScore();
+
+            // 质量因子 = 根据 Top-1 分数线性映射到 0.5~1.0
+            // topScore=0.3（最低阈值）→ 0.5；topScore=0.9 → 1.0
+            double factor = 0.5 + 0.5 * ((topScore - 0.3) / 0.6);
+            factor = Math.max(0.5, Math.min(1.0, factor));
+
+            log.debug("[Experience] RAG质量因子: question={}, topScore={}, avgScore={}, factor={}",
+                    question, String.format("%.2f", topScore), String.format("%.2f", avgScore), String.format("%.2f", factor));
+            return factor;
+        } catch (Exception e) {
+            log.debug("[Experience] 计算RAG质量因子失败: {}", e.getMessage());
+            return 1.0; // 检索异常不影响经验
+        }
     }
 
     /**

@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.cache;
 
+import com.example.smartassistant.common.cache.CacheVersionManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
@@ -72,6 +73,7 @@ public class SemanticRouteCacheService {
     private final TfEmbeddingService tfEmbedding;
     private final VectorCacheStore vectorCache;
     private final AgentDiscoveryService agentDiscoveryService;
+    private final CacheVersionManager cacheVersionManager;
 
     @Value("${router.semantic-cache.enabled:true}")
     private boolean cacheEnabled;
@@ -85,7 +87,8 @@ public class SemanticRouteCacheService {
             VectorCacheStore vectorCache,
             BgeOnnxEmbeddingService bgeEmbedding,
             @Qualifier("lightChatModel") ChatModel lightChatModel,
-            AiChatService aiChatService) {
+            AiChatService aiChatService,
+            CacheVersionManager cacheVersionManager) {
         ChatClient chatClient = aiChatService.applyAdvisors(chatClientBuilder).build();
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
@@ -95,6 +98,7 @@ public class SemanticRouteCacheService {
         this.tfEmbedding = tfEmbedding;
         this.vectorCache = vectorCache;
         this.agentDiscoveryService = agentDiscoveryService;
+        this.cacheVersionManager = cacheVersionManager;
     }
 
     /** BGE > TF > null */
@@ -117,15 +121,18 @@ public class SemanticRouteCacheService {
         try {
             // Tier 1: 精确匹配
             CachedRouteDecision exact = getByExactQuestion(question);
-            if (exact != null) return exact;
+            if (exact != null && isCacheVersionValid(exact)) return exact;
+            if (exact != null) log.debug("[SemanticCache] 缓存版本过期: tier=精确, intent={}", exact.intentTag);
 
             // Tier 2: 关键词哈希匹配
             CachedRouteDecision keyword = getByKeywordHash(question);
-            if (keyword != null) return keyword;
+            if (keyword != null && isCacheVersionValid(keyword)) return keyword;
+            if (keyword != null) log.debug("[SemanticCache] 缓存版本过期: tier=关键词, intent={}", keyword.intentTag);
 
             // Tier 3: ⭐ TF 向量匹配（余弦相似度 ≥0.70，覆盖前缀扩展场景）
             CachedRouteDecision vector = getByVectorMatch(question);
-            if (vector != null) return vector;
+            if (vector != null && isCacheVersionValid(vector)) return vector;
+            if (vector != null) log.debug("[SemanticCache] 缓存版本过期: tier=向量, intent={}", vector.intentTag);
 
         } catch (Exception e) {
             log.warn("[SemanticCache] 读取缓存失败: {}", e.getMessage());
@@ -416,6 +423,7 @@ public class SemanticRouteCacheService {
             CachedRouteDecision decision = new CachedRouteDecision(intentTag, agentName, confidence, question);
             decision.firstUserId = userId;  // ⭐ 记录首次提问用户
             decision.firstSessionId = sessionId;  // ⭐ 记录首次提问会话（同会话内做 LLM 改写）
+            decision.cacheVersionAtSave = cacheVersionManager.getCurrentVersion();  // ⭐ 记录当前全局缓存版本
             String json = objectMapper.writeValueAsString(decision);
             String key = CACHE_KEY_PREFIX + md5(intentTag);
             redisTemplate.opsForValue().set(key, json, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
@@ -738,6 +746,14 @@ public class SemanticRouteCacheService {
         return String.join(",", keywords);
     }
 
+    /**
+     * ⭐ 校验缓存决策的版本有效性：如果全局缓存版本已递增（知识库/经验有更新），
+     * 则之前缓存的决策视为过期，应让路由重新决策。
+     */
+    private boolean isCacheVersionValid(CachedRouteDecision decision) {
+        return cacheVersionManager.isVersionValid(decision.cacheVersionAtSave);
+    }
+
     private String md5(String str) {
         try {
             java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
@@ -758,6 +774,7 @@ public class SemanticRouteCacheService {
         public long cachedAt;
         public int hitCount;
         public long firstCachedAt;
+        public long cacheVersionAtSave;  // ⭐ 保存时的全局缓存版本号，用于知识库更新后失效缓存
         public String reply;
         public Long firstUserId;  // ⭐ 首次提问的用户ID
         public String firstSessionId;  // ⭐ 首次提问的会话ID，仅同会话内做 LLM 改写
