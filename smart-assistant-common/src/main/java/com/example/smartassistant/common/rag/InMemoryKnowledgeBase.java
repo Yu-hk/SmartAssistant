@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.rag;
 
 import com.example.smartassistant.common.rag.trace.RetrievalTrace;
+import com.example.smartassistant.common.rag.retrieval.CrossDocumentConflictResolver;
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
@@ -64,6 +65,9 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
 
     /** ⭐ 检索链路追溯消费者（可选，null 时不追蹤） */
     private Consumer<RetrievalTrace> traceConsumer;
+
+    /** ⭐ 检索侧跨文档冲突消解器（Q6 第二层，可选，null 时不消解） */
+    private CrossDocumentConflictResolver conflictResolver;
 
     /**
      * @param name           知识库名称
@@ -217,6 +221,11 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
             hits = hits.size() <= k ? hits : hits.subList(0, k);
         }
 
+        // Stage 4: ⭐ 跨文档冲突消解（Q6 第二层）—按权威性/版本压制矛盾低权威来源
+        if (conflictResolver != null) {
+            hits = conflictResolver.resolveHits(hits);
+        }
+
         // ⭐ 记录最终结果
         if (trace != null) {
             for (KnowledgeHit hit : hits) {
@@ -236,6 +245,16 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
      */
     public void setTraceConsumer(Consumer<RetrievalTrace> traceConsumer) {
         this.traceConsumer = traceConsumer;
+    }
+
+    /**
+     * 设置检索侧跨文档冲突消解器（Q6 第二层）。
+     * <p>在重排序之后、链路追溯记录之前生效；null 时跳过消解。</p>
+     *
+     * @param conflictResolver 跨文档冲突消解器
+     */
+    public void setConflictResolver(CrossDocumentConflictResolver conflictResolver) {
+        this.conflictResolver = conflictResolver;
     }
 
     /**

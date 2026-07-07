@@ -11,6 +11,7 @@ import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import com.example.smartassistant.common.rag.BgeReranker;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.Reranker;
+import com.example.smartassistant.common.rag.retrieval.CrossDocumentConflictResolver;
 import com.example.smartassistant.common.rag.trace.RetrievalTrace;
 import com.example.smartassistant.common.rag.trace.RetrievalTraceRepository;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
@@ -48,11 +49,18 @@ public class KnowledgeBaseConfig {
     }
 
     @Bean
+    public CrossDocumentConflictResolver crossDocumentConflictResolver() {
+        log.info("[KBConfig] 创建跨文档冲突消解器（Q6 第二层）");
+        return new CrossDocumentConflictResolver();
+    }
+
+    @Bean
     public InMemoryKnowledgeBase inMemoryKnowledgeBase(
             BgeEmbeddingModel embeddingModel,
             ChineseTokenizer tokenizer,
             Reranker bgeReranker,
-            RetrievalTraceRepository traceRepository) {
+            RetrievalTraceRepository traceRepository,
+            CrossDocumentConflictResolver conflictResolver) {
         log.info("[KBConfig] 创建 InMemoryKnowledgeBase: name={}", kbName);
 
         InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(kbName, embeddingModel, tokenizer, bgeReranker);
@@ -64,7 +72,10 @@ public class KnowledgeBaseConfig {
             }
         });
 
-        log.info("[KBConfig] InMemoryKnowledgeBase 创建完成，Reranker={}, Trace=已接线",
+        // ⭐ 自动接线：检索侧跨文档冲突消解（Q6 第二层）
+        kb.setConflictResolver(conflictResolver);
+
+        log.info("[KBConfig] InMemoryKnowledgeBase 创建完成，Reranker={}, Trace=已接线, ConflictResolver=已接线",
                 bgeReranker.getClass().getSimpleName());
         return kb;
     }
