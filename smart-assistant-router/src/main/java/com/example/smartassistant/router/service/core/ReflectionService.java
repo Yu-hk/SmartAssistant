@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.router.model.ReflectionResult;
 import com.example.smartassistant.router.model.SubTaskResult.ErrorType;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
@@ -100,11 +101,12 @@ public class ReflectionService {
     public ReflectionService(AgentCallerService agentCallerService,
                              @Autowired(required = false) AgentDiscoveryService discoveryService,
                              @Autowired(required = false) StringRedisTemplate redisTemplate,
-                             ChatClient.Builder chatClientBuilder) {
+                             ChatClient.Builder chatClientBuilder,
+                             AiChatService aiChatService) {
         this.agentCallerService = agentCallerService;
         this.discoveryService = discoveryService;
         this.redisTemplate = redisTemplate;
-        this.fallbackChatClient = chatClientBuilder.build();
+        this.fallbackChatClient = aiChatService.applyAdvisors(chatClientBuilder).build();
     }
 
     // ========================================================================

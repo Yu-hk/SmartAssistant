@@ -10,6 +10,7 @@ package com.example.smartassistant.common.agent;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.AgentException;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
+import com.example.smartassistant.common.error.PromptInjectionBlockedException;
 import com.example.smartassistant.common.error.RecoveryAction;
 import com.example.smartassistant.common.memory.ConversationSummaryStore;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
@@ -440,6 +441,12 @@ public class SmartReActAgent {
                             .run(() -> chatModel.call(new Prompt(callMessages, callOptions)));
                 }
             } catch (Exception e) {
+                if (e instanceof PromptInjectionBlockedException pib) {
+                    // ⭐ 内容安全护栏拦截：返回友好提示而非模型故障
+                    log.warn("[SmartReActAgent] 输入被内容安全护栏拦截: {}", pib.getMessage());
+                    metrics.recordIteration(iteration);
+                    return "⚠️ 您的输入已被内容安全策略拦截：" + pib.getMessage();
+                }
                 log.error("[SmartReActAgent] LLM 调用失败: {}", e.getMessage());
                 recoveryService.logRecovery(AgentErrorCode.MODEL_CALL_FAILED, RecoveryAction.RETRY_BACKOFF,
                         e.getMessage(), iteration);

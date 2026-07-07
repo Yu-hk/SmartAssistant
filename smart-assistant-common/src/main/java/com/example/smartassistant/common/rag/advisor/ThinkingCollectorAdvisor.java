@@ -9,6 +9,7 @@ package com.example.smartassistant.common.rag.advisor;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
@@ -19,8 +20,23 @@ import reactor.core.publisher.Flux;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 思维链收集 Advisor — 从 ChatResponse metadata 中提取推理过程内容。
+ * <p>
+ * 仅在 Stream 路径生效，收集 {@code reasoning_content} 或 {@code reasoning} 字段。
+ * 日志格式包含 {@code [requestId=xxx]} 以区分多请求并发时的调用链路。
+ * </p>
+ */
 public class ThinkingCollectorAdvisor implements StreamAdvisor, Ordered {
     private static final Logger log = LoggerFactory.getLogger(ThinkingCollectorAdvisor.class);
+
+    /** 从 MDC 获取请求追踪 ID */
+    private static String traceId() {
+        String rid = MDC.get("requestId");
+        if (rid != null && !rid.isBlank()) return rid;
+        String trace = MDC.get("traceId");
+        return trace != null && !trace.isBlank() ? trace : "-";
+    }
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
@@ -36,7 +52,12 @@ public class ThinkingCollectorAdvisor implements StreamAdvisor, Ordered {
                 }
             }
         }).doOnComplete(() -> {
-            if (!chunks.isEmpty()) log.debug("[ThinkingCollector] {} chunks", chunks.size());
+            if (!chunks.isEmpty()) {
+                log.debug("[ThinkingCollector][requestId={}] 收集 {} 个推理块, 总共 {} 字符",
+                        traceId(), chunks.size(), chunks.stream().mapToInt(String::length).sum());
+            } else {
+                log.trace("[ThinkingCollector][requestId={}] 无推理内容", traceId());
+            }
         });
     }
 

@@ -10,6 +10,8 @@ package com.example.smartassistant.config;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.common.tool.AiToolRegistry;
 import com.example.smartassistant.service.monitoring.OrderMetricsCollector;
 import com.example.smartassistant.tools.CouponTools;
 import com.example.smartassistant.tools.OrderAnalyticsTool;
@@ -18,9 +20,11 @@ import com.example.smartassistant.tools.OrderMemoryTool;
 import com.example.smartassistant.tools.OrderTools;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -61,20 +65,21 @@ public class OrderAgentConfig {
             OrderKnowledgeTool orderKnowledgeTool,
             OrderMemoryTool orderMemoryTool,
             OrderMetricsCollector metricsCollector,
-            ObservationRegistry observationRegistry) {
+            ObservationRegistry observationRegistry,
+            AiChatService aiChatService,
+            AiToolRegistry aiToolRegistry) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
-        List<ToolCallback> allCallbacks = new ArrayList<>();
-        for (var tool : List.of(orderTools, analyticsTool, couponTools, orderKnowledgeTool, orderMemoryTool)) {
-            allCallbacks.addAll(List.of(
-                    MethodToolCallbackProvider.builder().toolObjects(tool).build().getToolCallbacks()));
-        }
-
-        List<ToolCallback> toolList = new ArrayList<>(allCallbacks);
+        List<ToolCallback> toolList = aiToolRegistry.assemble(orderTools, analyticsTool, couponTools, orderKnowledgeTool, orderMemoryTool);
         log.info("[OrderAgent] 注册 {} 个工具（订单处理 + 分析 + 优惠券 + 知识库 + 记忆）", toolList.size());
 
+        // ⭐ 构建 ChatClient（Advisor 链由 AiChatService 统一装配，消除模块级样板）
+        ChatClient chatClient = aiChatService.buildChatClient(chatModel);
+        log.info("[OrderAgent] ChatClient 由 AiChatService 统一装配 Advisor 链");
+
         return new SmartReActAgent(chatModel)
+                .withChatClient(chatClient)
                 .withMetrics(metricsCollector)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)

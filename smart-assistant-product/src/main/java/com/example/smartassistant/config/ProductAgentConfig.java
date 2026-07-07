@@ -9,8 +9,8 @@ package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
-import com.example.smartassistant.common.rag.advisor.ThinkingCollectorAdvisor;
-import com.example.smartassistant.common.rag.advisor.TokenUsageAdvisor;
+import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.common.tool.AiToolRegistry;
 import com.example.smartassistant.common.skill.SkillPackageManager;
 import com.example.smartassistant.service.monitoring.ProductMetricsCollector;
 import com.example.smartassistant.tools.KnowledgeQueryTool;
@@ -59,30 +59,12 @@ public class ProductAgentConfig {
             ProductMemoryTool productMemoryTool,
             ProductMetricsCollector metricsCollector,
             @Autowired(required = false) SkillPackageManager skillPackageManager,
-            @Autowired(required = false) TokenUsageAdvisor tokenUsageAdvisor,
-            @Autowired(required = false) ThinkingCollectorAdvisor thinkingCollectorAdvisor) {
+            AiChatService aiChatService,
+            AiToolRegistry aiToolRegistry) {
 
         log.info("[ProductAgent] 初始化 Agent: agentName={}", agentName);
 
-        MethodToolCallbackProvider provider = MethodToolCallbackProvider.builder()
-                .toolObjects(productTools)
-                .build();
-        ToolCallback[] allTools = provider.getToolCallbacks();
-        List<ToolCallback> toolList = new ArrayList<>();
-        toolList.addAll(List.of(allTools));
-
-        // ⭐ 注册知识库查询工具
-        MethodToolCallbackProvider kbProvider = MethodToolCallbackProvider.builder()
-                .toolObjects(knowledgeQueryTool)
-                .build();
-        toolList.addAll(List.of(kbProvider.getToolCallbacks()));
-
-        // ⭐ 注册记忆工具
-        MethodToolCallbackProvider memProvider = MethodToolCallbackProvider.builder()
-                .toolObjects(productMemoryTool)
-                .build();
-        toolList.addAll(List.of(memProvider.getToolCallbacks()));
-
+        List<ToolCallback> toolList = aiToolRegistry.assemble(productTools, knowledgeQueryTool, productMemoryTool);
         log.info("[ProductAgent] 注册 {} 个工具（商品查询 + 知识库 + 记忆）", toolList.size());
 
         // 构建系统 prompt（含技能包指令）
@@ -97,13 +79,9 @@ public class ProductAgentConfig {
         }
         String fullSystemPrompt = skillPrompt.isBlank() ? basePrompt : basePrompt + "\n" + skillPrompt;
 
-        // ⭐ 构建 ChatClient（含 Advisor 链）
-        ChatClient.Builder clientBuilder = ChatClient.builder(chatModel);
-        if (tokenUsageAdvisor != null) clientBuilder.defaultAdvisors(tokenUsageAdvisor);
-        if (thinkingCollectorAdvisor != null) clientBuilder.defaultAdvisors(thinkingCollectorAdvisor);
-        ChatClient chatClient = clientBuilder.build();
-        log.info("[ProductAgent] 注入 Advisor 链: TokenUsageAdvisor={}, ThinkingCollectorAdvisor={}",
-                tokenUsageAdvisor != null, thinkingCollectorAdvisor != null);
+        // ⭐ 构建 ChatClient（Advisor 链由 AiChatService 统一装配）
+        ChatClient chatClient = aiChatService.buildChatClient(chatModel);
+        log.info("[ProductAgent] ChatClient 由 AiChatService 统一装配 Advisor 链");
 
         return new SmartReActAgent(chatModel)
                 .withChatClient(chatClient)

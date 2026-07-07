@@ -9,6 +9,8 @@ package com.example.smartassistant.consumer.service.agent;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.common.tool.AiToolRegistry;
 import com.example.smartassistant.consumer.config.McpTableWhitelistConfig;
 import com.example.smartassistant.consumer.service.cache.SqlQueryCache;
 import com.example.smartassistant.consumer.service.monitoring.SqlPerformanceMonitor;
@@ -16,11 +18,13 @@ import com.example.smartassistant.consumer.service.monitoring.SqlReviewService;
 import com.example.smartassistant.consumer.tool.DataGifTool;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -43,6 +47,14 @@ public class McpAgentService {
     private final SqlReviewService sqlReviewService;  // ⭐ SQL 审查服务
     private final McpTableWhitelistConfig whitelistConfig;  // ⭐ 注入白名单配置
     private final DataGifTool dataGifTool;  // ⭐ 注入 GIF 动图工具
+
+    // ⭐ ChatClient 由 AiChatService 统一装配 Advisor 链
+    @Autowired(required = false)
+    private AiChatService aiChatService;
+    // ⭐ 工具注册聚合器（收敛工具对象 → ToolCallback 列表样板）
+    @Autowired(required = false)
+    private AiToolRegistry aiToolRegistry;
+
     private SmartReActAgent mcpAgent;
     
     public McpAgentService(
@@ -80,26 +92,18 @@ public class McpAgentService {
                 whitelistConfig
             );
             
-            // ⭐ 注册数据库查询工具 + GIF 动图工具
-            MethodToolCallbackProvider dbProvider = MethodToolCallbackProvider.builder()
-                .toolObjects(dbTools)
-                .build();
-            MethodToolCallbackProvider gifProvider = MethodToolCallbackProvider.builder()
-                .toolObjects(dataGifTool)
-                .build();
+            // ⭐ 注册数据库查询工具 + GIF 动图工具（由 AiToolRegistry 聚合）
+            List<ToolCallback> allCallbacks = aiToolRegistry.assemble(dbTools, dataGifTool);
+
+            log.info("[McpAgentService] ✅ 发现 {} 个工具 (DB + GIF)", allCallbacks.size());
             
-            // 合并所有工具
-            List<ToolCallback> allCallbacks = new ArrayList<>();
-            java.util.Collections.addAll(allCallbacks, dbProvider.getToolCallbacks());
-            java.util.Collections.addAll(allCallbacks, gifProvider.getToolCallbacks());
-            
-            log.info("[McpAgentService] ✅ 发现 {} 个工具 (DB: {}, GIF: {})",
-                    allCallbacks.size(),
-                    dbProvider.getToolCallbacks().length,
-                    gifProvider.getToolCallbacks().length);
-            
+            // ⭐ 构建 ChatClient（Advisor 链由 AiChatService 统一装配）
+            ChatClient chatClient = aiChatService.buildChatClient(chatModel);
+            log.info("[McpAgentService] ChatClient 由 AiChatService 统一装配 Advisor 链");
+
             // ⭐ 使用 SmartReActAgent 替代 ReactAgent
             this.mcpAgent = new SmartReActAgent(chatModel)
+                .withChatClient(chatClient)
                 .withMaxIterations(10)
                 .withTimeoutMs(60_000)
                 .withPreset(PromptBuilder.build()

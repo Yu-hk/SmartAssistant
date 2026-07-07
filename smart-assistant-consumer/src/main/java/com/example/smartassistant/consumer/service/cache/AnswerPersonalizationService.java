@@ -14,12 +14,13 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 
 import java.time.Duration;
 import java.util.Arrays;
@@ -45,7 +46,8 @@ import java.util.List;
 @Service
 public class AnswerPersonalizationService {
     
-    private final ChatClient chatClient;
+    private final AiChatService aiChatService;
+    private final ChatModel lightModel;
     private final ReactiveStringRedisTemplate redisTemplate;
     private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
@@ -64,12 +66,14 @@ public class AnswerPersonalizationService {
     private final Counter preloadSkippedCounter;
     private final Timer preloadTimer;
     
-    public AnswerPersonalizationService(@Qualifier("lightChatModel") ChatModel lightModel,
+    public AnswerPersonalizationService(AiChatService aiChatService,
+                                        @Qualifier("lightChatModel") ChatModel lightModel,
                                         ReactiveStringRedisTemplate redisTemplate,
                                         UserProfileService userProfileService,
                                         ObjectMapper objectMapper,
                                         MeterRegistry meterRegistry) {
-        this.chatClient = ChatClient.create(lightModel);
+        this.aiChatService = aiChatService;
+        this.lightModel = lightModel;
         this.redisTemplate = redisTemplate;
         this.userProfileService = userProfileService;
         this.objectMapper = objectMapper;
@@ -346,7 +350,8 @@ public class AnswerPersonalizationService {
             try {
                 String prompt = buildPersonalizedPrompt(originalAnswer, question, profile);
                 
-                String rewritten = chatClient.prompt()
+                String rewritten = aiChatService.buildChatClient(lightModel)
+                    .prompt()
                     .user(prompt)
                     .call()
                     .content();
@@ -493,7 +498,8 @@ public class AnswerPersonalizationService {
             try {
                 String prompt = buildPersonalizationPrompt(originalAnswer, question);
                 
-                String rewritten = chatClient.prompt()
+                String rewritten = aiChatService.buildChatClient(lightModel)
+                    .prompt()
                     .user(prompt)
                     .call()
                     .content();

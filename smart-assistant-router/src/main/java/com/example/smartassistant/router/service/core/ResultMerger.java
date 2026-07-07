@@ -1,5 +1,6 @@
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.router.model.SubTaskResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,8 +21,9 @@ public class ResultMerger {
     private static final Logger log = LoggerFactory.getLogger(ResultMerger.class);
     private final ChatClient chatClient;
 
-    public ResultMerger(@Qualifier("lightChatModel") ChatModel lightModel) {
-        this.chatClient = ChatClient.create(lightModel);
+    public ResultMerger(@Qualifier("lightChatModel") ChatModel lightModel,
+                        AiChatService aiChatService) {
+        this.chatClient = aiChatService.buildChatClient(lightModel);
     }
 
     /**
