@@ -83,4 +83,42 @@ public interface KnowledgeBase {
 
     /** 重新计算所有文档的 embedding（知识库变更后调用） */
     void reindex();
+
+    // ==================== 治理：非覆盖式版本 + 隔离/回滚（P0，2026-07-07）====================
+
+    /**
+     * 按基础文档 ID 列出所有关联文档 ID（含各版本）。
+     * <p>用于非覆盖式版本：摄取新版前定位旧版以标记 SUPERSEDED，而非物理删除。</p>
+     */
+    List<String> listIdsByBaseDocId(String baseDocId);
+
+    /**
+     * 更新单文档状态（隔离/回滚/废弃）。
+     * <p>检索链路已过滤非 ACTIVE 状态（QUARANTINED/SUPERSEDED 均不返回），故更新状态即可生效隔离。</p>
+     */
+    void updateStatus(String docId, DocumentStatus status);
+
+    /** 隔离文档（从检索排除，可恢复） */
+    default void quarantine(String docId) {
+        updateStatus(docId, DocumentStatus.QUARANTINED);
+    }
+
+    /** 恢复文档为可检索状态（撤销隔离） */
+    default void restore(String docId) {
+        updateStatus(docId, DocumentStatus.ACTIVE);
+    }
+
+    /**
+     * 非覆盖式版本：将同 baseDocId 下除 keepDocId 外的文档标记为 SUPERSEDED。
+     * <p>默认实现基于 {@link #listIdsByBaseDocId} + {@link #updateStatus}，
+     * 子类可按存储特性优化（如批量表达式更新）。</p>
+     */
+    default void markSupersededByBaseId(String baseDocId, String keepDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return;
+        listIdsByBaseDocId(baseDocId).forEach(id -> {
+            if (!id.equals(keepDocId)) {
+                updateStatus(id, DocumentStatus.SUPERSEDED);
+            }
+        });
+    }
 }
