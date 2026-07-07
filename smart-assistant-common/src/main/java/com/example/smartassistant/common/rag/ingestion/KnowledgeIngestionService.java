@@ -15,6 +15,7 @@ import com.example.smartassistant.common.rag.chunking.DocumentChunker;
 import com.example.smartassistant.common.rag.chunking.ParentChildDocumentChunker;
 import com.example.smartassistant.common.rag.document.DocumentParseRouter;
 import com.example.smartassistant.common.rag.document.ParsedDocument;
+import com.example.smartassistant.common.rag.graph.KnowledgeGraphService;
 import com.example.smartassistant.common.rag.util.HashUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,6 +78,9 @@ public class KnowledgeIngestionService {
 
     /** ⭐ 入库操作审计记录器（P0，2026-07-07） */
     private final IngestAuditRecorder auditRecorder;
+
+    /** ⭐ 知识图谱服务（可选）— 摄取时联动抽取实体/关系；未注入则跳过图谱构建 */
+    private KnowledgeGraphService knowledgeGraphService;
 
     /** 是否启用变更检测（默认 true） */
     private boolean changeDetectionEnabled = true;
@@ -144,6 +148,18 @@ public class KnowledgeIngestionService {
         if (hook != null) {
             this.cacheInvalidationHooks.add(hook);
         }
+    }
+
+    /**
+     * ⭐ 注入知识图谱服务——摄取时联动抽取实体/关系写入图谱。
+     * <p>
+     * 仅当 {@link KnowledgeGraphService#getExtractor()} 可用（即装配了真实
+     * {@link EntityExtractor}，如 {@code LlmEntityExtractor}）时才会实际抽取，
+     * 否则该服务为空操作，不影响摄取性能。
+     * </p>
+     */
+    public void setKnowledgeGraphService(KnowledgeGraphService knowledgeGraphService) {
+        this.knowledgeGraphService = knowledgeGraphService;
     }
 
     /** 启用或禁用变更检测 */
@@ -235,6 +251,11 @@ public class KnowledgeIngestionService {
                 // 用变更后的文档列表替换 parsed
                 parsed = changedDocs;
             }
+
+            // ⭐ Step 1.8: 知识图谱实体/关系抽取（联动）—
+            //   仅当 knowledgeGraphService 已注入且其实体抽取器可用（如 LlmEntityExtractor）时生效，
+            //   否则为空操作，不影响摄取性能。
+            extractEntitiesToGraph(parsed, tenantId);
 
             // Step 2: 注入租户元数据
             if (tenantId != null && !tenantId.isBlank()) {
@@ -418,6 +439,27 @@ public class KnowledgeIngestionService {
                     .toList();
             String newHash = HashUtil.aggregateHash(contents);
             hashCache.put(entry.getKey(), newHash);
+        }
+    }
+
+    /**
+     * ⭐ 将解析文档的实体 / 关系抽取进知识图谱（仅在图谱服务可用时生效）。
+     * <p>
+     * 过短段落（&lt;30 字）跳过以避免无效 LLM 调用；图谱服务的抽取器不可用时
+     * （{@link EntityExtractor#isAvailable()} 为 false）内部自动降级为空操作。
+     * </p>
+     */
+    private void extractEntitiesToGraph(List<ParsedDocument> parsedDocs, String tenantId) {
+        if (knowledgeGraphService == null) return;
+        int triggered = 0;
+        for (ParsedDocument p : parsedDocs) {
+            String content = p.getContent();
+            if (content == null || content.length() < 30) continue;
+            knowledgeGraphService.extractFromDocument(content, p.getDocId(), tenantId);
+            triggered++;
+        }
+        if (triggered > 0) {
+            log.info("[Ingestion] 触发实体关系抽取: docs={}", triggered);
         }
     }
 

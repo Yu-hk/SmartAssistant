@@ -49,7 +49,7 @@ class SemanticRouteCacheServiceTest {
         vectorCache = new VectorCacheStore();
         bgeEmbedding = new BgeOnnxEmbeddingService();
         cacheService = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
-                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding);
+                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding, null, null);
         ReflectionTestUtils.setField(cacheService, "cacheEnabled", true);
     }
 
@@ -57,7 +57,7 @@ class SemanticRouteCacheServiceTest {
     @DisplayName("禁用缓存时返回 null")
     void testDisabled() {
         cacheService = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
-                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding) {
+                agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding, null, null) {
             @Override public String generateIntentTag(String q) { return null; }
         };
         assertNull(cacheService.getCachedDecision("test"));

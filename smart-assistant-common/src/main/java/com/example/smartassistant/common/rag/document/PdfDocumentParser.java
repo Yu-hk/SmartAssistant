@@ -47,8 +47,8 @@ public class PdfDocumentParser implements DocumentParser {
 
     private static final Logger log = LoggerFactory.getLogger(PdfDocumentParser.class);
 
-    /** ⭐ OCR 策略（可插拔，默认空操作降级） */
-    private OcrStrategy ocrStrategy = new NoopOcrStrategy();
+    /** ⭐ OCR 策略（可插拔，默认按环境自动检测：系统 Tesseract 可用则启用，否则降级为空操作） */
+    private OcrStrategy ocrStrategy = OcrStrategies.autoDetect();
 
     /** ⭐ 设置 OCR 策略 */
     public void setOcrStrategy(OcrStrategy ocrStrategy) {

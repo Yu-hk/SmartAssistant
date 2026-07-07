@@ -121,7 +121,7 @@ class RouterServiceEndToEndTest {
                 ragService, semanticCache, taskPlanner, resultMerger,
                 reflectionService, experienceService,
                 graphExecutionService, taskAnalysisService, qualityEvaluationService,
-                queryRewriter, keywordFastRouteService, routingToolChecker,
+                queryRewriter, keywordFastRouteService, routingToolChecker, null, // degradationService
                 lightChatModel, null // BadCaseMinerService = null
         );
 

@@ -63,7 +63,7 @@ class RedisEndToEndCacheTest {
         var vc = new VectorCacheStore();
         var bge = new BgeOnnxEmbeddingService();
         cache = new SemanticRouteCacheService(chatBuilder, realRedis, tokenizer,
-                agentDiscovery, tf, vc, bge);
+                agentDiscovery, tf, vc, bge, null, null);
         ReflectionTestUtils.setField(cache, "cacheEnabled", true);
     }
 
@@ -164,7 +164,7 @@ class RedisEndToEndCacheTest {
         var chatBuilder2 = mock(ChatClient.Builder.class);
         lenient().when(chatBuilder2.build()).thenReturn(mock(ChatClient.class));
         cache = new SemanticRouteCacheService(chatBuilder2, realRedis, tokenizer,
-                agentDiscovery2, new TfEmbeddingService(tokenizer), new VectorCacheStore(), new BgeOnnxEmbeddingService());
+                agentDiscovery2, new TfEmbeddingService(tokenizer), new VectorCacheStore(), new BgeOnnxEmbeddingService(), null, null);
         ReflectionTestUtils.setField(cache, "cacheEnabled", true);
 
         cache.saveDecision("req4", "当前温度", "location_weather", 0.9, 1L, "天气查询");
@@ -227,7 +227,7 @@ class RedisEndToEndCacheTest {
         var agentDiscovery = mock(AgentDiscoveryService.class);
         lenient().when(agentDiscovery.getAgentTtl(anyString())).thenReturn(7200L);
         cache = new SemanticRouteCacheService(chatBuilder, realRedis, tokenizer,
-                agentDiscovery, new TfEmbeddingService(tokenizer), new VectorCacheStore(), new BgeOnnxEmbeddingService());
+                agentDiscovery, new TfEmbeddingService(tokenizer), new VectorCacheStore(), new BgeOnnxEmbeddingService(), null, null);
         ReflectionTestUtils.setField(cache, "cacheEnabled", true);
 
         // 第一次提问（低频）

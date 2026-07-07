@@ -15,8 +15,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -78,6 +76,14 @@ public class SemanticRouteCacheService {
     @Value("${router.semantic-cache.enabled:true}")
     private boolean cacheEnabled;
 
+    /**
+     * 语义路由缓存服务构造器。
+     * <p>
+     * {@code aiChatService} 与 {@code chatClientBuilder} 均允许为 null（测试 / LLM 降级场景），
+     * 缺失时退化为无 advisor 的裸 {@link ChatClient}，确保服务可构造且 {@code replyFormatter} 不 NPE。
+     * {@code cacheVersionManager} 允许为 null（无版本治理时缓存决策恒视为有效）。
+     * </p>
+     */
     public SemanticRouteCacheService(
             ChatClient.Builder chatClientBuilder,
             StringRedisTemplate redisTemplate,
@@ -86,10 +92,11 @@ public class SemanticRouteCacheService {
             TfEmbeddingService tfEmbedding,
             VectorCacheStore vectorCache,
             BgeOnnxEmbeddingService bgeEmbedding,
-            @Qualifier("lightChatModel") ChatModel lightChatModel,
             AiChatService aiChatService,
             CacheVersionManager cacheVersionManager) {
-        ChatClient chatClient = aiChatService.applyAdvisors(chatClientBuilder).build();
+        ChatClient chatClient = (aiChatService != null && chatClientBuilder != null)
+                ? aiChatService.applyAdvisors(chatClientBuilder).build()
+                : (chatClientBuilder != null ? chatClientBuilder.build() : null);
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.tokenizer = tokenizer;
@@ -423,7 +430,9 @@ public class SemanticRouteCacheService {
             CachedRouteDecision decision = new CachedRouteDecision(intentTag, agentName, confidence, question);
             decision.firstUserId = userId;  // ⭐ 记录首次提问用户
             decision.firstSessionId = sessionId;  // ⭐ 记录首次提问会话（同会话内做 LLM 改写）
-            decision.cacheVersionAtSave = cacheVersionManager.getCurrentVersion();  // ⭐ 记录当前全局缓存版本
+            // ⭐ 记录当前全局缓存版本（无版本治理时记为 0，恒视为有效）
+            decision.cacheVersionAtSave = (cacheVersionManager != null)
+                    ? cacheVersionManager.getCurrentVersion() : 0L;
             String json = objectMapper.writeValueAsString(decision);
             String key = CACHE_KEY_PREFIX + md5(intentTag);
             redisTemplate.opsForValue().set(key, json, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
@@ -751,7 +760,9 @@ public class SemanticRouteCacheService {
      * 则之前缓存的决策视为过期，应让路由重新决策。
      */
     private boolean isCacheVersionValid(CachedRouteDecision decision) {
-        return cacheVersionManager.isVersionValid(decision.cacheVersionAtSave);
+        // ⭐ 无版本治理（cacheVersionManager=null）时，缓存决策恒视为有效
+        return cacheVersionManager == null
+                || cacheVersionManager.isVersionValid(decision.cacheVersionAtSave);
     }
 
     private String md5(String str) {
