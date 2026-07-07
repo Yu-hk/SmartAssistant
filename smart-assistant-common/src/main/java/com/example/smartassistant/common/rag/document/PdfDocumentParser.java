@@ -10,6 +10,7 @@ package com.example.smartassistant.common.rag.document;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
 import org.slf4j.Logger;
@@ -25,6 +26,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import javax.imageio.ImageIO;
 
 /**
  * PDF 文档解析器——基于 Apache PDFBox 3.x 实现。
@@ -44,6 +46,14 @@ import java.util.Set;
 public class PdfDocumentParser implements DocumentParser {
 
     private static final Logger log = LoggerFactory.getLogger(PdfDocumentParser.class);
+
+    /** ⭐ OCR 策略（可插拔，默认空操作降级） */
+    private OcrStrategy ocrStrategy = new NoopOcrStrategy();
+
+    /** ⭐ 设置 OCR 策略 */
+    public void setOcrStrategy(OcrStrategy ocrStrategy) {
+        this.ocrStrategy = ocrStrategy != null ? ocrStrategy : new NoopOcrStrategy();
+    }
 
     @Override
     public List<ParsedDocument> parse(String filePath) throws DocumentParseException {
@@ -116,6 +126,38 @@ public class PdfDocumentParser implements DocumentParser {
                                 .contentHash(contentHash)
                                 .build();
                         results.add(parsed);
+                    }
+                }
+
+                // 3) OCR 图片文本提取（可选，仅在 OCR 策略可用时生效）
+                if (ocrStrategy.isAvailable()) {
+                    try {
+                        // 使用 PDFRenderer 将整页渲染为图片后交给 OCR 策略
+                        java.awt.image.BufferedImage pageImg = new PDFRenderer(document)
+                                .renderImage(pageNum - 1, 1.5f); // 1.5x 缩放
+                        byte[] imgBytes = toPngBytes(pageImg);
+                        List<String> ocrTexts = ocrStrategy.extractText(imgBytes,
+                                fileName + "-p" + pageNum);
+                        for (int oi = 0; oi < ocrTexts.size(); oi++) {
+                            String text = ocrTexts.get(oi);
+                            if (text.isBlank()) continue;
+                            results.add(ParsedDocument.builder()
+                                    .docId(fileName + "-p" + pageNum + "-ocr" + oi)
+                                    .title("OCR: " + fileName + " 第" + pageNum + "页")
+                                    .content(text)
+                                    .sourceUrl(sourceUrl)
+                                    .pageNumber(pageNum)
+                                    .section("第" + pageNum + "页-OCR")
+                                    .contentType("pdf-ocr")
+                                    .contentHash(sha256(text))
+                                    .build());
+                        }
+                        if (!ocrTexts.isEmpty()) {
+                            log.info("[PdfParser] OCR 提取: file={}, page={}", fileName, pageNum);
+                        }
+                    } catch (Exception e) {
+                        log.warn("[PdfParser] OCR 提取异常: file={}, page={}, error={}",
+                                fileName, pageNum, e.getMessage());
                     }
                 }
             }
@@ -347,5 +389,12 @@ public class PdfDocumentParser implements DocumentParser {
         } catch (NoSuchAlgorithmException e) {
             return String.valueOf(text.hashCode());
         }
+    }
+
+    /** 将 BufferedImage 编码为 PNG 字节数组 */
+    private static byte[] toPngBytes(java.awt.image.BufferedImage img) throws IOException {
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        ImageIO.write(img, "png", baos);
+        return baos.toByteArray();
     }
 }
