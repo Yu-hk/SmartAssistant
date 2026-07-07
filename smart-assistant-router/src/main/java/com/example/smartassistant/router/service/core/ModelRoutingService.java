@@ -10,6 +10,7 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.gateway.llm.AgentLLMGateway;
 import com.example.smartassistant.common.gateway.llm.LLMCallConfig;
 import com.example.smartassistant.common.gateway.llm.LLMCallResult;
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,10 +33,11 @@ public class ModelRoutingService {
     private final AgentLLMGateway llmGateway;
 
     public ModelRoutingService(ChatClient.Builder chatClientBuilder,
-                               AgentLLMGateway llmGateway) {
-        this.chatClient = chatClientBuilder.build();
+                               AgentLLMGateway llmGateway,
+                               AiChatService aiChatService) {
+        this.chatClient = aiChatService.applyAdvisors(chatClientBuilder).build();
         this.llmGateway = llmGateway;
-        log.info("[ModelRouting] 纯本地推理引擎初始化完成（Ollama + LLMGateway）");
+        log.info("[ModelRouting] 纯本地推理引擎初始化完成（Ollama + LLMGateway + 统一Advisor链）");
     }
 
     /**

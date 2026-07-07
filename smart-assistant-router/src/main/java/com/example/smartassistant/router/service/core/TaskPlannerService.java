@@ -1,5 +1,6 @@
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.SubTask;
@@ -39,8 +40,9 @@ public class TaskPlannerService {
     private final AgentDiscoveryService agentDiscovery;
 
     public TaskPlannerService(@Qualifier("lightChatModel") ChatModel lightModel,
-                               AgentDiscoveryService agentDiscovery) {
-        this.chatClient = ChatClient.create(lightModel);
+                               AgentDiscoveryService agentDiscovery,
+                               AiChatService aiChatService) {
+        this.chatClient = aiChatService.buildChatClient(lightModel);
         this.agentDiscovery = agentDiscovery;
     }
 

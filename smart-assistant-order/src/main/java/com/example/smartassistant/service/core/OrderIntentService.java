@@ -9,10 +9,11 @@ package com.example.smartassistant.service.core;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 
 /**
  * ⭐ 订单意图识别服务。
@@ -28,16 +29,23 @@ import org.springframework.stereotype.Service;
  * </p>
  *
  * <p>意图识别结果直接影响后续的 RAG 预检索策略。</p>
+ *
+ * <p>结构化输出复用 {@link AiChatService#entity(ChatModel, String, String, Class)}，
+ * 直接把 LLM 响应绑定为 {@link IntentResult}，避免文本标签的脆弱匹配，
+ * 同时继承统一 Advisor 链（安全护栏 / Token 审计等）。</p>
  */
 @Service
 public class OrderIntentService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderIntentService.class);
 
-    private final ChatClient chatClient;
+    private final AiChatService aiChatService;
+    private final ChatModel lightModel;
 
-    public OrderIntentService(@Qualifier("lightChatModel") ChatModel lightModel) {
-        this.chatClient = ChatClient.create(lightModel);
+    public OrderIntentService(AiChatService aiChatService,
+                              @Qualifier("lightChatModel") ChatModel lightModel) {
+        this.aiChatService = aiChatService;
+        this.lightModel = lightModel;
     }
 
     /**
@@ -51,8 +59,8 @@ public class OrderIntentService {
             return IntentType.OTHER;
         }
 
-        String prompt = String.format("""
-                你是一个订单意图分类器。从用户消息中识别意图，只返回一个词。
+        String system = """
+                你是一个订单意图分类器。从用户消息中识别意图，只返回意图枚举值。
 
                 可选的意图：
                 - 下单：用户要购买商品、创建新订单
@@ -60,13 +68,12 @@ public class OrderIntentService {
                 - 退款：用户要退款、退货
                 - 取消：用户要取消订单
                 - 其他：以上都不匹配
-
-                用户消息：%s
-                """, message);
+                """;
 
         try {
-            String reply = chatClient.prompt().user(prompt).call().content();
-            IntentType intent = IntentType.fromLabel(reply != null ? reply.trim() : "");
+            IntentResult result = aiChatService.entity(
+                    lightModel, system, "用户消息：" + message, IntentResult.class);
+            IntentType intent = result != null && result.intent() != null ? result.intent() : IntentType.OTHER;
             log.info("[OrderIntent] 识别结果: message={}, intent={}", message, intent);
             return intent;
         } catch (Exception e) {
@@ -74,6 +81,15 @@ public class OrderIntentService {
             return IntentType.OTHER;
         }
     }
+
+    /**
+     * 结构化输出载体 — 用于 {@link AiChatService#entity} 绑定，避免直接解析文本标签。
+     *
+     * @param intent 识别出的意图
+     */
+    public record IntentResult(IntentType intent) {
+    }
+
 
     /**
      * 订单意图枚举。

@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.service.data;
 
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.consumer.service.agent.McpAgentService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -30,6 +31,7 @@ public class HybridDataQueryService {
 
     private static final Logger log = LoggerFactory.getLogger(HybridDataQueryService.class);
     
+    private final AiChatService aiChatService;  // ⭐ 统一 Advisor 链工厂
     private final ChatClient mcpChatClient;  // MCP Client（备用）
     private final McpAgentService mcpAgentService;  // ⭐ ReactAgent 服务
     private final SyncMcpToolCallbackProvider syncMcpToolCallbackProvider;  // ⭐ MCP 专用类型
@@ -43,24 +45,26 @@ public class HybridDataQueryService {
      * 构造函数：注入依赖并初始化
      */
     public HybridDataQueryService(
+            AiChatService aiChatService,
             ChatClient.Builder chatClientBuilder,
             @Autowired(required = false) SyncMcpToolCallbackProvider syncMcpToolCallbackProvider,
             McpAgentService mcpAgentService,
             JdbcTemplate jdbcTemplate) {
+        this.aiChatService = aiChatService;
 
         this.syncMcpToolCallbackProvider = syncMcpToolCallbackProvider;
         this.mcpAgentService = mcpAgentService;
         this.jdbcTemplate = jdbcTemplate;
 
-        // 构建备用的 ChatClient
+        // 构建备用的 ChatClient（采用 AiChatService 统一 Advisor 链，再附加 MCP 工具）
         if (syncMcpToolCallbackProvider != null) {
             log.info("[HybridDataQueryService] 发现 SyncMcpToolCallbackProvider，注册 MCP 工具");
-            this.mcpChatClient = chatClientBuilder
+            this.mcpChatClient = aiChatService.applyAdvisors(chatClientBuilder)
                 .defaultTools((Object[]) syncMcpToolCallbackProvider.getToolCallbacks())
                 .build();
         } else {
             log.warn("[HybridDataQueryService] 未发现 SyncMcpToolCallbackProvider");
-            this.mcpChatClient = chatClientBuilder.build();
+            this.mcpChatClient = aiChatService.applyAdvisors(chatClientBuilder).build();
         }
         log.info("[HybridDataQueryService] 初始化完成，ReactAgent 可用: {}", mcpAgentService.isAvailable());
     }

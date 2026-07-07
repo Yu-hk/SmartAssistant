@@ -128,14 +128,14 @@ public class UserProfileService {
             LLMPreferenceExtractor.ExtractedPreferences llmPrefs = llmExtractor.extract(question);
 
             String location = extractedLocation;
-            if ((location == null || location.isBlank()) && llmPrefs.getLocation() != null) {
-                location = llmPrefs.getLocation();
+            if ((location == null || location.isBlank()) && llmPrefs.location() != null) {
+                location = llmPrefs.location();
             }
 
-            Set<String> foodPrefs = new HashSet<>(llmPrefs.getFoodPreferences());
-            Set<String> travelPrefs = new HashSet<>(llmPrefs.getTravelPreferences());
-            String budget = convertBudget(llmPrefs.getBudget());
-            List<String> dietaryRestrictions = llmPrefs.getDietaryRestrictions();
+            Set<String> foodPrefs = new HashSet<>(llmPrefs.foodPreferences());
+            Set<String> travelPrefs = new HashSet<>(llmPrefs.travelPreferences());
+            String budget = convertBudget(llmPrefs.budget());
+            List<String> dietaryRestrictions = llmPrefs.dietaryRestrictions();
 
             if (foodPrefs.isEmpty()) foodPrefs = extractPreferences(question, "food_");
             if (travelPrefs.isEmpty()) travelPrefs = extractPreferences(question, "travel_");

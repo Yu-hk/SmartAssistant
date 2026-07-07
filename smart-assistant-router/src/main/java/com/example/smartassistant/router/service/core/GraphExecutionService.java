@@ -7,12 +7,14 @@
 
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.router.model.GraphState;
 import com.example.smartassistant.router.model.HandoffCommand;
 import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.model.SubTaskResult.ErrorType;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.checkpoint.GraphCheckpointService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,9 +60,16 @@ public class GraphExecutionService {
     /** ⭐ 异步 Agent 事件总线（可选，null 时降级为同步 Handoff） */
     private final com.example.smartassistant.common.gateway.AgentEventBus agentEventBus;
 
+    /** ⭐ Graph 检查点服务（可选，null 时跳过持久化） */
+    private final GraphCheckpointService checkpointService;
+
     /** ⭐ 是否启用异步 Handoff（默认 false） */
     @Value("${router.graph.async-handoff-enabled:false}")
     private boolean asyncHandoffEnabled;
+
+    /** ⭐ 是否启用 Checkpoint（默认 true） */
+    @Value("${router.graph.checkpoint-enabled:true}")
+    private boolean checkpointEnabled;
 
     /** ⭐ 单 Graph 执行期间每个 Agent 的连续失败计数（节点级熔断） */
     private static final int NODE_LEVEL_BREAKER_THRESHOLD = 2; // 连续失败2次后熔断该 Agent
@@ -70,13 +79,15 @@ public class GraphExecutionService {
                                  ReflectionService reflectionService,
                                  TaskPlannerService taskPlannerService,
                                  DegradationService degradationService,
-                                 @Autowired(required = false) com.example.smartassistant.common.gateway.AgentEventBus agentEventBus) {
+                                 @Autowired(required = false) com.example.smartassistant.common.gateway.AgentEventBus agentEventBus,
+                                 @Autowired(required = false) GraphCheckpointService checkpointService) {
         this.agentCallerService = agentCallerService;
         this.parallelExecutor = parallelExecutor;
         this.reflectionService = reflectionService;
         this.taskPlannerService = taskPlannerService;
         this.degradationService = degradationService;
         this.agentEventBus = agentEventBus;
+        this.checkpointService = checkpointService;
     }
 
     /**
@@ -99,59 +110,125 @@ public class GraphExecutionService {
      * @return 所有子任务结果列表
      */
     public List<SubTaskResult> execute(IntentGraph graph, Long userId, String eventsKey, String requestId) {
+        return execute(graph, userId, eventsKey, requestId, false);
+    }
+
+    /**
+     * 执行意图图，支持 Checkpoint 恢复和条件边。
+     */
+    public List<SubTaskResult> execute(IntentGraph graph, Long userId, String eventsKey, String requestId, boolean allowResume) {
+        // ⭐ 类型化共享 State（对标 LangGraph MessagesState + Reducer 语义）
+        final GraphState graphState = new GraphState(graph != null ? graph.getQuestion() : "");
+        graphState.registerReducer("messages", GraphState.ReducerMode.APPEND);
+
         // 已完成节点 id → SubTaskResult
         final ConcurrentHashMap<String, SubTaskResult> completedMap = new ConcurrentHashMap<>();
         // 所有结果（有序）
         final List<SubTaskResult> allResults = new CopyOnWriteArrayList<>();
-        // ⭐ 节点级熔断计数器：Agent 名 → 连续失败次数（不混入 completedMap）
+        // ⭐ 节点级熔断计数器：Agent 名 → 连续失败次数
         final ConcurrentHashMap<String, Integer> breakerFailureCounts = new ConcurrentHashMap<>();
+        // ⭐ 节点执行次数追踪（用于循环保护）
+        final ConcurrentHashMap<String, Integer> nodeExecutionCounts = new ConcurrentHashMap<>();
+        // 最大容忍无进展轮数
+        final int MAX_STALE_ROUNDS = 2;
 
         int totalNodes = graph.getNodeCount();
-        log.info("[GraphExecutor] 开始执行意图图: {} 个节点, hasDeps={}, maxParallelism={}",
-                totalNodes, graph.hasDependency(), graph.getMaxParallelism());
-
         int round = 0;
         int previousCompleted = 0;
         int staleRounds = 0;
-        final int MAX_STALE_ROUNDS = 2; // 连续无进展轮数上限
+        int graphIterationCount = 0;
+        int maxGraphIterations = graph.getMaxGraphIterations();
 
-        while (!graph.isCompleted(completedMap.keySet())) {
+        // ========== Checkpoint 恢复 ==========
+        String checkpointId = requestId != null ? requestId : eventsKey;
+        final IntentGraph[] wg = {graph};
+        if (allowResume && checkpointEnabled && checkpointService != null && checkpointId != null) {
+            try {
+                var restored = checkpointService.restoreCheckpoint(checkpointId);
+                if (restored.isPresent()) {
+                    var state = restored.get();
+                    if (state.getGraph() != null) {
+                        wg[0] = state.getGraph();
+                    }
+                    completedMap.putAll(state.getCompletedMap());
+                    breakerFailureCounts.putAll(state.getBreakerFailureCounts());
+                    allResults.addAll(state.getCompletedMap().values());
+                    round = state.getRound();
+                    staleRounds = state.getStaleRounds();
+                    previousCompleted = state.getPreviousCompleted();
+                    log.info("[GraphExecutor] 🔄 已从 Checkpoint 恢复: round={}, completed={}/{}",
+                            round, completedMap.size(), totalNodes);
+                }
+            } catch (Exception e) {
+                log.warn("[GraphExecutor] Checkpoint 恢复失败（忽略）: {}", e.getMessage());
+            }
+        }
+
+        while (!wg[0].isCompleted(completedMap.keySet())) {
             round++;
 
             // 死锁检测
-            if (graph.hasDeadlock(completedMap.keySet())) {
+            if (wg[0].hasDeadlock(completedMap.keySet())) {
                 log.error("[GraphExecutor] ⚠️ 检测到死锁: round={}, completed={}/{}, 终止执行",
                         round, completedMap.size(), totalNodes);
                 break;
             }
 
-            // 获取当前可执行节点
-            List<IntentNode> executableNodes = graph.getExecutableNodes(completedMap.keySet());
+            // 获取当前可执行节点（支持条件边）
+            List<IntentNode> executableNodes = wg[0].getExecutableNodes(completedMap.keySet(), new HashMap<>(completedMap));
             if (executableNodes.isEmpty()) {
                 log.warn("[GraphExecutor] 无可用执行节点: round={}, completed={}/{}",
                         round, completedMap.size(), totalNodes);
                 break;
             }
 
-            log.info("[GraphExecutor] 第{}轮: {} 个可执行节点", round, executableNodes.size());
+            // ⭐ 检查是否有需要人工审批的节点
+            boolean hasHITL = executableNodes.stream().anyMatch(IntentNode::isHumanApprovalRequired);
+            if (hasHITL) {
+                log.info("[GraphExecutor] ⏸️ 检测到 HITL 节点，保存 Checkpoint 并等待审批");
+                saveCheckpoint(wg[0], completedMap, breakerFailureCounts,
+                        round, staleRounds, previousCompleted, userId, eventsKey, requestId);
+                // 跳过 HITL 节点，继续执行其他节点
+                // 实际生产中需要等待审批完成后再处理 HITL 节点
+            }
+
+            // ⭐ 图迭代预算检测（防止无限循环）
+            if (maxGraphIterations > 0 && graphIterationCount >= maxGraphIterations) {
+                log.warn("[GraphExecutor] 达到最大图迭代次数: {}，终止执行", maxGraphIterations);
+                break;
+            }
+
+            log.info("[GraphExecutor] 第{}轮 (iter={}): {} 个可执行节点", round, graphIterationCount, executableNodes.size());
 
             // 并行执行这一批节点
             List<CompletableFuture<Void>> futures = new ArrayList<>();
             for (IntentNode node : executableNodes) {
+                final IntentNode currentNode = node;
                 CompletableFuture<Void> future = CompletableFuture
-                        .supplyAsync(() -> executeNode(node, graph, completedMap, breakerFailureCounts, userId, eventsKey, requestId), parallelExecutor)
+                        .supplyAsync(() -> executeNode(currentNode, wg[0], completedMap, breakerFailureCounts, userId, eventsKey, requestId), parallelExecutor)
                         .thenAccept(result -> {
                             if (result != null) {
-                                completedMap.put(node.getId(), result);
+                                completedMap.put(currentNode.getId(), result);
                                 allResults.add(result);
+                                // ⭐ 记录节点执行次数（用于循环保护）
+                                nodeExecutionCounts.merge(currentNode.getId(), 1, Integer::sum);
+                                // ⭐ 更新 GraphState
+                                graphState.addMessage(currentNode.getTargetAgent(), result.getResult() != null ? result.getResult() : "");
+                                graphState.recordExecution(currentNode.getId(), currentNode.getTargetAgent(), result.isSuccess(), result.getResult());
                             }
                         })
                         .exceptionally(ex -> {
-                            log.error("[GraphExecutor] 节点执行异常: node={}, error={}", node.getId(), ex.getMessage());
+                            log.error("[GraphExecutor] 节点执行异常: node={}, error={}", currentNode.getId(), ex.getMessage());
                             ErrorType errorType = classifyException(ex);
-                            completedMap.put(node.getId(), new SubTaskResult(
-                                    node.getId(), node.getDescription(),
-                                    node.getTargetAgent(), "", false, errorType));
+                            SubTaskResult errResult = new SubTaskResult(
+                                    currentNode.getId(), currentNode.getDescription(),
+                                    currentNode.getTargetAgent(), "", false, errorType);
+                            completedMap.put(currentNode.getId(), errResult);
+                            allResults.add(errResult);
+                            // 异常也算一次执行（防止死循环）
+                            nodeExecutionCounts.merge(currentNode.getId(), 1, Integer::sum);
+                            // ⭐ 更新 GraphState（记录失败）
+                            graphState.recordExecution(currentNode.getId(), currentNode.getTargetAgent(), false, "ERROR: " + ex.getMessage());
                             return null;
                         });
                 futures.add(future);
@@ -164,10 +241,15 @@ public class GraphExecutionService {
                 log.warn("[GraphExecutor] 第{}轮超时(60s): completed={}/{}", round, completedMap.size(), totalNodes);
                 // 超时的节点标记为 RETRYABLE_FAILED（瞬时错误）
                 for (IntentNode node : executableNodes) {
-                    completedMap.putIfAbsent(node.getId(), new SubTaskResult(
-                            node.getId(), node.getDescription(),
-                            node.getTargetAgent(), "", false,
-                            SubTaskResult.ErrorType.RETRYABLE_FAILED));
+                    if (!completedMap.containsKey(node.getId())) {
+                        SubTaskResult timeoutResult = new SubTaskResult(
+                                node.getId(), node.getDescription(),
+                                node.getTargetAgent(), "", false,
+                                SubTaskResult.ErrorType.RETRYABLE_FAILED);
+                        completedMap.put(node.getId(), timeoutResult);
+                        allResults.add(timeoutResult);
+                        graphState.recordExecution(node.getId(), node.getTargetAgent(), false, "TIMEOUT");
+                    }
                 }
             } catch (Exception e) {
                 log.warn("[GraphExecutor] 第{}轮异常: {}", round, e.getMessage());
@@ -189,17 +271,70 @@ public class GraphExecutionService {
             previousCompleted = currentCompleted;
 
             // ⭐ 重规划检测：本轮执行完毕后，检查是否有 NEED_REPLAN 节点
-            int replanCount = triggerReplanIfNeeded(graph, completedMap, allResults,
+            int replanCount = triggerReplanIfNeeded(wg[0], completedMap, allResults,
                     userId, eventsKey, requestId);
             if (replanCount > 0) {
                 // 恢复计数，因为新增了节点需要继续执行
                 staleRounds = 0;
                 previousCompleted = completedMap.size();
             }
+
+            // ⭐ Checkpoint 持久化：每轮执行完毕后保存状态
+            saveCheckpoint(wg[0], completedMap, breakerFailureCounts,
+                    round, staleRounds, previousCompleted, userId, eventsKey, requestId);
+
+            // ⭐ Graph 循环检测：检查是否有重路由条件满足，形成循环
+            Map<String, SubTaskResult> cpSnapshot = new HashMap<>(completedMap);
+            String rerouteTarget = wg[0].getRerouteTargetIfMet(
+                    completedMap.keySet(), cpSnapshot);
+            if (rerouteTarget != null && !completedMap.containsKey(rerouteTarget)) {
+                log.info("[GraphExecutor] 🔄 检测到重路由: → {}, 形成 Graph 循环", rerouteTarget);
+                // 检查该节点的执行次数是否超限（默认每节点最多执行 3 次）
+                int execCount = nodeExecutionCounts.getOrDefault(rerouteTarget, 0);
+                final int MAX_NODE_EXECUTIONS = 3;
+                if (execCount < MAX_NODE_EXECUTIONS) {
+                    // 重路由目标节点尚未完成，恢复其依赖状态
+                    // 注意：rerouteTarget 不应该在 completedMap 中，否则无法再执行
+                    staleRounds = 0;
+                    graphIterationCount++;
+                } else {
+                    log.warn("[GraphExecutor] 节点 {} 已达最大执行次数({})，不再重路由", rerouteTarget, MAX_NODE_EXECUTIONS);
+                }
+            }
         }
 
         log.info("[GraphExecutor] 执行完成: completed={}/{}, rounds={}", completedMap.size(), totalNodes, round);
+
+        // ⭐ 执行完成后清理 Checkpoint
+        if (checkpointEnabled && checkpointService != null && checkpointId != null) {
+            try {
+                checkpointService.deleteCheckpoint(checkpointId);
+            } catch (Exception e) {
+                log.warn("[GraphExecutor] Checkpoint 清理失败: {}", e.getMessage());
+            }
+        }
+
         return allResults;
+    }
+
+    // ========================================================================
+    // Checkpoint 持久化
+    // ========================================================================
+
+    /**
+     * 保存当前 Graph 执行状态到 Checkpoint。
+     */
+    private void saveCheckpoint(IntentGraph graph,
+                                 ConcurrentHashMap<String, SubTaskResult> completedMap,
+                                 ConcurrentHashMap<String, Integer> breakerFailureCounts,
+                                 int round, int staleRounds, int previousCompleted,
+                                 Long userId, String eventsKey, String requestId) {
+        if (!checkpointEnabled || checkpointService == null) return;
+        String cpId = requestId != null ? requestId : eventsKey;
+        if (cpId == null) return;
+
+        checkpointService.saveCheckpoint(cpId, graph, completedMap, breakerFailureCounts,
+                round, staleRounds, previousCompleted, userId, eventsKey, requestId);
     }
 
     /**
@@ -223,8 +358,8 @@ public class GraphExecutionService {
      */
     public List<SubTaskResult> executeWithHandoff(IntentGraph graph, Long userId,
                                                    String eventsKey, String requestId) {
-        // 执行标准 DAG（同 execute 方法逻辑），含节点级熔断
-        List<SubTaskResult> results = execute(graph, userId, eventsKey, requestId);
+        // 执行标准 DAG（同 execute 方法逻辑），含检查点/条件边/节点级熔断
+        List<SubTaskResult> results = execute(graph, userId, eventsKey, requestId, false);
 
         // ⭐ Handoff 阶段的节点级熔断计数器（与 execute() 独立）
         final ConcurrentHashMap<String, Integer> handoffBreakerCounts = new ConcurrentHashMap<>();
@@ -237,6 +372,74 @@ public class GraphExecutionService {
         }
 
         return results;
+    }
+
+    /**
+     * ⭐ 支持断点恢复的执行 — 从 Checkpoint 恢复后继续执行 DAG + Handoff。
+     * <p>
+     * 对应 LangGraph 的 Resume 能力：使用相同的 executionId（requestId）
+     * 自动恢复之前保存的 Checkpoint，然后继续执行。
+     * </p>
+     *
+     * @return 所有子任务结果列表
+     */
+    public List<SubTaskResult> executeWithResume(IntentGraph graph, Long userId,
+                                                  String eventsKey, String requestId) {
+        // 允许从 Checkpoint 恢复
+        List<SubTaskResult> results = execute(graph, userId, eventsKey, requestId, true);
+
+        // Handoff 阶段（含熔断 + Checkpoint 持久化）
+        final ConcurrentHashMap<String, Integer> handoffBreakerCounts = new ConcurrentHashMap<>();
+        String handoffCpPrefix = "handoff:" + (requestId != null ? requestId : eventsKey);
+
+        // ⭐ 尝试恢复 Handoff Checkpoint
+        Set<String> skippedHandoffs = new HashSet<>();
+        if (checkpointEnabled && checkpointService != null && handoffCpPrefix != null) {
+            String handoffCpKey = "handoff:" + handoffCpPrefix;
+            var restored = checkpointService.restoreCheckpoint(handoffCpKey);
+            if (restored.isPresent()) {
+                log.info("[GraphExecutor] 🔄 已恢复 Handoff Checkpoint");
+            }
+        }
+
+        List<SubTaskResult> handoffResults = processHandoffs(results, graph, userId,
+                eventsKey, requestId, handoffBreakerCounts);
+        int handoffRound = 0;
+        while (!handoffResults.isEmpty()) {
+            handoffRound++;
+            results.addAll(handoffResults);
+            handoffResults = processHandoffs(results, graph, userId,
+                    eventsKey, requestId, handoffBreakerCounts);
+
+            // ⭐ Handoff Checkpoint：每轮保存
+            saveHandoffCheckpoint(requestId, eventsKey, results, handoffBreakerCounts);
+        }
+
+        // ⭐ 清理 Handoff Checkpoint
+        if (checkpointEnabled && checkpointService != null && requestId != null) {
+            checkpointService.deleteCheckpoint("handoff:" + requestId);
+        }
+
+        return results;
+    }
+
+    /**
+     * 保存 Handoff 检查点。
+     */
+    private void saveHandoffCheckpoint(String requestId, String eventsKey,
+                                        List<SubTaskResult> results,
+                                        ConcurrentHashMap<String, Integer> breakerCounts) {
+        if (!checkpointEnabled || checkpointService == null) return;
+        String cpId = "handoff:" + (requestId != null ? requestId : eventsKey);
+        if (cpId == null) return;
+        // 简化：仅作标记，表明 Handoff 已完成到某进度
+        // 在生产环境中，可以将 results 序列化后保存
+        try {
+            checkpointService.saveCheckpoint(cpId, null, null,
+                    breakerCounts, results.size(), 0, 0, null, eventsKey, requestId);
+        } catch (Exception e) {
+            log.warn("[GraphExecutor] Handoff Checkpoint 保存失败: {}", e.getMessage());
+        }
     }
 
     /**

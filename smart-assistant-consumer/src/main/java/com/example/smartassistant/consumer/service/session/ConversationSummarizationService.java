@@ -9,15 +9,19 @@ package com.example.smartassistant.consumer.service.session;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 
 /**
  * 对话叙事化摘要服务
  * 使用 LLM 将原始对话内容转换为简洁的第三人称叙事总结，
  * 提取事实信息（偏好、决策、选择项），去除对话填充语。
+ *
+ * <p>ChatClient 经由 {@link AiChatService#buildChatClient(ChatModel)} 构建，
+ * 复用统一 Advisor 链（安全护栏 / Token 审计 / 思考收集 / 提示审计）。</p>
  */
 @Service
 public class ConversationSummarizationService {
@@ -30,10 +34,13 @@ public class ConversationSummarizationService {
      */
     private static final int MAX_CONTENT_LENGTH = 8000;
 
-    private final ChatClient chatClient;
+    private final AiChatService aiChatService;
+    private final ChatModel lightModel;
 
-    public ConversationSummarizationService(@Qualifier("lightChatModel") ChatModel lightModel) {
-        this.chatClient = ChatClient.create(lightModel);
+    public ConversationSummarizationService(AiChatService aiChatService,
+                                             @Qualifier("lightChatModel") ChatModel lightModel) {
+        this.aiChatService = aiChatService;
+        this.lightModel = lightModel;
     }
 
     /**
@@ -65,7 +72,8 @@ public class ConversationSummarizationService {
 
         try {
             String prompt = buildNarrativePrompt(processedContent, isTruncated);
-            String narrative = chatClient.prompt()
+            String narrative = aiChatService.buildChatClient(lightModel)
+                    .prompt()
                     .user(prompt)
                     .call()
                     .content();

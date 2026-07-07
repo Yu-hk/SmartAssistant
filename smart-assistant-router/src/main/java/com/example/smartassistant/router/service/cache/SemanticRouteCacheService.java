@@ -7,12 +7,15 @@
 
 package com.example.smartassistant.router.service.cache;
 
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -80,8 +83,10 @@ public class SemanticRouteCacheService {
             AgentDiscoveryService agentDiscoveryService,
             TfEmbeddingService tfEmbedding,
             VectorCacheStore vectorCache,
-            BgeOnnxEmbeddingService bgeEmbedding) {
-        ChatClient chatClient = chatClientBuilder.build();
+            BgeOnnxEmbeddingService bgeEmbedding,
+            @Qualifier("lightChatModel") ChatModel lightChatModel,
+            AiChatService aiChatService) {
+        ChatClient chatClient = aiChatService.applyAdvisors(chatClientBuilder).build();
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.tokenizer = tokenizer;
