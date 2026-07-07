@@ -14,6 +14,7 @@ import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
 import com.example.smartassistant.common.rag.MilvusKnowledgeBase;
 import com.example.smartassistant.common.rag.Reranker;
+import com.example.smartassistant.common.rag.retrieval.CrossDocumentConflictResolver;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,13 +53,20 @@ public class OrderKnowledgeConfig {
     public InMemoryKnowledgeBase orderKnowledgeBase(
             BgeEmbeddingModel embeddingModel,
             ChineseTokenizer tokenizer,
-            ObjectProvider<Reranker> rerankerProvider) {
+            ObjectProvider<Reranker> rerankerProvider,
+            ObjectProvider<CrossDocumentConflictResolver> conflictResolverProvider) {
         Reranker reranker = rerankerProvider.getIfAvailable();
         log.info("[OrderKnowledge] 初始化订单知识库 (InMemory + BGE + BM25), Reranker={}",
                 reranker != null && reranker != Reranker.identity() ? "已启用" : "未启用");
         InMemoryKnowledgeBase kb = KnowledgeSeedData.createOrderKnowledgeBase(
                 embeddingModel, tokenizer, reranker);
-        log.info("[OrderKnowledge] 订单知识库就绪: {} 篇文档", kb.size());
+        // ⭐ 自动接线：检索侧跨文档冲突消解（Q6 第二层）
+        CrossDocumentConflictResolver resolver = conflictResolverProvider.getIfAvailable();
+        if (resolver != null) {
+            kb.setConflictResolver(resolver);
+        }
+        log.info("[OrderKnowledge] 订单知识库就绪: {} 篇文档, 冲突消解={}",
+                kb.size(), resolver != null ? "已接线" : "未接线");
         return kb;
     }
 
@@ -69,11 +77,18 @@ public class OrderKnowledgeConfig {
             BgeEmbeddingModel embeddingModel,
             ChineseTokenizer tokenizer,
             @Value("${app.milvus.host:localhost}") String milvusHost,
-            @Value("${app.milvus.port:19530}") int milvusPort) {
+            @Value("${app.milvus.port:19530}") int milvusPort,
+            ObjectProvider<CrossDocumentConflictResolver> conflictResolverProvider) {
         log.info("[OrderKnowledge] 初始化 Milvus 持久化知识库: {}:{}", milvusHost, milvusPort);
         MilvusKnowledgeBase kb = new MilvusKnowledgeBase(
                 KnowledgeSeedData.ORDER_KB, embeddingModel, milvusHost, milvusPort, tokenizer);
-        log.info("[OrderKnowledge] Milvus 知识库就绪");
+        // ⭐ 自动接线：检索侧跨文档冲突消解（Q6 第二层）
+        CrossDocumentConflictResolver resolver = conflictResolverProvider.getIfAvailable();
+        if (resolver != null) {
+            kb.setConflictResolver(resolver);
+        }
+        log.info("[OrderKnowledge] Milvus 知识库就绪, 冲突消解={}",
+                resolver != null ? "已接线" : "未接线");
         return kb;
     }
 

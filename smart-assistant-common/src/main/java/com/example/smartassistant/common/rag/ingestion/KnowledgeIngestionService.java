@@ -16,6 +16,10 @@ import com.example.smartassistant.common.rag.chunking.ParentChildDocumentChunker
 import com.example.smartassistant.common.rag.document.DocumentParseRouter;
 import com.example.smartassistant.common.rag.document.ParsedDocument;
 import com.example.smartassistant.common.rag.graph.KnowledgeGraphService;
+import com.example.smartassistant.common.rag.multimodal.ImageCaptioner;
+import com.example.smartassistant.common.rag.multimodal.ImageReference;
+import com.example.smartassistant.common.rag.multimodal.MultimodalIngestor;
+import com.example.smartassistant.common.rag.multimodal.NoopImageCaptioner;
 import com.example.smartassistant.common.rag.util.HashUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,6 +85,9 @@ public class KnowledgeIngestionService {
 
     /** ⭐ 知识图谱服务（可选）— 摄取时联动抽取实体/关系；未注入则跳过图谱构建 */
     private KnowledgeGraphService knowledgeGraphService;
+
+    /** ⭐ 图片描述器（可选）— 多模态摄取（图片→视觉描述→入库）；未注入则跳过多模态 */
+    private ImageCaptioner imageCaptioner = new NoopImageCaptioner();
 
     /** 是否启用变更检测（默认 true） */
     private boolean changeDetectionEnabled = true;
@@ -160,6 +167,17 @@ public class KnowledgeIngestionService {
      */
     public void setKnowledgeGraphService(KnowledgeGraphService knowledgeGraphService) {
         this.knowledgeGraphService = knowledgeGraphService;
+    }
+
+    /**
+     * ⭐ 注入图片描述器——启用多模态摄取（图片经视觉描述后入库）。
+     * <p>
+     * 默认 {@link NoopImageCaptioner}（空操作）。仅当注入可用描述器
+     * （如 {@code OllamaVisionImageCaptioner}）时，{@link #ingestImages} 才会实际摄取。
+     * </p>
+     */
+    public void setImageCaptioner(ImageCaptioner imageCaptioner) {
+        this.imageCaptioner = imageCaptioner != null ? imageCaptioner : new NoopImageCaptioner();
     }
 
     /** 启用或禁用变更检测 */
@@ -514,6 +532,38 @@ public class KnowledgeIngestionService {
      */
     public IngestionResult parseAndIngest(String filePath) {
         return parseAndIngest(filePath, "");
+    }
+
+    /**
+     * ⭐ 多模态摄取——将图片经视觉描述转为知识文档入库。
+     * <p>
+     * 仅当 {@link ImageCaptioner#isAvailable()} 为 true 时生效；描述器为空操作或
+     * 图片描述为空时直接返回 0，不改变知识库。摄取成功后触发缓存失效 + 索引重建，
+     * 与文本摄取 {@link #parseAndIngest} 保持一致的最终态。
+     * </p>
+     *
+     * @param images   图片引用列表
+     * @param tenantId 租户 ID（空串表示公开）
+     * @return 实际入库的图片数（0 表示未摄取）
+     */
+    public int ingestImages(List<ImageReference> images, String tenantId) {
+        if (images == null || images.isEmpty()) {
+            return 0;
+        }
+        if (imageCaptioner == null || !imageCaptioner.isAvailable()) {
+            log.debug("[Ingestion] 图片描述器不可用，跳过多模态摄取");
+            return 0;
+        }
+        MultimodalIngestor ingestor = new MultimodalIngestor(imageCaptioner, knowledgeBase);
+        int ingested = ingestor.ingestImages(images, tenantId);
+        if (ingested > 0) {
+            String operator = (tenantId != null && !tenantId.isBlank()) ? tenantId : "system";
+            auditRecorder.record(IngestAuditEvent.of(
+                    operator, "INGEST_MULTIMODAL", "", "v1", "imgs=" + ingested));
+            knowledgeBase.reindex();
+            fireCacheInvalidationHooks();
+        }
+        return ingested;
     }
 
     /**

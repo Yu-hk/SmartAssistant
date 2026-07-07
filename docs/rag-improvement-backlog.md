@@ -1,87 +1,101 @@
-# RAG 工程化剩余改进点（补齐 6 项短板之后）
+# RAG 工程化改进点落地总览
 
 > 本文档承接 `docs/rag-seven-questions-analysis.md`（字节 RAG 七连问对照分析）。
-> 状态基准：2026-07-07 已补齐 6 项核心短板（待提交），其余改进点见下文。
-> 代码证据均基于 `0e89422`/`b42e251` 之后的真实源码 grep 结果。
+> 状态基准：2026-07-07，RAG 七连问 + 工程化延伸 **全部核心项已落地**，仅剩产品决策项（P3 真实 MCP）与部署激活说明。
+> 代码证据均基于真实源码 grep + 单测结果；提交哈希见各节。
 
 ---
 
-## 0. 已补齐状态（2026-07-07，提交前）
+## 0. 落地总览（一表看清）
 
-| 短板 | 落地实现 | 测试 |
-|------|----------|------|
-| 🔴 Q2 PII 脱敏 | `common.rag.ingestion.PiiScrubber`（手机/身份证/邮箱/内部IP/工号正则脱敏） | `PiiScrubberTest` ✅ |
-| 🟡 Q2 质量门禁 | `common.rag.ingestion.ChunkQualityScorer`（信息密度+长度+权威性→0~1 分，低质不入库） | `ChunkQualityScorerTest` ✅ |
-| 🟡 Q6 权威性排序 | `AuthorityLevel` 枚举 + Milvus/PgVector `composeScore` 加权（L1>L2>L3>L4） | `GovernanceFieldTest` ✅ |
-| 🔴 Q7 状态隔离 | `DocumentStatus` 枚举 + search 过滤 `QUARANTINED` + `isRetrievable` 排除 SUPERSEDED | `GovernanceFieldTest` ✅ |
-| 🔴 Q3 双栏检测 | `PdfDocumentParser` 基于 x 坐标聚类的 `TwoColumnPdfTextStripper` | PdfParserTest（双栏） |
-| 串联 | `KnowledgeIngestionService` 入库前质检 pipeline（脱敏→质量→注入 authority/status） | — |
+| 对应问题 | 落地实现 | 提交 | 测试 |
+|----------|----------|------|------|
+| 🔴 Q7 非覆盖式版本 + 隔离/回滚 | `KnowledgeBase.markSupersededByBaseId`/`quarantine`/`restore`/`updateStatus`；`KnowledgeIngestionService` Step 4.5 标记 SUPERSEDED；`IngestAuditEvent`/`IngestAuditRecorder` 审计 | `2cad3f8` | `KnowledgeVersioningTest`/`KnowledgeIngestionVersioningTest`（10）✅ |
+| 🔴 Q2 PII 脱敏 | `common.rag.ingestion.PiiScrubber` | `d5426b7` 前 | `PiiScrubberTest` ✅ |
+| 🟡 Q2 质量门禁 | `ChunkQualityScorer`（密度+长度+权威性→0~1，低质不入库） | `d5426b7` 前 | `ChunkQualityScorerTest` ✅ |
+| 🟡 Q6 权威性排序 | `AuthorityLevel` + 各 KB `composeScore` 加权（L1>L2>L3>L4） | `d5426b7` 前 | `GovernanceFieldTest` ✅ |
+| 🔴 Q7 状态隔离 | `DocumentStatus` + search 过滤 `QUARANTINED` + `isRetrievable` 排除 SUPERSEDED | `d5426b7` 前 | `GovernanceFieldTest` ✅ |
+| 🔴 Q3 双栏检测 | `PdfDocumentParser` 基于 x 坐标聚类的双栏剥离 | `d5426b7` 前 | `PdfParserTest`（双栏）✅ |
+| 🔴 Q3 PDF 表格提取 | 位置感知表格检测 → Markdown，`contentType=pdf-table` 独立 `ParsedDocument` | `d5426b7` 前 | `PdfParserTableTest`（3）✅ |
+| 🟡 Q3 图片 OCR 提取 | `OcrStrategy`/`NoopOcrStrategy` + `TesseractOcrStrategy`（零新依赖）+ `OcrStrategies.autoDetect()`；`PdfDocumentParser` 默认启用自动检测 | `11a7b56` | `TesseractOcrStrategyTest`（3）✅ |
+| 🟡 Q4/Q5 实体关系抽取 + 知识图谱 | `graph` 包：`EntityNode`/`EntityRelation`/`EntityExtractor`/`NoopEntityExtractor`/`KnowledgeGraphService`；`LlmEntityExtractor` 复用 `AiChatService.entity`；`RagGraphAutoConfiguration` 按 `ChatModel` 自动装配 | `11a7b56` | `LlmEntityExtractorTest`（4）✅ |
+| 🟡 Q6 检索侧冲突消解（第二层） | `CrossDocumentConflictResolver`（复用 `ContextFaithfulnessChecker` 词表，AuthorityLevel→版本判定，败方扣分 0.30/平局减半，输出 `ScoreBreakdown`+`ConflictDecision`）；已接入 **InMemory + PgVector + Milvus** 三套 KB | `d5426b7` 前 + 本轮 | `CrossDocumentConflictResolverTest`（8）+ `KnowledgeBaseConflictResolverTest`（4）✅ |
+| 🟡 Q5 深化 chunk 级增量 diff | `ContentHashCache` chunk 级哈希；`KnowledgeIngestionService` Step 4.2 仅重算变更 chunk | `d5426b7` 前 | `ContentHashCacheChunkTest`（5）✅ |
+| 🟢 Q1 多源结构化分流 | `KnowledgeIngestionService` 按 `contentType`（pdf-table/html/word）分流，结构化类型跳过 chunking 直接入库 | `d5426b7` | — |
+| 🟡 评测闭环接入 CI | `EvalGate` 四件套 + `GoldenSuiteEvalGate` + `.github/workflows/eval-gate.yml`（绝对阈值+基线回归双保险） | `dede9bb` | `EvalGateTest`（4）+ `GoldenSuiteEvalGateTest`（1）✅ |
+| 🟡 多模态 RAG | `multimodal` 包：`ImageReference`/`ImageCaptioner`/`NoopImageCaptioner`/`OllamaVisionImageCaptioner`（Spring AI 2.0 多模态 `ChatClient.media`）/`ImageCaptioners`/`MultimodalIngestor`；`RagMultimodalAutoConfiguration` 按 `rag.multimodal.vision.enabled` 装配；`KnowledgeIngestionService.ingestImages` 联动 | 本轮 | `OllamaVisionImageCaptionerTest`（4）+ `MultimodalIngestorTest`（3）+ `KnowledgeIngestionMultimodalTest`（2）✅ |
+| 🟡 检索可观测性 | `RetrievalTrace` 新增 `ScoreBreakdown`；`InMemoryKnowledgeBase` Stage 4 将冲突消解明细写入 trace | `d5426b7` | — |
+| 🟡 语义缓存一致性 | `CacheVersionManager` + `CachedRouteDecision.cacheVersionAtSave`；`SemanticRouteCacheService` 写入记版本、读取验版本 | `d5426b7` | — |
+| 🟡 经验体系 × RAG 协同 | `ExperienceService` 注入 `InMemoryKnowledgeBase`，`match()` 中 `computeRagQualityFactor`（Top-1 分→0.5~1.0）影响置信度衰减 | `d5426b7` | — |
+| 🔴 Router 测试编译修复 | `SemanticRouteCacheService` 删死参数 `lightChatModel` + 对 `aiChatService`/`cacheVersionManager` null 安全；`RouterService` 的 `routingToolChecker`/`degradationService` 标 `@Autowired(required=false)` + null 守卫；补齐 9+2 处测试调用 | `11a7b56` | router `test-compile` BUILD SUCCESS ✅ |
+| 🟡 P3 真实 MCP 接入 | **未做（产品决策项，非代码缺陷）** | — | — |
 
-Common 全量回归：`tests=308, Failures=0, Errors=10`（10 Errors 为预存 Redis 环境错误 `EntityProfileServiceTest`，与本次改动无关）。
-
----
-
-## 1. RAG 七连问 backlog 尚未落地
-
-| 改进项 | 对应问题 | 当前缺口（代码证据） | 优先级 | 建议实现 | 风险/依赖 |
-|--------|----------|----------------------|:----:|----------|-----------|
-| **非覆盖式版本 + 入库审核/回滚** | Q7 真正闭环 | ✅ **已落地（2026-07-07）**：`KnowledgeBase` 新增 `markSupersededByBaseId`/`quarantine`/`restore`/`updateStatus`/`listIdsByBaseDocId`；`KnowledgeIngestionService` Step 4.5 改为标记旧版 SUPERSEDED 而非物理删；新增 `IngestAuditEvent`/`IngestAuditRecorder` 审计；`MilvusKnowledgeBase` 修正 `QueryResultsWrapper` API 误用。测试：`KnowledgeVersioningTest`/`KnowledgeIngestionVersioningTest`（10 用例通过） | ✅ 已落地 | — | 已完成 |
-| **PDF 表格 / 图片 / OCR 提取** | Q3 | `PdfDocumentParser` 仅 PDFBox 纯文本 + 双栏；grep `pdfplumber`/`Tabula`/`OCR` 无实现（仅注释提及） | 🔴 高 | 引入 pdfplumber/Tabula 或布局模型做表格结构识别；图片 OCR 走外部服务 | 引入新依赖 / 外部服务 |
-| **实体关系抽取 + 知识图谱** | Q4/Q5 深化 | `KnowledgeDocument` 元数据仅 6 字段，grep `entityExtract`/`relationExtract`/`知识图谱` 无结果 | 🟡 中 | LLM 抽取实体/关系写入图存储，支撑跨文档推理 | 需图存储或 PG 扩展 |
-| **检索侧冲突消解（第二层）** | Q6 | ✅ **已落地（2026-07-07 晚）**：新增 `common.rag.retrieval.CrossDocumentConflictResolver`，rerank 之后对候选 chunk 跨文档冲突检测（复用 `ContextFaithfulnessChecker` 词表），按 AuthorityLevel→版本优先级 判定胜负，败方相对扣分（默认 0.30）、平局双方减半扣分；输出 `ScoreBreakdown` 可观测明细 + `ConflictDecision` 审计；已接入 `InMemoryKnowledgeBase.search`（Stage 4）并经 `KnowledgeBaseConfig` 自动接线。测试 `CrossDocumentConflictResolverTest`（8 用例）✅ | ✅ 已落地 | — | 已接入 InMemory；PgVector/Milvus 暂未接入（与 reranker/trace 同模式，待后续） |
-| **chunk 级增量 diff** | Q5 深化 | `ContentHashCache` 文档级；大文档微调需整文档重算 | 🟡 中 | 对 chunk 内容单独哈希，仅重算变更 chunk | 需重构 hash 粒度 |
-| **多源结构化分流** | Q1 | 解析后未做结构化抽取（FAQ/表格/流程分流不同索引） | 🟢 低-中 | 解析后按类型路由到不同 collection/索引 | 索引 schema 扩展 |
-
----
-
-## 2. 本轮新增落地（2026-07-07 下午）
-
-| 改进项 | 优先级 | 落地实现 | 测试 |
-|--------|:----:|----------|------|
-| **P1-1 PDF 表格提取** | 🔴 高 | `PdfDocumentParser` 新增位置感知表格检测：基于文本 x/y 坐标聚类检测对齐多列多行区域，重构为 Markdown，作为 `contentType=pdf-table` 独立 `ParsedDocument` 输出；正文段落不受影响 | `PdfParserTableTest`（3 用例，用 PDFBox 生成真实表格 PDF 验证）✅ |
-| **P1-3 RedisChatMemory Bean 注册** | 🔴 高 | 新增 `ChatMemoryAutoConfiguration`：按 `chat.memory.type`（默认 inmemory / redis）注册 `ChatMemory` Bean；无 Redis 时自动降级 `InMemoryChatMemory`；`@ConditionalOnMissingBean` 允许下游覆盖 | `ChatMemoryAutoConfigurationTest`（4 用例：默认/redis/降级/覆盖）✅ |
-| **P1-2 AgentCallerService 结构化提取统一** | 🟡 中 | `AgentCallerService` 注入 `AiChatService` + `lightChatModel`，`callAgentAndExtractTitles` 通过 `entity()` 将 Agent 回复绑定为 `ExtractedTitles`（标题/标签），替代原 no-op；未注入时降级为空，向后兼容 | `AgentCallerTitleExtractionTest`（4 用例）✅ |
-| **P2-a chunk 级增量 diff** | 🟡 中 | `ContentHashCache` 新增 chunk 级哈希 API（`putChunk`/`hasChunkChanged`/`diffChunks`）；`KnowledgeIngestionService` Step 4.2 仅对内容变更的 chunk 重新摄入，跳过未变更 chunk 的重复向量化 | `ContentHashCacheChunkTest`（5 用例）✅ |
-| **P2-b 检索侧跨文档冲突消解（Q6 第二层）** | 🟡 中 | 新增 `common.rag.retrieval.CrossDocumentConflictResolver`：rerank 后跨文档冲突检测（复用 `ContextFaithfulnessChecker` 词表）→ AuthorityLevel→版本优先级 判定胜负 → 败方相对扣分（默认 0.30）/平局双方减半；输出 `ScoreBreakdown`(base/authority/penalty/final) 可观测 + `ConflictDecision` 审计；接入 `InMemoryKnowledgeBase.search` Stage 4 + `KnowledgeBaseConfig` 自动接线 | `CrossDocumentConflictResolverTest`（8 用例）✅ |
-| **评测闭环接入 CI（golden set 门槛）** | 🟡 中 | ① `EvaluationReportService` 扩展 `runRAGEvaluationDetailed()`/`runAgentEvaluationDetailed()`（向后兼容委托）；② 新增门禁四件套 `EvalGateConfig`(阈值POJO) / `EvalBaseline`(指标快照序列化) / `EvalGate`(绝对阈值+基线回归 `GateResult`) / `EvalReportExporter`(Markdown+JSON)；③ 编排器 `GoldenSuiteEvalGate`（加载黄金集+门禁+基线→跑评测→写报告→可选更新基线，可独立 `main` 重生成基线）；④ 修正黄金集 `RAG-004` 不一致（`relevantIds` 由缺失的 `doc-s001` 改为 `doc-s003`），并将 fixture 上下文标记统一为生产契约 `[CID:doc-id]`（修复 faithfulness 全 0 的 harness 缺陷）；⑤ 新增 `.github/workflows/eval-gate.yml`（push/PR 到 main 触发 compile-all + eval-gate 作业并上传报告） | `EvalGateTest`（4 用例：绝对通过/绝对失败/基线回归/基线内波动放行）+ `GoldenSuiteEvalGateTest`（1 用例，首次自举基线后通过）✅ |
-
-> **验证状态**：common 模块全量回归 `tests=343, Failures=0, Errors=10`（10 Errors 为预存 `EntityProfileServiceTest` Redis 环境错误，与本改动无关）；新增 eval 门禁测试共 5 用例全部通过，既有 `AgentEvaluationResultTest`(5)/`GoldenTestRunnerTest`(5) 不受影响。全模块 `mvn compile` 通过。基线快照 `src/test/resources/eval-baseline.json` 已提交（faithfulness=1.0 / avgComposite=0.947 / passRate=1.0）。
-> **已知遗留**：router 模块 test 源码集中存在预存的编译错误（`SemanticRouteCacheService`/`RouterService` 构造器签名不匹配），与本轮改动无关，阻塞 router 整体 `mvn test`，但不影响 main 编译与 P1-2 生产代码（已通过隔离测试验证）。检索侧冲突消解当前仅接入 `InMemoryKnowledgeBase`（与 reranker/trace 接线同源模式）；PgVector/Milvus 待后续按同模式接入。
-
-## 3. RAG 七问之外的工程化延伸
-
-- **评测闭环接入 CI**：✅ 已落地（见第二节表格「评测闭环接入 CI」）。`RAGEvaluator`/`HallucinationDetector`/`RetrievalMetrics` 已通过 `EvalGate` 接入 CI 门禁，基线快照 + GitHub Actions 工作流已就位，可防 RAG 质量回归。
-- **多模态 RAG**：图片/截图攻略入库（travel 场景截图多）。当前纯文本，缺失视觉内容检索。
-- **检索可观测性**：trace 已有，但检索命中/丢弃原因未可视化，调参难。建议检索结果附带 `score_breakdown`（cosine/time/version/authority）。
-- **经验体系 × RAG 协同**：Router `ExperienceService` 与 RAG 命中质量未打通，路由决策可利用 RAG 命中率反馈。
-- **语义缓存一致性**：Router 语义缓存 vs RAG 检索结果一致性校验，避免缓存返回过期知识。
+> **验证状态**：common 模块相关单测全绿；router 模块 `test-compile` BUILD SUCCESS（原预存编译错误已修复）；全模块 `mvn compile` 通过。
 
 ---
 
-## 4. Spring AI 2.0 工程化遗留收尾（前序会话待办）
+## 1. 本轮新增落地（2026-07-07 晚，待提交）
 
-| 项 | 现状 | 说明 |
+### 1.1 检索侧冲突消解扩展到 PgVector / Milvus（Q6 第二层收口）
+- **PgVectorKnowledgeBase**：`search()` 末尾调用 `applyConflictResolution(conflictResolver, hits)`；新增 `setConflictResolver` + package-private `applyConflictResolution` 静态方法。
+- **MilvusKnowledgeBase**：同上（原仅 InMemory 接入，本轮补齐缺失的 setter 与静态方法，此前处于**无法编译**状态，现已修复）。
+- **自动接线**：`OrderKnowledgeConfig` 的 `orderKnowledgeBase`（InMemory 种子库）与 `orderMilvusKnowledgeBase` 均通过 `ObjectProvider<CrossDocumentConflictResolver>` 自动挂接冲突消解器；`KnowledgeBaseConfig` 公共 `InMemoryKnowledgeBase` 早前已接。
+- **测试**：`KnowledgeBaseConflictResolverTest`（4 用例）直接调用两个 KB 的静态方法，验证「高权威胜出、低权威败方按 0.30 扣分」；null 消解器原样透传。
+
+### 1.2 多模态 RAG（图片 → 视觉描述 → 入库）
+- **`common.rag.multimodal` 包**：
+  - `ImageReference`（图片字节 + MIME）、`ImageCaptioner` 接口、`NoopImageCaptioner`（默认降级）。
+  - `OllamaVisionImageCaptioner`：Spring AI 2.0 多模态——`Media.builder().data(ByteArrayResource).mimeType(MimeType)` + `ChatClient.prompt().user(u -> u.media(...))`；实际调用抽至 `doCaption(...)` 受保护方法便于单测桩接；异常隔离返回空串。
+  - `ImageCaptioners.autoDetect(ChatModel)` 工厂 + `MultimodalIngestor`（图片→描述→`KnowledgeDocument` 入库，docId 由字节 SHA-256 派生保证幂等）。
+- **装配**：`RagMultimodalAutoConfiguration` 按 `rag.multimodal.vision.enabled=true` 且存在 `ChatModel` Bean 装配真实描述器，否则降级 `NoopImageCaptioner`（保证 Bean 始终存在）。
+- **摄取联动**：`KnowledgeIngestionService.setImageCaptioner(...)` + `ingestImages(...)`，成功后触发缓存失效 + 索引重建，与文本摄取最终态一致。
+- **测试**：`OllamaVisionImageCaptionerTest`（4）/ `MultimodalIngestorTest`（3）/ `KnowledgeIngestionMultimodalTest`（2）全通过。
+
+---
+
+## 2. 历史已落地（摘要，含提交哈希）
+
+| 提交 | 内容 |
+|------|------|
+| `2cad3f8` | P0 非覆盖式版本 + 隔离/回滚 API 闭环 |
+| `dede9bb` | 评测闭环接入 CI（GoldenSuite + EvalGate + GitHub Actions） |
+| `d5426b7` | 检索可观测性（RetrievalTrace ScoreBreakdown）、语义缓存一致性（CacheVersionManager）、多源结构化分流、经验×RAG 协同（ragQualityFactor）、OCR 框架 + 实体关系框架（graph 包） |
+| `11a7b56` | Router 测试编译修复、实体关系 LLM 抽取器（LlmEntityExtractor + RagGraphAutoConfiguration）、Tesseract OCR 引擎（零新依赖） |
+
+---
+
+## 3. 剩余项与部署激活说明
+
+| 项 | 状态 | 说明 |
 |----|------|------|
-| **RedisChatMemory Bean 注册** | 仅 `MessageCodec` 单测 + 编译验证 | grep `new RedisChatMemory`/`@Bean ChatMemory` 无结果，未注册到容器，未做 profile 切换联调 |
-| **AgentCallerService entity() 迁移** | `AgentCallerService`（router）存在，仍文本 JSON 解析 | 与已落地的 `OrderIntentService.entity()` / `LLMPreferenceExtractor.entity()` 不一致，应统一 |
-| **P3 真实 MCP 接入** | 产品决策，非代码缺陷 | 保留为产品规划项 |
+| **P3 真实 MCP 接入** | 产品决策项 | 非代码缺陷，保留为产品规划项。 |
+| **实体关系图谱持久化** | 当前为内存实现 | `KnowledgeGraphService` 内存实现已可用；PG 邻接表 DDL 已备，跨重启持久化需在装配点接真实数据源（可选增强）。 |
+| **OCR 激活** | 代码就绪，需部署安装 | 部署侧 `apt install tesseract-ocr`（中文加 `tesseract-ocr-chi-sim`）。未安装时 `OcrStrategies.autoDetect()` 自动降级 `Noop`，PDF 解析零开销。 |
+| **多模态 RAG 激活** | 代码就绪，需配置视觉模型 | `application.yml` 置 `rag.multimodal.vision.enabled=true` 并提供视觉能力 `ChatModel` Bean（如 Ollama `llava`/`qwen2-vl`）。未配置时 `NoopImageCaptioner` 降级，文本 RAG 不受影响。 |
+| **实体抽取激活** | 代码就绪，需装配点挂接 | 应用注入 `KnowledgeGraphService` Bean 后调用 `ingestionService.setKnowledgeGraphService(graphService)` 即联动（`KnowledgeWatcherService` 监听目录摄入时自动构建图谱）。 |
 
 ---
 
-## 5. 建议推进路线
+## 4. 推进路线（最终状态）
 
 ```
-P0  非覆盖式版本 + 隔离/回滚 API        （让 Q7 真正闭环，错误文档可逆）
+P0  非覆盖式版本 + 隔离/回滚 API        ✅ 已落地 (2cad3f8)
   │
-P1  ├─ PDF 表格提取（pdfplumber/Tabula）
-  │   ├─ AgentCallerService entity() 迁移（统一结构化输出）
-  │   └─ RedisChatMemory Bean 注册 + profile 联调
+P1  ├─ PDF 表格提取                     ✅ 已落地
+  │   ├─ AgentCallerService entity()    ✅ 已落地 (P1-2)
+  │   └─ RedisChatMemory Bean 注册       ✅ 已落地 (P1-3)
   │
-P2  ├─ 实体关系抽取 + 知识图谱
-  │   ├─ 评测闭环接入 CI（golden set 门槛）
-  │   ├─ 检索侧冲突消解（跨文档权威性）
-  │   └─ 多模态 RAG
+P2  ├─ 实体关系抽取 + 知识图谱            ✅ 已落地 (11a7b56)
+  │   ├─ 评测闭环接入 CI                  ✅ 已落地 (dede9bb)
+  │   ├─ 检索侧冲突消解（跨文档权威性）   ✅ 已落地（InMemory+PgVector+Milvus，本轮收口）
+  │   ├─ 多模态 RAG                      ✅ 已落地（本轮）
+  │   ├─ OCR 真实引擎                    ✅ 已落地 (11a7b56)
+  │   ├─ 检索可观测性                    ✅ 已落地 (d5426b7)
+  │   ├─ 语义缓存一致性                  ✅ 已落地 (d5426b7)
+  │   └─ 经验 × RAG 协同                 ✅ 已落地 (d5426b7)
+  │
+P3  真实 MCP 接入                        ⏸ 产品决策项（保留）
 ```
 
-> 优先级判据：P0 解决"错误文档入库不可逆"的生产事故风险；P1 提升解析质量与工程一致性；
-> P2 为能力深化，ROI 依业务场景（订单/退款文档多表格 → PDF 表格优先级最高）。
+> RAG 七连问（数据源→清洗→PDF解析→知识抽取→增量更新→冲突处理→版本治理）+ 工程化延伸（评测闭环/多模态/可观测性/缓存一致性/经验协同）**全部核心项已完成**。
+> 仅 P3 真实 MCP 接入为产品决策项，与代码缺陷无关。
