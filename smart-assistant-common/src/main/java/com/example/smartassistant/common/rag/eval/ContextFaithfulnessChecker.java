@@ -73,13 +73,17 @@ public class ContextFaithfulnessChecker {
     }
 
     /**
-     * 检测两段文本是否存在冲突。
+     * 检测两段文本是否存在冲突（基于正反义词表）。
+     * <p>
+     * 抽取为 public static，供检索侧跨文档冲突消解器
+     * {@code CrossDocumentConflictResolver} 复用同一套冲突词表，避免词表重复定义。
+     * </p>
      *
      * @param textA 文本 A
      * @param textB 文本 B
      * @return 冲突描述（无冲突返回 null）
      */
-    private String detectConflict(String textA, String textB) {
+    public static String detectConflict(String textA, String textB) {
         for (ConflictPair pair : CONFLICT_PAIRS) {
             boolean aPos = containsAny(textA, pair.positive);
             boolean aNeg = containsAny(textA, pair.negative);
@@ -96,7 +100,7 @@ public class ContextFaithfulnessChecker {
         return null;
     }
 
-    private boolean containsAny(String text, List<String> keywords) {
+    private static boolean containsAny(String text, List<String> keywords) {
         return keywords.stream().anyMatch(text::contains);
     }
 
