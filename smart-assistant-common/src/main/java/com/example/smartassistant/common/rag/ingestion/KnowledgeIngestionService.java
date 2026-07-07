@@ -243,21 +243,51 @@ public class KnowledgeIngestionService {
                 }
             }
 
-            // Step 3: 分块（支持 Parent-Child 双粒度）
-            List<KnowledgeDocument> docs;
-            if (parentChildChunker != null) {
-                // ⭐ Parent-Child 策略：子块建索引（检索用），父块也入库（通过 parentDocId 关联）
-                ParentChildDocumentChunker.ParentChildResult pcResult =
-                        parentChildChunker.chunkParentChild(parsed);
-                List<KnowledgeDocument> childDocs = pcResult.childDocs();
-                List<KnowledgeDocument> parentDocs = pcResult.parentDocs();
-                docs = new ArrayList<>(childDocs.size() + parentDocs.size());
-                docs.addAll(childDocs);
-                docs.addAll(parentDocs);
-                log.info("[Ingestion] Parent-Child 分块: children={}, parents={}",
-                        childDocs.size(), parentDocs.size());
+            // Step 3: ⭐ 按 contentType 分流 — 结构化类型跳过 chunking 直接入库
+            List<ParsedDocument> textDocs = new ArrayList<>();
+            List<ParsedDocument> structuredDocs = new ArrayList<>();
+            for (ParsedDocument p : parsed) {
+                String ct = p.getContentType();
+                if ("pdf-table".equals(ct) || "html".equals(ct) || "word".equals(ct)) {
+                    structuredDocs.add(p);
+                } else {
+                    textDocs.add(p);
+                }
+            }
+
+            List<KnowledgeDocument> docs = new ArrayList<>();
+
+            // 结构化文档：不 chunk，整篇为独立 KnowledgeDocument
+            for (ParsedDocument p : structuredDocs) {
+                docs.add(new KnowledgeDocument(
+                        p.getDocId(), p.getTitle(), p.getContent(),
+                        p.getCategory(), p.getKeywords(),
+                        p.getEffectiveAt(), p.getExpireAt(),
+                        p.getTenantId(), p.getVersion(), p.getSourceUrl(), 0));
+            }
+
+            // 文本类文档：走分块器
+            List<KnowledgeDocument> chunkedDocs;
+            if (!textDocs.isEmpty()) {
+                if (parentChildChunker != null) {
+                    // ⭐ Parent-Child 策略：子块建索引（检索用），父块也入库（通过 parentDocId 关联）
+                    ParentChildDocumentChunker.ParentChildResult pcResult =
+                            parentChildChunker.chunkParentChild(textDocs);
+                    List<KnowledgeDocument> childDocs = pcResult.childDocs();
+                    List<KnowledgeDocument> parentDocs = pcResult.parentDocs();
+                    chunkedDocs = new ArrayList<>(childDocs.size() + parentDocs.size());
+                    chunkedDocs.addAll(childDocs);
+                    chunkedDocs.addAll(parentDocs);
+                    log.info("[Ingestion] Parent-Child 分块: children={}, parents={}, structured={}",
+                            childDocs.size(), parentDocs.size(), structuredDocs.size());
+                } else {
+                    chunkedDocs = chunker.chunk(textDocs);
+                    log.info("[Ingestion] 分块完成: docs={}, structured={}",
+                            chunkedDocs.size(), structuredDocs.size());
+                }
+                docs.addAll(chunkedDocs);
             } else {
-                docs = chunker.chunk(parsed);
+                log.info("[Ingestion] 全为结构化文档（跳过 chunking）: count={}", structuredDocs.size());
             }
 
             // Step 4: 注入租户 ID + 编入版本到 chunk id（非覆盖式版本，P0）

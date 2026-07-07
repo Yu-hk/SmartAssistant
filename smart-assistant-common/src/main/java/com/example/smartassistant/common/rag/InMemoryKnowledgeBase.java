@@ -222,14 +222,24 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         }
 
         // Stage 4: ⭐ 跨文档冲突消解（Q6 第二层）—按权威性/版本压制矛盾低权威来源
+        var resolvedHits = (List<CrossDocumentConflictResolver.ResolvedHit>) null;
         if (conflictResolver != null) {
-            hits = conflictResolver.resolveHits(hits);
+            var result = conflictResolver.resolve(hits);
+            resolvedHits = result.resolved();
+            hits = resolvedHits.stream()
+                    .map(r -> new KnowledgeHit(r.original().getDocument(), r.adjustedScore()))
+                    .collect(Collectors.toList());
         }
 
-        // ⭐ 记录最终结果
+        // ⭐ 记录最终结果（含分数明细）
         if (trace != null) {
-            for (KnowledgeHit hit : hits) {
+            for (int i = 0; i < hits.size(); i++) {
+                KnowledgeHit hit = hits.get(i);
                 trace.addFinalContext(hit.toContext());
+                if (resolvedHits != null && i < resolvedHits.size()) {
+                    var b = resolvedHits.get(i).breakdown();
+                    trace.addScoreBreakdown(b.baseScore(), b.authorityFactor(), b.conflictPenalty(), b.finalScore());
+                }
             }
             trace.hit(!hits.isEmpty()).durationMs(System.currentTimeMillis());
             traceConsumer.accept(trace);

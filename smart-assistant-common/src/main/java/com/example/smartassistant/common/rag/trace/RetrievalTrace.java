@@ -37,6 +37,9 @@ public class RetrievalTrace {
     /** 最终入 Prompt 的上下文片段 */
     private final List<String> finalContext;
 
+    /** 冲突消解后的分数明细（每个 finalContext 项对应一个，JSON 友好的 flat record） */
+    private final List<ScoreBreakdown> scoreBreakdowns;
+
     /** 总耗时（ms） */
     private long totalDurationMs;
 
@@ -50,6 +53,7 @@ public class RetrievalTrace {
         this.steps = new ArrayList<>();
         this.fusedResults = new ArrayList<>();
         this.finalContext = new ArrayList<>();
+        this.scoreBreakdowns = new ArrayList<>();
     }
 
     // ==================== 构建器方法 ====================
@@ -75,6 +79,13 @@ public class RetrievalTrace {
         return this;
     }
 
+    /** 记录一条冲突消解后的分数明细 */
+    public RetrievalTrace addScoreBreakdown(double baseScore, double authorityFactor,
+                                             double conflictPenalty, double finalScore) {
+        this.scoreBreakdowns.add(new ScoreBreakdown(baseScore, authorityFactor, conflictPenalty, finalScore));
+        return this;
+    }
+
     public RetrievalTrace durationMs(long ms) {
         this.totalDurationMs = ms;
         return this;
@@ -93,14 +104,15 @@ public class RetrievalTrace {
     public List<RetrievalStep> getSteps() { return steps; }
     public List<FusedResult> getFusedResults() { return fusedResults; }
     public List<String> getFinalContext() { return finalContext; }
+    public List<ScoreBreakdown> getScoreBreakdowns() { return scoreBreakdowns; }
     public long getTotalDurationMs() { return totalDurationMs; }
     public boolean isHit() { return hit; }
 
     /** 汇总统计（调试输出用） */
     public String toSummary() {
         return String.format(
-                "检索链路: query='%s', variants=%d, steps=%d, fused=%d, hit=%b, duration=%dms",
-                originalQuery, queryVariants.size(), steps.size(), fusedResults.size(), hit, totalDurationMs
+                "检索链路: query='%s', variants=%d, steps=%d, fused=%d, scoreBreakdowns=%d, hit=%b, duration=%dms",
+                originalQuery, queryVariants.size(), steps.size(), fusedResults.size(), scoreBreakdowns.size(), hit, totalDurationMs
         );
     }
 
@@ -112,4 +124,8 @@ public class RetrievalTrace {
 
     /** RRF 融合结果 */
     public record FusedResult(String docId, String title, double rrfScore, int rank) {}
+
+    /** 冲突消解后分数明细（JSON 友好，与 CrossDocumentConflictResolver.ScoreBreakdown 同构） */
+    public record ScoreBreakdown(double baseScore, double authorityFactor,
+                                  double conflictPenalty, double finalScore) {}
 }
