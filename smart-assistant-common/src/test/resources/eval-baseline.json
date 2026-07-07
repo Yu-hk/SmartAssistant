@@ -1,0 +1,13 @@
+{
+  "generatedAt" : "2026-07-07T07:09:17.386317100Z",
+  "note" : "SmartAssistant 评测基线快照（人工确认后由 GoldenSuiteEvalGate 生成）",
+  "metrics" : {
+    "rag.passRate" : 1.0,
+    "rag.avgComposite" : 0.9470371331867833,
+    "rag.avgNdcg" : 0.8675928329669582,
+    "rag.avgFaithfulness" : 1.0,
+    "rag.avgHallucinationRate" : 0.0,
+    "agent.passRate" : 0.16666666666666666,
+    "agent.avgComposite" : 0.5833333333333334
+  }
+}

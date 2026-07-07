@@ -111,13 +111,13 @@ public class EvaluationReportService {
     }
 
     /**
-     * 执行 RAG 评测。
+     * 执行 RAG 评测（详细版）。
      *
-     * @return 评测报告
+     * @return 每条用例的 {@link RAGEvaluationResult} 列表（供门禁/指标聚合使用）
      */
-    public Map<String, Object> runRAGEvaluation() {
+    public List<RAGEvaluationResult> runRAGEvaluationDetailed() {
         if (ragTestCases.isEmpty()) {
-            return Map.of("status", "SKIPPED", "message", "无 RAG 测试用例");
+            return List.of();
         }
 
         List<RAGEvaluator.EvalRequest> requests = ragTestCases.stream()
@@ -130,7 +130,20 @@ public class EvaluationReportService {
                         t.topK > 0 ? t.topK : 5))
                 .toList();
 
-        List<RAGEvaluationResult> results = ragEvaluator.evaluateBatch(requests);
+        return ragEvaluator.evaluateBatch(requests);
+    }
+
+    /**
+     * 执行 RAG 评测（摘要版，向后兼容）。
+     *
+     * @return 评测报告（typed Map）
+     */
+    public Map<String, Object> runRAGEvaluation() {
+        List<RAGEvaluationResult> results = runRAGEvaluationDetailed();
+        if (results.isEmpty()) {
+            return Map.of("status", "SKIPPED", "message", "无 RAG 测试用例");
+        }
+
         String report = RAGEvaluationResult.generateBatchReport(results);
 
         Map<String, Object> resultMap = new LinkedHashMap<>();
@@ -145,14 +158,14 @@ public class EvaluationReportService {
     }
 
     /**
-     * 执行 Agent 评测。
+     * 执行 Agent 评测（详细版）。
      *
-     * @param actualResults 实际 Agent 执行结果（由系统运行时注入）
-     * @return 评测报告
+     * @param actualResults 实际 Agent 执行结果（由系统运行时注入；null 时为用例生成"待执行"标记）
+     * @return 每条用例的 {@link AgentEvaluationResult} 列表（供门禁/指标聚合使用）
      */
-    public Map<String, Object> runAgentEvaluation(List<AgentEvaluationResult> actualResults) {
+    public List<AgentEvaluationResult> runAgentEvaluationDetailed(List<AgentEvaluationResult> actualResults) {
         if (agentTestCases.isEmpty() && (actualResults == null || actualResults.isEmpty())) {
-            return Map.of("status", "SKIPPED", "message", "无 Agent 测试用例");
+            return List.of();
         }
 
         List<AgentEvaluationResult> results = new ArrayList<>();
@@ -178,6 +191,21 @@ public class EvaluationReportService {
                         .hasError(false)
                         .build());
             }
+        }
+
+        return results;
+    }
+
+    /**
+     * 执行 Agent 评测（摘要版，向后兼容）。
+     *
+     * @param actualResults 实际 Agent 执行结果（由系统运行时注入）
+     * @return 评测报告（typed Map）
+     */
+    public Map<String, Object> runAgentEvaluation(List<AgentEvaluationResult> actualResults) {
+        List<AgentEvaluationResult> results = runAgentEvaluationDetailed(actualResults);
+        if (results.isEmpty()) {
+            return Map.of("status", "SKIPPED", "message", "无 Agent 测试用例");
         }
 
         String report = AgentEvaluationResult.generateBatchReport(results);
