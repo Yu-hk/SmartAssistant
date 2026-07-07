@@ -24,6 +24,12 @@ import java.util.regex.Pattern;
  *   <li>version 字段格式：v1, v2, v3... 或日期格式 2026-01</li>
  *   <li>isSupersededBy(other): 同 baseId 且版本更新时返回 true</li>
  * </ul>
+ *
+ * <p>治理能力补充（2026-07-07，对标字节 RAG 七连问）：</p>
+ * <ul>
+ *   <li>authorityLevel：来源权威性等级（L1 官方 &gt; L2 内部 &gt; L3 笔记 &gt; L4 外部），冲突处理时排序</li>
+ *   <li>documentStatus：文档状态（ACTIVE 可检索 / SUPERSEDED 已取代 / QUARANTINED 隔离），治理隔离</li>
+ * </ul>
  */
 public class KnowledgeDocument {
 
@@ -73,13 +79,21 @@ public class KnowledgeDocument {
     /** 🟡 Parent-Child Chunking：父块 ID，子块通过此字段关联到父块以获取完整上下文 */
     private final String parentDocId;
 
+    // ==================== 治理能力字段（2026-07-07 补齐）====================
+
+    /** 🔴 来源权威性等级：L1 官方 > L2 内部 > L3 笔记 > L4 外部，默认 L2_INTERNAL */
+    private final AuthorityLevel authorityLevel;
+
+    /** 🔴 文档状态：ACTIVE 可检索 / SUPERSEDED 已取代 / QUARANTINED 隔离，默认 ACTIVE */
+    private final DocumentStatus documentStatus;
+
     // ==================== 构造器 ====================
 
     public KnowledgeDocument(String id, String title, String content,
                              String category, String keywords,
                              long effectiveAt, long expireAt) {
         this(id, title, content, category, keywords, effectiveAt, expireAt,
-                "", "v1", "", 0, "");
+                "", "v1", "", 0, "", AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE);
     }
 
     public KnowledgeDocument(String id, String title, String content,
@@ -88,7 +102,8 @@ public class KnowledgeDocument {
                              String tenantId, String version,
                              String sourceUrl, int chunkIndex) {
         this(id, title, content, category, keywords, effectiveAt, expireAt,
-                tenantId, version, sourceUrl, chunkIndex, "");
+                tenantId, version, sourceUrl, chunkIndex, "",
+                AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE);
     }
 
     public KnowledgeDocument(String id, String title, String content,
@@ -97,6 +112,24 @@ public class KnowledgeDocument {
                              String tenantId, String version,
                              String sourceUrl, int chunkIndex,
                              String parentDocId) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, parentDocId,
+                AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE);
+    }
+
+    /**
+     * ⭐ 全参构造器（含治理能力字段）。
+     *
+     * @param authorityLevel 来源权威性等级（null → L2_INTERNAL）
+     * @param documentStatus 文档状态（null → ACTIVE）
+     */
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId,
+                             AuthorityLevel authorityLevel, DocumentStatus documentStatus) {
         this.id = id;
         this.title = title;
         this.content = content;
@@ -110,14 +143,22 @@ public class KnowledgeDocument {
         this.sourceUrl = sourceUrl != null ? sourceUrl : "";
         this.chunkIndex = chunkIndex;
         this.parentDocId = parentDocId != null ? parentDocId : "";
+        this.authorityLevel = authorityLevel != null ? authorityLevel : AuthorityLevel.L2_INTERNAL;
+        this.documentStatus = documentStatus != null ? documentStatus : DocumentStatus.ACTIVE;
     }
 
-    /** 文档是否在有效期内 */
+    /** 文档是否在有效期内且未被隔离 */
     public boolean isActive() {
+        if (documentStatus == DocumentStatus.QUARANTINED) return false;
         long now = System.currentTimeMillis();
         if (effectiveAt > 0 && now < effectiveAt) return false;
         if (expireAt > 0 && now > expireAt) return false;
         return true;
+    }
+
+    /** 文档是否可被检索返回（ACTIVE 且有效期内） */
+    public boolean isRetrievable() {
+        return documentStatus.isRetrievable() && isActive();
     }
 
     /** 获取用于嵌入的文本（标题 + 正文 + 关键词） */
@@ -140,6 +181,8 @@ public class KnowledgeDocument {
     public String getSourceUrl() { return sourceUrl; }
     public int getChunkIndex() { return chunkIndex; }
     public String getParentDocId() { return parentDocId; }
+    public AuthorityLevel getAuthorityLevel() { return authorityLevel; }
+    public DocumentStatus getDocumentStatus() { return documentStatus; }
 
     // ==================== 版本控制方法 ====================
 

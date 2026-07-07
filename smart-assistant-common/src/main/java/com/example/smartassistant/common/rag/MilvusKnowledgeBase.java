@@ -30,6 +30,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -56,6 +57,8 @@ import java.util.stream.Collectors;
  * ├── source_url    (VarChar, 1024)   ← 🟡 来源：引用回链
  * ├── chunk_index   (Int64)           ← 🟡 段落：跨段拼接
  * ├── updated_at    (Int64)           ← 🟡 时效：更新追踪
+ * ├── authority_level (Int64)         ← 🔴 权威性：L1官方>L2内部>L3笔记>L4外部
+ * ├── document_status (VarChar, 16)   ← 🔴 状态：ACTIVE/SUPERSEDED/QUARANTINED
  * ├── embedding     (FloatVector, dim=384)
  * └── created_at    (Int64)
  *
@@ -161,6 +164,10 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                     .addFieldType(FieldType.newBuilder()
                             .withName("updated_at").withDataType(DataType.Int64).build())
                     .addFieldType(FieldType.newBuilder()
+                            .withName("authority_level").withDataType(DataType.Int64).build())
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("document_status").withDataType(DataType.VarChar).withMaxLength(16).build())
+                    .addFieldType(FieldType.newBuilder()
                             .withName("embedding").withDataType(DataType.FloatVector).withDimension(DIMENSIONS).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("created_at").withDataType(DataType.Int64).build())
@@ -232,6 +239,9 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
             fields.add(new Field("source_url", List.of(doc.getSourceUrl() != null ? doc.getSourceUrl() : "")));
             fields.add(new Field("chunk_index", List.of((long) doc.getChunkIndex())));
             fields.add(new Field("updated_at", List.of(System.currentTimeMillis())));
+            // ⭐ 治理能力字段（权威性 + 状态）
+            fields.add(new Field("authority_level", List.of((long) doc.getAuthorityLevel().getRank())));
+            fields.add(new Field("document_status", List.of(doc.getDocumentStatus().name())));
 
             InsertParam insertParam = InsertParam.newBuilder()
                     .withCollectionName(collectionName)
@@ -278,6 +288,124 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
         }
     }
 
+    @Override
+    public List<String> listIdsByBaseDocId(String baseDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return Collections.emptyList();
+        try {
+            String expr = "doc_id == \"" + escapeMilvusStr(baseDocId) + "\" or doc_id like \""
+                    + escapeMilvusStr(baseDocId) + "-%\"";
+            R<QueryResults> resp = client.query(io.milvus.param.dml.QueryParam.newBuilder()
+                    .withCollectionName(collectionName)
+                    .withOutFields(List.of("doc_id"))
+                    .withExpr(expr)
+                    .build());
+            if (resp.getStatus() != 0 || resp.getData() == null) return Collections.emptyList();
+            QueryResultsWrapper wrapper = new QueryResultsWrapper(resp.getData());
+            List<String> ids = new ArrayList<>();
+            for (QueryResultsWrapper.RowRecord row : wrapper.getRowRecords()) {
+                Object val = row.getFieldValues().get("doc_id");
+                if (val != null) ids.add(val.toString());
+            }
+            return ids;
+        } catch (Exception e) {
+            log.warn("[MilvusKB:{}] 按 baseDocId 查询失败: {} - {}", name, baseDocId, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
+    public void updateStatus(String docId, DocumentStatus status) {
+        if (docId == null || docId.isBlank() || status == null) return;
+        try {
+            long milvusId = hashToLong(docId);
+            // 查询完整文档（含 embedding）以重建实体（Milvus 不支持单字段部分更新）
+            R<QueryResults> resp = client.query(io.milvus.param.dml.QueryParam.newBuilder()
+                    .withCollectionName(collectionName)
+                    .withOutFields(List.of("doc_id", "title", "content", "category", "keywords",
+                            "effective_at", "expire_at", "tenant_id", "version", "source_url",
+                            "chunk_index", "updated_at", "authority_level", "document_status",
+                            "embedding", "created_at"))
+                    .withExpr("id in [" + milvusId + "]")
+                    .build());
+            if (resp.getStatus() != 0 || resp.getData() == null) {
+                log.warn("[MilvusKB:{}] 查询文档失败: {}", name, docId);
+                return;
+            }
+            QueryResultsWrapper w = new QueryResultsWrapper(resp.getData());
+            List<QueryResultsWrapper.RowRecord> rows = w.getRowRecords();
+            if (rows == null || rows.isEmpty()) {
+                log.warn("[MilvusKB:{}] 文档不存在，无法更新状态: {}", name, docId);
+                return;
+            }
+            // 仅取首行（id 唯一），重建字段（仅 document_status 变更）
+            Map<String, Object> fv = rows.get(0).getFieldValues();
+
+            List<Field> fields = new ArrayList<>();
+            fields.add(new Field("id", List.of(milvusId)));
+            fields.add(new Field("doc_id", List.of(strVal(fv.get("doc_id")))));
+            fields.add(new Field("title", List.of(strVal(fv.get("title")))));
+            fields.add(new Field("content", List.of(strVal(fv.get("content")))));
+            fields.add(new Field("category", List.of(strVal(fv.get("category")))));
+            fields.add(new Field("keywords", List.of(strVal(fv.get("keywords")))));
+            fields.add(new Field("effective_at", List.of(longVal(fv.get("effective_at")))));
+            fields.add(new Field("expire_at", List.of(longVal(fv.get("expire_at")))));
+            fields.add(new Field("tenant_id", List.of(strVal(fv.get("tenant_id")))));
+            fields.add(new Field("version", List.of(strVal(fv.get("version")))));
+            fields.add(new Field("source_url", List.of(strVal(fv.get("source_url")))));
+            fields.add(new Field("chunk_index", List.of(longVal(fv.get("chunk_index")))));
+            fields.add(new Field("updated_at", List.of(System.currentTimeMillis())));
+            fields.add(new Field("authority_level", List.of(longVal(fv.get("authority_level")))));
+            fields.add(new Field("document_status", List.of(status.name())));
+
+            // 重建 embedding（FloatVector 字段在 RowRecord 中返回单行向量 List<Float>，
+            // 也兼容整列 List<List<Float>> 形态）
+            List<List<Float>> vecList = new ArrayList<>();
+            Object emb = fv.get("embedding");
+            if (emb instanceof List) {
+                List<?> embList = (List<?>) emb;
+                if (!embList.isEmpty() && embList.get(0) instanceof List) {
+                    for (Object o : embList) vecList.add((List<Float>) o);
+                } else if (!embList.isEmpty() && embList.get(0) instanceof Number) {
+                    vecList.add((List<Float>) embList);
+                }
+            }
+            if (vecList.isEmpty()) {
+                log.warn("[MilvusKB:{}] 重建 embedding 失败，放弃更新以避免向量丢失: {}", name, docId);
+                return;
+            }
+            fields.add(new Field("embedding", vecList));
+            fields.add(new Field("created_at", List.of(longVal(fv.get("created_at")))));
+
+            R<MutationResult> upResp = client.upsert(io.milvus.param.dml.UpsertParam.newBuilder()
+                    .withCollectionName(collectionName)
+                    .withFields(fields)
+                    .build());
+            if (upResp.getStatus() == 0) {
+                log.info("[MilvusKB:{}] 状态更新: id={}, status={}", name, docId, status);
+            } else {
+                log.warn("[MilvusKB:{}] 状态更新失败: {} - {}", name, docId, upResp.getMessage());
+            }
+        } catch (Exception e) {
+            log.warn("[MilvusKB:{}] 状态更新异常: {} - {}", name, docId, e.getMessage());
+        }
+    }
+
+    /** 从 query 结果值提取字符串（兼容 null） */
+    private static String strVal(Object val) {
+        return val != null ? val.toString() : "";
+    }
+
+    /** 从 query 结果值提取 long（兼容 null/字符串/数字） */
+    private static long longVal(Object val) {
+        if (val instanceof Number) return ((Number) val).longValue();
+        if (val != null) {
+            try {
+                return Long.parseLong(val.toString());
+            } catch (Exception ignored) {}
+        }
+        return -1;
+    }
+
     /** Milvus 字符串转义（防注入） */
     private static String escapeMilvusStr(String s) {
         if (s == null) return "";
@@ -307,15 +435,16 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
         queryVectors.add(floatVec);
 
         try {
-            // 🔴 ACL 检索前过滤：构建 filter expression
-            String expr = buildAclExpr(tenantId);
+            // 🔴 ACL 检索前过滤 + 状态过滤：仅返回 ACTIVE 且未隔离文档
+            String expr = buildAclExpr(tenantId) + " and document_status == \"ACTIVE\"";
 
             SearchParam searchParam = SearchParam.newBuilder()
                     .withCollectionName(collectionName)
                     .withMetricType(MetricType.COSINE)
                     .withOutFields(List.of("doc_id", "title", "content", "category",
                             "keywords", "effective_at", "expire_at", "created_at",
-                            "tenant_id", "version", "source_url", "chunk_index", "updated_at"))
+                            "tenant_id", "version", "source_url", "chunk_index", "updated_at",
+                            "authority_level", "document_status"))
                     .withTopK(k)
                     .withVectors(queryVectors)
                     .withParams(SEARCH_PARAM)
@@ -355,10 +484,15 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                 String keywords = safeGetString(wrapper, "keywords", i);
                 long effectiveAt = safeGetLong(wrapper, "effective_at", i);
                 long expireAt = safeGetLong(wrapper, "expire_at", i);
+                int authorityRank = (int) safeGetLong(wrapper, "authority_level", i);
+                String statusStr = safeGetString(wrapper, "document_status", i);
 
                 KnowledgeDocument doc = new KnowledgeDocument(
-                        docId, title, content, category, keywords, effectiveAt, expireAt);
-                if (!doc.isActive()) continue;
+                        docId, title, content, category, keywords, effectiveAt, expireAt,
+                        "", "v1", "", 0, "",
+                        AuthorityLevel.fromRank(authorityRank),
+                        DocumentStatus.fromCode(statusStr));
+                if (!doc.isRetrievable()) continue;
 
                 double finalScore = composeScore(score, doc, query);
                 if (finalScore >= MIN_SIMILARITY) {
@@ -442,12 +576,14 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
         }
         // 版本优先级
         double versionBoost = 1.0 + doc.getVersionPriority() * 0.1;
+        // ⭐ 权威性加权（冲突预防）：L1 官方 > L2 内部 > L3 笔记 > L4 外部
+        double authorityBoost = 1.0 + (doc.getAuthorityLevel().getRank() / 4.0 - 0.5) * 0.2;
         double bm25Score = 0;
         if (bm25Scorer != null && bm25Scorer.isInitialized()) {
             bm25Score = Math.tanh(bm25Scorer.score(doc, query));
             bm25Score = Math.min(bm25Score, 1.0);
         }
-        return cosSim * timeDecay * versionBoost * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
+        return cosSim * timeDecay * versionBoost * authorityBoost * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
     }
 
     // ==================== ACL 辅助方法 ====================

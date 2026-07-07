@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.common.rag.ingestion;
 
+import com.example.smartassistant.common.rag.AuthorityLevel;
+import com.example.smartassistant.common.rag.DocumentStatus;
 import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.common.rag.chunking.DocumentChunker;
@@ -17,7 +19,6 @@ import com.example.smartassistant.common.rag.util.HashUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +66,18 @@ public class KnowledgeIngestionService {
     /** ⭐ 缓存失效回调——知识库更新后自动失效相关缓存 */
     private final java.util.List<Runnable> cacheInvalidationHooks;
 
+    /** ⭐ 入库前质检：PII 脱敏器 */
+    private final PiiScrubber piiScrubber;
+
+    /** ⭐ 入库前质检：Chunk 质量评分器 */
+    private final ChunkQualityScorer qualityScorer;
+
+    /** ⭐ 来源权威性等级（摄取时打标签，默认 L2 内部正式文档） */
+    private final AuthorityLevel authorityLevel;
+
+    /** ⭐ 入库操作审计记录器（P0，2026-07-07） */
+    private final IngestAuditRecorder auditRecorder;
+
     /** 是否启用变更检测（默认 true） */
     private boolean changeDetectionEnabled = true;
 
@@ -93,12 +106,37 @@ public class KnowledgeIngestionService {
                                       ParentChildDocumentChunker parentChildChunker,
                                       KnowledgeBase knowledgeBase,
                                       ContentHashCache hashCache) {
+        this(router, chunker, parentChildChunker, knowledgeBase, hashCache,
+                new PiiScrubber(), new ChunkQualityScorer(), AuthorityLevel.L2_INTERNAL,
+                new LoggingIngestAuditRecorder());
+    }
+
+    /**
+     * ⭐ 全参构造器——支持注入入库前质检组件与来源权威性等级。
+     *
+     * @param piiScrubber    PII 脱敏器（null → 默认开启）
+     * @param qualityScorer  Chunk 质量评分器（null → 默认开启）
+     * @param authorityLevel 来源权威性等级（null → L2_INTERNAL）
+     */
+    public KnowledgeIngestionService(DocumentParseRouter router,
+                                      DocumentChunker chunker,
+                                      ParentChildDocumentChunker parentChildChunker,
+                                      KnowledgeBase knowledgeBase,
+                                      ContentHashCache hashCache,
+                                      PiiScrubber piiScrubber,
+                                      ChunkQualityScorer qualityScorer,
+                                      AuthorityLevel authorityLevel,
+                                      IngestAuditRecorder auditRecorder) {
         this.router = router;
         this.chunker = chunker;
         this.parentChildChunker = parentChildChunker;
         this.knowledgeBase = knowledgeBase;
         this.hashCache = hashCache != null ? hashCache : new ContentHashCache();
         this.cacheInvalidationHooks = new java.util.ArrayList<>();
+        this.piiScrubber = piiScrubber != null ? piiScrubber : new PiiScrubber();
+        this.qualityScorer = qualityScorer != null ? qualityScorer : new ChunkQualityScorer();
+        this.authorityLevel = authorityLevel != null ? authorityLevel : AuthorityLevel.L2_INTERNAL;
+        this.auditRecorder = auditRecorder != null ? auditRecorder : new LoggingIngestAuditRecorder();
     }
 
     /** ⭐ 注册缓存失效回调——知识库更新后自动调用 */
@@ -133,8 +171,19 @@ public class KnowledgeIngestionService {
      * </p>
      */
     public IngestionResult parseAndIngest(String filePath, String tenantId) {
+        return parseAndIngest(filePath, tenantId, "v1");
+    }
+
+    /**
+     * 解析并摄入文档（含版本控制，支持非覆盖式版本）。
+     *
+     * @param version 文档版本（如 "v2"），编入 chunk id 以支持历史版本保留与回滚；
+     *                非 {@code v\d+} 格式（如日期版本）不编入 id（降级为 upsert 覆盖）
+     */
+    public IngestionResult parseAndIngest(String filePath, String tenantId, String version) {
         long start = System.currentTimeMillis();
-        log.info("[Ingestion] 开始摄入: file={}, tenantId={}", filePath, tenantId);
+        if (version == null || version.isBlank()) version = "v1";
+        log.info("[Ingestion] 开始摄入: file={}, tenantId={}, version={}", filePath, tenantId, version);
 
         try {
             // Step 1: 文档解析
@@ -211,32 +260,91 @@ public class KnowledgeIngestionService {
                 docs = chunker.chunk(parsed);
             }
 
-            // Step 4: 注入租户 ID（当解析阶段未指定时）
-            if (tenantId != null && !tenantId.isBlank()) {
-                docs = docs.stream()
-                        .map(doc -> new KnowledgeDocument(
-                                doc.getId(), doc.getTitle(), doc.getContent(),
-                                doc.getCategory(), doc.getKeywords(),
-                                doc.getEffectiveAt(), doc.getExpireAt(),
-                                tenantId,
-                                doc.getVersion(),
-                                doc.getSourceUrl(),
-                                doc.getChunkIndex()))
-                        .toList();
+            // Step 4: 注入租户 ID + 编入版本到 chunk id（非覆盖式版本，P0）
+            final String ver = version;
+            docs = docs.stream()
+                    .map(doc -> new KnowledgeDocument(
+                            withVersionSuffix(doc.getId(), ver),
+                            doc.getTitle(), doc.getContent(),
+                            doc.getCategory(), doc.getKeywords(),
+                            doc.getEffectiveAt(), doc.getExpireAt(),
+                            tenantId != null && !tenantId.isBlank() ? tenantId : doc.getTenantId(),
+                            doc.getVersion(),
+                            doc.getSourceUrl(),
+                            doc.getChunkIndex()))
+                    .toList();
+
+            // ⭐ Step 4.2: 入库前质检 pipeline（对标字节 RAG 七连问第二问）
+            // ① PII 脱敏 → ② Chunk 质量评分门禁 → ③ 注入来源权威性 + 状态
+            List<KnowledgeDocument> qualityPassed = new ArrayList<>();
+            int scrubbed = 0;
+            int rejected = 0;
+            for (KnowledgeDocument doc : docs) {
+                // ① PII 脱敏（覆盖式，保留语义结构）
+                String cleanContent = piiScrubber.scrub(doc.getContent());
+                if (!cleanContent.equals(doc.getContent())) scrubbed++;
+
+                KnowledgeDocument scrubbedDoc = new KnowledgeDocument(
+                        doc.getId(), doc.getTitle(), cleanContent,
+                        doc.getCategory(), doc.getKeywords(),
+                        doc.getEffectiveAt(), doc.getExpireAt(),
+                        doc.getTenantId(), doc.getVersion(),
+                        doc.getSourceUrl(), doc.getChunkIndex(),
+                        doc.getParentDocId(),
+                        authorityLevel, DocumentStatus.ACTIVE);
+
+                // ② 质量评分门禁：低于阈值不入库，避免污染检索
+                if (qualityScorer.isQualified(scrubbedDoc)) {
+                    qualityPassed.add(scrubbedDoc);
+                } else {
+                    rejected++;
+                    log.debug("[Ingestion] 低质 chunk 跳过入库: id={}, score={}",
+                            doc.getId(), qualityScorer.score(scrubbedDoc));
+                }
+            }
+            if (rejected > 0) {
+                log.info("[Ingestion] 质检完成: scrubbed={}, rejected(低质)={}, passed={}",
+                        scrubbed, rejected, qualityPassed.size());
+            }
+            docs = qualityPassed;
+
+            // ⭐ Step 4.2: chunk 级增量 diff（P2-a）——仅对内容变更的 chunk 重新摄入，
+            // 跳过未变更 chunk 的重复向量化，降低大文档微调成本。
+            if (changeDetectionEnabled) {
+                List<KnowledgeDocument> changedDocs = new ArrayList<>();
+                int skipped = 0;
+                for (KnowledgeDocument d : docs) {
+                    String h = HashUtil.normalizeAndHash(d.getContent());
+                    if (hashCache.hasChunkChanged(d.getBaseDocId(), h)) {
+                        changedDocs.add(d);
+                    } else {
+                        skipped++;
+                        log.debug("[Ingestion] chunk 级增量：跳过未变更 chunk: {}", d.getId());
+                    }
+                }
+                if (skipped > 0) {
+                    log.info("[Ingestion] chunk 级增量：跳过 {} 个未变更 chunk，仅重新摄入 {} 个",
+                            skipped, changedDocs.size());
+                }
+                docs = changedDocs;
             }
 
-            // ⭐ Step 4.5: 先删后增——写入前删除旧版本的 chunk
-            Set<String> baseDocIds = docs.stream()
-                    .map(KnowledgeDocument::getBaseDocId)
-                    .filter(b -> b != null && !b.isBlank())
-                    .collect(Collectors.toSet());
-            for (String baseDocId : baseDocIds) {
-                knowledgeBase.removeByBaseDocId(baseDocId);
-                log.debug("[Ingestion] 先删后增: baseDocId={}", baseDocId);
+            // ⭐ Step 4.5: 非覆盖式版本——标记旧版 SUPERSEDED，而非物理删除（P0）
+            String operator = (tenantId != null && !tenantId.isBlank()) ? tenantId : "system";
+            for (KnowledgeDocument newDoc : docs) {
+                String baseDocId = newDoc.getBaseDocId();
+                if (baseDocId == null || baseDocId.isBlank()) continue;
+                knowledgeBase.markSupersededByBaseId(baseDocId, newDoc.getId());
+                auditRecorder.record(IngestAuditEvent.of(operator, "SUPERSEDE",
+                        baseDocId, version, "keep=" + newDoc.getId()));
             }
 
             // Step 5: 批量入库
             knowledgeBase.addDocuments(docs);
+
+            // ⭐ Step 5.5: 入库审计（P0）
+            auditRecorder.record(IngestAuditEvent.of(operator, "INGEST", "", version,
+                    "docs=" + docs.size()));
 
             // Step 6: 重建索引（确保向量 + BM25 索引一致）
             knowledgeBase.reindex();
@@ -248,6 +356,11 @@ public class KnowledgeIngestionService {
             // ⭐ Step 7: 更新内容哈希缓存
             if (changeDetectionEnabled) {
                 updateHashCache(parsed);
+                // ⭐ chunk 级哈希（P2-a）：仅变更的 chunk 在 docs 中，写回其哈希；
+                // 未变更 chunk 的哈希已在上一轮缓存中，无需重写。
+                for (KnowledgeDocument d : docs) {
+                    hashCache.putChunk(d.getBaseDocId(), HashUtil.normalizeAndHash(d.getContent()));
+                }
             }
 
             // ⭐ Step 8: 失效相关缓存
@@ -286,6 +399,25 @@ public class KnowledgeIngestionService {
         base = base.replaceAll("-v\\d+(\\.\\d+)?$", "");
         base = base.replaceAll("-s\\d+$", "");
         return base;
+    }
+
+    /**
+     * 将版本编入 chunk id 后缀（仅 {@code v\d+} 格式），实现非覆盖式版本。
+     * <p>
+     * 例如 id="file-p1-s1", version="v2" → "file-p1-s1-v2"。
+     * 旧版 id（无后缀或旧版本后缀）经 {@link KnowledgeDocument#getBaseDocId()} 解析后
+     * 与新版 baseDocId 一致，可被 {@code markSupersededByBaseId} 定位标记。
+     * </p>
+     * <p>
+     * 非 {@code v\d+} 格式（如日期版本 "2026-01"）不编入 id，降级为 upsert 覆盖
+     * （与旧行为一致，避免破坏 baseDocId 解析）。
+     * </p>
+     */
+    private static String withVersionSuffix(String id, String version) {
+        if (version == null || version.isBlank()) version = "v1";
+        if (!version.matches("v\\d+(\\.\\d+)?")) return id;
+        if (id.matches(".*-v\\d+(\\.\\d+)?$")) return id;
+        return id + "-" + version;
     }
 
     /**

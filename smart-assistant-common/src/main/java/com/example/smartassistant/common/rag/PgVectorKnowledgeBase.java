@@ -38,6 +38,8 @@ import java.util.stream.Collectors;
  *     version VARCHAR(32) DEFAULT 'v1',       -- 🔴 版本：灰度回滚
  *     source_url VARCHAR(1024) DEFAULT '',    -- 🟡 来源：引用回链
  *     chunk_index INT DEFAULT -1,             -- 🟡 段落：跨段拼接
+ *     authority_level INT DEFAULT 3,          -- 🔴 权威性：L1=4>L2=3>L3=2>L4=1
+ *     document_status VARCHAR(16) DEFAULT 'ACTIVE', -- 🔴 状态：ACTIVE/SUPERSEDED/QUARANTINED
  *     embedding vector(384),                  -- BGE-small-zh 维度
  *     created_at BIGINT NOT NULL
  * );
@@ -100,6 +102,8 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "version VARCHAR(32) DEFAULT 'v1',"
                 + "source_url VARCHAR(1024) DEFAULT '',"
                 + "chunk_index INT DEFAULT -1,"
+                + "authority_level INT DEFAULT 3,"
+                + "document_status VARCHAR(16) DEFAULT 'ACTIVE',"
                 + "embedding vector(" + DIMENSIONS + "),"
                 + "created_at BIGINT NOT NULL"
                 + ")");
@@ -130,20 +134,23 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         jdbcTemplate.update(
                 "INSERT INTO " + TABLE + " (id, title, content, category, keywords, "
                         + "effective_at, expire_at, tenant_id, version, source_url, chunk_index, "
+                        + "authority_level, document_status, "
                         + "embedding, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
                         + (vecStr != null ? "?::vector" : "NULL") + ", ?) "
                         + "ON CONFLICT (id) DO UPDATE SET "
                         + "title=EXCLUDED.title, content=EXCLUDED.content, "
                         + "category=EXCLUDED.category, keywords=EXCLUDED.keywords, "
                         + "tenant_id=EXCLUDED.tenant_id, version=EXCLUDED.version, "
                         + "source_url=EXCLUDED.source_url, chunk_index=EXCLUDED.chunk_index, "
+                        + "authority_level=EXCLUDED.authority_level, document_status=EXCLUDED.document_status, "
                         + "embedding=" + (vecStr != null ? "EXCLUDED.embedding" : "NULL"),
                 doc.getId(), doc.getTitle(), doc.getContent(),
                 doc.getCategory(), doc.getKeywords(),
                 doc.getEffectiveAt(), doc.getExpireAt(),
                 doc.getTenantId(), doc.getVersion(),
                 doc.getSourceUrl(), doc.getChunkIndex(),
+                doc.getAuthorityLevel().getRank(), doc.getDocumentStatus().name(),
                 vecStr, System.currentTimeMillis());
     }
 
@@ -165,6 +172,26 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     }
 
     @Override
+    public List<String> listIdsByBaseDocId(String baseDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return List.of();
+        return jdbcTemplate.query(
+                "SELECT id FROM " + TABLE + " WHERE id = ? OR id LIKE ? || '-%'",
+                (ResultSet rs, int rowNum) -> rs.getString("id"),
+                baseDocId, baseDocId);
+    }
+
+    @Override
+    public void updateStatus(String docId, DocumentStatus status) {
+        if (docId == null || docId.isBlank() || status == null) return;
+        int n = jdbcTemplate.update(
+                "UPDATE " + TABLE + " SET document_status = ? WHERE id = ?",
+                status.name(), docId);
+        if (n > 0) {
+            log.info("[PgVectorKB:{}] 状态更新: id={}, status={}", name, docId, status);
+        }
+    }
+
+    @Override
     public List<KnowledgeHit> search(String query, int topK) {
         return search(query, topK, KnowledgeBase.PUBLIC_TENANT);
     }
@@ -181,17 +208,19 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
             return fallbackSearch(query, k, tenantId);
         }
 
-        // 向量搜索 + 过滤过期文档 + 🔴 ACL 检索前过滤
+        // 向量搜索 + 过滤过期文档 + 🔴 ACL 检索前过滤 + 🔴 状态过滤
         String vecStr = arrayToPgVector(queryVec);
         long now = System.currentTimeMillis();
         String aclClause = buildAclClause(tenantId);
         List<KnowledgeDocument> candidates = jdbcTemplate.query(
                 "SELECT id, title, content, category, keywords, effective_at, expire_at, "
                         + "tenant_id, version, source_url, chunk_index, created_at, "
+                        + "authority_level, document_status, "
                         + "(embedding <-> ?::vector) AS dist "
                         + "FROM " + TABLE + " "
                         + "WHERE (effective_at <= 0 OR effective_at <= ?) "
                         + "AND (expire_at <= 0 OR expire_at > ?) "
+                        + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
                         + aclClause
                         + "ORDER BY embedding <-> ?::vector LIMIT ?",
                 (ResultSet rs, int rowNum) -> {
@@ -203,14 +232,17 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                             safeString(rs, "tenant_id"),
                             safeString(rs, "version"),
                             safeString(rs, "source_url"),
-                            rs.getInt("chunk_index"));
+                            rs.getInt("chunk_index"),
+                            "",
+                            AuthorityLevel.fromRank(rs.getInt("authority_level")),
+                            DocumentStatus.fromCode(safeString(rs, "document_status")));
                     return doc;
                 },
                 vecStr, now, now, vecStr, 50); // 粗筛 50 条
 
         // 精排：BM25 + 时间衰减
         List<ScoredDoc> scored = candidates.stream()
-                .filter(doc -> doc.isActive())
+                .filter(doc -> doc.isRetrievable())
                 .map(doc -> {
                     double cosSim = 1.0; // pgvector <-> 已返回余弦距离，此处简化
                     double score = composeScore(cosSim, doc, query);
@@ -270,9 +302,11 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         String aclClause = buildAclClause(tenantId);
         return jdbcTemplate.query(
                 "SELECT id, title, content, category, keywords, effective_at, expire_at, "
-                        + "tenant_id, version, source_url, chunk_index, created_at "
+                        + "tenant_id, version, source_url, chunk_index, created_at, "
+                        + "authority_level, document_status "
                         + "FROM " + TABLE + " "
                         + "WHERE (title ILIKE ? OR content ILIKE ? OR keywords ILIKE ?) "
+                        + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
                         + aclClause
                         + "LIMIT ?",
                 (ResultSet rs, int rowNum) -> {
@@ -280,11 +314,14 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                             rs.getString("id"), rs.getString("title"),
                             rs.getString("content"), rs.getString("category"),
                             rs.getString("keywords"),
-                            rs.getLong("effective_at"), rs.getLong("expire_at"),
+                            rs.getLong("effective_at"), rs.getLong("expireAt"),
                             safeString(rs, "tenant_id"),
                             safeString(rs, "version"),
                             safeString(rs, "source_url"),
-                            rs.getInt("chunk_index"));
+                            rs.getInt("chunk_index"),
+                            "",
+                            AuthorityLevel.fromRank(rs.getInt("authority_level")),
+                            DocumentStatus.fromCode(safeString(rs, "document_status")));
                     return new KnowledgeHit(doc, 0.5);
                 },
                 q, q, q, topK);
@@ -300,12 +337,14 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         }
         // 版本优先级（v1=1.0, v2=1.1, v3=1.2）
         double versionBoost = 1.0 + doc.getVersionPriority() * VERSION_PENALTY_RATE;
+        // ⭐ 权威性加权（冲突预防）：L1 官方 > L2 内部 > L3 笔记 > L4 外部
+        double authorityBoost = 1.0 + (doc.getAuthorityLevel().getRank() / 4.0 - 0.5) * 0.2;
         double bm25Score = 0;
         if (bm25Scorer != null && bm25Scorer.isInitialized()) {
             bm25Score = Math.tanh(bm25Scorer.score(doc, query));
             bm25Score = Math.min(bm25Score, 1.0);
         }
-        return cosSim * timeDecay * versionBoost * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
+        return cosSim * timeDecay * versionBoost * authorityBoost * (1 - BM25_MIX_WEIGHT) + bm25Score * BM25_MIX_WEIGHT;
     }
 
     /** float[] → pgvector 字符串格式 '[0.1,0.2,...]' */
