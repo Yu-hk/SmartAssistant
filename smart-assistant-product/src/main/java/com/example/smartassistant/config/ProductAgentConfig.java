@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.config;
 
+import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
@@ -89,6 +90,7 @@ public class ProductAgentConfig {
                 .withChatClient(chatClient)
                 .withMetrics(metricsCollector)
                 .withProfile("product", reactProfileRegistry)
+                .withFeedbackLog(new FeedbackLog())
                 .withPreset(PromptBuilder.build()
                         .withServicePrompt(fullSystemPrompt)
                         .assemble(), toolList);

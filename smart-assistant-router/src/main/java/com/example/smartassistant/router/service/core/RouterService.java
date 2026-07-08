@@ -9,6 +9,7 @@ package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.AgentExecutionState;
+import com.example.smartassistant.common.agent.GoalContinuityArbiter;
 import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.model.tier.TieredModelRouter;
@@ -459,6 +460,24 @@ public class RouterService {
                         // 强漂移时标记 intentTag（下游可据此重置上下文）
                         if (drift.strongDrift()) {
                             log.info("[Router] 🔄 强漂移检测: 新意图={}, 上下文需重置", intentTag);
+                        }
+                    }
+                }
+
+                // ⭐ 文章⑥目标连续性裁决：BGE 漂移之外增加词汇重叠度 + 二级裁决
+                if (conversationHistory != null && !conversationHistory.isEmpty()) {
+                    String lastUserQuestion = extractLastUserQuestion(conversationHistory);
+                    if (lastUserQuestion != null) {
+                        GoalContinuityArbiter arbiter = new GoalContinuityArbiter();
+                        var goalResult = arbiter.arbitrate(enhancedQuestion, lastUserQuestion);
+                        if (goalResult.arbiterLevel() == GoalContinuityArbiter.ArbiterLevel.FUZZY) {
+                            log.info("[Router] 🔄 目标连续性模糊: overlap={}, 需用户确认",
+                                    String.format("%.2f", goalResult.overlapScore()));
+                        } else if (!goalResult.sameTask()) {
+                            log.info("[Router] 🔄 目标连续性判定为新任务: reason={}, overlap={}",
+                                    goalResult.reason(), String.format("%.2f", goalResult.overlapScore()));
+                            // 新任务 → 标记上下文需重置
+                            intentTag = intentTag != null ? intentTag + "_NEW" : "NEW_TASK";
                         }
                     }
                 }
@@ -995,6 +1014,21 @@ public class RouterService {
         if (str == null) return "";
         return str.replace("\\", "\\\\").replace("\"", "\\\"")
                 .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
+    }
+
+    /**
+     * 从对话历史中提取最近一条用户问题。
+     * 历史格式：["用户：...", "助手：...", "用户：..."]
+     */
+    private String extractLastUserQuestion(List<String> history) {
+        if (history == null || history.isEmpty()) return null;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            String msg = history.get(i);
+            if (msg.startsWith("用户：") || msg.startsWith("用户:")) {
+                return msg.substring(3).trim();
+            }
+        }
+        return null;
     }
 
     /*
