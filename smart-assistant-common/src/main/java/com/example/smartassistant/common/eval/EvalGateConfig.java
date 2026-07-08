@@ -56,6 +56,21 @@ public class EvalGateConfig {
     /** Agent 用例通过率下限（0~1，仅 {@link #enableAgentGate}=true 时生效）。 */
     public double minAgentPassRate = 0.8;
 
+    /**
+     * Agent 评测 Trial 次数（运行器注入且 {@link #enableAgentGate}=true 时生效）。
+     * <p>>1 时启用 {@code Trial×pass^k} 稳定性判定：对单用例多次独立运行后，
+     * 以「k 次全部通过的概率(pass^k)」作为该用例是否稳定通过的判定依据，而非单次运气。
+     * 默认 1 = 单次运行（退化为原逻辑，仅当注入了运行器且小于等于 1 时不启用 Trial）。</p>
+     */
+    public int agentTrialCount = 1;
+
+    /**
+     * 单用例 pass^k 稳定性阈值（0~1）。
+     * <p>某用例 k 次独立运行全部通过的概率需 {@code >=} 该值，才被 {@link GoldenSuiteEvalGate}
+     * 标记为该用例「稳定通过」。</p>
+     */
+    public double minAgentPassKRate = 0.8;
+
     /** 是否开启相对基线回归检测（需存在已提交基线 {@link EvalBaseline}）。 */
     public boolean compareToBaseline = true;
 
