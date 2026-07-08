@@ -182,6 +182,9 @@ public class SmartReActAgent {
     /** 当前阶段名称（可选，用于 Pre-AL Gate） */
     private String currentPhase;
 
+    /** 反馈学习日志（可选，null 时跳过 per-round 结构化反馈记录） */
+    private FeedbackLog feedbackLog;
+
     private final ChatModel chatModel;
 
     /** ⭐ ChatClient（可选，含 Advisor 链）— 设置后优先使用，使 TokenUsage/ThinkingCollector 等 Advisor 生效 */
@@ -406,6 +409,17 @@ public class SmartReActAgent {
         return this;
     }
 
+    /**
+     * 配置反馈学习日志。
+     *
+     * @param feedbackLog 反馈日志实例
+     * @return this
+     */
+    public SmartReActAgent withFeedbackLog(FeedbackLog feedbackLog) {
+        this.feedbackLog = feedbackLog;
+        return this;
+    }
+
     // ==================== execute 重载 ====================
 
     /**
@@ -481,6 +495,11 @@ public class SmartReActAgent {
             if (elapsed > profile.timeoutMs()) {
                 log.warn("[SmartReActAgent] ⏰ 超时 ({}ms, 迭代 {} 次)", elapsed, iteration);
                 metrics.recordTimeout();
+                if (feedbackLog != null) {
+                    feedbackLog.recordFailure(iteration, "超时",
+                            "缩短单轮执行时间或增大超时阈值",
+                            "尝试拆解为多个子任务并行执行");
+                }
                 recoveryService.logRecovery(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, RecoveryAction.FALLBACK_AGENT,
                         "elapsed=" + elapsed + "ms, iteration=" + iteration, iteration);
                 return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, null);
@@ -652,6 +671,10 @@ public class SmartReActAgent {
                 String answer = answerText;
                 log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
                         iteration, elapsed, totalInputTokens, totalOutputTokens);
+                if (feedbackLog != null) {
+                    String progress = noProgressCount > 0 ? "low" : "high";
+                    feedbackLog.recordProgress(iteration, progress);
+                }
                 return answer;
             }
             // 有工具调用 → 重置无进展计数器
@@ -716,6 +739,11 @@ public class SmartReActAgent {
         // ⭐ 达到最大迭代次数
         log.warn("[SmartReActAgent] 达到最大迭代次数 {}", profile.maxIterations());
         metrics.recordMaxIterationHit();
+        if (feedbackLog != null) {
+            feedbackLog.recordFailure(profile.maxIterations(), "达到迭代上限",
+                    "增大 maxIterations 或检查 Agent 是否陷入死循环",
+                    "尝试委派子Agent或将大任务拆解为多个小任务");
+        }
         recoveryService.logRecovery(AgentErrorCode.SYSTEM_MAX_ITERATIONS, RecoveryAction.FALLBACK_AGENT,
                 "maxIterations=" + profile.maxIterations(), profile.maxIterations());
         return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_MAX_ITERATIONS, null);
