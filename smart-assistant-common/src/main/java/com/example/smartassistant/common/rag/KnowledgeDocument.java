@@ -87,6 +87,19 @@ public class KnowledgeDocument {
     /** 🔴 文档状态：ACTIVE 可检索 / SUPERSEDED 已取代 / QUARANTINED 隔离，默认 ACTIVE */
     private final DocumentStatus documentStatus;
 
+    // ═══════════════════════════════════════════════════════════
+    // ⭐ 索引版本化字段（文章⑦索引重建与向量库同步）
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * 🟡 索引版本号：标识构建此 chunk 向量时所使用的索引策略/模型版本。
+     * <p>
+     * chunk切分策略变化、embedding模型变化、解析策略变化时应生成新的索引版本。
+     * 检索时按 `active_index_version` 过滤，保证查到的向量是同一索引版本构建的。
+     * </p>
+     */
+    private final String indexVersion;
+
     // ==================== 构造器 ====================
 
     public KnowledgeDocument(String id, String title, String content,
@@ -118,10 +131,7 @@ public class KnowledgeDocument {
     }
 
     /**
-     * ⭐ 全参构造器（含治理能力字段）。
-     *
-     * @param authorityLevel 来源权威性等级（null → L2_INTERNAL）
-     * @param documentStatus 文档状态（null → ACTIVE）
+     * ⭐ 旧版全参构造器（不含 indexVersion），委托新版。
      */
     public KnowledgeDocument(String id, String title, String content,
                              String category, String keywords,
@@ -130,6 +140,26 @@ public class KnowledgeDocument {
                              String sourceUrl, int chunkIndex,
                              String parentDocId,
                              AuthorityLevel authorityLevel, DocumentStatus documentStatus) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, parentDocId,
+                authorityLevel, documentStatus, null);
+    }
+
+    /**
+     * ⭐ 全参构造器（含治理能力字段 + 索引版本）。
+     *
+     * @param authorityLevel 来源权威性等级（null → L2_INTERNAL）
+     * @param documentStatus 文档状态（null → ACTIVE）
+     * @param indexVersion   索引版本（null → "v1"）
+     */
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId,
+                             AuthorityLevel authorityLevel, DocumentStatus documentStatus,
+                             String indexVersion) {
         this.id = id;
         this.title = title;
         this.content = content;
@@ -145,6 +175,7 @@ public class KnowledgeDocument {
         this.parentDocId = parentDocId != null ? parentDocId : "";
         this.authorityLevel = authorityLevel != null ? authorityLevel : AuthorityLevel.L2_INTERNAL;
         this.documentStatus = documentStatus != null ? documentStatus : DocumentStatus.ACTIVE;
+        this.indexVersion = indexVersion != null ? indexVersion : "v1";
     }
 
     /** 文档是否在有效期内且未被隔离 */
@@ -183,6 +214,7 @@ public class KnowledgeDocument {
     public String getParentDocId() { return parentDocId; }
     public AuthorityLevel getAuthorityLevel() { return authorityLevel; }
     public DocumentStatus getDocumentStatus() { return documentStatus; }
+    public String getIndexVersion() { return indexVersion; }
 
     // ==================== 版本控制方法 ====================
 
