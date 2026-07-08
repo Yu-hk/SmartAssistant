@@ -87,6 +87,25 @@ spring:
             namespace: ""  # 使用默认 namespace (public)
             group: DEFAULT_GROUP
 
+# ⭐ G3 Tier 多模型路由配置（统一模型接入层）
+# 前缀 `tier` → 绑定 common.TieredModelRouterProperties
+# 本地环境三档可指向同一 Ollama 实例的不同模型名；云端 heavy 可指向 DeepSeek/GPT 等强模型
+tier:
+  light:
+    model: qwen2.5:3b        # Tier1 轻量：本地小模型，低延迟低成本
+    temperature: 0.1
+  standard:
+    model: deepseek-r1:7b    # Tier2 标准：本地主力，兼顾能力与成本
+    temperature: 0.3
+  heavy:
+    model: deepseek-r1:7b    # Tier3 强模型：复杂推理（云端可换 DeepSeek/GPT）
+    temperature: 0.2
+  # 意图维度覆盖：命中这些意图标签时强制升档到指定 tier（绕过复杂度分类）
+  intent-overrides:
+    refund_complaint: HEAVY  # 退款投诉类 → 强模型确保严谨
+    travel_plan: HEAVY       # 多跳旅行规划 → 强模型
+  degradation-enabled: true  # 启用平滑降级（HEAVY→STANDARD→LIGHT，LIGHT 永为兜底）
+
 # JWT 配置（与 Consumer Service 保持一致）
 jwt:
   secret: ${JWT_SECRET}  # ⭐ 从环境变量 JWT_SECRET 读取。⚠️ 必须设置 JWT_SECRET 环境变量，启动失败即表示未配置

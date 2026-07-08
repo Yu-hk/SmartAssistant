@@ -11,6 +11,8 @@ import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.model.tier.TieredModelRouter;
+import com.example.smartassistant.common.model.tier.TierSelection;
 import com.example.smartassistant.router.service.context.IntentDriftDetector;
 import com.example.smartassistant.router.service.fusion.IntentFusionResult;
 import com.example.smartassistant.router.service.fusion.IntentFusionService;
@@ -31,7 +33,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -89,6 +94,10 @@ public class RouterService {
 
     // ⭐ 轻量模型（用于兜底回复等简单推理）
     private final ChatClient lightChatClient;
+
+    // ⭐ G3 统一模型接入层（按复杂度选档 + 平滑降级；无 Ollama 环境为 null）
+    @Autowired(required = false)
+    private TieredModelRouter tieredModelRouter;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -916,15 +925,27 @@ public class RouterService {
      * </ol>
      */
     private RoutingResult inlineFallback(String question) {
+        // ⭐ G3：按复杂度选档 + 平滑降级调用（无 TieredModelRouter 时退回原 lightChatClient 行为）
+        String warmSystem = "你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
+                + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
+                + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
+                + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。";
         try {
-            String localReply = lightChatClient.prompt()
-                    .system("你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
-                          + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
-                          + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
-                          + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。")
-                    .user(question)
-                    .call()
-                    .content();
+            String localReply;
+            if (tieredModelRouter != null) {
+                Prompt prompt = new Prompt(List.of(
+                        new SystemMessage(warmSystem),
+                        new UserMessage(question)));
+                TierSelection sel = tieredModelRouter.call(prompt, question, null);
+                localReply = sel.response() != null && sel.response().getResult() != null
+                        ? sel.response().getResult().getOutput().getText() : null;
+            } else {
+                localReply = lightChatClient.prompt()
+                        .system(warmSystem)
+                        .user(question)
+                        .call()
+                        .content();
+            }
             if (localReply != null && !localReply.isBlank()) {
                 return RoutingResult.builder()
                         .result(localReply)
@@ -933,7 +954,7 @@ public class RouterService {
                         .build();
             }
         } catch (Exception e) {
-            log.warn("[Router] 本地推理兜底失败: {}", e.getMessage());
+            log.warn("[Router] 本地推理兜底失败（含 G3 档位全失败）: {}", e.getMessage());
         }
 
         // 终极降级 — 预设文案轮换
