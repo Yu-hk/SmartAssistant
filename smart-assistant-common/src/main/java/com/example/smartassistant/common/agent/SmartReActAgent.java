@@ -90,6 +90,19 @@ public class SmartReActAgent {
     private static final int NO_INCREMENT_LIMIT = 2;
 
     // ═══════════════════════════════════════════════════════════════
+    // ⭐ P1 Loop Engineering 常量（文章⑥确定性约束）
+    // ═══════════════════════════════════════════════════════════════
+
+    /** 连续解析失败保护阈值：评估器连续返回无效结果的最多次数 */
+    private static final int MAX_PARSE_FAILURES = 3;
+
+    /** 无进展计数器阈值：连续几轮无实质进展时提前终止 */
+    private static final int MAX_NO_PROGRESS_ITERATIONS = 3;
+
+    /** 无进展检测：一次迭代中工具调用数少于此值视为"无实质进展" */
+    private static final int MIN_PROGRESS_TOOL_CALLS = 1;
+
+    // ═══════════════════════════════════════════════════════════════
     // ⭐ 工具输出截断常量（保头保尾砍中间）
     // ═══════════════════════════════════════════════════════════════
 
@@ -117,6 +130,25 @@ public class SmartReActAgent {
 
     /** 压缩后重置的 prefill 基线（首次压缩后设为摘要占据的 token） */
     private int prefillBaseline = 0;
+
+    // ═══════════════════════════════════════════════════════════════
+    // ⭐ P1 Loop Engineering（文章⑥确定性约束组件）
+    // ═══════════════════════════════════════════════════════════════
+
+    /** 是否启用 Pre-AL Gate 注入（默认启用） */
+    private boolean preALGateEnabled = true;
+
+    /** 循环守卫服务：确定性快速判断 */
+    private final LoopGuardService loopGuard = new LoopGuardService();
+
+    /** Phase Gate：代码级验收门禁（可选，null 时跳过） */
+    private PhaseGate phaseGate;
+
+    /** 当前阶段的验收检查项列表（可选，null 时跳过 Phase Gate） */
+    private java.util.List<PhaseGate.Check> phaseChecks;
+
+    /** 当前阶段名称（可选，用于 Pre-AL Gate） */
+    private String currentPhase;
 
     private final ChatModel chatModel;
 
@@ -313,6 +345,35 @@ public class SmartReActAgent {
         return this;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // ⭐ P1 Loop Engineering 配置方法
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 配置 Pre-AL Gate 注入（默认启用）。
+     *
+     * @param enabled 是否启用
+     * @return this
+     */
+    public SmartReActAgent withPreALGate(boolean enabled) {
+        this.preALGateEnabled = enabled;
+        return this;
+    }
+
+    /**
+     * 配置 Phase Gate 验收门禁。
+     *
+     * @param checks   验收检查项列表
+     * @param phase    当前阶段名称
+     * @return this
+     */
+    public SmartReActAgent withPhaseGate(java.util.List<PhaseGate.Check> checks, String phase) {
+        this.phaseGate = new PhaseGate();
+        this.phaseChecks = checks;
+        this.currentPhase = phase;
+        return this;
+    }
+
     // ==================== execute 重载 ====================
 
     /**
@@ -374,6 +435,11 @@ public class SmartReActAgent {
         for (ToolCallback tc : effectiveTools) {
             toolMap.put(tc.getToolDefinition().name(), tc);
         }
+
+        // ⭐ P1 无进展计数器
+        int consecutiveParseFailures = 0;
+        int noProgressCount = 0;
+        String lastToolContextHash = null;
 
         while (iteration < profile.maxIterations()) {
             iteration++;
@@ -437,6 +503,18 @@ public class SmartReActAgent {
 
             metrics.recordIteration(iteration);
 
+            // ═══════════════════════════════════════════════════════════
+            // ⭐ P1 Pre-AL Gate：每轮注入结构化执行契约
+            // ═══════════════════════════════════════════════════════════
+            if (preALGateEnabled) {
+                String preALText = new PreALGate(iteration, profile.maxIterations(),
+                        currentPhase, pendingCheckNames()).render();
+                // 找到 system message（通常是 messages[0]）并追加契约文本
+                if (!messages.isEmpty() && messages.get(0) instanceof SystemMessage sysMsg) {
+                    messages.set(0, new SystemMessage(sysMsg.getText() + preALText));
+                }
+            }
+
             // ⭐ 调用 LLM（带追踪跨度 + 优先使用 ChatClient/Advisor 链）
             ChatResponse response;
             long llmStart = System.currentTimeMillis();
@@ -476,8 +554,18 @@ public class SmartReActAgent {
 
             if (response == null || response.getResult() == null) {
                 log.warn("[SmartReActAgent] LLM 返回空");
+                // ⭐ P1-4 连续解析失败保护：评估器连续无效→暂停避免烧预算
+                consecutiveParseFailures++;
+                if (consecutiveParseFailures >= MAX_PARSE_FAILURES) {
+                    log.warn("[SmartReActAgent] 连续 {} 次解析失败，暂停避免烧预算", consecutiveParseFailures);
+                    metrics.recordMaxIterationHit();
+                    return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_MAX_ITERATIONS,
+                            "连续" + consecutiveParseFailures + "次LLM返回空，已暂停");
+                }
                 continue;
             }
+            // 成功获取结果，重置计数器
+            consecutiveParseFailures = 0;
 
             // ⭐ 追踪 Token 消耗
             if (trackTokenBudget && response.getMetadata() != null
@@ -493,14 +581,50 @@ public class SmartReActAgent {
 
             AssistantMessage assistantMsg = response.getResult().getOutput();
             var toolCalls = assistantMsg.getToolCalls();
+            String answerText = assistantMsg.getText();
+
+            // ═══════════════════════════════════════════════════════════
+            // ⭐ P1-2 确定性快速判断（LoopGuardService）：代码级检测三类状态
+            // ═══════════════════════════════════════════════════════════
+            if (answerText != null && !answerText.isBlank()) {
+                var guardResult = loopGuard.analyze(answerText);
+                if (!guardResult.isContinue()) {
+                    log.warn("[SmartReActAgent] 🛑 循环守卫触发: action={}, reason={}",
+                            guardResult.action(), guardResult.reason());
+                    metrics.recordMaxIterationHit();
+                    // 守卫暂停：返回包含暂停原因的友好消息
+                    String pauseReason = switch (guardResult.action()) {
+                        case PAUSE_BLOCKED -> "检测到 Agent 报告被阻塞，无法继续。请提供更多信息或重新描述需求。";
+                        case AWAIT_CONFIRMATION -> "Agent 在等待您的确认。请根据提示做出选择。";
+                        case PAUSE_INFRASTRUCTURE -> "检测到基础设施故障，已暂停以避免持续重试。请稍后再试。";
+                        default -> "循环守卫暂停";
+                    };
+                    return pauseReason;
+                }
+            }
 
             // ⭐ 没有工具调用 → 最终回答
             if (toolCalls == null || toolCalls.isEmpty()) {
-                String answer = assistantMsg.getText();
+                // ⭐ P1-5 无进展检测：只有文本无工具调用且内容较短（非最终回答）
+                // 使用工具调用次数与内容长度联合判定
+                boolean hasProgress = answerText != null && answerText.length() > 50;
+                if (!hasProgress) {
+                    noProgressCount++;
+                    if (noProgressCount >= MAX_NO_PROGRESS_ITERATIONS) {
+                        log.warn("[SmartReActAgent] 连续 {} 轮无实质进展，提前终止", noProgressCount);
+                        return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_NO_INCREMENT,
+                                "连续" + noProgressCount + "轮无实质进展，已终止");
+                    }
+                } else {
+                    noProgressCount = 0;
+                }
+                String answer = answerText;
                 log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
                         iteration, elapsed, totalInputTokens, totalOutputTokens);
                 return answer;
             }
+            // 有工具调用 → 重置无进展计数器
+            noProgressCount = 0;
 
             log.debug("[SmartReActAgent] 收到 {} 个工具调用", toolCalls.size());
 
@@ -1020,6 +1144,15 @@ public class SmartReActAgent {
         int endQuote = trimmed.indexOf('"', startQuote + 1);
         if (endQuote <= startQuote) return null;
         return trimmed.substring(startQuote + 1, endQuote);
+    }
+
+    /** ⭐ P1-1 Pre-AL Gate 辅助：获取未通过的验收检查项名列表。 */
+    private java.util.List<String> pendingCheckNames() {
+        if (phaseChecks == null) return java.util.List.of();
+        return phaseChecks.stream()
+                .filter(c -> c != null)
+                .map(PhaseGate.Check::description)
+                .collect(java.util.stream.Collectors.toList());
     }
 
     /** 截断字符串到64字符（用于日志） */
