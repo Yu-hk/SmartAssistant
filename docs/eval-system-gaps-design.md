@@ -2,7 +2,7 @@
 
 > 对应文章：《Agent 评测体系：从 demo 到生产的完整拆解》（梦朝思夕，2026-07-02，基于 Anthropic + 阿里工程化体系）
 > 落地模块：`smart-assistant-common` / `com.example.smartassistant.common.eval`（含 `grader` 子包）
-> 状态：代码已落地、`EvalGapsDesignTest` 10 例全绿、全模块编译无回归
+> 状态：代码已落地、`EvalGapsDesignTest`(10) + `GoldenSuiteEvalGateTrialTest`(3) + `AgentEvaluationResultOverrideTest`(3) 全绿、已接入 `GoldenSuiteEvalGate` 发布门禁、common 全量测试无回归
 
 ---
 
@@ -147,7 +147,23 @@ List<EvalPipeline.CaseVerdict> vs = p.evaluateAll(specs);
 RootCauseAnalysis rc = p.lastRootCause();              // 全量失败根因
 ```
 
-**接入 CI / GoldenSuiteEvalGate（可选演进）**：在 `GoldenSuiteEvalGate.run()` 中，当 `enableAgentGate=true` 且注入 `TrialExecutor` 后，调用 `EvalPipeline` 替代当前的「待执行占位」，即可把 pass^k + 人工路由 + 根因分析纳入发布门禁。当前为保持既有 `GoldenSuiteEvalGateTest` 基线不变，未强制改写。
+**接入 CI / GoldenSuiteEvalGate（已落地）**：`GoldenSuiteEvalGate.run(suite, cfg, reportDir, baseline, update, executor)` 新增可注入 `TrialExecutor` 重载。当 `enableAgentGate=true` 且 `agentTrialCount>1` 且注入运行器时，自动调用 `EvalPipeline` 跑完整增强评测，并以 **pass^k** 作为单用例「稳定通过」判定依据：
+
+```java
+// CI 门禁（不更新基线，离线占位 Agent）
+GateResult r = new GoldenSuiteEvalGate().run(
+    "/eval-test-suite.json", "/eval-gate-config.json",
+    Path.of("target/eval-reports"), Path.of("src/test/resources/eval-baseline.json"), false);
+
+// 注入真实运行器 → 启用 Trial×pass^k 稳定性门禁（替代默认离线占位）
+EvalGateConfig cfg = new EvalGateConfig();
+cfg.enableAgentGate = true; cfg.agentTrialCount = 5; cfg.minAgentPassKRate = 0.8;
+GateResult r2 = new GoldenSuiteEvalGate().run(
+    "/eval-test-suite.json", cfg, reportDir, baseline, false, myAgentExecutor);
+if (!r2.passed()) System.exit(1); // 含稳定性门禁
+```
+
+**零改动复用既有门禁**：`pass^k` 结论通过 `AgentEvaluationResult.Builder#overridePassed(Boolean)` 注入，复用既有 `EvalGate` 的 `agent.passRate` 聚合与 `minAgentPassRate` 双重校验——全程**未修改 `EvalGate` 一行**。未注入运行器时（默认 CI 离线黄金集）Agent 用例仍生成「待执行」占位，行为向后兼容。
 
 ---
 
@@ -172,7 +188,13 @@ RootCauseAnalysis rc = p.lastRootCause();              // 全量失败根因
 | `eval/RootCauseAnalysis.java` | ④ | 分析结果（Diagnosis） |
 | `eval/RootCauseAnalyzer.java` | ④ | 根因 5 步 + 修复工单 |
 | `eval/EvalPipeline.java` | 集成 | 四缺口编排器 |
+| `eval/AgentEvaluationResult.java` | 集成 | 新增 `overridePassed`（向后兼容，零改动 EvalGate） |
+| `eval/EvalGateConfig.java` | 集成 | 新增 `agentTrialCount` / `minAgentPassKRate` |
+| `eval/EvaluationReportService.java` | 集成 | 新增 `getAgentTestCases()` 暴露 Agent 用例 |
+| `eval/GoldenSuiteEvalGate.java` | 集成 | `run()` 新增可注入 `TrialExecutor` 重载，接入 EvalPipeline |
 | `eval/EvalGapsDesignTest.java` | 验证 | 10 例单测，全绿 |
+| `eval/GoldenSuiteEvalGateTrialTest.java` | 验证 | 3 例：Trial×pass^k 门禁通过/阻断/占位回退 |
+| `eval/AgentEvaluationResultOverrideTest.java` | 验证 | 3 例：overridePassed 三态 |
 
 ---
 
@@ -181,9 +203,11 @@ RootCauseAnalysis rc = p.lastRootCause();              // 全量失败根因
 | 验证项 | 结果 |
 |--------|------|
 | `EvalGapsDesignTest` | `Tests run: 10, Failures: 0, Errors: 0` ✅ |
+| `GoldenSuiteEvalGateTrialTest` | `Tests run: 3, Failures: 0, Errors: 0` ✅（含 pass^k 门禁阻断） |
+| `AgentEvaluationResultOverrideTest` | `Tests run: 3, Failures: 0, Errors: 0` ✅ |
 | 全模块 `mvn compile` | EXIT=0，无回归 ✅ |
 
-10 例覆盖：pass^k 数学、TrialRunner 聚合、RuleGrader 部分得分、GraderWaterfall 离线、LlmGrader 解析 + 长度偏差封顶、HumanReviewRouter 抽检/跳过、RootCauseAnalyzer 聚类定责、EvalPipeline 全链路。
+16 例覆盖：pass^k 数学、TrialRunner 聚合、RuleGrader 部分得分、GraderWaterfall 离线、LlmGrader 解析 + 长度偏差封顶、HumanReviewRouter 抽检/跳过、RootCauseAnalyzer 聚类定责、EvalPipeline 全链路，以及 **EvalPipeline→EvalGate 端到端集成**（始终通过→门禁放行；5 次仅 3 次通过→pass^k=0.078<0.8→门禁阻断；未注入运行器→离线占位回退）。
 
 ---
 
@@ -191,5 +215,6 @@ RootCauseAnalysis rc = p.lastRootCause();              // 全量失败根因
 
 1. **黄金集扩容**：10 → 50~200 条，补边界/对抗/多意图，规避「平衡坑」。
 2. **LLM-Judge 校准集**：用 `HumanReviewTask` 沉淀的金标准反向校准 `LlmGrader` 阈值。
-3. **接入 CI**：`GoldenSuiteEvalGate` 在 `enableAgentGate` 下调用 `EvalPipeline`，把 pass^k + 根因纳入发布门禁。
+3. **接入 CI（✅ 已完成）**：`GoldenSuiteEvalGate` 在 `enableAgentGate` 下调用 `EvalPipeline`，把 pass^k + 根因纳入发布门禁，且零改动 `EvalGate`。
 4. **Redis/PG 存储**：`HumanReviewStore` / `RootCauseStore` 换分布式实现，支持多人协作复核。
+5. **缺口⑤ 反馈闭环**：badcase 自动回流为修复工单/训练数据（文章五缺项目前落地 4 项）。
