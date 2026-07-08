@@ -57,6 +57,9 @@ public class KnowledgeIngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeIngestionService.class);
 
+    /** ⭐ 当前索引版本（chunk策略/embedding模型/解析策略变化时递增，文章⑦索引重建与向量库同步） */
+    private static final String CURRENT_INDEX_VERSION = "v1";
+
     private final DocumentParseRouter router;
     private final DocumentChunker chunker;
 
@@ -340,7 +343,10 @@ public class KnowledgeIngestionService {
                             tenantId != null && !tenantId.isBlank() ? tenantId : doc.getTenantId(),
                             doc.getVersion(),
                             doc.getSourceUrl(),
-                            doc.getChunkIndex()))
+                            doc.getChunkIndex(),
+                            doc.getParentDocId(),
+                            AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE,
+                            CURRENT_INDEX_VERSION))
                     .toList();
 
             // ⭐ Step 4.2: 入库前质检 pipeline（对标字节 RAG 七连问第二问）
@@ -360,7 +366,8 @@ public class KnowledgeIngestionService {
                         doc.getTenantId(), doc.getVersion(),
                         doc.getSourceUrl(), doc.getChunkIndex(),
                         doc.getParentDocId(),
-                        authorityLevel, DocumentStatus.ACTIVE);
+                        authorityLevel, DocumentStatus.ACTIVE,
+                        CURRENT_INDEX_VERSION);
 
                 // ② 质量评分门禁：低于阈值不入库，避免污染检索
                 if (qualityScorer.isQualified(scrubbedDoc)) {
