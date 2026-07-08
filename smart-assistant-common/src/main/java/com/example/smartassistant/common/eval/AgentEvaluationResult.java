@@ -84,6 +84,13 @@ public class AgentEvaluationResult {
     private final long timestamp;
     /** 备注 */
     private String notes;
+    /**
+     * 通过判定覆盖（可空）。
+     * <p>非 null 时 {@link #passed()} 直接返回该值，绕过 {@code computeScores()} 的复合分阈值判定。
+     * 用途：评测增强管线（Trial×pass^k）需以「k 次全成的稳定性概率」决定单用例是否通过，
+     * 而该语义无法由单次复合分表达，故由调用方显式覆盖。默认 null = 走原复合分逻辑（向后兼容）。</p>
+     */
+    private Boolean overridePassed;
 
     // ==================== 构造 ====================
 
@@ -106,6 +113,7 @@ public class AgentEvaluationResult {
         this.errorMessage = builder.errorMessage;
         this.timestamp = builder.timestamp > 0 ? builder.timestamp : System.currentTimeMillis();
         this.notes = builder.notes;
+        this.overridePassed = builder.overridePassed;
 
         // 自动计算评分
         computeScores();
@@ -166,8 +174,11 @@ public class AgentEvaluationResult {
 
     // ==================== 判定 ====================
 
-    /** 是否通过评测（综合分 >= 0.6） */
+    /** 是否通过评测（综合分 >= 0.6）。overridePassed 非 null 时优先采用其显式判定。 */
     public boolean passed() {
+        if (overridePassed != null) {
+            return overridePassed;
+        }
         return !hasError && compositeScore >= 0.6;
     }
 
@@ -234,6 +245,7 @@ public class AgentEvaluationResult {
         private String errorMessage;
         private long timestamp;
         private String notes;
+        private Boolean overridePassed;
 
         public Builder(String caseId) {
             this.caseId = caseId;
@@ -259,6 +271,7 @@ public class AgentEvaluationResult {
         public Builder errorMessage(String val) { this.errorMessage = val; return this; }
         public Builder timestamp(long val) { this.timestamp = val; return this; }
         public Builder notes(String val) { this.notes = val; return this; }
+        public Builder overridePassed(Boolean val) { this.overridePassed = val; return this; }
 
         public AgentEvaluationResult build() {
             return new AgentEvaluationResult(this);

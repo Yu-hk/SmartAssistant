@@ -231,6 +231,13 @@ public class EvaluationReportService {
     }
 
     /**
+     * 获取已加载的 Agent 测试用例规格（供评测增强管线注入 {@code TrialExecutor} 后跑 Trial×pass^k）。
+     */
+    public List<AgentTestSpec> getAgentTestCases() {
+        return List.copyOf(agentTestCases);
+    }
+
+    /**
      * 获取统计摘要。
      */
     public Map<String, Object> getSummary() {
