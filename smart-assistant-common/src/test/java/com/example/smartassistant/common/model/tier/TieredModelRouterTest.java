@@ -72,7 +72,7 @@ class TieredModelRouterTest {
 
     private TieredModelRouter router(Map<String, ModelTier> overrides, boolean degradation) {
         return new TieredModelRouter(classifier, registry,
-                overrides != null ? overrides : Map.of(), degradation, meterRegistry);
+                overrides != null ? overrides : Map.of(), degradation, 0.0, "", meterRegistry);
     }
 
     private static ChatResponse mockResponse(String text) {
@@ -248,7 +248,7 @@ class TieredModelRouterTest {
             when(lightModel.call(anyPrompt())).thenReturn(mockResponse("降级到轻量"));
 
             TieredModelRouter r = new TieredModelRouter(classifier, partialRegistry,
-                    Map.of(), true, meterRegistry);
+                    Map.of(), true, 0.0, "", meterRegistry);
             TierSelection sel = r.call(new Prompt("中等问题"), "中等问题", null);
 
             // MEDIUM→STANDARD（registry 返回 null），降级→LIGHT 成功
@@ -311,7 +311,7 @@ class TieredModelRouterTest {
             when(lightModel.call(anyPrompt())).thenReturn(mockResponse("你好"));
 
             TieredModelRouter noMetricsRouter = new TieredModelRouter(
-                    classifier, registry, Map.of(), true, null);
+                    classifier, registry, Map.of(), true, 0.0, "", null);
 
             assertDoesNotThrow(() -> noMetricsRouter.call(new Prompt("你好"), "你好", null));
         }

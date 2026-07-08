@@ -45,6 +45,10 @@ public class TieredModelRouter {
     private final Map<String, ModelTier> intentOverrides;
     private final boolean degradationEnabled;
 
+    // ⭐ 灰度发布
+    private final double canaryRatio;
+    private final String canaryModelName;
+
     private final Counter tierCounter;
     private final Counter degradeCounter;
     private final Timer latencyTimer;
@@ -53,11 +57,15 @@ public class TieredModelRouter {
                              TierModelRegistry registry,
                              Map<String, ModelTier> intentOverrides,
                              boolean degradationEnabled,
+                             double canaryRatio,
+                             String canaryModelName,
                              MeterRegistry meterRegistry) {
         this.classifier = classifier;
         this.registry = registry;
         this.intentOverrides = intentOverrides != null ? intentOverrides : Map.of();
         this.degradationEnabled = degradationEnabled;
+        this.canaryRatio = canaryRatio;
+        this.canaryModelName = canaryModelName != null ? canaryModelName : "";
         if (meterRegistry != null) {
             this.tierCounter = Counter.builder("model.tier.selections")
                     .description("模型档位选择分布").register(meterRegistry);
@@ -85,11 +93,34 @@ public class TieredModelRouter {
             log.debug("[TieredRouter] 意图覆盖档位: intentTag={}, tier={}", intentTag, override);
             return override;
         }
+        // ⭐ 灰度判断：canaryRatio > 0 且查询命中灰度比例
+        if (canaryRatio > 0 && canaryModelName != null && !canaryModelName.isBlank()) {
+            if (isCanaryRequest(query)) {
+                // 灰度请求走标准档位但用 canaryModelName 覆盖模型
+                return selectTierInternal(query);
+            }
+        }
+        return selectTierInternal(query);
+    }
+
+    /** 内部档位选择（不受灰度覆盖）。 */
+    private ModelTier selectTierInternal(String query) {
         return switch (classifier.classify(query)) {
             case SIMPLE -> ModelTier.LIGHT;
             case MEDIUM -> ModelTier.STANDARD;
             case COMPLEX -> ModelTier.HEAVY;
         };
+    }
+
+    /**
+     * 基于查询的确定性灰度判定。
+     * 同一 query 始终落在同一区间，保证灰度用户一致性。
+     */
+    private boolean isCanaryRequest(String query) {
+        if (canaryRatio <= 0 || query == null) return false;
+        int hash = Math.abs(query.hashCode());
+        double ratio = (hash % 100) / 100.0;
+        return ratio < canaryRatio;
     }
 
     /**
