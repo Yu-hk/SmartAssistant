@@ -31,6 +31,16 @@ public class TieredModelRouterProperties {
     /** 是否启用平滑降级（关闭后只在选定档位调用，失败即抛异常）。 */
     private boolean degradationEnabled = true;
 
+    // ═══════════════════════════════════════════════════════════
+    // ⭐ 灰度发布（canary-ratio）
+    // ═══════════════════════════════════════════════════════════
+
+    /** 灰度比例（0.0~1.0），新模型上线时逐步放量。0.0=全量旧模型，1.0=全量新模型。 */
+    private double canaryRatio = 0.0;
+
+    /** 灰度模型名（canary-ratio > 0 时，按比例切流到该模型）。 */
+    private String canaryModel = "";
+
     public static class TierConfig {
         private String model;
         private double temperature;
@@ -99,4 +109,9 @@ public class TieredModelRouterProperties {
     public void setDegradationEnabled(boolean degradationEnabled) {
         this.degradationEnabled = degradationEnabled;
     }
+
+    public double getCanaryRatio() { return canaryRatio; }
+    public void setCanaryRatio(double canaryRatio) { this.canaryRatio = canaryRatio; }
+    public String getCanaryModel() { return canaryModel; }
+    public void setCanaryModel(String canaryModel) { this.canaryModel = canaryModel; }
 }

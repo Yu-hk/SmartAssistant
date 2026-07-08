@@ -61,6 +61,8 @@ public class TierModelAutoConfiguration {
                 registry,
                 props.getIntentOverrides(),
                 props.isDegradationEnabled(),
+                props.getCanaryRatio(),
+                props.getCanaryModel(),
                 meterRegistry);
     }
 
