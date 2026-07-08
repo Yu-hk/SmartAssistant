@@ -23,8 +23,15 @@ import java.util.concurrent.atomic.AtomicInteger;
  * ⭐ 异常率阈值降级服务 — 解决"异常处理本身会制造异常"的反常识问题。
  * <p>
  * 基于 Redis Sorted Set 实现的滑动窗口错误率计数器。
- * 当 Agent 调用错误率超过阈值时触发降级模式，切断负反馈循环。
+ * 支持熔断器三态（关闭/半开/打开），半开状态下通过探测请求自动恢复。
  * </p>
+ *
+ * <h3>熔断三态</h3>
+ * <ol>
+ *   <li><b>NORMAL（关闭）</b>：正常调用，不做限制</li>
+ *   <li><b>HALF_OPEN（半开）</b>：错误率已降至阈值以下，放行探测请求验证恢复</li>
+ *   <li><b>LIGHT/HEAVY（打开）</b>：错误率超阈值，停止复杂 DAG 或全部 Agent 调用</li>
+ * </ol>
  *
  * <h3>降级策略</h3>
  * <ol>
@@ -32,13 +39,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li><b>重度降级（> 40%）</b>：跳过所有 Agent 调用，直接回退到内联 General 回复</li>
  * </ol>
  *
- * <h3>工作原理</h3>
- * <ul>
- *   <li>每次 Agent 调用成功/失败时调用 {@link #recordCall(boolean)}</li>
- *   <li>使用 Redis Sorted Set 存储滑动窗口内的调用记录，按时间戳排序</li>
- *   <li>{@link #getDegradationLevel()} 返回当前降级级别</li>
- *   <li>RouterService 根据降级级别调整路由策略</li>
- * </ul>
+ * <h3>半开恢复探测</h3>
+ * <p>
+ * 进入 HALF_OPEN 后，每 {@link #HALF_OPEN_PROBE_INTERVAL_MS} 毫秒放行一次探测请求。
+ * 探测成功 → 回到 NORMAL；探测失败 → 回到 HEAVY。
+ * 避免熔断打开后恢复时的流量冲击。
+ * </p>
  */
 @Service
 public class DegradationService {
@@ -60,7 +66,17 @@ public class DegradationService {
     /** 最小调用次数，低于此值不触发降级（避免冷启动误判） */
     private static final int MIN_CALLS_FOR_DEGRADATION = 10;
 
-    /** 当前降级级别（in-memory 快速路径，每 10 秒刷新一次） */
+    // ═══════════════════════════════════════════════════════════
+    // ⭐ 半开（HALF_OPEN）熔断恢复
+    // ═══════════════════════════════════════════════════════════
+
+    /** 半开状态探测间隔（毫秒）：放行探测请求的最小时间间隔 */
+    private static final long HALF_OPEN_PROBE_INTERVAL_MS = 30_000;
+
+    /** 上次探测请求的时间戳 */
+    private long lastProbeTimestamp = 0;
+
+    /** 当前降级级别（in-memory 快速路径，每 10 次调用刷新一次） */
     private volatile DegradationLevel currentLevel = DegradationLevel.NORMAL;
 
     /** 上次刷新时间戳 */
@@ -115,11 +131,44 @@ public class DegradationService {
      * 配合 {@link #recordCall(boolean)} 使用。
      * 降级级别使用本地缓存，每 10 次调用或显式调用 {@link #refreshDegradationLevel()} 更新。
      * </p>
+     * <p>
+     * 在 {@link #HALF_OPEN} 状态下，此方法会检查是否到达探测间隔。
+     * 如果到达，允许一次探测请求通过（返回之前降级级别的上级级别）。
+     * </p>
      *
      * @return 当前降级级别
      */
     public DegradationLevel getDegradationLevel() {
+        // ⭐ HALF_OPEN 状态下：检查是否可以放行探测请求
+        if (currentLevel == DegradationLevel.HALF_OPEN) {
+            long now = System.currentTimeMillis();
+            if (now - lastProbeTimestamp >= HALF_OPEN_PROBE_INTERVAL_MS) {
+                return DegradationLevel.HALF_OPEN; // 调用方据此走降级路径，但实际探测在 recordCall 中处理
+            }
+            // 未到探测间隔 → 继续降级
+            return DegradationLevel.HEAVY;
+        }
         return currentLevel;
+    }
+
+    /**
+     * 记录一次探测结果。由调用方（RouterService）在探测请求完成后调用。
+     *
+     * @param success true = 探测成功（恢复 NORMAL），false = 探测失败（回到 HEAVY）
+     */
+    public void recordProbeResult(boolean success) {
+        this.lastProbeTimestamp = System.currentTimeMillis();
+        if (success) {
+            log.info("[Degradation] ✅ 半开探测成功，恢复 NORMAL 模式");
+            currentLevel = DegradationLevel.NORMAL;
+        } else {
+            log.warn("[Degradation] ❌ 半开探测失败，回到 HEAVY 降级");
+            currentLevel = DegradationLevel.HEAVY;
+        }
+        if (controlPlaneEventBus != null) {
+            controlPlaneEventBus.publish("router", "PROBE_RESULT",
+                    Map.of("success", success, "level", currentLevel.name()));
+        }
     }
 
     /**
@@ -161,6 +210,13 @@ public class DegradationService {
                 newLevel = DegradationLevel.HEAVY;
             } else if (errorRate >= LIGHT_DEGRADATION_THRESHOLD) {
                 newLevel = DegradationLevel.LIGHT;
+            } else if (currentLevel == DegradationLevel.HEAVY || currentLevel == DegradationLevel.LIGHT) {
+                // ⭐ 半开状态：错误率已降至阈值以下，进入 HALF_OPEN 而非直接 NORMAL
+                // 需通过探测请求验证恢复后再回到 NORMAL
+                newLevel = DegradationLevel.HALF_OPEN;
+            } else if (currentLevel == DegradationLevel.HALF_OPEN) {
+                // 已在半开状态且错误率正常 → 保持 HALF_OPEN，等待探测
+                newLevel = DegradationLevel.HALF_OPEN;
             } else {
                 newLevel = DegradationLevel.NORMAL;
             }
@@ -198,14 +254,16 @@ public class DegradationService {
     }
 
     /**
-     * 降级级别枚举。
+     * 降级级别枚举（熔断三态）。
      */
     public enum DegradationLevel {
-        /** 正常模式，不做限制 */
+        /** 正常模式，不做限制（熔断关闭） */
         NORMAL,
-        /** 轻度降级：跳过复杂 DAG，降级为单 Agent 调用 */
+        /** 半开状态：错误率已降至阈值以下，等待探测请求验证恢复（熔断半开） */
+        HALF_OPEN,
+        /** 轻度降级：跳过复杂 DAG，降级为单 Agent 调用（熔断打开） */
         LIGHT,
-        /** 重度降级：跳过所有 Agent 调用，回退到内联 General 回复 */
+        /** 重度降级：跳过所有 Agent 调用，回退到内联 General 回复（熔断打开） */
         HEAVY
     }
 }

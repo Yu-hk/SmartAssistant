@@ -34,6 +34,19 @@ public class RequestQueueService {
 
     private static final Logger log = LoggerFactory.getLogger(RequestQueueService.class);
 
+    // ═══════════════════════════════════════════════════════════
+    // ⭐ 优先级常量（值越小优先级越高，对应多级优先级队列设计）
+    // ═══════════════════════════════════════════════════════════
+
+    /** 实时对话（最高优先级）：通用对话、简单查询，需低延迟保障 */
+    public static final int PRIORITY_REALTIME = 10;
+
+    /** 普通任务（中优先级）：订单查询、商品推荐等业务请求 */
+    public static final int PRIORITY_NORMAL = 5;
+
+    /** 离线批量（最低优先级）：数据分析、批量处理等闲时任务 */
+    public static final int PRIORITY_BATCH = 0;
+
     // ⭐ LLM 并发槽位 — 公平模式确保等待较久的线程优先获取
     private final Semaphore slots;
 
@@ -50,8 +63,8 @@ public class RequestQueueService {
     @Value("${queue.session-max-concurrency:1}")
     private int sessionMaxConcurrency;
 
-    // ⭐ L3: 是否启用优先级队列（默认 false）
-    @Value("${queue.priority-enabled:false}")
+    // ⭐ L3: 是否启用优先级队列（默认 true，REALTIME/NORMAL/BATCH 三级）
+    @Value("${queue.priority-enabled:true}")
     private boolean priorityEnabled;
 
     private final ChatQueueConfig config;

@@ -69,11 +69,12 @@ public class StreamChatController {
             @RequestParam String message,
             @RequestParam(required = false) String requestId,
             @RequestParam(required = false, defaultValue = "true") boolean showThinking,
+            @RequestParam(required = false, defaultValue = "5") int priority,
             @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId,
             HttpServletResponse response) {
 
-        logger.info("[StreamChat] 流式请求: messageLength={}, requestId={}",
-                message != null ? message.length() : 0, requestId);
+        logger.info("[StreamChat] 流式请求: messageLength={}, requestId={}, priority={}",
+                message != null ? message.length() : 0, requestId, priority);
 
         SseEventBus bus = createBus(response, requestId);
 
@@ -115,7 +116,7 @@ public class StreamChatController {
 
         // 排队
         if (requestId != null && !requestId.isBlank()) {
-            if (!handleQueue(requestId, bus)) return;
+            if (!handleQueue(requestId, priority, bus)) return;
         }
 
         // 转发 Agent SSE
@@ -136,7 +137,9 @@ public class StreamChatController {
         String requestId = (String) request.getOrDefault("requestId", null);
         boolean showThinking = request.containsKey("showThinking")
                 ? (Boolean) request.get("showThinking") : true;
-        streamChat(message, requestId, showThinking, null, response);
+        int priority = request.containsKey("priority")
+                ? ((Number) request.get("priority")).intValue() : RequestQueueService.PRIORITY_NORMAL;
+        streamChat(message, requestId, showThinking, priority, null, response);
     }
 
     @PostMapping("/chat/cancel")
@@ -167,8 +170,8 @@ public class StreamChatController {
         }
     }
 
-    private boolean handleQueue(String requestId, SseEventBus bus) {
-        var slotResult = requestQueueService.tryAcquireWithQueue(requestId);
+    private boolean handleQueue(String requestId, int priority, SseEventBus bus) {
+        var slotResult = requestQueueService.tryAcquireWithQueue(requestId, null, priority);
         switch (slotResult) {
             case QUEUE_FULL:
                 bus.sendError("系统繁忙，请稍后再试");
