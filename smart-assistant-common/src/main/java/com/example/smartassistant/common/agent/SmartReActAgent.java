@@ -103,6 +103,13 @@ public class SmartReActAgent {
     private static final int MIN_PROGRESS_TOOL_CALLS = 1;
 
     // ═══════════════════════════════════════════════════════════════
+    // ⭐ P2 决策状态机（文章⑥ 10 条优先级链路）
+    // ═══════════════════════════════════════════════════════════════
+
+    /** 策略切换前的最大无进展轮次 */
+    private static final int STRATEGY_SWITCH_THRESHOLD = 2;
+
+    // ═══════════════════════════════════════════════════════════════
     // ⭐ 工具输出截断常量（保头保尾砍中间）
     // ═══════════════════════════════════════════════════════════════
 
@@ -130,6 +137,31 @@ public class SmartReActAgent {
 
     /** 压缩后重置的 prefill 基线（首次压缩后设为摘要占据的 token） */
     private int prefillBaseline = 0;
+
+    // ═══════════════════════════════════════════════════════════════
+    // ⭐ P2 决策状态机 — 10 条优先级链路（文章⑥）
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 循环决策动作（优先级从高到低）。
+     * <pre>
+     * FINALIZE            → 全部完成，输出最终回答
+     * ADVANCE_PHASE       → 当前阶段完成，推进到下一阶段
+     * PAUSE_BLOCKED       → Agent 被阻塞，暂停等待
+     * PAUSE_INFRA         → 基础设施故障，暂停避免烧钱
+     * AWAIT_CONFIRMATION  → 等待用户确认，暂停不替用户做决定
+     * PAUSE               → 评估器/守卫请求暂停
+     * PARSE_FAILURE       → 连续解析失败，暂停以避免烧预算
+     * ITERATION_BUDGET    → 达到迭代上限（maxIterations），暂停
+     * STRATEGY_SWITCH     → 无进展达到阈值，换策略或委派
+     * CONTINUE            → 一切正常，继续推进
+     * </pre>
+     */
+    public enum LoopAction {
+        FINALIZE, ADVANCE_PHASE, PAUSE_BLOCKED, PAUSE_INFRA,
+        AWAIT_CONFIRMATION, PAUSE, PARSE_FAILURE, ITERATION_BUDGET,
+        STRATEGY_SWITCH, CONTINUE
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // ⭐ P1 Loop Engineering（文章⑥确定性约束组件）
@@ -666,6 +698,19 @@ public class SmartReActAgent {
                 List<Message> snapshot = new ArrayList<>(messages);
                 precomputedCompactFuture = CompletableFuture.supplyAsync(() -> compressHistory(snapshot));
             }
+
+            // ═══════════════════════════════════════════════════════════
+            // ⭐ P2 决策状态机：10 条优先级链路日志
+            // ═══════════════════════════════════════════════════════════
+            LoopAction nextAction = resolveNextAction(new DecisionContext(
+                    iteration, false, "", LoopGuardService.GuardAction.CONTINUE,
+                    consecutiveParseFailures, noProgressCount));
+            if (nextAction == LoopAction.STRATEGY_SWITCH) {
+                log.warn("[SmartReActAgent] ⚡ 策略切换触发: 无进展{}轮，考虑更换Agent/策略", noProgressCount);
+            } else {
+                log.debug("[SmartReActAgent] 决策状态机: iteration={}, action={}", iteration, nextAction);
+            }
+
             // 继续循环
         }
 
@@ -1153,6 +1198,85 @@ public class SmartReActAgent {
                 .filter(c -> c != null)
                 .map(PhaseGate.Check::description)
                 .collect(java.util.stream.Collectors.toList());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ⭐ P2 决策状态机：10 条优先级链路（文章⑥确定性的 Loop Engineering）
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 执行优先级决策链，返回下一步动作。
+     *
+     * <p>优先级从高到低（命中第一条即返回，不继续检查）：</p>
+     * <pre>
+     *  1. FINALIZE           → 无工具调用且内容足够 → 最终输出
+     *  2. ADVANCE_PHASE      → 阶段完成且有后续阶段 → 推进
+     *  3. PAUSE_BLOCKED      → 循环守卫检测到阻塞  → 暂停
+     *  4. PAUSE_INFRA        → 基础设施错误         → 暂停
+     *  5. AWAIT_CONFIRMATION → 等待用户确认         → 暂停
+     *  6. PAUSE              → 守卫请求暂停         → 暂停
+     *  7. PARSE_FAILURE      → 连续解析失败≥3次     → 暂停
+     *  8. ITERATION_BUDGET   → 达到 maxIterations   → 暂停
+     *  9. STRATEGY_SWITCH    → 无进展≥STRATEGY_SWITCH_THRESHOLD → 换策略
+     * 10. CONTINUE           → 一切正常             → 继续
+     * </pre>
+     *
+     * @param result     当前决策上下文
+     * @return 优先级最高的 {@link LoopAction}
+     */
+    private LoopAction resolveNextAction(DecisionContext result) {
+        // 1. FINALIZE — 无工具调用且回答内容充分
+        if (result.noToolCalls && result.hasSufficientContent()) {
+            return LoopAction.FINALIZE;
+        }
+        // 2. ADVANCE_PHASE — 目前简化：有阶段配置且无工具调用
+        if (result.noToolCalls && phaseChecks != null && !phaseChecks.isEmpty()) {
+            return LoopAction.ADVANCE_PHASE;
+        }
+        // 3. PAUSE_BLOCKED
+        if (result.guardAction == LoopGuardService.GuardAction.PAUSE_BLOCKED) {
+            return LoopAction.PAUSE_BLOCKED;
+        }
+        // 4. PAUSE_INFRA
+        if (result.guardAction == LoopGuardService.GuardAction.PAUSE_INFRASTRUCTURE) {
+            return LoopAction.PAUSE_INFRA;
+        }
+        // 5. AWAIT_CONFIRMATION
+        if (result.guardAction == LoopGuardService.GuardAction.AWAIT_CONFIRMATION) {
+            return LoopAction.AWAIT_CONFIRMATION;
+        }
+        // 6. PAUSE — 守卫请求暂停（兜底）
+        if (result.guardAction != LoopGuardService.GuardAction.CONTINUE) {
+            return LoopAction.PAUSE;
+        }
+        // 7. PARSE_FAILURE
+        if (result.consecutiveParseFailures >= MAX_PARSE_FAILURES) {
+            return LoopAction.PARSE_FAILURE;
+        }
+        // 8. ITERATION_BUDGET
+        if (result.iteration >= profile.maxIterations()) {
+            return LoopAction.ITERATION_BUDGET;
+        }
+        // 9. STRATEGY_SWITCH
+        if (result.noProgressCount >= STRATEGY_SWITCH_THRESHOLD) {
+            return LoopAction.STRATEGY_SWITCH;
+        }
+        // 10. CONTINUE
+        return LoopAction.CONTINUE;
+    }
+
+    /** 决策状态机上下文。 */
+    private record DecisionContext(
+            int iteration,
+            boolean noToolCalls,
+            String answerText,
+            LoopGuardService.GuardAction guardAction,
+            int consecutiveParseFailures,
+            int noProgressCount) {
+
+        boolean hasSufficientContent() {
+            return !noToolCalls || (answerText != null && answerText.length() > 50);
+        }
     }
 
     /** 截断字符串到64字符（用于日志） */
