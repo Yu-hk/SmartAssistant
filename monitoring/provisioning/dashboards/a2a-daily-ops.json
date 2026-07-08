@@ -1,0 +1,163 @@
+{
+  "title": "SmartAssistant Daily Ops — 每日必看 6 指标",
+  "description": "对标生产级 Agent 文章「每天看 6 指标」。覆盖请求量/成功率、延迟、Token、Agent 健康、路由质量、错误分类。导入后修改 Prometheus data source UID 即可使用。",
+  "tags": ["production", "daily-ops", "smartassistant"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["30s", "1m", "5m", "15m", "30m", "1h"]
+  },
+  "panels": [
+    {
+      "title": "① 请求量 & 成功率",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(a2a_router_routing_requests_total)",
+          "legendFormat": "总请求"
+        },
+        {
+          "expr": "sum(a2a_router_routing_success_total) / sum(a2a_router_routing_requests_total) * 100",
+          "legendFormat": "成功率 %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 80 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "② 延迟 (p50/p95/p99)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(a2a_router_routing_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(a2a_router_routing_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(a2a_router_routing_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      }
+    },
+    {
+      "title": "③ Token 消耗 (累计)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(a2a_llm_token_input_total)",
+          "legendFormat": "输入 Token"
+        },
+        {
+          "expr": "sum(a2a_llm_token_output_total)",
+          "legendFormat": "输出 Token"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      }
+    },
+    {
+      "title": "④ Agent 健康 (超时/迭代上限/压缩)",
+      "type": "bargauge",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(a2a_agent_timeout_total) by (service)",
+          "legendFormat": "超时 - {{service}}"
+        },
+        {
+          "expr": "sum(a2a_agent_max_iteration_hit_total) by (service)",
+          "legendFormat": "达迭代上限 - {{service}}"
+        },
+        {
+          "expr": "sum(a2a_agent_context_compress_total) by (service)",
+          "legendFormat": "上下文压缩 - {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "⑤ 路由质量 (意图分布)",
+      "type": "piechart",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum(a2a_router_multi_intent_requests_total) by (service)",
+          "legendFormat": "多意图 - {{service}}"
+        },
+        {
+          "expr": "sum(a2a_router_single_intent_requests_total) by (service)",
+          "legendFormat": "单意图 - {{service}}"
+        }
+      ]
+    },
+    {
+      "title": "⑥ 错误分类 (retryable/fatal/总失败)",
+      "type": "bargauge",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(a2a_tool_execution_result{status=\"failed\"}) by (status)",
+          "legendFormat": "失败"
+        },
+        {
+          "expr": "sum(a2a_tool_execution_result{status=\"retryable_failed\"}) by (status)",
+          "legendFormat": "可重试"
+        },
+        {
+          "expr": "sum(a2a_tool_execution_result{status=\"fatal_failed\"}) by (status)",
+          "legendFormat": "致命"
+        },
+        {
+          "expr": "sum(a2a_router_routing_failed_total) by (service)",
+          "legendFormat": "路由失败 - {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 20 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

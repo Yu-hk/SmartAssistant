@@ -839,8 +839,8 @@ String currentHash = toolCalls.stream()
 | 项 | 说明 |
 |----|------|
 | G3 模型分级 | ✅ **已实现**：按复杂度选三档 + 平滑降级 + 意图覆盖强制定档。见 [↓ G3 专节](#g3-tier-多模型路由统一模型接入层) |
-| G4 观测看板固化 | Prometheus/Grafana/Jaeger 已备，但文章"每天看 6 指标"是否固化为 Dashboard 待确认 |
-| G5 KB 切块尺寸 | 文章建议 800–1200 字；SA `SemanticChunkStrategy` 尺寸待核对 |
+| G4 观测看板固化 | ✅ **已实现**：新增 `a2a-daily-ops.json` Dashboard，6 面板覆盖请求量/成功率/延迟/Token/Agent健康/路由质量/错误分类。导入 Grafana 即用 |
+| G5 KB 切块尺寸 | ✅ **已实现**：`ChunkStrategy.defaultMaxTokens()` 512→1024，`defaultOverlap()` 50→128，对齐 800-1200 中文汉字/chunk 推荐值 |
 
 ---
 
@@ -985,8 +985,8 @@ SmartReActAgent agent = new SmartReActAgent(chatModel)
 
 | 项 | 说明 |
 |----|------|
-| 目标连续性裁决 | 用户中途插嘴时的词汇重叠度(0.24/0.08) + LLM 灰色区裁决。SA `IntentDriftDetector` BGE相似度概念类似但粒度不同 |
-| 反馈学习日志 | 每轮反馈记录(mistake_pattern/avoid_next_time/suggested_strategy)最多20条。SA `BadCaseMinerService` + `ExperienceService` 覆盖了学习体系但无 per-round 结构化日志 |
+| 目标连续性裁决 | ✅ **已实现**：新增 `GoalContinuityArbiter` 两级裁决(确定性rules→词汇重叠度0.24/0.08→LLM灰色区)，集成到 `SmartReActAgent` |
+| 反馈学习日志 | ✅ **已实现**：新增 `FeedbackLog` 类，per-round 记录(mistake_pattern/avoid_next_time/suggested_strategy)，最多20条。`SmartReActAgent` 在各返回点自动记录超时/迭代上限/正常完成等反馈 |
 
 ## @Tool 统一日志切面
 
