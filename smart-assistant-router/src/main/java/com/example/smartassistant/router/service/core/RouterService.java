@@ -676,6 +676,12 @@ public class RouterService {
             ));
         }
 
+        // ⭐ Agent 反馈模式监控：定期采样全局模式计数器（日志 + 后续可对接告警）
+        var patternCounts = FeedbackLog.getPatternCountsSnapshot();
+        if (!patternCounts.isEmpty()) {
+            log.debug("[Router] Agent 反馈模式统计: {}", patternCounts);
+        }
+
         // ⭐ P1 预算追踪：结束会话并检查超限
         if (budgetTracker != null) {
             var budgetStatus = budgetTracker.checkSession();
