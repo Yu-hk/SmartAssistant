@@ -7,133 +7,60 @@
 
 package com.example.smartassistant.router.service.model;
 
+import com.example.smartassistant.common.model.tier.ModelTier;
+import com.example.smartassistant.common.model.tier.TieredModelRouter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-
 /**
- * ⭐ 多模型路由服务 — 根据问题复杂度分配不同模型。
- * <p>
- * 策略：
- * <ul>
- *   <li><b>简单问题</b>（短文本、问候、明确意图）→ 轻量模型（Ollama qwen2.5:3b，低成本）</li>
- *   <li><b>中等问题</b>（查询、普通问答）→ 默认模型</li>
- *   <li><b>复杂问题</b>（多跳推理、长文本、跨领域）→ 强模型（DeepSeek V4-Flash，高成本）</li>
- * </ul>
- * </p>
+ * ⭐ G3 多模型路由门面 — 委托 common {@link TieredModelRouter} 统一完成「复杂度→档位」动态路由。
+ *
+ * <p>历史实现依赖 {@code defaultChatModel}/{@code heavyChatModel} 两个从未定义的 Spring Bean
+ * （启动即 {@code UnsatisfiedDependencyException}），且从未被任何调用方使用，属于断引用死代码。
+ * 此处改为注入 common 中台的 {@link TieredModelRouter}，对外保留 {@code selectModel}/{@code getModelTierName}
+ * 生态 API；真正的「平滑降级 + 档位选择」逻辑沉淀到 common 层，供所有服务复用。</p>
+ *
+ * <p>若 common 中台因无 {@code OllamaChatModel}（如纯 HTTP 转发环境）未装配
+ * {@link TieredModelRouter}，本门面优雅降级为 {@code null}，调用方需判空。</p>
  */
 @Service
 public class ModelRouterService {
 
     private static final Logger log = LoggerFactory.getLogger(ModelRouterService.class);
 
-    /** 轻量模型（简单问题） */
-    private final ChatClient lightClient;
+    private final TieredModelRouter tierRouter;
 
-    /** 默认模型（中等问题） */
-    private final ChatClient defaultClient;
-
-    /** 强模型（复杂问题） */
-    private final ChatClient heavyClient;
-
-    @Value("${router.model-router.light-threshold:20}")
-    private int lightThreshold;
-
-    @Value("${router.model-router.heavy-threshold:100}")
-    private int heavyThreshold;
-
-    /** 始终走轻量模型的意图关键词 */
-    private static final List<String> LIGHT_INTENT_KEYWORDS = List.of(
-            "你好", "在吗", "谢谢", "再见", "hi", "hello", "早上好", "晚上好"
-    );
-
-    /** 始终走强模型的关键词 */
-    private static final List<String> HEAVY_INTENT_KEYWORDS = List.of(
-            "对比", "分析", "总结", "详细说明", "为什么", "如何实现",
-            "区别", "优缺点", "方案", "设计", "架构"
-    );
-
-    public ModelRouterService(
-            @Qualifier("lightChatModel") ChatClient lightClient,
-            @Qualifier("defaultChatModel") ChatClient defaultClient,
-            @Qualifier("heavyChatModel") ChatClient heavyClient) {
-        this.lightClient = lightClient;
-        this.defaultClient = defaultClient;
-        this.heavyClient = heavyClient;
+    @Autowired(required = false)
+    public ModelRouterService(TieredModelRouter tierRouter) {
+        this.tierRouter = tierRouter;
+        if (tierRouter == null) {
+            log.warn("[ModelRouter] common TieredModelRouter 未装配（无 OllamaChatModel？），本门面仅保留 API 壳。");
+        }
     }
 
     /**
-     * 根据问题选择模型。
+     * 根据查询选择对应档位的 ChatModel（无降级，供调用方自行决定）。
      *
-     * @param question 用户问题
-     * @return 对应的 ChatClient
+     * @param query 用户查询
+     * @return 档位对应的 {@link ChatModel}；中台未装配时返回 null
      */
-    public ChatClient selectModel(String question) {
-        ModelTier tier = classifyTier(question);
-        return switch (tier) {
-            case LIGHT -> {
-                log.debug("[ModelRouter] 轻量模型: question='{}'", truncate(question));
-                yield lightClient;
-            }
-            case HEAVY -> {
-                log.debug("[ModelRouter] 强模型: question='{}'", truncate(question));
-                yield heavyClient;
-            }
-            default -> {
-                log.debug("[ModelRouter] 默认模型: question='{}'", truncate(question));
-                yield defaultClient;
-            }
-        };
+    public ChatModel selectModel(String query) {
+        if (tierRouter == null) {
+            return null;
+        }
+        return tierRouter.selectModel(query, null);
     }
 
     /**
-     * 获取模型等级名称（用于日志/追踪）。
+     * 获取查询对应的模型档位名称（用于日志/追踪）。
      */
-    public String getModelTierName(String question) {
-        return classifyTier(question).name();
-    }
-
-    /**
-     * 分类问题复杂度。
-     */
-    private ModelTier classifyTier(String question) {
-        if (question == null || question.isBlank()) return ModelTier.DEFAULT;
-
-        String q = question.trim();
-
-        // 关键词快速判断
-        for (String kw : LIGHT_INTENT_KEYWORDS) {
-            if (q.startsWith(kw) || q.equals(kw)) return ModelTier.LIGHT;
+    public String getModelTierName(String query) {
+        if (tierRouter == null) {
+            return ModelTier.STANDARD.name();
         }
-        for (String kw : HEAVY_INTENT_KEYWORDS) {
-            if (q.contains(kw)) return ModelTier.HEAVY;
-        }
-
-        // 基于长度判断
-        int len = q.length();
-        if (len > heavyThreshold) return ModelTier.HEAVY;
-        if (len < lightThreshold) return ModelTier.LIGHT;
-
-        return ModelTier.DEFAULT;
-    }
-
-    private static String truncate(String s) {
-        if (s == null) return "";
-        return s.length() > 50 ? s.substring(0, 50) + "..." : s;
-    }
-
-    /** 模型等级 */
-    public enum ModelTier {
-        /** 轻量模型（Ollama 本地，低延迟低成本） */
-        LIGHT,
-        /** 默认模型 */
-        DEFAULT,
-        /** 强模型（DeepSeek V4-Flash，高能力高成本） */
-        HEAVY
+        return tierRouter.selectTier(query, null).name();
     }
 }
