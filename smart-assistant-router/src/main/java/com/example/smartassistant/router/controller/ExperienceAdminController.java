@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.controller;
 
+import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.router.service.experience.AgentKnowledgeService;
 import com.example.smartassistant.router.service.experience.ExperienceModel;
 import com.example.smartassistant.router.service.experience.ExperienceService;
@@ -185,5 +186,30 @@ public class ExperienceAdminController {
                 "agentName", agentName,
                 "size", md.length(),
                 "content", md));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ⭐ 反馈学习日志监控端点
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * 获取 Agent 反馈学习日志的全局模式统计（用于监控）。
+     * <p>
+     * 返回各 Agent 实例中 SmartReActAgent 自动记录的失败模式累计次数。
+     * 模式包括：超时、达到迭代上限、进展缓慢/停滞 等。
+     *
+     * <pre>
+     * GET /api/experience/feedback-patterns
+     * → { "patterns": { "超时": 5, "达到迭代上限": 2 }, "total": 7 }
+     * </pre>
+     */
+    @GetMapping("/feedback-patterns")
+    public ResponseEntity<Map<String, Object>> getFeedbackPatterns() {
+        var counts = FeedbackLog.getPatternCountsSnapshot();
+        long total = counts.values().stream().mapToLong(Long::longValue).sum();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("patterns", new TreeMap<>(counts));
+        result.put("total", total);
+        return ResponseEntity.ok(result);
     }
 }
