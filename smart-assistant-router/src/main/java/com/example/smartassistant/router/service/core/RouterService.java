@@ -817,6 +817,16 @@ public class RouterService {
         DegradationService.DegradationLevel degLevel = (degradationService != null)
                 ? degradationService.getDegradationLevel()
                 : DegradationService.DegradationLevel.NORMAL;
+        // ⭐ 半开（HALF_OPEN）熔断探测：放行一次请求验证恢复
+        if (degLevel == DegradationService.DegradationLevel.HALF_OPEN) {
+            log.info("[Collaborative] 🟡 半开探测: 放行一次请求验证恢复");
+            String probeResult = inlineFallback(question);
+            boolean success = probeResult != null && !probeResult.isBlank() && !probeResult.startsWith("❌");
+            if (degradationService != null) {
+                degradationService.recordProbeResult(success);
+            }
+            return probeResult;
+        }
         if (degLevel == DegradationService.DegradationLevel.HEAVY) {
             log.warn("[Collaborative] 🔴 重度降级(错误率>40%)，跳过所有 Agent 调用，回退到内联兜底");
             return inlineFallback(question);
