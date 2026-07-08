@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.service.agent;
 
+import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
@@ -109,6 +110,7 @@ public class McpAgentService {
             this.mcpAgent = new SmartReActAgent(chatModel)
                 .withChatClient(chatClient)
                 .withProfile("mcp", reactProfileRegistry)
+                .withFeedbackLog(new FeedbackLog())
                 .withPreset(PromptBuilder.build()
                     .withServicePrompt("""
                     你是一个专业的数据库查询与数据可视化助手。可以查询数据库获取真实数据，

@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.config;
 
+import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
@@ -85,6 +86,7 @@ public class OrderAgentConfig {
                 .withMetrics(metricsCollector)
                 .withProfile("order", reactProfileRegistry)
                 .withObservationRegistry(observationRegistry)
+                .withFeedbackLog(new FeedbackLog())
                 .withPreset(PromptBuilder.build()
                         .withServicePrompt(buildSystemPrompt())
                         .assemble(), toolList);
