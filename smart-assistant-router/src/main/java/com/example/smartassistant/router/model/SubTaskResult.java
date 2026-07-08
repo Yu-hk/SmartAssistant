@@ -3,11 +3,21 @@ package com.example.smartassistant.router.model;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 子任务执行结果。
+ * <p>借鉴文章⑤「三层上下文注入」：{@link #summary} 用于上下文构建（节省 Token），
+ * {@link #result} 保留完整结果，供按需工具查询。</p>
+ */
 public class SubTaskResult {
     private String taskId;
     private String description;
     private String agentName;
     private String result;
+    /**
+     * 结果摘要（自动生成：取 result 前 200 字符）。
+     * 供 ResultMerger 构建上下文时优先使用，避免全量注入 Token 膨胀。
+     */
+    private String summary;
     private boolean success;
     private List<String> realTitles;
     private Map<String, String> tagsByTitle;
@@ -63,10 +73,21 @@ public class SubTaskResult {
         this.description = description;
         this.agentName = agentName;
         this.result = result;
+        this.summary = autoSummary(result);
         this.success = success;
         this.errorType = (success && errorType == ErrorType.NONE) ? ErrorType.NONE : errorType;
         this.realTitles = realTitles != null ? realTitles : List.of();
         this.tagsByTitle = tagsByTitle != null ? tagsByTitle : Map.of();
+    }
+
+    /** 自动生成摘要：取 result 前 200 字符（保留完整句子边界）。 */
+    private static String autoSummary(String text) {
+        if (text == null || text.isBlank()) return "";
+        if (text.length() <= 200) return text;
+        int cut = text.lastIndexOf('。', 200);
+        if (cut < 0) cut = text.lastIndexOf('\n', 200);
+        if (cut < 0) cut = 197;
+        return text.substring(0, cut) + "...";
     }
 
     public String getTaskId() { return taskId; }
@@ -76,7 +97,14 @@ public class SubTaskResult {
     public String getAgentName() { return agentName; }
     public void setAgentName(String agentName) { this.agentName = agentName; }
     public String getResult() { return result; }
-    public void setResult(String result) { this.result = result; }
+    public void setResult(String result) {
+        this.result = result;
+        this.summary = autoSummary(result);
+    }
+    /** 获取摘要（自动生成：取 result 前 200 字符）。 */
+    public String getSummary() { return summary; }
+    /** 显式设置摘要（覆盖自动生成值）。 */
+    public void setSummary(String summary) { this.summary = summary; }
     public boolean isSuccess() { return success; }
     public void setSuccess(boolean success) {
         this.success = success;

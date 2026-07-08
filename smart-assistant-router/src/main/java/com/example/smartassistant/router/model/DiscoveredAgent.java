@@ -46,6 +46,9 @@ public class DiscoveredAgent {
      * 特征元数据
      */
     private AgentMetadata metadata;
+
+    public AgentMetadata getMetadata() { return metadata; }
+    public void setMetadata(AgentMetadata metadata) { this.metadata = metadata; }
     
     /**
      * 是否健康
