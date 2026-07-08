@@ -1,6 +1,6 @@
 {
   "title": "SmartAssistant Daily Ops — 每日必看 6 指标",
-  "description": "对标生产级 Agent 文章「每天看 6 指标」。覆盖请求量/成功率、延迟、Token、Agent 健康、路由质量、错误分类。导入后修改 Prometheus data source UID 即可使用。",
+  "description": "对标文章⑧「Agent 二面 9 道真题」。覆盖请求量/成功率、延迟、Token、Agent健康、路由质量、错误分类、按Agent/意图分组完成率、档位分布、平均迭代次数。导入后修改 Prometheus data source UID 即可使用。",
   "tags": ["production", "daily-ops", "smartassistant"],
   "schemaVersion": 39,
   "version": 1,
@@ -157,6 +157,59 @@
             ]
           }
         }
+      }
+    },
+    {
+      "title": "⑦ 完成率按 Agent 分组",
+      "type": "bargauge",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(a2a_router_routing_success_total) by (service) / sum(a2a_router_routing_requests_total) by (service) * 100",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 80 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "⑧ 档位选择分布 (LIGHT/STANDARD/HEAVY)",
+      "type": "piechart",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum(model_tier_selections_total) by (tier)",
+          "legendFormat": "{{tier}}"
+        },
+        {
+          "expr": "sum(model_tier_degradations_total) by (tier)",
+          "legendFormat": "降级 - {{tier}}"
+        }
+      ]
+    },
+    {
+      "title": "⑨ Agent 迭代分布 (平均迭代次数)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(a2a_agent_iteration_total) by (service) / sum(a2a_agent_timeout_total + a2a_agent_max_iteration_hit_total + 1) by (service)",
+          "legendFormat": "平均迭代 - {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
       }
     }
   ]
