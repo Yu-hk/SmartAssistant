@@ -30,13 +30,14 @@ public interface ChunkStrategy {
     List<Chunk> chunk(String text, int maxTokens, int overlap);
 
     /**
-     * 默认分块参数：BGE-small-zh 支持 512 token，与模型原生能力对齐
+     * 默认分块参数：800-1200 中文汉字/chunk（文章建议），BGE 嵌入窗口兼容。
+     * 中文 1 char ≈ 1 token，设定 1024 为中位数，overlap 占 12% 保障边界语义。
      */
     static int defaultMaxTokens() {
-        return 512;
+        return 1024;
     }
 
     static int defaultOverlap() {
-        return 50;
+        return 128;
     }
 }
