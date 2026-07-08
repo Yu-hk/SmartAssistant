@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -73,6 +74,13 @@ public class GraphExecutionService {
 
     /** ⭐ 单 Graph 执行期间每个 Agent 的连续失败计数（节点级熔断） */
     private static final int NODE_LEVEL_BREAKER_THRESHOLD = 2; // 连续失败2次后熔断该 Agent
+
+    /** ⭐ 进度事件 SSE 推送（与 RouterService 共用同一 Redis Key 前缀） */
+    private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
+    private static final long SSE_EVENTS_TTL_SECONDS = 120;
+
+    @Autowired(required = false)
+    private StringRedisTemplate redisTemplate;
 
     public GraphExecutionService(AgentCallerService agentCallerService,
                                  @Qualifier("routerParallelAgentExecutor") Executor parallelExecutor,
@@ -629,6 +637,8 @@ public class GraphExecutionService {
                                        ConcurrentHashMap<String, Integer> breakerFailureCounts,
                                        Long userId, String eventsKey, String requestId) {
         log.debug("[GraphExecutor] 执行节点: {}|{}|{}", node.getId(), node.getDescription(), node.getTargetAgent());
+        storeNodeProgressEvent(eventsKey, "node_started",
+                truncate("节点: " + node.getDescription(), 100), node.getTargetAgent());
 
         // ⭐ 节点级熔断检测：如果目标 Agent 已连续失败 NODE_LEVEL_BREAKER_THRESHOLD 次，跳过该节点
         String targetAgent = node.getTargetAgent();
@@ -636,6 +646,8 @@ public class GraphExecutionService {
         if (failCount >= NODE_LEVEL_BREAKER_THRESHOLD) {
             log.warn("[GraphExecutor] ⚡ 节点级熔断触发: agent={}, failCount={}, node={}|{}",
                     targetAgent, failCount, node.getId(), node.getDescription());
+            storeNodeProgressEvent(eventsKey, "node_skipped",
+                    "节点[" + node.getDescription() + "]已被熔断(连续" + failCount + "次失败)", targetAgent);
             return new SubTaskResult(node.getId(), node.getDescription(),
                     targetAgent, "", false, ErrorType.RETRYABLE_FAILED);
         }
@@ -666,6 +678,8 @@ public class GraphExecutionService {
                     if (criteriaResult == ErrorType.NEED_REPLAN) {
                         log.warn("[GraphExecutor] 验收不通过: node={}|{}, criteria={}",
                                 node.getId(), node.getTargetAgent(), node.getSuccessCriteria());
+                        storeNodeProgressEvent(eventsKey, "node_replan",
+                                "节点[" + node.getDescription() + "]验收不通过，需重规划", targetAgent);
                         return new SubTaskResult(node.getId(), node.getDescription(),
                                 node.getTargetAgent(), resultText, false,
                                 ErrorType.NEED_REPLAN);
@@ -675,6 +689,8 @@ public class GraphExecutionService {
                     // ⭐ 节点成功：重置该 Agent 的连续失败计数 + 记录降级统计
                     breakerFailureCounts.put(targetAgent, 0);
                     degradationService.recordCall(true);
+                    storeNodeProgressEvent(eventsKey, "node_completed",
+                            truncate("节点[" + node.getDescription() + "]执行成功: " + resultText, 200), targetAgent);
                     return new SubTaskResult(node.getId(), node.getDescription(),
                             node.getTargetAgent(), resultText, true,
                             agentResult.getRealTitles(), agentResult.getTagsByTitle());
@@ -692,6 +708,8 @@ public class GraphExecutionService {
                 // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计
                 breakerFailureCounts.put(targetAgent, failCount + 1);
                 degradationService.recordCall(false);
+                storeNodeProgressEvent(eventsKey, "node_failed",
+                        "节点[" + node.getDescription() + "]返回空结果(已达最大重试)", targetAgent);
                 return new SubTaskResult(node.getId(), node.getDescription(),
                         node.getTargetAgent(), "", false, ErrorType.FATAL_FAILED);
 
@@ -712,6 +730,8 @@ public class GraphExecutionService {
                 // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计
                 breakerFailureCounts.put(targetAgent, failCount + 1);
                 degradationService.recordCall(false);
+                storeNodeProgressEvent(eventsKey, "node_failed",
+                        "节点[" + node.getDescription() + "]异常: " + truncate(e.getMessage(), 100), targetAgent);
                 return new SubTaskResult(node.getId(), node.getDescription(),
                         node.getTargetAgent(), "", false, errorType);
             }
@@ -721,6 +741,8 @@ public class GraphExecutionService {
         // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计
         breakerFailureCounts.put(targetAgent, failCount + 1);
         degradationService.recordCall(false);
+        storeNodeProgressEvent(eventsKey, "node_failed",
+                "节点[" + node.getDescription() + "]耗尽重试次数", targetAgent);
         return new SubTaskResult(node.getId(), node.getDescription(),
                 node.getTargetAgent(), "", false, ErrorType.FATAL_FAILED);
     }
@@ -742,6 +764,49 @@ public class GraphExecutionService {
             Thread.currentThread().interrupt();
         }
     }
+
+    // ========================================================================
+    // ⭐ 节点级进度事件推送（改进 2/3：串行逐个回调节点 + SSE 通知链）
+    // ========================================================================
+
+    /**
+     * 推送节点进度 SSE 事件到 Redis（供 Consumer SSE 转发到前端）。
+     * 与 RouterService.storeSseEvent() 写入同一 Key 前缀。
+     */
+    private void storeNodeProgressEvent(String eventsKey, String type, String content, String agent) {
+        if (eventsKey == null || redisTemplate == null) return;
+        try {
+            StringBuilder json = new StringBuilder();
+            json.append("{\"type\":\"").append(type).append("\"");
+            if (content != null) {
+                json.append(",\"content\":\"").append(escapeJson(content)).append("\"");
+            }
+            if (agent != null) {
+                json.append(",\"agent\":\"").append(agent).append("\"");
+            }
+            json.append("}");
+            redisTemplate.opsForList().rightPush(eventsKey, json.toString());
+            redisTemplate.expire(eventsKey, SSE_EVENTS_TTL_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.debug("[GraphExecutor] 推送节点进度 SSE 事件失败: {}", e.getMessage());
+        }
+    }
+
+    private static String escapeJson(String str) {
+        if (str == null) return "";
+        return str.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
+    }
+
+    /** 截断长字符串（带省略号）。 */
+    private static String truncate(String s, int maxLen) {
+        if (s == null || s.length() <= maxLen) return s;
+        return s.substring(0, maxLen) + "...";
+    }
+
+    // ========================================================================
+    // 辅助方法：重试 & 重规划
+    // ========================================================================
 
     /**
      * 检查本轮结果中是否有 NEED_REPLAN 节点，触发重规划。
