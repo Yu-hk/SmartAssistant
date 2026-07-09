@@ -76,6 +76,44 @@ public class GoldenSuiteEvalGate {
     }
 
     /**
+     * 标准质量门禁入口（P5-D 固化：Trial×pass^k 成为默认 Gate）。
+     *
+     * <p>注入真实 {@link TrialRunner.TrialExecutor} 时，自动启用硬化默认配置：
+     * 启用 Agent 门禁、Trial 次数=5、稳定通过率阈值 pass^k≥0.8、绝对通过率≥0.8，
+     * 不再要求调用方手工拼装 {@link EvalGateConfig}。未注入运行器时退化为离线占位（仅信息展示），
+     * 行为与 {@link #run(String, String, Path, Path, boolean)} 一致、向后兼容。</p>
+     *
+     * @param suiteResource  黄金测试集 classpath 资源
+     * @param reportDir      报告输出目录
+     * @param agentExecutor  真实 Agent 运行器（可空）
+     * @return 门禁判定结果
+     */
+    public EvalGate.GateResult run(String suiteResource, Path reportDir,
+                                    TrialRunner.TrialExecutor agentExecutor) {
+        return run(suiteResource, defaultHardenedConfig(), reportDir, null, false, agentExecutor);
+    }
+
+    /**
+     * 硬化默认门禁配置：把 Trial×pass^k 稳定性门禁设为标准放行条件。
+     */
+    private static EvalGateConfig defaultHardenedConfig() {
+        EvalGateConfig cfg = new EvalGateConfig();
+        cfg.minRagPassRate = 1.0;
+        cfg.requireAllRagPass = true;
+        cfg.minAvgCompositeScore = 0.7;
+        cfg.maxAvgHallucinationRate = 0.15;
+        cfg.minAvgFaithfulnessScore = 0.7;
+        cfg.minAvgNdcg = 0.5;
+        cfg.enableAgentGate = true;       // ⭐ 固化：默认启用 Agent 稳定性门禁
+        cfg.agentTrialCount = 5;          // ⭐ Trial×5
+        cfg.minAgentPassKRate = 0.8;      // ⭐ pass^k≥0.8 才算稳定
+        cfg.minAgentPassRate = 0.8;
+        cfg.compareToBaseline = false;    // 默认不比对基线（避免缺失基线文件阻断）
+        cfg.maxRegression = 0.05;
+        return cfg;
+    }
+
+    /**
      * 执行一次完整评测闭环（配置对象版，可注入 Agent 运行器）。
      *
      * @param suiteResource   黄金测试集 classpath 资源（如 {@code /eval-test-suite.json}）

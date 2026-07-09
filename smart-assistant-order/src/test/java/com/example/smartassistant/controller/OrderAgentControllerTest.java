@@ -20,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -51,8 +52,15 @@ class OrderAgentControllerTest {
         controller.setStageTraceRecorder(recorder);
 
         when(intentService.detect(anyString())).thenReturn(IntentType.QUERY_ORDER);
-        // orchestrator 原样返回增强后的问题，便于断言上下文已注入
-        when(orchestrator.buildPrompt(anyString(), any(), anyString(), any())).thenAnswer(i -> i.getArgument(0));
+        // buildEnhancedMessage 调用真实实现（mock 默认返回 null 会触发 NPE）
+        when(ragService.buildEnhancedMessage(any(com.example.smartassistant.common.rag.RetrievalQualityResult.class), anyString()))
+                .thenCallRealMethod();
+        // orchestrator 将 extras（RAG 上下文）拼回 prompt，便于断言上下文已注入 Agent
+        when(orchestrator.buildPrompt(anyString(), any(), anyString(), any())).thenAnswer(i -> {
+            String question = i.getArgument(0);
+            List<String> extras = i.getArgument(3);
+            return (extras == null ? "" : String.join("\n", extras)) + "\n" + question;
+        });
     }
 
     @Test

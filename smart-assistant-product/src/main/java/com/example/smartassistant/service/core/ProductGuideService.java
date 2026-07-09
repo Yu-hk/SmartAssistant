@@ -74,7 +74,7 @@ public class ProductGuideService {
         response.append("我会帮您完成下单流程 😊");
 
         log.info("[ProductGuide] 生成引导回复: query={}, ragResultLen={}, highQuality={}",
-                query, result.content().length(), result.highQuality());
+                query, result.getContent().length(), result.isHighQuality());
         return response.toString();
     }
 }

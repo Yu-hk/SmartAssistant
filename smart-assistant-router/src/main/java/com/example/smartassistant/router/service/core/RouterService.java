@@ -747,14 +747,17 @@ public class RouterService {
 
         // P1 ⭐ Bad Case 自动挖掘：低置信度路由决策写入 Redis
         if (badCaseMinerService != null) {
-            badCaseMinerService.record(new BadCaseMinerService.RoutingDecision(
+            var badCaseDecision = new BadCaseMinerService.RoutingDecision(
                     request.getQuestion(),
                     result.getIntentTag(),
                     result.getConfidence(),
                     result.getAgentName(),
                     request.getSessionId(),
                     request.getUserId()
-            ));
+            );
+            badCaseMinerService.record(badCaseDecision);
+            // ⭐ P5-B 用户纠正信号挖掘（策略③）：检测本轮是否纠正了前次回答
+            badCaseMinerService.recordCorrection(badCaseDecision);
         }
 
         // ⭐ Agent 反馈模式监控：定期采样全局模式计数器（日志 + 后续可对接告警）

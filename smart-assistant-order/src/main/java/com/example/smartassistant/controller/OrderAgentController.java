@@ -13,6 +13,7 @@ import com.example.smartassistant.common.memory.MemoryExtractor;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageSpan;
+import com.example.smartassistant.common.rag.eval.FaithfulnessGuard;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
@@ -60,9 +61,17 @@ public class OrderAgentController {
     @Autowired(required = false)
     private StageTraceRecorder stageTraceRecorder;
 
+    /** ⭐ P5-A 生产忠实度护栏（可选，默认内置实例；测试可注入定制实例） */
+    private FaithfulnessGuard faithfulnessGuard = new FaithfulnessGuard();
+
     /** 测试/手动注入用 setter */
     public void setStageTraceRecorder(StageTraceRecorder stageTraceRecorder) {
         this.stageTraceRecorder = stageTraceRecorder;
+    }
+
+    /** 测试可注入定制 FaithfulnessGuard */
+    public void setFaithfulnessGuard(FaithfulnessGuard faithfulnessGuard) {
+        this.faithfulnessGuard = faithfulnessGuard;
     }
 
     public OrderAgentController(SmartReActAgent orderAgent,
@@ -151,10 +160,20 @@ public class OrderAgentController {
             // Step 4: Agent 执行（GENERATION 阶段 trace）
             log.info("[OrderAgent] 意图识别: {}, userId={}, 记忆注入={}", intent.getLabel(), userId, userId != null);
             long genStart = System.currentTimeMillis();
-            String result;
+            String result = null;
             String genStatus = StageSpan.STATUS_OK;
             try {
                 result = orderAgent.execute(enhancedQuestion);
+                // ⭐ P5-A 生产 Faithfulness 校验（文章Q⑩校验层）：
+                // 回答关键断言未被检索上下文支撑时，非阻断地追加免责声明 + 埋点（log）
+                if (qr != null && qr.getContent() != null && !qr.getContent().isBlank()) {
+                    FaithfulnessGuard.FaithfulnessVerdict fg = faithfulnessGuard.check(result, qr.getContent());
+                    if (fg.hallucination()) {
+                        result = result + "\n\n" + fg.message();
+                        log.warn("[OrderAgent] ⚠️ Faithfulness 风险: score={}, claims={}",
+                                String.format("%.2f", fg.score()), fg.claims().size());
+                    }
+                }
             } catch (Exception e) {
                 genStatus = StageSpan.STATUS_ERROR;
                 throw e;

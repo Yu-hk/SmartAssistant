@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /**
  * 重排序 Handler。
@@ -37,17 +38,30 @@ public class RerankHandler implements RagSearchHandler {
     /** 是否启用 */
     private final boolean enabled;
 
-    /** 保留的 Top-K 结果数（<=0 表示保留全部） */
+    /** 保留的 Top-K 结果数（默认上限，启用自适应 resolver 时被逐查询覆盖） */
     private final int topK;
 
+    /**
+     * 自适应 Top-K 解析器（文章 Q⑦）。
+     * 非空时，每条查询的最终截断数 = resolver.apply(query)，忽略固定 {@link #topK}；
+     * 为空时退化为固定 {@link #topK}。
+     */
+    private final Function<String, Integer> topKResolver;
+
     public RerankHandler(BiFunction<String, String, Double> scorer, boolean enabled, int topK) {
+        this(scorer, enabled, topK, null);
+    }
+
+    public RerankHandler(BiFunction<String, String, Double> scorer, boolean enabled,
+                         int topK, Function<String, Integer> topKResolver) {
         this.scorer = scorer != null ? scorer : identity();
         this.enabled = enabled;
         this.topK = topK > 0 ? topK : 5;
+        this.topKResolver = topKResolver;
     }
 
     public RerankHandler(BiFunction<String, String, Double> scorer) {
-        this(scorer, true, 5);
+        this(scorer, true, 5, null);
     }
 
     @Override
@@ -81,7 +95,18 @@ public class RerankHandler implements RagSearchHandler {
         reScored.sort(Comparator.<ScoredItem>comparingDouble(s -> s.newScore).reversed());
 
         // 重建 RankedItem 列表（保留原始内容，更新分数）
-        int limit = Math.min(topK, reScored.size());
+        // 自适应模式：逐查询解析 K（文章 Q⑦），否则使用固定 topK
+        int limit;
+        if (topKResolver != null) {
+            int desired = topKResolver.apply(query);
+            int clamped = Math.max(1, Math.min(desired, reScored.size()));
+            limit = clamped;
+            if (desired != clamped) {
+                log.debug("[RerankHandler] 自适应 K={} 被候选数 {} 钳制为 {}", desired, reScored.size(), clamped);
+            }
+        } else {
+            limit = Math.min(topK, reScored.size());
+        }
         List<RagSearchContext.RankedItem> reranked = new ArrayList<>();
         for (int i = 0; i < limit; i++) {
             ScoredItem si = reScored.get(i);

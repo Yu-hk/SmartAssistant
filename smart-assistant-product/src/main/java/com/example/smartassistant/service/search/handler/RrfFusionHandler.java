@@ -32,8 +32,13 @@ public class RrfFusionHandler implements RagSearchHandler {
     /** RRF 融合常数 */
     private static final int RRF_K = 60;
 
-    /** Top-K 结果数 */
-    private static final int TOP_K = 5;
+    /**
+     * 候选池大小：RRF 融合后保留的候选条数（进入重排序 Handler 之前的上限）。
+     * <p>原先硬编码为 5，导致重排序只能看到 ≤5 条、无法真正精排提纯。
+     * 扩大候选池（默认 20）后，由后续 {@code RerankHandler} 的自适应 Top-K 做最终截断（文章 Q⑦）。</p>
+     */
+    @Value("${product.rag.candidate-pool-k:20}")
+    private int candidatePoolK;
 
     @Value("${product.rag.quality-threshold:0.30}")
     private double qualityThreshold;
@@ -70,10 +75,11 @@ public class RrfFusionHandler implements RagSearchHandler {
             }
         }
 
-        // 排序取 Top-K
+        // 排序取候选池（默认 20，远大于最终注入条数，留给重排序 Handler 精排提纯）
+        int pool = candidatePoolK > 0 ? candidatePoolK : 20;
         List<RagSearchContext.RankedItem> fused = fusedMap.values().stream()
                 .sorted((a, b) -> Double.compare(b.getRrfScore(), a.getRrfScore()))
-                .limit(TOP_K)
+                .limit(pool)
                 .collect(Collectors.toList());
 
         context.setFusedResults(fused);
