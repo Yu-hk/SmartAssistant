@@ -13,6 +13,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 
 /**
@@ -41,11 +42,14 @@ public class OrderIntentService {
 
     private final AiChatService aiChatService;
     private final ChatModel lightModel;
+    private final PromptManager promptManager;
 
     public OrderIntentService(AiChatService aiChatService,
-                              @Qualifier("lightChatModel") ChatModel lightModel) {
+                              @Qualifier("lightChatModel") ChatModel lightModel,
+                              PromptManager promptManager) {
         this.aiChatService = aiChatService;
         this.lightModel = lightModel;
+        this.promptManager = promptManager;
     }
 
     /**
@@ -59,16 +63,8 @@ public class OrderIntentService {
             return IntentType.OTHER;
         }
 
-        String system = """
-                你是一个订单意图分类器。从用户消息中识别意图，只返回意图枚举值。
-
-                可选的意图：
-                - 下单：用户要购买商品、创建新订单
-                - 查询订单：用户要查询订单状态、物流、详情
-                - 退款：用户要退款、退货
-                - 取消：用户要取消订单
-                - 其他：以上都不匹配
-                """;
+        // P2 Prompt 外部化：prompts/order/intent-classifier.txt
+        String system = promptManager.orderIntentClassifier();
 
         try {
             IntentResult result = aiChatService.entity(

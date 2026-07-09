@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025-2026 SmartAssistant Project. All rights reserved.
+ *
+ * Licensed under the MIT License. See LICENSE file in the project root for
+ * full license information.
+ */
+
 package com.example.smartassistant.common.budget;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -37,6 +44,19 @@ public class BudgetConfig {
     /** 超限后的降级行为：TRUNCATE / FALLBACK / TERMINATE */
     private String onExceeded = "TRUNCATE";
 
+    // ═══════════════════════════════════════════════════════════
+    // P2 用户级 Token 配额（Redis 持久化）
+    // ═══════════════════════════════════════════════════════════
+
+    /** 每个用户每天最大 Token 消耗（0 表示不限） */
+    private int maxTokensPerUserPerDay = 0;
+
+    /** 每个用户每天最大 LLM 调用次数（0 表示不限） */
+    private int maxCallsPerUserPerDay = 0;
+
+    /** Token 配额重置间隔：DAILY / HOURLY */
+    private String quotaResetInterval = "DAILY";
+
     // ===== Getters & Setters =====
 
     public int getMaxTokensPerSession() { return maxTokensPerSession; }
@@ -59,4 +79,13 @@ public class BudgetConfig {
 
     public String getOnExceeded() { return onExceeded; }
     public void setOnExceeded(String onExceeded) { this.onExceeded = onExceeded; }
+
+    public int getMaxTokensPerUserPerDay() { return maxTokensPerUserPerDay; }
+    public void setMaxTokensPerUserPerDay(int maxTokensPerUserPerDay) { this.maxTokensPerUserPerDay = maxTokensPerUserPerDay; }
+
+    public int getMaxCallsPerUserPerDay() { return maxCallsPerUserPerDay; }
+    public void setMaxCallsPerUserPerDay(int maxCallsPerUserPerDay) { this.maxCallsPerUserPerDay = maxCallsPerUserPerDay; }
+
+    public String getQuotaResetInterval() { return quotaResetInterval; }
+    public void setQuotaResetInterval(String quotaResetInterval) { this.quotaResetInterval = quotaResetInterval; }
 }

@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.service.data;
 
+import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.consumer.service.agent.McpAgentService;
 import jakarta.annotation.PostConstruct;
@@ -36,6 +37,7 @@ public class HybridDataQueryService {
     private final McpAgentService mcpAgentService;  // ⭐ ReactAgent 服务
     private final SyncMcpToolCallbackProvider syncMcpToolCallbackProvider;  // ⭐ MCP 专用类型
     private final JdbcTemplate jdbcTemplate;  // ⭐ JdbcTemplate
+    private final PromptManager promptManager;  // ⭐ Prompt 管理器
     private volatile boolean mcpInitialized = false;  // MCP 初始化标志
 
     @Value("${spring.ai.mcp.server.enabled:true}")
@@ -49,12 +51,14 @@ public class HybridDataQueryService {
             ChatClient.Builder chatClientBuilder,
             @Autowired(required = false) SyncMcpToolCallbackProvider syncMcpToolCallbackProvider,
             McpAgentService mcpAgentService,
-            JdbcTemplate jdbcTemplate) {
+            JdbcTemplate jdbcTemplate,
+            PromptManager promptManager) {
         this.aiChatService = aiChatService;
 
         this.syncMcpToolCallbackProvider = syncMcpToolCallbackProvider;
         this.mcpAgentService = mcpAgentService;
         this.jdbcTemplate = jdbcTemplate;
+        this.promptManager = promptManager;
 
         // 构建备用的 ChatClient（采用 AiChatService 统一 Advisor 链，再附加 MCP 工具）
         if (syncMcpToolCallbackProvider != null) {
@@ -162,42 +166,8 @@ public class HybridDataQueryService {
             log.info("[数据查询] 获取到的表结构:\n{}", tableSchema);
             
             // 2. 构建系统提示词，包含动态表结构和输出格式要求
-            String systemPrompt = """
-                    你是一个专业的数据库查询助手，**必须使用可用的工具来执行查询**。
-                    
-                    **重要规则：**
-                    1. **必须调用工具**：不要自己编造数据，必须使用提供的工具获取真实数据
-                    2. **优先使用具体工具**：
-                       - 查询用户总数 → 调用 getUserCount 工具
-                       - 查询活跃用户 → 调用 getActiveUserCount 工具
-                       - 查询聊天消息 → 调用 getChatMessageCount 工具
-                       - 获取用户列表 → 调用 getUserList 工具
-                       - 自定义 SQL → 调用 executeQuery 工具
-                       - 查看表结构 → 调用 getTableSchema 工具
-                    3. **基于工具返回结果回答**：分析工具返回的真实数据，用自然语言总结
-                    4. **禁止编造数据**：如果工具返回错误或无法执行，明确说明
-                    
-                    **输出要求：**
-                    - 简洁明了，控制在100字以内
-                    - 直接给出答案，不要提及技术细节
-                    - 如果有具体数字，明确说明（例如：“共有 N 个用户”）
-                    - 如果结果为空，说明“未找到相关数据”
-                    
-                    **可用工具：**
-                    - getUserCount: 查询用户总数
-                    - getActiveUserCount: 查询活跃用户数
-                    - getChatMessageCount: 查询聊天消息总数
-                    - getUserList: 获取分页用户列表
-                    - executeQuery: 执行自定义 SQL 查询（只读）
-                    - getTableSchema: 获取数据库表结构
-                    
-                    **工作流程：**
-                    1. 理解用户问题
-                    2. **选择合适的工具并调用**
-                    3. 分析工具返回的结果
-                    4. 用自然语言回答用户
-                    
-                    请严格遵守以上规则，**必须调用工具获取真实数据**！""";
+            // P2 Prompt 外部化：prompts/consumer/hybrid-query.txt
+            String systemPrompt = promptManager.hybridQuery();
             
             // 3. 执行查询
             log.info("[数据查询] 开始调用 MCP，问题: {}", question);
