@@ -433,8 +433,9 @@ KnowledgeIngestionService.parseAndIngest(filePath, tenantId)
     │   ├── H03 KeywordSearchHandler     (Order=20)  关键词搜索
     │   ├── H04 Bm25SearchHandler        (Order=30)  BM25 评分
     │   ├── H05 KnowledgeSearchHandler   (Order=40)  知识库检索
-    │   ├── H06 GraphSearchHandler       (Order=50)  图谱检索
-    │   ├── H99 RrfFusionHandler         (Order=100) RRF 融合 + 质量评估
+│   ├── H06 GraphSearchHandler       (Order=50)  图谱检索(商品关系推荐)
+│   ├── H06b LightRagSearchHandler   (Order=60)  实体关系图检索(LightRAG 查询侧)
+│   ├── H99 RrfFusionHandler         (Order=100) RRF 融合 + 质量评估
     │   ├── H98 DedupHandler             (Order=105) 内容去重(SHA-256 + Jaccard)
     │   └── H97 RerankHandler            (Order=110) 嵌入精排(余弦相似度)
     │
@@ -556,6 +557,32 @@ KnowledgeGraphService（内存实现 + PG 邻接表 DDL）
 RagGraphAutoConfiguration：@ConditionalOnBean(ChatModel.class) + @ConditionalOnMissingBean
   └── 任意持有 ChatModel 的 Spring Boot 应用自动获得 KnowledgeGraphService Bean
 ```
+
+#### LightRAG 实体关系图检索（查询侧，2026-07-09 落地）
+
+通用知识图谱建好后，需在**查询阶段**把它接入检索链路，否则图只是"建而不用"。新增 `LightRagSearchHandler`（实现 `RagSearchHandler`，Order=60，位于 `GraphSearchHandler` 与 `RrfFusionHandler` 之间），作为一条独立召回路径并入 RRF 融合：
+
+```
+查询 query
+  → 抽取消歧 token（整句 + 中英文分词 + 中文长串二元滑动切分，提升召回）
+  → KnowledgeGraphService.searchNodes(token) 匹配实体（名称/类型/描述子串）
+  → 以匹配实体为起点 getRelationsForNode() 扩展 1 跳关系
+  → 组装「实体A —关系— 实体B」三元组（置信度降序，起点≤6 / 三元组≤15）
+  → context.addPathResult("实体关系图检索", items)  → 由 RrfFusionHandler 自动并入最终答案
+```
+
+与 `GraphSearchHandler`(H06，仅基于写死的商品编码关系做推荐) 的区别：本 Handler 消费的是 **LLM 从文档抽取出的通用实体/关系图**，可回答「A 和 B 什么关系」「为什么 X 影响 Y」这类多跳/关系型问题。
+
+**图谱激活（让图在运行时真正有数据）**：`ProductKnowledgeConfig` 新增 `CommandLineRunner`，启动后将种子文档（产品/订单）经 `KnowledgeGraphService.extractFromDocument()` 抽取进图——异步、best-effort，Ollama 未就绪时由 `KnowledgeGraphService` 内部 try/catch 兜底，不影响启动；图谱 Bean 缺失则整体跳过。
+
+**优雅降级**：`KnowledgeGraphService` 注入 `required=false`；图为空 / Bean 缺失 / 检索异常时静默跳过，不影响其它召回路径。
+
+**配置项**（`smart-assistant-product/src/main/resources/application.yml`）：
+
+| 配置 | 默认值 | 说明 |
+|:----|:----:|:-----|
+| `product.rag.lightrag.enabled` | `true` | 查询侧「实体-关系图检索」Handler 开关 |
+| `product.rag.lightrag.ingest-seed.enabled` | `true` | 启动时将种子文档抽取进知识图谱（异步 best-effort） |
 
 ### 多模态 RAG 入库
 

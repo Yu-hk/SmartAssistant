@@ -197,3 +197,11 @@ logging:
       max-file-size: 10MB
       max-history: 7
       total-size-cap: 100MB
+
+# ⭐ LightRAG 实体关系抽取配置
+product:
+  rag:
+    lightrag:
+      enabled: true            # 查询侧「实体-关系图检索」Handler 开关（并入 RAG Pipeline）
+      ingest-seed:
+        enabled: true          # 启动时将种子文档（产品/订单）抽取进知识图谱（异步 best-effort）
