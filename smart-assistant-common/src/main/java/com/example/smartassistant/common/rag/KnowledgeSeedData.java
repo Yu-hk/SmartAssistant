@@ -60,7 +60,8 @@ public class KnowledgeSeedData {
 
     // ==================== 订单知识 ====================
 
-    private static List<KnowledgeDocument> orderDocuments() {
+    /** 暴露订单种子文档（供图谱抽取等复用，不再局限于 KB 构建） */
+    public static List<KnowledgeDocument> orderDocuments() {
         List<KnowledgeDocument> docs = new ArrayList<>();
         long now = System.currentTimeMillis();
         long year = 365L * 86400000;
@@ -137,7 +138,8 @@ public class KnowledgeSeedData {
 
     // ==================== 产品知识 ====================
 
-    private static List<KnowledgeDocument> productDocuments() {
+    /** 暴露产品种子文档（供图谱抽取等复用，不再局限于 KB 构建） */
+    public static List<KnowledgeDocument> productDocuments() {
         List<KnowledgeDocument> docs = new ArrayList<>();
         long now = System.currentTimeMillis();
         long year = 365L * 86400000;
