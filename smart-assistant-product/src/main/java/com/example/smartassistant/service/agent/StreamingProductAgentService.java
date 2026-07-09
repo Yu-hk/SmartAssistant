@@ -9,6 +9,7 @@ package com.example.smartassistant.service.agent;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
+import com.example.smartassistant.common.rag.eval.FaithfulnessGuard;
 import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageSpan;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
@@ -42,9 +43,17 @@ public class StreamingProductAgentService {
     @Autowired(required = false)
     private StageTraceRecorder stageTraceRecorder;
 
+    /** ⭐ P5-A 生产忠实度护栏（可选，默认内置实例；测试可注入定制实例） */
+    private FaithfulnessGuard faithfulnessGuard = new FaithfulnessGuard();
+
     /** 测试/手动注入用 setter */
     public void setStageTraceRecorder(StageTraceRecorder stageTraceRecorder) {
         this.stageTraceRecorder = stageTraceRecorder;
+    }
+
+    /** 测试可注入定制 FaithfulnessGuard */
+    public void setFaithfulnessGuard(FaithfulnessGuard faithfulnessGuard) {
+        this.faithfulnessGuard = faithfulnessGuard;
     }
 
     public StreamingProductAgentService(@Qualifier("productAgent") SmartReActAgent productAgent,
@@ -73,6 +82,8 @@ public class StreamingProductAgentService {
             log.info("[StreamingProductAgent] 执行推理: {}, requestId={}", userMessage, rid);
 
             // ⭐ P1: RAG 检索质量评估（决定拒答 or 注入上下文）
+            // P5-A: ragContext 提升到外层作用域，供 GENERATION 后的 Faithfulness 校验使用
+            String ragContext = null;
             if (productRagService != null) {
                 try {
                     long retrievalStart = System.currentTimeMillis();
@@ -106,6 +117,7 @@ public class StreamingProductAgentService {
                     if (qr.isHighQuality() && qr.getContent() != null && !qr.getContent().isBlank()) {
                         userMessage = "[系统已检索到以下商品信息]\n" + qr.getContent()
                                 + "\n\n用户问题：" + userMessage;
+                        ragContext = qr.getContent();
                         log.info("[StreamingProductAgent] RAG 知识已注入上下文");
                     }
                 } catch (Exception ragEx) {
@@ -116,10 +128,20 @@ public class StreamingProductAgentService {
 
             // ⭐ GENERATION 阶段
             long genStart = System.currentTimeMillis();
-            String result;
+            String result = null;
             String genStatus = StageSpan.STATUS_OK;
             try {
                 result = productAgent.execute(userMessage);
+                // ⭐ P5-A 生产 Faithfulness 校验（文章Q⑩校验层）：
+                // 回答关键断言未被检索上下文支撑时，非阻断地追加免责声明 + 埋点（log）
+                if (ragContext != null && !ragContext.isBlank()) {
+                    FaithfulnessGuard.FaithfulnessVerdict fg = faithfulnessGuard.check(result, ragContext);
+                    if (fg.hallucination()) {
+                        result = result + "\n\n" + fg.message();
+                        log.warn("[StreamingProductAgent] ⚠️ Faithfulness 风险: score={}, claims={}",
+                                String.format("%.2f", fg.score()), fg.claims().size());
+                    }
+                }
             } catch (Exception e) {
                 genStatus = StageSpan.STATUS_ERROR;
                 throw e;
