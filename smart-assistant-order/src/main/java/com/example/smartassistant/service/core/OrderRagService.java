@@ -86,18 +86,33 @@ public class OrderRagService {
     /**
      * 构建注入上下文后的增强消息。
      * 将预检索结果附加到用户消息前，Agent 可直接使用。
+     *
+     * @deprecated 调用方应先用 {@link #retrieveWithQualityResult(IntentType, String)} 取质量结果，
+     *             在 {@code isRejected()} 时短路拒答（不调用 LLM），否则再用本方法格式化。
+     *             请改用 {@link #buildEnhancedMessage(RetrievalQualityResult, String)}。
      */
+    @Deprecated
     public String buildEnhancedMessage(IntentType intent, String originalMessage) {
-        RetrievalQualityResult qr = retrieveWithQualityResult(intent, originalMessage);
-        if (qr.isRejected()) {
-            // 无数据时直接返回拒绝消息，不走 Agent 增强
+        return buildEnhancedMessage(retrieveWithQualityResult(intent, originalMessage), originalMessage);
+    }
+
+    /**
+     * ⭐ P1 无证据拒答感知版：基于已获取的 {@link RetrievalQualityResult} 构建增强消息。
+     * <ul>
+     *   <li>{@code isRejected()} 或内容为空 → 返回原消息（由调用方决定短路拒答）</li>
+     *   <li>否则 → 在用户问题前附上检索到的上下文</li>
+     * </ul>
+     *
+     * @param qr             已获取的检索质量结果（不可为 null 由调用方保证）
+     * @param originalMessage 原始用户消息
+     * @return 增强后的消息；无可注入上下文时返回原消息
+     */
+    public String buildEnhancedMessage(RetrievalQualityResult qr, String originalMessage) {
+        if (qr == null || qr.isRejected() || qr.getContent() == null || qr.getContent().isBlank()) {
             return originalMessage;
         }
-        String context = qr.getContent();
-        if (context.isBlank()) {
-            return originalMessage;
-        }
-        return "[系统已检索到以下信息]\n" + context + "\n\n[请基于以上信息，结合工具查询结果回答用户]\n用户问题：" + originalMessage;
+        return "[系统已检索到以下信息]\n" + qr.getContent()
+                + "\n\n[请基于以上信息，结合工具查询结果回答用户]\n用户问题：" + originalMessage;
     }
 
     // ═══════════════════════════════════════════════════════════

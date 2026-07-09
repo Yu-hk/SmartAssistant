@@ -20,6 +20,7 @@ import com.example.smartassistant.common.rag.multimodal.ImageCaptioner;
 import com.example.smartassistant.common.rag.multimodal.ImageReference;
 import com.example.smartassistant.common.rag.multimodal.MultimodalIngestor;
 import com.example.smartassistant.common.rag.multimodal.NoopImageCaptioner;
+import com.example.smartassistant.common.rag.ingestion.job.IngestionJobStatus;
 import com.example.smartassistant.common.rag.util.HashUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -79,6 +81,10 @@ public class KnowledgeIngestionService {
 
     /** ⭐ 入库前质检：Chunk 质量评分器 */
     private final ChunkQualityScorer qualityScorer;
+
+    /** ⭐ 阶段回调（P0 异步任务管线用）——默认无操作；parseAndIngest 各阶段会回调以驱动状态机 */
+    private Consumer<IngestionJobStatus> stageListener = NOOP_LISTENER;
+    private static final Consumer<IngestionJobStatus> NOOP_LISTENER = s -> {};
 
     /** ⭐ 来源权威性等级（摄取时打标签，默认 L2 内部正式文档） */
     private final AuthorityLevel authorityLevel;
@@ -188,6 +194,14 @@ public class KnowledgeIngestionService {
         this.changeDetectionEnabled = enabled;
     }
 
+    /**
+     * ⭐ 设置阶段回调（供异步任务管线监听解析/分块/向量化阶段，驱动状态机）。
+     * <p>传入 {@code null} 视为无操作。</p>
+     */
+    public void setStageListener(Consumer<IngestionJobStatus> stageListener) {
+        this.stageListener = stageListener != null ? stageListener : NOOP_LISTENER;
+    }
+
     /** 获取内容哈希缓存实例（用于外部注入或清空） */
     public ContentHashCache getHashCache() {
         return hashCache;
@@ -218,6 +232,17 @@ public class KnowledgeIngestionService {
      *                非 {@code v\d+} 格式（如日期版本）不编入 id（降级为 upsert 覆盖）
      */
     public IngestionResult parseAndIngest(String filePath, String tenantId, String version) {
+        return parseAndIngest(filePath, tenantId, version, this.stageListener);
+    }
+
+    /**
+     * 解析并摄入文档（含阶段回调，供异步任务管线驱动状态机）。
+     *
+     * @param stageListener 阶段监听器，在解析/分块/向量化完成时回调；为 {@code null} 视为无操作
+     */
+    public IngestionResult parseAndIngest(String filePath, String tenantId, String version,
+                                          Consumer<IngestionJobStatus> stageListener) {
+        Consumer<IngestionJobStatus> sl = stageListener != null ? stageListener : NOOP_LISTENER;
         long start = System.currentTimeMillis();
         if (version == null || version.isBlank()) version = "v1";
         log.info("[Ingestion] 开始摄入: file={}, tenantId={}, version={}", filePath, tenantId, version);
@@ -229,6 +254,8 @@ public class KnowledgeIngestionService {
                 log.warn("[Ingestion] 解析结果为空: {}", filePath);
                 return IngestionResult.empty("文档解析结果为空，可能为空白文档或不支持的格式");
             }
+            // ⭐ 阶段回调：解析完成
+            sl.accept(IngestionJobStatus.PARSING);
 
             // ⭐ Step 1.5: 变更检测——基于 baseDocId 聚合 hash 跳过未变更文档
             if (changeDetectionEnabled) {
@@ -331,6 +358,8 @@ public class KnowledgeIngestionService {
             } else {
                 log.info("[Ingestion] 全为结构化文档（跳过 chunking）: count={}", structuredDocs.size());
             }
+            // ⭐ 阶段回调：分块完成
+            sl.accept(IngestionJobStatus.CHUNKING);
 
             // Step 4: 注入租户 ID + 编入版本到 chunk id（非覆盖式版本，P0）
             final String ver = version;
@@ -417,6 +446,8 @@ public class KnowledgeIngestionService {
 
             // Step 5: 批量入库
             knowledgeBase.addDocuments(docs);
+            // ⭐ 阶段回调：向量化（嵌入在 addDocument 内完成）与入库已结束
+            sl.accept(IngestionJobStatus.EMBEDDING);
 
             // ⭐ Step 5.5: 入库审计（P0）
             auditRecorder.record(IngestAuditEvent.of(operator, "INGEST", "", version,

@@ -206,6 +206,9 @@ router:
     # ⭐ 语义路由缓存配置
     semantic-cache:
       enabled: true              # 是否启用语义路由缓存
+      reply-cache-enabled: true  # ⭐ P3-B：最终回复缓存总开关。false 则不缓存任何最终回复
+                                 #    （路由决策仍缓存），以完全对齐文章⑥"不缓存可变最终回答"的建议。
+                                 #    回复 key 已含 租户+索引版本 作用域，防跨租户泄露 + 知识更新失效。
     
     # ⭐ 关键词提取缓存（已被多 Agent 协作替代）
     keyword-extraction:

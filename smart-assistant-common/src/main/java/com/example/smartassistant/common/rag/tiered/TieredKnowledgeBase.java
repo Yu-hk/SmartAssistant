@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.rag.tiered;
 
+import com.example.smartassistant.common.rag.AclContext;
 import com.example.smartassistant.common.rag.DocumentStatus;
 import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
@@ -102,8 +103,16 @@ public class TieredKnowledgeBase implements KnowledgeBase {
 
     @Override
     public List<KnowledgeHit> search(String query, int topK, String tenantId) {
+        return search(query, topK, AclContext.forTenant(tenantId));
+    }
+
+    /**
+     * ⭐ 细粒度 ACL 检索（文章⑤：权限进入检索层，服务端生成 filter）。
+     */
+    @Override
+    public List<KnowledgeHit> search(String query, int topK, AclContext acl) {
         // 1. 热层检索
-        List<KnowledgeHit> hotResults = hotStore.search(query, topK, tenantId);
+        List<KnowledgeHit> hotResults = hotStore.search(query, topK, acl);
 
         // 热层结果足够 → 直接返回
         if (hotResults.size() >= topK) {
@@ -112,9 +121,9 @@ public class TieredKnowledgeBase implements KnowledgeBase {
             return hotResults;
         }
 
-        // 2. 不足 → 降级到冷层
+        // 2. 不足 → 降级到冷层（同样应用细粒度 ACL）
         int remaining = topK - hotResults.size() + 5;  // 多取 5 条补偿冷层精度
-        List<KnowledgeHit> coldResults = coldStore.search(query, Math.max(remaining, 5), tenantId);
+        List<KnowledgeHit> coldResults = coldStore.search(query, Math.max(remaining, 5), acl);
 
         if (coldResults.isEmpty() && hotResults.isEmpty()) {
             recordAccess(query, "miss", 0);

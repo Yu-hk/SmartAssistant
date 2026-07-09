@@ -60,11 +60,24 @@ public class KnowledgeRetrievalService {
      * @return 格式化的上下文字符串
      */
     public String search(String kbName, String query, int topK, String tenantId) {
+        return search(kbName, query, topK, AclContext.forTenant(tenantId));
+    }
+
+    /**
+     * 从指定知识库中检索（按细粒度 ACL 上下文）。
+     *
+     * @param kbName 知识库名称
+     * @param query  检索查询
+     * @param topK   返回条数
+     * @param acl    访问控制上下文（含 tenantId / userId / roles / securityClearance）
+     * @return 格式化的上下文字符串
+     */
+    public String search(String kbName, String query, int topK, AclContext acl) {
         KnowledgeBase kb = bases.get(kbName);
         if (kb == null) {
             return "知识库 '" + kbName + "' 不存在。";
         }
-        List<KnowledgeHit> hits = kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K, tenantId);
+        List<KnowledgeHit> hits = kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K, acl);
         if (hits.isEmpty()) {
             return "INSUFFICIENT_EVIDENCE: 知识库 '" + kbName + "' 中未找到与 '" + query + "' 相关的信息。";
         }
@@ -75,9 +88,16 @@ public class KnowledgeRetrievalService {
      * 跨所有知识库检索（带租户隔离）。
      */
     public String searchAll(String query, int topK, String tenantId) {
+        return searchAll(query, topK, AclContext.forTenant(tenantId));
+    }
+
+    /**
+     * 跨所有知识库检索（按细粒度 ACL 上下文）。
+     */
+    public String searchAll(String query, int topK, AclContext acl) {
         List<KnowledgeHit> allHits = new ArrayList<>();
         for (var kb : bases.values()) {
-            allHits.addAll(kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K, tenantId));
+            allHits.addAll(kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K, acl));
         }
         allHits.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
         if (allHits.isEmpty()) {
