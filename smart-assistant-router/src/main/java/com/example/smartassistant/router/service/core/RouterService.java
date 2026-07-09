@@ -28,6 +28,8 @@ import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRew
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.quality.QualityEvaluationService;
 import com.example.smartassistant.common.prompt.PromptManager;
+import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
+import com.example.smartassistant.router.service.guardrail.EmotionLevel;
 import com.example.smartassistant.router.service.guardrail.GuardrailService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import com.example.smartassistant.router.service.routing.KeywordFastRouteService;
@@ -220,6 +222,24 @@ public class RouterService {
             boolean guardrailSkipped = guardrail.triggered() && guardrail.skipShortCircuit();
             boolean guardrailForceRag = guardrail.triggered() && guardrail.forceRag();
 
+            // ⭐ P4-A 情绪分级干预（对标文章②）：检测用户心理安全风险
+            EmotionCheckResult emotion = guardrailService.checkEmotion(question);
+
+            // 重度风险（自伤/伤人倾向）：立即安全兜底，禁止任何工具调用，引导专业求助
+            if (emotion.level() == EmotionLevel.HEAVY) {
+                log.warn("[Router] 💗 重度情绪风险，进入安全兜底: userId={}, signals={}",
+                        request.getUserId(), emotion.signals());
+                return RoutingResult.builder()
+                        .result(emotion.guidance())
+                        .agentName("general_agent")
+                        .confidence(1.0)
+                        .emotionLevel(EmotionLevel.HEAVY)
+                        .emotionIntervention(true)
+                        .disableTools(true)
+                        .emotionGuidance(emotion.guidance())
+                        .build();
+            }
+
             if (guardrail.triggered()) {
                 log.warn("[Router] 🛡️ 护栏激活: question='{}', matchedTerms={}, skipShortCircuit={}, forceRag={}",
                         truncate(question, 50), guardrail.matchedTerms(),
@@ -341,7 +361,7 @@ public class RouterService {
                                 .confidence(primaryConfidence)
                                 .intentTag(primaryIntent)
                                 .build();
-                        return finalizeRouting(result, request, question);
+                        return finalizeRouting(result, request, question, emotion);
 
                     } finally {
                         virtExec.shutdown();
@@ -355,7 +375,7 @@ public class RouterService {
                                 experienceMatch.reroutedQuestion,
                                 experienceMatch.matchScore,
                                 experienceMatch.experience.getIntentTag(),
-                                request, question);
+                                request, question, emotion);
                         if (result != null) return result;
                     }
 
@@ -367,7 +387,7 @@ public class RouterService {
                                 experienceMatch.agentName, agentQuestion,
                                 experienceMatch.matchScore,
                                 experienceMatch.experience.getIntentTag(),
-                                request, question);
+                                request, question, emotion);
                         if (result != null) return result;
                     }
                 } // end experienceMatch != null
@@ -384,7 +404,7 @@ public class RouterService {
                 RoutingResult result = callAgentAndFinalize(
                         keywordMatch.getTargetAgent(), question,
                         keywordMatch.getConfidence(), keywordMatch.getIntentTag(),
-                        request, question);
+                        request, question, emotion);
                 if (result != null) return result;
             }
 
@@ -436,7 +456,7 @@ public class RouterService {
                     // ⭐ 缓存了 builtin_fallback 但无回复 → 不使用缓存决策，走内联兜底
                     if ("builtin_fallback".equals(cached.agentName) || "none".equals(cached.agentName)) {
                         log.warn("[Router] 缓存命中但 agent={} 无可用 Agent，降级到内联兜底", cached.agentName);
-                        return inlineFallback(enhancedQuestion);
+                        return inlineFallback(enhancedQuestion, emotion);
                     }
                     if (cached.agentName != null) {
                         String agentReply = agentCallerService.callAgent(cached.agentName, enhancedQuestion, userId, request.getRequestId());
@@ -561,7 +581,7 @@ public class RouterService {
                 // 简单问题 plan() 返回单个子任务，merge() 直接返回
                 // 复杂问题自动分解为多个子任务并行执行
                 log.info("[Router] 🤝 启动多 Agent 协作: question={}", truncate(enhancedQuestion, 80));
-                result = executeCollaborative(enhancedQuestion, userId, request.getRequestId());
+                result = executeCollaborative(enhancedQuestion, userId, request.getRequestId(), emotion);
             }
 
             // ⭐ 生成意图标签（用于用户画像统计），设置到 result
@@ -569,7 +589,7 @@ public class RouterService {
             result.setIntentTag(intentTag);
 
             // ⭐⭐ 反思器 + 缓存写入 + 经验提取（公共后处理）
-            return finalizeRouting(result, request, extractRawQuestion(question));
+            return finalizeRouting(result, request, extractRawQuestion(question), emotion);
 
         } catch (Exception e) {
             log.error("[Router] 路由失败: {}", e.getMessage(), e);
@@ -601,7 +621,22 @@ public class RouterService {
      * <p>
      * 经验匹配命中的路径和正常语义缓存的路径都汇聚到此，避免重复代码。
      */
-    private RoutingResult finalizeRouting(RoutingResult result, RouteRequest request, String rawQuestion) {
+    /**
+     * ⭐ P4-A 情绪干预：将情绪等级、干预标志与安抚话术附加到路由结果。
+     * 未触发情绪风险（NONE）或结果为 null 时原样返回。
+     */
+    private RoutingResult applyEmotion(RoutingResult r, EmotionCheckResult e) {
+        if (r == null || e == null || !e.triggered()) return r;
+        return r.toBuilder()
+                .emotionLevel(e.level())
+                .emotionIntervention(true)
+                .disableTools(e.disableTools())
+                .emotionGuidance(e.guidance())
+                .build();
+    }
+
+    private RoutingResult finalizeRouting(RoutingResult result, RouteRequest request, String rawQuestion,
+                                          EmotionCheckResult emotion) {
         String question = request.getQuestion();
         Long userId = request.getUserId();
         String intentTag = result.getIntentTag();
@@ -738,7 +773,8 @@ public class RouterService {
             budgetTracker.endSession();
         }
 
-        return result;
+        // ⭐ P4-A 情绪干预：将情绪等级/干预标志/引导话术附加到最终结果
+        return applyEmotion(result, emotion);
     }
 
     /**
@@ -849,13 +885,14 @@ public class RouterService {
      * 由 {@link GraphExecutionService#execute} 按拓扑顺序并行执行。
      * </p>
      */
-    private RoutingResult executeCollaborative(String question, Long userId, String requestId) {
+    private RoutingResult executeCollaborative(String question, Long userId, String requestId,
+                                                EmotionCheckResult emotion) {
         long start = System.currentTimeMillis();
 
         // ⭐ Step 0: 检查是否有可用 Agent（无 Agent 时直接使用内联兜底）
         if (agentCallerService.getAvailableAgentCount() == 0) {
             log.warn("[Collaborative] 无可用 Agent，降级到内联 ChatClient 兜底");
-            return inlineFallback(question);
+            return inlineFallback(question, emotion);
         }
 
         // ⭐ Step 0.5: 降级检测 — 解决反常识 2（异常处理本身会制造异常）
@@ -866,7 +903,7 @@ public class RouterService {
         // ⭐ 半开（HALF_OPEN）熔断探测：放行一次请求验证恢复
         if (degLevel == DegradationService.DegradationLevel.HALF_OPEN) {
             log.info("[Collaborative] 🟡 半开探测: 放行一次请求验证恢复");
-            RoutingResult probeResult = inlineFallback(question);
+            RoutingResult probeResult = inlineFallback(question, emotion);
             boolean success = probeResult != null && probeResult.getResult() != null
                     && !probeResult.getResult().isBlank()
                     && !probeResult.getResult().startsWith("❌");
@@ -877,25 +914,25 @@ public class RouterService {
         }
         if (degLevel == DegradationService.DegradationLevel.HEAVY) {
             log.warn("[Collaborative] 🔴 重度降级(错误率>40%)，跳过所有 Agent 调用，回退到内联兜底");
-            return inlineFallback(question);
+            return inlineFallback(question, emotion);
         }
         if (degLevel == DegradationService.DegradationLevel.LIGHT) {
             log.warn("[Collaborative] 🟡 轻度降级(错误率>20%)，跳过复杂 DAG，降级为单 Agent 通用回复");
             // 轻度降级：不走 DAG 分解，直接使用 General Agent 简化回复
             String reply = agentCallerService.callAgent("general_agent", question, userId, requestId);
             if (reply == null || reply.isBlank() || reply.startsWith("❌")) {
-                return inlineFallback(question);
+                return inlineFallback(question, emotion);
             }
             long elapsed = System.currentTimeMillis() - start;
             log.info("[Collaborative] 降级单 Agent 完成: elapsed={}ms, replyLen={}", elapsed, reply.length());
-            return RoutingResult.builder().result(reply).agentName("general_agent").confidence(1.0).build();
+            return applyEmotion(RoutingResult.builder().result(reply).agentName("general_agent").confidence(1.0).build(), emotion);
         }
 
         // Step 1: 图分解（带依赖关系的 DAG）
         IntentGraph graph = taskPlanner.planToGraph(question);
         if (graph.getNodeCount() == 0) {
             log.warn("[Collaborative] 图分解为空，降级到内联 ChatClient 兜底");
-            return inlineFallback(question);
+            return inlineFallback(question, emotion);
         }
         log.info("[Collaborative] 图分解完成: {} 个节点, hasDeps={}, maxParallelism={}",
                 graph.getNodeCount(), graph.hasDependency(), graph.getMaxParallelism());
@@ -917,7 +954,7 @@ public class RouterService {
         boolean allFailed = results.isEmpty() || results.stream().noneMatch(SubTaskResult::isSuccess);
         if (allFailed || merged == null || merged.isBlank()) {
             log.warn("[Collaborative] 所有子任务均失败，降级到内联 ChatClient 兜底");
-            return inlineFallback(question);
+            return inlineFallback(question, emotion);
         }
 
         log.info("[Collaborative] 协作完成: {} 个子任务, 耗时={}ms, 结果长度={}",
@@ -936,11 +973,11 @@ public class RouterService {
                             .collect(java.util.stream.Collectors.toList()));
         }
 
-        return RoutingResult.builder()
+        return applyEmotion(RoutingResult.builder()
                 .result(merged)
                 .agentName(firstAgent)
                 .confidence(0.8)
-                .build();
+                .build(), emotion);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -979,10 +1016,11 @@ public class RouterService {
     // ⭐ 共享：调用 Agent 并构建路由结果（消除 3 处重复）
     // ═══════════════════════════════════════════════════════════
 
-    /** 调用 Agent → 构建 RoutingResult → finalizeRouting 后处理。空回复返回 null。 */
+    /** 调用 Agent → 构建 RoutingResult → finalizeRouting 后处理（含情绪干预）。空回复返回 null。 */
     private RoutingResult callAgentAndFinalize(String agentName, String agentQuestion,
                                                 double confidence, String intentTag,
-                                                RouteRequest request, String rawQuestion) {
+                                                RouteRequest request, String rawQuestion,
+                                                EmotionCheckResult emotion) {
         String agentReply = agentCallerService.callAgent(
                 agentName, agentQuestion, request.getUserId(), request.getRequestId());
         if (agentReply == null || agentReply.isBlank()) {
@@ -994,7 +1032,7 @@ public class RouterService {
                 .confidence(confidence)
                 .intentTag(intentTag)
                 .build();
-        return finalizeRouting(result, request, rawQuestion);
+        return finalizeRouting(result, request, rawQuestion, emotion);
     }
 
     /**
@@ -1007,7 +1045,7 @@ public class RouterService {
      *   <li>失败 → 预设文案（终极兜底）</li>
      * </ol>
      */
-    private RoutingResult inlineFallback(String question) {
+    private RoutingResult inlineFallback(String question, EmotionCheckResult emotion) {
         // ⭐ G3：按复杂度选档 + 平滑降级调用
         // P2 Prompt 已外部化到 prompts/router/inline-fallback.txt
         String warmSystem = promptManager.inlineFallback();
@@ -1028,11 +1066,11 @@ public class RouterService {
                         .content();
             }
             if (localReply != null && !localReply.isBlank()) {
-                return RoutingResult.builder()
+                return applyEmotion(RoutingResult.builder()
                         .result(localReply)
                         .agentName("builtin_fallback")
                         .confidence(0.2)
-                        .build();
+                        .build(), emotion);
             }
         } catch (Exception e) {
             log.warn("[Router] 本地推理兜底失败（含 G3 档位全失败）: {}", e.getMessage());
@@ -1040,11 +1078,11 @@ public class RouterService {
 
         // 终极降级 — 预设文案轮换
         int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
-        return RoutingResult.builder()
+        return applyEmotion(RoutingResult.builder()
                 .result(FALLBACK_MESSAGES.get(idx))
                 .agentName("none")
                 .confidence(0.0)
-                .build();
+                .build(), emotion);
     }
 
     private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
