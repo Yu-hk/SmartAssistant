@@ -1409,6 +1409,59 @@ Consumer (读取缓存前)
 
 ---
 
+## P4 情绪护栏与记忆版本治理
+
+P4 对应两篇参考文章的落地：P4-A 情绪干预（文章②安全护栏）在 Router 入口增加**确定性情绪风险分级**；P4-B 记忆版本留存（文章①记忆治理）在 Consumer 端实现**冲突记忆的版本化留存而非物理覆盖**。两项均为「分级兜底 + 非破坏式更新」思路，避免对正常链路引入 LLM 开销。
+
+### P4-A 情绪干预（Router，对标文章②）
+
+路由入口 `route()` 在调用 `guardrailService.check()` 之后立即执行 `guardrailService.checkEmotion(question)`，做**关键词确定性检测**（不含 LLM，零额外延迟）：
+
+- 关键词分 4 类信号：`SELF_HARM`（自伤）、`DEPRESSION`（抑郁）、`ANGER`（愤怒）、`ANXIETY`（焦虑）。
+- 命中后取最高等级 `NONE / LIGHT / MEDIUM / HEAVY`：
+  - **HEAVY**（自伤/伤人倾向）→ `route()` **安全早返回**：直接返回求助引导文案，`disableTools=true` + `requiresHumanHandoff=true`，**绝不调用任何 Agent 工具**，引导用户联系全国 24 小时心理危机干预热线 `400-161-9995`。
+  - **LIGHT / MEDIUM** → 通过 `applyEmotion()` 在 `finalizeRouting` / 兜底路径统一注入结果对象，下游 Agent/Consumer 可据此调整回复语气或限制高危工具。
+- `RouteDecision` / `RoutingResult` 新增 4 字段透传：`emotionLevel` / `emotionIntervention` / `disableTools` / `emotionGuidance`（均用 `@Builder(toBuilder=true)` 便于后处理追加）。
+
+| 文件 | 职责 |
+|:-----|:-----|
+| `guardrail/EmotionLevel.java` | 情绪等级枚举（顶级类） |
+| `guardrail/EmotionCategory.java` | 情绪类别枚举（自伤/抑郁/愤怒/焦虑） |
+| `guardrail/EmotionCheckResult.java` | 检测结果 record（`triggered()` / `none()`） |
+| `service/core/RouterService.java` | 入口检测 + HEAVY 早返回 + `applyEmotion()` 后处理 |
+
+> 检测逻辑为**确定性关键词**，避免给每次请求叠加 LLM 判断；HEAVY 路径是最高优先级兜底，优先于所有路由策略与缓存命中。
+
+### P4-B 记忆版本留存（Consumer，对标文章①）
+
+UserProfileService 抽取偏好时不再「新值直接覆盖旧值」，而是写入独立的版本化记忆库 `MemoryVersionStore`（文件存储 `data/users/{userId}/memories.json`，Jackson + JavaTimeModule）：
+
+- **来源优先级** `MemorySource`：`EXPLICIT(3) > FACT(2) > INFERRED(1)`。`recordMemory()` 按类别注入来源（FOOD_PREF/TRAVEL_PREF/LOCATION 用 INFERRED；BUDGET/DIETARY 用 EXPLICIT）。
+- **冲突时不物理删除旧记忆**：
+  - 无 ACTIVE 同键 → 新建 v1；
+  - 同值 → 仅更新来源/时间；
+  - 取值冲突 → 来源 rank 高者胜：胜则旧记忆标记 `SUPERSEDED`（记录 `supersededAt` / `supersededBy`，同 `lineageId` 血缘）、新版 `version+1`；败则保留旧值、丢弃新值。
+- `MemoryEntry` 为 `@With` record，支持不可变更新；提供 `getActive` / `getAllVersions(lineageId)` / `getHistory` 追溯接口。
+- 写入通过 `UserProfileService.recordMemory(...)` 调用，**异常安全**（catch 仅记 debug 日志，失败不影响主流程）。
+
+| 文件 | 职责 |
+|:-----|:-----|
+| `service/memory/MemorySource.java` | 来源枚举与 `rank()` 优先级 |
+| `service/memory/MemoryStatus.java` | `ACTIVE` / `SUPERSEDED` |
+| `service/memory/MemoryEntry.java` | 记忆条目 `@With` record（含 `lineageId` / `version` / `status`） |
+| `service/memory/MemoryVersionStore.java` | 版本化读写与冲突裁决 |
+| `service/recommendation/UserProfileService.java` | 偏好抽取后调用 `recordMemory()` |
+
+### P4 测试覆盖
+
+| 测试类 | 用例数 | 覆盖点 |
+|:------|:-----:|:------|
+| `GuardrailServiceEmotionTest` | 8 | 无情绪→NONE、焦虑→LIGHT、愤怒→MEDIUM、抑郁→MEDIUM、自伤→HEAVY（禁用工具+人工介入+热线）、自伤优先、关闭、空白 |
+| `RouterServiceEndToEndTest#emotionHeavyReturnsSafeResult` | 1 | HEAVY 触发安全早返回，断言 `emotionLevel/intervention/disableTools` 及 `verify(agentCallerService, never()).callAgent(...)` |
+| `MemoryVersionStoreTest` | 5 | 新增 v1、同值无新版本、冲突高优先级胜（旧 SUPERSEDED 留存）、冲突低优先级败（历史仅 1 条）、时间优先同来源递增 |
+
+---
+
 ## 服务说明
 
 | 服务 | 端口 | 职责 |
