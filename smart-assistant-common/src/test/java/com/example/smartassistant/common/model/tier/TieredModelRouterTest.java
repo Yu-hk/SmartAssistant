@@ -57,6 +57,9 @@ class TieredModelRouterTest {
     @Mock
     private ChatModel heavyModel;
 
+    @Mock
+    private ChatModel canaryModel;
+
     private TierModelRegistry registry;
     private MeterRegistry meterRegistry;
 
@@ -72,7 +75,7 @@ class TieredModelRouterTest {
 
     private TieredModelRouter router(Map<String, ModelTier> overrides, boolean degradation) {
         return new TieredModelRouter(classifier, registry,
-                overrides != null ? overrides : Map.of(), degradation, 0.0, "", meterRegistry);
+                overrides != null ? overrides : Map.of(), degradation, 0.0, "", null, meterRegistry);
     }
 
     private static ChatResponse mockResponse(String text) {
@@ -248,7 +251,7 @@ class TieredModelRouterTest {
             when(lightModel.call(anyPrompt())).thenReturn(mockResponse("降级到轻量"));
 
             TieredModelRouter r = new TieredModelRouter(classifier, partialRegistry,
-                    Map.of(), true, 0.0, "", meterRegistry);
+                    Map.of(), true, 0.0, "", null, meterRegistry);
             TierSelection sel = r.call(new Prompt("中等问题"), "中等问题", null);
 
             // MEDIUM→STANDARD（registry 返回 null），降级→LIGHT 成功
@@ -311,9 +314,64 @@ class TieredModelRouterTest {
             when(lightModel.call(anyPrompt())).thenReturn(mockResponse("你好"));
 
             TieredModelRouter noMetricsRouter = new TieredModelRouter(
-                    classifier, registry, Map.of(), true, 0.0, "", null);
+                    classifier, registry, Map.of(), true, 0.0, "", null, null);
 
             assertDoesNotThrow(() -> noMetricsRouter.call(new Prompt("你好"), "你好", null));
+        }
+    }
+
+    @Nested
+    @DisplayName("canary 灰度：新模型安全试接")
+    class CanaryTest {
+
+        private TieredModelRouter canaryRouter(double ratio, String canaryName, ChatModel canary) {
+            return new TieredModelRouter(classifier, registry, Map.of(), true,
+                    ratio, canaryName, canary, meterRegistry);
+        }
+
+        @Test
+        @DisplayName("灰度比例=1.0 时全部请求走 canary 模型，成功则 servedModelName=canary 且不触发原档位")
+        void canaryServesAllWhenRatioOne() {
+            when(classifier.classify("你好")).thenReturn(QueryComplexityClassifier.Complexity.SIMPLE);
+            when(canaryModel.call(anyPrompt())).thenReturn(mockResponse("混元回复"));
+
+            TieredModelRouter r = canaryRouter(1.0, "alibayram/hunyuan", canaryModel);
+            TierSelection sel = r.call(new Prompt("你好"), "你好", null);
+
+            assertEquals("alibayram/hunyuan", sel.servedModelName());
+            assertFalse(sel.degraded());
+            assertEquals("canary", sel.reason());
+            verify(canaryModel).call(anyPrompt());
+            verify(lightModel, never()).call(anyPrompt());
+        }
+
+        @Test
+        @DisplayName("canary 模型失败 → 自动回退到正常档位降级链")
+        void canaryFailsThenFallback() {
+            when(classifier.classify("复杂问题")).thenReturn(QueryComplexityClassifier.Complexity.COMPLEX);
+            when(canaryModel.call(anyPrompt())).thenThrow(new RuntimeException("canary OOM"));
+            when(standardModel.call(anyPrompt())).thenReturn(mockResponse("降级回复"));
+
+            TieredModelRouter r = canaryRouter(1.0, "alibayram/hunyuan", canaryModel);
+            TierSelection sel = r.call(new Prompt("复杂问题"), "复杂问题", null);
+
+            assertEquals("deepseek-r1:7b", sel.servedModelName());
+            assertTrue(sel.degraded());
+            verify(canaryModel).call(anyPrompt());
+            verify(standardModel).call(anyPrompt());
+        }
+
+        @Test
+        @DisplayName("灰度比例=0.0 时不会调用 canary 模型")
+        void noCanaryWhenRatioZero() {
+            when(classifier.classify("你好")).thenReturn(QueryComplexityClassifier.Complexity.SIMPLE);
+            when(lightModel.call(anyPrompt())).thenReturn(mockResponse("轻量回复"));
+
+            TieredModelRouter r = canaryRouter(0.0, "alibayram/hunyuan", canaryModel);
+            TierSelection sel = r.call(new Prompt("你好"), "你好", null);
+
+            assertEquals("qwen2.5:3b", sel.servedModelName());
+            verify(canaryModel, never()).call(anyPrompt());
         }
     }
 }

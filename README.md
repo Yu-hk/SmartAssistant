@@ -730,6 +730,75 @@ router:
 
 ---
 
+## 本地部署混元（Tencent Hunyuan） + canary 灰度接入（2026-07-09）
+
+> 目标：在本地 Ollama 部署混元模型，并以**零风险灰度**方式接入项目统一模型路由层，失败自动回退到现有 qwen/deepseek。
+
+### 1. 本地部署混元（Ollama）
+
+社区已提供混元的 Ollama 移植（`alibayram/hunyuan`，提供 0.5B/1.8B/4B/7B 档；`latest`≈4B，权重 2.6GB）。一键拉取：
+
+```bash
+# 默认 latest（4B）；CPU 机型可选更小尺寸（如 :1.8b / :0.5b，具体 tag 以 ollama.com/library/alibayram/hunyuan 为准）
+ollama pull alibayram/hunyuan
+# 验证模型已就绪
+ollama list | grep hunyuan
+```
+
+> ⚠️ **网络限制（本开发机已验证）**：`registry.ollama.ai` 的 manifest/小 blob 可达，但 **2.6GB 权重 blob 被 Cloudflare 拦截传输（范围下载 0 字节、连接重置）**，且本机未配置 `HTTP_PROXY/HTTPS_PROXY`（GitHub 直连亦超时）。因此在当前环境**无法完成模型二进制下载**。请在可直连 ollama.com 的机器上执行上述 `ollama pull`，再把模型目录（`OLLAMA_MODELS`，本机为 `D:\ollama_models`）同步过来，或直接在目标机器部署本项目。
+
+### 2. 项目接入（canary 灰度，已完成）
+
+此前 `tier.canary-*` 是**死特性**（配置了比例却未真正把灰度模型接入调用链）。本次补全：
+
+- `TieredModelRouter`：新增 `canaryModel`（ChatModel）字段；`call()` 在灰度命中时把 `canaryModel` 作为**尝试链首节点**，命中即优先用混元，失败沿 `canaryModel → 正常档位 → 降级链` 自动回退，全程可观测（canary 命中/回退打点）。
+- `TierModelAutoConfiguration`：`tier.canary-model` 非空时按 `baseUrl` + `canary-model` + `canary-temperature` 构建独立 `OllamaChatModel` 并注入路由器。
+- `TieredModelRouterProperties`：新增 `canaryTemperature`（默认 0.3）。
+- `isCanaryRequest()` 基于 query hashCode 做**确定性灰度**（同一 query 始终命中/不命中，便于对比评测）。
+
+### 3. 配置项（smart-assistant-router/src/main/resources/application.yml）
+
+```yaml
+tier:
+  light:
+    model: qwen2.5:3b
+  standard:
+    model: deepseek-r1:7b
+  heavy:
+    model: deepseek-r1:7b
+  degradation-enabled: true
+  # ⭐ 混元灰度接入：canary-ratio 由 0.0 翻到 0.1 即开始小流量试接混元
+  canary-ratio: 0.0
+  canary-model: alibayram/hunyuan   # 预填混元，翻 ratio 即生效
+  canary-temperature: 0.3
+```
+
+### 4. 验证方式
+
+```bash
+# (A) 单元验证 canary 命中/回退逻辑（无需模型，CI 安全）
+mvn -pl smart-assistant-common test -Dtest=TieredModelRouterTest
+
+# (B) 真实接入验证（需本机已 ollama pull 成功 + Ollama 在 11434 运行）
+#     -Dhunyuan.integration=true 开启集成测试：基础对话 + 工具调用
+mvn -pl smart-assistant-common test -Dtest=HunyuanOllamaIntegrationTest -Dhunyuan.integration=true
+
+# (C) 运行期灰度：把 router 的 tier.canary-ratio 设为 0.1，观察日志
+#     [TieredRouter] canary 命中，尝试灰度模型=alibayram/hunyuan ...
+#     失败则自动回退到 qwen/deepseek，不影响线上
+```
+
+### 5. 交付状态
+
+| 项 | 状态 |
+|----|------|
+| canary 灰度机制补全（代码） | ✅ 完成，19 单测通过 |
+| router yml 接入配置 | ✅ 完成（默认关闭，翻 `canary-ratio` 即生效） |
+| 集成测试（HunyuanOllamaIntegrationTest） | ✅ 已写，受 `-Dhunyuan.integration` 门控 |
+| 混元模型二进制下载 | ⚠️ 本环境网络受限未完成（见 §1 警告），需在可联网机器部署 |
+
+---
+
 ## Spring AI 2.0 工程化落地（借鉴 MateCloud 实践）
 
 > 提交 `0e89422`（2026-07-07）：参考 Spring AI 2.0 + MateCloud 生产实践，补齐**内容护栏 / 调用审计 / 统一工厂 / 工具发现 / 类型安全记忆 / 实体化**六大工程化能力，并将其收口到全部 Agent/Consumer/Router 的 ChatClient 调用链。全 11 模块编译通过。
