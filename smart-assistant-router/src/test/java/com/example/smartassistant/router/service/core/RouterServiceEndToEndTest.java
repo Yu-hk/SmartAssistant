@@ -14,6 +14,9 @@ import com.example.smartassistant.router.service.cache.SemanticRouteCacheService
 import com.example.smartassistant.router.service.context.IntentDriftDetector;
 import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
 import com.example.smartassistant.router.service.experience.ExperienceService;
+import com.example.smartassistant.router.service.guardrail.EmotionCategory;
+import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
+import com.example.smartassistant.router.service.guardrail.EmotionLevel;
 import com.example.smartassistant.router.service.guardrail.GuardrailService;
 import com.example.smartassistant.router.service.fusion.IntentFusionResult;
 import com.example.smartassistant.router.service.fusion.IntentFusionService;
@@ -36,6 +39,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -97,6 +101,9 @@ class RouterServiceEndToEndTest {
         //   未 stub 时 mock 返回 null → guardrail.triggered() NPE → 整条链路被异常兜底吞掉，
         //   表现为 agentName=null / fromCache=false / fuse() 零调用）──
         when(guardrailService.check(anyString())).thenReturn(GuardrailService.GuardrailCheckResult.notTriggered());
+        // ── 情绪检测默认不触发：route() 入口调用 guardrailService.checkEmotion()，
+        //   未 stub 时 mock 返回 null → emotion.level() NPE ──
+        when(guardrailService.checkEmotion(anyString())).thenReturn(EmotionCheckResult.none());
 
         // ── QueryRewriter 默认返回原问题 ──
         when(queryRewriter.rewrite(anyString(), any()))
@@ -396,5 +403,30 @@ class RouterServiceEndToEndTest {
         // 阈值设为 <5000μs（5ms，仍远低于原始 LLM 路径 ~200ms，约 40x 余量）。
         // 该断言仅验证"快车道量级远快于 LLM 路径"，非精确 SLA，避免过度敏感导致 CI 抖动。
         assertTrue(avgMicros < 5000, "端到端快车道路径平均延迟应 < 5000μs，实际: " + avgMicros + " μs");
+    }
+
+    @Test
+    @DisplayName("P4-A 重度情绪风险：立即安全兜底，禁用工具 + 返回求助引导")
+    void emotionHeavyReturnsSafeResult() {
+        // 模拟护栏情绪检测命中自伤倾向（HEAVY）
+        when(guardrailService.checkEmotion("我不想活了"))
+                .thenReturn(new EmotionCheckResult(
+                        EmotionLevel.HEAVY,
+                        Set.of(EmotionCategory.SELF_HARM),
+                        List.of("不想活了"), true, true,
+                        "检测到极高的情绪风险，已暂停常规工具调用。请优先寻求专业帮助："
+                                + "全国24小时心理危机干预热线 400-161-9995。"));
+
+        RoutingResult result = routerService.route(
+                RouteRequest.builder().userId(1L).question("我不想活了").build());
+
+        assertNotNull(result);
+        assertEquals(EmotionLevel.HEAVY, result.getEmotionLevel());
+        assertTrue(Boolean.TRUE.equals(result.getEmotionIntervention()));
+        assertTrue(Boolean.TRUE.equals(result.getDisableTools()));
+        assertNotNull(result.getEmotionGuidance());
+        assertTrue(result.getEmotionGuidance().contains("心理危机干预热线"));
+        // 绝不应调用任何 Agent 工具，结果直接是求助引导
+        verify(agentCallerService, never()).callAgent(any(), any(), any(), any());
     }
 }

@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.router.model;
 
+import com.example.smartassistant.router.service.guardrail.EmotionLevel;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,7 +20,7 @@ import java.util.Map;
  * 路由决策结果
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class RouteDecision {
@@ -47,6 +49,26 @@ public class RouteDecision {
      * 提取的上下文信息（地点、意图等）
      */
     private ExtractedContext extractedContext;
+
+    /**
+     * 情绪等级（NONE 表示未检测到情绪风险）
+     */
+    private EmotionLevel emotionLevel;
+
+    /**
+     * 是否触发情绪干预（需共情/疏导/安全兜底）
+     */
+    private Boolean emotionIntervention;
+
+    /**
+     * 是否需禁用工具调用（HEAVY 等级为 true）
+     */
+    private Boolean disableTools;
+
+    /**
+     * 情绪安抚/求助引导话术（可注入回复）
+     */
+    private String emotionGuidance;
     
     /**
      * 提取的上下文信息

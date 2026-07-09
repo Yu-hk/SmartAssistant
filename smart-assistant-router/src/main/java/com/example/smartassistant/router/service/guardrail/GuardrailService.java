@@ -13,7 +13,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 确定性护栏服务。
@@ -109,6 +111,110 @@ public class GuardrailService {
     }
 
     public GuardrailProperties getProperties() { return properties; }
+
+    // ═══════════════════════════════════════════════════════════
+    // 情绪分级干预（对标 RAG 生产化文章②：先共情安抚，再分级处置，安全兜底优先）
+    // 采用轻量化确定性关键词检测，无需 LLM 调用，低延迟、可审计。
+    // ═══════════════════════════════════════════════════════════
+
+    /** 自伤/伤人倾向（最高风险 → HEAVY） */
+    private static final List<String> SELF_HARM_KEYWORDS = List.of(
+            "不想活", "活不下去", "想自杀", "自杀", "自残", "轻生",
+            "结束这一切", "活着没意思", "不如死了", "不想活了", "结束生命"
+    );
+    /** 抑郁/崩溃（→ MEDIUM） */
+    private static final List<String> DEPRESSION_KEYWORDS = List.of(
+            "抑郁", "绝望", "崩溃", "想哭", "提不起劲", "活着没意义",
+            "空虚", "孤独", "撑不下去", "没盼头"
+    );
+    /** 愤怒（→ MEDIUM） */
+    private static final List<String> ANGER_KEYWORDS = List.of(
+            "气死", "愤怒", "恼火", "受不了", "烦死了", "暴躁", "火大", "气愤"
+    );
+    /** 焦虑/不安（→ LIGHT） */
+    private static final List<String> ANXIETY_KEYWORDS = List.of(
+            "焦虑", "担心", "紧张", "害怕", "不安", "恐慌", "着急", "忐忑"
+    );
+
+    /**
+     * 检测用户文本中的情绪风险等级与类别。
+     *
+     * <p>分级规则（取最高命中等级）：</p>
+     * <ul>
+     *     <li>命中自伤关键词 → {@link EmotionLevel#HEAVY}（禁用工具 + 需人工介入）</li>
+     *     <li>命中抑郁/愤怒关键词 → {@link EmotionLevel#MEDIUM}（暂停任务先疏导）</li>
+     *     <li>仅命中焦虑关键词 → {@link EmotionLevel#LIGHT}（共情承接）</li>
+     * </ul>
+     *
+     * <p>与 {@link #check(String)} 正交：护栏关注「高风险业务操作」，
+     * 情绪检测关注「用户心理安全」，二者可同时触发。</p>
+     *
+     * @param text 用户原始输入
+     * @return 情绪检测结果（未命中返回 {@link EmotionCheckResult#none()}）
+     */
+    public EmotionCheckResult checkEmotion(String text) {
+        if (!properties.isEnabled() || text == null || text.isBlank()) {
+            return EmotionCheckResult.none();
+        }
+
+        Set<EmotionCategory> categories = new LinkedHashSet<>();
+        List<String> signals = new ArrayList<>();
+
+        for (String kw : SELF_HARM_KEYWORDS) {
+            if (text.contains(kw)) { categories.add(EmotionCategory.SELF_HARM); signals.add(kw); }
+        }
+        for (String kw : DEPRESSION_KEYWORDS) {
+            if (text.contains(kw)) { categories.add(EmotionCategory.DEPRESSION); signals.add(kw); }
+        }
+        for (String kw : ANGER_KEYWORDS) {
+            if (text.contains(kw)) { categories.add(EmotionCategory.ANGER); signals.add(kw); }
+        }
+        for (String kw : ANXIETY_KEYWORDS) {
+            if (text.contains(kw)) { categories.add(EmotionCategory.ANXIETY); signals.add(kw); }
+        }
+
+        if (categories.isEmpty()) {
+            return EmotionCheckResult.none();
+        }
+
+        EmotionLevel level = computeLevel(categories);
+        boolean disableTools = level == EmotionLevel.HEAVY;
+        boolean requiresHumanHandoff = level == EmotionLevel.HEAVY;
+        String guidance = buildGuidance(level, categories);
+
+        log.warn("[Guardrail] 💗 情绪风险检测: level={}, categories={}, signals={}, disableTools={}",
+                level, categories, signals, disableTools);
+
+        return new EmotionCheckResult(level, categories, signals, disableTools, requiresHumanHandoff, guidance);
+    }
+
+    private static EmotionLevel computeLevel(Set<EmotionCategory> categories) {
+        if (categories.contains(EmotionCategory.SELF_HARM)) return EmotionLevel.HEAVY;
+        if (categories.contains(EmotionCategory.DEPRESSION) || categories.contains(EmotionCategory.ANGER)) {
+            return EmotionLevel.MEDIUM;
+        }
+        return EmotionLevel.LIGHT;
+    }
+
+    private static String buildGuidance(EmotionLevel level, Set<EmotionCategory> categories) {
+        return switch (level) {
+            case HEAVY -> "检测到极高的情绪风险，已暂停常规工具调用。请优先寻求专业帮助："
+                    + "全国24小时心理危机干预热线 400-161-9995（北京 010-82951332）。"
+                    + "我在这里陪你，但紧急情况请联系专业人士或拨打 120。";
+            case MEDIUM -> "我感受到你此刻情绪比较强烈，我们先不急着处理任务，慢慢来。"
+                    + "你愿意多和我说一点吗？";
+            case LIGHT -> "听起来你有些" + describe(categories) + "，我理解你的感受，我们一起梳理看看。";
+            default -> null;
+        };
+    }
+
+    private static String describe(Set<EmotionCategory> categories) {
+        List<String> labels = new ArrayList<>();
+        if (categories.contains(EmotionCategory.ANXIETY)) labels.add("担心或不安");
+        if (categories.contains(EmotionCategory.ANGER)) labels.add("气愤");
+        if (categories.contains(EmotionCategory.DEPRESSION)) labels.add("低落");
+        return String.join("、", labels);
+    }
 
     private static String truncate(String str) {
         return str != null && str.length() > 60 ? str.substring(0, 60) + "..." : str;

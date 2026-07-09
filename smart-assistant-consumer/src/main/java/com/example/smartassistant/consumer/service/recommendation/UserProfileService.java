@@ -8,6 +8,8 @@
 package com.example.smartassistant.consumer.service.recommendation;
 
 import com.example.smartassistant.consumer.entity.UserProfile;
+import com.example.smartassistant.consumer.service.memory.MemorySource;
+import com.example.smartassistant.consumer.service.memory.MemoryVersionStore;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -40,6 +42,7 @@ public class UserProfileService {
     private String basePath;
 
     private final LLMPreferenceExtractor llmExtractor;
+    private final MemoryVersionStore memoryVersionStore;
 
     // 偏好关键词模式
     private static final Map<String, Pattern> PREFERENCE_PATTERNS = new HashMap<>();
@@ -57,8 +60,9 @@ public class UserProfileService {
         PREFERENCE_PATTERNS.put("diet_halal", Pattern.compile("(清真|回族)"));
     }
 
-    public UserProfileService(LLMPreferenceExtractor llmExtractor) {
+    public UserProfileService(LLMPreferenceExtractor llmExtractor, MemoryVersionStore memoryVersionStore) {
         this.llmExtractor = llmExtractor;
+        this.memoryVersionStore = memoryVersionStore;
     }
 
     // ==================== 冷启动默认画像 ====================
@@ -166,6 +170,16 @@ public class UserProfileService {
                 profile.setDietaryRestrictionsArray(dietSet.toArray(new String[0]));
             }
 
+            // ⭐ P4-B 版本化记忆：关键偏好以「来源分级」写入版本化记忆库，
+            //    用户改主意时按 优先级(EXPLICIT>FACT>INFERRED) + 时间 留存历史版本（不物理删除）
+            if (memoryVersionStore != null) {
+                for (String f : foodPrefs) recordMemory(userId, "FOOD_PREF", f, "偏好", MemorySource.INFERRED);
+                for (String t : travelPrefs) recordMemory(userId, "TRAVEL_PREF", t, "偏好", MemorySource.INFERRED);
+                if (budget != null) recordMemory(userId, "BUDGET", "预算范围", budget, MemorySource.EXPLICIT);
+                for (String d : dietaryRestrictions) recordMemory(userId, "DIETARY", d, "限制", MemorySource.EXPLICIT);
+                if (location != null) recordMemory(userId, "LOCATION", location, "常用地点", MemorySource.INFERRED);
+            }
+
             saveProfile(profile);
 
         } catch (Exception e) {
@@ -268,8 +282,18 @@ public class UserProfileService {
         }
     }
 
-    private void saveProfile(UserProfile profile) {
+    /**
+     * ⭐ P4-B 版本化记忆写入（异常安全，失败仅记录调试日志不影响主流程）。
+     */
+    private void recordMemory(Long userId, String category, String key, String value, MemorySource source) {
         try {
+            memoryVersionStore.add(userId, category, key, value, source);
+        } catch (Exception e) {
+            log.debug("[UserProfile] 版本化记忆写入跳过: userId={}, key={}, error={}", userId, key, e.getMessage());
+        }
+    }
+
+    private void saveProfile(UserProfile profile) {        try {
             Path dir = Paths.get(basePath, String.valueOf(profile.getUserId()));
             Files.createDirectories(dir);
             profile.setUpdatedAt(LocalDateTime.now());
