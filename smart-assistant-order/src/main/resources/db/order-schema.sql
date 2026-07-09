@@ -73,7 +73,20 @@ BEGIN
     ) THEN
         ALTER TABLE orders ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
     END IF;
+
+    -- ⭐ P2 幂等性：request_id 列（用于数据库层去重）
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'orders'
+        AND column_name = 'request_id'
+    ) THEN
+        ALTER TABLE orders ADD COLUMN request_id VARCHAR(64);
+    END IF;
 END $$;
+
+-- ⭐ P2 幂等性：request_id 唯一索引（确保同一请求不重复创建订单）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_request_id ON orders(request_id)
+    WHERE request_id IS NOT NULL;
 
 -- -----------------------------
 -- 2. 退款记录表 order_refunds

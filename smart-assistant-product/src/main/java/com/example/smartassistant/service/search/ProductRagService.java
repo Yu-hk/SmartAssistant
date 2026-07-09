@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.service.search;
 
+import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.pipeline.RagSearchContext;
 import com.example.smartassistant.common.rag.pipeline.RagSearchPipeline;
 import com.example.smartassistant.spi.ProductBackend;
@@ -22,6 +23,7 @@ import java.util.stream.Collectors;
  * <p>
  * 已重构为 Pipeline 模式，检索逻辑委派给 {@link RagSearchPipeline}。
  * 保留 {@link #retrieve(String)} 和 {@link #retrieveWithQuality(String)} 兼容旧调用。
+ * 新增 {@link #retrieveWithQualityResult(String)} 返回 {@link RetrievalQualityResult} 共享模型。
  * </p>
  *
  * <p>Pipeline Handler 链（按 Order 执行）：
@@ -53,7 +55,7 @@ public class ProductRagService {
     /**
      * 多路 RAG 检索 + RRF 融合（兼容旧调用，无质量评估）。
      *
-     * <p>新代码请使用 {@link #retrieveWithQuality(String)} 以获取质量分数和兜底提示。</p>
+     * <p>新代码请使用 {@link #retrieveWithQualityResult(String)} 以获取结构化质量结果。</p>
      *
      * @param query 用户查询文本
      * @return 融合后的检索结果字符串（质量低时可能返回空字符串）
@@ -64,12 +66,7 @@ public class ProductRagService {
     }
 
     /**
-     * P1 RAG 质量评分结果。
-     *
-     * @param content       检索到的上下文文本
-     * @param qualityScore  质量分数（0.0~1.0，RRF 分数归一化）
-     * @param highQuality   是否高于质量阈值
-     * @param fallback      兜底提示（当 highQuality=false 时使用）
+     * P1 RAG 质量评分结果（兼容旧调用，保留向后兼容性）。
      */
     public record RetrievalResult(
             String content,
@@ -79,16 +76,32 @@ public class ProductRagService {
     ) {}
 
     /**
-     * 带质量评估的 RAG 检索——委派给 {@link RagSearchPipeline}。
+     * 带质量评估的 RAG 检索——委派给 {@link RagSearchPipeline}（兼容旧调用）。
+     *
+     * @deprecated 请使用 {@link #retrieveWithQualityResult(String)} 返回共享模型
+     */
+    @Deprecated
+    public RetrievalResult retrieveWithQuality(String query) {
+        RetrievalQualityResult qr = retrieveWithQualityResult(query);
+        return new RetrievalResult(
+                qr.getContent(),
+                qr.getNormalizedScore(),
+                qr.isHighQuality(),
+                qr.isRejected() ? qr.getRejectionCode() + ": " + qr.getRejectionMessage() : null
+        );
+    }
+
+    /**
+     * 带结构化质量评估的 RAG 检索——返回 {@link RetrievalQualityResult} 共享模型。
+     *
+     * <p>返回包含归一化质量分数、结构化拒答原因和用户友好的拒绝消息。</p>
      *
      * @param query 用户查询
-     * @return 检索结果（含质量分数和兜底提示）
+     * @return 结构化检索质量结果
      */
-    public RetrievalResult retrieveWithQuality(String query) {
+    public RetrievalQualityResult retrieveWithQualityResult(String query) {
         if (query == null || query.isBlank()) {
-            return new RetrievalResult("",
-                    0.0, false,
-                    "INSUFFICIENT_EVIDENCE: 请提供商品查询关键词，例如：iPhone 15 Pro 价格");
+            return RetrievalQualityResult.noData("空查询");
         }
 
         // 执行 Pipeline
@@ -103,14 +116,12 @@ public class ProductRagService {
         if (fused.isEmpty()) {
             log.warn("[ProductRAG] ⚠️ Pipeline 全部路径未召回: query={}, 耗时={}ms",
                     query, ctx.getElapsedMs());
-            return new RetrievalResult("",
-                    0.0, false,
-                    "INSUFFICIENT_EVIDENCE: 知识库中未找到与 '" + query + "' 相关的商品信息，请尝试更换关键词或联系人工客服。");
+            return RetrievalQualityResult.noData(query);
         }
 
         boolean highQuality = qualityScore >= ctx.getQualityThreshold();
 
-        // 格式化输出（与旧版 retainWithQuality 相同格式）
+        // 格式化输出
         StringBuilder sb = new StringBuilder("【商品检索结果】\n");
         int rank = 1;
         for (RagSearchContext.RankedItem item : fused) {
@@ -123,27 +134,25 @@ public class ProductRagService {
             log.warn("[ProductRAG] ⚠️ 检索质量低: query={}, qualityScore={}, threshold={}, 耗时={}ms",
                     query, String.format("%.4f", qualityScore),
                     ctx.getQualityThreshold(), ctx.getElapsedMs());
-        } else {
-            int activePaths = (int) ctx.getPathResults().values()
-                    .stream().filter(p -> !p.isEmpty()).count();
-            log.info("[ProductRAG] ✅ 检索完成: query={}, qualityScore={}, activePaths={}, fused={}, 耗时={}ms",
-                    query, String.format("%.4f", qualityScore),
-                    activePaths, fused.size(), ctx.getElapsedMs());
+
+            return RetrievalQualityResult.insufficientEvidence(
+                    content, qualityScore,
+                    "知识库中未找到与「" + query + "」相关的足够依据。");
         }
 
-        String fallback = highQuality ? null :
-                "INSUFFICIENT_EVIDENCE: 检索结果质量较低（qualityScore="
-                        + String.format("%.2f", qualityScore)
-                        + "），知识库中未找到足够依据支持准确回答。请核对问题或联系人工客服。";
-        return new RetrievalResult(content, qualityScore, highQuality, fallback);
+        int activePaths = (int) ctx.getPathResults().values()
+                .stream().filter(p -> !p.isEmpty()).count();
+        log.info("[ProductRAG] ✅ 检索完成: query={}, qualityScore={}, activePaths={}, fused={}, 耗时={}ms",
+                query, String.format("%.4f", qualityScore),
+                activePaths, fused.size(), ctx.getElapsedMs());
+
+        return RetrievalQualityResult.highQuality(content, qualityScore);
     }
 
     /**
      * 重建 BM25 索引（委托给 Bm25SearchHandler 的缓存重建逻辑）。
      */
     public void rebuildProductCache() {
-        // 通过 pipeline 找到 Bm25SearchHandler 触发重建
-        // 但 Bm25SearchHandler 内部自动懒加载，外部不需要手动触发
         log.info("[ProductRAG] BM25 缓存由 Bm25SearchHandler 自动管理，无需手动重建");
     }
 }

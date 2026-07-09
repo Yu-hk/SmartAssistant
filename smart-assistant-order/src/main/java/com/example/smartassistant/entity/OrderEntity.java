@@ -95,4 +95,8 @@ public class OrderEntity {
     /** ⭐ 最后更新时间 */
     @TableField("updated_at")
     private LocalDateTime updatedAt;
+
+    /** ⭐ P2 幂等性：请求 ID，用于数据库层去重 */
+    @TableField("request_id")
+    private String requestId;
 }

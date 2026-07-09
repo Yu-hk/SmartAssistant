@@ -10,6 +10,7 @@ package com.example.smartassistant.tools;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.idempotent.TaskLogService;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.entity.OrderEntity;
@@ -70,19 +71,22 @@ public class OrderTools {
     private final OrderLogisticsMapper orderLogisticsMapper;
     private final ReadBeforeEditGuard readGuard;
     private final ToolRegistry toolRegistry;
+    private final TaskLogService taskLogService;
 
     public OrderTools(ApprovalService approvalService,
                       OrderMapper orderMapper,
                       OrderRefundMapper orderRefundMapper,
                       OrderLogisticsMapper orderLogisticsMapper,
                       ReadBeforeEditGuard readGuard,
-                      ToolRegistry toolRegistry) {
+                      ToolRegistry toolRegistry,
+                      TaskLogService taskLogService) {
         this.approvalService = approvalService;
         this.orderMapper = orderMapper;
         this.orderRefundMapper = orderRefundMapper;
         this.orderLogisticsMapper = orderLogisticsMapper;
         this.readGuard = readGuard;
         this.toolRegistry = toolRegistry;
+        this.taskLogService = taskLogService;
     }
 
     @PostConstruct
@@ -104,6 +108,33 @@ public class OrderTools {
 
     // ==================== 下单 ====================
 
+    /**
+     * 生成幂等性锁 key（基于操作类型和订单号）。
+     */
+    private String idempotentKey(String action, String orderId) {
+        return "order:" + action + ":" + orderId;
+    }
+
+    /**
+     * 生成幂等性 requestId（基于操作类型 + 参数哈希）。
+     */
+    private String idempotentRequestId(String action, Object... params) {
+        StringBuilder sb = new StringBuilder(action);
+        for (Object p : params) {
+            if (p != null) sb.append("|").append(p);
+        }
+        // 用 MD5 缩短
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest) hex.append(String.format("%02x", b));
+            return "idem-" + action + "-" + hex.substring(0, 16);
+        } catch (Exception e) {
+            return "idem-" + action + "-" + sb.length();
+        }
+    }
+
     @Transactional
     @Tool(description = "【下单】创建新的订单。用户提供商品名称、金额和收货信息，系统自动生成订单号。"
             + "下单成功后状态为「待付款」，后续可调用 payOrder 完成支付。")
@@ -117,49 +148,60 @@ public class OrderTools {
             @ToolParam(description = "商品类型，如 电子产品/定制商品/生鲜食品，留空则自动识别", required = false) String productType) {
         log.info("[OrderTool] 创建订单: userId={}, productName={}, amount={}", userId, productName, amount);
 
-        // ★ 冲突检测：检查收货信息是否在本次会话中变更过
+        // ⭐ 幂等性保护：相同的参数只会创建一个订单
+        String requestId = idempotentRequestId("createOrder", userId, productName, amount, shippingAddress);
+        return taskLogService.executeIfNotDone(requestId, "order:create",
+                idempotentKey("create", productName + "|" + userId), () -> {
+                    String orderId = String.format("ORD-%d%04d",
+                            System.currentTimeMillis() % 1000000,
+                            ORDER_ID_COUNTER.incrementAndGet() % 10000);
 
-        String orderId = String.format("ORD-%d%04d",
-                System.currentTimeMillis() % 1000000,
-                ORDER_ID_COUNTER.incrementAndGet() % 10000);
+                    String type = (productType != null && !productType.isBlank()) ? productType : inferProductType(productName);
 
-        String type = (productType != null && !productType.isBlank()) ? productType : inferProductType(productName);
+                    OrderEntity order = OrderEntity.builder()
+                            .orderId(orderId)
+                            .userId(userId)
+                            .productName(productName)
+                            .amount(amount)
+                            .status(S_PENDING_PAY)
+                            .carrier("")
+                            .trackingNo("")
+                            .productType(type)
+                            .contactName(contactName)
+                            .contactPhone(contactPhone)
+                            .shippingAddress(shippingAddress)
+                            .createdAt(LocalDateTime.now())
+                            .updatedAt(LocalDateTime.now())
+                            .build();
 
-        OrderEntity order = OrderEntity.builder()
-                .orderId(orderId)
-                .userId(userId)
-                .productName(productName)
-                .amount(amount)
-                .status(S_PENDING_PAY)
-                .carrier("")
-                .trackingNo("")
-                .productType(type)
-                .contactName(contactName)
-                .contactPhone(contactPhone)
-                .shippingAddress(shippingAddress)
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
-                .build();
+                    // ⭐ P2 幂等性：记录 request_id 到数据库，唯一索引防重
+                    order.setRequestId(requestId);
+                    try {
+                        orderMapper.insert(order);
+                    } catch (org.springframework.dao.DuplicateKeyException e) {
+                        log.warn("[OrderTool] ⚠️ 重复订单请求被拦截: requestId={}, 返回已有结果", requestId);
+                        // 相同 requestId 已存在，返回已有订单信息
+                        return String.format("⚠️ 检测到重复的订单创建请求。订单已存在，请勿重复提交。如需查询请使用 queryOrder。");
+                    }
+                    log.info("[OrderTool] ✅ 订单创建成功: orderId={}", orderId);
 
-        orderMapper.insert(order);
-        log.info("[OrderTool] ✅ 订单创建成功: orderId={}", orderId);
-
-        return String.format(
-                """
-                        📦 订单创建成功！
-                        订单号：%s
-                        商品：%s
-                        金额：¥%.2f
-                        商品类型：%s
-                        收货人：%s
-                        联系电话：%s
-                        收货地址：%s
-                        状态：待付款
-                        
-                        下一步：请提醒用户核对收货信息并完成付款，可调用 payOrder(orderId="%s") 进行支付。""",
-                orderId, productName, amount, type,
-                contactName, contactPhone, shippingAddress,
-                orderId);
+                    return String.format(
+                            """
+                                    📦 订单创建成功！
+                                    订单号：%s
+                                    商品：%s
+                                    金额：¥%.2f
+                                    商品类型：%s
+                                    收货人：%s
+                                    联系电话：%s
+                                    收货地址：%s
+                                    状态：待付款
+                                    
+                                    下一步：请提醒用户核对收货信息并完成付款，可调用 payOrder(orderId="%s") 进行支付。""",
+                            orderId, productName, amount, type,
+                            contactName, contactPhone, shippingAddress,
+                            orderId);
+                });
     }
 
     // ==================== 支付 ====================
@@ -238,6 +280,14 @@ public class OrderTools {
             @ToolParam(description = "取消原因，如 '不想要了'/'商品与描述不符'", required = true) String reason) {
         log.info("[OrderTool] 取消订单: orderId={}, reason={}", orderId, reason);
 
+        // ⭐ 幂等性保护：已取消的订单不再重复执行
+        String requestId = idempotentRequestId("cancelOrder", orderId);
+        return taskLogService.executeIfNotDone(requestId, "order:cancel",
+                idempotentKey("cancel", orderId), () -> doCancel(orderId, reason));
+    }
+
+    /** 取消订单的内部实现（幂等检查后执行） */
+    private String doCancel(String orderId, String reason) {
         // ★ Read-before-Edit
         String guard = readGuard.requireRead(orderId, "order", "queryOrder");
         if (guard != null) return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, guard);
@@ -247,7 +297,6 @@ public class OrderTools {
             return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
-        // 校验状态：仅待付款/待发货可取消
         if (!S_PENDING_PAY.equals(order.getStatus()) && !S_PENDING_SHIP.equals(order.getStatus())) {
             return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待付款」或「待发货」订单可以取消。"
@@ -282,6 +331,15 @@ public class OrderTools {
             @ToolParam(description = "物流公司，如 顺丰速运") String carrier,
             @ToolParam(description = "快递单号，如 SF1234567890") String trackingNo) {
         log.info("[OrderTool] 发货: orderId={}, carrier={}, trackingNo={}", orderId, carrier, trackingNo);
+
+        // ⭐ 幂等性保护：相同发货参数不重复发货
+        String requestId = idempotentRequestId("shipOrder", orderId, trackingNo);
+        return taskLogService.executeIfNotDone(requestId, "order:ship",
+                idempotentKey("ship", orderId), () -> doShip(orderId, carrier, trackingNo));
+    }
+
+    /** 发货的内部实现（幂等检查后执行） */
+    private String doShip(String orderId, String carrier, String trackingNo) {
 
         // ★ Read-before-Edit
         String guard = readGuard.requireRead(orderId, "order", "queryOrder");
@@ -354,6 +412,15 @@ public class OrderTools {
     public String confirmDelivery(
             @ToolParam(description = "订单号，如 ORD-2024001", required = true) String orderId) {
         log.info("[OrderTool] 确认收货: {}", orderId);
+
+        // ⭐ 幂等性保护：已确认收货的不重复执行
+        String requestId = idempotentRequestId("confirmDelivery", orderId);
+        return taskLogService.executeIfNotDone(requestId, "order:delivery",
+                idempotentKey("delivery", orderId), () -> doConfirmDelivery(orderId));
+    }
+
+    /** 确认收货的内部实现（幂等检查后执行） */
+    private String doConfirmDelivery(String orderId) {
 
         // ★ Read-before-Edit
         String guard = readGuard.requireRead(orderId, "order", "queryOrder");

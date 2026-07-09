@@ -2112,6 +2112,67 @@ Gateway   Consumer    Router     Travel / Food / User / General
 
 ---
 
+## 近期改进（2026-07-08 ~ 2026-07-09）
+
+### RAG 深度增强
+
+| 改进 | 说明 |
+|------|------|
+| 🛡️ **P1 确定性护栏** | `GuardrailService` 关键词+意图匹配，退款/退货等高风险查询强制 RAG 增强（`skipShortCircuit=true`+`forceRag=true`），配置文件 `router.agent.rag.guardrails.*` |
+| 📉 **P2 结构化拒答 + 归一化分数** | `RetrievalQualityResult` 共享模型（QualityLabel 枚举），Product/Order 双模块统一归一化分数（0.85~0.95），注入标准化拒绝消息 |
+
+### Agent 幂等性（Q6）
+
+| 组件 | 位置 | 说明 |
+|------|------|------|
+| `DistributedLock` | common/idempotent | Redis SETNX 分布式锁，Lua 脚本原子性解锁 |
+| `TaskLogService` | common/idempotent | 任务日志状态机（PENDING→RUNNING→COMPLETED/FAILED），Redis 72h TTL |
+| `executeIfNotDone()` | TaskLogService | 幂等执行统一入口：requestId 去重 + 分布式锁 + 结果缓存 |
+| OrderTools 注入 | order | createOrder/cancelOrder/shipOrder/confirmDelivery 四方法注入幂等检查 |
+| DB 唯一索引 | order-schema.sql | `request_id VARCHAR(64)` + 唯一索引 `idx_orders_request_id`，`OrderEntity.requestId` 字段，`DuplicateKeyException` 捕获 |
+
+### 多 Agent 心跳（Q7）
+
+| 组件 | 位置 | 说明 |
+|------|------|------|
+| `AgentHeartbeatService` | router/heartbeat | 任务级心跳上报：beat/markCompleted/markFailed |
+| `HeartbeatMonitor` | router/heartbeat | 三层检查：checkServiceHealth(Nacos) / checkTaskTimeout(Redis) / checkCombined |
+| `NacosHeartbeatService` | router/heartbeat | **新增**—封装 Nacos `NamingService.selectInstances(name, true)` 替代 Redis 服务级心跳 |
+| GraphExecutionService 集成 | router/core | executeNode() 全部 5 条路径均上报心跳 |
+
+**架构决策**：服务级健康→Nacos（内置 5s 心跳），任务级进度→Redis（Nacos 无此粒度）。
+
+### Token 配额限制
+
+| 组件 | 说明 |
+|------|------|
+| `BudgetConfig` | 新增 `maxTokensPerUserPerDay`、`maxCallsPerUserPerDay`、`quotaResetInterval` |
+| `BudgetTracker` | Redis-backed 用户级配额追踪 `checkUserQuota(userId)` |
+| `RouterService` | 路由前插入配额检查，超限直接返回提示 |
+
+### Prompt 模块化（P2）
+
+| 组件 | 说明 |
+|------|------|
+| `PromptManager` | 统一 Prompt 加载器，支持版本管理（`-v2` 后缀 A/B 灰度）和 15 个便捷方法 |
+| 外部化文件 | 15 个 `.txt` 文件覆盖 router/order/consumer/common 四大模块 |
+| 已迁移服务 | RouterService（inlineFallback）、TextToSqlTool、OrderIntentService、RouterRagService（2处）、HybridDataQueryService |
+
+### 冷热数据分离（P2）
+
+| 组件 | 说明 |
+|------|------|
+| `TieredKnowledgeBase` | 包裹 InMemory（热层）+ PgVector/Milvus（冷层），读取优先热层→降级冷层→自动升温，写入双写 |
+
+### 两篇公众号文章分析
+
+| 文章 | 来源 | 结论 |
+|------|------|------|
+| 《从文本数据到向量知识库》 | 码驿随想 | 项目 6 路召回 vs 文章 2 路，**远超** |
+| 《豆包Agent一面13道真题》 | 公众号 | RAG 90% 覆盖 / Agent 65% / 分布式 40% |
+
+---
+
 ## 生产就绪度
 
 本项目已完成基于 [customer_work 12 生产坑](https://mp.weixin.qq.com/s/Ihtqsp68m1h66Ua12yV7kw) 和 [ThinkingAgent 可靠性体系](https://mp.weixin.qq.com/s/UTEdhrkV3G3Ycfrg0Jng_A) 的交叉审计。
