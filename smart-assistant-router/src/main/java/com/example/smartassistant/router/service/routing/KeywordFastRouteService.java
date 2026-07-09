@@ -1,5 +1,8 @@
 package com.example.smartassistant.router.service.routing;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -113,6 +116,8 @@ public class KeywordFastRouteService {
     }
 
     // ==================== 字段 ====================
+
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     private final KeywordRouteProperties properties;
     private final List<KeywordRule> activeRules = new ArrayList<>();
@@ -312,13 +317,37 @@ public class KeywordFastRouteService {
     }
 
     /**
-     * 解析 JSON 规则（简单实现，生产环境建议使用 Jackson）。
+     * 解析 JSON 规则（Jackson 反序列化为 {@link KeywordRule} 列表）。
+     * <p>支持两种形态：
+     * <ul>
+     *   <li>裸数组 {@code [ {rule}, {rule} ]}</li>
+     *   <li>对象包裹 {@code { "rules": [ {rule}, {rule} ] }}</li>
+     * </ul>
+     * 字段与 {@link KeywordRule} 一一对应（name/targetAgent/intentTag/mustContain/anyContain/
+     * exclude/regex/confidence/priority）。解析失败时降级为空列表，由内置默认规则兜底。
      */
-    private List<KeywordRule> parseJsonRules(String json) {
-        // TODO: 使用 Jackson ObjectMapper 解析
-        // 为简化实现，暂时返回空（依赖 YAML 配置或默认规则）
-        log.debug("[KeywordFastRoute] JSON 解析暂未实现，使用 YAML 配置");
-        return Collections.emptyList();
+    List<KeywordRule> parseJsonRules(String json) {
+        if (json == null || json.isBlank()) {
+            return Collections.emptyList();
+        }
+        try {
+            JsonNode root = JSON_MAPPER.readTree(json);
+            JsonNode arr = root;
+            if (root.isObject() && root.has("rules")) {
+                arr = root.get("rules");
+            }
+            if (arr == null || !arr.isArray()) {
+                log.warn("[KeywordFastRoute] JSON 规则非数组形态，跳过");
+                return Collections.emptyList();
+            }
+            List<KeywordRule> rules = JSON_MAPPER.convertValue(
+                    arr, new TypeReference<List<KeywordRule>>() {});
+            log.info("[KeywordFastRoute] 解析外部 JSON 规则 {} 条", rules.size());
+            return rules;
+        } catch (Exception e) {
+            log.warn("[KeywordFastRoute] JSON 规则解析失败（降级为默认规则）: {}", e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     /**

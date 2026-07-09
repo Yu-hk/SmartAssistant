@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.evaluation;
 
+import com.example.smartassistant.common.correction.CorrectionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -34,7 +35,7 @@ import java.util.List;
  * <ul>
  *   <li>① 低置信度：routingResult.confidence &lt; confidenceThreshold</li>
  *   <li>② 缓存未命中 + 低置信度（新意图未覆盖）</li>
- *   <li>③ 用户纠正信号：同一 session 内后续提问推翻了前次意图（待实现）</li>
+ *   <li>③ 用户纠正信号：同一 session 内用户推翻 / 纠正了前次回答（P5-B 已实现，见 {@link #recordCorrection}）</li>
  * </ul>
  * </p>
  *
@@ -56,6 +57,23 @@ public class BadCaseMinerService {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+
+    /**
+     * ⭐ P5-B 用户纠正信号闭环：命中纠正信号时，把纠正持久化到各 Agent 的纠错记录，
+     * 供后续回答查询（GeneralTools 已接 queryCorrections），避免重复犯错。
+     * 可选，null 时仅写 Bad Case，不持久化纠正。
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CorrectionService correctionService;
+
+    public void setCorrectionService(CorrectionService correctionService) {
+        this.correctionService = correctionService;
+    }
+
+    /** 测试 / 手动注入用 setter（默认由 @Value 注入） */
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
 
     public BadCaseMinerService(StringRedisTemplate redisTemplate,
                                ObjectMapper objectMapper) {
@@ -103,6 +121,66 @@ public class BadCaseMinerService {
 
         } catch (Exception e) {
             log.warn("[BadCase] 记录失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * ⭐ P5-B 用户纠正信号挖掘（策略 ③）。
+     *
+     * <p>对每一轮路由决策，用确定性 {@link CorrectionSignalDetector} 检测本轮用户消息是否为
+     * 「纠正信号」。命中时：
+     * <ol>
+     *   <li>写入一条 Bad Case，reason 标注「用户纠正信号 (③)」+ 命中的纠正关键词；</li>
+     *   <li>若 {@link CorrectionService} 可用，把纠正持久化到对应 Agent 的纠错记录，
+     *       后续回答前可经 GeneralTools.queryCorrections 查询，避免重复犯错。</li>
+     * </ol>
+     * 该方法是非阻断的：任何异常仅记日志，绝不影响主路由链路。
+     */
+    public void recordCorrection(RoutingDecision decision) {
+        if (!enabled) return;
+        if (decision == null || decision.question() == null) return;
+
+        try {
+            CorrectionSignalDetector.CorrectionSignal signal =
+                    CorrectionSignalDetector.detect(decision.question());
+            if (!signal.isCorrection()) return;
+
+            // ① 写入 Bad Case（复用既有结构，reason 标注 ③）
+            BadCaseRecord record = BadCaseRecord.builder()
+                    .question(decision.question())
+                    .predictedIntent(decision.predictedIntent())
+                    .confidence(decision.confidence())
+                    .agentName(decision.agentName())
+                    .sessionId(decision.sessionId())
+                    .userId(decision.userId())
+                    .reason("用户纠正信号 (③): markers=" + signal.getMarkers())
+                    .createdAt(LocalDateTime.now())
+                    .resolved(false)
+                    .build();
+
+            String json = objectMapper.writeValueAsString(record);
+            redisTemplate.opsForList().leftPush(BAD_CASE_KEY, json);
+            Long size = redisTemplate.opsForList().size(BAD_CASE_KEY);
+            if (size != null && size > MAX_BAD_CASES) {
+                redisTemplate.opsForList().trim(BAD_CASE_KEY, 0, MAX_BAD_CASES - 1);
+            }
+
+            log.warn("[BadCase] ⭐ 挖掘到用户纠正信号(③): question={}, markers={}, agent={}",
+                    truncate(decision.question(), 50), signal.getMarkers(), decision.agentName());
+
+            // ② 持久化纠正到 CorrectionService（可选）
+            if (correctionService != null && decision.agentName() != null) {
+                long uid = decision.userId() != null ? decision.userId() : -1L;
+                correctionService.appendCorrection(
+                        decision.agentName(),
+                        decision.question(),
+                        "(前次回答被用户纠正)",
+                        decision.question(),
+                        uid);
+            }
+
+        } catch (Exception e) {
+            log.warn("[BadCase] 纠正信号记录失败: {}", e.getMessage());
         }
     }
 

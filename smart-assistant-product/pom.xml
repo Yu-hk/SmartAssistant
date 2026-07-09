@@ -58,6 +58,12 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
+        <!-- Redis (StageTraceRecorder 可选持久化，缺省降级内存) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
         <!-- Micrometer Prometheus (监控指标) ⭐ -->
         <dependency>
             <groupId>io.micrometer</groupId>

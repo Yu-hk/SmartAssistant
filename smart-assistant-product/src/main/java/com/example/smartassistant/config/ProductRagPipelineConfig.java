@@ -8,6 +8,7 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.embedding.EmbeddingClient;
+import com.example.smartassistant.common.rag.pipeline.AdaptiveRerankTopK;
 import com.example.smartassistant.common.rag.pipeline.AdaptiveWeightHandler;
 import com.example.smartassistant.common.rag.pipeline.DedupHandler;
 import com.example.smartassistant.common.rag.pipeline.EmbeddingScorer;
@@ -43,6 +44,14 @@ public class ProductRagPipelineConfig {
 
     @Value("${product.rag.rerank.top-k:5}")
     private int rerankTopK;
+
+    /** 自适应重排序 Top-K 边界：事实型下限（默认 3） */
+    @Value("${product.rag.rerank.top-k-min:3}")
+    private int rerankTopKMin;
+
+    /** 自适应重排序 Top-K 边界：开放式上限（默认 8） */
+    @Value("${product.rag.rerank.top-k-max:8}")
+    private int rerankTopKMax;
 
     @Value("${product.rag.dedup.enabled:true}")
     private boolean dedupEnabled;
@@ -108,7 +117,16 @@ public class ProductRagPipelineConfig {
                 return null;
             }
         });
-        return new RerankHandler(scorer, rerankEnabled, rerankTopK);
+        return new RerankHandler(scorer, rerankEnabled, rerankTopK, adaptiveRerankTopK().asResolver());
+    }
+
+    /**
+     * 自适应重排序 Top-K 解析器（文章 Q⑦「按意图类型自适应 K」）。
+     * <p>{@code rerank.top-k} 作为默认/上限边界，{@code top-k-min/max} 限定事实型与开放式查询的 K 范围。</p>
+     */
+    @Bean
+    public AdaptiveRerankTopK adaptiveRerankTopK() {
+        return new AdaptiveRerankTopK(rerankTopKMin, rerankTopK, rerankTopKMax);
     }
 
     /**
