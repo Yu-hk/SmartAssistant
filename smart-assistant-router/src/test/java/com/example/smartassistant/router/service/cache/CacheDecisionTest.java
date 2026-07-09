@@ -47,6 +47,8 @@ class CacheDecisionTest {
         cache = new SemanticRouteCacheService(chatClientBuilder, redisTemplate, tokenizer,
                 agentDiscoveryService, tfEmbedding, vectorCache, bgeEmbedding, null, null);
         ReflectionTestUtils.setField(cache, "cacheEnabled", true);
+        // ⭐ P3-B：回复缓存总开关默认为 true（@Value 在非 Spring 测试中不解析，Java 默认 false 会导致 saveReply 提前 return）
+        ReflectionTestUtils.setField(cache, "replyCacheEnabled", true);
     }
 
     // ========================

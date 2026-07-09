@@ -1,5 +1,6 @@
 package com.example.smartassistant.router.service;
 
+import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
@@ -15,6 +16,7 @@ import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import com.example.smartassistant.router.service.quality.QualityEvaluationService;
 import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
+import com.example.smartassistant.router.service.guardrail.GuardrailService;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
 import com.example.smartassistant.router.service.cache.TfEmbeddingService;
 import com.example.smartassistant.router.service.cache.VectorCacheStore;
@@ -62,6 +64,8 @@ class RouterRoutingIntegrationTest {
     @Mock private TaskAnalysisService taskAnalysisService;
     @Mock private QualityEvaluationService qualityEvaluationService;
     @Mock private IntentGuidedQueryRewriter queryRewriter;
+    @Mock private GuardrailService guardrailService;
+    @Mock private PromptManager promptManager;
     @Mock private ValueOperations<String, String> valueOps;
     private TfEmbeddingService tfEmbedding;
     private VectorCacheStore vectorCache;
@@ -90,7 +94,7 @@ class RouterRoutingIntegrationTest {
         lenient().when(reflectionService.retry(anyString(), anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn("retry result");
         new RouterService(agentCallerService,
-                redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, experienceService, graphExecutionService, taskAnalysisService, qualityEvaluationService, queryRewriter, null, null, null, lightChatModel, null);
+                redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, experienceService, graphExecutionService, taskAnalysisService, qualityEvaluationService, queryRewriter, null, null, null, guardrailService, promptManager, lightChatModel, null);
     }
 
     @Test
@@ -114,7 +118,8 @@ class RouterRoutingIntegrationTest {
         when(valueOps.get("a2a:route:semantic:" + md5("天气查询"))).thenReturn(
                 "{\"intentTag\":\"天气查询\",\"agentName\":\"location_weather\",\"confidence\":0.5," +
                 "\"originalQuestion\":\"上海天气\",\"cachedAt\":1000,\"hitCount\":2,\"firstCachedAt\":1000}");
-        when(valueOps.get("a2a:route:reply:" + md5("天气查询"))).thenReturn(
+        // ⭐ P3-B：回复 key 含租户+版本作用域（无 MDC → public，cacheVersionManager=null → 版本 0）
+        when(valueOps.get("a2a:route:reply:public:0:" + md5("天气查询"))).thenReturn(
                 "{\"reply\":\"上海今天晴\",\"agentName\":\"location_weather\"," +
                 "\"originalQuestion\":\"上海天气\",\"firstCachedAt\":1000,\"hitCount\":2}");
 

@@ -457,7 +457,7 @@ reindex() 时自动执行 removeSuperseded()：
 ### ACL 检索前过滤
 
 ```
-所有 KnowledgeBase.search(query, topK, tenantId) 强制 ACL：
+所有 KnowledgeBase.search(query, topK, tenantId) 强制 ACL（租户隔离，基础层）：
 
 InMemoryKnowledgeBase:  search 循环中 tenantMatches() 过滤
 PgVectorKnowledgeBase:  SQL WHERE 子句 buildAclClause()
@@ -466,6 +466,23 @@ MilvusKnowledgeBase:    search 参数 withExpr(buildAclExpr())
 原则：权限过滤在检索前完成（返回前过滤），
      先召回高权限内容再让模型"不要说出来" = 自欺欺人
 ```
+
+#### 细粒度 ACL（P3-A，对标文章⑤：权限进入检索层，服务端生成 filter）
+
+在租户隔离之上补齐三个维度，filter **完全由服务端根据请求身份生成**，绝不信任客户端传入条件：
+
+| 维度 | 字段 | 语义 |
+|:----|:-----|:-----|
+| 角色 | `authorizedRoles` ⊆ `AclContext.roles` | 文档为空 = 租户内任意角色可见；否则需命中其一 |
+| 用户 | `authorizedUsers` ⊇ `AclContext.userId` | 文档为空 = 租户内任意用户可见；否则需精确命中 |
+| 安全等级 | `securityLevel` ≤ `AclContext.securityClearance` | 用户许可等级必须 ≥ 文档密级方可查看 |
+
+实现要点：
+- 新增 `AclContext` 值对象（`tenantId` + `userId` + `Set<roles>` + `securityClearance`），工厂 `forTenant` / `publicContext` / `fromMdc` / `builder`；`fromMdc()` 从请求 MDC 读取身份并退化为公开上下文（向后兼容）。
+- `KnowledgeDocument` 新增 `authorizedRoles` / `authorizedUsers` / `securityLevel` 三字段。
+- 四种 `KnowledgeBase` 全部实现 `search(query, topK, AclContext)`：PgVector 走 `buildAclClause()` 四层 SQL；Milvus 走 `buildAclExpr()`（`array_contains_any` / `array_contains` / 数值比较）；InMemory 走 `tenantMatches()` 四层过滤；Tiered 双冷/热层均应用。
+- 检索链路贯通：`KnowledgeRetrievalService.search(..., AclContext)` + `KnowledgeQueryTool` 注入 `AclContext.fromMdc()`，将请求身份透传到检索层。
+- `KnowledgeBase` 接口保留 default `search(query, topK, tenantId)` 委托 `search(query, topK, AclContext.forTenant(tenantId))` 保证向后兼容。
 
 ### 知识库内容
 
@@ -1301,6 +1318,9 @@ getCachedDecision(question)
 
 ```
 saveReply() 时
+├── 回复缓存总开关 reply-cache-enabled=false?
+│   └── ✅ 是 → 跳过（P3-B 文章⑥：彻底不缓存可变的最终回答，仅保留路由决策加速）
+│
 ├── 会话复述类提问?（"我刚刚问了什么"、"再说一遍"）
 │   └── ✅ 是 → 跳过（回答仅对当前会话有效）
 │
@@ -1313,16 +1333,27 @@ saveReply() 时
 ├── 意图被问到 ≥2 次?（即高频意图）
 │   └── ❌ 否 → 跳过（低频问题缓存也不会命中）
 │
-└── 通过 → 缓存回复（关键词级 + 意图级）
+└── 通过 → 缓存回复（关键词级 + 意图级，key 含租户+版本作用域）
 ```
+
+#### 缓存 key 作用域（P3-B，文章⑥：权限 + 索引版本进入缓存 key）
+
+回复类缓存 key 一律注入 `{tenant:version}` 作用域，避免把"受权限/版本影响可变的最终回答"跨请求复用：
+
+- **租户隔离**：`AclContext.fromMdc().getTenantId()` 进入 key，租户 A 的缓存回复不会被租户 B 命中（防跨租户数据泄露）。
+- **版本失效**：`CacheVersionManager.getCurrentVersion()` 进入 key，索引/知识库版本递增后旧版本回复 key 自然失效。
 
 | 缓存类型 | Key | 写入时机 | TTL |
 |---------|-----|---------|:---:|
 | 路由决策 | `a2a:route:semantic:{md5(intentTag)}` | 每次路由后 | 24h |
 | 精确映射 | `a2a:route:exact:{md5(question)}` | 每次路由后 | 24h |
 | 关键词路由 | `a2a:route:keyword:{md5(keywords)}` | 每次路由后 | 24h |
-| **关键词回复** | `a2a:route:keyword:reply:{md5(keywords)}` | **Agent 执行后（TTL≥1h 时）** | 动态 |
-| 意图回复 | `a2a:route:reply:{md5(intentTag)}` | 被问到 ≥2 次后（TTL≥1h 时） | 动态 |
+| **关键词回复** | `a2a:route:keyword:reply:{tenant:version}:{md5(keywords)}` | **Agent 执行后（TTL≥1h 时）** | 动态 |
+| 意图回复 | `a2a:route:reply:{tenant:version}:{md5(intentTag)}` | 被问到 ≥2 次后（TTL≥1h 时） | 动态 |
+
+> 路由决策 key（`semantic`/`exact`/`keyword`）仍按原租户无关设计保留——路由决策是"去往哪个 Agent"的判定，与用户数据无关，可安全跨租户共享以加速；而**回复内容**因携带用户私有数据，必须按租户+版本隔离。
+>
+> 运维可通过 `router.semantic-cache.reply-cache-enabled=false` 完全关闭最终回复缓存（默认 `true`，保留高频 FAQ 收益），彻底对齐文章⑥"反对缓存最终回答"的建议。
 
 ### 缓存版本一致性
 
@@ -2266,6 +2297,38 @@ Gateway   Consumer    Router     Travel / Food / User / General
 |------|------|------|
 | 《从文本数据到向量知识库》 | 码驿随想 | 项目 6 路召回 vs 文章 2 路，**远超** |
 | 《豆包Agent一面13道真题》 | 公众号 | RAG 90% 覆盖 / Agent 65% / 分布式 40% |
+
+### 异步入库任务管线（P0，源于《RAG 系统从 Demo 到生产》）
+
+将同步的 `KnowledgeIngestionService.parseAndIngest` 封装为**带状态机的异步任务管线**，把解析/分块/向量化等重活移出请求链路，提供「提交即受理 + 进度轮询 + 失败重试」的生产级契约。
+
+**状态机**（对标文章「异步可追踪数据链路」）：
+
+```
+UPLOADED ──▶ PARSING ──▶ CHUNKING ──▶ EMBEDDING ──▶ INDEXED
+   │                                                        │
+   └──────────────────（任意阶段异常）──────────────────▶ FAILED ──▶ RETRYING ──▶ (重跑)
+```
+
+**REST 端点**（`@ConditionalOnWebApplication`，统一 `ApiResponse`）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/knowledge/ingest/submit` | 提交即受理，立即返回 `jobId`（202 语义），后台虚拟线程异步执行 |
+| GET  | `/api/knowledge/ingest/jobs/{jobId}` | 进度轮询（status / progress / docCount / errorMessage） |
+| POST | `/api/knowledge/ingest/jobs/{jobId}/retry` | 仅 `FAILED` 任务可重试（409 守卫） |
+| GET  | `/api/knowledge/ingest/jobs?tenantId=` | 列出租户任务 |
+
+**关键设计**：
+- 提交去重：同一（源路径 + 租户）的活跃任务直接复用，避免重复摄入；
+- 阶段回调：`parseAndIngest` 新增 `Consumer<IngestionJobStatus>` 重载参数，在各阶段回调以驱动状态机，**向后兼容**原有 3 参调用（默认无操作）；
+- 执行器：默认 `Executors.newVirtualThreadPerTaskExecutor()`（JDK21 虚拟线程，与项目 common 约定一致），`DisposableBean` 优雅关闭；
+- 存储接口 `IngestionJobRepository` 默认 `InMemoryIngestionJobRepository`（单实例），生产可替换为 JDBC/Redis 实现；
+- 自动装配 `IngestionJobAutoConfiguration` **自包含**创建 `KnowledgeIngestionService`（依赖 `DocumentParseRouter`/`DocumentChunker`/`KnowledgeBase` Bean），仅在有 `KnowledgeBase` Bean 的 **Web 应用**上下文激活，业务模块零接线。
+
+**新增文件**（`common/rag/ingestion/job/`）：`IngestionJobStatus`、`IngestionJob`、`IngestionJobView`、`IngestionJobRepository`、`InMemoryIngestionJobRepository`、`IngestionJobManager`、`IngestionSubmitRequest`、`JobSubmitResponse`、`IngestionJobController`、`IngestionJobAutoConfiguration`；改动：`KnowledgeIngestionService`（阶段回调重载）。
+
+**验证**：`IngestionJob*Test` 共 7 用例全过（状态机流转 / 失败重试 / 去重 / 重试守卫 / CRUD / REST 提交·查询·未知重试 404），既有 `KnowledgeIngestion*` 测试无回归。
 
 ---
 

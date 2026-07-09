@@ -1,40 +1,73 @@
 package com.example.smartassistant.common.memory;
 
 import org.junit.jupiter.api.*;
-import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
-import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
- * EntityProfileService 测试（需要本地 Redis）。
+ * EntityProfileService 单元测试：用内存版 HashOperations 模拟 Redis，
+ * 无需依赖外部 Redis 服务即可确定性运行。
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EntityProfileServiceTest {
 
-    private static EntityProfileService profile;
-    private static StringRedisTemplate redis;
-    private static final Long USER_ID = 9999L;
+    private EntityProfileService profile;
+    private StringRedisTemplate redis;
+    private final Long USER_ID = 9999L;
 
-    @BeforeAll
-    static void init() {
-        try {
-            var config = new RedisStandaloneConfiguration("localhost", 6379);
-            config.setPassword("redis123");
-            config.setDatabase(2);
-            var factory = new LettuceConnectionFactory(config);
-            factory.afterPropertiesSet();
-            redis = new StringRedisTemplate(factory);
-            redis.afterPropertiesSet();
-            redis.getConnectionFactory().getConnection().ping();
-            profile = new EntityProfileService(redis);
-            System.out.println("[Redis] OK");
-        } catch (Exception e) {
-            System.out.println("[Redis] FAIL: " + e.getMessage());
-        }
+    @BeforeEach
+    void init() {
+        // 用内存 Map 模拟 Redis Hash，避免依赖外部 Redis 服务
+        Map<String, Map<Object, Object>> store = new ConcurrentHashMap<>();
+
+        @SuppressWarnings("unchecked")
+        HashOperations<String, Object, Object> hashOps = mock(HashOperations.class);
+
+        doAnswer(inv -> {
+            String h = inv.getArgument(0);
+            Object hk = inv.getArgument(1);
+            Object hv = inv.getArgument(2);
+            store.computeIfAbsent(h, k -> new ConcurrentHashMap<>()).put(hk, hv);
+            return null;
+        }).when(hashOps).put(anyString(), any(), any());
+
+        doAnswer(inv -> {
+            String h = inv.getArgument(0);
+            Map<?, ?> m = inv.getArgument(1);
+            store.computeIfAbsent(h, k -> new ConcurrentHashMap<>()).putAll(m);
+            return null;
+        }).when(hashOps).putAll(anyString(), anyMap());
+
+        when(hashOps.get(anyString(), any())).thenAnswer(inv -> {
+            String h = inv.getArgument(0);
+            Object hk = inv.getArgument(1);
+            Map<Object, Object> m = store.get(h);
+            return m == null ? null : m.get(hk);
+        });
+
+        when(hashOps.entries(anyString())).thenAnswer(inv -> {
+            String h = inv.getArgument(0);
+            Map<Object, Object> m = store.get(h);
+            return m == null ? Map.of() : new LinkedHashMap<>(m);
+        });
+
+        redis = mock(StringRedisTemplate.class);
+        when(redis.opsForHash()).thenReturn(hashOps);
+        when(redis.expire(anyString(), anyLong(), any())).thenReturn(true);
+        when(redis.delete(anyString())).thenAnswer(inv -> {
+            store.remove(inv.getArgument(0));
+            return Boolean.TRUE;
+        });
+
+        profile = new EntityProfileService(redis);
     }
 
     @BeforeEach

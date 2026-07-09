@@ -108,6 +108,9 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "chunk_index INT DEFAULT -1,"
                 + "authority_level INT DEFAULT 3,"
                 + "document_status VARCHAR(16) DEFAULT 'ACTIVE',"
+                + "security_level INT DEFAULT 0,"           // 🔴 ACL 细粒度：安全等级
+                + "authorized_roles TEXT[] DEFAULT '{}',"    // 🔴 ACL 细粒度：授权角色
+                + "authorized_users TEXT[] DEFAULT '{}',"    // 🔴 ACL 细粒度：授权用户
                 + "embedding vector(" + DIMENSIONS + "),"
                 + "created_at BIGINT NOT NULL"
                 + ")");
@@ -124,6 +127,19 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         } catch (Exception e) {
             log.warn("[PgVectorKB:{}] ACL 索引创建失败: {}", name, e.getMessage());
         }
+        // ⭐ 细粒度 ACL 列迁移（已存在的旧表补齐，幂等）
+        try {
+            jdbcTemplate.execute("ALTER TABLE " + TABLE
+                    + " ADD COLUMN IF NOT EXISTS security_level INT DEFAULT 0");
+            jdbcTemplate.execute("ALTER TABLE " + TABLE
+                    + " ADD COLUMN IF NOT EXISTS authorized_roles TEXT[] DEFAULT '{}'");
+            jdbcTemplate.execute("ALTER TABLE " + TABLE
+                    + " ADD COLUMN IF NOT EXISTS authorized_users TEXT[] DEFAULT '{}'");
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_acl_roles"
+                    + " ON " + TABLE + " USING gin (authorized_roles)");
+        } catch (Exception e) {
+            log.warn("[PgVectorKB:{}] ACL 列迁移失败（可忽略，可能已存在）: {}", name, e.getMessage());
+        }
     }
 
     @Override
@@ -139,8 +155,11 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 "INSERT INTO " + TABLE + " (id, title, content, category, keywords, "
                         + "effective_at, expire_at, tenant_id, version, source_url, chunk_index, "
                         + "authority_level, document_status, "
+                        + "security_level, authorized_roles, authorized_users, "
                         + "embedding, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                        + toPgTextArray(doc.getAuthorizedRoles()) + ", "
+                        + toPgTextArray(doc.getAuthorizedUsers()) + ", "
                         + (vecStr != null ? "?::vector" : "NULL") + ", ?) "
                         + "ON CONFLICT (id) DO UPDATE SET "
                         + "title=EXCLUDED.title, content=EXCLUDED.content, "
@@ -148,6 +167,8 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         + "tenant_id=EXCLUDED.tenant_id, version=EXCLUDED.version, "
                         + "source_url=EXCLUDED.source_url, chunk_index=EXCLUDED.chunk_index, "
                         + "authority_level=EXCLUDED.authority_level, document_status=EXCLUDED.document_status, "
+                        + "security_level=EXCLUDED.security_level, "
+                        + "authorized_roles=EXCLUDED.authorized_roles, authorized_users=EXCLUDED.authorized_users, "
                         + "embedding=" + (vecStr != null ? "EXCLUDED.embedding" : "NULL"),
                 doc.getId(), doc.getTitle(), doc.getContent(),
                 doc.getCategory(), doc.getKeywords(),
@@ -155,6 +176,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 doc.getTenantId(), doc.getVersion(),
                 doc.getSourceUrl(), doc.getChunkIndex(),
                 doc.getAuthorityLevel().getRank(), doc.getDocumentStatus().name(),
+                doc.getSecurityLevel(),
                 vecStr, System.currentTimeMillis());
     }
 
@@ -202,6 +224,17 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
 
     @Override
     public List<KnowledgeHit> search(String query, int topK, String tenantId) {
+        // 退化为仅租户过滤（保持向后兼容）
+        return search(query, topK, AclContext.forTenant(tenantId));
+    }
+
+    /**
+     * ⭐ 细粒度 ACL 检索（文章⑤：权限进入检索层，服务端生成 filter）。
+     * <p>在租户隔离之上，按角色 / 用户 / 安全等级做检索前过滤；filter 完全由
+     * 服务端根据请求身份（{@link AclContext}）生成，不信任客户端传入条件。</p>
+     */
+    @Override
+    public List<KnowledgeHit> search(String query, int topK, AclContext acl) {
         if (query == null || query.isBlank()) return Collections.emptyList();
         int k = (topK > 0) ? topK : 5;
 
@@ -209,17 +242,18 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         float[] queryVec = embeddingModel.embedding(query);
         if (queryVec == null) {
             log.warn("[PgVectorKB:{}] 嵌入不可用，降级到关键词搜索", name);
-            return fallbackSearch(query, k, tenantId);
+            return fallbackSearch(query, k, acl);
         }
 
         // 向量搜索 + 过滤过期文档 + 🔴 ACL 检索前过滤 + 🔴 状态过滤
         String vecStr = arrayToPgVector(queryVec);
         long now = System.currentTimeMillis();
-        String aclClause = buildAclClause(tenantId);
+        String aclClause = buildAclClause(acl);
         List<KnowledgeDocument> candidates = jdbcTemplate.query(
                 "SELECT id, title, content, category, keywords, effective_at, expire_at, "
                         + "tenant_id, version, source_url, chunk_index, created_at, "
-                        + "authority_level, document_status, "
+                        + "authority_level, document_status, security_level, "
+                        + "authorized_roles, authorized_users, "
                         + "(embedding <-> ?::vector) AS dist "
                         + "FROM " + TABLE + " "
                         + "WHERE (effective_at <= 0 OR effective_at <= ?) "
@@ -227,21 +261,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
                         + aclClause
                         + "ORDER BY embedding <-> ?::vector LIMIT ?",
-                (ResultSet rs, int rowNum) -> {
-                    KnowledgeDocument doc = new KnowledgeDocument(
-                            rs.getString("id"), rs.getString("title"),
-                            rs.getString("content"), rs.getString("category"),
-                            rs.getString("keywords"),
-                            rs.getLong("effective_at"), rs.getLong("expire_at"),
-                            safeString(rs, "tenant_id"),
-                            safeString(rs, "version"),
-                            safeString(rs, "source_url"),
-                            rs.getInt("chunk_index"),
-                            "",
-                            AuthorityLevel.fromRank(rs.getInt("authority_level")),
-                            DocumentStatus.fromCode(safeString(rs, "document_status")));
-                    return doc;
-                },
+                (ResultSet rs, int rowNum) -> mapDoc(rs),
                 vecStr, now, now, vecStr, 50); // 粗筛 50 条
 
         // 精排：BM25 + 时间衰减
@@ -321,33 +341,20 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         rs.getLong("effective_at"), rs.getLong("expire_at")));
     }
 
-    private List<KnowledgeHit> fallbackSearch(String query, int topK, String tenantId) {
+    private List<KnowledgeHit> fallbackSearch(String query, int topK, AclContext acl) {
         String q = "%" + query + "%";
-        String aclClause = buildAclClause(tenantId);
+        String aclClause = buildAclClause(acl);
         return jdbcTemplate.query(
                 "SELECT id, title, content, category, keywords, effective_at, expire_at, "
                         + "tenant_id, version, source_url, chunk_index, created_at, "
-                        + "authority_level, document_status "
+                        + "authority_level, document_status, security_level, "
+                        + "authorized_roles, authorized_users "
                         + "FROM " + TABLE + " "
                         + "WHERE (title ILIKE ? OR content ILIKE ? OR keywords ILIKE ?) "
                         + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
                         + aclClause
                         + "LIMIT ?",
-                (ResultSet rs, int rowNum) -> {
-                    KnowledgeDocument doc = new KnowledgeDocument(
-                            rs.getString("id"), rs.getString("title"),
-                            rs.getString("content"), rs.getString("category"),
-                            rs.getString("keywords"),
-                            rs.getLong("effective_at"), rs.getLong("expireAt"),
-                            safeString(rs, "tenant_id"),
-                            safeString(rs, "version"),
-                            safeString(rs, "source_url"),
-                            rs.getInt("chunk_index"),
-                            "",
-                            AuthorityLevel.fromRank(rs.getInt("authority_level")),
-                            DocumentStatus.fromCode(safeString(rs, "document_status")));
-                    return new KnowledgeHit(doc, 0.5);
-                },
+                (ResultSet rs, int rowNum) -> new KnowledgeHit(mapDoc(rs), 0.5),
                 q, q, q, topK);
     }
 
@@ -385,15 +392,93 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     // ==================== ACL 辅助方法 ====================
 
     /**
-     * 构建 ACL 过滤 SQL 子句。
-     * 检索前过滤：仅返回 tenant_id 为空（公开）或与请求 tenantId 匹配的文档。
+     * 构建细粒度 ACL 过滤 SQL 子句（文章⑤：权限进入检索层，服务端生成 filter）。
+     * <p>filter 完全由 {@link AclContext}（请求身份）生成，不信任客户端传入条件：
+     * <ul>
+     *   <li>租户：仅返回公开文档或匹配 tenantId 的文档；</li>
+     *   <li>安全等级：文档 security_level 为空/0（公开）或 ≤ 用户 clearance；</li>
+     *   <li>角色：文档未限定角色 → 任意；否则用户角色须与文档授权角色有交集；</li>
+     *   <li>用户：文档未限定用户 → 任意；否则须包含当前用户。</li>
+     * </ul>
+     * 始终输出角色/用户子句（即使用户无角色/无用户标识），确保"要求特定角色/用户"的
+     * 文档对匿名请求正确排除（安全默认拒绝）。
      */
-    private static String buildAclClause(String tenantId) {
+    static String buildAclClause(AclContext acl) {
+        StringBuilder sb = new StringBuilder();
+
+        // 租户隔离
+        String tenantId = acl.getTenantId();
         if (tenantId == null || tenantId.isEmpty()) {
-            return "AND (tenant_id IS NULL OR tenant_id = '') ";
+            sb.append("AND (tenant_id IS NULL OR tenant_id = '') ");
+        } else {
+            sb.append("AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = '")
+              .append(tenantId.replace("'", "''")).append("') ");
         }
-        return "AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = '"
-                + tenantId.replace("'", "''") + "') ";
+
+        // 安全等级：文档未设或 ≤ 用户许可等级
+        sb.append("AND (security_level IS NULL OR security_level <= ")
+          .append(acl.getSecurityClearance()).append(") ");
+
+        // 角色：始终输出（用户角色可能为空数组 → 要求角色的文档被排除）
+        String rolesLiteral = acl.getRoles().stream()
+                .map(r -> "'" + r.replace("'", "''") + "'")
+                .collect(Collectors.joining(","));
+        sb.append("AND (authorized_roles IS NULL OR array_length(authorized_roles,1) IS NULL ")
+          .append("OR authorized_roles && ARRAY[").append(rolesLiteral).append("]::text[]) ");
+
+        // 用户：始终输出（匿名 → '' = ANY(...) 为 false，要求用户的文档被排除）
+        String userId = acl.getUserId();
+        sb.append("AND (authorized_users IS NULL OR array_length(authorized_users,1) IS NULL ")
+          .append("OR '").append(userId != null ? userId.replace("'", "''") : "")
+          .append("' = ANY(authorized_users)) ");
+
+        return sb.toString();
+    }
+
+    /** 从 ResultSet 映射为 KnowledgeDocument（含细粒度 ACL 字段） */
+    private static KnowledgeDocument mapDoc(ResultSet rs) throws java.sql.SQLException {
+        return new KnowledgeDocument(
+                rs.getString("id"), rs.getString("title"),
+                rs.getString("content"), rs.getString("category"),
+                rs.getString("keywords"),
+                rs.getLong("effective_at"), rs.getLong("expire_at"),
+                safeString(rs, "tenant_id"),
+                safeString(rs, "version"),
+                safeString(rs, "source_url"),
+                rs.getInt("chunk_index"),
+                "", // parent_doc_id 未持久化
+                AuthorityLevel.fromRank(rs.getInt("authority_level")),
+                DocumentStatus.fromCode(safeString(rs, "document_status")),
+                null, // index_version 未持久化
+                readStringSet(rs, "authorized_roles"),
+                readStringSet(rs, "authorized_users"),
+                rs.getObject("security_level") != null ? rs.getInt("security_level") : 0);
+    }
+
+    /** 读取 Postgres text[] 列为不可变 Set<String> */
+    private static java.util.Set<String> readStringSet(ResultSet rs, String column) {
+        try {
+            java.sql.Array arr = rs.getArray(column);
+            if (arr == null) return java.util.Set.of();
+            String[] vals = (String[]) arr.getArray();
+            if (vals == null || vals.length == 0) return java.util.Set.of();
+            java.util.Set<String> set = new java.util.LinkedHashSet<>();
+            for (String v : vals) {
+                if (v != null && !v.isBlank()) set.add(v);
+            }
+            return java.util.Collections.unmodifiableSet(set);
+        } catch (Exception e) {
+            return java.util.Set.of();
+        }
+    }
+
+    /** Set<String> → Postgres 数组字面量（元素单引号转义） */
+    private static String toPgTextArray(java.util.Set<String> set) {
+        if (set == null || set.isEmpty()) return "ARRAY[]::text[]";
+        String lit = set.stream()
+                .map(s -> "'" + s.replace("'", "''") + "'")
+                .collect(Collectors.joining(","));
+        return "ARRAY[" + lit + "]::text[]";
     }
 
     /** 安全获取可能为 null 的字符串字段 */

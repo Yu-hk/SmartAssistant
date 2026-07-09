@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.service.core;
 
+import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.service.search.ProductRagService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,27 +43,27 @@ public class ProductGuideService {
     public String processAndGuide(String query) {
         if (query == null || query.isBlank()) return "";
 
-        // 1. 多路 RAG 检索（含质量评估）
-        ProductRagService.RetrievalResult result = productRagService.retrieveWithQuality(query);
+        // 1. 多路 RAG 检索（含结构化质量评估）
+        RetrievalQualityResult result = productRagService.retrieveWithQualityResult(query);
 
         // 2. 构建带引导的回复
         StringBuilder response = new StringBuilder();
 
-        if (result.highQuality()) {
+        if (result.isHighQuality()) {
             // 质量合格：附加检索结果
-            response.append(result.content()).append("\n\n");
+            response.append(result.getContent()).append("\n\n");
             log.info("[ProductGuide] RAG 质量合格: query={}, qualityScore={}",
-                    query, String.format("%.4f", result.qualityScore()));
+                    query, String.format("%.4f", result.getNormalizedScore()));
+        } else if (result.isRejected()) {
+            // ⭐ P1 无证据拒答：直接使用结构化拒答消息
+            log.warn("[ProductGuide] RAG 无证据拒答: query={}, code={}",
+                    query, result.getRejectionCode());
+            response.append(result.getRejectionMessage()).append("\n\n");
         } else {
-            // 质量低：使用兜底提示，不附加低质量检索结果
-            log.warn("[ProductGuide] RAG 质量低，使用兜底: query={}, qualityScore={}, threshold={}",
-                    query, String.format("%.4f", result.qualityScore()),
-                    "0.05");
-            if (result.fallback() != null) {
-                response.append(result.fallback()).append("\n\n");
-            } else {
-                response.append("未找到相关商品信息，请提供更详细的商品名称或编码。\n\n");
-            }
+            // 质量低（未达阈值但非结构化拒答）：使用兜底提示，不附加低质量检索结果
+            log.warn("[ProductGuide] RAG 质量低，使用兜底: query={}, qualityScore={}",
+                    query, String.format("%.4f", result.getNormalizedScore()));
+            response.append("未找到相关商品信息，请提供更详细的商品名称或编码。\n\n");
         }
 
         // 3. 追加询问语气引导
