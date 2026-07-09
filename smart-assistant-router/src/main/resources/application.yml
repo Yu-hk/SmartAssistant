@@ -106,6 +106,14 @@ tier:
     travel_plan: HEAVY       # 多跳旅行规划 → 强模型
   degradation-enabled: true  # 启用平滑降级（HEAVY→STANDARD→LIGHT，LIGHT 永为兜底）
 
+  # ⭐ 灰度发布（canary）：安全试接新模型
+  # 按比例切流到 canary-model（如本地混元 alibayram/hunyuan），命中灰度的请求优先走新模型，
+  # 失败自动回退到上述三档降级链，不影响整体可用性。
+  # 前置：先 `ollama pull alibayram/hunyuan`；将 canary-ratio 调到 0.1 即让 10% 流量试用混元。
+  canary-ratio: 0.0                  # 0.0=关闭；0.1=10% 流量试接新模型；1.0=全量新模型
+  canary-model: alibayram/hunyuan    # 灰度模型名（Ollama 本地模型 tag）
+  canary-temperature: 0.3            # 灰度模型温度
+
 # JWT 配置（与 Consumer Service 保持一致）
 jwt:
   secret: ${JWT_SECRET}  # ⭐ 从环境变量 JWT_SECRET 读取。⚠️ 必须设置 JWT_SECRET 环境变量，启动失败即表示未配置

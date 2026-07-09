@@ -41,6 +41,9 @@ public class TieredModelRouterProperties {
     /** 灰度模型名（canary-ratio > 0 时，按比例切流到该模型）。 */
     private String canaryModel = "";
 
+    /** 灰度模型温度（canary-ratio > 0 时生效，默认 0.3）。 */
+    private double canaryTemperature = 0.3;
+
     public static class TierConfig {
         private String model;
         private double temperature;
@@ -114,4 +117,6 @@ public class TieredModelRouterProperties {
     public void setCanaryRatio(double canaryRatio) { this.canaryRatio = canaryRatio; }
     public String getCanaryModel() { return canaryModel; }
     public void setCanaryModel(String canaryModel) { this.canaryModel = canaryModel; }
+    public double getCanaryTemperature() { return canaryTemperature; }
+    public void setCanaryTemperature(double canaryTemperature) { this.canaryTemperature = canaryTemperature; }
 }

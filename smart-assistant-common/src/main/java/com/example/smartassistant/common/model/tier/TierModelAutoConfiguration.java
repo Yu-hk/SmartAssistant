@@ -9,6 +9,9 @@ package com.example.smartassistant.common.model.tier;
 
 import com.example.smartassistant.common.rag.pipeline.QueryComplexityClassifier;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -36,6 +39,8 @@ import java.util.Map;
 @EnableConfigurationProperties(TieredModelRouterProperties.class)
 public class TierModelAutoConfiguration {
 
+    private static final Logger log = LoggerFactory.getLogger(TierModelAutoConfiguration.class);
+
     /**
      * 档位模型注册表——内部持有三档 DelegatingOptionsChatModel（非 Spring Bean）。
      */
@@ -51,11 +56,25 @@ public class TierModelAutoConfiguration {
 
     /**
      * 统一模型接入层路由器——复用 {@link QueryComplexityClassifier} 做动态路由 + 平滑降级。
+     *
+     * <p>当 {@code tier.canary-model} 配置非空时，构建灰度模型（委托同一 Ollama 实例、覆盖模型名与温度），
+     * 作为灰度流量的首选节点；命中灰度比例的请求先试灰度模型，失败自动回退到正常档位降级链。</p>
      */
     @Bean
     public TieredModelRouter tieredModelRouter(TierModelRegistry registry,
                                                TieredModelRouterProperties props,
+                                               OllamaChatModel ollama,
                                                @Autowired(required = false) MeterRegistry meterRegistry) {
+        ChatModel canaryModel = null;
+        String canaryName = props.getCanaryModel();
+        if (canaryName != null && !canaryName.isBlank()) {
+            OllamaChatOptions canaryOptions = OllamaChatOptions.builder()
+                    .model(canaryName)
+                    .temperature(props.getCanaryTemperature())
+                    .build();
+            canaryModel = new DelegatingOptionsChatModel(ollama, canaryOptions);
+            log.info("[TierModelAutoConfiguration] 灰度模型已就绪: {} (ratio={})", canaryName, props.getCanaryRatio());
+        }
         return new TieredModelRouter(
                 new QueryComplexityClassifier(),
                 registry,
@@ -63,6 +82,7 @@ public class TierModelAutoConfiguration {
                 props.isDegradationEnabled(),
                 props.getCanaryRatio(),
                 props.getCanaryModel(),
+                canaryModel,
                 meterRegistry);
     }
 

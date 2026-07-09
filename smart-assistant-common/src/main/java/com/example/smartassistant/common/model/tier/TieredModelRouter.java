@@ -48,6 +48,7 @@ public class TieredModelRouter {
     // ⭐ 灰度发布
     private final double canaryRatio;
     private final String canaryModelName;
+    private final ChatModel canaryModel;
 
     private final Counter tierCounter;
     private final Counter degradeCounter;
@@ -59,6 +60,7 @@ public class TieredModelRouter {
                              boolean degradationEnabled,
                              double canaryRatio,
                              String canaryModelName,
+                             ChatModel canaryModel,
                              MeterRegistry meterRegistry) {
         this.classifier = classifier;
         this.registry = registry;
@@ -66,6 +68,7 @@ public class TieredModelRouter {
         this.degradationEnabled = degradationEnabled;
         this.canaryRatio = canaryRatio;
         this.canaryModelName = canaryModelName != null ? canaryModelName : "";
+        this.canaryModel = canaryModel;
         if (meterRegistry != null) {
             this.tierCounter = Counter.builder("model.tier.selections")
                     .description("模型档位选择分布").register(meterRegistry);
@@ -92,13 +95,6 @@ public class TieredModelRouter {
         if (override != null) {
             log.debug("[TieredRouter] 意图覆盖档位: intentTag={}, tier={}", intentTag, override);
             return override;
-        }
-        // ⭐ 灰度判断：canaryRatio > 0 且查询命中灰度比例
-        if (canaryRatio > 0 && canaryModelName != null && !canaryModelName.isBlank()) {
-            if (isCanaryRequest(query)) {
-                // 灰度请求走标准档位但用 canaryModelName 覆盖模型
-                return selectTierInternal(query);
-            }
         }
         return selectTierInternal(query);
     }
@@ -147,24 +143,51 @@ public class TieredModelRouter {
         long start = System.nanoTime();
         Throwable lastError = null;
 
+        // ⭐ 构建尝试链：灰度命中时 canary 模型置于链首，失败后再走正常档位降级链
+        List<ChatModel> models = new ArrayList<>();
+        List<String> modelNames = new ArrayList<>();
+        List<ModelTier> stepTiers = new ArrayList<>();
+
+        boolean canaryActive = canaryRatio > 0 && canaryModel != null
+                && canaryModelName != null && !canaryModelName.isBlank();
+        if (canaryActive && isCanaryRequest(query)) {
+            models.add(canaryModel);
+            modelNames.add(canaryModelName);
+            stepTiers.add(requested); // canary 替代选定档位服务，逻辑档位仍为 requested
+            log.debug("[TieredRouter] 灰度请求命中，canary 模型 {} 置于尝试链首", canaryModelName);
+        }
+
         List<ModelTier> chain = degradationEnabled
                 ? registry.fallbackChain(requested)
                 : List.of(requested);
-
         for (ModelTier tier : chain) {
             ChatModel model = registry.get(tier);
             if (model == null) {
                 log.debug("[TieredRouter] 档位 {} 无可用模型，跳过", tier);
                 continue;
             }
+            // 避免与 canary 同模型名重复尝试
+            if (modelNames.contains(registry.modelName(tier))) {
+                continue;
+            }
+            models.add(model);
+            modelNames.add(registry.modelName(tier));
+            stepTiers.add(tier);
+        }
+
+        for (int i = 0; i < models.size(); i++) {
+            ChatModel model = models.get(i);
+            String name = modelNames.get(i);
+            ModelTier tier = stepTiers.get(i);
             attempted.add(tier);
             try {
                 ChatResponse resp = model.call(prompt);
                 if (resp == null) {
-                    throw new IllegalStateException("档位 " + tier + " 返回空响应");
+                    throw new IllegalStateException("模型 " + name + " 返回空响应");
                 }
                 long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
                 boolean degraded = !tier.equals(requested);
+                boolean isCanary = canaryActive && i == 0 && name.equals(canaryModelName);
                 if (degraded && degradeCounter != null) {
                     degradeCounter.increment();
                 }
@@ -174,16 +197,16 @@ public class TieredModelRouter {
                 if (latencyTimer != null) {
                     latencyTimer.record(elapsed, TimeUnit.MILLISECONDS);
                 }
-                log.info("[TieredRouter] 档位路由完成: requested={}, served={}, degraded={}, attempted={}, {}ms",
-                        requested, tier, degraded, attempted, elapsed);
+                String reason = isCanary ? "canary"
+                        : (degraded ? "degraded-from-" + requested : "direct");
+                log.info("[TieredRouter] 档位路由完成: requested={}, served={}({}), degraded={}, attempted={}, {}ms",
+                        requested, tier, name, degraded, attempted, elapsed);
                 return new TierSelection(
-                        requested, tier, registry.modelName(tier), degraded,
-                        List.copyOf(attempted),
-                        degraded ? "degraded-from-" + requested : "direct",
-                        elapsed, resp);
+                        requested, tier, name, degraded,
+                        List.copyOf(attempted), reason, elapsed, resp);
             } catch (Throwable t) {
                 lastError = t;
-                log.warn("[TieredRouter] 档位 {} 调用失败，尝试降级: {}", tier, t.getMessage());
+                log.warn("[TieredRouter] 模型 {} (档位 {}) 调用失败，尝试下一节点: {}", name, tier, t.getMessage());
             }
         }
 
