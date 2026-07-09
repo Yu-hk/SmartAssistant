@@ -8,30 +8,130 @@
 package com.example.smartassistant.service.agent;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.rag.RetrievalQualityResult;
+import com.example.smartassistant.common.rag.trace.RagStage;
+import com.example.smartassistant.common.rag.trace.StageSpan;
+import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
+import com.example.smartassistant.service.search.ProductRagService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
+
 /**
- * Product 流式 Agent 服务
+ * Product 流式 Agent 服务。
+ * <p>
+ * ⭐ P1 增强：在执行 Agent 之前先做 RAG 检索质量评估。
+ * <ul>
+ *   <li>无证据（{@code isRejected()}）→ 直接返回结构化拒答消息，<b>不调用 LLM</b>（避免幻觉）。</li>
+ *   <li>有证据 → 把检索到的商品知识注入上下文后再交给 Agent，并记录全阶段 trace。</li>
+ *   <li>RAG 检索异常 → 降级为"无上下文直接生成"，不阻断主流程。</li>
+ * </ul>
+ * </p>
  */
 @Service
 @Slf4j
 public class StreamingProductAgentService {
 
     private final SmartReActAgent productAgent;
+    private final ProductRagService productRagService;
 
-    public StreamingProductAgentService(@Qualifier("productAgent") SmartReActAgent productAgent) {
+    /** ⭐ P1 全阶段 trace 记录器（可选，null 时跳过 trace） */
+    @Autowired(required = false)
+    private StageTraceRecorder stageTraceRecorder;
+
+    /** 测试/手动注入用 setter */
+    public void setStageTraceRecorder(StageTraceRecorder stageTraceRecorder) {
+        this.stageTraceRecorder = stageTraceRecorder;
+    }
+
+    public StreamingProductAgentService(@Qualifier("productAgent") SmartReActAgent productAgent,
+                                        @Autowired(required = false) ProductRagService productRagService) {
         this.productAgent = productAgent;
+        this.productRagService = productRagService;
     }
 
     /**
-     * 执行商品咨询
+     * 执行商品咨询（兼容旧调用，自动生成 requestId）。
      */
     public String execute(String userMessage) {
+        return execute(userMessage, null);
+    }
+
+    /**
+     * 执行商品咨询（带请求级 requestId，用于全阶段 trace 关联）。
+     *
+     * @param userMessage 用户消息
+     * @param requestId   请求 ID（Consumer/Router 下发；为 null 时本地生成）
+     * @return Agent 回复或结构化拒答消息
+     */
+    public String execute(String userMessage, String requestId) {
+        String rid = (requestId != null && !requestId.isBlank()) ? requestId : ("prod-" + System.nanoTime());
         try {
-            log.info("[StreamingProductAgent] 执行推理: {}", userMessage);
-            String result = productAgent.execute(userMessage);
+            log.info("[StreamingProductAgent] 执行推理: {}, requestId={}", userMessage, rid);
+
+            // ⭐ P1: RAG 检索质量评估（决定拒答 or 注入上下文）
+            if (productRagService != null) {
+                try {
+                    long retrievalStart = System.currentTimeMillis();
+                    RetrievalQualityResult qr = productRagService.retrieveWithQualityResult(userMessage);
+                    long retrievalMs = System.currentTimeMillis() - retrievalStart;
+
+                    if (qr.isRejected()) {
+                        // 无证据：短路拒答，不调用 LLM
+                        if (stageTraceRecorder != null) {
+                            stageTraceRecorder.getOrCreate(rid, userMessage, "product_agent")
+                                    .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
+                                            Map.of("qualityScore", qr.getNormalizedScore(),
+                                                    "rejectionCode", qr.getRejectionCode())));
+                            stageTraceRecorder.markRejection(rid, qr.getRejectionCode(), qr.getRejectionMessage());
+                            stageTraceRecorder.recordStage(rid, RagStage.GENERATION, StageSpan.STATUS_SKIPPED, 0,
+                                    Map.of("reason", "no-evidence"));
+                            stageTraceRecorder.save(rid);
+                        }
+                        log.info("[StreamingProductAgent] ⛔ 无证据拒答: code={}, requestId={}",
+                                qr.getRejectionCode(), rid);
+                        return qr.getRejectionMessage();
+                    }
+
+                    // 有证据：记录 RETRIEVAL 阶段；高质量时把知识注入上下文
+                    if (stageTraceRecorder != null) {
+                        stageTraceRecorder.getOrCreate(rid, userMessage, "product_agent")
+                                .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
+                                        Map.of("qualityScore", qr.getNormalizedScore(),
+                                                "highQuality", qr.isHighQuality())));
+                    }
+                    if (qr.isHighQuality() && qr.getContent() != null && !qr.getContent().isBlank()) {
+                        userMessage = "[系统已检索到以下商品信息]\n" + qr.getContent()
+                                + "\n\n用户问题：" + userMessage;
+                        log.info("[StreamingProductAgent] RAG 知识已注入上下文");
+                    }
+                } catch (Exception ragEx) {
+                    // RAG 失败：降级为无上下文生成，不阻断主流程
+                    log.warn("[StreamingProductAgent] RAG 检索失败，降级无上下文生成: {}", ragEx.getMessage());
+                }
+            }
+
+            // ⭐ GENERATION 阶段
+            long genStart = System.currentTimeMillis();
+            String result;
+            String genStatus = StageSpan.STATUS_OK;
+            try {
+                result = productAgent.execute(userMessage);
+            } catch (Exception e) {
+                genStatus = StageSpan.STATUS_ERROR;
+                throw e;
+            } finally {
+                long genMs = System.currentTimeMillis() - genStart;
+                if (stageTraceRecorder != null) {
+                    stageTraceRecorder.recordStage(rid, RagStage.GENERATION, genStatus, genMs,
+                            Map.of("outputLength", result != null ? result.length() : 0));
+                    stageTraceRecorder.save(rid);
+                }
+            }
+
             if (result != null) {
                 return result;
             }

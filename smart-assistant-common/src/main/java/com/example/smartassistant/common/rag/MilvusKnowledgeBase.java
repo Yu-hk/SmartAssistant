@@ -30,8 +30,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -60,6 +62,9 @@ import java.util.stream.Collectors;
  * ├── updated_at    (Int64)           ← 🟡 时效：更新追踪
  * ├── authority_level (Int64)         ← 🔴 权威性：L1官方>L2内部>L3笔记>L4外部
  * ├── document_status (VarChar, 16)   ← 🔴 状态：ACTIVE/SUPERSEDED/QUARANTINED
+ * ├── security_level (Int64)          ← 🔴 ACL 细粒度：安全等级(0=公开)
+ * ├── authorized_roles (Array<VarChar>) ← 🔴 ACL 细粒度：授权角色(空=任意)
+ * ├── authorized_users (Array<VarChar>) ← 🔴 ACL 细粒度：授权用户(空=任意)
  * ├── embedding     (FloatVector, dim=384)
  * └── created_at    (Int64)
  *
@@ -171,6 +176,15 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                             .withName("authority_level").withDataType(DataType.Int64).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("document_status").withDataType(DataType.VarChar).withMaxLength(16).build())
+                    // ⭐ ACL 细粒度字段（文章⑤：权限进入检索层）
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("security_level").withDataType(DataType.Int64).build())
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("authorized_roles").withDataType(DataType.Array)
+                            .withElementType(DataType.VarChar).withMaxLength(64).build())
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("authorized_users").withDataType(DataType.Array)
+                            .withElementType(DataType.VarChar).withMaxLength(64).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("embedding").withDataType(DataType.FloatVector).withDimension(DIMENSIONS).build())
                     .addFieldType(FieldType.newBuilder()
@@ -246,6 +260,10 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
             // ⭐ 治理能力字段（权威性 + 状态）
             fields.add(new Field("authority_level", List.of((long) doc.getAuthorityLevel().getRank())));
             fields.add(new Field("document_status", List.of(doc.getDocumentStatus().name())));
+            // ⭐ ACL 细粒度字段（文章⑤：权限进入检索层）
+            fields.add(new Field("security_level", List.of((long) doc.getSecurityLevel())));
+            fields.add(new Field("authorized_roles", List.of(new ArrayList<>(doc.getAuthorizedRoles()))));
+            fields.add(new Field("authorized_users", List.of(new ArrayList<>(doc.getAuthorizedUsers()))));
 
             InsertParam insertParam = InsertParam.newBuilder()
                     .withCollectionName(collectionName)
@@ -328,6 +346,7 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                     .withOutFields(List.of("doc_id", "title", "content", "category", "keywords",
                             "effective_at", "expire_at", "tenant_id", "version", "source_url",
                             "chunk_index", "updated_at", "authority_level", "document_status",
+                            "security_level", "authorized_roles", "authorized_users",
                             "embedding", "created_at"))
                     .withExpr("id in [" + milvusId + "]")
                     .build());
@@ -360,6 +379,10 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
             fields.add(new Field("updated_at", List.of(System.currentTimeMillis())));
             fields.add(new Field("authority_level", List.of(longVal(fv.get("authority_level")))));
             fields.add(new Field("document_status", List.of(status.name())));
+            // ⭐ ACL 细粒度字段（从原文档重建，保留不变）
+            fields.add(new Field("security_level", List.of(longVal(fv.get("security_level")))));
+            fields.add(new Field("authorized_roles", List.of(readStringList(fv.get("authorized_roles")))));
+            fields.add(new Field("authorized_users", List.of(readStringList(fv.get("authorized_users")))));
 
             // 重建 embedding（FloatVector 字段在 RowRecord 中返回单行向量 List<Float>，
             // 也兼容整列 List<List<Float>> 形态）
@@ -410,6 +433,17 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
         return -1;
     }
 
+    /** 从 query 结果值提取字符串列表（兼容 Array 字段的 List / List<List> 形态） */
+    private static List<String> readStringList(Object val) {
+        List<String> out = new ArrayList<>();
+        if (val == null) return out;
+        List<?> src = (val instanceof List) ? (List<?>) val : List.of(val);
+        for (Object o : src) {
+            if (o != null) out.add(o.toString());
+        }
+        return out;
+    }
+
     /** Milvus 字符串转义（防注入） */
     private static String escapeMilvusStr(String s) {
         if (s == null) return "";
@@ -423,6 +457,16 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
 
     @Override
     public List<KnowledgeHit> search(String query, int topK, String tenantId) {
+        return search(query, topK, AclContext.forTenant(tenantId));
+    }
+
+    /**
+     * ⭐ 细粒度 ACL 检索（文章⑤：权限进入检索层，服务端生成 filter）。
+     * <p>在租户隔离之上，按角色 / 用户 / 安全等级做检索前过滤；filter 完全由
+     * 服务端根据请求身份（{@link AclContext}）生成，不信任客户端传入条件。</p>
+     */
+    @Override
+    public List<KnowledgeHit> search(String query, int topK, AclContext acl) {
         if (query == null || query.isBlank()) return Collections.emptyList();
         int k = (topK > 0) ? topK : 5;
 
@@ -440,7 +484,7 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
 
         try {
             // 🔴 ACL 检索前过滤 + 状态过滤：仅返回 ACTIVE 且未隔离文档
-            String expr = buildAclExpr(tenantId) + " and document_status == \"ACTIVE\"";
+            String expr = buildAclExpr(acl) + " and document_status == \"ACTIVE\"";
 
             SearchParam searchParam = SearchParam.newBuilder()
                     .withCollectionName(collectionName)
@@ -448,7 +492,8 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                     .withOutFields(List.of("doc_id", "title", "content", "category",
                             "keywords", "effective_at", "expire_at", "created_at",
                             "tenant_id", "version", "source_url", "chunk_index", "updated_at",
-                            "authority_level", "document_status"))
+                            "authority_level", "document_status",
+                            "security_level", "authorized_roles", "authorized_users"))
                     .withTopK(k)
                     .withVectors(queryVectors)
                     .withParams(SEARCH_PARAM)
@@ -490,12 +535,18 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                 long expireAt = safeGetLong(wrapper, "expire_at", i);
                 int authorityRank = (int) safeGetLong(wrapper, "authority_level", i);
                 String statusStr = safeGetString(wrapper, "document_status", i);
+                String tenantFromMilvus = safeGetString(wrapper, "tenant_id", i);
+                int securityLevel = (int) safeGetLong(wrapper, "security_level", i);
+                Set<String> authorizedRoles = safeGetStringSet(wrapper, "authorized_roles", i);
+                Set<String> authorizedUsers = safeGetStringSet(wrapper, "authorized_users", i);
 
                 KnowledgeDocument doc = new KnowledgeDocument(
                         docId, title, content, category, keywords, effectiveAt, expireAt,
-                        "", "v1", "", 0, "",
+                        tenantFromMilvus, "v1", "", 0, "",
                         AuthorityLevel.fromRank(authorityRank),
-                        DocumentStatus.fromCode(statusStr));
+                        DocumentStatus.fromCode(statusStr),
+                        null,
+                        authorizedRoles, authorizedUsers, securityLevel);
                 if (!doc.isRetrievable()) continue;
 
                 double finalScore = composeScore(score, doc, query);
@@ -613,23 +664,66 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
     // ==================== ACL 辅助方法 ====================
 
     /**
-     * 构建 Milvus 检索过滤表达式。
-     * 检索前过滤：仅返回 tenant_id 为空（公开）或与请求 tenantId 匹配的文档。
-     * <p>
-     * Milvus 表达式语法约定：
-     * - 字符串值用双引号
-     * - in 操作符用于多值匹配
-     * - VarChar 空字符串用 "" 表示
+     * 构建 Milvus 检索过滤表达式（文章⑤：权限进入检索层，服务端生成 filter）。
+     * <p>filter 完全由 {@link AclContext}（请求身份）生成，不信任客户端传入条件：
+     * <ul>
+     *   <li>租户：仅返回公开文档或匹配 tenantId 的文档；</li>
+     *   <li>安全等级：文档 security_level ≤ 用户 clearance（0=公开）；</li>
+     *   <li>角色：文档未限定角色 → 任意；否则用户角色须与文档授权角色有交集；</li>
+     *   <li>用户：文档未限定用户 → 任意；否则须包含当前用户。</li>
+     * </ul>
+     * 始终输出角色/用户子句（即使用户无角色/无用户标识），确保"要求特定角色/用户"的
+     * 文档对匿名请求正确排除（安全默认拒绝）。
      * </p>
+     * <p>Milvus 表达式语法约定：字符串值双引号；array_contains_any / array_length 用于数组字段。</p>
      */
-    private static String buildAclExpr(String tenantId) {
+    private static String buildAclExpr(AclContext acl) {
+        String tenantId = acl.getTenantId();
+        StringBuilder sb = new StringBuilder();
         if (tenantId == null || tenantId.isEmpty()) {
             // 请求公开数据：只返回 tenant_id == "" 的文档
-            return "tenant_id == \"\"";
+            sb.append("tenant_id == \"\"");
+        } else {
+            // 请求特定租户：返回公开文档 + 该租户文档
+            String safeTenant = tenantId.replace("\"", "\\\"");
+            sb.append("tenant_id in [\"\", \"").append(safeTenant).append("\"]");
         }
-        // 请求特定租户：返回公开文档 + 该租户文档
-        String safeTenant = tenantId.replace("\"", "\\\"");
-        return "tenant_id in [\"\", \"" + safeTenant + "\"]";
+
+        // 安全等级：文档未设或 ≤ 用户许可等级
+        sb.append(" and security_level <= ").append(acl.getSecurityClearance());
+
+        // 角色：文档授权角色为空(任意) 或 用户角色有交集
+        String rolesLiteral = acl.getRoles().stream()
+                .map(r -> "\"" + r.replace("\"", "\\\"") + "\"")
+                .collect(Collectors.joining(", "));
+        sb.append(" and (array_length(authorized_roles) == 0 or array_contains_any(authorized_roles, [")
+          .append(rolesLiteral).append("]))");
+
+        // 用户：文档授权用户为空(任意) 或 包含当前用户
+        String userId = acl.getUserId() != null ? acl.getUserId() : "";
+        String safeUser = userId.replace("\"", "\\\"");
+        sb.append(" and (array_length(authorized_users) == 0 or array_contains(authorized_users, \"")
+          .append(safeUser).append("\"))");
+
+        return sb.toString();
+    }
+
+    /** 安全获取 Milvus 数组字段为不可变 Set<String>（兼容 Array 字段返回形态） */
+    private static Set<String> safeGetStringSet(SearchResultsWrapper wrapper, String field, int rowId) {
+        try {
+            List<?> data = wrapper.getFieldData(field, rowId);
+            if (data == null || rowId >= data.size()) return Set.of();
+            Object val = data.get(rowId);
+            if (val == null) return Set.of();
+            List<?> inner = (val instanceof List) ? (List<?>) val : List.of(val);
+            Set<String> set = new LinkedHashSet<>();
+            for (Object o : inner) {
+                if (o != null && !o.toString().isBlank()) set.add(o.toString());
+            }
+            return java.util.Collections.unmodifiableSet(set);
+        } catch (Exception e) {
+            return Set.of();
+        }
     }
 
     // ==================== 哈希辅助方法 ====================

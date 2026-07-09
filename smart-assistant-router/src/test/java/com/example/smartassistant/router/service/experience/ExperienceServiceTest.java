@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.experience;
 
+import com.example.smartassistant.common.cache.CacheVersionManager;
 import com.example.smartassistant.router.service.experience.ExperienceModel.*;
 import com.example.smartassistant.router.service.experience.ExperienceModel.ReactExperience.ReactStep;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -49,6 +50,9 @@ public class ExperienceServiceTest {
     @Mock
     private SetOperations<String, String> setOperations;
 
+    @Mock
+    private CacheVersionManager cacheVersionManager;
+
     private ExperienceService experienceService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -60,7 +64,7 @@ public class ExperienceServiceTest {
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
 
         // 创建带 mock 的 experienceService（不依赖 SemanticRouteCacheService、BGE 和 Mapper）
-        experienceService = new ExperienceService(redisTemplate, null, null, null, mock(ExperienceValidator.class), null, null) {
+        experienceService = new ExperienceService(redisTemplate, null, null, null, mock(ExperienceValidator.class), null, cacheVersionManager) {
             @Override
             protected List<String> extractKeywords(String question) {
                 // 提供一个简单的测试用关键词提取

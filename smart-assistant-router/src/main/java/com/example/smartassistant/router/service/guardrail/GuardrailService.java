@@ -136,6 +136,6 @@ public class GuardrailService {
         private static final GuardrailCheckResult NOT_TRIGGERED =
                 new GuardrailCheckResult(false, List.of(), List.of(), false, false);
 
-        static GuardrailCheckResult notTriggered() { return NOT_TRIGGERED; }
+        public static GuardrailCheckResult notTriggered() { return NOT_TRIGGERED; }
     }
 }

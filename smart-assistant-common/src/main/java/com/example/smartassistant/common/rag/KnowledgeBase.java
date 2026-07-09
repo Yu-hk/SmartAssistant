@@ -78,6 +78,23 @@ public interface KnowledgeBase {
      */
     List<KnowledgeHit> search(String query, int topK, String tenantId);
 
+    /**
+     * ⭐ 检索最相关的文档（按细粒度 ACL 上下文：租户 + 角色 + 用户 + 安全等级）。
+     * <p>
+     * 对标文章《RAG 系统从 Demo 到生产》"权限进入检索层（服务端生成 filter）"：
+     * filter 完全由服务端根据请求身份生成，不信任客户端传入的过滤条件。
+     * 默认实现退化为仅按 tenantId 过滤；支持细粒度 ACL 的实现应覆盖本方法。
+     * </p>
+     *
+     * @param query 检索查询（自然语言）
+     * @param topK  返回条数
+     * @param acl   访问控制上下文（含 tenantId / userId / roles / securityClearance）
+     * @return 按相关度降序排列的结果
+     */
+    default List<KnowledgeHit> search(String query, int topK, AclContext acl) {
+        return search(query, topK, acl.getTenantId());
+    }
+
     /** 获取文档总数 */
     int size();
 

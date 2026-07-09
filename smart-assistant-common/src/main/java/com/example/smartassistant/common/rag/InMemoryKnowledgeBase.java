@@ -160,6 +160,15 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
 
     @Override
     public List<KnowledgeHit> search(String query, int topK, String tenantId) {
+        // 退化为仅租户过滤（保持向后兼容）
+        return search(query, topK, AclContext.forTenant(tenantId));
+    }
+
+    /**
+     * ⭐ 细粒度 ACL 检索（文章⑤：权限进入检索层，服务端生成 filter）。
+     */
+    @Override
+    public List<KnowledgeHit> search(String query, int topK, AclContext acl) {
         if (query == null || query.isBlank() || docs.isEmpty()) return Collections.emptyList();
         int k = (topK > 0) ? topK : DEFAULT_TOP_K;
 
@@ -172,7 +181,7 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         float[] queryVec = embeddingModel.embedding(query);
         if (queryVec == null) {
             log.warn("[KnowledgeBase:{}] 嵌入服务不可用，降级到关键词匹配", name);
-            List<KnowledgeHit> fallback = fallbackKeywordSearch(query, k, tenantId);
+            List<KnowledgeHit> fallback = fallbackKeywordSearch(query, k, acl);
             if (trace != null) {
                 trace.hit(!fallback.isEmpty()).durationMs(System.currentTimeMillis());
                 traceConsumer.accept(trace);
@@ -186,8 +195,8 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
             KnowledgeDocument doc = docs.get(entry.getKey());
             if (doc == null || !doc.isRetrievable()) continue;
 
-            // 🔴 ACL 检索前过滤：仅返回匹配 tenantId 或公开文档
-            if (!tenantMatches(doc, tenantId)) continue;
+            // 🔴 ACL 检索前过滤（租户 + 角色 + 用户 + 安全等级）
+            if (!tenantMatches(doc, acl)) continue;
 
             double cosSim = cosineSimilarity(queryVec, entry.getValue());
             if (cosSim < MIN_SIMILARITY) continue;
@@ -301,7 +310,7 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
 
         for (String query : queries) {
             if (query == null || query.isBlank()) continue;
-            List<KnowledgeHit> hits = search(query, perQueryK, tenantId);
+            List<KnowledgeHit> hits = search(query, perQueryK, AclContext.forTenant(tenantId));
             List<String> ranking = hits.stream()
                     .map(h -> h.getDocument().getId())
                     .collect(Collectors.toList());
@@ -444,11 +453,11 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
 
     // ==================== 兜底搜索 ====================
 
-    private List<KnowledgeHit> fallbackKeywordSearch(String query, int topK, String tenantId) {
+    private List<KnowledgeHit> fallbackKeywordSearch(String query, int topK, AclContext acl) {
         String q = query.toLowerCase();
         return docs.values().stream()
                 .filter(KnowledgeDocument::isRetrievable)
-                .filter(doc -> tenantMatches(doc, tenantId))
+                .filter(doc -> tenantMatches(doc, acl))
                 .map(doc -> {
                     double score = 0;
                     if (doc.getTitle().toLowerCase().contains(q)) score += 0.5;
@@ -495,16 +504,48 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     // ==================== ACL 辅助方法 ====================
 
     /**
-     * 检查文档是否对指定租户可见。
-     * 文档 tenantId 为空（公开）或与请求的 tenantId 匹配时返回 true。
+     * 检查文档是否对指定租户可见（仅租户维度，保持向后兼容）。
      */
     private static boolean tenantMatches(KnowledgeDocument doc, String requestTenantId) {
+        return tenantMatches(doc, AclContext.forTenant(requestTenantId));
+    }
+
+    /**
+     * ⭐ 细粒度 ACL 可见性判断（文章⑤：权限进入检索层，服务端生成 filter）。
+     * <p>四层过滤，全部在检索前完成：
+     * <ol>
+     *   <li>租户：文档公开，或 doc.tenantId == acl.tenantId；</li>
+     *   <li>安全等级：doc.securityLevel==0（公开）或 ≤ acl.securityClearance；</li>
+     *   <li>角色：doc.authorizedRoles 为空（任意角色）或 acl.roles 与之有交集；</li>
+     *   <li>用户：doc.authorizedUsers 为空（任意用户）或 acl.userId 在其中。</li>
+     * </ol>
+     */
+    private static boolean tenantMatches(KnowledgeDocument doc, AclContext acl) {
+        // 1. 租户隔离
         String docTenant = doc.getTenantId();
-        // 公开文档对所有用户可见
-        if (docTenant == null || docTenant.isEmpty()) return true;
-        // 请求为空时只返回公开文档
-        if (requestTenantId == null || requestTenantId.isEmpty()) return false;
-        // 精确匹配租户
-        return docTenant.equals(requestTenantId);
+        String reqTenant = acl.getTenantId();
+        boolean tenantOk = (docTenant == null || docTenant.isEmpty())
+                || (reqTenant != null && !reqTenant.isEmpty() && docTenant.equals(reqTenant));
+        if (!tenantOk) return false;
+
+        // 2. 安全等级
+        int docLevel = doc.getSecurityLevel();
+        if (docLevel > 0 && docLevel > acl.getSecurityClearance()) return false;
+
+        // 3. 角色：文档限定角色时，用户必须拥有其一
+        java.util.Set<String> docRoles = doc.getAuthorizedRoles();
+        if (docRoles != null && !docRoles.isEmpty()) {
+            boolean roleOk = acl.getRoles().stream().anyMatch(docRoles::contains);
+            if (!roleOk) return false;
+        }
+
+        // 4. 用户：文档限定用户时，必须包含当前用户
+        java.util.Set<String> docUsers = doc.getAuthorizedUsers();
+        if (docUsers != null && !docUsers.isEmpty()) {
+            String userId = acl.getUserId();
+            if (userId == null || userId.isEmpty() || !docUsers.contains(userId)) return false;
+        }
+
+        return true;
     }
 }

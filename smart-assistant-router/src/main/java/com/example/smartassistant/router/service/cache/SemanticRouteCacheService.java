@@ -8,6 +8,7 @@
 package com.example.smartassistant.router.service.cache;
 
 import com.example.smartassistant.common.cache.CacheVersionManager;
+import com.example.smartassistant.common.rag.AclContext;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
@@ -75,6 +76,14 @@ public class SemanticRouteCacheService {
 
     @Value("${router.semantic-cache.enabled:true}")
     private boolean cacheEnabled;
+
+    /**
+     * ⭐ 回复缓存总开关（P3-B，对标文章⑥：反对缓存最终回答，因答案受权限/版本/上下文影响可变）。
+     * <p>关闭后所有回复内容不再缓存（路由决策仍正常缓存），彻底避免把"受权限/版本影响可变的最终回答"
+     * 跨请求复用。默认开启以保留高频 FAQ 收益，运维可显式置 false 以完全对齐文章建议。</p>
+     */
+    @Value("${router.semantic-cache.reply-cache-enabled:true}")
+    private boolean replyCacheEnabled;
 
     /**
      * 语义路由缓存服务构造器。
@@ -258,7 +267,7 @@ public class SemanticRouteCacheService {
             String keywordHash = md5(String.join(",", keywords));
 
             // 第一步：查关键词回复缓存（直接命中回复，无需再调 Agent）
-            String keywordReplyKey = KEYWORD_REPLY_KEY_PREFIX + keywordHash;
+            String keywordReplyKey = keywordReplyKey(keywordHash);
             String replyJson = redisTemplate.opsForValue().get(keywordReplyKey);
             if (replyJson != null) {
                 try {
@@ -348,6 +357,32 @@ public class SemanticRouteCacheService {
     }
 
     /**
+     * ⭐ 回复缓存作用域（P3-B，文章⑥：权限+索引版本进入缓存 key）。
+     * <p>从请求 MDC 取租户，从 CacheVersionManager 取当前索引版本，拼接为
+     * {@code tenant:version} 作用域。这样：
+     * <ul>
+     *   <li>租户维度隔离——租户 A 的缓存最终回复不会被租户 B 命中（防止跨租户数据泄露）；</li>
+     *   <li>版本维度失效——索引/知识库版本递增后，旧版本回复 key 自然失效。</li>
+     * </ul>
+     */
+    private String replyScope() {
+        String tenant = AclContext.fromMdc().getTenantId();
+        long version = (cacheVersionManager != null)
+                ? cacheVersionManager.getCurrentVersion() : 0L;
+        return (tenant == null || tenant.isEmpty() ? "public" : tenant) + ":" + version;
+    }
+
+    /** ⭐ 意图维度回复 key（已含租户+版本作用域） */
+    private String replyKey(String intentTag) {
+        return REPLY_KEY_PREFIX + replyScope() + ":" + md5(intentTag);
+    }
+
+    /** ⭐ 关键词维度回复 key（已含租户+版本作用域） */
+    private String keywordReplyKey(String keywordHash) {
+        return KEYWORD_REPLY_KEY_PREFIX + replyScope() + ":" + keywordHash;
+    }
+
+    /**
      * 按意图标签查缓存
      */
     private CachedRouteDecision getByIntentTag(String intentTag) {
@@ -360,7 +395,7 @@ public class SemanticRouteCacheService {
             }
 
             CachedRouteDecision decision = objectMapper.readValue(json, CachedRouteDecision.class);
-            String replyKey = REPLY_KEY_PREFIX + md5(intentTag);
+            String replyKey = replyKey(intentTag);
             String replyJson = redisTemplate.opsForValue().get(replyKey);
 
             if (replyJson != null) {
@@ -535,7 +570,7 @@ public class SemanticRouteCacheService {
             if (keywords.isEmpty()) return;
 
             String keywordHash = md5(String.join(",", keywords));
-            String replyKey = KEYWORD_REPLY_KEY_PREFIX + keywordHash;
+            String replyKey = keywordReplyKey(keywordHash);
 
             CachedReply cachedReply = new CachedReply(reply, agentName, question);
             String replyJson = objectMapper.writeValueAsString(cachedReply);
@@ -634,6 +669,12 @@ public class SemanticRouteCacheService {
     public void saveReply(String question, String reply, String agentName, String intentTag, Long ttlOverride, boolean adminOperation) {
         if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank() || intentTag == null) return;
 
+        // ⭐ 回复缓存总开关（P3-B）：关闭后不缓存任何最终回复，避免跨请求复用可变答案
+        if (!replyCacheEnabled) {
+            log.debug("[SemanticCache] 回复缓存已通过开关关闭(reply-cache-enabled=false)，跳过回复缓存: intent={}", intentTag);
+            return;
+        }
+
         try {
             // ⭐ 会话复述类提问（"我刚刚问了什么"、"再说一遍"）仅对当前会话有意义，不缓存回复
             if (isMetaQuestion(question)) {
@@ -680,10 +721,10 @@ public class SemanticRouteCacheService {
             // ⭐ 高频问题：保存关键词级别回复缓存（使同类问题共享回复）
             saveKeywordReply(question, reply, agentName, ttl);
 
-            // ⭐ 高频问题：保存意图维度回复缓存（精确匹配命中时用）
+            // ⭐ 高频问题：保存意图维度回复缓存（精确匹配命中时用，已含租户+版本作用域）
             CachedReply cachedReply = new CachedReply(reply, agentName, question);
             String replyJson = objectMapper.writeValueAsString(cachedReply);
-            String replyKey = REPLY_KEY_PREFIX + md5(intentTag);
+            String replyKey = replyKey(intentTag);
             redisTemplate.opsForValue().set(replyKey, replyJson, ttl, TimeUnit.SECONDS);
 
             log.info("[SemanticCache] 💾 已缓存回复(高频问题): intent={}, agent={}, ttl={}", intentTag, agentName, ttl);

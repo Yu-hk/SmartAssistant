@@ -7,6 +7,9 @@
 
 package com.example.smartassistant.common.rag;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -100,6 +103,17 @@ public class KnowledgeDocument {
      */
     private final String indexVersion;
 
+    // ==================== ACL 细粒度字段（P3，对标文章⑤ 权限进入检索层）====================
+
+    /** 🔴 ACL 细粒度：授权角色集合（空 = 租户内任意角色可见） */
+    private final Set<String> authorizedRoles;
+
+    /** 🔴 ACL 细粒度：授权用户集合（空 = 租户内任意用户可见） */
+    private final Set<String> authorizedUsers;
+
+    /** 🟡 ACL 细粒度：安全等级（0=公开；数字越大越敏感；用户 clearance 须 ≥ 此值方可查看） */
+    private final int securityLevel;
+
     // ==================== 构造器 ====================
 
     public KnowledgeDocument(String id, String title, String content,
@@ -147,6 +161,7 @@ public class KnowledgeDocument {
 
     /**
      * ⭐ 全参构造器（含治理能力字段 + 索引版本）。
+     * <p>委托给含 ACL 细粒度字段的最全构造器，ACL 字段留空（公开）。</p>
      *
      * @param authorityLevel 来源权威性等级（null → L2_INTERNAL）
      * @param documentStatus 文档状态（null → ACTIVE）
@@ -160,6 +175,33 @@ public class KnowledgeDocument {
                              String parentDocId,
                              AuthorityLevel authorityLevel, DocumentStatus documentStatus,
                              String indexVersion) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, parentDocId,
+                authorityLevel, documentStatus, indexVersion,
+                Set.of(), Set.of(), 0);
+    }
+
+    /**
+     * ⭐ 最全构造器（含治理能力字段 + 索引版本 + ACL 细粒度字段）。
+     *
+     * @param authorityLevel    来源权威性等级（null → L2_INTERNAL）
+     * @param documentStatus    文档状态（null → ACTIVE）
+     * @param indexVersion      索引版本（null → "v1"）
+     * @param authorizedRoles   授权角色集合（null/空 = 租户内任意角色可见）
+     * @param authorizedUsers   授权用户集合（null/空 = 租户内任意用户可见）
+     * @param securityLevel     安全等级（0=公开；越大越敏感）
+     */
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId,
+                             AuthorityLevel authorityLevel, DocumentStatus documentStatus,
+                             String indexVersion,
+                             Set<String> authorizedRoles,
+                             Set<String> authorizedUsers,
+                             int securityLevel) {
         this.id = id;
         this.title = title;
         this.content = content;
@@ -176,6 +218,13 @@ public class KnowledgeDocument {
         this.authorityLevel = authorityLevel != null ? authorityLevel : AuthorityLevel.L2_INTERNAL;
         this.documentStatus = documentStatus != null ? documentStatus : DocumentStatus.ACTIVE;
         this.indexVersion = indexVersion != null ? indexVersion : "v1";
+        this.authorizedRoles = authorizedRoles != null
+                ? Collections.unmodifiableSet(new LinkedHashSet<>(authorizedRoles))
+                : Set.of();
+        this.authorizedUsers = authorizedUsers != null
+                ? Collections.unmodifiableSet(new LinkedHashSet<>(authorizedUsers))
+                : Set.of();
+        this.securityLevel = securityLevel;
     }
 
     /** 文档是否在有效期内且未被隔离 */
@@ -215,6 +264,9 @@ public class KnowledgeDocument {
     public AuthorityLevel getAuthorityLevel() { return authorityLevel; }
     public DocumentStatus getDocumentStatus() { return documentStatus; }
     public String getIndexVersion() { return indexVersion; }
+    public Set<String> getAuthorizedRoles() { return authorizedRoles; }
+    public Set<String> getAuthorizedUsers() { return authorizedUsers; }
+    public int getSecurityLevel() { return securityLevel; }
 
     // ==================== 版本控制方法 ====================
 

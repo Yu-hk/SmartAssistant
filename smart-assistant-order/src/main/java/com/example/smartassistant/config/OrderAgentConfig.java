@@ -13,6 +13,7 @@ import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.common.tool.AiToolRegistry;
 import com.example.smartassistant.service.monitoring.OrderMetricsCollector;
 import com.example.smartassistant.tools.CouponTools;
@@ -99,5 +100,14 @@ public class OrderAgentConfig {
             log.warn("[OrderAgent] 系统提示词文件加载失败，使用默认提示词: {}", e.getMessage());
             return "你是一个专业的电商客服助手。根据用户需求调用工具获取信息，给出推荐。";
         }
+    }
+
+    /**
+     * ⭐ P1 全阶段 trace 记录器（Redis 可用时持久化到 a2a:stage:trace:{requestId}，否则纯内存）。
+     */
+    @Bean
+    public StageTraceRecorder stageTraceRecorder(
+            @Autowired(required = false) org.springframework.data.redis.core.StringRedisTemplate redisTemplate) {
+        return new StageTraceRecorder(redisTemplate);
     }
 }

@@ -10,11 +10,16 @@ package com.example.smartassistant.controller;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.memory.ContextOrchestrator;
 import com.example.smartassistant.common.memory.MemoryExtractor;
+import com.example.smartassistant.common.rag.RetrievalQualityResult;
+import com.example.smartassistant.common.rag.trace.RagStage;
+import com.example.smartassistant.common.rag.trace.StageSpan;
+import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
 import com.example.smartassistant.service.core.OrderRagService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -51,6 +56,15 @@ public class OrderAgentController {
     /** 上下文协调器：统一调度四层记忆预算 */
     private final ContextOrchestrator orchestrator;
 
+    /** ⭐ P1 全阶段 trace 记录器（可选，null 时跳过 trace） */
+    @Autowired(required = false)
+    private StageTraceRecorder stageTraceRecorder;
+
+    /** 测试/手动注入用 setter */
+    public void setStageTraceRecorder(StageTraceRecorder stageTraceRecorder) {
+        this.stageTraceRecorder = stageTraceRecorder;
+    }
+
     public OrderAgentController(SmartReActAgent orderAgent,
                                 OrderIntentService intentService,
                                 OrderRagService ragService,
@@ -86,23 +100,47 @@ public class OrderAgentController {
         }
 
         long startTime = System.currentTimeMillis();
-        log.info("[OrderAgent] 收到请求: question={}", question);
+        // ⭐ P1 全阶段 trace：使用真实 requestId 串联（Router 下发或本地生成）
+        String requestId = request.getOrDefault("requestId", "ord-" + System.nanoTime());
+        log.info("[OrderAgent] 收到请求: question={}, requestId={}", question, requestId);
 
         try {
             // Step 1: 意图识别
             IntentType intent = intentService.detect(question);
 
-            // Step 2: ⭐ 上下文协调器 — 统一调度四层记忆预算
+            // Step 2: 上下文协调器 + RAG 预检索（含质量评估）
             String userId = request.get("userId");
             List<String> extras = new ArrayList<>();
 
-            // Step 3: RAG 预检索作为额外上下文
-            if (ragService != null) {
-                String ragContext = ragService.buildEnhancedMessage(intent, question);
-                if (!ragContext.equals(question)) {
-                    extras.add(ragContext);
-                    log.info("[OrderAgent] RAG 预检索已注入上下文");
+            // ⭐ P1: 先取检索质量结果，决定是否"无证据拒答"
+            long retrievalStart = System.currentTimeMillis();
+            RetrievalQualityResult qr = (ragService != null)
+                    ? ragService.retrieveWithQualityResult(intent, question)
+                    : RetrievalQualityResult.highQuality("", 1.0);
+            long retrievalMs = System.currentTimeMillis() - retrievalStart;
+
+            if (qr.isRejected()) {
+                // ⭐ 无证据：短路，绝不调用 LLM（避免幻觉）
+                if (stageTraceRecorder != null) {
+                    stageTraceRecorder.getOrCreate(requestId, question, "order_agent")
+                            .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
+                                    Map.of("qualityScore", qr.getNormalizedScore(),
+                                            "rejectionCode", qr.getRejectionCode())));
+                    stageTraceRecorder.markRejection(requestId, qr.getRejectionCode(), qr.getRejectionMessage());
+                    stageTraceRecorder.recordStage(requestId, RagStage.GENERATION, StageSpan.STATUS_SKIPPED, 0,
+                            Map.of("reason", "no-evidence"));
+                    stageTraceRecorder.save(requestId);
                 }
+                log.info("[OrderAgent] ⛔ 无证据拒答: intent={}, code={}, requestId={}",
+                        intent.getLabel(), qr.getRejectionCode(), requestId);
+                return qr.getRejectionMessage();
+            }
+
+            // 有证据：注入上下文
+            String ragContext = ragService.buildEnhancedMessage(qr, question);
+            if (!ragContext.equals(question)) {
+                extras.add(ragContext);
+                log.info("[OrderAgent] RAG 预检索已注入上下文");
             }
 
             // 通过 Orchestrator 构建分层 prompt
@@ -110,9 +148,28 @@ public class OrderAgentController {
                     extras.isEmpty() ? null : extras);
             log.info("[OrderAgent] 状态锚点已强制注入: userId={}", userId != null ? userId : "访客");
 
-            // Step 4: Agent 执行
+            // Step 4: Agent 执行（GENERATION 阶段 trace）
             log.info("[OrderAgent] 意图识别: {}, userId={}, 记忆注入={}", intent.getLabel(), userId, userId != null);
-            String result = orderAgent.execute(enhancedQuestion);
+            long genStart = System.currentTimeMillis();
+            String result;
+            String genStatus = StageSpan.STATUS_OK;
+            try {
+                result = orderAgent.execute(enhancedQuestion);
+            } catch (Exception e) {
+                genStatus = StageSpan.STATUS_ERROR;
+                throw e;
+            } finally {
+                long genMs = System.currentTimeMillis() - genStart;
+                if (stageTraceRecorder != null) {
+                    stageTraceRecorder.getOrCreate(requestId, question, "order_agent")
+                            .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
+                                    Map.of("qualityScore", qr.getNormalizedScore(),
+                                            "highQuality", qr.isHighQuality())));
+                    stageTraceRecorder.recordStage(requestId, RagStage.GENERATION, genStatus, genMs,
+                            Map.of("outputLength", result != null ? result.length() : 0));
+                    stageTraceRecorder.save(requestId);
+                }
+            }
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("[OrderAgent] 处理完成: intent={},耗时={}ms,结果长度={}",
                     intent.getLabel(), elapsed, result != null ? result.length() : 0);
