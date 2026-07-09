@@ -9,6 +9,7 @@ package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.AgentExecutionState;
+import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.GoalContinuityArbiter;
 import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.error.AgentErrorCode;
@@ -26,6 +27,8 @@ import com.example.smartassistant.router.service.monitoring.NewMetricsCollector;
 import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.quality.QualityEvaluationService;
+import com.example.smartassistant.common.prompt.PromptManager;
+import com.example.smartassistant.router.service.guardrail.GuardrailService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import com.example.smartassistant.router.service.routing.KeywordFastRouteService;
 import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
@@ -148,6 +151,12 @@ public class RouterService {
     // ⭐ 异常率降级服务（解决反常识2：异常处理本身制造异常的负反馈循环）
     private final DegradationService degradationService;
 
+    // ⭐ P1 确定性护栏服务
+    private final GuardrailService guardrailService;
+
+    // ⭐ P2 Prompt 管理器
+    private final PromptManager promptManager;
+
     public RouterService(AgentCallerService agentCallerService,
                          @Autowired(required = false) StringRedisTemplate redisTemplate,
                          RouterRagService ragService,
@@ -163,6 +172,8 @@ public class RouterService {
                         KeywordFastRouteService keywordFastRouteService,
                         @Autowired(required = false) RoutingToolChecker routingToolChecker,
                         @Autowired(required = false) DegradationService degradationService,
+                        GuardrailService guardrailService,
+                        PromptManager promptManager,
                          @Qualifier("lightChatModel") ChatModel lightModel,
                          @Autowired(required = false) BadCaseMinerService badCaseMinerService) {
         this.agentCallerService = agentCallerService;
@@ -180,6 +191,8 @@ public class RouterService {
         this.keywordFastRouteService = keywordFastRouteService;
         this.routingToolChecker = routingToolChecker;
         this.degradationService = degradationService;
+        this.guardrailService = guardrailService;
+        this.promptManager = promptManager;
         this.lightChatClient = ChatClient.create(lightModel);
         this.badCaseMinerService = badCaseMinerService;
     }
@@ -201,7 +214,34 @@ public class RouterService {
             // Step 0: 经验匹配（优先级最高，在语义缓存之上）
             // ⭐ 经验匹配可直接跳过 LLM 推理，命中 TOOL 经验时甚至直接执行工具
             String question = request.getQuestion();
-            ExperienceService.ExperienceMatchResult experienceMatch = experienceService.match(question);
+
+            // ⭐ P1 确定性护栏：检查高风险关键词（退款/退货/投诉等）
+            GuardrailService.GuardrailCheckResult guardrail = guardrailService.check(question);
+            boolean guardrailSkipped = guardrail.triggered() && guardrail.skipShortCircuit();
+            boolean guardrailForceRag = guardrail.triggered() && guardrail.forceRag();
+
+            if (guardrail.triggered()) {
+                log.warn("[Router] 🛡️ 护栏激活: question='{}', matchedTerms={}, skipShortCircuit={}, forceRag={}",
+                        truncate(question, 50), guardrail.matchedTerms(),
+                        guardrail.skipShortCircuit(), guardrail.forceRag());
+            }
+
+            // ⭐ P2 Token 配额检查：开始路由前先检查用户级日配额
+            if (budgetTracker != null && request.getUserId() != null) {
+                String quotaMsg = budgetTracker.checkUserQuota(request.getUserId());
+                if (quotaMsg != null) {
+                    log.warn("[Router] ⚠️ 用户配额超限: userId={}, msg={}", request.getUserId(), quotaMsg);
+                    return RoutingResult.builder()
+                            .result(quotaMsg)
+                            .agentName("builtin_fallback")
+                            .confidence(0.2)
+                            .build();
+                }
+            }
+
+            // Step 0: 经验匹配（护栏触发 + skipShortCircuit 跳过短路）
+            if (!guardrailSkipped) {
+                ExperienceService.ExperienceMatchResult experienceMatch = experienceService.match(question);
             if (experienceMatch != null) {
                 log.info("[Router] 🧠 经验匹配命中: type={}, agent={}, score={}",
                         experienceMatch.experience.getType(), experienceMatch.agentName,
@@ -331,10 +371,12 @@ public class RouterService {
                         if (result != null) return result;
                     }
                 } // end experienceMatch != null
+            } // end !guardrailSkipped (护栏激活时跳过经验匹配短路)
 
-            // Step 0.5: 关键词快车道（P2 改进：高频明确意图跳过 LLM 分诊）
+            // Step 0.5: 关键词快车道（护栏触发 + skipShortCircuit 时跳过）
             // 优先级：经验匹配 > 关键词快车道 > 语义缓存 > LLM 意图识别
-            KeywordFastRouteService.MatchResult keywordMatch = keywordFastRouteService.match(question);
+            KeywordFastRouteService.MatchResult keywordMatch = !guardrailSkipped
+                    ? keywordFastRouteService.match(question) : null;
             if (keywordMatch != null) {
                 log.info("[Router] ⚡ 关键词快车道命中: rule={}, agent={}, intent={}, confidence={}",
                         keywordMatch.getMatchedRuleName(), keywordMatch.getTargetAgent(),
@@ -352,15 +394,19 @@ public class RouterService {
             // Step 2: 构建上下文
             Map<String, Object> context = buildContext(request);
 
-            // Step 3: RAG 增强(可选)
+            // Step 3: RAG 增强(可选) — 正常开启或护栏触发时均执行
             String enhancedQuestion = question;
-            if (ragEnabled && Boolean.TRUE.equals(request.getEnableRag())) {
+            boolean doRag = (ragEnabled && Boolean.TRUE.equals(request.getEnableRag())) || guardrailForceRag;
+            if (doRag) {
                 @SuppressWarnings("unchecked")
                 List<String> history = (List<String>) context.get("conversationHistory");
                 enhancedQuestion = ragService.enhanceQuestion(
                         request.getQuestion(),
                         history
                 );
+                if (guardrailForceRag) {
+                    log.info("[Router] 🛡️ 护栏强制 RAG 增强完成: enhancedLength={}", enhancedQuestion.length());
+                }
             }
 
             Long userId = request.getUserId();
@@ -820,8 +866,10 @@ public class RouterService {
         // ⭐ 半开（HALF_OPEN）熔断探测：放行一次请求验证恢复
         if (degLevel == DegradationService.DegradationLevel.HALF_OPEN) {
             log.info("[Collaborative] 🟡 半开探测: 放行一次请求验证恢复");
-            String probeResult = inlineFallback(question);
-            boolean success = probeResult != null && !probeResult.isBlank() && !probeResult.startsWith("❌");
+            RoutingResult probeResult = inlineFallback(question);
+            boolean success = probeResult != null && probeResult.getResult() != null
+                    && !probeResult.getResult().isBlank()
+                    && !probeResult.getResult().startsWith("❌");
             if (degradationService != null) {
                 degradationService.recordProbeResult(success);
             }
@@ -960,11 +1008,9 @@ public class RouterService {
      * </ol>
      */
     private RoutingResult inlineFallback(String question) {
-        // ⭐ G3：按复杂度选档 + 平滑降级调用（无 TieredModelRouter 时退回原 lightChatClient 行为）
-        String warmSystem = "你是一个温暖、耐心的助手。用户已经等待了一段时间，可能有些着急了。"
-                + "请用温和友善的语气回应，先为等待道歉，然后安抚情绪。"
-                + "如果实在无法处理当前问题，诚恳地请用户稍后再试，"
-                + "不要引导用户去尝试其他功能（因为那些功能可能也暂时不可用）。";
+        // ⭐ G3：按复杂度选档 + 平滑降级调用
+        // P2 Prompt 已外部化到 prompts/router/inline-fallback.txt
+        String warmSystem = promptManager.inlineFallback();
         try {
             String localReply;
             if (tieredModelRouter != null) {

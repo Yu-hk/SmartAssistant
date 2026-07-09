@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.rag;
 
+import com.example.smartassistant.common.prompt.PromptManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -34,6 +35,7 @@ public class RouterRagService {
     private static final Logger log = LoggerFactory.getLogger(RouterRagService.class);
 
     private final ChatClient chatClient;
+    private final PromptManager promptManager;
 
     @Value("${router.agent.rag.enabled:false}")
     private boolean ragEnabled;
@@ -47,8 +49,9 @@ public class RouterRagService {
     @Value("${router.agent.rag.backref-enabled:true}")
     private boolean backrefEnabled;
 
-    public RouterRagService(ChatClient.Builder chatClientBuilder) {
+    public RouterRagService(ChatClient.Builder chatClientBuilder, PromptManager promptManager) {
         this.chatClient = chatClientBuilder.build();
+        this.promptManager = promptManager;
     }
 
     /**
@@ -143,22 +146,13 @@ public class RouterRagService {
 
         String historyText = historyBuilder.toString();
 
-        // 构建摘要 Prompt
-        String summaryPrompt = String.format("""
-                你是一个对话摘要助手。根据以下对话历史和当前问题，提取与当前问题最相关的上下文信息。
-
-                对话历史：
-                %s
-
-                当前问题：%s
-
-                要求：
-                1. 只提取与当前问题相关的历史信息
-                2. 保持简洁，不超过 %d 字
-                3. 直接输出摘要，不要解释
-
-                相关上下文：
-                """, historyText, currentQuestion, summaryMaxTokens);
+        // P2 Prompt 外部化：prompts/router/rag-summary.txt
+        String summaryPrompt = promptManager.ragSummary() + "\n\n"
+                + "对话历史：\n" + historyText + "\n\n"
+                + "当前问题：" + currentQuestion + "\n\n"
+                + "要求：\n1. 只提取与当前问题相关的历史信息\n"
+                + "2. 保持简洁，不超过 " + summaryMaxTokens + " 字\n"
+                + "3. 直接输出摘要，不要解释\n\n相关上下文：";
 
         // 调用 LLM 生成摘要
         String summary = chatClient.prompt()
@@ -218,28 +212,9 @@ public class RouterRagService {
         }
         String historyText = historyBuilder.toString();
 
-        String entityPrompt = String.format("""
-                从以下对话历史中提取所有关键实体。每个实体包含类型和值。
-
-                对话历史：
-                %s
-
-                实体类型包括：
-                - ORDER_ID：订单编号（如 ORD-001、A20231001）
-                - PRODUCT：商品名称（如 iPhone 15、MacBook Pro）
-                - AMOUNT：金额（如 ¥5999、99元）
-                - DATE：日期时间（如 2024-01-15、昨天）
-                - ACTION：用户操作（如 查询、退订、购买、取消）
-                - DECISION：Agent 决策（如 推荐order_agent、使用queryOrder工具）
-
-                输出格式（每行一个实体）：类型|值|来源消息索引
-                示例：
-                ORDER_ID|ORD-001|0
-                ACTION|查询订单|1
-                DECISION|路由到order_agent|2
-
-                只输出实体列表，不要其他文字。
-                """, historyText);
+        // P2 Prompt 外部化：prompts/router/rag-entity.txt
+        String entityPrompt = promptManager.ragEntityExtraction() + "\n\n"
+                + "对话历史：\n" + historyText;
 
         try {
             String response = chatClient.prompt()

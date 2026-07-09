@@ -161,6 +161,28 @@ router:
       enabled: true  # ⭐ 启用 RAG 增强路由
       top-k: 3
       similarity-threshold: 0.7
+
+      # ⭐ P1 确定性护栏：高风险问题强制走 RAG + 跳过短路
+      guardrails:
+        enabled: true                # 是否启用确定性护栏
+        skip-short-circuit: true     # 护栏触发时跳过经验/关键词短路
+        force-rag: true              # 护栏触发时强制 RAG 增强
+        enforced-terms:              # 强制触发 RAG 的关键词（命中任意一个即触发）
+          - "退款"
+          - "退货"
+          - "取消订单"
+          - "发票"
+          - "投诉"
+          - "理赔"
+          - "售后"
+          - "退钱"
+          - "赔偿"
+          - "申诉"
+          - "举报"
+        enforced-intents:            # 强制触发 RAG 的意图标签
+          - "REFUND"
+          - "CANCEL"
+          - "COMPLAINT"
     
     # 路由决策配置
     routing:

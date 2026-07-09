@@ -15,6 +15,7 @@ import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.model.SubTaskResult.ErrorType;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.checkpoint.GraphCheckpointService;
+import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,6 +65,9 @@ public class GraphExecutionService {
     /** ⭐ Graph 检查点服务（可选，null 时跳过持久化） */
     private final GraphCheckpointService checkpointService;
 
+    /** ⭐ Agent 心跳服务 */
+    private final AgentHeartbeatService heartbeatService;
+
     /** ⭐ 是否启用异步 Handoff（默认 false） */
     @Value("${router.graph.async-handoff-enabled:false}")
     private boolean asyncHandoffEnabled;
@@ -88,7 +92,8 @@ public class GraphExecutionService {
                                  TaskPlannerService taskPlannerService,
                                  DegradationService degradationService,
                                  @Autowired(required = false) com.example.smartassistant.common.gateway.AgentEventBus agentEventBus,
-                                 @Autowired(required = false) GraphCheckpointService checkpointService) {
+                                 @Autowired(required = false) GraphCheckpointService checkpointService,
+                                 AgentHeartbeatService heartbeatService) {
         this.agentCallerService = agentCallerService;
         this.parallelExecutor = parallelExecutor;
         this.reflectionService = reflectionService;
@@ -96,6 +101,7 @@ public class GraphExecutionService {
         this.degradationService = degradationService;
         this.agentEventBus = agentEventBus;
         this.checkpointService = checkpointService;
+        this.heartbeatService = heartbeatService;
     }
 
     /**
@@ -640,8 +646,13 @@ public class GraphExecutionService {
         storeNodeProgressEvent(eventsKey, "node_started",
                 truncate("节点: " + node.getDescription(), 100), node.getTargetAgent());
 
-        // ⭐ 节点级熔断检测：如果目标 Agent 已连续失败 NODE_LEVEL_BREAKER_THRESHOLD 次，跳过该节点
+        // ⭐ 上报心跳：节点开始执行
         String targetAgent = node.getTargetAgent();
+        if (requestId != null && targetAgent != null) {
+            heartbeatService.beat(requestId, targetAgent, "RUNNING", node.getDescription());
+        }
+
+        // ⭐ 节点级熔断检测：如果目标 Agent 已连续失败 NODE_LEVEL_BREAKER_THRESHOLD 次，跳过该节点
         int failCount = breakerFailureCounts.getOrDefault(targetAgent, 0);
         if (failCount >= NODE_LEVEL_BREAKER_THRESHOLD) {
             log.warn("[GraphExecutor] ⚡ 节点级熔断触发: agent={}, failCount={}, node={}|{}",
@@ -686,9 +697,12 @@ public class GraphExecutionService {
                     }
                     log.info("[GraphExecutor] 节点成功: {}|{}, resultLen={}",
                             node.getId(), node.getTargetAgent(), resultText.length());
-                    // ⭐ 节点成功：重置该 Agent 的连续失败计数 + 记录降级统计
+                    // ⭐ 节点成功：重置该 Agent 的连续失败计数 + 记录降级统计 + 上报心跳完成
                     breakerFailureCounts.put(targetAgent, 0);
                     degradationService.recordCall(true);
+                    if (requestId != null && targetAgent != null) {
+                        heartbeatService.markCompleted(requestId, targetAgent);
+                    }
                     storeNodeProgressEvent(eventsKey, "node_completed",
                             truncate("节点[" + node.getDescription() + "]执行成功: " + resultText, 200), targetAgent);
                     return new SubTaskResult(node.getId(), node.getDescription(),
@@ -705,9 +719,12 @@ public class GraphExecutionService {
                     continue;
                 }
                 log.warn("[GraphExecutor] 节点返回空（已达最大重试）: {}|{}", node.getId(), node.getTargetAgent());
-                // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计
+                // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计 + 上报心跳失败
                 breakerFailureCounts.put(targetAgent, failCount + 1);
                 degradationService.recordCall(false);
+                if (requestId != null && targetAgent != null) {
+                    heartbeatService.markFailed(requestId, targetAgent, "节点返回空结果(已达最大重试)");
+                }
                 storeNodeProgressEvent(eventsKey, "node_failed",
                         "节点[" + node.getDescription() + "]返回空结果(已达最大重试)", targetAgent);
                 return new SubTaskResult(node.getId(), node.getDescription(),
@@ -727,9 +744,12 @@ public class GraphExecutionService {
 
                 log.warn("[GraphExecutor] 节点异常(不可重试): {}|{}, error={}, type={}",
                         node.getId(), node.getTargetAgent(), e.getMessage(), errorType);
-                // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计
+                // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计 + 上报心跳失败
                 breakerFailureCounts.put(targetAgent, failCount + 1);
                 degradationService.recordCall(false);
+                if (requestId != null && targetAgent != null) {
+                    heartbeatService.markFailed(requestId, targetAgent, truncate(e.getMessage(), 100));
+                }
                 storeNodeProgressEvent(eventsKey, "node_failed",
                         "节点[" + node.getDescription() + "]异常: " + truncate(e.getMessage(), 100), targetAgent);
                 return new SubTaskResult(node.getId(), node.getDescription(),
@@ -738,9 +758,12 @@ public class GraphExecutionService {
         }
 
         log.warn("[GraphExecutor] 节点执行耗尽重试次数: {}|{}", node.getId(), node.getTargetAgent());
-        // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计
+        // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计 + 上报心跳失败
         breakerFailureCounts.put(targetAgent, failCount + 1);
         degradationService.recordCall(false);
+        if (requestId != null && targetAgent != null) {
+            heartbeatService.markFailed(requestId, targetAgent, "节点执行耗尽重试次数");
+        }
         storeNodeProgressEvent(eventsKey, "node_failed",
                 "节点[" + node.getDescription() + "]耗尽重试次数", targetAgent);
         return new SubTaskResult(node.getId(), node.getDescription(),
@@ -798,11 +821,7 @@ public class GraphExecutionService {
                 .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
-    /** 截断长字符串（带省略号）。 */
-    private static String truncate(String s, int maxLen) {
-        if (s == null || s.length() <= maxLen) return s;
-        return s.substring(0, maxLen) + "...";
-    }
+    // truncate(String, int) 定义在第581行，此处为重复删除
 
     // ========================================================================
     // 辅助方法：重试 & 重规划

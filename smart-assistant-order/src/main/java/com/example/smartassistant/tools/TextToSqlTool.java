@@ -10,6 +10,7 @@ package com.example.smartassistant.tools;
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
+import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.sql.SqlSecurityValidator;
 import com.example.smartassistant.config.McpTableWhitelistConfig;
 import jakarta.annotation.PostConstruct;
@@ -57,27 +58,8 @@ public class TextToSqlTool {
 
     private static final String SERVICE_NAME = "order";
 
-    private static final String SYSTEM_PROMPT = """
-            你是一个专业的 SQL 生成助手。你的任务是根据用户的问题，生成对应的 PostgreSQL SQL 查询语句。
-
-            约束条件：
-            1. 仅支持 SELECT 查询，不允许 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE 等操作
-            2. 你只能查询以下表（注意表名小写）：
-               - orders（订单表）
-               - order_refunds（退款记录表）
-               - order_logistics（物流轨迹表）
-               - approval_records（审批记录表）
-               - products（商品目录表）
-            3. 表结构信息：
-               orders: order_id(VARCHAR), user_id(BIGINT), product_name(VARCHAR), amount(DECIMAL), status(VARCHAR), carrier(VARCHAR), tracking_no(VARCHAR), product_type(VARCHAR), delivered_date(TIMESTAMP), created_at(TIMESTAMP)
-               order_refunds: order_id(VARCHAR), reason(TEXT), amount(DECIMAL), status(VARCHAR), created_at(TIMESTAMP)
-               order_logistics: tracking_no(VARCHAR), order_id(VARCHAR), carrier(VARCHAR), status(VARCHAR), trajectory(JSONB), created_at(TIMESTAMP), updated_at(TIMESTAMP)
-               approval_records: order_id(VARCHAR), action_type(VARCHAR), reason(TEXT), status(VARCHAR), created_at(TIMESTAMP), confirmed_at(TIMESTAMP), consumed_at(TIMESTAMP)
-               products: product_code(VARCHAR), product_name(VARCHAR), price(DECIMAL), stock(VARCHAR), spec(TEXT), colors(VARCHAR), created_at(TIMESTAMP)
-            4. 使用中文别名显示查询结果，如 SELECT order_id AS "订单号"
-            5. 返回格式：仅输出 SQL 语句本身，不要包含任何解释、标记或其他内容
-            6. 如果问题无法通过 SELECT 查询回答，回复：-- UNSUPPORTED: 问题描述
-            """;
+    // P2 Prompt 外部化：prompts/order/text-to-sql.txt
+    private final PromptManager promptManager;
 
     private final JdbcTemplate jdbcTemplate;
     private final McpTableWhitelistConfig whitelistConfig;
@@ -89,12 +71,14 @@ public class TextToSqlTool {
                          McpTableWhitelistConfig whitelistConfig,
                          @Value("${spring.ai.ollama.base-url}") String ollamaBaseUrl,
                          @Value("${spring.ai.ollama.chat.options.model:deepseek-r1:7b}") String ollamaModel,
-                         ToolRegistry toolRegistry) {
+                         ToolRegistry toolRegistry,
+                         PromptManager promptManager) {
         this.jdbcTemplate = jdbcTemplate;
         this.whitelistConfig = whitelistConfig;
         this.ollamaBaseUrl = ollamaBaseUrl;
         this.ollamaModel = ollamaModel;
         this.toolRegistry = toolRegistry;
+        this.promptManager = promptManager;
     }
 
     @PostConstruct
@@ -197,7 +181,12 @@ public class TextToSqlTool {
 
         String requestBody = OBJECT_MAPPER.writeValueAsString(Map.of(
                 "model", ollamaModel,
-                "prompt", SYSTEM_PROMPT + "\n\n用户问题：" + question,
+                "prompt", promptManager.textToSql() + "\n\n表结构信息：\n"
+                        + "orders: order_id(VARCHAR), user_id(BIGINT), product_name(VARCHAR), amount(DECIMAL), status(VARCHAR), carrier(VARCHAR), tracking_no(VARCHAR), product_type(VARCHAR), delivered_date(TIMESTAMP), created_at(TIMESTAMP)\n"
+                        + "order_refunds: order_id(VARCHAR), reason(TEXT), amount(DECIMAL), status(VARCHAR), created_at(TIMESTAMP)\n"
+                        + "order_logistics: tracking_no(VARCHAR), order_id(VARCHAR), carrier(VARCHAR), status(VARCHAR), trajectory(JSONB), created_at(TIMESTAMP), updated_at(TIMESTAMP)\n"
+                        + "approval_records: order_id(VARCHAR), action_type(VARCHAR), reason(TEXT), status(VARCHAR), created_at(TIMESTAMP), confirmed_at(TIMESTAMP), consumed_at(TIMESTAMP)\n"
+                        + "products: product_code(VARCHAR), product_name(VARCHAR), price(DECIMAL), stock(VARCHAR), spec(TEXT), colors(VARCHAR), created_at(TIMESTAMP)\n\n用户问题：" + question,
                 "stream", false,
                 "options", Map.of("temperature", 0.1) // 低温度让 SQL 生成更精确
         ));
