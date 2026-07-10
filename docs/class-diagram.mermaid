@@ -1,0 +1,224 @@
+%% SmartAssistant 增量需求 - 类图
+%% 架构师：高见远
+
+classDiagram
+    direction LR
+
+    %% ===== 现有类（灰色标注被修改） =====
+    class ToolGateway {
+        -ToolRegistry toolRegistry
+        -List~ToolExecutionHook~ hooks
+        +execute(toolName, executor, scope, idempotencyKey) String
+        -recordSuccess(toolName)
+        -recordFailure(toolName)
+    }
+
+    class ToolDefinition {
+        -String name
+        -String description
+        -ToolRiskLevel riskLevel
+        -Duration timeout
+        -boolean needsApproval
+        -int maxRetries
+        -int rateLimit
+        -String[] scopes
+        -String[] tags
+        -String version
+        -ToolStatus status
+        -String namespace
+        -String ownerTeam
+        -String endpoint
+        -String deprecatedBy
+        -String sunsetDate
+        -String[] capabilities %% NEW
+        -String outputSchema %% NEW
+        +isReadOnly() boolean
+        +isHighRisk() boolean
+        +incrementAndGetUseCount() long
+        +read(name, desc) ToolDefinition
+        +write(name, desc, riskLevel) ToolDefinition
+        +highRisk(name, desc, needsApproval) ToolDefinition
+    }
+
+    class ToolStatus {
+        <<enumeration>>
+        EXPERIMENTAL
+        ACTIVE
+        DEPRECATED
+        DISABLED
+        REMOVED
+    }
+
+    class ToolRegistry {
+        -Map definitions
+        +register(definition)
+        +get(toolName) ToolDefinition
+        +getAll() Collection
+    }
+
+    class RegistryService {
+        -Map definitions
+        -Map dependencies
+        -ToolCompatibilityChecker checker %% NEW
+        -ToolManifestValidator manifestValidator %% NEW
+        +register(definition)
+        +query(tags, status, namespace, capabilities) List %% MODIFIED
+        +deprecate(toolName, deprecatedBy, sunsetDate, reason) boolean
+        +activate(toolName) boolean
+        +getHealth() HealthResult
+    }
+
+    class RegistryController {
+        -RegistryService registryService
+        +register(definition) ApiResponse
+        +query(tags, status, namespace, capabilities) ApiResponse %% MODIFIED
+        +deprecate(request) ApiResponse
+        +health() ApiResponse
+    }
+
+    class PromptBuilder {
+        -String servicePrompt
+        -String dynamicContext
+        -String projectContext %% NEW
+        -Map variables
+        -List sections
+        +withServicePrompt(prompt) PromptBuilder
+        +withProjectContext(ctx) PromptBuilder %% NEW
+        +withDynamicContext(ctx) PromptBuilder
+        +withSection(title, content) PromptBuilder
+        +assemble() String
+    }
+
+    class AgentErrorCode {
+        <<enumeration>>
+        TOOL_EXECUTION_FAILED
+        TOOL_INVALID_ARGUMENT
+        PERMISSION_DENIED
+        APPROVAL_REJECTED
+        TOOL_STATUS_DISABLED %% NEW
+        TOOL_VERSION_INCOMPATIBLE %% NEW
+    }
+
+    %% ===== REQ-02: Hook 接口与实现 =====
+    class ToolExecutionHook {
+        <<interface>>
+        +preExecute(context)
+        +postExecute(context, result) String
+        +onError(context, ex)
+        +getName() String
+    }
+
+    class ToolHookContext {
+        -String toolName
+        -ToolDefinition toolDefinition
+        -String scope
+        -String idempotencyKey
+        -long startTimeMs
+        -long elapsedMs
+    }
+
+    class ToolStatusHook {
+        +preExecute(context)
+        +postExecute(context, result) String
+        +onError(context, ex)
+        +getName() String
+    }
+
+    class ApprovalHook {
+        +preExecute(context)
+        +postExecute(context, result) String
+        +onError(context, ex)
+        +getName() String
+    }
+
+    class SanitizeHook {
+        +preExecute(context)
+        +postExecute(context, result) String
+        +onError(context, ex)
+        +getName() String
+        -maskPhone(text) String
+        -maskIdCard(text) String
+        -maskBankCard(text) String
+    }
+
+    class AuditHook {
+        +preExecute(context)
+        +postExecute(context, result) String
+        +onError(context, ex)
+        +getName() String
+    }
+
+    %% ===== REQ-04: 兼容性检查 =====
+    class ToolCompatibilityChecker {
+        <<interface>>
+        +check(oldDef, newDef) CompatibilityResult
+        +getReason() String
+    }
+
+    class CompatibilityResult {
+        <<enumeration>>
+        BREAKING
+        COMPATIBLE
+    }
+
+    class IncompatibleVersionException {
+        -String toolName
+        -String oldVersion
+        -String newVersion
+    }
+
+    class ToolCompatibilityCheckerImpl {
+        +check(oldDef, newDef) CompatibilityResult
+        +getReason() String
+        -isMajorUpgraded(oldVer, newVer) boolean
+    }
+
+    %% ===== REQ-05: 能力标签 =====
+    class ToolCapability {
+        <<enumeration>>
+        READ_ONLY
+        MUTATE_STATE
+        NETWORK_CALL
+        PAYMENT
+        DATA_ACCESS
+        AI_INFERENCE
+        UNKNOWN
+        +isValid(label) boolean
+    }
+
+    class ToolManifestValidator {
+        +validate(definition) ValidationResult
+        -validateCapabilities(def)
+        -validateOutputSchema(def)
+    }
+
+    %% ===== 关系 =====
+    ToolGateway --> ToolRegistry : 使用
+    ToolGateway --> ToolExecutionHook : 注入 List~Hook~
+    ToolGateway ..> ToolHookContext : 创建
+
+    ToolExecutionHook <|.. ToolStatusHook : 实现
+    ToolExecutionHook <|.. ApprovalHook : 实现
+    ToolExecutionHook <|.. SanitizeHook : 实现
+    ToolExecutionHook <|.. AuditHook : 实现
+
+    ToolHookContext --> ToolDefinition : 携带
+    ToolDefinition --> ToolStatus : 引用
+    ToolDefinition --> ToolCapability : 校验
+
+    RegistryService --> ToolCompatibilityChecker : 调用
+    RegistryService --> ToolManifestValidator : 调用
+    RegistryController --> RegistryService : 委托
+
+    ToolCompatibilityChecker <|.. ToolCompatibilityCheckerImpl : 实现
+    ToolCompatibilityCheckerImpl --> CompatibilityResult : 返回
+    ToolCompatibilityCheckerImpl ..> IncompatibleVersionException : 触发
+    ToolCompatibilityCheckerImpl --> ToolDefinition : 比对
+
+    ToolManifestValidator --> ToolDefinition : 校验
+    ToolManifestValidator --> ToolCapability : 校验
+
+    IncompatibleVersionException ..> AgentErrorCode : 引用
+    ToolExecutionException ..> AgentErrorCode : 引用
+
+    PromptBuilder ..> ToolDefinition : 无关（独立模块）
