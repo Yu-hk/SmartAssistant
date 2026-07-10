@@ -2,6 +2,9 @@ package com.example.smartassistant.toolregistry.service;
 
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolStatus;
+import com.example.smartassistant.common.gateway.tool.compat.CompatibilityResult;
+import com.example.smartassistant.common.gateway.tool.compat.IncompatibleVersionException;
+import com.example.smartassistant.common.gateway.tool.compat.ToolCompatibilityChecker;
 import com.example.smartassistant.toolregistry.config.RequestIdHolder;
 import com.example.smartassistant.toolregistry.model.HealthResult;
 import com.example.smartassistant.toolregistry.model.ToolDependRecord;
@@ -46,6 +49,18 @@ public class RegistryService {
     /** 调用次数（Registry 视角）：toolName → callCount */
     private final Map<String, AtomicLong> callCount = new ConcurrentHashMap<>();
 
+    /** 兼容性检查器 */
+    private final ToolCompatibilityChecker compatibilityChecker;
+
+    /** Manifest 校验器 */
+    private final ToolManifestValidator manifestValidator;
+
+    public RegistryService(ToolCompatibilityChecker compatibilityChecker,
+                           ToolManifestValidator manifestValidator) {
+        this.compatibilityChecker = compatibilityChecker;
+        this.manifestValidator = manifestValidator;
+    }
+
     @PostConstruct
     public void init() {
         log.info("[RegistryService] 工具注册中心已启动，存储模式: ConcurrentHashMap");
@@ -54,23 +69,65 @@ public class RegistryService {
     // ==================== 注册 ====================
 
     /**
-     * 注册工具定义。如果已存在同名工具，更新定义并记录日志。
+     * 注册工具定义。如果已存在同名工具，进行兼容性检查后更新定义并记录日志。
+     * <p>
+     * 注册流程：
+     * <ol>
+     *   <li>Manifest 校验（capabilities/outputSchema）—— 仅 WARN 不阻断</li>
+     *   <li>兼容性检查（若已存在同名工具）—— BREAKING 且 major 版本未升级则拒绝</li>
+     *   <li>写入存储 + 记录日志</li>
+     * </ol>
+     * </p>
      *
      * @param definition 工具定义
+     * @throws IncompatibleVersionException 如果 BREAKING 变更且 major 版本未升级
      */
     public void register(ToolDefinition definition) {
         Objects.requireNonNull(definition, "definition must not be null");
         Objects.requireNonNull(definition.getName(), "definition.name must not be null");
 
-        ToolDefinition existing = definitions.put(definition.getName(), definition);
+        // 1. Manifest 校验（就地修正 capabilities，其他仅 WARN）
+        manifestValidator.validate(definition);
+
+        // 2. 兼容性检查
+        ToolDefinition existing = definitions.get(definition.getName());
+        String compatibility = "NONE";
+
         if (existing != null) {
-            log.info("[RegistryService][{}] 更新工具: name={}, version={}→{}, status={}→{}",
+            CompatibilityResult result = compatibilityChecker.check(existing, definition);
+            compatibility = result.name();
+
+            if (result == CompatibilityResult.BREAKING) {
+                int oldMajor = parseMajorVersion(existing.getVersion());
+                int newMajor = parseMajorVersion(definition.getVersion());
+
+                if (oldMajor == newMajor) {
+                    log.warn("[RegistryService][{}] 版本不兼容: tool={}, {}→{}, reason={}, major未升级({}={})",
+                            RequestIdHolder.get(), definition.getName(),
+                            existing.getVersion(), definition.getVersion(),
+                            compatibilityChecker.getReason(), oldMajor, newMajor);
+                    throw new IncompatibleVersionException(
+                            definition.getName(),
+                            existing.getVersion(),
+                            definition.getVersion(),
+                            compatibilityChecker.getReason());
+                }
+            }
+        }
+
+        // 3. 写入存储
+        definitions.put(definition.getName(), definition);
+
+        if (existing != null) {
+            log.info("[RegistryService][{}] 更新工具: name={}, version={}→{}, status={}→{}, compatibility={}",
                     RequestIdHolder.get(), definition.getName(), existing.getVersion(),
-                    definition.getVersion(), existing.getStatus(), definition.getStatus());
+                    definition.getVersion(), existing.getStatus(), definition.getStatus(),
+                    compatibility);
         } else {
-            log.info("[RegistryService][{}] 注册工具: name={}, version={}, tags={}, namespace={}",
+            log.info("[RegistryService][{}] 注册工具: name={}, version={}, tags={}, namespace={}, capabilities={}",
                     RequestIdHolder.get(), definition.getName(), definition.getVersion(),
-                    Arrays.toString(definition.getTags()), definition.getNamespace());
+                    Arrays.toString(definition.getTags()), definition.getNamespace(),
+                    Arrays.toString(definition.getCapabilities()));
         }
     }
 
@@ -99,10 +156,27 @@ public class RegistryService {
      * @return 匹配的工具定义列表
      */
     public List<ToolDefinition> query(String[] tags, ToolStatus status, String namespace) {
+        return query(tags, status, namespace, null);
+    }
+
+    /**
+     * 查询工具列表，支持按标签、状态、命名空间、能力标签过滤。
+     * <p>capabilities 过滤为 OR 语义：工具包含任一指定能力即匹配。</p>
+     *
+     * @param tags         标签列表（可选，多个标签取交集匹配）
+     * @param status       状态过滤（可选）
+     * @param namespace    命名空间过滤（可选）
+     * @param capabilities 能力标签列表（可选，OR 语义过滤）
+     * @return 匹配的工具定义列表
+     */
+    public List<ToolDefinition> query(String[] tags, ToolStatus status,
+                                       String namespace, String[] capabilities) {
         return definitions.values().stream()
                 .filter(def -> status == null || def.getStatus() == status)
                 .filter(def -> namespace == null || namespace.equals(def.getNamespace()))
                 .filter(def -> tags == null || tags.length == 0 || hasAnyTag(def, tags))
+                .filter(def -> capabilities == null || capabilities.length == 0
+                        || hasAnyCapability(def, capabilities))
                 .collect(Collectors.toList());
     }
 
@@ -162,6 +236,8 @@ public class RegistryService {
                 .endpoint(def.getEndpoint())
                 .deprecatedBy(deprecatedBy)
                 .sunsetDate(sunsetDate)
+                .capabilities(def.getCapabilities())
+                .outputSchema(def.getOutputSchema())
                 .build();
 
         definitions.put(toolName, updated);
@@ -197,6 +273,8 @@ public class RegistryService {
                 .endpoint(def.getEndpoint())
                 .deprecatedBy(null)
                 .sunsetDate(null)
+                .capabilities(def.getCapabilities())
+                .outputSchema(def.getOutputSchema())
                 .build();
 
         definitions.put(toolName, updated);
@@ -337,5 +415,46 @@ public class RegistryService {
             if (defTagSet.contains(tag)) return true;
         }
         return false;
+    }
+
+    /**
+     * 检查工具定义是否包含任意指定能力标签（OR 语义）。
+     *
+     * @param def          工具定义
+     * @param capabilities 能力标签列表
+     * @return 如果包含任一指定能力返回 {@code true}
+     */
+    private boolean hasAnyCapability(ToolDefinition def, String[] capabilities) {
+        if (def.getCapabilities() == null || def.getCapabilities().length == 0) {
+            return false;
+        }
+        Set<String> defCapSet = new HashSet<>(Arrays.asList(def.getCapabilities()));
+        for (String cap : capabilities) {
+            if (defCapSet.contains(cap)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 解析版本号的 MAJOR 部分。
+     * <p>版本号格式：MAJOR.MINOR.PATCH（如 "1.2.0"）。
+     * 非法格式返回 0。</p>
+     *
+     * @param version 版本号字符串
+     * @return MAJOR 版本号，非法时返回 0
+     */
+    private int parseMajorVersion(String version) {
+        if (version == null || version.isBlank()) {
+            return 0;
+        }
+        String[] parts = version.split("\\.");
+        try {
+            return Integer.parseInt(parts[0]);
+        } catch (NumberFormatException e) {
+            log.warn("[RegistryService] 版本号非法: {}, 视为 0.0.0", version);
+            return 0;
+        }
     }
 }
