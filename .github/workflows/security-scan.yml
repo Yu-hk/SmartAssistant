@@ -1,0 +1,75 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # 依赖漏洞扫描 — CVSS ≥ 9.0 阻断构建
+  dependency-scan:
+    name: Dependency vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: OWASP Dependency Check
+        uses: dependency-check/dependency-check-action@v4
+        with:
+          project: 'SmartAssistant'
+          path: '.'
+          format: 'SARIF'
+          args: >
+            --failOnCVSS 9
+            --enableRetired
+      - name: Upload SARIF report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/dependency-check-report.sarif
+          category: dependency-scan
+
+  # 密钥泄漏扫描
+  secret-scan:
+    name: Secret leak scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload SARIF report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results/gitleaks.sarif
+          category: secret-scan
+
+  # PR 标题安全扫描 — 阻断危险字符注入
+  pr-title-scan:
+    name: PR title injection scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title for dangerous characters
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "PR Title: $PR_TITLE"
+          # 危险字符: 反引号 ` $ ; | &
+          if echo "$PR_TITLE" | grep -qE '[`$;|&]'; then
+            echo "::error::PR 标题包含危险字符（\` \$ ; | &），请修改后重新提交"
+            echo "Detected dangerous characters in PR title."
+            exit 1
+          fi
+          echo "PR title is safe."
