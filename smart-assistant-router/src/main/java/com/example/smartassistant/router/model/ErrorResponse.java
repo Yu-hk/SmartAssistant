@@ -59,21 +59,6 @@ public class ErrorResponse {
      */
     private LocalDateTime timestamp;
 
-    /**
-     * HTTP 状态码
-     */
-    private int status;
-
-    /**
-     * 服务名称（用于日志区分）
-     */
-    private String service;
-
-    /**
-     * 时间戳
-     */
-    private LocalDateTime timestamp;
-
     // ========== 业务字段 ==========
 
     /**

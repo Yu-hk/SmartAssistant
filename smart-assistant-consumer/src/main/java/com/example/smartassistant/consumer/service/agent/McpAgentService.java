@@ -13,11 +13,12 @@ import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tool.AiToolRegistry;
+import com.example.smartassistant.common.tool.GifCacheStore;
+import com.example.smartassistant.common.tool.spi.RegistryTool;
 import com.example.smartassistant.consumer.config.McpTableWhitelistConfig;
 import com.example.smartassistant.consumer.service.cache.SqlQueryCache;
 import com.example.smartassistant.consumer.service.monitoring.SqlPerformanceMonitor;
 import com.example.smartassistant.consumer.service.monitoring.SqlReviewService;
-import com.example.smartassistant.consumer.tool.DataGifTool;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -27,6 +28,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -48,7 +50,8 @@ public class McpAgentService {
     private final SqlQueryCache sqlQueryCache;  // ⭐ SQL 查询缓存
     private final SqlReviewService sqlReviewService;  // ⭐ SQL 审查服务
     private final McpTableWhitelistConfig whitelistConfig;  // ⭐ 注入白名单配置
-    private final DataGifTool dataGifTool;  // ⭐ 注入 GIF 动图工具
+    private final GifCacheStore gifCacheStore;  // ⭐ 共享 GIF 缓存（替代工具内静态 map）
+    private final ApplicationContext applicationContext;  // ⭐ 取得 RegistryTool 标记的 GIF 工具 Bean
 
     // ⭐ ChatClient 由 AiChatService 统一装配 Advisor 链
     @Autowired(required = false)
@@ -69,14 +72,16 @@ public class McpAgentService {
             SqlQueryCache sqlQueryCache,
             SqlReviewService sqlReviewService,  // ⭐ 注入审查服务
             McpTableWhitelistConfig whitelistConfig,
-            DataGifTool dataGifTool) {  // ⭐ 注入 GIF 动图工具
+            GifCacheStore gifCacheStore,
+            ApplicationContext applicationContext) {
         this.chatModel = chatModel;
         this.jdbcTemplate = jdbcTemplate;
         this.performanceMonitor = performanceMonitor;
         this.sqlQueryCache = sqlQueryCache;
         this.sqlReviewService = sqlReviewService;
         this.whitelistConfig = whitelistConfig;
-        this.dataGifTool = dataGifTool;
+        this.gifCacheStore = gifCacheStore;
+        this.applicationContext = applicationContext;
     }
     
     /**
@@ -98,7 +103,9 @@ public class McpAgentService {
             );
             
             // ⭐ 注册数据库查询工具 + GIF 动图工具（由 AiToolRegistry 聚合）
-            List<ToolCallback> allCallbacks = aiToolRegistry.assemble(dbTools, dataGifTool);
+            // GIF 工具通过 RegistryTool 标记从 Spring 上下文取得，业务模块不依赖具体工具类
+            Collection<RegistryTool> gifTools = applicationContext.getBeansOfType(RegistryTool.class).values();
+            List<ToolCallback> allCallbacks = aiToolRegistry.assemble(dbTools, gifTools.toArray());
 
             log.info("[McpAgentService] ✅ 发现 {} 个工具 (DB + GIF)", allCallbacks.size());
             
@@ -632,7 +639,7 @@ public class McpAgentService {
         while (matcher.find()) {
             found = true;
             String cacheKey = matcher.group(1);
-            byte[] gifData = DataGifTool.getGifFromCache(cacheKey);
+            byte[] gifData = gifCacheStore.consume(cacheKey);
             
             if (gifData != null) {
                 String base64 = Base64.getEncoder().encodeToString(gifData);
@@ -661,11 +668,11 @@ public class McpAgentService {
     private String appendCachedGif(String text) {
         if (text == null || text.isBlank()) return text;
         
-        java.util.Map<String, byte[]> allEntries = DataGifTool.getAllCacheEntries();
+        java.util.Map<String, byte[]> allEntries = gifCacheStore.getAll();
         if (allEntries.isEmpty()) return text;
-        
+
         String cacheKey = allEntries.keySet().iterator().next();
-        byte[] gifData = DataGifTool.getGifFromCache(cacheKey);
+        byte[] gifData = gifCacheStore.consume(cacheKey);
         
         if (gifData != null) {
             String base64 = Base64.getEncoder().encodeToString(gifData);

@@ -29,6 +29,7 @@
         <module>smart-assistant-gateway</module>
         <module>smart-assistant-user</module>  <!-- ⭐ 用户服务 -->
         <module>smart-assistant-recommend</module>  <!-- ⭐ P3 推荐服务 -->
+        <module>smart-assistant-tool-registry</module>  <!-- ⭐ P1 工具注册中心 -->
     </modules>
 
     <properties>

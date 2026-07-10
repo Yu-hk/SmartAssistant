@@ -11,8 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * P0 工具注册中心。
  * <p>
- * 所有 @Tool 方法应在初始化时在此注册其 {@link ToolDefinition}，
- * 供 {@link ToolGateway} 在执行前进行源权、熔断、审批校验。
+ * 所有 {@code @Tool} 方法应在初始化时在此注册其 {@link ToolDefinition}，
+ * 供 {@link ToolGateway} 在执行前进行鉴权、熔断、审批校验。
  * </p>
  *
  * <h3>使用示例</h3>
@@ -37,22 +37,24 @@ public class ToolRegistry {
      * @param definition 工具定义
      */
     public void register(ToolDefinition definition) {
-        if (definition == null || definition.name() == null || definition.name().isBlank()) {
+        if (definition == null || definition.getName() == null || definition.getName().isBlank()) {
             log.warn("[ToolRegistry] 跳过注册: 无效定义");
             return;
         }
-        ToolDefinition existing = definitions.put(definition.name(), definition);
+        ToolDefinition existing = definitions.put(definition.getName(), definition);
         if (existing != null) {
             log.info("[ToolRegistry] 更新注册: name={}, risk={}, oldRisk={}",
-                    definition.name(), definition.riskLevel(), existing.riskLevel());
+                    definition.getName(), definition.getRiskLevel(), existing.getRiskLevel());
         } else {
             log.info("[ToolRegistry] 注册: name={}, risk={}, desc={}",
-                    definition.name(), definition.riskLevel(), definition.description());
+                    definition.getName(), definition.getRiskLevel(), definition.getDescription());
         }
     }
 
     /**
      * 批量注册。
+     *
+     * @param toolDefinitions 工具定义集合
      */
     public void registerAll(Collection<ToolDefinition> toolDefinitions) {
         toolDefinitions.forEach(this::register);
@@ -70,6 +72,9 @@ public class ToolRegistry {
 
     /**
      * 工具是否已注册。
+     *
+     * @param toolName 工具名称
+     * @return 如果已注册返回 {@code true}
      */
     public boolean isRegistered(String toolName) {
         return definitions.containsKey(toolName);
@@ -77,6 +82,8 @@ public class ToolRegistry {
 
     /**
      * 获取所有注册的工具。
+     *
+     * @return 所有注册的工具定义集合
      */
     public Collection<ToolDefinition> getAll() {
         return definitions.values();
@@ -84,6 +91,8 @@ public class ToolRegistry {
 
     /**
      * 获取注册的工具数量。
+     *
+     * @return 已注册的工具数量
      */
     public int size() {
         return definitions.size();

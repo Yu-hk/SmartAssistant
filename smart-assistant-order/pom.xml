@@ -152,6 +152,19 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+
+        <!-- ⭐ Tool Registry — 引用工具 Bean（排除 web starter 避免端口冲突） -->
+        <dependency>
+            <groupId>com.example.smartassistant</groupId>
+            <artifactId>smart-assistant-tool-registry</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-web</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
     </dependencies>
 
     <build>

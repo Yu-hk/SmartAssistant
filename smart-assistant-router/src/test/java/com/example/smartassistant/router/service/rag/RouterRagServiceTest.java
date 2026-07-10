@@ -118,19 +118,19 @@ class RouterRagServiceTest {
             assertFalse(invokePrivate(service, "isRagWorthy", "你好", history));
         }
 
-        @Test @DisplayName("含"它"上下文词 → true")
+        @Test @DisplayName("含它上下文词 → true")
         void contains它_isTrue() {
             var history = List.of("a", "b", "c");
             assertTrue(invokePrivate(service, "isRagWorthy", "它的价格是多少？", history));
         }
 
-        @Test @DisplayName("含"这个"上下文词 → true")
+        @Test @DisplayName("含这个上下文词 → true")
         void contains这个_isTrue() {
             var history = List.of("a", "b", "c");
             assertTrue(invokePrivate(service, "isRagWorthy", "这个怎么用？", history));
         }
 
-        @Test @DisplayName("含"上次"上下文词 → true")
+        @Test @DisplayName("含上次上下文词 → true")
         void contains上次_isTrue() {
             var history = List.of("a", "b", "c");
             assertTrue(invokePrivate(service, "isRagWorthy", "上次说的那个问题", history));
@@ -148,7 +148,7 @@ class RouterRagServiceTest {
     @Nested @DisplayName("generateBackReferences 回指生成")
     class GenerateBackReferencesTest {
 
-        @Test @DisplayName("单一 ORDER_ID → 输出"- 订单: ORD-001"")
+        @Test @DisplayName("单一 ORDER_ID → 输出- 订单: ORD-001")
         void singleOrderId() {
             var entities = List.of(
                     new RouterRagService.EntityRef("ORDER_ID", "ORD-001", "r1"));

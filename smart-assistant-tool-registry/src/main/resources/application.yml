@@ -1,0 +1,46 @@
+server:
+  port: 8088
+  shutdown: graceful
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: "30s"
+  application:
+    name: tool-registry
+  main:
+    banner-mode: off
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+
+# 禁用 OpenTelemetry（common 模块引入的依赖）
+otel:
+  sdk:
+    disabled: true
+  traces:
+    exporter: none
+  metrics:
+    exporter: none
+  logs:
+    exporter: none
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+# 日志配置（requestId 来自 MDC）
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{requestId:-}] - %msg%n"
+
+# Tool Registry 配置（供 ToolRegistryClient 读取）
+tool-registry:
+  url: http://localhost:8088         # Registry 服务地址
+  cache-ttl-seconds: 30              # 本地缓存 TTL（秒）
+  refresh-interval-seconds: 60       # Agent 工具热刷新间隔（秒），0=禁用

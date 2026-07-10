@@ -9,8 +9,6 @@ package com.example.smartassistant.common.rag.advisor;
 
 import com.example.smartassistant.common.audit.AiAuditEvent;
 import com.example.smartassistant.common.audit.AiAuditStore;
-import com.example.smartassistant.common.memory.ChatMemory;
-import com.example.smartassistant.common.memory.InMemoryChatMemory;
 import com.example.smartassistant.common.tool.AiToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -105,11 +103,5 @@ public class AdvisorChainAutoConfiguration {
     @Bean
     public AiToolRegistry aiToolRegistry() {
         return new AiToolRegistry();
-    }
-
-    /** 统一对话记忆抽象（默认 InMemory 实现；多实例部署可替换为 Redis 实现） */
-    @Bean
-    public ChatMemory chatMemory() {
-        return new InMemoryChatMemory();
     }
 }

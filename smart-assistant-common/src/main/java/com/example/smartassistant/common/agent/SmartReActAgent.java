@@ -320,6 +320,27 @@ public class SmartReActAgent {
     }
 
     /**
+     * 运行时刷新工具列表。
+     * <p>
+     * 当 Registry 中的工具定义发生变更（新增/废弃/状态变化）时，调用此方法
+     * 更新 Agent 运行时的工具列表，无需重启服务。
+     * </p>
+     * <p>
+     * 使用场景：Agent 已通过 {@link #withPreset(String, List)} 初始化，
+     * 但后续工具在 Registry 中注册或废弃。配合
+     * {@link com.example.smartassistant.common.tool.client.ToolRegistryClient#getToolCallbacks(String, Object...)}
+     * 实现热更新。
+     * </p>
+     *
+     * @param newTools 新的工具回调列表
+     * @return this
+     */
+    public SmartReActAgent refreshTools(List<ToolCallback> newTools) {
+        this.presetTools = newTools;
+        return this;
+    }
+
+    /**
      * 设置指标采集器。
      *
      * @param metrics 指标采集器实现（通常由各模块的 MetricsCollector 实现）
