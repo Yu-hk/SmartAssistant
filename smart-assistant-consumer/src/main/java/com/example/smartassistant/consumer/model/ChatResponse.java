@@ -48,4 +48,11 @@ public class ChatResponse {
 
     /** 处理耗时（毫秒） */
     private Long durationMs;
+
+    /** ⭐ LLM 调用 token 用量（prompt tokens） */
+    private Integer promptTokens;
+    /** ⭐ LLM 调用 token 用量（completion tokens） */
+    private Integer completionTokens;
+    /** ⭐ LLM 调用 token 用量（total tokens） */
+    private Integer totalTokens;
 }

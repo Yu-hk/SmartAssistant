@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.response.ApiResponse;
 import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.consumer.model.ChatResponse;
@@ -225,7 +226,8 @@ public class ChatController {
                         suggestions.size(),
                         endTime - startTime);
 
-                // 8. 构建响应
+                // 8. 构建响应（含 Token 用量，从 TokenUsageCache 提取）
+                TokenUsageCache.TokenUsage tokenUsage = TokenUsageCache.consume(finalRequestId);
                 ChatResponse chatResp = ChatResponse.builder()
                         .reply(cleanReply)
                         .suggestions(suggestions)
@@ -235,6 +237,9 @@ public class ChatController {
                         .fromCache((Boolean) routerResponse.getOrDefault("fromCache", false))
                         .toolInvoked((Boolean) routerResponse.getOrDefault("toolInvoked", false))
                         .durationMs(endTime - startTime)
+                        .promptTokens(tokenUsage != null ? tokenUsage.promptTokens() : null)
+                        .completionTokens(tokenUsage != null ? tokenUsage.completionTokens() : null)
+                        .totalTokens(tokenUsage != null ? tokenUsage.totalTokens() : null)
                         .build();
 
                 return Mono.just(ApiResponse.success(chatResp));

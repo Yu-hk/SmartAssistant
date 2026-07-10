@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.rag.advisor;
 
 import com.example.smartassistant.common.audit.AiAuditEvent;
+import com.example.smartassistant.common.audit.TokenUsageCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -120,6 +121,8 @@ public class TokenUsageAdvisor implements CallAdvisor, StreamAdvisor, Ordered {
                 tid, tenantId(), provider, model,
                 promptTokens, completionTokens, totalTokens,
                 latency, resultType, false, digest, Instant.now()));
+        // ⭐ 写入 TokenUsageCache，供 SSE 事件回传消费
+        TokenUsageCache.record(tid, promptTokens, completionTokens, totalTokens);
     }
 
     /** 由模型名推断供应商（仅用于审计归类，不做路由） */
