@@ -146,7 +146,15 @@ public enum AgentErrorCode {
     PERMISSION_DENIED("PERMISSION_DENIED", false, "您没有权限执行此操作"),
 
     /** 审批未通过（不可重试） */
-    APPROVAL_REJECTED("APPROVAL_REJECTED", false, "操作未通过审批，如有疑问请联系管理员");
+    APPROVAL_REJECTED("APPROVAL_REJECTED", false, "操作未通过审批，如有疑问请联系管理员"),
+
+    // ==================== 工具状态相关 ====================
+
+    /** 工具已停用或移除（不可重试） */
+    TOOL_STATUS_DISABLED("TOOL_STATUS_DISABLED", false, "工具已停用或移除，暂不可用"),
+
+    /** 工具版本不兼容（不可重试） */
+    TOOL_VERSION_INCOMPATIBLE("TOOL_VERSION_INCOMPATIBLE", false, "工具版本不兼容，需升级主版本号");
 
     // ==================== 字段 ====================
 
