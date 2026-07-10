@@ -102,6 +102,8 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- ⭐ Spring AI Tool（ToolCallback / MethodToolCallbackProvider — 由 spring-ai-model 传递引入）
+             spring-ai-tool 在 2.0.0 中为非独立 artifact，不需显式声明 -->
         <!-- ⭐ Jackson（ToolResult JSON 序列化） -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

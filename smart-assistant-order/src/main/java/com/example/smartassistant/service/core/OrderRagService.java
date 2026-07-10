@@ -8,8 +8,10 @@
 package com.example.smartassistant.service.core;
 
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
+import com.example.smartassistant.common.tool.spi.OrderDataProvider;
+import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
+import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
-import com.example.smartassistant.tools.OrderTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -30,10 +32,10 @@ public class OrderRagService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderRagService.class);
 
-    private final OrderTools orderTools;
+    private final OrderDataProvider orderData;
 
-    public OrderRagService(OrderTools orderTools) {
-        this.orderTools = orderTools;
+    public OrderRagService(OrderDataProvider orderData) {
+        this.orderData = orderData;
     }
 
     /**
@@ -131,8 +133,8 @@ public class OrderRagService {
         }
 
         try {
-            String orderInfo = orderTools.queryOrder(orderId);
-            boolean foundOrder = orderInfo != null && !orderInfo.contains("ORDER_NOT_FOUND");
+            OrderDTO order = orderData.findOrderByOrderId(orderId);
+            boolean foundOrder = order != null;
 
             if (!foundOrder) {
                 return RetrievalQualityResult.insufficientEvidence(
@@ -142,15 +144,16 @@ public class OrderRagService {
 
             // 找到订单：根据不同意图附加额外信息
             StringBuilder sb = new StringBuilder();
-            sb.append("【订单信息】").append(orderInfo);
+            sb.append("【订单信息】").append(formatOrder(order));
 
             boolean hasLogistics = false;
             if ("订单".equals(intentLabel)) {
                 try {
-                    String logistics = orderTools.trackLogistics(orderId);
-                    if (logistics != null && !logistics.contains("ORDER_NOT_FOUND")
-                            && !logistics.contains("暂无物流")) {
-                        sb.append("\n【物流信息】").append(logistics);
+                    LogisticsDTO logistics = orderData.findLogisticsByOrderId(orderId);
+                    if (logistics != null && logistics.getLogisticsDetail() != null
+                            && !logistics.getLogisticsDetail().isBlank()
+                            && !"[]".equals(logistics.getLogisticsDetail())) {
+                        sb.append("\n【物流信息】").append(formatLogistics(logistics));
                         hasLogistics = true;
                     }
                 } catch (Exception e) {
@@ -178,6 +181,89 @@ public class OrderRagService {
                     "", 0.3,
                     "查询订单「" + orderId + "」时出现系统错误，请稍后重试。");
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // DTO → 注入上上下文格式化（替代 OrderTools 格式化器，避免业务模块依赖工具类）
+    // ═══════════════════════════════════════════════════════════
+
+    /** 订单 DTO → 注入上下文文本（参考 OrderTools.queryOrder 的格式化，仅含关键字段） */
+    private String formatOrder(OrderDTO order) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("📋 订单 %s\n", order.getOrderId()));
+        if (order.getProductName() != null) {
+            sb.append(String.format("商品：%s\n", order.getProductName()));
+        }
+        if (order.getAmount() != null) {
+            sb.append(String.format("金额：¥%s\n", order.getAmount().toPlainString()));
+        }
+        if (order.getStatus() != null) {
+            sb.append(String.format("状态：%s\n", order.getStatus()));
+        }
+        if (order.getProductType() != null && !order.getProductType().isEmpty()) {
+            sb.append(String.format("商品类型：%s\n", order.getProductType()));
+        }
+        if (order.getContactName() != null && !order.getContactName().isEmpty()) {
+            sb.append(String.format("收货人：%s\n", order.getContactName()));
+        }
+        if (order.getContactPhone() != null && !order.getContactPhone().isEmpty()) {
+            sb.append(String.format("联系电话：%s\n", order.getContactPhone()));
+        }
+        if (order.getShippingAddress() != null && !order.getShippingAddress().isEmpty()) {
+            sb.append(String.format("收货地址：%s\n", order.getShippingAddress()));
+        }
+        if (order.getPaymentMethod() != null && !order.getPaymentMethod().isEmpty()) {
+            sb.append(String.format("支付方式：%s\n", order.getPaymentMethod()));
+        }
+        if (order.getCarrier() != null && !order.getCarrier().isEmpty()) {
+            sb.append(String.format("物流公司：%s\n", order.getCarrier()));
+            sb.append(String.format("运单号：%s\n", order.getTrackingNo()));
+        }
+        return sb.toString().trim();
+    }
+
+    /** 物流 DTO → 注入上下文文本（参考 OrderTools.trackLogistics 的格式化） */
+    private String formatLogistics(LogisticsDTO logistics) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("📦 快递单号 %s 物流信息\n",
+                logistics.getTrackingNo() != null ? logistics.getTrackingNo() : ""));
+        sb.append(String.format("所属订单：%s\n",
+                logistics.getOrderId() != null ? logistics.getOrderId() : "未关联"));
+        sb.append(String.format("物流公司：%s\n", logistics.getCompanyName()));
+        sb.append(String.format("状态：%s\n", logistics.getStatus()));
+
+        String detail = logistics.getLogisticsDetail();
+        if (detail != null && !detail.isBlank() && !"[]".equals(detail)) {
+            sb.append("\n最新轨迹：\n");
+            for (String entry : parseTrajectory(detail)) {
+                sb.append("  ").append(entry).append("\n");
+            }
+        } else {
+            sb.append("\n暂无物流轨迹信息。\n");
+        }
+        return sb.toString().trim();
+    }
+
+    /** 从物流轨迹 JSON 提取「time location desc」条目（参考 OrderTools 的解析） */
+    private java.util.List<String> parseTrajectory(String detail) {
+        java.util.List<String> entries = new java.util.ArrayList<>();
+        java.util.regex.Pattern objPattern = java.util.regex.Pattern.compile("\\{([^}]*)\\}");
+        java.util.regex.Matcher objMatcher = objPattern.matcher(detail);
+        while (objMatcher.find()) {
+            String obj = objMatcher.group(1);
+            String time = matchField(obj, "time");
+            String location = matchField(obj, "location");
+            String desc = matchField(obj, "desc");
+            entries.add(String.format("%s  %s  %s", time, location, desc).trim());
+        }
+        return entries;
+    }
+
+    private String matchField(String obj, String field) {
+        java.util.regex.Pattern p = java.util.regex.Pattern
+                .compile("\"" + field + "\"\\s*:\\s*\"([^\"]*)\"");
+        java.util.regex.Matcher m = p.matcher(obj);
+        return m.find() ? m.group(1) : "";
     }
 
     // ═══════════════════════════════════════════════════════════

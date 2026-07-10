@@ -6,7 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -14,9 +14,10 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * P0 统一工具执行网关。
  * <p>
- * 所有 @Tool 方法应通过此网关执行，以获得统一的：
+ * 所有 {@code @Tool} 方法应通过此网关执行，以获得统一的：
  * <ul>
  *   <li><b>鉴权</b> — 检查调用方是否有对应 Scope 的权限</li>
+ *   <li><b>标签鉴权</b> — 检查调用方标签是否匹配工具标签（Scope 鉴权的补充层）</li>
  *   <li><b>熔断</b> — 连续失败超过阈值后快速拒绝</li>
  *   <li><b>超时</b> — 异步 Future.get() 超时切断</li>
  *   <li><b>审计</b> — 每次调用记录日志（含耗时、结果）</li>
@@ -84,18 +85,25 @@ public class ToolGateway {
             }
         }
 
-        // 2. 鉴权检查
-        if (scope != null && def.scopes() != null && def.scopes().length > 0) {
-            boolean authorized = false;
-            for (String allowed : def.scopes()) {
-                if (allowed.equals(scope) || allowed.equals("*")) {
-                    authorized = true;
-                    break;
+        // 2. 鉴权检查（Scope 鉴权 + 标签鉴权，两者是"或"关系——只要满足任一即放行）
+        boolean hasScopes = scope != null && def.getScopes() != null && def.getScopes().length > 0;
+        boolean hasTags = scope != null && def.getTags() != null && def.getTags().length > 0;
+
+        if (hasScopes || hasTags) {
+            boolean scopeAuthorized = false;
+            if (hasScopes) {
+                for (String allowed : def.getScopes()) {
+                    if (allowed.equals(scope) || allowed.equals("*")) {
+                        scopeAuthorized = true;
+                        break;
+                    }
                 }
             }
-            if (!authorized) {
+            boolean tagAuthorized = hasTags && Arrays.asList(def.getTags()).contains(scope);
+
+            if (!scopeAuthorized && !tagAuthorized) {
                 throw new ToolExecutionException(toolName, AgentErrorCode.PERMISSION_DENIED,
-                        "权限不足: tool=" + toolName + ", scope=" + scope);
+                        "权限不足: tool=" + toolName + ", scope=" + scope + ", tags=" + Arrays.toString(def.getTags()));
             }
         }
 
@@ -106,11 +114,11 @@ public class ToolGateway {
         }
 
         // 4. 限流检查
-        if (def.rateLimit() > 0) {
-            RateLimiter limiter = rateLimiters.computeIfAbsent(toolName, k -> new RateLimiter(def.rateLimit()));
+        if (def.getRateLimit() > 0) {
+            RateLimiter limiter = rateLimiters.computeIfAbsent(toolName, k -> new RateLimiter(def.getRateLimit()));
             if (!limiter.tryAcquire()) {
                 throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
-                        "限流: tool=" + toolName + ", limit=" + def.rateLimit() + "/s");
+                        "限流: tool=" + toolName + ", limit=" + def.getRateLimit() + "/s");
             }
         }
 
@@ -119,12 +127,12 @@ public class ToolGateway {
             FutureTask<String> task = new FutureTask<>(executor::execute);
             Thread thread = Thread.ofVirtual().start(task);
 
-            String result = task.get(def.timeout().toMillis(), TimeUnit.MILLISECONDS);
+            String result = task.get(def.getTimeout().toMillis(), TimeUnit.MILLISECONDS);
             long elapsed = System.currentTimeMillis() - start;
 
             // 6. 审计日志
             log.info("[ToolGateway] ✅ tool={}, elapsed={}ms, risk={}, len={}",
-                    toolName, elapsed, def.riskLevel(), result != null ? result.length() : 0);
+                    toolName, elapsed, def.getRiskLevel(), result != null ? result.length() : 0);
 
             // 7. 幂等缓存（非只读操作）
             if (idempotencyKey != null && !def.isReadOnly()) {
@@ -134,12 +142,15 @@ public class ToolGateway {
             // 8. 熔断恢复
             recordSuccess(toolName);
 
+            // 9. 调用计数递增（原子操作）
+            def.incrementAndGetUseCount();
+
             return result;
 
         } catch (TimeoutException e) {
             recordFailure(toolName);
             throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
-                    "工具超时: " + def.timeout());
+                    "工具超时: " + def.getTimeout());
         } catch (Exception e) {
             recordFailure(toolName);
             throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,

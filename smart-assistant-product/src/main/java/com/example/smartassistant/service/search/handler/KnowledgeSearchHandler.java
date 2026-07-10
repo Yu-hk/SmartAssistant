@@ -7,9 +7,11 @@
 
 package com.example.smartassistant.service.search.handler;
 
+import com.example.smartassistant.common.rag.AclContext;
+import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
+import com.example.smartassistant.common.rag.KnowledgeSeedData;
 import com.example.smartassistant.common.rag.pipeline.RagSearchContext;
 import com.example.smartassistant.common.rag.pipeline.RagSearchHandler;
-import com.example.smartassistant.tools.KnowledgeQueryTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -27,10 +29,10 @@ public class KnowledgeSearchHandler implements RagSearchHandler {
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeSearchHandler.class);
 
-    private final KnowledgeQueryTool knowledgeQueryTool;
+    private final KnowledgeRetrievalService retrievalService;
 
-    public KnowledgeSearchHandler(KnowledgeQueryTool knowledgeQueryTool) {
-        this.knowledgeQueryTool = knowledgeQueryTool;
+    public KnowledgeSearchHandler(KnowledgeRetrievalService retrievalService) {
+        this.retrievalService = retrievalService;
     }
 
     @Override
@@ -38,7 +40,8 @@ public class KnowledgeSearchHandler implements RagSearchHandler {
         List<String> results = new ArrayList<>();
 
         try {
-            String knowledge = knowledgeQueryTool.queryKnowledge(context.getOriginalQuery());
+            String knowledge = retrievalService.search(
+                    KnowledgeSeedData.PRODUCT_KB, context.getOriginalQuery(), 5, AclContext.fromMdc());
             if (knowledge != null && !knowledge.isBlank()
                     && !knowledge.contains("未找到") && !knowledge.contains("PRODUCT_NOT_FOUND")) {
                 results.add(knowledge);
