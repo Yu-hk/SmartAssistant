@@ -2,6 +2,7 @@ package com.example.smartassistant.toolregistry.controller;
 
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolStatus;
+import com.example.smartassistant.common.gateway.tool.compat.IncompatibleVersionException;
 import com.example.smartassistant.toolregistry.config.RequestIdHolder;
 import com.example.smartassistant.toolregistry.model.ApiResponse;
 import com.example.smartassistant.toolregistry.model.HealthResult;
@@ -43,11 +44,17 @@ public class RegistryController {
      */
     @PostMapping("/register")
     public ApiResponse<Map<String, String>> register(@RequestBody ToolDefinition definition) {
-        registryService.register(definition);
-        log.info("[RegistryController][{}] POST /api/tools/register: name={}, version={}",
-                RequestIdHolder.get(), definition.getName(), definition.getVersion());
-        return ApiResponse.ok("注册成功",
-                Map.of("name", definition.getName(), "version", definition.getVersion()));
+        try {
+            registryService.register(definition);
+            log.info("[RegistryController][{}] POST /api/tools/register: name={}, version={}",
+                    RequestIdHolder.get(), definition.getName(), definition.getVersion());
+            return ApiResponse.ok("注册成功",
+                    Map.of("name", definition.getName(), "version", definition.getVersion()));
+        } catch (IncompatibleVersionException e) {
+            log.warn("[RegistryController][{}] 版本不兼容: tool={}, old={}, new={}",
+                    RequestIdHolder.get(), e.getToolName(), e.getOldVersion(), e.getNewVersion());
+            return ApiResponse.error(409, e.getMessage());
+        }
     }
 
     /**
@@ -62,19 +69,21 @@ public class RegistryController {
     // ==================== 查询 API ====================
 
     /**
-     * 查询工具列表。支持按标签、状态、命名空间过滤。
+     * 查询工具列表。支持按标签、状态、命名空间、能力标签过滤。
      *
-     * @param tags      标签列表（逗号分隔，如 "ORDER,READ_ONLY"）
-     * @param status    状态（可选）
-     * @param namespace 命名空间（可选）
+     * @param tags         标签列表（逗号分隔，如 "ORDER,READ_ONLY"）
+     * @param status       状态（可选）
+     * @param namespace    命名空间（可选）
+     * @param capabilities 能力标签列表（逗号分隔，如 "read-only,mutate-state"，OR 语义）
      * @return 匹配的工具定义列表
      */
     @GetMapping
     public ApiResponse<List<ToolDefinition>> query(
             @RequestParam(required = false) String[] tags,
             @RequestParam(required = false) ToolStatus status,
-            @RequestParam(required = false) String namespace) {
-        List<ToolDefinition> result = registryService.query(tags, status, namespace);
+            @RequestParam(required = false) String namespace,
+            @RequestParam(required = false) String[] capabilities) {
+        List<ToolDefinition> result = registryService.query(tags, status, namespace, capabilities);
         return ApiResponse.ok(result);
     }
 
