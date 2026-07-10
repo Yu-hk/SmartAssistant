@@ -110,6 +110,13 @@ public class ToolDefinition {
     /** 下线日期（DEPRECATED 时设置），格式 yyyy-MM-dd */
     private String sunsetDate;
 
+    /** 能力标签列表，默认 ["unknown"]（向后兼容） */
+    @Builder.Default
+    private String[] capabilities = new String[]{"unknown"};
+
+    /** 输出 Schema（JSON Schema 字符串），默认 null */
+    private String outputSchema;
+
     /** 调用计数（线程安全，用于内部统计） */
     @Builder.Default
     @Getter(AccessLevel.NONE)
@@ -133,6 +140,28 @@ public class ToolDefinition {
      */
     public boolean isHighRisk() {
         return riskLevel == ToolRiskLevel.HIGH;
+    }
+
+    /**
+     * 根据风险等级推导默认能力标签。
+     * <ul>
+     *   <li>READ → ["read-only"]</li>
+     *   <li>LOW / MEDIUM → ["mutate-state"]</li>
+     *   <li>HIGH → ["mutate-state", "payment"]</li>
+     * </ul>
+     *
+     * @param level 风险等级
+     * @return 能力标签数组
+     */
+    private static String[] capabilitiesForRiskLevel(ToolRiskLevel level) {
+        if (level == ToolRiskLevel.READ) {
+            return new String[]{ToolCapability.READ_ONLY.getValue()};
+        }
+        if (level == ToolRiskLevel.HIGH) {
+            return new String[]{ToolCapability.MUTATE_STATE.getValue(),
+                    ToolCapability.PAYMENT.getValue()};
+        }
+        return new String[]{ToolCapability.MUTATE_STATE.getValue()};
     }
 
     /**
@@ -186,6 +215,7 @@ public class ToolDefinition {
                 .rateLimit(DEFAULT_RATE_LIMIT)
                 .scopes(new String[0])
                 .tags(new String[0])
+                .capabilities(new String[]{ToolCapability.READ_ONLY.getValue()})
                 .status(ToolStatus.ACTIVE)
                 .build();
     }
@@ -209,6 +239,7 @@ public class ToolDefinition {
                 .rateLimit(DEFAULT_RATE_LIMIT)
                 .scopes(new String[0])
                 .tags(tags != null ? tags : new String[0])
+                .capabilities(new String[]{ToolCapability.READ_ONLY.getValue()})
                 .status(ToolStatus.ACTIVE)
                 .build();
     }
@@ -232,6 +263,8 @@ public class ToolDefinition {
                 .rateLimit(10)
                 .scopes(new String[0])
                 .tags(new String[0])
+                .capabilities(new String[]{ToolCapability.MUTATE_STATE.getValue(),
+                        ToolCapability.PAYMENT.getValue()})
                 .status(ToolStatus.ACTIVE)
                 .build();
     }
@@ -257,6 +290,8 @@ public class ToolDefinition {
                 .rateLimit(10)
                 .scopes(new String[0])
                 .tags(tags != null ? tags : new String[0])
+                .capabilities(new String[]{ToolCapability.MUTATE_STATE.getValue(),
+                        ToolCapability.PAYMENT.getValue()})
                 .status(ToolStatus.ACTIVE)
                 .build();
     }
@@ -280,6 +315,7 @@ public class ToolDefinition {
                 .rateLimit(DEFAULT_RATE_LIMIT)
                 .scopes(new String[0])
                 .tags(new String[0])
+                .capabilities(capabilitiesForRiskLevel(riskLevel))
                 .status(ToolStatus.ACTIVE)
                 .build();
     }
@@ -305,6 +341,7 @@ public class ToolDefinition {
                 .rateLimit(DEFAULT_RATE_LIMIT)
                 .scopes(new String[0])
                 .tags(tags != null ? tags : new String[0])
+                .capabilities(capabilitiesForRiskLevel(riskLevel))
                 .status(ToolStatus.ACTIVE)
                 .build();
     }
