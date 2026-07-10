@@ -58,6 +58,15 @@ public class PromptManager {
     /** 已加载的版本映射（key=文件名, value=版本号） */
     private final Map<String, String> versionMap = new ConcurrentHashMap<>();
 
+    /** AI 项目指令手册路径（classpath） */
+    private static final String PROJECT_CONTEXT_PATH = "ai-project-context.md";
+
+    /** AI 项目指令手册缓存（null = 未加载或文件不存在） */
+    private volatile String projectContext;
+
+    /** AI 项目指令手册是否已尝试加载 */
+    private volatile boolean projectContextLoaded = false;
+
     private final PathMatchingResourcePatternResolver resourceLoader =
             new PathMatchingResourcePatternResolver();
 
@@ -95,6 +104,8 @@ public class PromptManager {
     public void reloadAll() {
         promptCache.clear();
         versionMap.clear();
+        projectContext = null;
+        projectContextLoaded = false;
         log.info("[PromptManager] 缓存已清空，下次加载将重新读取文件");
     }
 
@@ -197,6 +208,35 @@ public class PromptManager {
     /** 加载查询改写 Prompt */
     public String queryRewrite() {
         return load("prompts/common/query-rewrite.txt");
+    }
+
+    /**
+     * 加载 AI 项目指令手册（ai-project-context.md）。
+     * <p>从 classpath 加载，带缓存。文件不存在时 WARN 日志 + 返回 null。</p>
+     *
+     * @return 项目上下文文本，文件不存在时返回 null
+     */
+    public String loadProjectContext() {
+        if (projectContextLoaded) {
+            return projectContext;
+        }
+        synchronized (this) {
+            if (projectContextLoaded) {
+                return projectContext;
+            }
+            Resource resource = resourceLoader.getResource("classpath:" + PROJECT_CONTEXT_PATH);
+            if (!resource.exists()) {
+                log.warn("[PromptManager] AI 项目指令手册不存在: {}", PROJECT_CONTEXT_PATH);
+                projectContext = null;
+                projectContextLoaded = true;
+                return null;
+            }
+            projectContext = readResource(PROJECT_CONTEXT_PATH);
+            projectContextLoaded = true;
+            log.info("[PromptManager] 加载 AI 项目指令手册 ({} 字符)",
+                    projectContext != null ? projectContext.length() : 0);
+            return projectContext;
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
