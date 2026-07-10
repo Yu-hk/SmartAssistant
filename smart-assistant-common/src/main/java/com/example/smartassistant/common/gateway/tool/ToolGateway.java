@@ -2,11 +2,14 @@ package com.example.smartassistant.common.gateway.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
+import com.example.smartassistant.common.gateway.tool.hook.ToolExecutionHook;
+import com.example.smartassistant.common.gateway.tool.hook.ToolHookContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -42,6 +45,9 @@ public class ToolGateway {
 
     private final ToolRegistry toolRegistry;
 
+    /** 执行钩子链（按 @Order 排序，Spring 自动注入） */
+    private final List<ToolExecutionHook> hooks;
+
     // 熔断器：按工具名隔离
     private final Map<String, CircuitBreaker> circuitBreakers = new ConcurrentHashMap<>();
 
@@ -51,8 +57,9 @@ public class ToolGateway {
     // 幂等缓存：IdempotencyKey → 结果
     private final Map<String, String> idempotencyCache = new ConcurrentHashMap<>();
 
-    public ToolGateway(ToolRegistry toolRegistry) {
+    public ToolGateway(ToolRegistry toolRegistry, List<ToolExecutionHook> hooks) {
         this.toolRegistry = toolRegistry;
+        this.hooks = hooks != null ? hooks : List.of();
     }
 
     /**
@@ -74,6 +81,18 @@ public class ToolGateway {
         if (def == null) {
             throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_INVALID_ARGUMENT,
                     "工具未注册: " + toolName);
+        }
+
+        // 0.5 构建 Hook 上下文 + preExecute 链（按 @Order 正序执行）
+        ToolHookContext context = ToolHookContext.builder()
+                .toolName(toolName)
+                .toolDefinition(def)
+                .scope(scope)
+                .idempotencyKey(idempotencyKey)
+                .startTimeMs(start)
+                .build();
+        for (ToolExecutionHook hook : hooks) {
+            hook.preExecute(context);
         }
 
         // 1. 幂等检查
@@ -134,9 +153,16 @@ public class ToolGateway {
             log.info("[ToolGateway] ✅ tool={}, elapsed={}ms, risk={}, len={}",
                     toolName, elapsed, def.getRiskLevel(), result != null ? result.length() : 0);
 
+            // 6.5 postExecute 链（按 @Order 正序执行，链式传递 result）
+            context.setElapsedMs(elapsed);
+            String processedResult = result;
+            for (ToolExecutionHook hook : hooks) {
+                processedResult = hook.postExecute(context, processedResult);
+            }
+
             // 7. 幂等缓存（非只读操作）
             if (idempotencyKey != null && !def.isReadOnly()) {
-                idempotencyCache.put(idempotencyKey, result);
+                idempotencyCache.put(idempotencyKey, processedResult);
             }
 
             // 8. 熔断恢复
@@ -145,14 +171,22 @@ public class ToolGateway {
             // 9. 调用计数递增（原子操作）
             def.incrementAndGetUseCount();
 
-            return result;
+            return processedResult;
 
         } catch (TimeoutException e) {
             recordFailure(toolName);
+            context.setElapsedMs(System.currentTimeMillis() - start);
+            for (ToolExecutionHook hook : hooks) {
+                hook.onError(context, e);
+            }
             throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
                     "工具超时: " + def.getTimeout());
         } catch (Exception e) {
             recordFailure(toolName);
+            context.setElapsedMs(System.currentTimeMillis() - start);
+            for (ToolExecutionHook hook : hooks) {
+                hook.onError(context, e);
+            }
             throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
                     "工具执行失败: " + e.getMessage());
         }
