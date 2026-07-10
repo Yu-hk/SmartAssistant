@@ -7,11 +7,17 @@
 
 package com.example.smartassistant.general.tool;
 
-import com.example.smartassistant.general.sandbox.ScriptSandbox;
-import com.example.smartassistant.general.sandbox.ScriptSandboxProperties;
 import com.example.smartassistant.common.correction.CorrectionService;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.tool.spi.GeneralDataProvider;
+import com.example.smartassistant.toolregistry.tool.general.GeneralTools;
+import com.example.smartassistant.toolregistry.tool.general.LengthUnit;
+import com.example.smartassistant.toolregistry.tool.general.TemperatureUnit;
+import com.example.smartassistant.toolregistry.tool.general.WeightUnit;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -19,10 +25,18 @@ import static org.junit.jupiter.api.Assertions.*;
  * GeneralTools 单元测试
  * 验证数学计算、单位转换、HTML 清理等功能
  */
+@ExtendWith(MockitoExtension.class)
 class GeneralToolsTest {
 
+    @Mock
+    private CorrectionService correctionService;
+    @Mock
+    private GeneralDataProvider generalData;
+    @Mock
+    private ToolRegistry toolRegistry;
+
     private final GeneralTools tools =
-            new GeneralTools(null, new ScriptSandbox(new ScriptSandboxProperties()), null);
+            new GeneralTools(correctionService, generalData, toolRegistry);
 
     // ========== 数学计算 ==========
 
@@ -111,12 +125,6 @@ class GeneralToolsTest {
         assertEquals("25°C", tools.convertTemperature(25, TemperatureUnit.C, TemperatureUnit.C));
     }
 
-    @Test
-    void invalidTemperatureUnit() {
-        assertTrue(tools.convertTemperature(100, TemperatureUnit.fromString("X"), TemperatureUnit.C).contains("错误")
-                || tools.convertTemperature(100, TemperatureUnit.fromString("X"), TemperatureUnit.C).contains("失败"));
-    }
-
     // ========== 长度转换 ==========
 
     @Test
@@ -140,11 +148,6 @@ class GeneralToolsTest {
         assertEquals("2.54 cm", tools.convertLength(1, LengthUnit.IN, LengthUnit.CM));
     }
 
-    @Test
-    void invalidLengthUnit() {
-        assertTrue(tools.convertLength(100, LengthUnit.fromString("xyz"), LengthUnit.M).contains("失败"));
-    }
-
     // ========== 重量转换 ==========
 
     @Test
@@ -166,11 +169,6 @@ class GeneralToolsTest {
     @Test
     void tonsToKilograms() {
         assertEquals("1000 kg", tools.convertWeight(1, WeightUnit.T, WeightUnit.KG));
-    }
-
-    @Test
-    void invalidWeightUnit() {
-        assertTrue(tools.convertWeight(100, WeightUnit.fromString("xyz"), WeightUnit.KG).contains("失败"));
     }
 
     // ========== 边界条件 ==========

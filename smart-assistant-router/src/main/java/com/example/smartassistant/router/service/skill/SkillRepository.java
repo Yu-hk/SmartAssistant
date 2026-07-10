@@ -2,6 +2,7 @@ package com.example.smartassistant.router.service.skill;
 
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
 import com.example.smartassistant.router.service.routing.KeywordFastRouteService;
 import jakarta.annotation.PostConstruct;
@@ -92,11 +93,16 @@ public class SkillRepository {
                 case "MEDIUM" -> ToolRiskLevel.MEDIUM;
                 default -> ToolRiskLevel.READ;
             };
-            toolRegistry.register(new ToolDefinition(
-                    skill.id(), skill.name(), risk,
-                    Duration.ofSeconds(15), risk == ToolRiskLevel.HIGH, 1,
-                    skill.isHighRisk() ? 10 : 0, new String[0]
-            ));
+            toolRegistry.register(ToolDefinition.builder()
+                    .name(skill.id())
+                    .description(skill.name())
+                    .riskLevel(risk)
+                    .timeout(Duration.ofSeconds(15))
+                    .needsApproval(risk == ToolRiskLevel.HIGH)
+                    .maxRetries(1)
+                    .rateLimit(skill.isHighRisk() ? 10 : 0)
+                    .build()
+            );
         }
 
         int enabledCount = (int) skills.stream().filter(SkillDefinition::enabled).count();
