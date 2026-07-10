@@ -54,11 +54,17 @@ public class SseEventBus {
     /** 闲置超时（毫秒）— 超过此时间无事件发送则自动关闭 */
     private static final long IDLE_TIMEOUT_MS = 60_000;
 
+    /** ⭐ 每个缓冲区的最大事件数上限 —— 超过后停止缓存（防 Redis 内存溢出） */
+    private static final int MAX_EVENTS_PER_BUFFER = 10_000;
+
     private final HttpServletResponse response;
     private final String redisKey;
     private final RedisZSetCache redisCache;
     private long seqNo = 1;
     private volatile boolean closed = false;
+
+    /** ⭐ 当前缓冲区已缓存事件数（用于上限保护） */
+    private int eventsCached = 0;
 
     /** 上次发送事件的时间戳 */
     private final AtomicLong lastActivityTime = new AtomicLong(System.currentTimeMillis());
@@ -252,11 +258,20 @@ public class SseEventBus {
 
     private void cacheEvent(SseEvent event) {
         if (redisKey == null || redisCache == null) return;
+        if (eventsCached >= MAX_EVENTS_PER_BUFFER) {
+            if (eventsCached == MAX_EVENTS_PER_BUFFER) {
+                log.warn("[SseEventBus] 缓冲区已达上限 ({}), 停止缓存: requestId={}",
+                        MAX_EVENTS_PER_BUFFER, redisKey);
+                eventsCached++;
+            }
+            return;
+        }
         try {
             String data = extractData(event.render());
             if (data != null) {
                 redisCache.add(redisKey, data, seqNo);
                 redisCache.expire(redisKey, SSE_BUFFER_TTL_SECONDS, TimeUnit.SECONDS);
+                eventsCached++;
                 SSE_BUFFER_COUNTER.increment();
             }
         } catch (Exception e) {
