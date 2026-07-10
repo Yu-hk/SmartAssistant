@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.service.core;
 
+import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.service.search.ProductRagService;
 import org.slf4j.Logger;
@@ -31,6 +32,9 @@ public class ProductGuideService {
         this.productRagService = productRagService;
     }
 
+    /** ⭐ G4 运营指标收集器（应答/无证据拒答），零装配、全局注册表 */
+    private final OpsMetrics opsMetrics = new OpsMetrics();
+
     /**
      * 处理商品咨询并生成带下单引导的回复（P1 质量感知版）。
      *
@@ -42,6 +46,9 @@ public class ProductGuideService {
      */
     public String processAndGuide(String query) {
         if (query == null || query.isBlank()) return "";
+
+        // ⭐ G4 运营指标：记录一次商品域应答（无答案率分母）
+        opsMetrics.recordAnswer("product", "product");
 
         // 1. 多路 RAG 检索（含结构化质量评估）
         RetrievalQualityResult result = productRagService.retrieveWithQualityResult(query);
@@ -58,6 +65,8 @@ public class ProductGuideService {
             // ⭐ P1 无证据拒答：直接使用结构化拒答消息
             log.warn("[ProductGuide] RAG 无证据拒答: query={}, code={}",
                     query, result.getRejectionCode());
+            // ⭐ G4 运营指标：记录无证据拒答
+            opsMetrics.recordNoEvidenceAnswer("product", "product");
             response.append(result.getRejectionMessage()).append("\n\n");
         } else {
             // 质量低（未达阈值但非结构化拒答）：使用兜底提示，不附加低质量检索结果

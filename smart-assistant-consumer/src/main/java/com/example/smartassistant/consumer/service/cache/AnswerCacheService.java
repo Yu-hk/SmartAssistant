@@ -291,6 +291,35 @@ public class AnswerCacheService {
     }
     
     /**
+     * 失效全部答案缓存（知识库更新/删除后调用）。
+     *
+     * <p>覆盖两层：</p>
+     * <ul>
+     *     <li>L1: Redis 短期缓存（精确匹配 {@code answer:*} 模式）</li>
+     *     <li>L2: 向量检索缓存（{@link SemanticCacheService#clearVectorSearchCache()} 委托）</li>
+     * </ul>
+     *
+     * <p>语义 Q/A 存储（pgvector）本身带 24h TTL，自然过期，这里仅清热点层以避免返回陈旧回答。
+     * 设计为幂等、失败不抛——由 {@code KnowledgeIngestionService} 的缓存失效钩子调用。</p>
+     */
+    public Mono<Void> invalidateAll() {
+        log.info("[AnswerCache] 🗑️ 失效全部答案缓存（L1 Redis + L2 向量检索缓存）");
+        return redisTemplate.keys("answer:*")
+                .collectList()
+                .flatMap(keys -> {
+                    if (keys.isEmpty()) {
+                        return semanticCacheService.clearVectorSearchCache();
+                    }
+                    return redisTemplate.delete(keys.toArray(new String[0]))
+                            .then(semanticCacheService.clearVectorSearchCache());
+                })
+                .onErrorResume(e -> {
+                    log.error("[AnswerCache] 失效缓存异常（已忽略）: {}", e.getMessage());
+                    return Mono.<Void>empty();
+                });
+    }
+
+    /**
      * 构建缓存 Key
      */
     private String buildCacheKey(String userId, String question) {

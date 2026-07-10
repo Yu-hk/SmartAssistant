@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.common.sse;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Metrics;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +38,11 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SseEventBus {
 
     private static final Logger log = LoggerFactory.getLogger(SseEventBus.class);
+
+    /** ⭐ SSE 事件缓冲计数器——每缓存一条代理流事件 +1，用于观测断线续传缓冲负载 */
+    private static final Counter SSE_BUFFER_COUNTER = Counter.builder("a2a_sse_events_buffered_total")
+            .description("写入 Redis 断线续传缓冲区的 SSE 事件总数")
+            .register(Metrics.globalRegistry);
 
     /** Redis ZSet 缓存前缀 */
     public static final String SSE_BUFFER_PREFIX = "sse:buffer:";
@@ -250,6 +257,7 @@ public class SseEventBus {
             if (data != null) {
                 redisCache.add(redisKey, data, seqNo);
                 redisCache.expire(redisKey, SSE_BUFFER_TTL_SECONDS, TimeUnit.SECONDS);
+                SSE_BUFFER_COUNTER.increment();
             }
         } catch (Exception e) {
             log.debug("[SseEventBus] 缓存失败: seqNo={}", seqNo);
