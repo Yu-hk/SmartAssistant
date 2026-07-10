@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.sse.SseEvent;
 import com.example.smartassistant.common.sse.SseEventBus;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
@@ -124,10 +125,32 @@ public class StreamChatController {
                 + "?message=" + encodeUrl(message) + "&showThinking=" + showThinking;
         try {
             forwardAgentStream(bus, agentUrl);
+            // ⭐ 流结束后发送 token 用量事件
+            injectTokenUsageEvent(bus, requestId);
         } finally {
             if (requestId != null && !requestId.isBlank()) {
                 requestQueueService.complete(requestId);
             }
+        }
+    }
+
+    /**
+     * ⭐ 从 {@link TokenUsageCache} 提取 token 用量并以 SSE 事件发送。
+     */
+    private void injectTokenUsageEvent(SseEventBus bus, String requestId) {
+        var tokenUsage = TokenUsageCache.consume(requestId);
+        if (tokenUsage == null) return;
+        try {
+            String json = objectMapper.writeValueAsString(Map.of(
+                    "type", "token_usage",
+                    "promptTokens", tokenUsage.promptTokens(),
+                    "completionTokens", tokenUsage.completionTokens(),
+                    "totalTokens", tokenUsage.totalTokens()
+            ));
+            bus.send(SseEvent.raw("token_usage", json));
+            log.info("[StreamChat] Token 用量已回传: {}", json);
+        } catch (Exception e) {
+            log.warn("[StreamChat] Token 用量回传失败: {}", e.getMessage());
         }
     }
 
