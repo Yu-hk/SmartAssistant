@@ -114,7 +114,7 @@ export function PermissionDialog({ visible, request, onAllow, onDeny }: Permissi
           <Tag 
             theme="primary" 
             variant="light"
-            icon={toolConfig.icon}
+            icon={toolConfig.icon as React.ReactElement}
           >
             {toolConfig.label}
           </Tag>

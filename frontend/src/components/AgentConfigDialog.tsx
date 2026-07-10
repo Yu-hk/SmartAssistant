@@ -89,6 +89,7 @@ export function AgentConfigDialog({
     systemPrompt: '',
     icon: 'Bot',
     color: '#0052d9',
+    permissionMode: 'default' as string,
   });
 
   const resetForm = () => {
@@ -98,6 +99,7 @@ export function AgentConfigDialog({
       systemPrompt: '',
       icon: 'Bot',
       color: '#0052d9',
+      permissionMode: 'default',
     });
     setEditingAgent(null);
     setIsCreating(false);
@@ -112,6 +114,7 @@ export function AgentConfigDialog({
       systemPrompt: agent.systemPrompt,
       icon: agent.icon || 'Bot',
       color: agent.color || '#0052d9',
+      permissionMode: agent.permissionMode || 'default',
     });
     setIsCreating(true);
   };
@@ -123,10 +126,10 @@ export function AgentConfigDialog({
     }
 
     if (editingAgent) {
-      onUpdate(editingAgent.id, formData);
+      onUpdate(editingAgent.id, formData as Partial<Omit<CustomAgent, 'id' | 'createdAt'>>);
       MessagePlugin.success('Agent 已更新');
     } else {
-      onAdd(formData);
+      onAdd(formData as Omit<CustomAgent, 'id' | 'createdAt' | 'updatedAt'>);
       MessagePlugin.success('Agent 已创建');
     }
     resetForm();
@@ -136,6 +139,7 @@ export function AgentConfigDialog({
     setFormData({
       ...template,
       description: template.description,
+      permissionMode: 'default',
     });
     setIsCreating(true);
   };
@@ -253,11 +257,10 @@ export function AgentConfigDialog({
                 {PRESET_TEMPLATES.map(template => {
                   const Icon = getIconComponent(template.icon);
                   return (
-                    <Card 
+                    <div
                       key={template.name} 
-                      bordered 
-                      hoverShadow
-                      className="cursor-pointer transition-all"
+                      className="rounded-lg border-2 cursor-pointer transition-all"
+                      style={{ borderColor: 'var(--td-border-level-2-color)' }}
                       onClick={() => handleUseTemplate(template)}
                     >
                       <div className="flex items-center gap-3 p-2">
@@ -276,7 +279,7 @@ export function AgentConfigDialog({
                           </div>
                         </div>
                       </div>
-                    </Card>
+                    </div>
                   );
                 })}
               </div>
