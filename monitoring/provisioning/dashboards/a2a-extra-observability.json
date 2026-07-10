@@ -58,11 +58,17 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "sum by (error) (rate(a2a_tool_error_type_total[5m]))",
-          "legendFormat": "{{error}}",
+          "legendFormat": "工具: {{error}}",
           "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (error_type) (rate(a2a_graph_error_total[5m]))",
+          "legendFormat": "Graph: {{error_type}}",
+          "refId": "B"
         }
       ],
-      "title": "⚠️ 工具错误类型分布 (ErrorType)",
+      "title": "⚠️ 错误类型分布 (工具ErrorType + Graph ErrorType)",
       "type": "timeseries"
     },
     {

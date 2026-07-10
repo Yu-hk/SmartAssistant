@@ -115,6 +115,16 @@ public class OpsMetrics {
                 .increment();
     }
 
+    /** ⭐ 记录一次 Graph 执行错误类型（RETRYABLE_FAILED / FATAL_FAILED / NEED_REPLAN）。 */
+    public void recordErrorType(String agent, String errorType) {
+        Counter.builder("a2a_graph_error_total")
+                .description("Graph 节点执行错误总量（按类型分）")
+                .tag("agent", sanitize(agent))
+                .tag("error_type", sanitize(errorType))
+                .register(Metrics.globalRegistry)
+                .increment();
+    }
+
     /** Prometheus tag 不允许为空或包含非法字符，统一兜底。 */
     private static String sanitize(String value) {
         if (value == null || value.isBlank()) return AGENT_UNKNOWN;

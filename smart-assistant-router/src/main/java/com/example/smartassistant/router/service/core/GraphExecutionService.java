@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.router.model.GraphState;
 import com.example.smartassistant.router.model.HandoffCommand;
 import com.example.smartassistant.router.model.IntentGraph;
@@ -71,6 +72,9 @@ public class GraphExecutionService {
     /** ⭐ 是否启用异步 Handoff（默认 false） */
     @Value("${router.graph.async-handoff-enabled:false}")
     private boolean asyncHandoffEnabled;
+
+    /** ⭐ Graph 执行指标采集 */
+    private final OpsMetrics opsMetrics = new OpsMetrics();
 
     /** ⭐ 是否启用 Checkpoint（默认 true） */
     @Value("${router.graph.checkpoint-enabled:true}")
@@ -691,6 +695,7 @@ public class GraphExecutionService {
                                 node.getId(), node.getTargetAgent(), node.getSuccessCriteria());
                         storeNodeProgressEvent(eventsKey, "node_replan",
                                 "节点[" + node.getDescription() + "]验收不通过，需重规划", targetAgent);
+                        opsMetrics.recordErrorType(targetAgent, ErrorType.NEED_REPLAN.name());
                         return new SubTaskResult(node.getId(), node.getDescription(),
                                 node.getTargetAgent(), resultText, false,
                                 ErrorType.NEED_REPLAN);
@@ -727,6 +732,7 @@ public class GraphExecutionService {
                 }
                 storeNodeProgressEvent(eventsKey, "node_failed",
                         "节点[" + node.getDescription() + "]返回空结果(已达最大重试)", targetAgent);
+                opsMetrics.recordErrorType(targetAgent, ErrorType.FATAL_FAILED.name());
                 return new SubTaskResult(node.getId(), node.getDescription(),
                         node.getTargetAgent(), "", false, ErrorType.FATAL_FAILED);
 
@@ -752,6 +758,7 @@ public class GraphExecutionService {
                 }
                 storeNodeProgressEvent(eventsKey, "node_failed",
                         "节点[" + node.getDescription() + "]异常: " + truncate(e.getMessage(), 100), targetAgent);
+                opsMetrics.recordErrorType(targetAgent, errorType.name());
                 return new SubTaskResult(node.getId(), node.getDescription(),
                         node.getTargetAgent(), "", false, errorType);
             }
@@ -766,6 +773,7 @@ public class GraphExecutionService {
         }
         storeNodeProgressEvent(eventsKey, "node_failed",
                 "节点[" + node.getDescription() + "]耗尽重试次数", targetAgent);
+        opsMetrics.recordErrorType(targetAgent, ErrorType.FATAL_FAILED.name());
         return new SubTaskResult(node.getId(), node.getDescription(),
                 node.getTargetAgent(), "", false, ErrorType.FATAL_FAILED);
     }
