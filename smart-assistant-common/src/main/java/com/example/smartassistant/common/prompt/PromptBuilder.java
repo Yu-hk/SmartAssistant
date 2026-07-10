@@ -48,11 +48,20 @@ public class PromptBuilder {
     /** 基础提示词文件路径（classpath） */
     private static final String BASE_PROMPT_PATH = "prompts/base-prompt.txt";
 
+    /** project-context 最大字符数（≈2000 tokens） */
+    private static final int MAX_PROJECT_CONTEXT_CHARS = 8000;
+
+    /** project-context 截断标记 */
+    private static final String PROJECT_CONTEXT_TRUNCATED_SUFFIX = "...[project-context 已截断]";
+
     /** 缓存基础提示词（只加载一次） */
     private static String basePrompt;
 
     private String servicePrompt;
     private String dynamicContext;
+
+    /** AI 项目指令手册（project-context 层） */
+    private String projectContext;
 
     /** ⭐ 模板变量映射：${var} → value */
     private final Map<String, String> variables = new LinkedHashMap<>();
@@ -78,6 +87,20 @@ public class PromptBuilder {
      */
     public PromptBuilder withServicePrompt(String servicePrompt) {
         this.servicePrompt = servicePrompt;
+        return this;
+    }
+
+    /**
+     * 注入 AI 项目指令手册（project-context 层）。
+     * <p>注入顺序：base → projectContext → service → sections → dynamic。
+     * 超过 8000 字符时尾部截断 + 追加截断标记。
+     * projectContext 为 null/空时跳过。</p>
+     *
+     * @param projectContext 项目上下文文本
+     * @return this
+     */
+    public PromptBuilder withProjectContext(String projectContext) {
+        this.projectContext = projectContext;
         return this;
     }
 
@@ -148,13 +171,23 @@ public class PromptBuilder {
     /**
      * 组装最终提示词。
      *
-     * @return 按 base → service → sections → dynamic 顺序拼接的完整提示词
+     * @return 按 base → projectContext → service → sections → dynamic 顺序拼接的完整提示词
      */
     public String assemble() {
         StringBuilder sb = new StringBuilder();
 
         // Layer 1: 基础规则
         sb.append(resolveVars(getBasePrompt())).append("\n\n");
+
+        // Layer 1.5: AI 项目指令手册（project-context 层）
+        if (projectContext != null && !projectContext.isBlank()) {
+            String truncated = projectContext;
+            if (truncated.length() > MAX_PROJECT_CONTEXT_CHARS) {
+                truncated = truncated.substring(0, MAX_PROJECT_CONTEXT_CHARS)
+                        + PROJECT_CONTEXT_TRUNCATED_SUFFIX;
+            }
+            sb.append(resolveVars(truncated)).append("\n\n");
+        }
 
         // Layer 2: 业务特有指令
         if (servicePrompt != null && !servicePrompt.isBlank()) {
