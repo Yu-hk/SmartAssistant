@@ -18,13 +18,11 @@ import java.time.LocalDateTime;
 /**
  * 统一错误响应模型
  * <p>
- * 所有 Router API 的错误响应均使用此格式。
- * 包含错误码、服务标识、请求追踪号，方便排查问题。
- * <p>
- * <b>已废弃：</b>请使用 {@link com.example.smartassistant.common.response.ApiResponse} 替代。
- * 此 class 保留用于兼容旧调用方。所有新的异常处理已迁移至 {@code ApiResponse} 格式。
+ * <b>已废弃（零调用方）：</b>请使用 {@link com.example.smartassistant.common.response.ApiResponse} 替代。
+ * 所有新代码已迁移至 {@code ApiResponse<T>}（JSON 字段 {@code "message"}，OpenAI 兼容格式）。
+ * 此 class 保留仅用于序列化兼容；内部字段 {@code msg} 已重命名为 {@code message} 与 {@code ApiResponse} 对齐。
  *
- * @deprecated since v3.0 — 由 {@link com.example.smartassistant.common.response.ApiResponse} 统一替代
+ * @deprecated since v3.0 — 已由 {@link com.example.smartassistant.common.response.ApiResponse} 统一替代，零调用方
  */
 @Deprecated
 @Data
@@ -42,9 +40,24 @@ public class ErrorResponse {
     private String code;
 
     /**
-     * 错误信息（用户友好）
+     * 错误信息（用户友好）——与 {@link com.example.smartassistant.common.response.ApiResponse} 的 {@code message} 字段对齐
      */
-    private String msg;
+    private String message;
+
+    /**
+     * HTTP 状态码
+     */
+    private int status;
+
+    /**
+     * 服务名称（用于日志区分）
+     */
+    private String service;
+
+    /**
+     * 时间戳
+     */
+    private LocalDateTime timestamp;
 
     /**
      * HTTP 状态码
@@ -85,20 +98,20 @@ public class ErrorResponse {
 
     // ========== 快速构造方法 ==========
 
-    public static ErrorResponse of(String code, String msg, int status) {
+    public static ErrorResponse of(String code, String message, int status) {
         return ErrorResponse.builder()
                 .code(code)
-                .msg(msg)
+                .message(message)
                 .status(status)
                 .service("router-service")
                 .timestamp(LocalDateTime.now())
                 .build();
     }
 
-    public static ErrorResponse of(String code, String msg, int status, String traceId) {
+    public static ErrorResponse of(String code, String message, int status, String traceId) {
         return ErrorResponse.builder()
                 .code(code)
-                .msg(msg)
+                .message(message)
                 .status(status)
                 .service("router-service")
                 .timestamp(LocalDateTime.now())

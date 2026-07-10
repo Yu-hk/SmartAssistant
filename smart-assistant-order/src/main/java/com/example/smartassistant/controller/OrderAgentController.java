@@ -13,6 +13,7 @@ import com.example.smartassistant.common.memory.MemoryExtractor;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageSpan;
+import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.rag.eval.FaithfulnessGuard;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.core.OrderIntentService;
@@ -63,6 +64,9 @@ public class OrderAgentController {
 
     /** ⭐ P5-A 生产忠实度护栏（可选，默认内置实例；测试可注入定制实例） */
     private FaithfulnessGuard faithfulnessGuard = new FaithfulnessGuard();
+
+    /** ⭐ G4 运营指标收集器（应答/无证据拒答），零装配、全局注册表 */
+    private final OpsMetrics opsMetrics = new OpsMetrics();
 
     /** 测试/手动注入用 setter */
     public void setStageTraceRecorder(StageTraceRecorder stageTraceRecorder) {
@@ -116,6 +120,8 @@ public class OrderAgentController {
         try {
             // Step 1: 意图识别
             IntentType intent = intentService.detect(question);
+            // ⭐ G4 运营指标：记录一次订单域应答（无答案率分母）
+            opsMetrics.recordAnswer("order", intent.getLabel());
 
             // Step 2: 上下文协调器 + RAG 预检索（含质量评估）
             String userId = request.get("userId");
@@ -142,6 +148,8 @@ public class OrderAgentController {
                 }
                 log.info("[OrderAgent] ⛔ 无证据拒答: intent={}, code={}, requestId={}",
                         intent.getLabel(), qr.getRejectionCode(), requestId);
+                // ⭐ G4 运营指标：记录无证据拒答
+                opsMetrics.recordNoEvidenceAnswer("order", intent.getLabel());
                 return qr.getRejectionMessage();
             }
 

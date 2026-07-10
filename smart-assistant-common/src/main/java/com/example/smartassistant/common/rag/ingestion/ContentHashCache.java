@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.common.rag.ingestion;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Metrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +42,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ContentHashCache {
 
     private static final Logger log = LoggerFactory.getLogger(ContentHashCache.class);
+
+    /** ⭐ 内容哈希命中（文档未变更而跳过摄入）计数器——零装配，复用全局注册表 */
+    private static final Counter SKIP_COUNTER = Counter.builder("a2a_content_hash_skip_total")
+            .description("内容哈希命中、文档未变更而跳过的摄入次数")
+            .register(Metrics.globalRegistry);
 
     private final ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();
 
@@ -173,6 +180,7 @@ public class ContentHashCache {
     public boolean needsReingest(String baseDocId, String newHash) {
         boolean changed = hasChanged(baseDocId, newHash);
         if (!changed) {
+            SKIP_COUNTER.increment();
             log.debug("[ContentHashCache] 文档未变更，跳过: baseDocId={}", baseDocId);
         }
         return changed;

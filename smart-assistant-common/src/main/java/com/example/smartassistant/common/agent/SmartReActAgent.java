@@ -14,6 +14,7 @@ import com.example.smartassistant.common.error.PromptInjectionBlockedException;
 import com.example.smartassistant.common.error.RecoveryAction;
 import com.example.smartassistant.common.memory.ConversationSummaryStore;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
+import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.tool.ToolGroupManager;
 import com.example.smartassistant.common.trace.TraceSpan;
 import io.micrometer.observation.ObservationRegistry;
@@ -210,6 +211,9 @@ public class SmartReActAgent {
 
     /** ⭐ 可选的指标采集器 */
     private AgentMetricsCollector metrics = new AgentMetricsCollector() {};
+
+    /** ⭐ G4 运营指标收集器（工具失败率 / 单轮 Token），零装配、全局注册表 */
+    private final OpsMetrics opsMetrics = new OpsMetrics();
 
     /** ⭐ 错误恢复服务（表驱动恢复，默认使用内置静态实例） */
     private ErrorRecoveryService recoveryService = ErrorRecoveryService.DEFAULT;
@@ -617,6 +621,16 @@ public class SmartReActAgent {
             }
             // 成功获取结果，重置计数器
             consecutiveParseFailures = 0;
+
+            // ⭐ G4 运营指标：单轮 Token 消耗（从 ChatResponse 用量元数据提取，非阻断）
+            try {
+                var usage = response.getMetadata().getUsage();
+                if (usage != null && usage.getTotalTokens() != null) {
+                    opsMetrics.recordTurnTokens("smart_react", usage.getTotalTokens());
+                }
+            } catch (Exception ignore) {
+                // 指标采集失败不影响主流程
+            }
 
             // ⭐ 追踪 Token 消耗
             if (trackTokenBudget && response.getMetadata() != null
@@ -1082,6 +1096,7 @@ public class SmartReActAgent {
             metrics.recordToolHallucination();
             recoveryService.logRecovery(AgentErrorCode.UNKNOWN_TOOL, RecoveryAction.CLARIFY_USER,
                     "tool=" + tc.name(), 0);
+            opsMetrics.recordToolCall("smart_react", false);
             return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
                     "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: "
                             + tc.name() + "\",\"retryable\":false}");
@@ -1106,6 +1121,7 @@ public class SmartReActAgent {
                 if (errorCode == null) {
                     // 正常结果，先截断再返回
                     String truncatedResult = truncateToolResult(result, tc.name());
+                    opsMetrics.recordToolCall("smart_react", true);
                     return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
                             truncatedResult != null ? truncatedResult : "null");
                 }
@@ -1130,6 +1146,7 @@ public class SmartReActAgent {
                 // 不可重试或已达上限，返回原始错误
                 log.warn("[SmartReActAgent] 工具返回不可重试错误(尝试{}次): tool={}, code={}",
                         attempt, tc.name(), errorCode);
+                opsMetrics.recordToolCall("smart_react", false);
                 return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(), result);
 
             } catch (AgentException e) {
@@ -1148,6 +1165,7 @@ public class SmartReActAgent {
                     }
                     continue;
                 }
+                opsMetrics.recordToolCall("smart_react", false);
                 return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(), e.toToolResultJson());
 
             } catch (Exception e) {
@@ -1166,6 +1184,7 @@ public class SmartReActAgent {
                     continue;
                 }
                 log.error("[SmartReActAgent] 工具执行失败(最后一次尝试): {} - {}", tc.name(), e.getMessage());
+                opsMetrics.recordToolCall("smart_react", false);
                 return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
                         "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
                                 + e.getMessage() + "\",\"retryable\":true}");
@@ -1177,6 +1196,7 @@ public class SmartReActAgent {
                 ? "工具返回错误: " + lastErrorCode
                 : (lastException != null ? lastException.getMessage() : "工具执行失败");
         log.error("[SmartReActAgent] 工具执行失败(重试{}次): tool={}, reason={}", attempt - 1, tc.name(), reason);
+        opsMetrics.recordToolCall("smart_react", false);
         return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
                 "{\"error_code\":\"TOOL_EXECUTION_ERROR\",\"message\":\""
                         + reason + "\",\"retryable\":false}");

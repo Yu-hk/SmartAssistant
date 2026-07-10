@@ -8,6 +8,7 @@
 package com.example.smartassistant.router.service.cache;
 
 import com.example.smartassistant.common.cache.CacheVersionManager;
+import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.rag.AclContext;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
@@ -36,6 +37,10 @@ import java.util.stream.Collectors;
 public class SemanticRouteCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(SemanticRouteCacheService.class);
+
+    /** ⭐ G4 运营指标收集器（语义缓存命中率），零装配、全局注册表 */
+    private final OpsMetrics opsMetrics = new OpsMetrics();
+
     private static final String CACHE_KEY_PREFIX = "a2a:route:semantic:";
     private static final String REPLY_KEY_PREFIX = "a2a:route:reply:";
     private static final String EXACT_KEY_PREFIX = "a2a:route:exact:";
@@ -137,22 +142,32 @@ public class SemanticRouteCacheService {
         try {
             // Tier 1: 精确匹配
             CachedRouteDecision exact = getByExactQuestion(question);
-            if (exact != null && isCacheVersionValid(exact)) return exact;
+            if (exact != null && isCacheVersionValid(exact)) {
+                opsMetrics.recordCacheHit("semantic");
+                return exact;
+            }
             if (exact != null) log.debug("[SemanticCache] 缓存版本过期: tier=精确, intent={}", exact.intentTag);
 
             // Tier 2: 关键词哈希匹配
             CachedRouteDecision keyword = getByKeywordHash(question);
-            if (keyword != null && isCacheVersionValid(keyword)) return keyword;
+            if (keyword != null && isCacheVersionValid(keyword)) {
+                opsMetrics.recordCacheHit("semantic");
+                return keyword;
+            }
             if (keyword != null) log.debug("[SemanticCache] 缓存版本过期: tier=关键词, intent={}", keyword.intentTag);
 
             // Tier 3: ⭐ TF 向量匹配（余弦相似度 ≥0.70，覆盖前缀扩展场景）
             CachedRouteDecision vector = getByVectorMatch(question);
-            if (vector != null && isCacheVersionValid(vector)) return vector;
+            if (vector != null && isCacheVersionValid(vector)) {
+                opsMetrics.recordCacheHit("semantic");
+                return vector;
+            }
             if (vector != null) log.debug("[SemanticCache] 缓存版本过期: tier=向量, intent={}", vector.intentTag);
 
         } catch (Exception e) {
             log.warn("[SemanticCache] 读取缓存失败: {}", e.getMessage());
         }
+        opsMetrics.recordCacheMiss("semantic");
         return null;
     }
 
