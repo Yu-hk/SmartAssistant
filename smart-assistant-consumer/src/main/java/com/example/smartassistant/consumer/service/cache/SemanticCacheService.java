@@ -172,10 +172,23 @@ public class SemanticCacheService {
     }
     
     /**
+     * ⭐ 失效语义缓存的向量检索层（L2a/L2b）。
+     * 知识库更新后由 {@code AnswerCacheService#invalidateAll()} 委托调用，避免返回陈旧检索结果。
+     * 语义 Q/A 存储（pgvector）本身带 24h TTL 自然过期，这里仅清热点检索层。
+     */
+    public Mono<Void> clearVectorSearchCache() {
+        return vectorSearchCacheService.clearVectorCache()
+                .doOnSuccess(v -> log.info("[SemanticCache] 向量检索缓存已失效"))
+                .onErrorResume(e -> {
+                    log.error("[SemanticCache] 失效向量检索缓存异常（已忽略）: {}", e.getMessage());
+                    return Mono.<Void>empty();
+                });
+    }
+
+    /**
      * 获取语义缓存统计信息
      */
-    public Mono<Map<String, Object>> getSemanticCacheStats() {
-        return Mono.fromCallable(() -> {
+    public Mono<Map<String, Object>> getSemanticCacheStats() {        return Mono.fromCallable(() -> {
             long total = totalSemanticSearches.get();
             long hits = semanticHits.get();
             double hitRate = total > 0 ? (double) hits / total * 100 : 0;

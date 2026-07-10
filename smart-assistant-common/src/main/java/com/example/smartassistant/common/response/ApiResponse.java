@@ -12,7 +12,26 @@ import java.util.UUID;
 /**
  * 统一 API 响应封装。
  * <p>
- * 所有 Controller 对外接口均通过此类返回，确保响应格式统一。
+ * <b>📌 全项目唯一的 Canonical 响应格式（OpenAI 兼容）。</b>
+ * 所有 Controller 与 {@code GlobalExceptionHandler} 均须使用此类返回。
+ * 已废弃的 {@code router.model.ErrorResponse} 不再使用，不能新增引用。
+ * </p><p>
+ * JSON 结构（与 OpenAI Error 响应对齐）：
+ * <pre>{@code
+ * {
+ *   "code": 0,         // 0=成功, 非零=各类错误（与 HTTP status 语义一致）
+ *   "message": "...",  // 对人类可读的状态描述
+ *   "requestId": "...",// 请求追踪 ID
+ *   "timestamp": 123,  // 服务端毫秒时间戳
+ *   "data": {...},     // 成功时承载业务数据；错误时为 null
+ *   "error": {         // 错误时存在（成功时为 null）
+ *     "type": "ROUTER_001",
+ *     "detail": "...",
+ *     "fields": {"field": "error"},  // 仅参数校验场景
+ *     "traceId": "..."
+ *   }
+ * }
+ * }</pre>
  * 成功时使用 {@link #success(Object)}，失败时使用 {@link #error(int, String)} 或 {@link #error(int, String, ErrorDetail)}。
  */
 @Data

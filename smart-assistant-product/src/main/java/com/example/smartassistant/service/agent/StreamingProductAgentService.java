@@ -9,6 +9,7 @@ package com.example.smartassistant.service.agent;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
+import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.rag.eval.FaithfulnessGuard;
 import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageSpan;
@@ -46,6 +47,9 @@ public class StreamingProductAgentService {
     /** ⭐ P5-A 生产忠实度护栏（可选，默认内置实例；测试可注入定制实例） */
     private FaithfulnessGuard faithfulnessGuard = new FaithfulnessGuard();
 
+    /** ⭐ G4 运营指标收集器（应答/无证据拒答），零装配、全局注册表 */
+    private final OpsMetrics opsMetrics = new OpsMetrics();
+
     /** 测试/手动注入用 setter */
     public void setStageTraceRecorder(StageTraceRecorder stageTraceRecorder) {
         this.stageTraceRecorder = stageTraceRecorder;
@@ -78,6 +82,8 @@ public class StreamingProductAgentService {
      */
     public String execute(String userMessage, String requestId) {
         String rid = (requestId != null && !requestId.isBlank()) ? requestId : ("prod-" + System.nanoTime());
+        // ⭐ G4 运营指标：记录一次商品域应答（无答案率分母）
+        opsMetrics.recordAnswer("product", "product");
         try {
             log.info("[StreamingProductAgent] 执行推理: {}, requestId={}", userMessage, rid);
 
@@ -92,6 +98,8 @@ public class StreamingProductAgentService {
 
                     if (qr.isRejected()) {
                         // 无证据：短路拒答，不调用 LLM
+                        // ⭐ G4 运营指标：记录无证据拒答
+                        opsMetrics.recordNoEvidenceAnswer("product", "product");
                         if (stageTraceRecorder != null) {
                             stageTraceRecorder.getOrCreate(rid, userMessage, "product_agent")
                                     .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,

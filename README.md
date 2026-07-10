@@ -1139,6 +1139,43 @@ SmartReActAgent agent = new SmartReActAgent(chatModel)
 | ⑧ 档位分布 | piechart | `model_tier_selections_total by (tier)` |
 | ⑨ 平均迭代 | stat | `iteration_total / (timeout + max_iter) by (service)` |
 
+### G4 运营 6 指标精简看板（直映射文章指标）
+
+在 `a2a-daily-ops.json`（9 面板）之外，新增 `monitoring/provisioning/dashboards/a2a-ops-dashboard.json` —— **精确映射文章「每天看 6 指标」**，6 面板一眼看完运营健康度。uid=`a2a-ops`，title=`A2A 运营看板 (6 指标)`。
+
+**指标采集层（零 Spring 装配）**：`smart-assistant-common/.../observability/OpsMetrics.java` 基于 `Metrics.globalRegistry` 全局注册表，无需改任何 Bean 装配，对既有 4 模块手写 `new XxxAgent(...)` 测试零破坏。空 tag 经私有 `sanitize()` 兜底为 `"unknown"`。
+
+| 文章指标 | Micrometer 指标 | 类型 | 接入点 |
+|---------|---------------|------|--------|
+| 平均延迟 | `a2a_route_latency_seconds{agent,intent}` | Timer | `RouterService.route()` finally 块 |
+| 工具失败率 | `a2a_tool_calls_total{agent,outcome}` | Counter | `SmartReActAgent.executeToolCallWithRetry` 6 个终态 |
+| 单轮 Token | `a2a_turn_tokens{agent}` | DistributionSummary | `SmartReActAgent` LLM usage 提取（≤0 跳过） |
+| 无答案率 | `a2a_answers_no_evidence_total{agent,intent}` | Counter | Order/Product 无证据拒答短路分支 |
+| 人工接管率 | `a2a_handoffs_total{reason,agent}` | Counter | `RouterService` HEAVY 情绪兜底 |
+| 缓存命中率 | `a2a_semantic_cache_hits_total{cache}` / `a2a_semantic_cache_misses_total{cache}` | Counter | `SemanticRouteCacheService` 命中/未命中 |
+
+**6 面板 PromQL（timeseries）：**
+
+| 面板 | PromQL |
+|------|--------|
+| 平均延迟(ms) | `rate(a2a_route_latency_seconds_sum[5m]) / rate(a2a_route_latency_seconds_count[5m]) * 1000` |
+| 工具失败率(%) | `sum(rate(a2a_tool_calls_total{outcome="failure"}[5m])) / sum(rate(a2a_tool_calls_total[5m])) * 100` |
+| 单轮 Token | `sum(rate(a2a_turn_tokens_sum[5m])) / sum(rate(a2a_turn_tokens_count[5m]))` |
+| 无答案率(%) | `sum(rate(a2a_answers_no_evidence_total[5m])) / sum(rate(a2a_answers_total[5m])) * 100` |
+| 人工接管率(%) | `sum(rate(a2a_handoffs_total[5m])) / sum(rate(a2a_answers_total[5m])) * 100` |
+| 缓存命中率(%) | `sum(rate(a2a_semantic_cache_hits_total[5m])) / (sum(rate(a2a_semantic_cache_hits_total[5m])) + sum(rate(a2a_semantic_cache_misses_total[5m]))) * 100` |
+
+**测试覆盖**：`OpsMetricsTest`（7 用例，基于 `SimpleMeterRegistry` + `Metrics.addRegistry/removeRegistry` 隔离）：
+- outcome 分流（success / failure）
+- 延迟 Timer 记录
+- Token 非负（≤0 跳过）
+- 应答 / 无证据计数
+- 人工接管计数
+- 缓存命中 / 未命中计数
+- 空 tag 兜底（`sanitize` → `"unknown"`）
+
+部署：Grafana provisioning `dashboard.yml` 已指向 `provisioning/dashboards/` 目录，JSON 放入即自动加载，无需重启 Grafana 进程。
+
 ---
 
 ## P0 熔断半开 + 多级优先级队列
@@ -2482,7 +2519,34 @@ UPLOADED ──▶ PARSING ──▶ CHUNKING ──▶ EMBEDDING ──▶ INDE
 
 ---
 
-## 生产就绪度
+## 2026-07-10 改进点补充（3 项）
+
+### GAP-A: RAG 缓存失效机制 (P1)
+
+知识库入库/更新后自动失效 RAG 答案缓存，避免返回陈旧回答。
+
+| 文件 | 改动 |
+|------|------|
+| `consumer/.../AnswerCacheService.java` | 新增 `invalidateAll()` — 清除 L1 Redis (`answer:*`) + 委托清除 L2 向量检索缓存 |
+| `consumer/.../SemanticCacheService.java` | 新增 `clearVectorSearchCache()` — 委托 `VectorSearchCacheService.clearVectorCache()` |
+| **🆕** `consumer/.../CacheInvalidationWiringConfig.java` | 消费端 `@Configuration`，将 `AnswerCacheService::invalidateAll` 注册为 `KnowledgeIngestionService` 的缓存失效钩子 |
+
+### GAP-B: Grafana 扩展观测面板 (高ROI)
+
+| 文件 | 改动 |
+|------|------|
+| `common/.../ContentHashCache.java` | 新增 `a2a_content_hash_skip_total` Counter（零装配 `Metrics.globalRegistry`，文档未变更时 +1） |
+| `common/.../SseEventBus.java` | 新增 `a2a_sse_events_buffered_total` Counter（Redis 缓存事件时 +1） |
+| **🆕** `monitoring/.../a2a-extra-observability.json` | 3 面板：ErrorType 分布 / HashUtil 跳过率 / SSE 缓冲区事件速率。uid=`a2a-extra` |
+
+### GAP-C: 响应格式统一 (P3)
+
+| 文件 | 改动 |
+|------|------|
+| `router/.../ErrorResponse.java` | `msg` → `message` 消除字段名混用；确认零外部引用、全量迁移至 `ApiResponse` |
+| `common/.../ApiResponse.java` | 补充 Javadoc JSON 示例，确立 OpenAI 兼容的 Canonical 响应格式 |
+
+---
 
 本项目已完成基于 [customer_work 12 生产坑](https://mp.weixin.qq.com/s/Ihtqsp68m1h66Ua12yV7kw) 和 [ThinkingAgent 可靠性体系](https://mp.weixin.qq.com/s/UTEdhrkV3G3Ycfrg0Jng_A) 的交叉审计。
 

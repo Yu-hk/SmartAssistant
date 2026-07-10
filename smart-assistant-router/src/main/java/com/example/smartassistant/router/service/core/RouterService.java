@@ -27,6 +27,7 @@ import com.example.smartassistant.router.service.monitoring.NewMetricsCollector;
 import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.quality.QualityEvaluationService;
+import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
 import com.example.smartassistant.router.service.guardrail.EmotionLevel;
@@ -106,6 +107,9 @@ public class RouterService {
     private TieredModelRouter tieredModelRouter;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /** ⭐ G4 运营指标收集器（路由延迟/接管/应答），零装配、全局注册表 */
+    private final OpsMetrics opsMetrics = new OpsMetrics();
 
     // ⭐ 并行 Agent 执行线程池（用于独立子任务的真正并行执行）
 
@@ -212,6 +216,7 @@ public class RouterService {
             budgetTracker.startSession();
         }
 
+        long routeStart = System.nanoTime();
         try {
             // Step 0: 经验匹配（优先级最高，在语义缓存之上）
             // ⭐ 经验匹配可直接跳过 LLM 推理，命中 TOOL 经验时甚至直接执行工具
@@ -229,6 +234,8 @@ public class RouterService {
             if (emotion.level() == EmotionLevel.HEAVY) {
                 log.warn("[Router] 💗 重度情绪风险，进入安全兜底: userId={}, signals={}",
                         request.getUserId(), emotion.signals());
+                // ⭐ G4 运营指标：重度情绪风险触发人工/专业接管
+                opsMetrics.recordHandoff("emotion_heavy", "general_agent");
                 return RoutingResult.builder()
                         .result(emotion.guidance())
                         .agentName("general_agent")
@@ -612,6 +619,10 @@ public class RouterService {
             return RoutingResult.builder()
                     .result(errorMsg)
                 .build();
+        } finally {
+            // ⭐ G4 运营指标：端到端路由延迟（覆盖全部路径：HEAVY/配额/经验/正常）
+            long routeMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - routeStart);
+            opsMetrics.recordRouteLatency("router", "n/a", routeMs);
         }
     }
 
@@ -644,6 +655,9 @@ public class RouterService {
             intentTag = semanticCache.generateIntentTag(question);
             result.setIntentTag(intentTag);
         }
+
+        // ⭐ G4 运营指标：记录一次有效应答（无答案率分母）
+        opsMetrics.recordAnswer(result != null ? result.getAgentName() : "unknown", intentTag);
 
         // ⭐ P1 工具健康检查：路由到 Agent 前检查关键工具是否就绪（routingToolChecker 可为 null）
         if (routingToolChecker != null && result.getAgentName() != null) {
