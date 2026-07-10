@@ -10,8 +10,15 @@ export async function fetchAdminStats(): Promise<AdminStats> {
 }
 
 /** 检查登录状态 */
-export async function checkLogin(): Promise<{ loggedIn: boolean }> {
-  return apiClient.get<{ loggedIn: boolean }>('/check-login');
+export async function checkLogin(): Promise<{
+  loggedIn: boolean;
+  envConfigured?: boolean;
+  cliConfigured?: boolean;
+  error?: string;
+  apiKey?: string;
+  envVars?: { apiKey?: string; authToken?: string; internetEnv?: string; baseUrl?: string };
+}> {
+  return apiClient.get('/check-login');
 }
 
 /** 保存环境变量配置 */
