@@ -1,0 +1,136 @@
+%% SmartAssistant 增量需求 - 时序图
+%% 架构师：高见远
+
+%% ===== 时序图 1: ToolGateway Hook 执行流程 =====
+sequenceDiagram
+    autonumber
+    participant Caller as 调用方
+    participant GW as ToolGateway
+    participant Reg as ToolRegistry
+    participant Ctx as ToolHookContext
+    participant StatusHook as ToolStatusHook<br/>(@Order=10)
+    participant ApproveHook as ApprovalHook<br/>(@Order=20)
+    participant SanitizeHook as SanitizeHook<br/>(@Order=30)
+    participant AuditHook as AuditHook<br/>(@Order=100)
+
+    Caller->>GW: execute(toolName, executor, scope, idemKey)
+
+    Note over GW: 步骤0: 获取工具定义
+    GW->>Reg: get(toolName)
+    Reg-->>GW: ToolDefinition def
+    Note right of GW: def==null → throw<br/>TOOL_INVALID_ARGUMENT
+
+    Note over GW,Ctx: 【NEW】构建上下文 + preExecute 链
+    GW->>Ctx: new ToolHookContext(toolName, def, scope, idemKey, start)
+
+    Note over GW,StatusHook: preExecute 按 @Order 正序执行
+    GW->>StatusHook: preExecute(ctx)
+    alt def.status == DISABLED 或 REMOVED
+        StatusHook-->>GW: throw ToolExecutionException(TOOL_STATUS_DISABLED)
+        Note right of StatusHook: REQ-01 拦截
+    else def.status == DEPRECATED
+        StatusHook->>StatusHook: WARN(sunsetDate) 日志提醒
+        StatusHook-->>GW: 放行
+    else ACTIVE / EXPERIMENTAL
+        StatusHook-->>GW: 放行
+    end
+
+    GW->>ApproveHook: preExecute(ctx)
+    alt def.needsApproval && def.highRisk
+        ApproveHook-->>GW: throw ToolExecutionException(APPROVAL_REJECTED)
+        Note right of ApproveHook: Q1 异步先拒绝
+    else
+        ApproveHook-->>GW: 放行
+    end
+
+    GW->>SanitizeHook: preExecute(ctx)
+    SanitizeHook-->>GW: no-op
+
+    Note over GW: 步骤1: 幂等检查
+    Note over GW: 步骤2: 鉴权检查(scope+tags)
+    Note over GW: 步骤3: 熔断检查
+    Note over GW: 步骤4: 限流检查
+
+    Note over GW: 步骤5: 执行(FutureTask+虚拟线程+超时)
+    alt 执行成功
+        GW->>GW: result = task.get(timeout)
+        Note over GW: 步骤6: 审计日志
+
+        Note over GW,AuditHook: 【NEW】postExecute 链(按 @Order 正序)
+        GW->>StatusHook: postExecute(ctx, result)
+        StatusHook-->>GW: result(no-op)
+        GW->>ApproveHook: postExecute(ctx, result)
+        ApproveHook-->>GW: result(no-op)
+        GW->>SanitizeHook: postExecute(ctx, result)
+        SanitizeHook->>SanitizeHook: 脱敏(手机/身份证/银行卡)
+        SanitizeHook-->>GW: maskedResult
+        GW->>AuditHook: postExecute(ctx, maskedResult)
+        AuditHook->>AuditHook: 结构化审计日志
+        AuditHook-->>GW: maskedResult
+
+        Note over GW: 步骤7: 幂等缓存(maskedResult)
+        Note over GW: 步骤8: 熔断恢复
+        Note over GW: 步骤9: 调用计数递增
+        GW-->>Caller: return maskedResult
+    else 执行异常(Timeout/Exception)
+        GW->>GW: recordFailure(toolName)
+        Note over GW,AuditHook: 【NEW】onError 链
+        GW->>AuditHook: onError(ctx, ex)
+        AuditHook->>AuditHook: 失败审计日志
+        GW-->>Caller: throw ToolExecutionException
+    end
+
+
+%% ===== 时序图 2: RegistryService 兼容性检查流程 =====
+sequenceDiagram
+    autonumber
+    participant Client as 注册客户端
+    participant Ctrl as RegistryController
+    participant Svc as RegistryService
+    participant Valid as ToolManifestValidator
+    participant Checker as ToolCompatibilityCheckerImpl
+    participant Store as definitions(Map)
+
+    Client->>Ctrl: POST /api/tools/register (ToolDefinition newDef)
+    Ctrl->>Svc: register(newDef)
+
+    Note over Svc,Valid: 【NEW】Manifest 校验
+    Svc->>Valid: validate(newDef)
+    alt capabilities 为空
+        Valid->>Valid: 填默认 ["unknown"] + WARN
+    else capabilities 含非法值
+        Valid->>Valid: WARN(不阻断, Q6 v1)
+    end
+    alt outputSchema 非法 JSON
+        Valid->>Valid: WARN(不阻断, Q5 决策)
+    end
+    Valid-->>Svc: ValidationResult(ok)
+
+    Svc->>Store: get(newDef.name)
+    alt existing == null (新注册)
+        Svc->>Store: put(name, newDef)
+        Svc-->>Ctrl: 日志: 注册成功
+    else existing != null (更新)
+        Note over Svc,Checker: 【NEW】兼容性检查
+        Svc->>Checker: check(existing, newDef)
+
+        alt BREAKING 变更(风险降级/超时缩短/scopes收缩/approval false→true)
+            Checker->>Checker: 比对 major 版本
+            alt major 未升级
+                Checker-->>Svc: throw IncompatibleVersionException
+                Svc-->>Ctrl: 异常向上抛出
+                Ctrl-->>Client: ApiResponse.error(400, 版本不兼容)
+                Note right of Checker: REQ-04 拒绝注册
+            else major 已升级
+                Checker-->>Svc: COMPATIBLE(允许)
+                Svc->>Store: put(name, newDef)
+                Svc-->>Ctrl: 日志: 更新成功
+                Ctrl-->>Client: ApiResponse.ok(name, version)
+            end
+        else COMPATIBLE 变更(新增可选能力)
+            Checker-->>Svc: COMPATIBLE
+            Svc->>Store: put(name, newDef)
+            Svc-->>Ctrl: 日志: 更新成功
+            Ctrl-->>Client: ApiResponse.ok(name, version)
+        end
+    end
