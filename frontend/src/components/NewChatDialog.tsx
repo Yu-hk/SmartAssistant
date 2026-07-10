@@ -79,7 +79,8 @@ export function NewChatDialog({
   };
 
   const selectedAgent = agents.find(a => a.id === selectedAgentId);
-  const Icon = ICON_MAP[selectedAgent?.icon || 'Bot'] || Bot;
+  const iconComponent = ICON_MAP[selectedAgent?.icon || 'Bot'];
+  const Icon: React.ComponentType<any> = iconComponent != null ? iconComponent : (Bot as any);
 
   return (
     <Dialog
@@ -106,7 +107,8 @@ export function NewChatDialog({
           </label>
           <div className="grid grid-cols-2 gap-2 max-h-[240px] overflow-y-auto">
             {agents.map(agent => {
-              const AgentIcon = ICON_MAP[agent.icon || 'Bot'] || Bot;
+              const icon = ICON_MAP[agent.icon || 'Bot'];
+              const AgentIcon: React.ComponentType<any> = icon != null ? icon : (Bot as any);
               const isSelected = agent.id === selectedAgentId;
               return (
                 <div

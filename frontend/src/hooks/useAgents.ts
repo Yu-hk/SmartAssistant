@@ -12,8 +12,9 @@ const DEFAULT_AGENT: CustomAgent = {
   systemPrompt: '你是一个专业的AI助手，善于帮助用户解决各种问题。请用简洁清晰的方式回答问题。',
   icon: 'Bot',
   color: '#0052d9',
-  createdAt: new Date(),
-  updatedAt: new Date(),
+  permissionMode: 'default',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
 };
 
 export function useAgents() {
@@ -24,8 +25,8 @@ export function useAgents() {
         const parsed = JSON.parse(saved);
         return [DEFAULT_AGENT, ...parsed.map((a: any) => ({
           ...a,
-          createdAt: new Date(a.createdAt),
-          updatedAt: new Date(a.updatedAt),
+          createdAt: a.createdAt ? new Date(a.createdAt).toISOString() : new Date().toISOString(),
+          updatedAt: a.updatedAt ? new Date(a.updatedAt).toISOString() : new Date().toISOString(),
         }))];
       }
     } catch (e) {
@@ -44,8 +45,8 @@ export function useAgents() {
     const newAgent: CustomAgent = {
       ...agent,
       id: uuidv4(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     setAgents(prev => {
       const updated = [...prev, newAgent];
@@ -58,7 +59,7 @@ export function useAgents() {
   const updateAgent = useCallback((id: string, updates: Partial<Omit<CustomAgent, 'id' | 'createdAt'>>) => {
     setAgents(prev => {
       const updated = prev.map(a => 
-        a.id === id ? { ...a, ...updates, updatedAt: new Date() } : a
+        a.id === id ? { ...a, ...updates, updatedAt: new Date().toISOString() } : a
       );
       saveAgents(updated);
       return updated;
