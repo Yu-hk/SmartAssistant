@@ -25,6 +25,29 @@ jobs:
       - name: Maven compile (all modules)
         run: mvn -B compile
 
+  # 工具 Manifest 校验（与编译并行，校验 capabilities/outputSchema 等元数据）
+  manifest-validate:
+    name: Tool manifest validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Run manifest validation tests
+        run: >-
+          mvn -B test
+          -Dtest="*ManifestValidation*"
+          -pl smart-assistant-tool-registry
+          -DfailIfNoTests=false
+      - name: Run manifest shell validator
+        run: |
+          chmod +x scripts/validate-tool-manifest.sh
+          ./scripts/validate-tool-manifest.sh manifests || true
+
   # 评测闭环质量门禁 —— 核心回归卡点
   # 对黄金测试集执行离线 RAG 评测 + 门禁判定（阈值 + 基线回归），失败则阻断构建。
   # 纯内存计算，无需 Redis/PG 等基础设施，可在任意 Runner 确定性运行。
