@@ -37,6 +37,7 @@ import com.example.smartassistant.router.service.routing.KeywordFastRouteService
 import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
 import com.example.smartassistant.router.service.tool.RoutingToolChecker;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -1104,12 +1105,24 @@ public class RouterService {
 
     private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
     private static final long SSE_EVENTS_TTL_SECONDS = 120;
+    /** ⭐ 每个路由会话的最大 SSE 事件数上限 */
+    private static final int MAX_SSE_EVENTS_PER_KEY = 5_000;
+    /** ⭐ SSE 事件数跟踪（per routing-key，防超限） */
+    private final ConcurrentHashMap<String, Integer> sseEventCounts = new ConcurrentHashMap<>();
 
     /**
      * ⭐ 存储 SSE 事件到 Redis（供 Consumer 读取并转发给前端）
      */
     private void storeSseEvent(String eventsKey, String type, String content, String agent) {
         if (eventsKey == null || redisTemplate == null) return;
+        // ⭐ 事件数上限保护
+        int count = sseEventCounts.merge(eventsKey, 1, Integer::sum);
+        if (count > MAX_SSE_EVENTS_PER_KEY) {
+            if (count == MAX_SSE_EVENTS_PER_KEY + 1) {
+                log.warn("[Router] SSE 事件数已达上限 ({}), 停止缓存: key={}", MAX_SSE_EVENTS_PER_KEY, eventsKey);
+            }
+            return;
+        }
         try {
             StringBuilder json = new StringBuilder();
             json.append("{\"type\":\"").append(type).append("\"");
@@ -1124,6 +1137,8 @@ public class RouterService {
             redisTemplate.expire(eventsKey, SSE_EVENTS_TTL_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
             log.warn("[Router] 存储 SSE 事件失败: {}", e.getMessage());
+            // 计数回退 — 避免因异常导致后续都跳过
+            sseEventCounts.computeIfPresent(eventsKey, (k, v) -> v > 0 ? v - 1 : 0);
         }
     }
 
