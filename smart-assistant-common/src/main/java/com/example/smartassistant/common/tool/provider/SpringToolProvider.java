@@ -1,6 +1,10 @@
 package com.example.smartassistant.common.tool.provider;
 
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolGateway;
+import com.example.smartassistant.common.gateway.tool.ToolGatewayToolCallback;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.gateway.tool.ToolTier;
 import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +19,7 @@ import org.springframework.util.ReflectionUtils;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -47,17 +52,25 @@ public class SpringToolProvider implements ToolProvider {
 
     private final ApplicationContext applicationContext;
     private final ToolRegistryClient registryClient;
+    private final ToolGateway gateway;
+    private final ToolRegistry toolRegistry;
 
     /**
      * 构造 SpringToolProvider。
      *
      * @param applicationContext Spring 应用上下文，用于扫描工具 Bean
      * @param registryClient     Tool Registry 客户端，用于查询已注册工具定义
+     * @param gateway            工具执行网关，用于将工具调用接入统一治理链（P0 接线）
+     * @param toolRegistry       本地工具注册表，用于解析工具分层（CORE/SHARED/EXTENSION）
      */
     public SpringToolProvider(ApplicationContext applicationContext,
-                              ToolRegistryClient registryClient) {
+                              ToolRegistryClient registryClient,
+                              ToolGateway gateway,
+                              ToolRegistry toolRegistry) {
         this.applicationContext = applicationContext;
         this.registryClient = registryClient;
+        this.gateway = gateway;
+        this.toolRegistry = toolRegistry;
     }
 
     /**
@@ -97,20 +110,32 @@ public class SpringToolProvider implements ToolProvider {
         }
         log.debug("[SpringToolProvider] 组装了 {} 个 ToolCallback", allCallbacks.size());
 
-        // 3. 从 Registry 获取已注册的工具名集合并过滤
-        Set<String> registeredNames = resolveRegisteredNames(tag, allCallbacks);
+        // 3. 从 Registry 获取已注册的 SHARED/EXTENSION 工具名集合
+        Set<String> registeredNames = resolveRegisteredNames(tag);
 
-        // 4. 过滤：只返回在 Registry 中注册的工具
-        List<ToolCallback> filtered = allCallbacks.stream()
-                .filter(tc -> registeredNames.contains(tc.getToolDefinition().name()))
+        // 4. 三层 merge：CORE 常驻（不依赖中心），SHARED/EXTENSION 需中心 allowlist；
+        //    所有回调经 ToolGatewayToolCallback 包裹，真正接入统一治理链（P0 接线）
+        List<ToolCallback> merged = allCallbacks.stream()
+                .filter(tc -> {
+                    String name = tc.getToolDefinition().name();
+                    // 本地注册表持有项目级 ToolDefinition（含分层 tier）；
+                    // 未注册的本地 @Tool 方法视为 CORE 层（常驻、不依赖中心）。
+                    ToolDefinition def = toolRegistry.get(name);
+                    ToolTier tier = (def != null && def.getToolTier() != null)
+                            ? def.getToolTier() : ToolTier.CORE;
+                    if (tier == ToolTier.CORE) {
+                        return true; // agent 内部领域逻辑，始终可用
+                    }
+                    // SHARED / EXTENSION：必须经中心 Registry 注册（allowlist + 治理）
+                    return registeredNames.contains(name);
+                })
+                .map(tc -> new ToolGatewayToolCallback(tc, gateway, null))
+                .sorted(Comparator.comparing(tc -> tc.getToolDefinition().name()))
                 .collect(Collectors.toList());
 
-        // 5. 按工具名排序
-        filtered.sort(Comparator.comparing(tc -> tc.getToolDefinition().name()));
-
-        log.info("[SpringToolProvider] getToolCallbacks({}): {} beans → {} callbacks → {} matched (sorted)",
-                tag, toolBeans.size(), allCallbacks.size(), filtered.size());
-        return filtered;
+        log.info("[SpringToolProvider] getToolCallbacks({}): {} beans → {} callbacks → {} merged (gateway-wrapped)",
+                tag, toolBeans.size(), allCallbacks.size(), merged.size());
+        return merged;
     }
 
     /**
@@ -161,9 +186,11 @@ public class SpringToolProvider implements ToolProvider {
     }
 
     /**
-     * 从 Registry 查询已注册的工具名集合。Registry 不可用时降级为返回全部工具名。
+     * 从 Registry 查询已注册的工具名集合（SHARED/EXTENSION 的 allowlist）。
+     * <p>Registry 不可用时返回空集：SHARED/EXTENSION 工具的治理依赖中心，
+     * 中心宕机即降级不可用；CORE 工具由上层 merge 逻辑保证始终可用，不受影响。</p>
      */
-    private Set<String> resolveRegisteredNames(String tag, List<ToolCallback> allCallbacks) {
+    private Set<String> resolveRegisteredNames(String tag) {
         try {
             List<ToolDefinition> defs = registryClient.getToolDefinitions(tag);
             Set<String> names = defs.stream()
@@ -172,12 +199,9 @@ public class SpringToolProvider implements ToolProvider {
             log.debug("[SpringToolProvider] Registry 中 tag={} 已注册 {} 个工具", tag, names.size());
             return names;
         } catch (Exception e) {
-            log.warn("[SpringToolProvider] 查询 Registry 失败: tag={}, error={}", tag, e.getMessage());
-            Set<String> fallback = allCallbacks.stream()
-                    .map(tc -> tc.getToolDefinition().name())
-                    .collect(Collectors.toSet());
-            log.warn("[SpringToolProvider] Registry 不可用，降级返回全部 {} 个工具", allCallbacks.size());
-            return fallback;
+            log.warn("[SpringToolProvider] 查询 Registry 失败: tag={}, error={}，仅 CORE 工具可用",
+                    tag, e.getMessage());
+            return Collections.emptySet();
         }
     }
 }

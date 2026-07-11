@@ -1,8 +1,10 @@
 package com.example.smartassistant.common.tool.client;
 
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
+import com.example.smartassistant.common.gateway.tool.ToolGateway;
+import com.example.smartassistant.common.gateway.tool.ToolGatewayToolCallback;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.gateway.tool.ToolStatus;
+import com.example.smartassistant.common.gateway.tool.ToolTier;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -44,6 +46,8 @@ public class ToolRegistryClient {
     private final ToolRegistryProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final ToolGateway gateway;
+    private final ToolRegistry toolRegistry;
 
     /** 本地缓存：tag → (definitions, timestamp) */
     private final Map<String, CacheEntry<List<ToolDefinition>>> definitionCache = new ConcurrentHashMap<>();
@@ -68,9 +72,12 @@ public class ToolRegistryClient {
         }
     }
 
-    public ToolRegistryClient(ToolRegistryProperties properties, ObjectMapper objectMapper) {
+    public ToolRegistryClient(ToolRegistryProperties properties, ObjectMapper objectMapper,
+                              ToolGateway gateway, ToolRegistry toolRegistry) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.gateway = gateway;
+        this.toolRegistry = toolRegistry;
 
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
@@ -213,29 +220,27 @@ public class ToolRegistryClient {
         // 1. 组装所有提供的 Bean 为 ToolCallback
         List<ToolCallback> allCallbacks = assembleCallbacks(toolBeans);
 
-        // 2. 尝试从 Registry 获取已注册的工具定义
-        try {
-            List<ToolDefinition> registeredDefs = fetchFromRegistry(tag);
-            Set<String> registeredNames = registeredDefs.stream()
-                    .map(ToolDefinition::getName)
-                    .collect(Collectors.toSet());
+        // 2. 从 Registry 获取已注册的 SHARED/EXTENSION 工具名集合；中心不可用则空集
+        final Set<String> registeredNames = resolveRegisteredNames(tag);
 
-            // 3. 过滤只保留在 Registry 中注册的工具
-            List<ToolCallback> filtered = allCallbacks.stream()
-                    .filter(tc -> registeredNames.contains(
-                            tc.getToolDefinition().name()))
-                    .collect(Collectors.toList());
+        // 3. 三层 merge：CORE 常驻，SHARED/EXTENSION 需中心 allowlist；
+        //    所有回调经 ToolGatewayToolCallback 包裹，接入统一治理链（P0 接线）
+        List<ToolCallback> merged = allCallbacks.stream()
+                .filter(tc -> {
+                    String name = tc.getToolDefinition().name();
+                    // 本地注册表持有项目级 ToolDefinition（含分层 tier）；
+                    // 未注册的本地 @Tool 方法视为 CORE 层（常驻、不依赖中心）。
+                    ToolDefinition def = toolRegistry.get(name);
+                    ToolTier tier = (def != null && def.getToolTier() != null)
+                            ? def.getToolTier() : ToolTier.CORE;
+                    return tier == ToolTier.CORE || registeredNames.contains(name);
+                })
+                .map(tc -> new ToolGatewayToolCallback(tc, gateway, null))
+                .collect(Collectors.toList());
 
-            log.info("[ToolRegistryClient] getToolCallbacks({}): {} beans → {} registry → {} filtered",
-                    tag, toolBeans.length, registeredDefs.size(), filtered.size());
-            return filtered;
-
-        } catch (Exception e) {
-            // 降级：Registry 不可用时回退到全部工具
-            log.warn("[ToolRegistryClient] getToolCallbacks({}) Registry 不可用，降级使用全部 {} 个工具: {}",
-                    tag, allCallbacks.size(), e.getMessage());
-            return allCallbacks;
-        }
+        log.info("[ToolRegistryClient] getToolCallbacks({}): {} beans → {} merged (gateway-wrapped)",
+                tag, toolBeans.length, merged.size());
+        return merged;
     }
 
     /**
@@ -251,6 +256,24 @@ public class ToolRegistryClient {
             callbacks.addAll(Arrays.asList(beans));
         }
         return callbacks;
+    }
+
+    /**
+     * 从 Registry 查询已注册的工具名集合（SHARED/EXTENSION 的 allowlist）。
+     * <p>Registry 不可用时返回空集：SHARED/EXTENSION 工具的治理依赖中心，
+     * 中心宕机即降级不可用；CORE 工具由上层 merge 逻辑保证始终可用，不受影响。</p>
+     */
+    private Set<String> resolveRegisteredNames(String tag) {
+        try {
+            List<ToolDefinition> registeredDefs = fetchFromRegistry(tag);
+            return registeredDefs.stream()
+                    .map(ToolDefinition::getName)
+                    .collect(Collectors.toSet());
+        } catch (Exception e) {
+            log.warn("[ToolRegistryClient] getToolCallbacks({}) Registry 不可用，仅 CORE 工具可用: {}",
+                    tag, e.getMessage());
+            return Collections.emptySet();
+        }
     }
 
     /**
