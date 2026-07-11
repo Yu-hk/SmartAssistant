@@ -298,13 +298,8 @@ public class RouterService {
                     List<AgentTask> multiAgentTasks = new java.util.ArrayList<>();
 
                     // 主意图 → 构建任务
-                    multiAgentTasks.add(buildAgentTask(
-                            experienceMatch.agentName,
-                            experienceMatch.reroutedQuestion != null
-                                    ? experienceMatch.reroutedQuestion : question,
-                            experienceMatch.experience.getIntentTag(),
-                            experienceMatch.matchScore,
-                            request));
+                    multiAgentTasks.add(buildAgentTask(experienceMatch.agentName,experienceMatch.reroutedQuestion != null
+                                    ? experienceMatch.reroutedQuestion : question,experienceMatch.experience.getIntentTag(),experienceMatch.matchScore));
 
                     // 副意图 → 各构建独立任务
                     for (var si : experienceMatch.secondaryIntents) {
@@ -312,8 +307,7 @@ public class RouterService {
                                 si.agentName,
                                 question, // 各 Agent 拿同一问题自行解析
                                 si.intentTag,
-                                si.score,
-                                request));
+                                si.score));
                     }
 
                     // Step 0b: 并行调用所有 Agent（JDK 21 虚拟线程）
@@ -1024,9 +1018,7 @@ public class RouterService {
     }
 
     /** 从经验匹配结果构建一个 Agent 调用任务 */
-    private AgentTask buildAgentTask(String agentName, String question,
-                                      String intentTag, double confidence,
-                                      RouteRequest request) {
+    private AgentTask buildAgentTask(String agentName, String question, String intentTag, double confidence) {
         return new AgentTask(agentName, question, intentTag, confidence);
     }
 
