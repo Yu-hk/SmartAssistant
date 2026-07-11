@@ -11,7 +11,9 @@ import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
+import com.example.smartassistant.common.gateway.tool.ToolTier;
 import com.example.smartassistant.common.tool.ToolResult;
+import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import jakarta.annotation.PostConstruct;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,6 +45,7 @@ public class ImageTools {
     private final ObjectMapper objectMapper;
     private final String dashscopeApiKey;
     private final ToolRegistry toolRegistry;
+    private final ToolRegistryClient registryClient;
 
     private static final String VL_MODEL = "qwen-vl-max";
     private static final String WANX_MODEL = "wanx-image-generation-v1";
@@ -52,21 +55,27 @@ public class ImageTools {
     private static final String DASHSCOPE_TASK_URL = "https://dashscope.aliyuncs.com/api/v1/tasks/";
 
     public ImageTools(@Value("${spring.ai.dashscope.api-key:}") String dashscopeApiKey,
-                      ToolRegistry toolRegistry) {
+                      ToolRegistry toolRegistry,
+                      ToolRegistryClient registryClient) {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         this.objectMapper = new ObjectMapper();
         this.dashscopeApiKey = dashscopeApiKey;
         this.toolRegistry = toolRegistry;
+        this.registryClient = registryClient;
     }
 
     @PostConstruct
     public void initTools() {
-        toolRegistry.registerAll(java.util.List.of(
-                ToolDefinition.write("analyzeImage", "分析图片内容", ToolRiskLevel.LOW),
-                ToolDefinition.write("generateImage", "根据文字生成图片", ToolRiskLevel.LOW)
-        ));
+        // SHARED 层：跨 agent 共享基建，注册到中心 Registry 接受统一治理
+        ToolDefinition analyzeImage = ToolDefinition.write("analyzeImage", "分析图片内容", ToolRiskLevel.LOW)
+                .toBuilder().toolTier(ToolTier.SHARED).build();
+        ToolDefinition generateImage = ToolDefinition.write("generateImage", "根据文字生成图片", ToolRiskLevel.LOW)
+                .toBuilder().toolTier(ToolTier.SHARED).build();
+        toolRegistry.registerAll(java.util.List.of(analyzeImage, generateImage));
+        registryClient.registerWithFallback(analyzeImage, toolRegistry);
+        registryClient.registerWithFallback(generateImage, toolRegistry);
     }
 
     @Tool(description = "分析图片内容，根据用户的问题回答图片中的信息。支持图片URL和base64数据URI。"

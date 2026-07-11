@@ -1,5 +1,7 @@
 package com.example.smartassistant.common.tool.provider;
 
+import com.example.smartassistant.common.gateway.tool.ToolGateway;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -22,7 +24,9 @@ public class ToolProviderAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(ToolProvider.class)
     public ToolProvider toolProvider(ApplicationContext applicationContext,
-                                     ToolRegistryClient registryClient) {
-        return new SpringToolProvider(applicationContext, registryClient);
+                                     ToolRegistryClient registryClient,
+                                     ToolGateway gateway,
+                                     ToolRegistry toolRegistry) {
+        return new SpringToolProvider(applicationContext, registryClient, gateway, toolRegistry);
     }
 }

@@ -9,6 +9,7 @@ package com.example.smartassistant.toolregistry.tool.common;
 
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.gateway.tool.ToolTier;
 import com.example.smartassistant.common.tool.GifCacheStore;
 import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
@@ -59,8 +60,11 @@ public class DataGifTool implements RegistryTool {
 
     @PostConstruct
     public void initTools() {
-        toolRegistry.register(ToolDefinition.write("generateTrendGif", "生成趋势动画GIF",
-                ToolRiskLevel.LOW));
+        // SHARED 层：跨 agent 共享基建，注册到中心 Registry 接受统一治理
+        ToolDefinition def = ToolDefinition.write("generateTrendGif", "生成趋势动画GIF",
+                ToolRiskLevel.LOW).toBuilder().toolTier(ToolTier.SHARED).build();
+        toolRegistry.register(def);
+        registryClient.registerWithFallback(def, toolRegistry);
     }
 
     public byte[] getGifFromCache(String cacheKey) {

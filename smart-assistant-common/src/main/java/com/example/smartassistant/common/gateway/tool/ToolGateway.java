@@ -1,7 +1,7 @@
 package com.example.smartassistant.common.gateway.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.error.ErrorRecoveryService;
+import com.example.smartassistant.common.gateway.tool.ToolStatus;
 import com.example.smartassistant.common.gateway.tool.hook.ToolExecutionHook;
 import com.example.smartassistant.common.gateway.tool.hook.ToolHookContext;
 import org.slf4j.Logger;
@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -74,13 +75,54 @@ public class ToolGateway {
      */
     public String execute(String toolName, ToolExecutor executor,
                           String scope, String idempotencyKey) {
-        long start = System.currentTimeMillis();
-
-        // 0. 获取工具定义
         ToolDefinition def = toolRegistry.get(toolName);
         if (def == null) {
-            throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_INVALID_ARGUMENT,
-                    "工具未注册: " + toolName);
+            // 未在本地注册表：视为本地 @Tool 方法（CORE 层），按 ACTIVE 默认定义执行，
+            // 不依赖中心治理（符合 "CORE 常驻不可禁用" 的设计约定）。
+            // SHARED/EXTENSION 工具若未注册，Provider 已按 allowlist 将其排除，不会走到此分支。
+            log.debug("[ToolGateway] 工具未在本地注册表，按 CORE/ACTIVE 默认定义执行: {}", toolName);
+            def = ToolDefinition.builder()
+                    .name(toolName)
+                    .description(toolName)
+                    .build();
+        }
+        return doExecute(def, executor, scope, idempotencyKey);
+    }
+
+    /**
+     * 执行工具调用（持有已解析的 {@link ToolDefinition} 重载）。
+     * <p>
+     * 供 {@code ToolGatewayToolCallback} 装饰器使用：避免依赖本地 ToolRegistry 的
+     * 播种时序，直接对调用方提供的定义执行统一的治理链（status / 审批钩子 /
+     * scope 鉴权 / 熔断 / 限流 / 超时 / 幂等 / 审计）。
+     * </p>
+     *
+     * @param def             已解析的工具定义（不可为 null）
+     * @param executor        工具执行回调
+     * @param scope           调用方 Scope（null = 不检查权限）
+     * @param idempotencyKey  幂等键（null = 不检查幂等）
+     * @return 工具执行结果
+     */
+    public String execute(ToolDefinition def, ToolExecutor executor,
+                          String scope, String idempotencyKey) {
+        Objects.requireNonNull(def, "def must not be null");
+        return doExecute(def, executor, scope, idempotencyKey);
+    }
+
+    /**
+     * 统一的工具执行治理链（两个公共重载均汇聚于此）。
+     */
+    private String doExecute(ToolDefinition def, ToolExecutor executor,
+                             String scope, String idempotencyKey) {
+        long start = System.currentTimeMillis();
+        String toolName = def.getName();
+
+        // 0. 状态拦截：CORE 层常驻不可禁用；SHARED/EXTENSION 受中心状态治理
+        ToolStatus status = def.getStatus();
+        if (status == ToolStatus.DISABLED || status == ToolStatus.REMOVED) {
+            log.warn("[ToolGateway] 工具已停用/移除，拒绝执行: tool={}, status={}", toolName, status);
+            throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_STATUS_DISABLED,
+                    "工具已停用或移除: " + toolName + ", status=" + status);
         }
 
         // 0.5 构建 Hook 上下文 + preExecute 链（按 @Order 正序执行）
