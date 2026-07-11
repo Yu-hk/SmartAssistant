@@ -12,7 +12,6 @@ import com.example.smartassistant.common.rag.BgeReranker;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.Reranker;
 import com.example.smartassistant.common.rag.retrieval.CrossDocumentConflictResolver;
-import com.example.smartassistant.common.rag.trace.RetrievalTrace;
 import com.example.smartassistant.common.rag.trace.RetrievalTraceRepository;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;

@@ -32,7 +32,7 @@ class EvalGateTest {
             new HallucinationDetector.HallucinationResult(true, 0.9,
                     List.of(new HallucinationDetector.HallucinationClaim("数字断言", "x", "y", 0.9)), "bad");
 
-    private static RAGEvaluationResult rag(double ndcg, double hallucRate, boolean halluc) {
+    private static RAGEvaluationResult rag(double ndcg, boolean halluc) {
         List<RetrievalMetrics.MetricResult> metrics =
                 List.of(new RetrievalMetrics.MetricResult("nDCG", ndcg, 5));
         HallucinationDetector.HallucinationResult h = halluc
@@ -44,7 +44,7 @@ class EvalGateTest {
     void absoluteThresholdsPassWhenAllGood() {
         EvalGate gate = new EvalGate();
         EvalGateConfig cfg = new EvalGateConfig(); // 默认阈值
-        List<RAGEvaluationResult> rag = List.of(rag(1.0, 0.0, false), rag(0.9, 0.0, false));
+        List<RAGEvaluationResult> rag = List.of(rag(1.0, false), rag(0.9, false));
         EvalGate.GateResult r = gate.evaluate(rag, List.of(), cfg, null);
         assertTrue(r.passed(), "全部指标达标应通过，违规: " + r.violations());
     }
@@ -53,7 +53,7 @@ class EvalGateTest {
     void absoluteThresholdsFailWhenHallucinationTooHigh() {
         EvalGate gate = new EvalGate();
         EvalGateConfig cfg = new EvalGateConfig();
-        List<RAGEvaluationResult> rag = List.of(rag(1.0, 0.0, false), rag(1.0, 0.9, true));
+        List<RAGEvaluationResult> rag = List.of(rag(1.0, false), rag(1.0, true));
         EvalGate.GateResult r = gate.evaluate(rag, List.of(), cfg, null);
         assertFalse(r.passed(), "平均幻觉率超阈值应失败");
         assertTrue(r.violations().stream().anyMatch(v -> v.contains("幻觉率")),
@@ -66,7 +66,7 @@ class EvalGateTest {
         EvalGateConfig cfg = new EvalGateConfig(); // compareToBaseline=true, maxRegression=0.05
 
         // 当前质量明显低于基线 → 应判定回归
-        List<RAGEvaluationResult> rag = List.of(rag(0.5, 0.0, false)); // avgComposite ≈ 0.8
+        List<RAGEvaluationResult> rag = List.of(rag(0.5, false)); // avgComposite ≈ 0.8
 
         EvalBaseline baseline = new EvalBaseline();
         baseline.metrics = Map.of(
@@ -89,7 +89,7 @@ class EvalGateTest {
     void baselineStableWithinTolerancePasses() {
         EvalGate gate = new EvalGate();
         EvalGateConfig cfg = new EvalGateConfig();
-        List<RAGEvaluationResult> rag = List.of(rag(0.98, 0.0, false)); // avgComposite ≈ 0.992
+        List<RAGEvaluationResult> rag = List.of(rag(0.98, false)); // avgComposite ≈ 0.992
 
         EvalBaseline baseline = new EvalBaseline();
         baseline.metrics = Map.of(

@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * 词槽状态机——基于意图类型定义词槽表，跟踪填充/缺失/默认/冲突状态。

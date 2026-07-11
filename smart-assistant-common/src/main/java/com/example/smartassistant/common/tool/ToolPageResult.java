@@ -7,9 +7,7 @@
 
 package com.example.smartassistant.common.tool;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 分页工具结果格式化——为批量查询工具提供统一的 offset/limit 续读入口。

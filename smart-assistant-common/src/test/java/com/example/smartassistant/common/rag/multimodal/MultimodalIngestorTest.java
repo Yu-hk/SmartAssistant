@@ -9,7 +9,6 @@ package com.example.smartassistant.common.rag.multimodal;
 import com.example.smartassistant.common.rag.KnowledgeBase;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
-import org.mockito.Mockito;
 
 import java.util.List;
 

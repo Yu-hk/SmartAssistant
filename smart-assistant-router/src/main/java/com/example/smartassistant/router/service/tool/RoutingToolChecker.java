@@ -1,6 +1,5 @@
 package com.example.smartassistant.router.service.tool;
 
-import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolGateway;
@@ -10,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * 路由级工具健康检查服务。

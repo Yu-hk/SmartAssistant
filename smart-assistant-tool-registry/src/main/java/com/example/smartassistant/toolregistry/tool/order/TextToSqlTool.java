@@ -10,7 +10,6 @@ package com.example.smartassistant.toolregistry.tool.order;
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.tool.client.ToolRegistryClient;
-import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.sql.SqlSecurityValidator;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;

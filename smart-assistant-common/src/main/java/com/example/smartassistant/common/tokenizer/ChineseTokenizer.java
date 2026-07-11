@@ -8,7 +8,6 @@
 package com.example.smartassistant.common.tokenizer;
 
 import com.hankcs.hanlp.HanLP;
-import com.hankcs.hanlp.corpus.tag.Nature;
 import com.hankcs.hanlp.seg.common.Term;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;

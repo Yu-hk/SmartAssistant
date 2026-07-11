@@ -1,6 +1,5 @@
 package com.example.smartassistant.common.skill;
 
-import com.example.smartassistant.common.prompt.PromptBuilder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

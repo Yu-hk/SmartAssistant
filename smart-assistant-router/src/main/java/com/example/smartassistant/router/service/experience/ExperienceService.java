@@ -9,7 +9,6 @@ package com.example.smartassistant.router.service.experience;
 
 import com.example.smartassistant.common.cache.CacheVersionManager;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
-import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;

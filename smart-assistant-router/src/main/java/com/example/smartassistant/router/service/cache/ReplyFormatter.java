@@ -135,29 +135,6 @@ public class ReplyFormatter {
         return reply.replaceAll("^\\d+\\.\\s*[^\\n]+\\n\\n", "");
     }
 
-    private String rewriteReply(String reply) {
-        try {
-            String result = chatClient.prompt()
-                    .user("用不同语气重写，保持所有事实信息（温度、地点、数字、日期等）完全不变。"
-                            + "不添加额外说明，直接输出重写结果：\n" + reply)
-                    .call().content();
-            if (result != null) {
-                result = result.trim();
-                int idx = result.indexOf("\n\n");
-                if (idx > 0 && result.length() > idx + 50) {
-                    String firstLine = result.substring(0, idx).trim();
-                    if (firstLine.length() > 5 && !firstLine.contains(":")) {
-                        result = result.substring(idx + 2).trim();
-                    }
-                }
-            }
-            return result;
-        } catch (Exception e) {
-            log.warn("[SemanticCache] LLM rewrite failed: {}", e.getMessage());
-            return null;
-        }
-    }
-
     private String rewriteForPrefixMatch(String cachedReply, String cachedQuestion, String userQuestion) {
         try {
             String result = chatClient.prompt()

@@ -17,8 +17,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
  * 统一的评估报告服务 — 整合 RAG 评测 + Agent 评测，支持从 JSON 配置加载黄金测试集。

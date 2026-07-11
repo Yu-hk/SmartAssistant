@@ -80,7 +80,7 @@ public class SafeGuardAdvisor implements CallAdvisor, StreamAdvisor, Ordered {
         AgentSafetyService.InjectionResult result = safetyService.detectInjection(scanText(request));
         if (!result.isSafe()) {
             log.warn("[SafeGuard][requestId={}] 拦截注入输入: {}", traceId(), result.reason());
-            publishBlocked(request, result.reason());
+            publishBlocked(request);
             throw new PromptInjectionBlockedException(result.reason());
         }
         return chain.nextCall(request);
@@ -91,7 +91,7 @@ public class SafeGuardAdvisor implements CallAdvisor, StreamAdvisor, Ordered {
         AgentSafetyService.InjectionResult result = safetyService.detectInjection(scanText(request));
         if (!result.isSafe()) {
             log.warn("[SafeGuard][requestId={}] 拦截注入输入: {}", traceId(), result.reason());
-            publishBlocked(request, result.reason());
+            publishBlocked(request);
             return Flux.error(new PromptInjectionBlockedException(result.reason()));
         }
         return chain.nextStream(request);
@@ -104,7 +104,7 @@ public class SafeGuardAdvisor implements CallAdvisor, StreamAdvisor, Ordered {
         return contents != null ? contents : "";
     }
 
-    private void publishBlocked(ChatClientRequest request, String reason) {
+    private void publishBlocked(ChatClientRequest request) {
         if (eventPublisher == null) return;
         String digest = truncate(request.prompt() != null ? request.prompt().getContents() : "", 200);
         eventPublisher.publishEvent(new AiAuditEvent(
