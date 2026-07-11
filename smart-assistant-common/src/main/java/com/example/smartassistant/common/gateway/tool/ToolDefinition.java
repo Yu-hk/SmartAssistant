@@ -1,6 +1,7 @@
 package com.example.smartassistant.common.gateway.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.gateway.tool.ToolTier;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -29,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @Getter
 @Setter
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
@@ -116,6 +117,10 @@ public class ToolDefinition {
 
     /** 输出 Schema（JSON Schema 字符串），默认 null */
     private String outputSchema;
+
+    /** 工具分层（CORE / SHARED / EXTENSION），默认 {@link ToolTier#CORE} */
+    @Builder.Default
+    private ToolTier toolTier = ToolTier.CORE;
 
     /** 调用计数（线程安全，用于内部统计） */
     @Builder.Default

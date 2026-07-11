@@ -1,5 +1,7 @@
 package com.example.smartassistant.common.tool.client;
 
+import com.example.smartassistant.common.gateway.tool.ToolGateway;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,9 +31,11 @@ public class ToolRegistryAutoConfiguration {
     @ConditionalOnMissingBean
     public ToolRegistryClient toolRegistryClient(
             ToolRegistryProperties properties,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ToolGateway gateway,
+            ToolRegistry toolRegistry) {
         log.info("[ToolRegistryAutoConfiguration] 初始化 ToolRegistryClient: url={}, cacheTtl={}s",
                 properties.getUrl(), properties.getCacheTtlSeconds());
-        return new ToolRegistryClient(properties, objectMapper);
+        return new ToolRegistryClient(properties, objectMapper, gateway, toolRegistry);
     }
 }
