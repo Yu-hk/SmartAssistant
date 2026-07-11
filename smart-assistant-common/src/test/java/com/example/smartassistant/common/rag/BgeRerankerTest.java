@@ -1,6 +1,5 @@
 package com.example.smartassistant.common.rag;
 
-import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

@@ -216,14 +216,6 @@ public class SemanticCacheService {
     }
     
     /**
-     * 获取年龄（小时）
-     */
-    private double getAgeInHours(long timestamp) {
-        long ageMs = System.currentTimeMillis() - timestamp;
-        return ageMs / 3600000.0;
-    }
-    
-    /**
      * 截断字符串（用于日志）
      */
     private String truncate(String text) {

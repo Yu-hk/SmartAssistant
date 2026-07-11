@@ -9,7 +9,6 @@ package com.example.smartassistant.router.service.checkpoint;
 
 import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.SubTaskResult;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;

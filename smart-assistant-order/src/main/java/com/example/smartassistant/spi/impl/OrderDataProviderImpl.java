@@ -334,19 +334,6 @@ public class OrderDataProviderImpl implements OrderDataProvider {
                 .build();
     }
 
-    private RefundDTO toRefundDTO(OrderRefundEntity entity) {
-        if (entity == null) return null;
-        return RefundDTO.builder()
-                .id(entity.getId())
-                .orderId(entity.getOrderId())
-                .amount(entity.getAmount())
-                .reason(entity.getReason())
-                .status(entity.getStatus())
-                .createTime(entity.getCreatedAt())
-                .updatedAt(entity.getUpdatedAt())
-                .build();
-    }
-
     private OrderRefundEntity toRefundEntity(RefundDTO dto) {
         if (dto == null) return null;
         return OrderRefundEntity.builder()

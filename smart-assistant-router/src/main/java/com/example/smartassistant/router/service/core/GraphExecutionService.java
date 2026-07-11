@@ -223,7 +223,7 @@ public class GraphExecutionService {
             for (IntentNode node : executableNodes) {
                 final IntentNode currentNode = node;
                 CompletableFuture<Void> future = CompletableFuture
-                        .supplyAsync(() -> executeNode(currentNode, wg[0], completedMap, breakerFailureCounts, userId, eventsKey, requestId), parallelExecutor)
+                        .supplyAsync(() -> executeNode(currentNode, completedMap, breakerFailureCounts, userId, eventsKey, requestId), parallelExecutor)
                         .thenAccept(result -> {
                             if (result != null) {
                                 completedMap.put(currentNode.getId(), result);
@@ -289,8 +289,7 @@ public class GraphExecutionService {
             previousCompleted = currentCompleted;
 
             // ⭐ 重规划检测：本轮执行完毕后，检查是否有 NEED_REPLAN 节点
-            int replanCount = triggerReplanIfNeeded(wg[0], completedMap, allResults,
-                    userId, eventsKey, requestId);
+            int replanCount = triggerReplanIfNeeded(wg[0], completedMap, allResults);
             if (replanCount > 0) {
                 // 恢复计数，因为新增了节点需要继续执行
                 staleRounds = 0;
@@ -383,10 +382,10 @@ public class GraphExecutionService {
         final ConcurrentHashMap<String, Integer> handoffBreakerCounts = new ConcurrentHashMap<>();
 
         // ⭐ 检测是否有 Handoff 请求
-        List<SubTaskResult> handoffResults = processHandoffs(results, graph, userId, eventsKey, requestId, handoffBreakerCounts);
+        List<SubTaskResult> handoffResults = processHandoffs(results, userId, eventsKey, requestId, handoffBreakerCounts);
         while (!handoffResults.isEmpty()) {
             results.addAll(handoffResults);
-            handoffResults = processHandoffs(results, graph, userId, eventsKey, requestId, handoffBreakerCounts);
+            handoffResults = processHandoffs(results, userId, eventsKey, requestId, handoffBreakerCounts);
         }
 
         return results;
@@ -420,13 +419,13 @@ public class GraphExecutionService {
             }
         }
 
-        List<SubTaskResult> handoffResults = processHandoffs(results, graph, userId,
+        List<SubTaskResult> handoffResults = processHandoffs(results, userId,
                 eventsKey, requestId, handoffBreakerCounts);
         int handoffRound = 0;
         while (!handoffResults.isEmpty()) {
             handoffRound++;
             results.addAll(handoffResults);
-            handoffResults = processHandoffs(results, graph, userId,
+            handoffResults = processHandoffs(results, userId,
                     eventsKey, requestId, handoffBreakerCounts);
 
             // ⭐ Handoff Checkpoint：每轮保存
@@ -467,9 +466,7 @@ public class GraphExecutionService {
      * 或异步 Redis List 事件总线模式。
      * </p>
      */
-    private List<SubTaskResult> processHandoffs(List<SubTaskResult> results, IntentGraph graph,
-                                                 Long userId, String eventsKey, String requestId,
-                                                 ConcurrentHashMap<String, Integer> breakerFailureCounts) {
+    private List<SubTaskResult> processHandoffs(List<SubTaskResult> results, Long userId, String eventsKey, String requestId, ConcurrentHashMap<String, Integer> breakerFailureCounts) {
         List<SubTaskResult> newResults = new ArrayList<>();
 
         for (SubTaskResult result : results) {
@@ -496,7 +493,7 @@ public class GraphExecutionService {
                 // 异步 Handoff 不产生即时结果
             } else {
                 // 同步模式：HTTP 调用等待返回（旧逻辑），含节点级熔断
-                SubTaskResult handoffResult = executeHandoffNode(cmd, userId, eventsKey, requestId, breakerFailureCounts);
+                SubTaskResult handoffResult = executeHandoffNode(cmd, userId, requestId, breakerFailureCounts);
                 if (handoffResult != null) {
                     newResults.add(handoffResult);
                 }
@@ -531,8 +528,7 @@ public class GraphExecutionService {
      * </p>
      */
     private SubTaskResult executeHandoffNode(HandoffCommand cmd, Long userId,
-                                              String eventsKey, String requestId,
-                                              ConcurrentHashMap<String, Integer> breakerFailureCounts) {
+                                             String requestId, ConcurrentHashMap<String, Integer> breakerFailureCounts) {
         String targetAgent = cmd.targetAgent();
         String handoffTaskId = "handoff_" + targetAgent + "_" + System.currentTimeMillis();
 
@@ -642,7 +638,7 @@ public class GraphExecutionService {
      * 将直接跳过（返回 SKIPPED），避免"异常处理制造更多异常"的负反馈循环。
      * </p>
      */
-    private SubTaskResult executeNode(IntentNode node, IntentGraph graph,
+    private SubTaskResult executeNode(IntentNode node,
                                        ConcurrentHashMap<String, SubTaskResult> completedMap,
                                        ConcurrentHashMap<String, Integer> breakerFailureCounts,
                                        Long userId, String eventsKey, String requestId) {
@@ -842,8 +838,7 @@ public class GraphExecutionService {
      */
     private int triggerReplanIfNeeded(IntentGraph graph,
                                        ConcurrentHashMap<String, SubTaskResult> completedMap,
-                                       List<SubTaskResult> allResults,
-                                       Long userId, String eventsKey, String requestId) {
+                                       List<SubTaskResult> allResults) {
         // 找出 NEED_REPLAN 的节点（本轮刚完成的）
         List<SubTaskResult> needReplan = allResults.stream()
                 .filter(r -> r.needsReplan() && completedMap.containsKey(r.getTaskId()))
@@ -858,7 +853,7 @@ public class GraphExecutionService {
                     truncate(failedResult.getDescription(), 80));
 
             List<IntentGraph.IntentNode> newNodes = replanFailedNode(
-                    graph, failedResult, completedMap, allResults);
+                    graph, failedResult, allResults);
 
             if (newNodes != null && !newNodes.isEmpty()) {
                 // 从已完成中移除旧节点（它失败了，需要新节点替代）
@@ -885,7 +880,6 @@ public class GraphExecutionService {
      */
     private List<IntentGraph.IntentNode> replanFailedNode(IntentGraph graph,
                                                            SubTaskResult failedResult,
-                                                           Map<String, SubTaskResult> completedMap,
                                                            List<SubTaskResult> allResults) {
         // 收集已成功的上下文
         StringBuilder completedContext = new StringBuilder();

@@ -7,7 +7,6 @@
 
 package com.example.smartassistant.common.rag.eval;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**

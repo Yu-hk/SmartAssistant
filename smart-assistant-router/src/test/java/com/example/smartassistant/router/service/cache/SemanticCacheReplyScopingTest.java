@@ -8,7 +8,6 @@
 package com.example.smartassistant.router.service.cache;
 
 import com.example.smartassistant.common.cache.CacheVersionManager;
-import com.example.smartassistant.common.rag.AclContext;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
@@ -21,7 +20,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.MDC;
-import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -42,7 +40,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
  * P3-B 缓存策略对齐单元测试（对标文章⑥：不缓存可变最终回答 / 权限+版本进入缓存 key）。

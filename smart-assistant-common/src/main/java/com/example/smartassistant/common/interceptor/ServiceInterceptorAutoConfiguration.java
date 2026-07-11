@@ -10,17 +10,13 @@ package com.example.smartassistant.common.interceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.Advisor;
-import org.springframework.aop.MethodBeforeAdvice;
 import org.springframework.aop.framework.AopInfrastructureBean;
 import org.springframework.aop.support.DefaultPointcutAdvisor;
-import org.springframework.aop.support.annotation.AnnotationMatchingPointcut;
-import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportAware;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.AnnotationAttributes;
-import org.springframework.core.annotation.Order;
 import org.springframework.core.type.AnnotationMetadata;
 
 import java.lang.reflect.Method;

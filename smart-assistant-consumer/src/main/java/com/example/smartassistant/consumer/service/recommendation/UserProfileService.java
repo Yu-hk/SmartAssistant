@@ -10,7 +10,6 @@ package com.example.smartassistant.consumer.service.recommendation;
 import com.example.smartassistant.consumer.entity.UserProfile;
 import com.example.smartassistant.consumer.service.memory.MemorySource;
 import com.example.smartassistant.consumer.service.memory.MemoryVersionStore;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;

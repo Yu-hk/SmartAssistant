@@ -9,7 +9,6 @@ package com.example.smartassistant.toolregistry.tool.order;
 
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.memory.AgentMemoryService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;

@@ -9,8 +9,6 @@ package com.example.smartassistant.consumer.service.recommendation;
 
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
-import lombok.Getter;
-import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;

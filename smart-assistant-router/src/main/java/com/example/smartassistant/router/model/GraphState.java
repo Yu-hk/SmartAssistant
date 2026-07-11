@@ -8,7 +8,6 @@
 package com.example.smartassistant.router.model;
 
 import java.util.*;
-import java.util.function.BinaryOperator;
 
 /**
  * Graph 执行状态 — 类型化的共享 State，支持 Reducer 语义。

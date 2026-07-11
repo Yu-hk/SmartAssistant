@@ -67,10 +67,10 @@ public class SemanticChunkStrategy implements ChunkStrategy {
         List<String> sections = splitBySemanticBoundaries(text);
 
         // Stage 2: 将段落组合并为不超过 maxTokens 的 chunk
-        List<Chunk> result = mergeSections(sections, maxTokens, overlap);
+        List<Chunk> result = mergeSections(sections, maxTokens);
 
         // Stage 3: 对仍超长的段落进行递归分块 fallback
-        result = applyFallbackForOversized(result, maxTokens, overlap);
+        result = applyFallbackForOversized(result, maxTokens);
 
         log.debug("[SemanticChunk] 分块完成: textLen={}, sections={}, chunks={}",
                 text.length(), sections.size(), result.size());
@@ -139,7 +139,7 @@ public class SemanticChunkStrategy implements ChunkStrategy {
     }
 
     /** 合并小段落为不超过 maxTokens 的 chunk */
-    private List<Chunk> mergeSections(List<String> sections, int maxTokens, int overlap) {
+    private List<Chunk> mergeSections(List<String> sections, int maxTokens) {
         List<Chunk> result = new ArrayList<>();
         StringBuilder buffer = new StringBuilder();
 
@@ -174,7 +174,7 @@ public class SemanticChunkStrategy implements ChunkStrategy {
     }
 
     /** 对仍超长的 chunk 使用递归分块 fallback */
-    private List<Chunk> applyFallbackForOversized(List<Chunk> chunks, int maxTokens, int overlap) {
+    private List<Chunk> applyFallbackForOversized(List<Chunk> chunks, int maxTokens) {
         List<Chunk> result = new ArrayList<>();
         for (Chunk chunk : chunks) {
             if (RecursiveChunkStrategy.estimateTokens(chunk.getText()) > maxTokens) {

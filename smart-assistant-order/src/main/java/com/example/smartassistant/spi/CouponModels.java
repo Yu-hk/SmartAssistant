@@ -9,7 +9,6 @@ package com.example.smartassistant.spi;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * 优惠券数据模型。

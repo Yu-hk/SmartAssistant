@@ -87,7 +87,7 @@ public class RouterRagService {
             // ⭐ Step 2.5: 提取实体并生成回指文本
             String backReferences = "";
             if (backrefEnabled) {
-                List<EntityRef> entities = extractEntities(question, conversationHistory);
+                List<EntityRef> entities = extractEntities(conversationHistory);
                 if (!entities.isEmpty()) {
                     backReferences = generateBackReferences(entities);
                     log.debug("[RouterRAG] 回指: {} 个实体", entities.size());
@@ -205,7 +205,7 @@ public class RouterRagService {
      * @param conversationHistory 历史对话
      * @return 实体引用列表
      */
-    private List<EntityRef> extractEntities(String currentQuestion, List<String> conversationHistory) {
+    private List<EntityRef> extractEntities(List<String> conversationHistory) {
         StringBuilder historyBuilder = new StringBuilder();
         for (int i = 0; i < Math.min(conversationHistory.size(), maxHistoryMessages); i++) {
             historyBuilder.append(conversationHistory.get(i)).append("\n");
