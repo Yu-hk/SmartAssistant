@@ -9,6 +9,7 @@ package com.example.smartassistant.common.skill;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.*;
 
@@ -31,6 +32,7 @@ import java.util.*;
  *     - id: ... 更多技能包
  * }</pre>
  */
+@ConfigurationProperties(prefix = "skill-package")
 public class SkillPackageProperties {
 
     private static final Logger log = LoggerFactory.getLogger(SkillPackageProperties.class);
