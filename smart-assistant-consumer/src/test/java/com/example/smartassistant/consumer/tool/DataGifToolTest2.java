@@ -24,9 +24,6 @@ import java.awt.*;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
-import java.util.function.Function;
-import java.util.stream.Stream;
 
 /**
  * DataGifTool 快速功能测试（独立可执行）

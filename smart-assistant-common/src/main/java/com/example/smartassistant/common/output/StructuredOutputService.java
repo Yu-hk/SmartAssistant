@@ -7,7 +7,6 @@
 
 package com.example.smartassistant.common.output;
 
-import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

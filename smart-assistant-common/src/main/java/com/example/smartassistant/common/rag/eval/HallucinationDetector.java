@@ -13,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * 幻觉检测器 — 检查答案中的关键断言是否被检索到的上下文支持。

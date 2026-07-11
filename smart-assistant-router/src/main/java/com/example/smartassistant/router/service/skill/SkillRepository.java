@@ -2,7 +2,6 @@ package com.example.smartassistant.router.service.skill;
 
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
 import com.example.smartassistant.router.service.routing.KeywordFastRouteService;
 import jakarta.annotation.PostConstruct;

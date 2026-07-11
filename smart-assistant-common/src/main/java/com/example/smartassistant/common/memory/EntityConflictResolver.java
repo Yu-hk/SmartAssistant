@@ -87,7 +87,7 @@ public class EntityConflictResolver {
         // 值不同 → 检测到冲突
         String oldValue = current.value;
         String resolvedValue = resolve(defaultResolution, oldValue, value);
-        String description = buildDescription(entityType, entityId, oldValue, value, resolvedValue);
+        String description = buildDescription(entityType,entityId,oldValue,value);
 
         // 更新为新值
         current.value = resolvedValue;
@@ -154,8 +154,7 @@ public class EntityConflictResolver {
         };
     }
 
-    private String buildDescription(String entityType, String entityId,
-                                    String oldValue, String newValue, String resolvedValue) {
+    private String buildDescription(String entityType, String entityId, String oldValue, String newValue) {
         if (oldValue.equals(newValue)) return null;
         return String.format("⚠️ 注意：%s(%s)的信息从「%s」变更为「%s」。",
                 entityType, entityId, oldValue, newValue);

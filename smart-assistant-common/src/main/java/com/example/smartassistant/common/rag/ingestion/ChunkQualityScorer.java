@@ -6,7 +6,6 @@
  */
 package com.example.smartassistant.common.rag.ingestion;
 
-import com.example.smartassistant.common.rag.AuthorityLevel;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 
 /**

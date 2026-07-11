@@ -14,8 +14,6 @@ import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.tool.provider.ToolProvider;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
-import com.example.smartassistant.common.tool.AiToolRegistry;
-import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.skill.SkillPackageManager;
 import com.example.smartassistant.service.monitoring.ProductMetricsCollector;
 import lombok.extern.slf4j.Slf4j;

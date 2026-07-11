@@ -7,11 +7,8 @@
 
 package com.example.smartassistant.common.agent;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.function.Consumer;
 
 /**
  * ⭐ 上下文压缩钩子接口 — 压缩前/后执行自定义逻辑。

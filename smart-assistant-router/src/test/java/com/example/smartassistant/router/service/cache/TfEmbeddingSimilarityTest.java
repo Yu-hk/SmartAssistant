@@ -13,7 +13,6 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.when;
 
 /**
  * TF 向量相似度测试 — 50+ 字长文本模拟 Agent 真实回复
