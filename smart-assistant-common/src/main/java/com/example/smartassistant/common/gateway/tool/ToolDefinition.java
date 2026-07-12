@@ -121,6 +121,15 @@ public class ToolDefinition {
     /** 输出 Schema（JSON Schema 字符串），默认 null */
     private String outputSchema;
 
+    /**
+     * MCP-backed 工具源的工具入参 JSON Schema（同步自后端 MCP server）；中心 @Tool 工具为 null。
+     * <p>
+     * 仅用于后续 T2c 的 {@code McpBackendToolExecutor} 转发后端 MCP 工具入参 schema。
+     * 默认 null，向后兼容；不纳入 {@code equals}/{@code hashCode}（与既有字段风格一致）。
+     * </p>
+     */
+    private String inputSchema;
+
     /** 工具分层（CORE / SHARED / EXTENSION），默认 {@link ToolTier#CORE} */
     @Builder.Default
     private ToolTier toolTier = ToolTier.CORE;
