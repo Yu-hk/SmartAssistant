@@ -1,5 +1,6 @@
 package com.example.smartassistant.router.service.evaluation;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -24,6 +25,12 @@ class EntityNormalizerTest {
 
     private final EntityNormalizer normalizer = new EntityNormalizer();
 
+    @BeforeEach
+    void setUp() {
+        // 触发 @PostConstruct 初始化的别名/纠错映射，避免测试因映射为空而失败（属 C 类：测试构造未触发 @PostConstruct）
+        normalizer.init();
+    }
+
     // ==================== 输入鲁棒性 / 纠错 ====================
 
     @Test
@@ -40,7 +47,8 @@ class EntityNormalizerTest {
     void testTypoCorrection_Hongqiao() {
         var result = normalizer.normalizeInput("上海红桥");
         assertTrue(result.hasCorrections());
-        assertEquals("上海虹桥", result.getNormalizedText());
+        // 纠错(红桥→虹桥) 后继续触发站点别名归一(上海虹桥→上海虹桥站)
+        assertEquals("上海虹桥站", result.getNormalizedText());
     }
 
     @Test

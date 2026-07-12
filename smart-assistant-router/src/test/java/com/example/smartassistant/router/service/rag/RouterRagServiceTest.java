@@ -7,9 +7,12 @@
 
 package com.example.smartassistant.router.service.rag;
 
+import com.example.smartassistant.common.prompt.PromptManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.ai.chat.client.ChatClient;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -42,7 +45,10 @@ class RouterRagServiceTest {
         }
     }
 
-    private final RouterRagService service = new RouterRagService(null, null);
+    // 注入 Mockito 模拟依赖，避免构造时 ChatClient.Builder.build() 因 null 而 NPE（属 C 类：测试构造缺依赖）
+    private final ChatClient.Builder chatClientBuilder = Mockito.mock(ChatClient.Builder.class);
+    private final PromptManager promptManager = Mockito.mock(PromptManager.class);
+    private final RouterRagService service = new RouterRagService(chatClientBuilder, promptManager);
 
     // ==================== EntityRef 记录 ====================
 
@@ -108,37 +114,43 @@ class RouterRagServiceTest {
 
         @Test @DisplayName("历史少于 1 条 → false")
         void shortHistory_isFalse() {
-            assertFalse(invokePrivate(service, "isRagWorthy", "test", List.of()));
+            boolean worthy = invokePrivate(service, "isRagWorthy", "test", List.of());
+            assertFalse(worthy);
         }
 
         @Test @DisplayName("问题短于 10 字且无上下文词 → false")
         void shortQuestionWithoutIndicators_isFalse() {
             var history = List.of("a", "b", "c");
-            assertFalse(invokePrivate(service, "isRagWorthy", "你好", history));
+            boolean worthy = invokePrivate(service, "isRagWorthy", "你好", history);
+            assertFalse(worthy);
         }
 
         @Test @DisplayName("含它上下文词 → true")
         void contains它_isTrue() {
             var history = List.of("a", "b", "c");
-            assertTrue(invokePrivate(service, "isRagWorthy", "它的价格是多少？", history));
+            boolean worthy = invokePrivate(service, "isRagWorthy", "它的价格是多少？", history);
+            assertTrue(worthy);
         }
 
         @Test @DisplayName("含这个上下文词 → true")
         void contains这个_isTrue() {
             var history = List.of("a", "b", "c");
-            assertTrue(invokePrivate(service, "isRagWorthy", "这个怎么用？", history));
+            boolean worthy = invokePrivate(service, "isRagWorthy", "这个怎么用？", history);
+            assertTrue(worthy);
         }
 
         @Test @DisplayName("含上次上下文词 → true")
         void contains上次_isTrue() {
             var history = List.of("a", "b", "c");
-            assertTrue(invokePrivate(service, "isRagWorthy", "上次说的那个问题", history));
+            boolean worthy = invokePrivate(service, "isRagWorthy", "上次说的那个问题", history);
+            assertTrue(worthy);
         }
 
         @Test @DisplayName("历史多且问题短 (＜15) → true")
         void manyHistoryShortQuestion_isTrue() {
             var history = List.of("a", "b", "c", "d");
-            assertTrue(invokePrivate(service, "isRagWorthy", "还有呢？", history));
+            boolean worthy = invokePrivate(service, "isRagWorthy", "还有呢？", history);
+            assertTrue(worthy);
         }
     }
 

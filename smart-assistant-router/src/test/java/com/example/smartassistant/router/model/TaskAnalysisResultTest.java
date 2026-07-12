@@ -58,7 +58,13 @@ class TaskAnalysisResultTest {
     void testMultiSubIntents() {
         TaskAnalysisResult result = new TaskAnalysisResult();
         List<Map<String, Object>> intents = new ArrayList<>();
-        intents.add(Map.of("intent", "查票", "description", "查明天去上海的票", "depends_on", null, "order", 1));
+        // Map.of 不允许 null 值，改用 HashMap 承载含 null 的依赖字段
+        Map<String, Object> intent1 = new HashMap<>();
+        intent1.put("intent", "查票");
+        intent1.put("description", "查明天去上海的票");
+        intent1.put("depends_on", null);
+        intent1.put("order", 1);
+        intents.add(intent1);
         intents.add(Map.of("intent", "预订", "description", "合适的就下单", "depends_on", "查票", "order", 2));
         result.setSubIntents(intents);
         assertTrue(result.hasSubIntents());
