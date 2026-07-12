@@ -1,0 +1,118 @@
+classDiagram
+    %% ===== 数据模型（T1 + T2' 已落地）=====
+    class ToolDefinition {
+        +String name
+        +String description
+        +ToolRiskLevel riskLevel
+        +ToolStatus status
+        +ToolTier toolTier
+        +String[] capabilities
+        +List~String~ functionalCapabilities
+        +String[] tags
+        +String endpoint
+        +String inputSchema
+        +isReadOnly() boolean
+    }
+    class ToolFunctionalCapability {
+        <<enum>> 32 令牌词表
+        +fromValue(String) ToolFunctionalCapability
+        +isValid(String) boolean
+    }
+    ToolDefinition --> ToolFunctionalCapability : functionalCapabilities 引用令牌
+
+    %% ===== 新增：Common MCP 适配层 =====
+    class McpRegistryDiscoveryClient {
+        -McpSyncClient registryClient
+        -ObjectMapper objectMapper
+        -McpDiscoveryProperties props
+        +listTools(Set~String~ tags) List~ToolDefinition~
+        +searchTools(McpSearchFilter) List~ToolDefinition~
+        -toToolDefinition(McpSchema.Tool) ToolDefinition
+        -parseMeta(Map) 扩展字段
+        +close() @PreDestroy
+    }
+    class McpBackendToolExecutor {
+        -Map~String, McpSyncClient~ pool
+        -McpDiscoveryProperties props
+        +execute(ToolDefinition def, String toolInput) String
+        -getOrCreateClient(String endpoint) McpSyncClient
+        -stripNamespace(String) String
+        +closeAll() @PreDestroy
+    }
+    class McpToolCallbackFactory {
+        -ToolRegistry toolRegistry
+        -ToolGateway gateway
+        -McpBackendToolExecutor backendExecutor
+        +create(ToolDefinition def, ToolCallback local) ToolCallback
+        +isMcpBacked(ToolDefinition) boolean
+    }
+    class McpBackendToolCallback {
+        <<inner, impl ToolCallback>>
+        -ToolDefinition def
+        -McpBackendToolExecutor executor
+        +getToolDefinition() org.springframework.ai.tool.definition.ToolDefinition
+        +call(String) String
+    }
+
+    %% ===== 修改 =====
+    class ToolRegistryClient {
+        -McpRegistryDiscoveryClient discoveryClient
+        -boolean mcpDiscoveryEnabled
+        +getToolDefinitions(tag) 三级降级 + MCP 优先
+        -fetchFromRegistryRest(tag) List~ToolDefinition~
+        -mergeByEndpoint(mcp, rest) List~ToolDefinition~
+    }
+    class SpringToolProvider {
+        -McpToolCallbackFactory callbackFactory
+        +getToolCallbacks(tag) 含 MCP-backed 分支
+    }
+    class ToolGatewayToolCallback {
+        -ToolDefinition projectDef  %% 新增重载携带
+        +ToolGatewayToolCallback(delegate, gateway, scope, projectDef)  %% 新增重载
+        +call(String) String
+    }
+
+    %% ===== P0 治理（不可破坏）=====
+    class ToolGateway {
+        +execute(ToolDefinition def, ToolExecutor, scope, idemKey) String
+        -doExecute(...) 状态/审批/限流/超时/审计
+    }
+    class ToolRegistry {
+        +get(String) ToolDefinition
+        +register(ToolDefinition)
+    }
+    class ToolProvider {
+        <<interface>>
+        +getToolCallbacks(String tag) List~ToolCallback~
+    }
+
+    %% ===== 外部 SDK =====
+    class McpSyncClient {
+        <<SDK io.modelcontextprotocol.client>>
+        +listTools() ListToolsResult
+        +callTool(CallToolRequest) CallToolResult
+        +close()
+    }
+    class HttpClientSseClientTransport {
+        <<SDK>> builder(url)
+    }
+
+    %% ===== 关系 =====
+    ToolGatewayToolCallback --> ToolGateway : 路由 call()（def 感知重载）
+    ToolGatewayToolCallback --> ToolDefinition : projectDef 驱动治理
+    McpBackendToolCallback ..|> org.springframework.ai.tool.ToolCallback
+    McpToolCallbackFactory --> McpBackendToolExecutor : MCP-backed 分支
+    McpToolCallbackFactory --> McpBackendToolCallback : 构造
+    McpToolCallbackFactory --> ToolRegistry : 兜底解析 endpoint
+    McpToolCallbackFactory ..> ToolGatewayToolCallback : 统一包裹
+    McpBackendToolExecutor --> McpSyncClient : 源连接池转发 tools/call
+    McpBackendToolExecutor --> ToolDefinition : 取 endpoint + 去前缀
+    McpRegistryDiscoveryClient --> McpSyncClient : 连 registry MCP server
+    McpRegistryDiscoveryClient --> ToolDefinition : 解析回(_meta)
+    ToolRegistryClient --> McpRegistryDiscoveryClient : MCP 优先通道
+    ToolRegistryClient --> ToolDefinition : REST fallback 提供 endpoint
+    SpringToolProvider ..|> ToolProvider
+    SpringToolProvider --> McpToolCallbackFactory : MCP-backed 生成回调
+    SpringToolProvider --> ToolRegistryClient : 取中心完整 defs
+    ToolRegistryClient --> ToolRegistry : 本地缓存/降级
+    McpSyncClient ..> HttpClientSseClientTransport : 构造自
