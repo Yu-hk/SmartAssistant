@@ -1,0 +1,101 @@
+classDiagram
+    %% ===== 数据模型（T1 已落地 + T2' 单列新增）=====
+    class ToolDefinition {
+        +String name
+        +String description
+        +ToolRiskLevel riskLevel
+        +ToolStatus status
+        +ToolTier toolTier
+        +String[] capabilities
+        +List~String~ functionalCapabilities
+        +String[] tags
+        +String endpoint
+        +String inputSchema  %% T2' 单列新增：MCP-backed 工具持久化后端 input schema
+    }
+    class ToolFunctionalCapability {
+        <<enum>> 32 令牌词表
+        +getValue() String
+        +isValid(String) boolean
+    }
+    ToolDefinition "1" --> "*" ToolFunctionalCapability : functionalCapabilities 引用令牌
+
+    %% ===== Registry 侧（MCP server 暴露 + 后端源接入）=====
+    class McpServerConfig {
+        <<new>> 启用 WebMvc/SSE MCP server
+    }
+    class McpToolRegistryAdapter {
+        <<new>> ToolDefinition → MCP Tool/Annotations
+        +listTools() List~McpTool~
+        +searchTools(filter) List~McpTool~
+        - 仅暴露发现，不实现传递式 tools/call
+    }
+    class McpToolSourceConfig {
+        <<new>> YAML：后端 MCP 源连接 + 默认元数据
+    }
+    class McpToolSourceIngestor {
+        <<new>> MCP client 拉取后端 tools/list
+        +sync(sourceId) 映射为 ToolDefinition 并注册中心
+    }
+    class RegistryService {
+        +query(tags,status,ns,capabilities,functionalCapabilities)
+        +search(functionalCapabilities,keyword,tier,status,limit)
+        +register(ToolDefinition)
+    }
+
+    McpServerConfig ..> McpToolRegistryAdapter : 注册 tool specs
+    McpToolRegistryAdapter --> ToolDefinition : 映射来源
+    RegistryService --> ToolDefinition : 中心目录
+    McpToolSourceIngestor --> RegistryService : register(...)
+    McpToolSourceIngestor --> McpToolSourceConfig : 读连接配置
+    McpToolSourceIngestor ..> ToolDefinition : 后端 tool → 补全元数据
+
+    %% ===== Common MCP 适配层 =====
+    class McpRegistryDiscoveryClient {
+        <<new>> MCP client 封装
+        +listTools(filter) List~ToolDefinition~
+        - 解析 annotations.x-* / _meta 回 ToolDefinition
+    }
+    class McpBackendToolExecutor {
+        <<new>> 经 ToolGateway 包裹后转发后端 tools/call
+    }
+    class McpToolCallbackFactory {
+        <<new>> 由 ToolDefinition 生成 ToolCallback
+        +center 工具 → 本地 @Tool Bean
+        +MCP-backed → McpBackendToolExecutor
+    }
+    class ToolRegistryClient {
+        +getToolDefinitions(tag) 三级降级
+        +MCP 不可用时回退 HTTP REST
+    }
+
+    McpRegistryDiscoveryClient --> ToolDefinition : 解析回
+    McpToolCallbackFactory --> McpBackendToolExecutor : MCP-backed 分支
+    McpToolCallbackFactory --> ToolRegistryClient : center 工具复用
+
+    %% ===== P0 治理链（不可破坏）=====
+    class ToolGateway {
+        +execute(name, executor, scope, idemKey)
+        - status 拦截/审批/限流/超时/审计
+    }
+    class ToolGatewayToolCallback {
+        -ToolCallback delegate
+        -ToolGateway gateway
+        +call(String) String
+    }
+    ToolGatewayToolCallback --> ToolGateway : 路由 call()
+    McpBackendToolExecutor --> ToolGateway : executor 被包裹
+    McpToolCallbackFactory ..> ToolGatewayToolCallback : 统一包裹
+
+    %% ===== Agent 侧 =====
+    class DiscoverToolsTool {
+        <<new 原 T2>> CORE 常驻元工具
+        - 改为调 McpRegistryDiscoveryClient（替代 REST）
+    }
+    class SmartReActAgent {
+        +List~ToolCallback~ dynamicTools  %% 原 T2
+        +registerDiscoveredTool(...)  %% 原 T2
+        +effectiveTools = preset + dynamicTools
+    }
+    DiscoverToolsTool --> McpRegistryDiscoveryClient : 发现
+    DiscoverToolsTool --> SmartReActAgent : registerDiscoveredTool
+    SmartReActAgent --> ToolGatewayToolCallback : 每轮注入

@@ -1,0 +1,36 @@
+sequenceDiagram
+    autonumber
+    participant LLM as Agent(LLM)
+    participant DT as discover_tools(CORE 元工具)
+    participant A as SmartReActAgent
+    participant MC as McpRegistryDiscoveryClient(MCP client)
+    participant R as tool-registry(MCP server)
+    participant CF as McpToolCallbackFactory
+    participant G as ToolGateway
+    participant B as McpBackendToolExecutor
+    participant S as 后端 MCP server(SQL)
+
+    Note over LLM,S: —— 发现阶段（MCP 仅承载发现 + 传输）——
+    LLM->>LLM: 第 N 步需要 sql-query 能力，当前工具无
+    LLM->>DT: discover_tools(capabilityQuery="sql-query")
+    DT->>A: 检查会话级已发现缓存（去重护栏）
+    DT->>MC: listTools(filter: functionalCapabilities=["sql-query"])
+    MC->>R: MCP tools/list 或 search_tools
+    R-->>MC: List<Tool>(含 annotations.x-functional-capabilities)
+    MC-->>DT: 候选 ToolDefinition(consumer.executeQuery...)
+    DT->>CF: buildCallback(def)
+    Note over CF: center 工具→本地 @Tool Bean\nMCP-backed→McpBackendToolExecutor
+    CF->>G: new ToolGatewayToolCallback(tc, gateway)
+    CF-->>DT: 已包裹的 ToolCallback
+    DT->>A: registerDiscoveredTool(consumer.executeQuery)
+    A->>A: dynamicTools += [...]
+    DT-->>LLM: {matched:[...], injectedTools:[...]}
+
+    Note over LLM,S: —— 执行阶段（MCP 只转发 tools/call，治理在 Agent 侧）——
+    LLM->>G: 调用 consumer.executeQuery(sql)（经 ToolGateway 治理）
+    G->>G: status 拦截 / 审批 / 限流 / 超时 / 审计
+    G->>B: executor.call(sql)
+    B->>S: MCP tools/call(executeQuery, sql)
+    S-->>B: 查询结果
+    B-->>G: 结果
+    G-->>LLM: 执行结果（经 postExecute 钩子）
