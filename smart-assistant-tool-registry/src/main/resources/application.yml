@@ -24,8 +24,15 @@ spring:
         # 禁用注解扫描器（registry 使用标准 @Tool，不暴露为 MCP 工具）
         annotation-scanner:
           enabled: false
+      # ⭐ T2b：禁用 MCP client 自动配置（不创建默认 McpSyncClient bean，避免上下文加载失败）。
+      # registry 作为 MCP client 由 McpToolSourceIngestor 手动创建 SSE client（JDK HttpClient），
+      # 不依赖 Spring AI 的 client 自动装配。
+      client:
+        enabled: false
   main:
     banner-mode: off
+    # ⭐ T2b：显式固定为 servlet 应用（即使 classpath 含 webflux client starter 也不切换为 reactive）
+    web-application-type: servlet
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
@@ -65,3 +72,32 @@ tool-registry:
   url: http://localhost:8088         # Registry 服务地址
   cache-ttl-seconds: 30              # 本地缓存 TTL（秒）
   refresh-interval-seconds: 60       # Agent 工具热刷新间隔（秒），0=禁用
+  # ⭐ T2b：MCP-backed 后端工具源（源接入 + 目录注册）。
+  # 默认全部 enabled:false，registry 启动不依赖任何后端 MCP server 运行。
+  mcp-sources:
+    - sourceId: sql-consumer
+      enabled: false                # 默认关闭，registry 启动不依赖 consumer 运行
+      transport: sse
+      endpoint: http://consumer:8081/mcp
+      namespace: consumer
+      defaultTier: SHARED
+      defaultRisk: READ
+      seedFunctionalCapabilities: [sql-query]
+      tags: [consumer, mcp-source:sql]
+      sync:
+        mode: periodic
+        cron: "0 */5 * * * ?"
+        timeoutMs: 5000
+    - sourceId: sql-travel
+      enabled: false
+      transport: sse
+      endpoint: http://travel:8082/mcp
+      namespace: travel
+      defaultTier: SHARED
+      defaultRisk: READ
+      seedFunctionalCapabilities: [sql-query]
+      tags: [travel, mcp-source:sql]
+      sync:
+        mode: periodic
+        cron: "0 */5 * * * ?"
+        timeoutMs: 5000
