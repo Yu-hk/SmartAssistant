@@ -140,7 +140,6 @@ public class ToolDefinition {
      * </p>
      * <p>默认空列表（迁移期向后兼容，绝不为 {@code null}）。</p>
      */
-    @Builder.Default
     @Setter(AccessLevel.NONE)
     private List<String> functionalCapabilities = new ArrayList<>();
 
