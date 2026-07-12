@@ -40,6 +40,15 @@ desktop.ini
 *.swo
 *~
 
+# Node modules (root level)
+node_modules/
+
+# GitHub API temp files
+.gh_api_tmp.*
+
+# Maven custom config
+.m2_*.conf
+
 # Frontend
 frontend/node_modules/
 frontend/dist/

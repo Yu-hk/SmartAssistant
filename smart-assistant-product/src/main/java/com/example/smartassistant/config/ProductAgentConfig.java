@@ -10,7 +10,9 @@ package com.example.smartassistant.config;
 import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsTool;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.common.tool.client.ToolRegistryProperties;
 import com.example.smartassistant.common.tool.provider.ToolProvider;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
@@ -20,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +33,7 @@ import org.springframework.core.io.Resource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -61,6 +65,15 @@ public class ProductAgentConfig {
     private Resource systemPromptResource;
 
     /**
+     * T2d：发现元工具（可选注入，由特性开关 {@code tool-registry.t2-mcp-discovery-enabled} 控制）。
+     */
+    @Autowired(required = false)
+    private DiscoverToolsTool discoverToolsTool;
+
+    @Autowired
+    private ToolRegistryProperties toolRegistryProperties;
+
+    /**
      * 主 Agent Bean - 供 StreamFoodAgentService 使用
      */
     @Bean
@@ -76,6 +89,21 @@ public class ProductAgentConfig {
 
         List<ToolCallback> toolList = toolProvider.getToolCallbacks(toolTag);
         log.info("[ProductAgent] 注册 {} 个工具（从 ToolProvider 获取）", toolList.size());
+
+        // ⭐ T2d：若特性开关启用且 DiscoverToolsTool 可用，注入 discover_tools 元工具
+        List<ToolCallback> effectiveToolList = toolList;
+        if (discoverToolsTool != null && toolRegistryProperties.isT2McpDiscoveryEnabled()) {
+            log.info("[ProductAgent] T2d 发现机制已启用，注入 discover_tools 元工具");
+            ToolCallback[] discoverCallbacks = MethodToolCallbackProvider.builder()
+                    .toolObjects(discoverToolsTool)
+                    .build()
+                    .getToolCallbacks();
+            effectiveToolList = new ArrayList<>(toolList);
+            for (ToolCallback cb : discoverCallbacks) {
+                effectiveToolList.add(cb);
+                log.info("[ProductAgent] 已添加元工具: {}", cb.getToolDefinition().name());
+            }
+        }
 
         // 构建系统 prompt（含技能包指令）
         String basePrompt = buildSystemPrompt();
@@ -100,7 +128,14 @@ public class ProductAgentConfig {
                 .withFeedbackLog(new FeedbackLog())
                 .withPreset(PromptBuilder.build()
                         .withServicePrompt(fullSystemPrompt)
-                        .assemble(), toolList);
+                        .assemble(), effectiveToolList);
+
+        // ⭐ T2d：Agent 创建后设置注册器
+        if (discoverToolsTool != null && toolRegistryProperties.isT2McpDiscoveryEnabled()) {
+            discoverToolsTool.setToolRegistrar(callbacks ->
+                    agent.registerDiscoveredTool(callbacks.toArray(new ToolCallback[0])));
+            log.info("[ProductAgent] DiscoverToolsTool 注册器已绑定到 Agent");
+        }
 
         // 启动定时刷新
         if (refreshIntervalSec > 0) {

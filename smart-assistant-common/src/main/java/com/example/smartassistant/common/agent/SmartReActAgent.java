@@ -29,9 +29,12 @@ import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 /**
  * 自研 ReAct 循环执行器。
@@ -206,8 +209,14 @@ public class SmartReActAgent {
 
     /** 预配置的系统提示词（可选，可在 execute 时传入） */
     private String presetSystemPrompt;
-    /** 预配置的工具列表（可选，可在 execute 时传入） */
-    private List<ToolCallback> presetTools;
+	/** 预配置的工具列表（可选，可在 execute 时传入） */
+	private List<ToolCallback> presetTools;
+
+	/** ⭐ T2d：会话级动态工具集（由 {@link #registerDiscoveredTool(ToolCallback...)} 注入，每轮合并到 effectiveTools） */
+	private final List<ToolCallback> dynamicTools = new ArrayList<>();
+
+	/** ⭐ T2d：已发现的能力历史（capabilityQuery → true），供护栏去重 */
+	private final Map<String, Boolean> discoveredCapabilityHistory = new ConcurrentHashMap<>();
 
     /** ⭐ 可选的指标采集器 */
     private AgentMetricsCollector metrics = new AgentMetricsCollector() {};
@@ -319,26 +328,103 @@ public class SmartReActAgent {
         return this;
     }
 
-    /**
-     * 运行时刷新工具列表。
-     * <p>
-     * 当 Registry 中的工具定义发生变更（新增/废弃/状态变化）时，调用此方法
-     * 更新 Agent 运行时的工具列表，无需重启服务。
-     * </p>
-     * <p>
-     * 使用场景：Agent 已通过 {@link #withPreset(String, List)} 初始化，
-     * 但后续工具在 Registry 中注册或废弃。配合
-     * {@link com.example.smartassistant.common.tool.client.ToolRegistryClient#getToolCallbacks(String, Object...)}
-     * 实现热更新。
-     * </p>
-     *
-     * @param newTools 新的工具回调列表
-     * @return this
-     */
-    public SmartReActAgent refreshTools(List<ToolCallback> newTools) {
-        this.presetTools = newTools;
-        return this;
-    }
+	/**
+	 * 运行时刷新工具列表。
+	 * <p>
+	 * 当 Registry 中的工具定义发生变更（新增/废弃/状态变化）时，调用此方法
+	 * 更新 Agent 运行时的工具列表，无需重启服务。
+	 * </p>
+	 * <p>
+	 * 使用场景：Agent 已通过 {@link #withPreset(String, List)} 初始化，
+	 * 但后续工具在 Registry 中注册或废弃。配合
+	 * {@link com.example.smartassistant.common.tool.client.ToolRegistryClient#getToolCallbacks(String, Object...)}
+	 * 实现热更新。
+	 * </p>
+	 *
+	 * @param newTools 新的工具回调列表
+	 * @return this
+	 */
+	public SmartReActAgent refreshTools(List<ToolCallback> newTools) {
+		this.presetTools = newTools;
+		return this;
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// ⭐ T2d：动态工具管理
+	// ═══════════════════════════════════════════════════════════════
+
+	/**
+	 * 注册发现工具到会话级动态工具集（去重，同名覆盖）。
+	 * <p>
+	 * 当 {@link com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsTool}
+	 * 发现新工具后，调用此方法将其注入当前 Agent 的可用工具集。
+	 * 同名工具已存在时覆盖（允许热更新工具定义）。
+	 * </p>
+	 *
+	 * @param tcs 要注册的工具回调（可变参数）
+	 * @return this
+	 */
+	public SmartReActAgent registerDiscoveredTool(ToolCallback... tcs) {
+		if (tcs == null) return this;
+		synchronized (dynamicTools) {
+			for (ToolCallback tc : tcs) {
+				if (tc == null) continue;
+				String name = tc.getToolDefinition().name();
+				// 同名覆盖：移除旧的回调（如已有相同名称的工具）
+				dynamicTools.removeIf(existing ->
+						existing.getToolDefinition().name().equals(name));
+				dynamicTools.add(tc);
+				log.info("[SmartReActAgent] 注册动态工具: {}", name);
+			}
+		}
+		return this;
+	}
+
+	/**
+	 * 记录已发现的能力（供护栏去重）。
+	 *
+	 * @param capabilityQuery 能力查询词
+	 */
+	public void recordDiscoveredCapability(String capabilityQuery) {
+		if (capabilityQuery != null) {
+			discoveredCapabilityHistory.put(capabilityQuery, Boolean.TRUE);
+		}
+	}
+
+	/**
+	 * 获取已发现的能力历史（供护栏去重检查）。
+	 *
+	 * @return 已发现的能力名集合
+	 */
+	public Set<String> getDiscoveredCapabilityHistory() {
+		return new HashSet<>(discoveredCapabilityHistory.keySet());
+	}
+
+	/**
+	 * 合并基础工具列表与动态工具列表（按工具名去重）。
+	 * <p>动态工具同名覆盖基础工具。</p>
+	 *
+	 * @param base 基础工具列表（presetTools 或 ToolGroup active）
+	 * @return 合并后的工具列表（base 在前，dynamicTools 去重追加）
+	 */
+	private List<ToolCallback> mergeWithDynamicTools(List<ToolCallback> base) {
+		if (dynamicTools.isEmpty()) {
+			return base;
+		}
+		// 收集动态工具名集合（用于去重检查）
+		Set<String> dynamicNames = dynamicTools.stream()
+				.map(tc -> tc.getToolDefinition().name())
+				.collect(Collectors.toSet());
+		// 过滤掉 base 中已被动态工具覆盖的同名项
+		List<ToolCallback> merged = new ArrayList<>(base.size() + dynamicTools.size());
+		for (ToolCallback tc : base) {
+			if (!dynamicNames.contains(tc.getToolDefinition().name())) {
+				merged.add(tc);
+			}
+		}
+		merged.addAll(dynamicTools);
+		return merged;
+	}
 
     /**
      * 设置指标采集器。
@@ -471,16 +557,23 @@ public class SmartReActAgent {
      * @return 最终回答或超时/预算耗尽提示
      */
     public String execute(String userMessage, String systemPrompt, List<ToolCallback> tools) {
-        // ⭐ 当有 ToolGroupManager 时，使用活跃组的工具替换平坦列表
-        List<ToolCallback> effectiveTools = tools;
-        String enhancedPrompt = systemPrompt;
-        if (toolGroupManager != null) {
-            effectiveTools = toolGroupManager.getActiveTools();
-            String groupDesc = toolGroupManager.getActiveGroupsDescription();
-            enhancedPrompt = systemPrompt + "\n\n【当前可用的工具组】\n" + groupDesc;
-            log.info("[SmartReActAgent] 使用 ToolGroup 模式: activeGroups={}, tools={}",
-                    toolGroupManager.getActiveGroupNames(), effectiveTools.size());
-        }
+		// ⭐ 当有 ToolGroupManager 时，使用活跃组的工具替换平坦列表
+		List<ToolCallback> effectiveTools = tools;
+		String enhancedPrompt = systemPrompt;
+		if (toolGroupManager != null) {
+			effectiveTools = toolGroupManager.getActiveTools();
+			String groupDesc = toolGroupManager.getActiveGroupsDescription();
+			enhancedPrompt = systemPrompt + "\n\n【当前可用的工具组】\n" + groupDesc;
+			log.info("[SmartReActAgent] 使用 ToolGroup 模式: activeGroups={}, tools={}",
+					toolGroupManager.getActiveGroupNames(), effectiveTools.size());
+		}
+
+		// ⭐ T2d：合并动态工具（去重，同名覆盖）
+		effectiveTools = mergeWithDynamicTools(effectiveTools);
+		if (!dynamicTools.isEmpty()) {
+			log.info("[SmartReActAgent] 合并动态工具: preset={}, dynamic={}, total={}",
+					effectiveTools.size() - dynamicTools.size(), dynamicTools.size(), effectiveTools.size());
+		}
 
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(enhancedPrompt));
