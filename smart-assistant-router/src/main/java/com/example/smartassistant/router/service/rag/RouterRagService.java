@@ -117,17 +117,19 @@ public class RouterRagService {
             return false;
         }
 
-        // 问题过短（简单查询）不需要 RAG
-        if (question.length() < 10) {
-            return false;
-        }
-
-        // 问题中包含代词或上下文依赖词（如"它"、"这个"、"上次"等）需要 RAG
+        // 问题中包含代词或上下文依赖词（如"它"、"这个"、"上次"等）需要 RAG。
+        // 注意：上下文依赖词本身往往很短（"它"、"还有呢"等），因此必须先于长度守卫判定，
+        // 否则长度阈值会先短路这些本应触发 RAG 的短问题，使上下文检测形同虚设。
         String[] contextIndicators = {"它", "这个", "那", "上次", "之前", "继续", "还有", "另外"};
         for (String indicator : contextIndicators) {
             if (question.contains(indicator)) {
                 return true;
             }
+        }
+
+        // 问题过短（简单查询）且不含上下文依赖词，不需要 RAG
+        if (question.length() < 10) {
+            return false;
         }
 
         // 问题很泛（只有几个字）需要 RAG
