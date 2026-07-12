@@ -11,6 +11,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -127,6 +130,20 @@ public class ToolDefinition {
     @Getter(AccessLevel.NONE)
     private final AtomicLong useCount = new AtomicLong(0);
 
+    // ==================== 新增字段（T1 功能性能力） ====================
+
+    /**
+     * 功能性能力标签列表（业务动作语义），如 {@code ["order-query", "order-refund"]}。
+     * <p>
+     * 与风险能力 {@code capabilities}（由 {@code riskLevel} 推导）正交，描述"工具能做什么业务动作"，
+     * 用于 T1 能力作用域预载与 T2 自主发现匹配。受控词表见 {@link ToolFunctionalCapability}。
+     * </p>
+     * <p>默认空列表（迁移期向后兼容，绝不为 {@code null}）。</p>
+     */
+    @Builder.Default
+    @Setter(AccessLevel.NONE)
+    private List<String> functionalCapabilities = new ArrayList<>();
+
     // ==================== 快捷属性方法 ====================
 
     /**
@@ -198,6 +215,38 @@ public class ToolDefinition {
      */
     public long getUseCount() {
         return useCount.get();
+    }
+
+    // ==================== 功能性能力（functionalCapabilities） ====================
+
+    /**
+     * 设置功能性能力标签列表（业务动作语义）。
+     * <p>会执行规范化：忽略 {@code null} 元素并去重（保留首次出现顺序）；
+     * 入参为 {@code null} 或空时设为空列表（绝不为 {@code null}）。</p>
+     *
+     * @param functionalCapabilities 功能性能力标签列表（可为 {@code null} 或含 {@code null} 元素）
+     */
+    public void setFunctionalCapabilities(List<String> functionalCapabilities) {
+        this.functionalCapabilities = normalizeFunctionalCapabilities(functionalCapabilities);
+    }
+
+    /**
+     * 将原始功能性能力列表规范化为「不含 null、已去重、保留顺序」的列表。
+     * 入参为 {@code null} 或空时返回空列表。
+     *
+     * @param source 原始功能性能力列表（可为 {@code null}）
+     * @return 规范化后的新列表（绝不为 {@code null}）
+     */
+    private static List<String> normalizeFunctionalCapabilities(List<String> source) {
+        List<String> result = new ArrayList<>();
+        if (source != null) {
+            for (String item : source) {
+                if (item != null && !result.contains(item)) {
+                    result.add(item);
+                }
+            }
+        }
+        return result;
     }
 
     // ==================== 静态工厂方法（向后兼容） ====================
@@ -349,5 +398,191 @@ public class ToolDefinition {
                 .capabilities(capabilitiesForRiskLevel(riskLevel))
                 .status(ToolStatus.ACTIVE)
                 .build();
+    }
+
+    // ==================== 静态工厂重载（T1：支持 functionalCapabilities） ====================
+    // 注：为避免与既有 read/write/highRisk 的 String[] tags 重载发生方法签名擦除冲突，
+    // 新增重载统一使用 List<String> 接收功能性能力，提供与现有工厂一一对应的变体。
+
+    /**
+     * 构建快速定义（只读工具快捷方式，带标签与功能性能力）。
+     * <p>为避免与既有 {@code read(name, description, String[] tags)} 在 {@code null} 实参下产生重载歧义，
+     * 不提供 3 参 {@code (name, description, List)} 变体；仅需功能性能力时可改用
+     * {@link #builder()} 或本 4 参重载（tags 传 {@code null} 等价空标签）。</p>
+     *
+     * @param name                    工具名称
+     * @param description             工具描述
+     * @param tags                    标签列表（可为 {@code null}）
+     * @param functionalCapabilities  功能性能力标签列表（业务动作语义，可为 {@code null}）
+     * @return 只读工具定义
+     */
+    public static ToolDefinition read(String name, String description, String[] tags,
+                                      List<String> functionalCapabilities) {
+        return ToolDefinition.builder()
+                .name(name)
+                .description(description)
+                .riskLevel(ToolRiskLevel.READ)
+                .timeout(DEFAULT_TIMEOUT)
+                .needsApproval(false)
+                .maxRetries(DEFAULT_MAX_RETRIES)
+                .rateLimit(DEFAULT_RATE_LIMIT)
+                .scopes(new String[0])
+                .tags(tags != null ? tags : new String[0])
+                .capabilities(new String[]{ToolCapability.READ_ONLY.getValue()})
+                .functionalCapabilities(functionalCapabilities)
+                .status(ToolStatus.ACTIVE)
+                .build();
+    }
+
+    /**
+     * 构建快速定义（写入工具快捷方式，带功能性能力）。
+     *
+     * @param name                    工具名称
+     * @param description             工具描述
+     * @param riskLevel               风险等级
+     * @param functionalCapabilities  功能性能力标签列表（业务动作语义，可为 {@code null}）
+     * @return 写入工具定义
+     */
+    public static ToolDefinition write(String name, String description, ToolRiskLevel riskLevel,
+                                       List<String> functionalCapabilities) {
+        return ToolDefinition.builder()
+                .name(name)
+                .description(description)
+                .riskLevel(riskLevel)
+                .timeout(DEFAULT_TIMEOUT)
+                .needsApproval(riskLevel == ToolRiskLevel.HIGH)
+                .maxRetries(DEFAULT_MAX_RETRIES)
+                .rateLimit(DEFAULT_RATE_LIMIT)
+                .scopes(new String[0])
+                .tags(new String[0])
+                .capabilities(capabilitiesForRiskLevel(riskLevel))
+                .functionalCapabilities(functionalCapabilities)
+                .status(ToolStatus.ACTIVE)
+                .build();
+    }
+
+    /**
+     * 构建快速定义（写入工具快捷方式，带标签与功能性能力）。
+     *
+     * @param name                    工具名称
+     * @param description             工具描述
+     * @param riskLevel               风险等级
+     * @param tags                    标签列表
+     * @param functionalCapabilities  功能性能力标签列表（业务动作语义，可为 {@code null}）
+     * @return 写入工具定义
+     */
+    public static ToolDefinition write(String name, String description, ToolRiskLevel riskLevel,
+                                       String[] tags, List<String> functionalCapabilities) {
+        return ToolDefinition.builder()
+                .name(name)
+                .description(description)
+                .riskLevel(riskLevel)
+                .timeout(DEFAULT_TIMEOUT)
+                .needsApproval(riskLevel == ToolRiskLevel.HIGH)
+                .maxRetries(DEFAULT_MAX_RETRIES)
+                .rateLimit(DEFAULT_RATE_LIMIT)
+                .scopes(new String[0])
+                .tags(tags != null ? tags : new String[0])
+                .capabilities(capabilitiesForRiskLevel(riskLevel))
+                .functionalCapabilities(functionalCapabilities)
+                .status(ToolStatus.ACTIVE)
+                .build();
+    }
+
+    /**
+     * 构建快速定义（高风险工具快捷方式，带功能性能力）。
+     *
+     * @param name                    工具名称
+     * @param description             工具描述
+     * @param needsApproval           是否需要审批
+     * @param functionalCapabilities  功能性能力标签列表（业务动作语义，可为 {@code null}）
+     * @return 高风险工具定义
+     */
+    public static ToolDefinition highRisk(String name, String description, boolean needsApproval,
+                                          List<String> functionalCapabilities) {
+        return ToolDefinition.builder()
+                .name(name)
+                .description(description)
+                .riskLevel(ToolRiskLevel.HIGH)
+                .timeout(DEFAULT_HIGH_RISK_TIMEOUT)
+                .needsApproval(needsApproval)
+                .maxRetries(1)
+                .rateLimit(10)
+                .scopes(new String[0])
+                .tags(new String[0])
+                .capabilities(new String[]{ToolCapability.MUTATE_STATE.getValue(),
+                        ToolCapability.PAYMENT.getValue()})
+                .functionalCapabilities(functionalCapabilities)
+                .status(ToolStatus.ACTIVE)
+                .build();
+    }
+
+    /**
+     * 构建快速定义（高风险工具快捷方式，带标签与功能性能力）。
+     *
+     * @param name                    工具名称
+     * @param description             工具描述
+     * @param needsApproval           是否需要审批
+     * @param tags                    标签列表
+     * @param functionalCapabilities  功能性能力标签列表（业务动作语义，可为 {@code null}）
+     * @return 高风险工具定义
+     */
+    public static ToolDefinition highRisk(String name, String description, boolean needsApproval,
+                                          String[] tags, List<String> functionalCapabilities) {
+        return ToolDefinition.builder()
+                .name(name)
+                .description(description)
+                .riskLevel(ToolRiskLevel.HIGH)
+                .timeout(DEFAULT_HIGH_RISK_TIMEOUT)
+                .needsApproval(needsApproval)
+                .maxRetries(1)
+                .rateLimit(10)
+                .scopes(new String[0])
+                .tags(tags != null ? tags : new String[0])
+                .capabilities(new String[]{ToolCapability.MUTATE_STATE.getValue(),
+                        ToolCapability.PAYMENT.getValue()})
+                .functionalCapabilities(functionalCapabilities)
+                .status(ToolStatus.ACTIVE)
+                .build();
+    }
+
+    // ==================== 自定义 Builder（扩展 functionalCapabilities 重载） ====================
+    // Lombok 在检测到手动声明的同名 builder 类时会将其余字段/方法追加进来；
+    // 此处仅自定义 functionalCapabilities 的 List 与 varargs 重载，使其自动去重、忽略 null。
+
+    /**
+     * {@link ToolDefinition} 的 Builder。
+     * <p>除 Lombok 自动生成的字段 setter 外，额外提供 {@code functionalCapabilities} 的
+     * {@link List} 与可变参数（varargs）重载，二者均会去重并忽略 {@code null} 元素。</p>
+     */
+    public static class ToolDefinitionBuilder {
+
+        /** 功能性能力标签列表（由 Lombok 其余字段 setter 自动补齐，此处仅声明本字段以承载自定义重载） */
+        private List<String> functionalCapabilities = new ArrayList<>();
+
+        /**
+         * 设置功能性能力标签列表（业务动作语义）。
+         * 会去重并忽略 {@code null} 元素；入参为 {@code null} 时设为空列表。
+         *
+         * @param values 功能性能力标签列表（可为 {@code null}）
+         * @return this，便于链式调用
+         */
+        public ToolDefinitionBuilder functionalCapabilities(List<String> values) {
+            this.functionalCapabilities = normalizeFunctionalCapabilities(values);
+            return this;
+        }
+
+        /**
+         * 设置功能性能力标签（业务动作语义，可变参数）。
+         * 会去重并忽略 {@code null} 元素；入参为 {@code null} 时设为空列表。
+         *
+         * @param values 功能性能力标签（可为 {@code null}）
+         * @return this，便于链式调用
+         */
+        public ToolDefinitionBuilder functionalCapabilities(String... values) {
+            this.functionalCapabilities = normalizeFunctionalCapabilities(
+                    values == null ? null : Arrays.asList(values));
+            return this;
+        }
     }
 }

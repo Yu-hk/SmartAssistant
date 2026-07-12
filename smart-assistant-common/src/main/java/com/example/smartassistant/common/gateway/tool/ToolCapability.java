@@ -1,11 +1,19 @@
 package com.example.smartassistant.common.gateway.tool;
 
 /**
- * 工具能力标签枚举（REQ-05）。
+ * 工具<b>风险能力</b>标签枚举（REQ-05）。
  * <p>
- * v1 仅预定义 6 个能力标签 + {@link #UNKNOWN} 兜底。
- * 用于 {@link ToolDefinition#getCapabilities()} 的校验和查询过滤。
+ * 表示工具的「风险 / 访问」维度：工具"有多危险 / 碰什么资源"，用于治理、授权与 scope 鉴权。
+ * 取值由 {@link ToolDefinition} 的 {@code riskLevel} 推导
+ * （{@code READ}→{@code read-only}；{@code LOW/MEDIUM}→{@code mutate-state}；
+ * {@code HIGH}→{@code mutate-state}+{@code payment}），见 {@link ToolDefinition#getCapabilities()}。
  * </p>
+ *
+ * <p><b>正交性</b>：本枚举描述风险能力，与功能性能力枚举
+ * {@link ToolFunctionalCapability}（描述业务动作，如 {@code order-query} / {@code order-refund}）正交，
+ * 二者语义不重叠、互不影响。</p>
+ *
+ * <p>v1 预定义 6 个能力标签 + {@link #UNKNOWN} 兜底，用于校验和查询过滤。</p>
  *
  * @author Yu-hk
  * @since 2026-07-15
