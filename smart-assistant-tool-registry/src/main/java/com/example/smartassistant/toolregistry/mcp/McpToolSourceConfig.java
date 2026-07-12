@@ -2,6 +2,10 @@ package com.example.smartassistant.toolregistry.mcp;
 
 import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
 import com.example.smartassistant.common.gateway.tool.ToolTier;
+import io.modelcontextprotocol.client.McpClient;
+import io.modelcontextprotocol.client.McpSyncClient;
+import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
+import io.modelcontextprotocol.spec.McpSchema.Tool;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -9,6 +13,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -100,5 +105,28 @@ public class McpToolSourceConfig {
         scheduler.setWaitForTasksToCompleteOnShutdown(false);
         scheduler.initialize();
         return scheduler;
+    }
+
+    /**
+     * 生产环境：真实 SSE MCP 客户端工厂。
+     * <p>对给定源创建 {@link HttpClientSseClientTransport}（JDK 内置 HttpClient，非 WebFlux）
+     * 连接后端，调 {@code listTools()} 返回后端工具列表。</p>
+     *
+     * <p>端点语义：{@code source.endpoint} 作为 SSE 基址（scheme://host:port 或基路径），
+     * SDK 在其后追加默认 SSE 子路径；请与后端 {@code spring.ai.mcp.server.sse-endpoint} 对齐。
+     * 单次请求超时取自 {@code sync.timeoutMs}（默认 5000ms）。</p>
+     */
+    @Bean
+    public McpToolSourceIngestor.McpBackendClientFactory mcpBackendClientFactory() {
+        return source -> {
+            HttpClientSseClientTransport transport =
+                    HttpClientSseClientTransport.builder(source.getEndpoint()).build();
+            int timeoutMs = (source.getSync() != null && source.getSync().getTimeoutMs() > 0)
+                    ? source.getSync().getTimeoutMs() : 5000;
+            try (McpSyncClient client = McpClient.sync(transport)
+                    .requestTimeout(Duration.ofMillis(timeoutMs)).build()) {
+                return client.listTools().tools();
+            }
+        };
     }
 }
