@@ -57,6 +57,20 @@ public class ToolRegistryProperties {
     /** 后端连接池最大空闲时间（秒）；预留，当前按需懒加载 + 失败重连。 */
     private int mcpBackendMaxIdleSeconds = 300;
 
+    // ==================== T2d：Agent 侧发现 / 护栏配置 ====================
+
+    /** ⭐ T2d 特性开关：是否启用 Agent 侧 MCP 发现（discover_tools 元工具注入）；默认 false，关时行为 = T2c 前（REST 路径）。 */
+    private boolean t2McpDiscoveryEnabled = false;
+
+    /** 每轮最大发现次数 (T2d 护栏) */
+    private int maxDiscoveriesPerTurn = 1;
+
+    /** 每会话最大发现次数 (T2d 护栏) */
+    private int maxDiscoveriesPerSession = 10;
+
+    /** 最大动态工具数 (T2d 护栏) */
+    private int maxDynamicTools = 15;
+
     public String getUrl() {
         return url;
     }
@@ -130,5 +144,39 @@ public class ToolRegistryProperties {
 
     public void setMcpBackendMaxIdleSeconds(int mcpBackendMaxIdleSeconds) {
         this.mcpBackendMaxIdleSeconds = mcpBackendMaxIdleSeconds;
+    }
+
+    // ==================== T2d：Agent 侧发现 / 护栏 getters & setters ====================
+
+    public boolean isT2McpDiscoveryEnabled() {
+        return t2McpDiscoveryEnabled;
+    }
+
+    public void setT2McpDiscoveryEnabled(boolean t2McpDiscoveryEnabled) {
+        this.t2McpDiscoveryEnabled = t2McpDiscoveryEnabled;
+    }
+
+    public int getMaxDiscoveriesPerTurn() {
+        return maxDiscoveriesPerTurn;
+    }
+
+    public void setMaxDiscoveriesPerTurn(int maxDiscoveriesPerTurn) {
+        this.maxDiscoveriesPerTurn = maxDiscoveriesPerTurn;
+    }
+
+    public int getMaxDiscoveriesPerSession() {
+        return maxDiscoveriesPerSession;
+    }
+
+    public void setMaxDiscoveriesPerSession(int maxDiscoveriesPerSession) {
+        this.maxDiscoveriesPerSession = maxDiscoveriesPerSession;
+    }
+
+    public int getMaxDynamicTools() {
+        return maxDynamicTools;
+    }
+
+    public void setMaxDynamicTools(int maxDynamicTools) {
+        this.maxDynamicTools = maxDynamicTools;
     }
 }

@@ -1,0 +1,55 @@
+%% ===== 4a. discover_tools 经 MCP 发现并注入 dynamicTools =====
+sequenceDiagram
+    participant LLM as Agent(LLM)
+    participant DT as discover_tools(CORE 元工具, T2d)
+    participant TR as ToolRegistryClient
+    participant DC as McpRegistryDiscoveryClient
+    participant R as registry MCP server
+    participant TRg as ToolRegistry(本地)
+    participant F as McpToolCallbackFactory
+    participant G as ToolGatewayToolCallback
+    participant A as SmartReActAgent
+
+    LLM->>DT: discover_tools(capabilityQuery="sql-query")
+    DT->>TR: getToolDefinitions(tag)
+    TR->>DC: listTools(byTag) / searchTools(filter)
+    DC->>R: MCP tools/list 或 search_tools
+    R-->>DC: List~McpSchema.Tool~(含 _meta.x-*)
+    DC->>DC: toToolDefinition(): 解析 _meta → functionalCapabilities/toolTier/tags/riskLevel
+    DC-->>TR: List~ToolDefinition~(元数据丰富, endpoint 可能 null)
+    TR->>TR: mergeByEndpoint(mcp, rest): 按 name 叠加 REST 的 endpoint/inputSchema
+    TR->>TRg: seed endpoint/inputSchema(按名)
+    TR-->>DT: 候选 ToolDefinition(如 consumer.executeQuery)
+    DT->>F: create(def, null)
+    F->>F: isMcpBacked? endpoint+inputSchema != null → 是
+    F->>G: new ToolGatewayToolCallback(backendCb, gateway, null, def)
+    F-->>DT: ToolCallback(已包裹治理)
+    DT->>A: registerDiscoveredTool(consumer.executeQuery)
+    A->>A: dynamicTools += callback
+    DT-->>LLM: {matched:[...], injectedTools:[...]}
+    Note over LLM,A: 下一轮 effectiveTools 含 dynamicTools
+
+%% ===== 4b. MCP-backed 工具经 ToolGateway 执行转发后端 =====
+sequenceDiagram
+    participant LLM as Agent(LLM)
+    participant G as ToolGatewayToolCallback
+    participant GW as ToolGateway
+    participant BC as McpBackendToolCallback
+    participant EX as McpBackendToolExecutor
+    participant P as 源连接池 McpSyncClient
+    participant S as 后端 MCP server(SQL)
+
+    LLM->>G: call(toolInput)  // 工具名 consumer.executeQuery
+    G->>GW: execute(projectDef, () -> BC.call(toolInput), scope, null)
+    Note over GW: doExecute 治理链（P0 不可破）：\nstatus 拦截(DISABLED/REMOVED) / 审批钩子 /\nscope·tag 鉴权 / 熔断(失败≥3) / 限流 /\n超时(虚拟线程 FutureTask) / 审计 / postExecute
+    GW->>BC: delegate.call(toolInput)
+    BC->>EX: execute(def, toolInput)
+    EX->>EX: stripNamespace("consumer.executeQuery") → "executeQuery"
+    EX->>P: getOrCreateClient(def.endpoint)
+    P->>S: MCP tools/call(executeQuery, args)
+    S-->>P: CallToolResult(content)
+    P-->>EX: 提取 TextContent.text()
+    EX-->>BC: 结果字符串
+    BC-->>GW: 结果
+    GW-->>G: 结果（postExecute 钩子）
+    G-->>LLM: 执行结果
