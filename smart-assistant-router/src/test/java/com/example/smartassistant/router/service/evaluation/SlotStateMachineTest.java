@@ -34,6 +34,7 @@ class SlotStateMachineTest {
         entities.put("arrival_station", "上海虹桥站");
         entities.put("departure_date", "2026-04-24");
         entities.put("passenger", "张三");
+        entities.put("ticket_count", 2); // ticket_count 为 ORDER/下单 必填且不可默认，补齐以构成完整输入
 
         var result = machine.analyzeSlots("ORDER/下单", entities);
 
