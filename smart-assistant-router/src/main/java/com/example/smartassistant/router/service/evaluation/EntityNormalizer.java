@@ -279,19 +279,25 @@ public class EntityNormalizer {
 
         String trimmed = timeExpr.trim();
 
-        // 1. 固定时间段
-        for (Map.Entry<String, String[]> entry : TIME_WINDOWS.entrySet()) {
-            if (trimmed.contains(entry.getKey())) {
-                return entry.getValue();
-            }
-        }
-
-        // 2. 具体时间点：14:00、下午3点、三点
-        Pattern timePattern = Pattern.compile("(\\d{1,2})[:点时](\\d{2})?(?:分)?");
+        // 1. 具体时间点优先解析：14:00、下午3点、下午三点、三点
+        //    支持阿拉伯数字与中文数字（一二两三四五六七八九十），避免被固定时段名称短路。
+        Pattern timePattern = Pattern.compile("([0-9]+|[一二两三四五六七八九十]+)[:点时](\\d{2})?(?:分)?");
         Matcher matcher = timePattern.matcher(trimmed);
         if (matcher.find()) {
-            int hour = Integer.parseInt(matcher.group(1));
-            // 如果有下午/晚上修饰且 hour <= 12，加12
+            String hourToken = matcher.group(1);
+            int hour;
+            try {
+                hour = Integer.parseInt(hourToken);
+            } catch (NumberFormatException e) {
+                // 中文数字（如"三"）回退到中文转数字工具
+                Double parsed = chineseToNumber(hourToken);
+                hour = (parsed == null) ? -1 : parsed.intValue();
+            }
+            if (hour < 0 || hour > 23) {
+                // 无法识别为合法小时，交由固定时段逻辑处理
+                return resolveFixedWindow(trimmed);
+            }
+            // 如果有下午/晚上/傍晚修饰且 hour <= 12，加12
             if ((trimmed.contains("下午") || trimmed.contains("晚上")
                     || trimmed.contains("傍晚")) && hour <= 12) {
                 hour += 12;
@@ -301,6 +307,22 @@ public class EntityNormalizer {
             return new String[]{start, end};
         }
 
+        // 2. 固定时间段回退：下午、晚上、上午、早上、凌晨、中午、傍晚、半夜
+        return resolveFixedWindow(trimmed);
+    }
+
+    /**
+     * 按固定时段名称匹配时间窗口。
+     *
+     * @param trimmed 已 trim 的时间表达
+     * @return 命中的 [start, end]，未命中返回 null
+     */
+    private String[] resolveFixedWindow(String trimmed) {
+        for (Map.Entry<String, String[]> entry : TIME_WINDOWS.entrySet()) {
+            if (trimmed.contains(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
         return null;
     }
 
