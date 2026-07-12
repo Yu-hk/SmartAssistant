@@ -54,6 +54,16 @@
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
         </dependency>
 
+        <!-- ⭐ T2b：MCP client（SSE 传输）依赖 —— registry 作为 MCP client 拉取后端工具。
+             本地仓库仅有 webflux client starter（无 webmvc 客户端 starter），故回退到此；
+             仅作 client 传输/SDK 支撑，运行时由 spring.ai.mcp.client.enabled=false 关闭自动装配，
+             且本模块代码使用 JDK HttpClient 的 SSE transport（不依赖 reactive WebClient）。
+             client.enabled=false + spring.main.web-application-type=servlet 保证仍为 servlet 应用。 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
+        </dependency>
+
         <!-- ⭐ MCP Server 的 JsonMapper 使用 Jackson 3 (tools.jackson)，
              由 mcp-json-jackson3 统一提供并与 mcp-core 2.0.0 的版本对齐 -->
         <dependency>
