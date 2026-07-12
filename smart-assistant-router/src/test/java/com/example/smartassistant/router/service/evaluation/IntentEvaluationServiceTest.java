@@ -32,6 +32,7 @@ class IntentEvaluationServiceTest {
     @BeforeEach
     void setUp() {
         entityNormalizer = new EntityNormalizer();
+        entityNormalizer.init(); // 触发 @PostConstruct 别名/纠错映射
         slotStateMachine = new SlotStateMachine();
         clarificationService = new ClarificationService();
         evaluationService = new IntentEvaluationService(
@@ -59,7 +60,7 @@ class IntentEvaluationServiceTest {
         // 1. 输入鲁棒性：纠错
         assertTrue(result.hasInputCorrections(),
                 "应检测到'杭洲'→'杭州'和'红桥'→'虹桥'的纠错");
-        assertEquals("从杭州东到上海虹桥", result.getStandardizedInput());
+        assertEquals("从杭州东站到上海虹桥站，明天二百以内，买两张", result.getStandardizedInput());
 
         // 2. 实体归一化
         assertTrue(result.hasNormalizedEntities(),

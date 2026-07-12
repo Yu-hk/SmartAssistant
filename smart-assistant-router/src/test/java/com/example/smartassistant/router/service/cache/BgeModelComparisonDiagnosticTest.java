@@ -151,10 +151,13 @@ class BgeModelComparisonDiagnosticTest {
     @DisplayName("BGE-small vs BGE-large 召回准确性对比")
     void compareModels() throws Exception {
         var vocab = loadVocab();
-        assertNotNull(vocab, "Vocab must be loaded");
+        // BGE 模型与 vocab 依赖本地 ONNX 与 tokenizer.json 资源，缺失时跳过而非失败（属 D 类：环境/资源缺失）
+        Assumptions.assumeTrue(vocab != null, "BGE tokenizer.json 不存在，跳过诊断测试");
 
         var small = ModelHandle.load(BGE_SMALL, vocab);
         var large = ModelHandle.load(BGE_LARGE, vocab);
+        Assumptions.assumeTrue(small != null || large != null, "BGE ONNX 模型不存在，跳过诊断测试");
+
         var models = new ArrayList<ModelHandle>();
         if (small != null) models.add(small);
         if (large != null) models.add(large);
