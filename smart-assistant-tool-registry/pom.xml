@@ -47,10 +47,32 @@
             <artifactId>spring-ai-model</artifactId>
         </dependency>
 
+        <!-- ⭐ Spring AI MCP Server (WebMvc/SSE 传输) — T2a 发现层暴露
+             版本由父 pom 的 spring-ai-bom (2.0.0) 统一管理，不显式指定版本以避免全局升级 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+
+        <!-- ⭐ MCP Server 的 JsonMapper 使用 Jackson 3 (tools.jackson)，
+             由 mcp-json-jackson3 统一提供并与 mcp-core 2.0.0 的版本对齐 -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-json-jackson3</artifactId>
+            <version>2.0.0</version>
+        </dependency>
+
         <!-- Jackson (JSON serialization) -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- Jackson 2 注解（MCP JsonMapper 自动配置引用 com.fasterxml.jackson.annotation.JsonInclude，
+             同时 Jackson 3 的 JsonMapper 需要 Jackson 2 注解做兼容互操作） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
         </dependency>
 
         <!-- XChart (DataGifTool GIF generation) -->
@@ -86,6 +108,30 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <!-- ⭐ 强制 Jackson 2 注解版本：registry 的 MCP server 使用 Jackson 3 (tools.jackson) 的 JsonMapper，
+         其在构建时通过兼容层访问 com.fasterxml.jackson.annotation.JsonSerializeAs（Jackson 2.12+ 才引入）。
+         若传递依赖带入旧的 jackson-annotations（如 2.9.x，仅有 JsonInclude 而无 JsonSerializeAs），
+         会在 mcpServerJsonMapper 实例化时报 NoClassDefFoundError。此处统一锁定到 Spring Boot 管理的 2.18.4。 -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-annotations</artifactId>
+                <version>2.18.4</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>2.18.4</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>2.18.4</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <plugins>

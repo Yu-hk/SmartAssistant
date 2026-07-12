@@ -6,12 +6,33 @@ spring:
     timeout-per-shutdown-phase: "30s"
   application:
     name: tool-registry
+  # ⭐ T2a：Registry MCP 暴露层（WebMvc/SSE 传输，仅「发现」+ search_tools，不做传递式执行）
+  ai:
+    mcp:
+      server:
+        enabled: true
+        name: smart-assistant-tool-registry
+        version: 1.0.0
+        type: sync
+        protocol: sse                       # SSE 传输（默认 STREAMABLE，需显式指定）
+        sse-endpoint: /sse
+        sse-message-endpoint: /mcp/message
+        # 关键：禁用 @Tool Bean -> 可执行 MCP 工具的自动转换。
+        # registry 只暴露「发现」元数据（经 McpToolRegistryAdapter 产出的 discovery 规格），
+        # 不实现传递式 tools/call，守住 P0 治理链。
+        tool-callback-converter: false
+        # 禁用注解扫描器（registry 使用标准 @Tool，不暴露为 MCP 工具）
+        annotation-scanner:
+          enabled: false
   main:
     banner-mode: off
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      # 仅由 McpServerConfig 经 McpToolRegistryAdapter 手动注册发现型工具 + search_tools，
+      # 禁止自动把任何 ToolCallback Bean 暴露为可执行 MCP 工具（避免绕过 ToolGateway）。
+      - org.springframework.ai.mcp.server.common.autoconfigure.ToolCallbackConverterAutoConfiguration
 
 # 禁用 OpenTelemetry（common 模块引入的依赖）
 otel:
