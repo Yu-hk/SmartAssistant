@@ -147,7 +147,9 @@ public class SkillRepository {
                             matched.add(skill);
                             break;
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        log.warn("[SkillRepo] 技能匹配正则失败: pattern={}, error={}", pattern, e.getMessage());
+                    }
                 }
             }
         }

@@ -203,7 +203,9 @@ public class MilvusConversationSummaryStore implements ConversationSummaryStore 
                     if (summary != null && !summary.isBlank()) {
                         hits.add(new SummaryHit(summary, score, generation, createdAt));
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.warn("[MilvusSummary] 解析会话摘要行失败: {}", e.getMessage());
+                }
             }
             return hits;
         } catch (Exception e) {
