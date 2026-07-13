@@ -9,6 +9,7 @@ package com.example.smartassistant.common.observability;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
 
@@ -28,14 +29,27 @@ import java.util.concurrent.TimeUnit;
  * </ol>
  *
  * <h3>设计</h3>
- * 直接复用 Micrometer 全局注册表 {@link Metrics#globalRegistry}（Spring Boot 已将其主注册表
- * Prometheus 自动挂载到全局），<b>无需任何 Spring 装配、无需构造函数改动</b>，对各消费类的
- * 既有测试（大量 {@code new XxxAgent(...)} 手动构造）零侵入。全局注册表在非生产/无注册表环境
- * 下为 no-op，调用安全。
+ * 默认复用 Micrometer 全局注册表 {@link Metrics#globalRegistry}（Spring Boot 已将其主注册表
+ * Prometheus 自动挂载到全局），<b>无需任何 Spring 装配</b>；同时提供
+ * {@link #OpsMetrics(MeterRegistry)} 重载，可注入隔离注册表以满足测试隔离。全局注册表在非生产/
+ * 无注册表环境下为 no-op，调用安全。
  */
 public class OpsMetrics {
 
     private static final String AGENT_UNKNOWN = "unknown";
+
+    /** 指标注册表：默认复用 Micrometer 全局注册表，测试可注入隔离实例。 */
+    private final MeterRegistry registry;
+
+    /** 生产默认：复用全局注册表（Spring Boot 自动挂载 Prometheus）。 */
+    public OpsMetrics() {
+        this(Metrics.globalRegistry);
+    }
+
+    /** 可测试构造：注入隔离的 {@link MeterRegistry}，避免全局注册表跨测试类污染。 */
+    public OpsMetrics(MeterRegistry registry) {
+        this.registry = registry;
+    }
 
     /** 记录端到端路由/响应延迟（毫秒）。 */
     public void recordRouteLatency(String agent, String intent, long milliseconds) {
@@ -43,7 +57,7 @@ public class OpsMetrics {
                 .description("端到端路由/响应延迟（秒）")
                 .tag("agent", sanitize(agent))
                 .tag("intent", sanitize(intent))
-                .register(Metrics.globalRegistry)
+                .register(registry)
                 .record(milliseconds, TimeUnit.MILLISECONDS);
     }
 
@@ -53,7 +67,7 @@ public class OpsMetrics {
                 .description("工具调用总量（按结果分成功/失败）")
                 .tag("agent", sanitize(agent))
                 .tag("outcome", success ? "success" : "failure")
-                .register(Metrics.globalRegistry)
+                .register(registry)
                 .increment();
     }
 
@@ -63,7 +77,7 @@ public class OpsMetrics {
         DistributionSummary.builder("a2a_turn_tokens")
                 .description("单轮对话 Token 消耗（总量分布）")
                 .tag("agent", sanitize(agent))
-                .register(Metrics.globalRegistry)
+                .register(registry)
                 .record(totalTokens);
     }
 
@@ -73,7 +87,7 @@ public class OpsMetrics {
                 .description("Agent 有效应答总量")
                 .tag("agent", sanitize(agent))
                 .tag("intent", sanitize(intent))
-                .register(Metrics.globalRegistry)
+                .register(registry)
                 .increment();
     }
 
@@ -83,7 +97,7 @@ public class OpsMetrics {
                 .description("无证据拒答总量（检索不足，未调用生成）")
                 .tag("agent", sanitize(agent))
                 .tag("intent", sanitize(intent))
-                .register(Metrics.globalRegistry)
+                .register(registry)
                 .increment();
     }
 
@@ -93,7 +107,7 @@ public class OpsMetrics {
                 .description("人工/专业接管总量（按原因分）")
                 .tag("reason", sanitize(reason))
                 .tag("agent", sanitize(agent))
-                .register(Metrics.globalRegistry)
+                .register(registry)
                 .increment();
     }
 
@@ -102,7 +116,7 @@ public class OpsMetrics {
         Counter.builder("a2a_semantic_cache_hits_total")
                 .description("语义路由缓存命中总量")
                 .tag("cache", sanitize(cache))
-                .register(Metrics.globalRegistry)
+                .register(registry)
                 .increment();
     }
 
@@ -111,7 +125,7 @@ public class OpsMetrics {
         Counter.builder("a2a_semantic_cache_misses_total")
                 .description("语义路由缓存未命中总量")
                 .tag("cache", sanitize(cache))
-                .register(Metrics.globalRegistry)
+                .register(registry)
                 .increment();
     }
 
@@ -121,7 +135,7 @@ public class OpsMetrics {
                 .description("Graph 节点执行错误总量（按类型分）")
                 .tag("agent", sanitize(agent))
                 .tag("error_type", sanitize(errorType))
-                .register(Metrics.globalRegistry)
+                .register(registry)
                 .increment();
     }
 
