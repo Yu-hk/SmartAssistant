@@ -5,7 +5,7 @@
  * full license information.
  */
 
-package com.example.smartassistant.toolregistry.tool.general;
+package com.example.smartassistant.general.tool;
 
 /**
  * Image size presets for text-to-image generation.
