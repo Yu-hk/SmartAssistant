@@ -88,15 +88,11 @@ public class SmartReActAgent {
     private static final int DEFAULT_MAX_CONCURRENCY = 4;
     /** 默认单个工具超时（毫秒） */
     private static final long DEFAULT_TOOL_TIMEOUT_MS = 30_000;
-    /** ⭐ 连续无增量检测阈值：连续几次工具调用结果相似时强制停止 */
-    private static final int NO_INCREMENT_LIMIT = 2;
-
     // ═══════════════════════════════════════════════════════════════
     // ⭐ P1 Loop Engineering 常量（文章⑥确定性约束）
+    //   NO_INCREMENT_LIMIT / MAX_NO_PROGRESS_ITERATIONS / MAX_PARSE_FAILURES
+    //   已统一收敛到 AgentLoopDecision（决策状态机单一真相源）
     // ═══════════════════════════════════════════════════════════════
-
-    /** 无进展计数器阈值：连续几轮无实质进展时提前终止 */
-    private static final int MAX_NO_PROGRESS_ITERATIONS = 3;
 
     /** 无进展检测：一次迭代中工具调用数少于此值视为"无实质进展" */
     private static final int MIN_PROGRESS_TOOL_CALLS = 1;
@@ -661,7 +657,7 @@ public class SmartReActAgent {
             ChatResponse response;
             long llmStart = System.currentTimeMillis();
             try {
-                injectToolsToModel(effectiveTools);
+                ModelToolInjector.inject(log, chatModel, effectiveTools);
                 final List<Message> callMessages = messages;
                 final ToolCallingChatOptions callOptions = options;
 
@@ -754,29 +750,81 @@ public class SmartReActAgent {
                 }
             }
 
-            // ⭐ 没有工具调用 → 最终回答
+            // ═══════════════════════════════════════════════════════════
+            // ⭐ P2 决策状态机：无工具调用 → 由 decide() 真正驱动循环分支
+            //    （守卫动作 PAUSE_* 已在上方循环守卫处提前返回，此处传入 CONTINUE）
+            // ═══════════════════════════════════════════════════════════
             if (toolCalls == null || toolCalls.isEmpty()) {
-                // ⭐ P1-5 无进展检测：只有文本无工具调用且内容较短（非最终回答）
-                // 使用工具调用次数与内容长度联合判定
+                // ⭐ 无进展检测：只有文本无工具调用且内容较短 → 累计无进展轮次
                 boolean hasProgress = answerText != null && answerText.length() > 50;
                 if (!hasProgress) {
                     noProgressCount++;
-                    if (noProgressCount >= MAX_NO_PROGRESS_ITERATIONS) {
-                        log.warn("[SmartReActAgent] 连续 {} 轮无实质进展，提前终止", noProgressCount);
-                        return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_NO_INCREMENT,
-                                "连续" + noProgressCount + "轮无实质进展，已终止");
-                    }
                 } else {
                     noProgressCount = 0;
                 }
-                String answer = answerText;
-                log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
-                        iteration, elapsed, totalInputTokens, totalOutputTokens);
-                if (feedbackLog != null) {
-                    String progress = noProgressCount > 0 ? "low" : "high";
-                    feedbackLog.recordProgress(iteration, progress);
+
+                AgentLoopDecision.LoopAction nextAction = AgentLoopDecision.decide(
+                        new AgentLoopDecision.DecisionContext(
+                                iteration, true, answerText,
+                                LoopGuardService.GuardAction.CONTINUE,
+                                consecutiveParseFailures, noProgressCount, noIncrementCount),
+                        phaseChecks != null && !phaseChecks.isEmpty(),
+                        profile.maxIterations());
+
+                switch (nextAction) {
+                    case FINALIZE -> {
+                        log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
+                                iteration, elapsed, totalInputTokens, totalOutputTokens);
+                        if (feedbackLog != null) {
+                            String progress = noProgressCount > 0 ? "low" : "high";
+                            feedbackLog.recordProgress(iteration, progress);
+                        }
+                        return answerText;
+                    }
+                    case STRATEGY_SWITCH -> {
+                        log.warn("[SmartReActAgent] 连续 {} 轮无实质进展，提前终止", noProgressCount);
+                        metrics.recordMaxIterationHit();
+                        return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_NO_INCREMENT,
+                                "连续" + noProgressCount + "轮无实质进展，已终止");
+                    }
+                    case PAUSE_BLOCKED -> {
+                        metrics.recordMaxIterationHit();
+                        return "检测到 Agent 报告被阻塞，无法继续。请提供更多信息或重新描述需求。";
+                    }
+                    case PAUSE_INFRA -> {
+                        metrics.recordMaxIterationHit();
+                        return "检测到基础设施故障，已暂停以避免持续重试。请稍后再试。";
+                    }
+                    case AWAIT_CONFIRMATION -> {
+                        metrics.recordMaxIterationHit();
+                        return "Agent 在等待您的确认。请根据提示做出选择。";
+                    }
+                    case PAUSE -> {
+                        metrics.recordMaxIterationHit();
+                        return "循环守卫暂停";
+                    }
+                    case ITERATION_BUDGET -> {
+                        log.warn("[SmartReActAgent] 达到最大迭代次数 {}", profile.maxIterations());
+                        metrics.recordMaxIterationHit();
+                        return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_MAX_ITERATIONS, null);
+                    }
+                    case PARSE_FAILURE -> {
+                        metrics.recordMaxIterationHit();
+                        return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_MAX_ITERATIONS,
+                                "连续" + consecutiveParseFailures + "次LLM返回空，已暂停");
+                    }
+                    default -> {
+                        // CONTINUE / ADVANCE_PHASE / NO_INCREMENT（无工具调用时 NO_INCREMENT 无意义）
+                        // → 视作最终回答返回，与原“短回答直接返回”行为一致
+                        log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
+                                iteration, elapsed, totalInputTokens, totalOutputTokens);
+                        if (feedbackLog != null) {
+                            String progress = noProgressCount > 0 ? "low" : "high";
+                            feedbackLog.recordProgress(iteration, progress);
+                        }
+                        return answerText;
+                    }
                 }
-                return answer;
             }
             // 有工具调用 → 重置无进展计数器
             noProgressCount = 0;
@@ -800,12 +848,6 @@ public class SmartReActAgent {
                     .collect(java.util.stream.Collectors.joining(","));
             if (currentHash.equals(lastToolCallHash)) {
                 noIncrementCount++;
-                if (noIncrementCount >= NO_INCREMENT_LIMIT) {
-                    log.warn("[SmartReActAgent] 连续 {} 次相同工具调用，强制停止", noIncrementCount);
-                    recoveryService.logRecovery(AgentErrorCode.SYSTEM_NO_INCREMENT, RecoveryAction.RETRY_ALTERNATIVE,
-                            "consecutive=" + noIncrementCount, iteration);
-                    return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_NO_INCREMENT, null);
-                }
             } else {
                 lastToolCallHash = currentHash;
                 noIncrementCount = 0;
@@ -826,20 +868,22 @@ public class SmartReActAgent {
             }
 
             // ═══════════════════════════════════════════════════════════
-            // ⭐ P2 决策状态机：10 条优先级链路日志
+            // ⭐ P2 决策状态机：工具执行后，由 decide() 真正驱动循环分支（含无增量保护）
             // ═══════════════════════════════════════════════════════════
-            AgentLoopDecision.LoopAction nextAction = AgentLoopDecision.decide(new AgentLoopDecision.DecisionContext(
-                    iteration, false, "", LoopGuardService.GuardAction.CONTINUE,
-                    consecutiveParseFailures, noProgressCount),
+            AgentLoopDecision.LoopAction postAction = AgentLoopDecision.decide(
+                    new AgentLoopDecision.DecisionContext(
+                            iteration, false, answerText,
+                            LoopGuardService.GuardAction.CONTINUE,
+                            consecutiveParseFailures, noProgressCount, noIncrementCount),
                     phaseChecks != null && !phaseChecks.isEmpty(),
                     profile.maxIterations());
-            if (nextAction == AgentLoopDecision.LoopAction.STRATEGY_SWITCH) {
-                log.warn("[SmartReActAgent] ⚡ 策略切换触发: 无进展{}轮，考虑更换Agent/策略", noProgressCount);
-            } else {
-                log.debug("[SmartReActAgent] 决策状态机: iteration={}, action={}", iteration, nextAction);
+            if (postAction == AgentLoopDecision.LoopAction.NO_INCREMENT) {
+                log.warn("[SmartReActAgent] 连续 {} 次相同工具调用，强制停止", noIncrementCount);
+                recoveryService.logRecovery(AgentErrorCode.SYSTEM_NO_INCREMENT, RecoveryAction.RETRY_ALTERNATIVE,
+                        "consecutive=" + noIncrementCount, iteration);
+                return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_NO_INCREMENT, null);
             }
-
-            // 继续循环
+            // 其余动作（CONTINUE 等）→ 继续循环
         }
 
         // ⭐ 达到最大迭代次数
@@ -863,21 +907,6 @@ public class SmartReActAgent {
     }
 
     /**
-     * ⭐ 向自定义 ChatModel 注入工具列表（通过反射，避免循环依赖）。
-     * <p>
-     * 如果 chatModel 有 {@code setToolCallbacks(List)} 方法，则调用它。
-     * 这允许 CustomDeepSeekChatModel 获取工具定义并向 DeepSeek API 发送 tools 参数。
-     * </p>
+     * ⭐ 向自定义 ChatModel 注入工具列表已抽取至 {@link ModelToolInjector}（反射，避免循环依赖）。
      */
-    private void injectToolsToModel(List<ToolCallback> tools) {
-        try {
-            var method = chatModel.getClass().getMethod("setToolCallbacks", java.util.List.class);
-            method.invoke(chatModel, tools);
-            log.debug("[SmartReActAgent] 通过反射注入 {} 个工具到 ChatModel", tools.size());
-        } catch (NoSuchMethodException e) {
-            // ChatModel 没有 setToolCallbacks 方法，这是正常的
-        } catch (Exception e) {
-            log.warn("[SmartReActAgent] 注入工具到 ChatModel 失败: {}", e.getMessage());
-        }
-    }
 }
