@@ -194,7 +194,9 @@ public class BadCaseMinerService {
             for (String json : raw) {
                 try {
                     result.add(objectMapper.readValue(json, BadCaseRecord.class));
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.warn("[BadCaseMiner] 解析坏例记录失败: {}", e.getMessage());
+                }
             }
             return result;
         } catch (Exception e) {
