@@ -8,9 +8,7 @@
 package com.example.smartassistant.order.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.idempotent.TaskLogService;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolResult;
@@ -21,7 +19,6 @@ import com.example.smartassistant.common.tool.spi.dto.RefundDTO;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -64,39 +61,17 @@ public class OrderTools {
 
     private final OrderDataProvider orderData;
     private final ReadBeforeEditGuard readGuard;
-    private final ToolRegistry toolRegistry;
-    private final ToolRegistryClient registryClient;
     private final TaskLogService taskLogService;
 
     public OrderTools(OrderDataProvider orderData,
                       ReadBeforeEditGuard readGuard,
-                      ToolRegistry toolRegistry,
-                      ToolRegistryClient registryClient,
                       TaskLogService taskLogService) {
         this.orderData = orderData;
         this.readGuard = readGuard;
-        this.toolRegistry = toolRegistry;
-        this.registryClient = registryClient;
         this.taskLogService = taskLogService;
     }
 
-    @PostConstruct
-    public void initTools() {
-        java.util.List.of(
-                ToolDefinition.read("queryOrder", "查询订单详情"),
-                ToolDefinition.read("trackLogistics", "查询物流轨迹"),
-                ToolDefinition.highRisk("createOrder", "创建新订单", true),
-                ToolDefinition.highRisk("payOrder", "完成订单支付", true),
-                ToolDefinition.highRisk("cancelOrder", "取消订单", true),
-                ToolDefinition.highRisk("applyRefund", "提交退款申请", true),
-                ToolDefinition.write("shipOrder", "商家发货", com.example.smartassistant.common.gateway.tool.ToolRiskLevel.MEDIUM),
-                ToolDefinition.write("confirmDelivery", "确认收货", com.example.smartassistant.common.gateway.tool.ToolRiskLevel.MEDIUM),
-                ToolDefinition.highRisk("confirmAction", "确认支付/退款操作", true)
-        ).forEach(def -> {
-            toolRegistry.register(def);
-            registryClient.registerWithFallback(def, toolRegistry);
-        });
-    }
+
 
     private String idempotentKey(String action, String orderId) {
         return "order:" + action + ":" + orderId;

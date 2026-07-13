@@ -7,10 +7,7 @@
 
 package com.example.smartassistant.order.tool;
 
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.memory.AgentMemoryService;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -29,21 +26,11 @@ public class OrderMemoryTool {
     private static final String AGENT_NAME = "order";
 
     private final AgentMemoryService memoryService;
-    private final ToolRegistry toolRegistry;
 
-    public OrderMemoryTool(AgentMemoryService memoryService, ToolRegistry toolRegistry) {
+    public OrderMemoryTool(AgentMemoryService memoryService) {
         this.memoryService = memoryService;
-        this.toolRegistry = toolRegistry;
     }
 
-    @PostConstruct
-    public void initTools() {
-        toolRegistry.registerAll(java.util.List.of(
-                ToolDefinition.read("recallMemories", "获取用户订单偏好"),
-                ToolDefinition.write("savePreference", "保存用户订单偏好",
-                        com.example.smartassistant.common.gateway.tool.ToolRiskLevel.LOW)
-        ));
-    }
 
     @Tool(description = "保存用户的订单相关偏好，如常用路线、座位偏好、支付方式等。用户明确表达偏好时调用。key常用值: preferWindowSeat(靠窗)/preferAisleSeat(过道)/frequentRoute(常用路线)/frequentDeparture(常用出发地)")
     public void savePreference(

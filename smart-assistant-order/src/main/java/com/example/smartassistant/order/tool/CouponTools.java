@@ -8,14 +8,11 @@
 package com.example.smartassistant.order.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.tool.ToolPageResult;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.CouponRecommendationDTO;
 import com.example.smartassistant.common.tool.spi.dto.UserCouponDTO;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -35,20 +32,11 @@ public class CouponTools {
     private static final Logger log = LoggerFactory.getLogger(CouponTools.class);
 
     private final OrderDataProvider orderData;
-    private final ToolRegistry toolRegistry;
 
-    public CouponTools(OrderDataProvider orderData, ToolRegistry toolRegistry) {
+    public CouponTools(OrderDataProvider orderData) {
         this.orderData = orderData;
-        this.toolRegistry = toolRegistry;
     }
 
-    @PostConstruct
-    public void initTools() {
-        toolRegistry.registerAll(java.util.List.of(
-                ToolDefinition.read("queryUserCoupons", "查询用户可用优惠券"),
-                ToolDefinition.read("findBestCoupon", "计算最优优惠券方案")
-        ));
-    }
 
     @Tool(description = "【优惠券】查询用户当前可用的优惠券列表（支持分页），包含满减券、折扣券、现金券等。"
             + "下单前调用此方法，可帮用户找到最省钱的优惠方式。"

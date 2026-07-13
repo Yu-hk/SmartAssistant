@@ -7,10 +7,7 @@
 
 package com.example.smartassistant.product.tool;
 
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.memory.AgentMemoryService;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -29,21 +26,11 @@ public class ProductMemoryTool {
     private static final String AGENT_NAME = "product";
 
     private final AgentMemoryService memoryService;
-    private final ToolRegistry toolRegistry;
 
-    public ProductMemoryTool(AgentMemoryService memoryService, ToolRegistry toolRegistry) {
+    public ProductMemoryTool(AgentMemoryService memoryService) {
         this.memoryService = memoryService;
-        this.toolRegistry = toolRegistry;
     }
 
-    @PostConstruct
-    public void initTools() {
-        toolRegistry.registerAll(java.util.List.of(
-                ToolDefinition.read("recallMemories", "获取用户商品偏好"),
-                ToolDefinition.write("savePreference", "保存用户商品偏好",
-                        com.example.smartassistant.common.gateway.tool.ToolRiskLevel.LOW)
-        ));
-    }
 
     @Tool(description = "保存用户的商品偏好，如常看品类、价格区间、品牌偏好等。用户明确表达偏好时调用。key常用值: frequentCategory(常看品类)/maxPrice(价格上限)/preferBrand(偏好品牌)")
     public void savePreference(

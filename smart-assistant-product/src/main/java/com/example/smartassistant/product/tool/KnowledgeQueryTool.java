@@ -7,12 +7,9 @@
 
 package com.example.smartassistant.product.tool;
 
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.rag.AclContext;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -29,25 +26,12 @@ public class KnowledgeQueryTool {
     private static final Logger log = LoggerFactory.getLogger(KnowledgeQueryTool.class);
 
     private final KnowledgeRetrievalService retrievalService;
-    private final ToolRegistry toolRegistry;
-    private final ToolRegistryClient registryClient;
 
-    public KnowledgeQueryTool(KnowledgeRetrievalService retrievalService, ToolRegistry toolRegistry,
-                              ToolRegistryClient registryClient) {
+    public KnowledgeQueryTool(KnowledgeRetrievalService retrievalService) {
         this.retrievalService = retrievalService;
-        this.toolRegistry = toolRegistry;
-        this.registryClient = registryClient;
     }
 
-    @PostConstruct
-    public void initTools() {
-        toolRegistry.register(ToolDefinition.read("queryKnowledge", "查询商品知识库")
-                .toBuilder().tags(new String[]{"PRODUCT", "READ_ONLY"})
-                .functionalCapabilities(java.util.List.of("product-knowledge", "product-faq", "product-info")).build());
-        registryClient.registerWithFallback(ToolDefinition.read("queryKnowledge", "查询商品知识库")
-                .toBuilder().tags(new String[]{"PRODUCT", "READ_ONLY"})
-                .functionalCapabilities(java.util.List.of("product-knowledge", "product-faq", "product-info")).build(), toolRegistry);
-    }
+
 
     @Tool(description = "查询产品知识库：从商品咨询的知识库中检索商品信息、分类说明、价格政策、"
             + "库存状态、评价指南、商品对比建议、售后服务等。"
