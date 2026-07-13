@@ -216,7 +216,7 @@ public class MilvusConversationSummaryStore implements ConversationSummaryStore 
 
     /** 释放连接 */
     public void close() {
-        try { client.close(); } catch (Exception ignored) {}
+        try { client.close(); } catch (Exception e) { log.debug("[SummaryStore] 关闭连接: {}", e.getMessage()); }
     }
 
     private static String safeGetField(SearchResultsWrapper wrapper, String field, int rowId) {
