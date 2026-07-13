@@ -212,7 +212,9 @@ public class ExperienceMilvusService {
                     String agentName = agentData != null && !agentData.isEmpty()
                             ? agentData.get(0).toString() : "";
                     results.add(new SearchResult(expId, agentName, score));
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.debug("[ExpMilvus] 解析搜索结果行失败: {}", e.getMessage());
+                }
             }
             return results;
         } catch (Exception e) {
@@ -223,7 +225,7 @@ public class ExperienceMilvusService {
 
     /** 释放连接 */
     public void close() {
-        try { client.close(); } catch (Exception ignored) {}
+        try { client.close(); } catch (Exception e) { log.debug("[ExperienceMilvus] 关闭连接: {}", e.getMessage()); }
     }
 
     public static class SearchResult {
