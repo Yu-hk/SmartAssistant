@@ -9,12 +9,8 @@ package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.common.correction.CorrectionService;
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.common.tool.spi.GeneralDataProvider;
-import jakarta.annotation.PostConstruct;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -47,39 +43,14 @@ public class GeneralTools {
 
     private final CorrectionService correctionService;
     private final GeneralDataProvider generalData;
-    private final ToolRegistry toolRegistry;
 
     private final ExecutorService ioVirtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public GeneralTools(CorrectionService correctionService, GeneralDataProvider generalData,
-                        ToolRegistry toolRegistry) {
+    public GeneralTools(CorrectionService correctionService, GeneralDataProvider generalData) {
         this.correctionService = correctionService;
         this.generalData = generalData;
-        this.toolRegistry = toolRegistry;
     }
 
-    @PostConstruct
-    public void initTools() {
-        toolRegistry.registerAll(java.util.List.of(
-                ToolDefinition.read("calculate", "数学表达式计算"),
-                ToolDefinition.read("convertTemperature", "温度单位转换"),
-                ToolDefinition.read("convertLength", "长度单位转换"),
-                ToolDefinition.read("convertWeight", "重量单位转换"),
-                ToolDefinition.write("getHotNews", "获取热点新闻", ToolRiskLevel.LOW),
-                ToolDefinition.write("searchWeb", "联网搜索", ToolRiskLevel.LOW),
-                ToolDefinition.write("convertCurrency", "货币汇率转换", ToolRiskLevel.LOW),
-                ToolDefinition.read("queryCorrections", "查询历史纠错记录"),
-                ToolDefinition.builder()
-                        .name("executeScript")
-                        .description("执行多步计算脚本")
-                        .riskLevel(ToolRiskLevel.MEDIUM)
-                        .timeout(java.time.Duration.ofSeconds(10))
-                        .needsApproval(true)
-                        .maxRetries(1)
-                        .rateLimit(5)
-                        .build()
-        ));
-    }
 
     // ==================== Math Calculation ====================
 
