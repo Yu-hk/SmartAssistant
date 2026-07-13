@@ -8,12 +8,8 @@
 package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.gateway.tool.ToolTier;
-import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.tool.ToolResult;
-import jakarta.annotation.PostConstruct;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -38,24 +34,10 @@ public class WeatherTool {
     private static final Logger log = LoggerFactory.getLogger(WeatherTool.class);
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-    private final ToolRegistry toolRegistry;
-    private final ToolRegistryClient registryClient;
 
-    public WeatherTool(ToolRegistry toolRegistry, ToolRegistryClient registryClient) {
+    public WeatherTool() {
         this.httpClient = HttpClient.newHttpClient();
         this.objectMapper = new ObjectMapper();
-        this.toolRegistry = toolRegistry;
-        this.registryClient = registryClient;
-    }
-
-    @PostConstruct
-    public void initTools() {
-        toolRegistry.register(ToolDefinition.read("queryWeather", "查询城市天气预报")
-                .toBuilder().toolTier(ToolTier.SHARED).tags(new String[]{"GENERAL", "READ_ONLY"})
-                .functionalCapabilities(java.util.List.of("weather", "weather-query", "temperature", "forecast")).build());
-        registryClient.registerWithFallback(ToolDefinition.read("queryWeather", "查询城市天气预报")
-                .toBuilder().toolTier(ToolTier.SHARED).tags(new String[]{"GENERAL", "READ_ONLY"})
-                .functionalCapabilities(java.util.List.of("weather", "weather-query", "temperature", "forecast")).build(), toolRegistry);
     }
 
     @Tool(description = "查询指定城市的实时天气和未来天气预报，包括温度、天气状况、风速等。城市可以是中文或英文名称，如'北京'、'上海'、'London'。")

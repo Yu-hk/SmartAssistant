@@ -8,7 +8,6 @@
 package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.common.correction.CorrectionService;
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.tool.spi.GeneralDataProvider;
 import com.example.smartassistant.general.tool.GeneralTools;
 import com.example.smartassistant.general.tool.LengthUnit;
@@ -32,11 +31,9 @@ class GeneralToolsTest {
     private CorrectionService correctionService;
     @Mock
     private GeneralDataProvider generalData;
-    @Mock
-    private ToolRegistry toolRegistry;
 
     private final GeneralTools tools =
-            new GeneralTools(correctionService, generalData, toolRegistry);
+            new GeneralTools(correctionService, generalData);
 
     // ========== 数学计算 ==========
 

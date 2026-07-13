@@ -7,11 +7,8 @@
 
 package com.example.smartassistant.order.tool;
 
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.tool.ToolPageResult;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -30,22 +27,11 @@ public class OrderAnalyticsTool {
     private static final Logger log = LoggerFactory.getLogger(OrderAnalyticsTool.class);
 
     private final OrderDataProvider orderData;
-    private final ToolRegistry toolRegistry;
 
-    public OrderAnalyticsTool(OrderDataProvider orderData, ToolRegistry toolRegistry) {
+    public OrderAnalyticsTool(OrderDataProvider orderData) {
         this.orderData = orderData;
-        this.toolRegistry = toolRegistry;
     }
 
-    @PostConstruct
-    public void initTools() {
-        toolRegistry.registerAll(java.util.List.of(
-                ToolDefinition.read("queryOrdersByStatus", "查询指定状态的订单列表"),
-                ToolDefinition.read("countOrdersByStatus", "统计各状态订单数量"),
-                ToolDefinition.read("queryTopRefunds", "查询退款金额最高的订单排行"),
-                ToolDefinition.read("queryUserRefunds", "查询用户退款记录")
-        ));
-    }
 
     @Tool(description = "查询指定状态的订单列表（支持分页）。"
             + "适用于：'有哪些待发货的订单'、'已退款的有哪些'等统计类问题。"

@@ -7,13 +7,10 @@
 
 package com.example.smartassistant.order.tool;
 
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.sql.SqlSecurityValidator;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
-import jakarta.annotation.PostConstruct;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -48,32 +45,18 @@ public class TextToSqlTool {
     private final OrderDataProvider orderData;
     private final String ollamaBaseUrl;
     private final String ollamaModel;
-    private final ToolRegistry toolRegistry;
-    private final ToolRegistryClient registryClient;
 
     public TextToSqlTool(OrderDataProvider orderData,
                          @Value("${spring.ai.ollama.base-url}") String ollamaBaseUrl,
                          @Value("${spring.ai.ollama.chat.options.model:deepseek-r1:7b}") String ollamaModel,
-                         ToolRegistry toolRegistry,
-                         ToolRegistryClient registryClient,
                          PromptManager promptManager) {
         this.orderData = orderData;
         this.ollamaBaseUrl = ollamaBaseUrl;
         this.ollamaModel = ollamaModel;
-        this.toolRegistry = toolRegistry;
-        this.registryClient = registryClient;
         this.promptManager = promptManager;
     }
 
-    @PostConstruct
-    public void initTools() {
-        toolRegistry.register(ToolDefinition.read("textToSql", "文本转SQL查询")
-                .toBuilder().tags(new String[]{"ORDER", "READ_ONLY"})
-                .functionalCapabilities(java.util.List.of("sql-query", "data-analysis", "order-analytics")).build());
-        registryClient.registerWithFallback(ToolDefinition.read("textToSql", "文本转SQL查询")
-                .toBuilder().tags(new String[]{"ORDER", "READ_ONLY"})
-                .functionalCapabilities(java.util.List.of("sql-query", "data-analysis", "order-analytics")).build(), toolRegistry);
-    }
+
 
     @Tool(description = "⭐ 文本转SQL查询工具。将用户用自然语言提出的数据问题，"
             + "自动转换为 SQL 查询并执行返回结果。"
