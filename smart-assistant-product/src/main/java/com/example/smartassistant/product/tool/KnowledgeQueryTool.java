@@ -5,7 +5,7 @@
  * full license information.
  */
 
-package com.example.smartassistant.toolregistry.tool.product;
+package com.example.smartassistant.product.tool;
 
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
