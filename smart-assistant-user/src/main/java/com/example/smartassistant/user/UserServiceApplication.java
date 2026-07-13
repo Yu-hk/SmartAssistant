@@ -13,9 +13,12 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
+import org.springframework.context.annotation.ComponentScan;
+
 @Slf4j
 @SpringBootApplication
 @EnableDiscoveryClient
+@ComponentScan("com.example.smartassistant.common")
 @MapperScan("com.example.smartassistant.user.mapper")
 public class UserServiceApplication {
 
