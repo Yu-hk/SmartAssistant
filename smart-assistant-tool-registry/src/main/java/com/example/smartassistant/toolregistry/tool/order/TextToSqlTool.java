@@ -67,8 +67,12 @@ public class TextToSqlTool {
 
     @PostConstruct
     public void initTools() {
-        toolRegistry.register(ToolDefinition.read("textToSql", "文本转SQL查询"));
-        registryClient.registerWithFallback(ToolDefinition.read("textToSql", "文本转SQL查询"), toolRegistry);
+        toolRegistry.register(ToolDefinition.read("textToSql", "文本转SQL查询")
+                .toBuilder().tags(new String[]{"ORDER", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("sql-query", "data-analysis", "order-analytics")).build());
+        registryClient.registerWithFallback(ToolDefinition.read("textToSql", "文本转SQL查询")
+                .toBuilder().tags(new String[]{"ORDER", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("sql-query", "data-analysis", "order-analytics")).build(), toolRegistry);
     }
 
     @Tool(description = "⭐ 文本转SQL查询工具。将用户用自然语言提出的数据问题，"

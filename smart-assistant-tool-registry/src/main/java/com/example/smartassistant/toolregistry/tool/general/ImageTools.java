@@ -70,9 +70,11 @@ public class ImageTools {
     public void initTools() {
         // SHARED 层：跨 agent 共享基建，注册到中心 Registry 接受统一治理
         ToolDefinition analyzeImage = ToolDefinition.write("analyzeImage", "分析图片内容", ToolRiskLevel.LOW)
-                .toBuilder().toolTier(ToolTier.SHARED).build();
+                .toBuilder().toolTier(ToolTier.SHARED).tags(new String[]{"GENERAL", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("image-analysis", "image-recognition", "visual-qa")).build();
         ToolDefinition generateImage = ToolDefinition.write("generateImage", "根据文字生成图片", ToolRiskLevel.LOW)
-                .toBuilder().toolTier(ToolTier.SHARED).build();
+                .toBuilder().toolTier(ToolTier.SHARED).tags(new String[]{"GENERAL"})
+                .functionalCapabilities(java.util.List.of("image-generation", "text-to-image")).build();
         toolRegistry.registerAll(java.util.List.of(analyzeImage, generateImage));
         registryClient.registerWithFallback(analyzeImage, toolRegistry);
         registryClient.registerWithFallback(generateImage, toolRegistry);

@@ -41,8 +41,12 @@ public class KnowledgeQueryTool {
 
     @PostConstruct
     public void initTools() {
-        toolRegistry.register(ToolDefinition.read("queryKnowledge", "查询商品知识库"));
-        registryClient.registerWithFallback(ToolDefinition.read("queryKnowledge", "查询商品知识库"), toolRegistry);
+        toolRegistry.register(ToolDefinition.read("queryKnowledge", "查询商品知识库")
+                .toBuilder().tags(new String[]{"PRODUCT", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("product-knowledge", "product-faq", "product-info")).build());
+        registryClient.registerWithFallback(ToolDefinition.read("queryKnowledge", "查询商品知识库")
+                .toBuilder().tags(new String[]{"PRODUCT", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("product-knowledge", "product-faq", "product-info")).build(), toolRegistry);
     }
 
     @Tool(description = "查询产品知识库：从商品咨询的知识库中检索商品信息、分类说明、价格政策、"

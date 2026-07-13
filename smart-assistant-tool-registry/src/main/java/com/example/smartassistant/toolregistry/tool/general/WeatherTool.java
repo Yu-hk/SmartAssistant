@@ -51,9 +51,11 @@ public class WeatherTool {
     @PostConstruct
     public void initTools() {
         toolRegistry.register(ToolDefinition.read("queryWeather", "查询城市天气预报")
-                .toBuilder().toolTier(ToolTier.SHARED).build());
+                .toBuilder().toolTier(ToolTier.SHARED).tags(new String[]{"GENERAL", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("weather", "weather-query", "temperature", "forecast")).build());
         registryClient.registerWithFallback(ToolDefinition.read("queryWeather", "查询城市天气预报")
-                .toBuilder().toolTier(ToolTier.SHARED).build(), toolRegistry);
+                .toBuilder().toolTier(ToolTier.SHARED).tags(new String[]{"GENERAL", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("weather", "weather-query", "temperature", "forecast")).build(), toolRegistry);
     }
 
     @Tool(description = "查询指定城市的实时天气和未来天气预报，包括温度、天气状况、风速等。城市可以是中文或英文名称，如'北京'、'上海'、'London'。")
