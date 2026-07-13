@@ -157,7 +157,7 @@ public class BgeEmbeddingModel implements AutoCloseable {
 
     @Override
     public void close() {
-        if (session != null) try { session.close(); } catch (Exception ignored) {}
+        if (session != null) try { session.close(); } catch (Exception e) { log.debug("[BGE] 关闭 ONNX session: {}", e.getMessage()); }
     }
 
     public boolean isAvailable() { return available; }
