@@ -13,7 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.ollama.OllamaChatModel;
-import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -68,7 +68,7 @@ public class TierModelAutoConfiguration {
         ChatModel canaryModel = null;
         String canaryName = props.getCanaryModel();
         if (canaryName != null && !canaryName.isBlank()) {
-            OllamaChatOptions canaryOptions = OllamaChatOptions.builder()
+            OllamaOptions canaryOptions = OllamaOptions.builder()
                     .model(canaryName)
                     .temperature(props.getCanaryTemperature())
                     .build();
@@ -88,7 +88,7 @@ public class TierModelAutoConfiguration {
 
     private TierModelRegistry.TierModelEntry entry(OllamaChatModel ollama,
                                                    TieredModelRouterProperties.TierConfig cfg) {
-        OllamaChatOptions options = OllamaChatOptions.builder()
+        OllamaOptions options = OllamaOptions.builder()
                 .model(cfg.getModel())
                 .temperature(cfg.getTemperature())
                 .build();

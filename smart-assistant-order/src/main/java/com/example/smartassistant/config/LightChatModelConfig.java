@@ -14,7 +14,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.OllamaChatModel;
-import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -38,7 +38,7 @@ public class LightChatModelConfig {
             @Value("${order.light-model.name:qwen2.5:3b}") String model,
             @Value("${order.light-model.temperature:0.1}") double temperature) {
 
-        var lightOptions = OllamaChatOptions.builder()
+        var lightOptions = OllamaOptions.builder()
                 .model(model)
                 .temperature(temperature)
                 .build();
@@ -51,9 +51,9 @@ public class LightChatModelConfig {
     private static class LightDelegatingChatModel implements ChatModel {
 
         private final OllamaChatModel delegate;
-        private final OllamaChatOptions lightOptions;
+        private final OllamaOptions lightOptions;
 
-        LightDelegatingChatModel(OllamaChatModel delegate, OllamaChatOptions lightOptions) {
+        LightDelegatingChatModel(OllamaChatModel delegate, OllamaOptions lightOptions) {
             this.delegate = delegate;
             this.lightOptions = lightOptions;
         }
@@ -70,7 +70,6 @@ public class LightChatModelConfig {
             return delegate.stream(lightPrompt);
         }
 
-        @Override
         public ChatOptions getOptions() {
             return lightOptions;
         }

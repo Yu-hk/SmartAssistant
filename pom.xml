@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.8</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -34,9 +34,9 @@
 
     <properties>
         <java.version>21</java.version>
-        <spring-ai.version>2.0.0</spring-ai.version>
-        <spring-cloud-alibaba.version>2023.0.3.2</spring-cloud-alibaba.version>
-        <spring-cloud.version>2024.0.0</spring-cloud.version>
+        <spring-ai.version>1.0.9</spring-ai.version>
+        <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
+        <spring-cloud.version>2025.0.0</spring-cloud.version>
         <!-- ⭐ 强制使用 Nacos 3.x 客户端以支持 A2A -->
         <nacos-client.version>3.2.0</nacos-client.version>
         <!-- JetBrains Annotations — 原由 spring-ai-alibaba 传递引入 -->
@@ -225,11 +225,20 @@
                 <version>${milvus-sdk-java.version}</version>
             </dependency>
 
-            <!-- ⭐ Jackson 2 版本钉死（防御 MCP SDK Jackson 3 传递依赖引入低版本 Jackson 2） -->
+            <!-- ⭐ Jackson 2 版本钉死（防御 MCP SDK 的 Jackson 3 传递依赖）
+                 注意：jackson-annotations 必须 >= 2.20。MCP SDK
+                 io.modelcontextprotocol.sdk:mcp-json-jackson3:2.0.0 会传递引入
+                 tools.jackson.core:jackson-databind:3.0.3，其 JacksonAnnotationIntrospector
+                 在静态初始化时强依赖 com.fasterxml.jackson.annotation.JsonSerializeAs
+                 （Jackson 3 与 Jackson 2 共用 com.fasterxml.jackson.annotation groupId，
+                 该类由 jackson-annotations 2.20+ 提供）。钉在 2.18.4 会导致
+                 NoClassDefFoundError: com/fasterxml/jackson/annotation/JsonSerializeAs。
+                 Boot 3.5.16 预期 jackson-core / jackson-databind 为 2.18.x，
+                 故 core/databind 维持 2.18.4，仅 annotation 抬至 2.21（向后兼容 2.18.x 消费方）。 -->
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-annotations</artifactId>
-                <version>2.18.4</version>
+                <version>2.21</version>
             </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>

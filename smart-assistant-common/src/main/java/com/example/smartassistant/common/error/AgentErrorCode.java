@@ -154,7 +154,36 @@ public enum AgentErrorCode {
     TOOL_STATUS_DISABLED("TOOL_STATUS_DISABLED", false, "工具已停用或移除，暂不可用"),
 
     /** 工具版本不兼容（不可重试） */
-    TOOL_VERSION_INCOMPATIBLE("TOOL_VERSION_INCOMPATIBLE", false, "工具版本不兼容，需升级主版本号");
+    TOOL_VERSION_INCOMPATIBLE("TOOL_VERSION_INCOMPATIBLE", false, "工具版本不兼容，需升级主版本号"),
+
+    // ==================== 检索 / RAG 相关 ====================
+
+    /** 嵌入服务不可用（可重试） */
+    RAG_EMBEDDING_UNAVAILABLE("RAG_EMBEDDING_UNAVAILABLE", true, "向量嵌入服务暂时不可用，请稍后重试"),
+
+    /** 向量召回失败（可重试） */
+    RAG_VECTOR_SEARCH_FAILED("RAG_VECTOR_SEARCH_FAILED", true, "向量召回失败，请稍后重试"),
+
+    /** 关键词检索失败（可重试） */
+    RAG_KEYWORD_SEARCH_FAILED("RAG_KEYWORD_SEARCH_FAILED", true, "关键词检索失败，请稍后重试"),
+
+    /** BM25 检索失败（可重试） */
+    RAG_BM25_FAILED("RAG_BM25_FAILED", true, "BM25 检索失败，请稍后重试"),
+
+    /** 重排失败（可重试） */
+    RAG_RERANK_FAILED("RAG_RERANK_FAILED", true, "结果重排失败，请稍后重试"),
+
+    /** 多路融合失败（不可重试） */
+    RAG_FUSION_FAILED("RAG_FUSION_FAILED", false, "结果融合失败，请检查检索结果"),
+
+    /** 知识图谱检索失败（可重试） */
+    RAG_GRAPH_FAILED("RAG_GRAPH_FAILED", true, "知识图谱检索失败，请稍后重试"),
+
+    /** 知识库检索失败（可重试） */
+    RAG_KNOWLEDGE_FAILED("RAG_KNOWLEDGE_FAILED", true, "知识库检索失败，请稍后重试"),
+
+    /** 查询重写失败（可重试） */
+    RAG_QUERY_REWRITE_FAILED("RAG_QUERY_REWRITE_FAILED", true, "查询重写失败，请稍后重试");
 
     // ==================== 字段 ====================
 

@@ -112,9 +112,17 @@ public class ProductRagPipelineConfig {
         EmbeddingScorer scorer = new EmbeddingScorer(text -> {
             try {
                 return embeddingClient.embed(text);
+            } catch (com.example.smartassistant.common.error.AgentException e) {
+                // 已是标准错误码 → 直接向上冒泡
+                throw e;
             } catch (Exception e) {
-                log.warn("[RerankHandler] 嵌入调用失败: {}", e.getMessage());
-                return null;
+                // ⭐ 异常分级：嵌入服务调用失败（传输/超时/5xx）→ 归一为可重试 RAG 错误码，
+                // 向上经 EmbeddingScorer → RerankHandler → 管线漏斗统一分级记录，
+                // 不再被静默吞成 null/0.5 掩盖宕机。
+                String snippet = text != null && text.length() > 50 ? text.substring(0, 50) + "..." : text;
+                throw new com.example.smartassistant.common.error.AgentException(
+                        com.example.smartassistant.common.error.AgentErrorCode.RAG_EMBEDDING_UNAVAILABLE,
+                        "查询嵌入失败: " + snippet, e);
             }
         });
         return new RerankHandler(scorer, rerankEnabled, rerankTopK, adaptiveRerankTopK().asResolver());

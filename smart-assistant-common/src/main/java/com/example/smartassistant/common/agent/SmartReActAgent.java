@@ -853,9 +853,7 @@ public class SmartReActAgent {
                 noIncrementCount = 0;
             }
 
-            messages.add(ToolResponseMessage.builder()
-                    .responses(toolResponses)
-                    .build());
+            messages.add(new ToolResponseMessage(toolResponses));
 
             // ⭐ PrecomputedCompact：消息数接近阈值时后台异步预压缩
             if (enableCompress && precomputedCompactFuture == null

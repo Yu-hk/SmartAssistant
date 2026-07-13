@@ -94,7 +94,15 @@ public class ErrorRecoveryService {
                  SERVICE_COUPON_QUERY_FAILED,
                  SERVICE_COUPON_CALC_FAILED,
                  UPDATE_FAILED,
-                 SECURITY_SCRIPT_TIMEOUT ->
+                 SECURITY_SCRIPT_TIMEOUT,
+                 RAG_EMBEDDING_UNAVAILABLE,
+                 RAG_VECTOR_SEARCH_FAILED,
+                 RAG_KEYWORD_SEARCH_FAILED,
+                 RAG_BM25_FAILED,
+                 RAG_RERANK_FAILED,
+                 RAG_GRAPH_FAILED,
+                 RAG_KNOWLEDGE_FAILED,
+                 RAG_QUERY_REWRITE_FAILED ->
                     RecoveryAction.RETRY_BACKOFF;
 
             // 数据未找到 → CLARIFY_USER

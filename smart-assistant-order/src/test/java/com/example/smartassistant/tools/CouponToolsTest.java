@@ -7,11 +7,10 @@
 
 package com.example.smartassistant.tools;
 
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.CouponRecommendationDTO;
 import com.example.smartassistant.common.tool.spi.dto.UserCouponDTO;
-import com.example.smartassistant.toolregistry.tool.order.CouponTools;
+import com.example.smartassistant.order.tool.CouponTools;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,8 +36,6 @@ class CouponToolsTest {
 
     @Mock
     private OrderDataProvider orderData;
-    @Mock
-    private ToolRegistry toolRegistry;
 
     private CouponTools couponTools;
 
@@ -65,7 +62,7 @@ class CouponToolsTest {
 
     @BeforeEach
     void setUp() {
-        couponTools = new CouponTools(orderData, toolRegistry);
+        couponTools = new CouponTools(orderData);
     }
 
     // ==================== queryUserCoupons ====================
