@@ -298,7 +298,7 @@ public class RouterService {
                     List<AgentTask> multiAgentTasks = new java.util.ArrayList<>();
 
                     // 主意图 → 构建任务
-                    multiAgentTasks.add(buildAgentTask(
+                    multiAgentTasks.add(new AgentTask(
                             experienceMatch.agentName,
                             experienceMatch.reroutedQuestion != null
                                     ? experienceMatch.reroutedQuestion : question,
@@ -307,7 +307,7 @@ public class RouterService {
 
                     // 副意图 → 各构建独立任务
                     for (var si : experienceMatch.secondaryIntents) {
-                        multiAgentTasks.add(buildAgentTask(
+                        multiAgentTasks.add(new AgentTask(
                                 si.agentName,
                                 question, // 各 Agent 拿同一问题自行解析
                                 si.intentTag,
@@ -1001,33 +1001,6 @@ public class RouterService {
     // ═══════════════════════════════════════════════════════════
     // ⭐ 共享：调用 Agent 并构建路由结果（消除 3 处重复）
     // ═══════════════════════════════════════════════════════════
-
-    // ═══════════════════════════════════════════════════════════
-    // ⭐ 共享：构建 Agent 任务（用于多意图并行调度）
-    // ═══════════════════════════════════════════════════════════
-
-    private static class AgentTask {
-        final String agentName;
-        final String question;
-        final String intentTag;
-        final double confidence;
-        AgentTask(String agentName, String question, String intentTag, double confidence) {
-            this.agentName = agentName;
-            this.question = question;
-            this.intentTag = intentTag;
-            this.confidence = confidence;
-        }
-        String getAgentName() { return agentName; }
-        String getQuestion() { return question; }
-        String getIntentTag() { return intentTag; }
-        double getConfidence() { return confidence; }
-    }
-
-    /** 从经验匹配结果构建一个 Agent 调用任务 */
-    private AgentTask buildAgentTask(String agentName, String question,
-                                      String intentTag, double confidence) {
-        return new AgentTask(agentName, question, intentTag, confidence);
-    }
 
     // ═══════════════════════════════════════════════════════════
     // ⭐ 共享：调用 Agent 并构建路由结果（消除 3 处重复）
