@@ -161,6 +161,9 @@ public class RouterService {
     // ⭐ P1 确定性护栏服务
     private final GuardrailService guardrailService;
 
+    // ⭐ 路由后处理器
+    private final RouteFinalizer routeFinalizer;
+
     // ⭐ P2 Prompt 管理器
     private final PromptManager promptManager;
 
@@ -182,7 +185,8 @@ public class RouterService {
                         GuardrailService guardrailService,
                         PromptManager promptManager,
                          @Qualifier("lightChatModel") ChatModel lightModel,
-                         @Autowired(required = false) BadCaseMinerService badCaseMinerService) {
+                         @Autowired(required = false) BadCaseMinerService badCaseMinerService,
+                         RouteFinalizer routeFinalizer) {
         this.agentCallerService = agentCallerService;
         this.redisTemplate = redisTemplate;
         this.ragService = ragService;
@@ -202,6 +206,7 @@ public class RouterService {
         this.promptManager = promptManager;
         this.lightChatClient = ChatClient.create(lightModel);
         this.badCaseMinerService = badCaseMinerService;
+        this.routeFinalizer = routeFinalizer;
     }
 
     /**
@@ -638,161 +643,12 @@ public class RouterService {
      * 未触发情绪风险（NONE）或结果为 null 时原样返回。
      */
     private RoutingResult applyEmotion(RoutingResult r, EmotionCheckResult e) {
-        if (r == null || e == null || !e.triggered()) return r;
-        return r.toBuilder()
-                .emotionLevel(e.level())
-                .emotionIntervention(true)
-                .disableTools(e.disableTools())
-                .emotionGuidance(e.guidance())
-                .build();
+        return routeFinalizer.applyEmotion(r, e);
     }
 
     private RoutingResult finalizeRouting(RoutingResult result, RouteRequest request, String rawQuestion,
                                           EmotionCheckResult emotion) {
-        String question = request.getQuestion();
-        Long userId = request.getUserId();
-        String intentTag = result.getIntentTag();
-        if (intentTag == null || intentTag.isBlank()) {
-            intentTag = semanticCache.generateIntentTag(question);
-            result.setIntentTag(intentTag);
-        }
-
-        // ⭐ G4 运营指标：记录一次有效应答（无答案率分母）
-        opsMetrics.recordAnswer(result != null ? result.getAgentName() : "unknown", intentTag);
-
-        // ⭐ P1 工具健康检查：路由到 Agent 前检查关键工具是否就绪（routingToolChecker 可为 null）
-        if (routingToolChecker != null && result.getAgentName() != null) {
-            var health = routingToolChecker.checkAgentHealth(result.getAgentName());
-            if (!health.isHealthy()) {
-                log.warn("[Router] ⚠️ 路由到 Agent={} 但工具不健康: {}",
-                        result.getAgentName(), health.getMessage());
-            }
-        }
-
-        // ⭐⭐ 反思器：对非缓存的新结果进行质量评估（纯规则评分，不调 LLM）
-        double reflectScore = 0.7; // 默认分（不触发 LLM 质检）
-        if (result.getResult() != null && !result.getResult().isBlank()
-                && result.getAgentName() != null && !"none".equals(result.getAgentName())
-                && !Boolean.TRUE.equals(result.getFromCache())) {
-            ReflectionResult reflection = reflectionService.evaluate(
-                    question, result.getResult(), result.getAgentName(), intentTag, userId);
-            reflectScore = reflection.getScore();
-            if (!reflection.isAcceptable()) {
-                log.warn("[Router] 🪞 反思不通过: score={}, agent={}, reason={}",
-                        String.format("%.2f", reflection.getScore()),
-                        result.getAgentName(), reflection.getReason());
-                // 最多重试 1 次，换 fallback Agent
-                String retryResult = reflectionService.retry(
-                        question, result.getResult(), result.getAgentName(),
-                        intentTag, userId, request.getRequestId());
-                if (retryResult != null && !retryResult.equals(result.getResult())) {
-                    result.setResult(retryResult);
-                    log.info("[Router] 🪞 反思重试成功，已替换低质量回复");
-                }
-            }
-        }
-
-        // ⭐⭐ LLM-as-Judge 质量评估（深层语义质检）
-        // 仅在反思器评分处于边界区间(0.5~0.8)时触发，避免为明显好/差的回复增加开销
-        boolean qualityPassed = true;
-        if (result.getResult() != null && !result.getResult().isBlank()
-                && result.getAgentName() != null && !"none".equals(result.getAgentName())
-                && !Boolean.TRUE.equals(result.getFromCache())) {
-            QualityEvaluationResult quality = qualityEvaluationService.evaluate(
-                    question, result.getResult(), reflectScore);
-            if (quality.isCompleted() && !quality.isPassing(0.6)) {
-                qualityPassed = false;
-                log.warn("[Router] 🔍 质量评估不通过: overall={}, hallucination={}, reason={}",
-                        String.format("%.2f", quality.getOverall()),
-                        String.format("%.2f", quality.getHallucination()),
-                        quality.getReason());
-            }
-        }
-
-        // ⭐ 缓存路由决策 + 回复
-        String agentName = result.getAgentName();
-        String requestId = request.getRequestId();
-        String reply = result.getResult();
-
-        if (agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
-            // 缓存路由决策（含审计日志 + 精确匹配覆盖）
-            semanticCache.saveDecision(requestId, question, agentName, result.getConfidence(), userId, intentTag, request.getSessionId());
-            semanticCache.saveExactMatch(rawQuestion != null ? rawQuestion : question, intentTag);
-
-            // 缓存回复内容（低质量回复不缓存，防污染）
-            if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
-                if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")
-                        && reply.length() >= 20) {
-                    semanticCache.saveReply(question, reply, agentName, intentTag, Boolean.TRUE.equals(result.getAdminOperation()));
-                }
-            }
-
-            // ⭐⭐ 经验提取（Agent 执行成功后才提取）
-            if (!Boolean.TRUE.equals(result.getFromCache())) {
-                // 提取 COMMON 经验
-                experienceService.extractCommonExperience(question, agentName, intentTag);
-
-                // 提取 TOOL 经验（如果回复中包含工具调用信息）
-                extractToolExperienceIfApplicable(reply, agentName, intentTag, question);
-            }
-        }
-
-        // ⭐ P1 Agent 执行事件：记录路由决策完成
-        if (agentEventBus != null) {
-            agentEventBus.publishEvent(
-                    request.getRequestId(), result.getAgentName(),
-                    AgentExecutionState.State.RUNNING,
-                    result.getResult() != null ? AgentExecutionState.State.COMPLETED
-                            : AgentExecutionState.State.FAILED,
-                    AgentExecutionState.EventType.EXECUTION_COMPLETED,
-                    "路由决策完成, agent=" + result.getAgentName()
-                            + ", confidence=" + result.getConfidence() + ", intent=" + intentTag,
-                    0, 0
-            );
-        }
-
-        // ⭐ 将完整决策写入 Redis，供 Consumer 阻塞读取
-        if (requestId != null && !requestId.isBlank() && agentName != null) {
-            semanticCache.saveFullDecisionForConsumer(requestId, agentName,
-                    result.getConfidence(), reply, intentTag);
-
-            // ⭐ 如有任务分析结果，追加到完整决策中
-            appendTaskAnalysisToFullDecision(requestId);
-        }
-
-        // P1 ⭐ Bad Case 自动挖掘：低置信度路由决策写入 Redis
-        if (badCaseMinerService != null) {
-            var badCaseDecision = new BadCaseMinerService.RoutingDecision(
-                    request.getQuestion(),
-                    result.getIntentTag(),
-                    result.getConfidence(),
-                    result.getAgentName(),
-                    request.getSessionId(),
-                    request.getUserId()
-            );
-            badCaseMinerService.record(badCaseDecision);
-            // ⭐ P5-B 用户纠正信号挖掘（策略③）：检测本轮是否纠正了前次回答
-            badCaseMinerService.recordCorrection(badCaseDecision);
-        }
-
-        // ⭐ Agent 反馈模式监控：定期采样全局模式计数器（日志 + 后续可对接告警）
-        var patternCounts = FeedbackLog.getPatternCountsSnapshot();
-        if (!patternCounts.isEmpty()) {
-            log.debug("[Router] Agent 反馈模式统计: {}", patternCounts);
-        }
-
-        // ⭐ P1 预算追踪：结束会话并检查超限
-        if (budgetTracker != null) {
-            var budgetStatus = budgetTracker.checkSession();
-            if (budgetStatus.exceeded()) {
-                log.warn("[Router] ⚠️ 会话预算超限: {}", budgetStatus.reason());
-                if (newMetrics != null) newMetrics.recordBudgetExceeded();
-            }
-            budgetTracker.endSession();
-        }
-
-        // ⭐ P4-A 情绪干预：将情绪等级/干预标志/引导话术附加到最终结果
-        return applyEmotion(result, emotion);
+        return routeFinalizer.finalizeRouting(result, request, rawQuestion, emotion);
     }
 
     /**
@@ -803,28 +659,7 @@ public class RouterService {
      * </p>
      */
     private void appendTaskAnalysisToFullDecision(String requestId) {
-        if (redisTemplate == null || requestId == null || requestId.isBlank()) return;
-        try {
-            String analysisKey = "a2a:task-analysis:" + requestId;
-            String analysisJson = redisTemplate.opsForValue().get(analysisKey);
-            if (analysisJson == null || analysisJson.isBlank()) return;
-
-            String decisionKey = "a2a:route:full-decision:" + requestId;
-            String decisionJson = redisTemplate.opsForValue().get(decisionKey);
-            if (decisionJson == null || decisionJson.isBlank()) return;
-
-            @SuppressWarnings("unchecked")
-            Map<String, Object> decision = objectMapper.readValue(decisionJson, Map.class);
-            @SuppressWarnings("unchecked")
-            Map<String, Object> analysis = objectMapper.readValue(analysisJson, Map.class);
-            decision.put("taskAnalysis", analysis);
-            redisTemplate.opsForValue().set(decisionKey,
-                    objectMapper.writeValueAsString(decision), 120, TimeUnit.SECONDS);
-
-            log.debug("[Router] 🔍 任务分析已追加到完整决策: requestId={}", requestId);
-        } catch (Exception e) {
-            log.debug("[Router] 追加任务分析到完整决策时异常: {}", e.getMessage());
-        }
+        // delegated to RouteFinalizer.finalizeRouting()
     }
 
     /**
@@ -835,16 +670,7 @@ public class RouterService {
      * </p>
      */
     private void storeTaskAnalysisToRedis(String requestId, TaskAnalysisResult analysis) {
-        if (requestId == null || requestId.isBlank() || redisTemplate == null) return;
-        try {
-            String key = "a2a:task-analysis:" + requestId;
-            String json = objectMapper.writeValueAsString(analysis);
-            redisTemplate.opsForValue().set(key, json, 120, TimeUnit.SECONDS);
-            log.info("[Router] 🔍 任务分析已存储: requestId={}, intent={}, entities={}",
-                    requestId, analysis.getIntentCategory(), analysis.getEntities().size());
-        } catch (Exception e) {
-            log.warn("[Router] 存储任务分析失败: {}", e.getMessage());
-        }
+        routeFinalizer.storeTaskAnalysisToRedis(requestId, analysis);
     }
 
     /**
