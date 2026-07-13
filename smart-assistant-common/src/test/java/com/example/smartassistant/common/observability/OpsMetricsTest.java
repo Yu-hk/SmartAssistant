@@ -7,9 +7,7 @@
 
 package com.example.smartassistant.common.observability;
 
-import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,7 +15,9 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * OpsMetrics 指标累加行为验证：确认 6 类运营指标正确写入 Micrometer 全局注册表。
+ * OpsMetrics 指标累加行为验证：确认 6 类运营指标正确写入注入的 MeterRegistry。
+ * 使用隔离的 {@link SimpleMeterRegistry} 直接注入，不依赖 Micrometer 全局注册表，
+ * 避免跨测试类污染（历史问题：全局 composite 对已存在 meter 返回缓存实例，导致计数 0.0）。
  */
 class OpsMetricsTest {
 
@@ -27,13 +27,7 @@ class OpsMetricsTest {
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        Metrics.addRegistry(registry);
-        opsMetrics = new OpsMetrics();
-    }
-
-    @AfterEach
-    void tearDown() {
-        Metrics.removeRegistry(registry);
+        opsMetrics = new OpsMetrics(registry);
     }
 
     @Test
