@@ -88,6 +88,9 @@ public class BgeRerankScorer implements BiFunction<String, String, Double> {
 
             return score;
 
+        } catch (com.example.smartassistant.common.error.AgentException e) {
+            // 嵌入类可重试错误 → 向上冒泡，由管线漏斗统一分级
+            throw e;
         } catch (Exception e) {
             log.warn("[BgeRerankScorer] 评分异常: {}", e.getMessage());
             return 0.5;

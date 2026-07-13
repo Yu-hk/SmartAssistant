@@ -44,10 +44,7 @@ class SmartReActAgentGradingTest {
     /** 构造仅含单个工具调用的 ChatResponse（工具名固定，参数由 args 区分）。 */
     private ChatResponse toolCallResponse(String toolName, String args) {
         AssistantMessage.ToolCall call = new AssistantMessage.ToolCall("call_1", "function", toolName, args);
-        AssistantMessage msg = AssistantMessage.builder()
-                .content("")
-                .toolCalls(List.of(call))
-                .build();
+        AssistantMessage msg = new AssistantMessage("", Map.of(), List.of(call));
         return new ChatResponse(List.of(new Generation(msg)));
     }
 

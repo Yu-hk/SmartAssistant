@@ -45,6 +45,9 @@ public class EmbeddingScorer implements java.util.function.BiFunction<String, St
             if (docVec == null) return 0.5;
 
             return Math.max(0, Math.min(1, (cosineSimilarity(queryVec, docVec) + 1) / 2));
+        } catch (com.example.smartassistant.common.error.AgentException e) {
+            // 嵌入类可重试错误（如嵌入服务宕机）→ 向上冒泡，由管线漏斗统一分级
+            throw e;
         } catch (Exception e) {
             log.warn("[EmbeddingScorer] 评分异常: {}", e.getMessage());
             return 0.5;

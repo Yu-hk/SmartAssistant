@@ -95,11 +95,7 @@ public final class MessageCodec {
                     envelope.toolCalls != null ? envelope.toolCalls : List.of();
             MessageType type = parseType(envelope.type);
             return switch (type) {
-                case ASSISTANT -> AssistantMessage.builder()
-                        .content(envelope.text)
-                        .properties(md)
-                        .toolCalls(calls)
-                        .build();
+                case ASSISTANT -> new AssistantMessage(envelope.text, md, calls);
                 case SYSTEM -> SystemMessage.builder()
                         .text(envelope.text)
                         .metadata(md)
@@ -150,11 +146,7 @@ public final class MessageCodec {
                         List<AssistantMessage.ToolCall> calls =
                                 e.toolCalls != null ? e.toolCalls : List.of();
                         return switch (type) {
-                            case ASSISTANT -> (Message) AssistantMessage.builder()
-                                    .content(e.text)
-                                    .properties(md)
-                                    .toolCalls(calls)
-                                    .build();
+                            case ASSISTANT -> (Message) new AssistantMessage(e.text, md, calls);
                             case SYSTEM -> (Message) SystemMessage.builder()
                                     .text(e.text)
                                     .metadata(md)

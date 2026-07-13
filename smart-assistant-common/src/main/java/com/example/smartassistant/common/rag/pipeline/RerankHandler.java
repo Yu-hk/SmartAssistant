@@ -85,6 +85,9 @@ public class RerankHandler implements RagSearchHandler {
             try {
                 double score = scorer.apply(query, item.getContent());
                 reScored.add(new ScoredItem(item, score));
+            } catch (com.example.smartassistant.common.error.AgentException e) {
+                // 嵌入类可重试错误 → 向上冒泡，由管线漏斗统一分级（保留其它异常的优雅降级）
+                throw e;
             } catch (Exception e) {
                 log.warn("[RerankHandler] 评分失败: {}", e.getMessage());
                 reScored.add(new ScoredItem(item, item.getRrfScore()));

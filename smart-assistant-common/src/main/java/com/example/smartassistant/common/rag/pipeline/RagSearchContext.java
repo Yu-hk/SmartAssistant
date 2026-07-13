@@ -33,6 +33,12 @@ public class RagSearchContext {
     /** 是否已终止（后续 Handler 可检查并跳过） */
     private boolean terminated;
 
+    /** 管线执行过程中产生的结构化错误清单（异常分级用，见 {@link PipelineError}） */
+    private final List<PipelineError> errors = new ArrayList<>();
+
+    /** 是否发生降级（任一 Handler 抛出异常即标记，供上游观测） */
+    private boolean degraded;
+
     /** 质量分数（0.0~1.0） */
     private double qualityScore;
 
@@ -75,6 +81,29 @@ public class RagSearchContext {
     public void setTerminated(boolean terminated) { this.terminated = terminated; }
     public void setQualityScore(double qualityScore) { this.qualityScore = qualityScore; }
     public void setQualityThreshold(double qualityThreshold) { this.qualityThreshold = qualityThreshold; }
+
+    // ==================== 异常分级 ====================
+
+    /**
+     * 记录一个 Handler 产生的结构化错误（异常分级核心载体）。
+     * <p>由 {@link RagSearchPipeline} 在捕获 Handler 异常时调用，
+     * 将异常类型/错误码/消息归一化为 {@link PipelineError}，
+     * 供 {@code MetricsCollectorHandler} 与上游观测消费，而非仅打印日志。</p>
+     *
+     * @param handlerName 出错 Handler 的简单类名
+     * @param errorCode   机器可读错误码（如 {@code RAG_EMBEDDING_UNAVAILABLE}；非标准异常为 {@code UNCLASSIFIED}）
+     * @param message     错误描述
+     */
+    public void addError(String handlerName, String errorCode, String message) {
+        this.errors.add(new PipelineError(handlerName, errorCode, message, System.currentTimeMillis()));
+        this.degraded = true;
+    }
+
+    /** 结构化错误清单（不可变视图） */
+    public List<PipelineError> getErrors() { return List.copyOf(errors); }
+
+    /** 是否发生降级（任一 Handler 抛异常） */
+    public boolean isDegraded() { return degraded; }
 
     public void addQueryVariant(String variant) {
         if (!queryVariants.contains(variant)) {
@@ -133,5 +162,21 @@ public class RagSearchContext {
         public String getContent() { return content; }
         public double getRrfScore() { return rrfScore; }
         public void addScore(double score) { this.rrfScore += score; }
+    }
+
+    /**
+     * 管线执行过程中的结构化错误记录（异常分级载体）。
+     *
+     * <p>替代原先「{@code log.warn} 后静默吞掉」的扁平降级，
+     * 让每个 Handler 的失败携带机器可读的 {@code errorCode} 与发生时间戳，
+     * 便于 {@code MetricsCollectorHandler} 暴露 {@code rag.handler.failures} 指标、
+     * 以及上游据此判断是否需要重试 / 降级 / 提示用户。</p>
+     *
+     * @param handlerName 出错 Handler 的简单类名
+     * @param errorCode   机器可读错误码（标准码或 {@code UNCLASSIFIED}）
+     * @param message     错误描述
+     * @param timestamp   发生时间戳（毫秒）
+     */
+    public record PipelineError(String handlerName, String errorCode, String message, long timestamp) {
     }
 }

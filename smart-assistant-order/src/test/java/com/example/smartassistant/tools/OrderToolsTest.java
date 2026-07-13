@@ -8,14 +8,12 @@
 package com.example.smartassistant.tools;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.idempotent.TaskLogService;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
-import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
 import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
-import com.example.smartassistant.toolregistry.tool.order.OrderTools;
+import com.example.smartassistant.order.tool.OrderTools;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,10 +53,6 @@ class OrderToolsTest {
     @Mock
     private ReadBeforeEditGuard readGuard;
     @Mock
-    private ToolRegistry toolRegistry;
-    @Mock
-    private ToolRegistryClient registryClient;
-    @Mock
     private TaskLogService taskLogService;
 
     private OrderTools orderTools;
@@ -83,7 +77,7 @@ class OrderToolsTest {
 
     @BeforeEach
     void setUp() {
-        orderTools = new OrderTools(orderData, readGuard, toolRegistry, registryClient, taskLogService);
+        orderTools = new OrderTools(orderData, readGuard, taskLogService);
 
         // Default: taskLogService.executeIfNotDone executes the supplier
         when(taskLogService.executeIfNotDone(anyString(), anyString(), anyString(), any()))
