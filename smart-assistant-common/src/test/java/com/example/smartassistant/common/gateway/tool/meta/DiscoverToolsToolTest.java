@@ -173,6 +173,51 @@ class DiscoverToolsToolTest {
         assertEquals(0, tool.getDiscoveryCount());
     }
 
+    // ==================== T2f 三期：缺口澄清测试 ====================
+
+    @Test
+    void shouldClarifyWhenRegistryUnavailable() throws Exception {
+        when(discoveryClient.searchTools(any(McpSearchFilter.class)))
+                .thenThrow(new RuntimeException("connection refused"));
+
+        String result = tool.discoverTools("sql-query", null, "OR", 20);
+
+        // 降级返回不抛异常
+        assertTrue(result.contains("\"source\":\"registry-unavailable\""));
+        assertTrue(result.contains("sql-query"));
+        // ⭐ 三期：DISCOVER_MISS 应触发向用户澄清
+        assertTrue(result.contains("\"clarification\""), "应向用户澄清");
+        assertTrue(result.contains("sql-query"), "澄清话术应包含能力名");
+        // 不应有任何注册
+        assertEquals(0, registeredCallbacks.size());
+    }
+
+    @Test
+    void shouldClarifyWhenNoMatchingCapability() throws Exception {
+        when(discoveryClient.searchTools(any(McpSearchFilter.class))).thenReturn(List.of());
+
+        String result = tool.discoverTools("unknown-cap", null, "OR", 20);
+
+        // 无匹配 → source=registry，且触发澄清
+        assertTrue(result.contains("\"source\":\"registry\""));
+        assertTrue(result.contains("\"clarification\""), "无匹配能力时应向用户澄清");
+        assertTrue(result.contains("unknown-cap"));
+    }
+
+    @Test
+    void shouldNotClarifyWhenCapabilityMatched() throws Exception {
+        ToolDefinition def = sampleDef();
+        when(discoveryClient.searchTools(any(McpSearchFilter.class))).thenReturn(List.of(def));
+        ToolCallback mockCb = mockToolCallback("consumer.executeQuery");
+        when(callbackFactory.create(any(ToolDefinition.class), any())).thenReturn(mockCb);
+
+        String result = tool.discoverTools("sql-query", new String[]{"sql"}, "OR", 10);
+
+        // 正常发现 → 不带 clarification 字段
+        assertTrue(result.contains("\"source\":\"registry\""));
+        assertFalse(result.contains("\"clarification\""), "命中能力时不应触发澄清");
+    }
+
     // ==================== 辅助方法 ====================
 
     private ToolDefinition sampleDef() {
