@@ -162,6 +162,9 @@ public class DiscoverToolsTool {
             long elapsed = System.currentTimeMillis() - startTime;
             log.warn("[DiscoverToolsTool] 发现失败（降级返回仅预载可用）: capabilityQuery={}, error={}",
                     capabilityQuery, e.getMessage());
+            // ⭐ T2f：需求侧缺口（Registry 不可用，能力无法发现）
+            recordGap("DISCOVER_MISS", capabilityQuery, null,
+                    "Registry 不可用，无法发现能力: " + capabilityQuery, "degraded");
             // 降级：返回「仅预载可用」，不阻断对话
             return buildResultJson(capabilityQuery, List.of(), List.of(), "registry-unavailable", elapsed);
         }
@@ -203,6 +206,12 @@ public class DiscoverToolsTool {
 
         long elapsed = System.currentTimeMillis() - startTime;
 
+        // ⭐ T2f：需求侧缺口（Registry 中无匹配能力）
+        if (matchedNames.isEmpty()) {
+            recordGap("DISCOVER_MISS", capabilityQuery, null,
+                    "Registry 中无匹配能力: " + capabilityQuery, "logged");
+        }
+
         // ═══════════════════════════════════════════════════════════════
         // 记录 DiscoveryEvent
         // ═══════════════════════════════════════════════════════════════
@@ -229,6 +238,35 @@ public class DiscoverToolsTool {
     }
 
     // ==================== 内部方法 ====================
+
+    /**
+     * ⭐ T2f：记录需求侧工具缺口事件。
+     * <p>统一封装 {@link ToolGapEvent} 的构建与记录，observationRegistry 复用本类注入的实例
+     * （为 null 时自动回退 SLF4J 结构化日志）。</p>
+     *
+     * @param gapType   缺口类型（UNKNOWN_TOOL / DISCOVER_MISS / EMPTY_RESULT）
+     * @param capability LLM 尝试的能力（工具名或 capabilityQuery）
+     * @param args      LLM 实际传入参数（JSON 原文，可为 null）
+     * @param reason    派生原因
+     * @param resolution 处置方式（logged / asked_user / degraded）
+     */
+    private void recordGap(String gapType, String capability, String args,
+                           String reason, String resolution) {
+        try {
+            ToolGapEvent.builder()
+                    .gapType(gapType)
+                    .attemptedCapability(capability)
+                    .attemptedArgs(args)
+                    .reason(reason)
+                    .desiredResultHint("期望能力: " + capability)
+                    .resolution(resolution)
+                    .timestamp(Instant.now())
+                    .build()
+                    .record(observationRegistry);
+        } catch (Exception e) {
+            log.debug("[DiscoverToolsTool] 记录 ToolGapEvent 失败: {}", e.getMessage());
+        }
+    }
 
     @SuppressWarnings("unchecked")
     private String buildResultJson(String query, List<String> matchedNames,

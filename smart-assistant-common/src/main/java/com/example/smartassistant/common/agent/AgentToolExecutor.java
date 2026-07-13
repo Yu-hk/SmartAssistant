@@ -4,6 +4,7 @@ import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.AgentException;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.common.error.RecoveryAction;
+import com.example.smartassistant.common.gateway.tool.meta.ToolGapEvent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.observability.OpsMetrics;
 import org.slf4j.Logger;
@@ -12,6 +13,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.tool.ToolCallback;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -154,6 +156,22 @@ public class AgentToolExecutor {
             recoveryService.logRecovery(AgentErrorCode.UNKNOWN_TOOL, RecoveryAction.CLARIFY_USER,
                     "tool=" + tc.name(), 0);
             opsMetrics.recordToolCall("smart_react", false);
+            // ⭐ T2f：需求侧缺口遥测（能力缺口——LLM 调用了不存在的工具名）
+            // observationRegistry 当前未注入本执行器，回退 SLF4J 结构化日志（后续可经构造器接入）
+            try {
+                ToolGapEvent.builder()
+                        .gapType("UNKNOWN_TOOL")
+                        .attemptedCapability(tc.name())
+                        .attemptedArgs(tc.arguments())
+                        .reason("LLM 调用了工具集中不存在的工具: " + tc.name())
+                        .desiredResultHint("期望能力(工具名): " + tc.name())
+                        .resolution("logged")
+                        .timestamp(Instant.now())
+                        .build()
+                        .record(null);
+            } catch (Exception ignore) {
+                log.debug("[AgentToolExecutor] 记录 ToolGapEvent 失败: {}", ignore.getMessage());
+            }
             return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
                     "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: "
                             + tc.name() + "\",\"retryable\":false}");
