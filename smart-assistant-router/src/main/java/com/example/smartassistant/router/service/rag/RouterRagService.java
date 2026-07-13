@@ -203,7 +203,6 @@ public class RouterRagService {
      * 包括：订单号、商品名、金额、日期、操作动作、决策结果等。
      * </p>
      *
-     * @param currentQuestion 当前问题
      * @param conversationHistory 历史对话
      * @return 实体引用列表
      */

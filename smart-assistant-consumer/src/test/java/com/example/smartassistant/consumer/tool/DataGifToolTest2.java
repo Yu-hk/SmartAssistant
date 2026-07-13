@@ -24,6 +24,7 @@ import java.awt.*;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * DataGifTool 快速功能测试（独立可执行）

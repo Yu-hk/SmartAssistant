@@ -1,0 +1,15 @@
+{
+  "name": "end-to-end-test",
+  "description": "E2E test from client SDK",
+  "riskLevel": "READ",
+  "timeout": "PT5S",
+  "needsApproval": false,
+  "maxRetries": 0,
+  "rateLimit": 0,
+  "scopes": ["test"],
+  "tags": ["TEST", "READ_ONLY"],
+  "version": "1.0.0",
+  "status": "ACTIVE",
+  "namespace": "test",
+  "ownerTeam": "test-team"
+}
