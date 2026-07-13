@@ -101,7 +101,9 @@ public class AgentEventBus {
                     for (String json : raw) {
                         try {
                             result.add(objectMapper.readValue(json, AgentExecutionState.StateTransition.class));
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            log.warn("[AgentEventBus] 解析状态转换事件失败: {}", e.getMessage());
+                        }
                     }
                 }
             } catch (Exception e) {

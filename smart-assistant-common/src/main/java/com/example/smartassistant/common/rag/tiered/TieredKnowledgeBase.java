@@ -177,20 +177,20 @@ public class TieredKnowledgeBase implements KnowledgeBase {
 
     @Override
     public void updateStatus(String docId, DocumentStatus status) {
-        try { hotStore.updateStatus(docId, status); } catch (Exception ignored) {}
-        try { coldStore.updateStatus(docId, status); } catch (Exception ignored) {}
+        try { hotStore.updateStatus(docId, status); } catch (Exception e) { log.trace("[TieredKB] hotStore.updateStatus: {}", e.getMessage()); }
+        try { coldStore.updateStatus(docId, status); } catch (Exception e) { log.trace("[TieredKB] coldStore.updateStatus: {}", e.getMessage()); }
     }
 
     @Override
     public void removeDocument(String id) {
-        try { hotStore.removeDocument(id); } catch (Exception ignored) {}
-        try { coldStore.removeDocument(id); } catch (Exception ignored) {}
+        try { hotStore.removeDocument(id); } catch (Exception e) { log.trace("[TieredKB] hotStore.removeDocument: {}", e.getMessage()); }
+        try { coldStore.removeDocument(id); } catch (Exception e) { log.trace("[TieredKB] coldStore.removeDocument: {}", e.getMessage()); }
     }
 
     @Override
     public void removeByBaseDocId(String baseDocId) {
-        try { hotStore.removeByBaseDocId(baseDocId); } catch (Exception ignored) {}
-        try { coldStore.removeByBaseDocId(baseDocId); } catch (Exception ignored) {}
+        try { hotStore.removeByBaseDocId(baseDocId); } catch (Exception e) { log.trace("[TieredKB] hotStore.removeByBaseDocId: {}", e.getMessage()); }
+        try { coldStore.removeByBaseDocId(baseDocId); } catch (Exception e) { log.trace("[TieredKB] coldStore.removeByBaseDocId: {}", e.getMessage()); }
     }
 
     // ═══════════════════════════════════════════════════════════
