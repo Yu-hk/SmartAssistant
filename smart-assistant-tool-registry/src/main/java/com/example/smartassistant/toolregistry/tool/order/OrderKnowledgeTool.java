@@ -40,8 +40,12 @@ public class OrderKnowledgeTool {
 
     @PostConstruct
     public void initTools() {
-        toolRegistry.register(ToolDefinition.read("queryOrderKnowledge", "查询订单知识库"));
-        registryClient.registerWithFallback(ToolDefinition.read("queryOrderKnowledge", "查询订单知识库"), toolRegistry);
+        toolRegistry.register(ToolDefinition.read("queryOrderKnowledge", "查询订单知识库")
+                .toBuilder().tags(new String[]{"ORDER", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("order-knowledge", "order-policy", "order-faq")).build());
+        registryClient.registerWithFallback(ToolDefinition.read("queryOrderKnowledge", "查询订单知识库")
+                .toBuilder().tags(new String[]{"ORDER", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("order-knowledge", "order-policy", "order-faq")).build(), toolRegistry);
     }
 
     @Tool(description = "查询订单知识库：从订单政策、退款规则、发货规则、支付方式等知识库中检索信息。"
