@@ -70,12 +70,30 @@ public class RagSearchPipeline {
             }
             try {
                 handler.handle(context);
+            } catch (com.example.smartassistant.common.error.AgentException ae) {
+                // ⭐ 异常分级：标准错误码（可识别的检索/基础设施故障）
+                com.example.smartassistant.common.error.AgentErrorCode code = ae.getErrorCode();
+                context.addError(handler.getClass().getSimpleName(), code.getCode(), ae.getMessage());
+                if (code.isRetryable()) {
+                    log.warn("[RagPipeline] Handler {} 可重试错误 (code={}): {}",
+                            handler.getClass().getSimpleName(), code.getCode(), ae.getMessage());
+                } else {
+                    // 不可重试（如融合失败）→ 提高日志级别，但仍不中断其它 Handler
+                    log.error("[RagPipeline] Handler {} 不可重试错误 (code={}): {}",
+                            handler.getClass().getSimpleName(), code.getCode(), ae.getMessage());
+                }
             } catch (Exception e) {
-                log.warn("[RagPipeline] Handler {} error: {}", handler.getClass().getSimpleName(), e.getMessage());
+                // ⭐ 异常分级：未携带标准错误码的裸异常 → 归一为 UNCLASSIFIED 记录
+                context.addError(handler.getClass().getSimpleName(), "UNCLASSIFIED", e.getMessage());
+                log.warn("[RagPipeline] Handler {} 未分类异常: {}", handler.getClass().getSimpleName(), e.getMessage());
             }
         }
 
         long elapsed = System.currentTimeMillis() - start;
+        if (context.isDegraded()) {
+            log.warn("[RagPipeline] Pipeline 降级完成: {} 个 Handler 出错, errors={}",
+                    context.getErrors().size(), context.getErrors());
+        }
         log.info("[RagPipeline] Pipeline completed: {} handlers, {} paths active, {} fused results, {}ms",
                 handlers.size(),
                 context.getPathResults().values().stream().filter(p -> !p.isEmpty()).count(),

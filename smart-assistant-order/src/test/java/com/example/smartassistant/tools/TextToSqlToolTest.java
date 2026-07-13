@@ -7,13 +7,11 @@
 
 package com.example.smartassistant.tools;
 
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.sql.SqlSecurityValidator;
-import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.config.McpTableWhitelistConfig;
-import com.example.smartassistant.toolregistry.tool.order.TextToSqlTool;
+import com.example.smartassistant.order.tool.TextToSqlTool;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,10 +36,6 @@ class TextToSqlToolTest {
     @Mock
     private OrderDataProvider orderData;
     @Mock
-    private ToolRegistry toolRegistry;
-    @Mock
-    private ToolRegistryClient registryClient;
-    @Mock
     private PromptManager promptManager;
 
     private TextToSqlTool textToSqlTool;
@@ -50,7 +44,7 @@ class TextToSqlToolTest {
     void setUp() {
         // Use an invalid URL to ensure Ollama calls fail fast for tests that go through textToSql
         textToSqlTool = new TextToSqlTool(orderData, "http://127.0.0.1:1", "test-model",
-                toolRegistry, registryClient, promptManager);
+                promptManager);
     }
 
     // ==================== cleanGeneratedSql (via ReflectionTestUtils) ====================

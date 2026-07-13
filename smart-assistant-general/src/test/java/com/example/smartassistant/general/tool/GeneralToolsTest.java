@@ -188,4 +188,12 @@ class GeneralToolsTest {
         assertEquals("1000000", tools.calculate("1000000"));
         assertTrue(tools.calculate("999999 * 999999").length() > 10);
     }
+
+    // ========== 汇率转换（同币种，不触网）==========
+
+    @Test
+    void sameCurrencyNoNetwork() {
+        assertEquals("100 CNY", tools.convertCurrency(100, "CNY", "CNY"));
+        assertEquals("50 USD", tools.convertCurrency(50, "USD", "USD"));
+    }
 }

@@ -80,7 +80,7 @@ class TieredModelRouterTest {
 
     private static ChatResponse mockResponse(String text) {
         return new ChatResponse(List.of(new Generation(
-                AssistantMessage.builder().content(text).build())));
+                new AssistantMessage(text, Map.of(), List.of()))));
     }
 
     private static Prompt anyPrompt() {

@@ -20,6 +20,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -200,7 +201,7 @@ class EvalGapsDesignTest {
     }
 
     private static void stubModel(ChatModel cm, String json) {
-        AssistantMessage am = AssistantMessage.builder().content(json).build();
+        AssistantMessage am = new AssistantMessage(json, Map.of(), List.of());
         ChatResponse cr = new ChatResponse(List.of(new Generation(am)));
         when(cm.call(any(Prompt.class))).thenReturn(cr);
     }

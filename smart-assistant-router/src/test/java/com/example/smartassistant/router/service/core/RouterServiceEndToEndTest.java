@@ -139,7 +139,7 @@ class RouterServiceEndToEndTest {
                 graphExecutionService, taskAnalysisService, qualityEvaluationService,
                 queryRewriter, keywordFastRouteService, routingToolChecker, null, // degradationService
                 guardrailService, promptManager, // ⭐ 新增必填参数
-                lightChatModel, null // BadCaseMinerService = null
+                lightChatModel, null, null, null, null // BadCaseMinerService, RouteFinalizer, RouteExecutionService, RouteContextHelper
         );
 
         // ── @Autowired(required=false) 可选字段注入 ──

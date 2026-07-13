@@ -40,7 +40,6 @@ class DelegatingOptionsChatModel implements ChatModel {
         return delegate.stream(new Prompt(prompt.getInstructions(), options));
     }
 
-    @Override
     public ChatOptions getOptions() {
         return options;
     }
