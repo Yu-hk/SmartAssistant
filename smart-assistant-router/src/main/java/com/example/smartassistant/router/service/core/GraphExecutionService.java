@@ -568,14 +568,14 @@ public class GraphExecutionService {
 
             // 结果为空：递增失败计数 + 记录降级统计
             log.warn("[GraphExecutor] Handoff 返回空: {} → {}", targetAgent, cmd.handoffType());
-            breakerFailureCounts.put(targetAgent, failCount + 1);
+            breakerFailureCounts.merge(targetAgent, 1, Integer::sum);
             degradationService.recordCall(false);
 
         } catch (Exception e) {
             log.warn("[GraphExecutor] Handoff 执行异常: {} → {}, error={}",
                     targetAgent, cmd.handoffType(), e.getMessage());
             // ⭐ 异常：递增失败计数 + 记录降级统计
-            breakerFailureCounts.put(targetAgent, failCount + 1);
+            breakerFailureCounts.merge(targetAgent, 1, Integer::sum);
             degradationService.recordCall(false);
         }
 
@@ -721,7 +721,7 @@ public class GraphExecutionService {
                 }
                 log.warn("[GraphExecutor] 节点返回空（已达最大重试）: {}|{}", node.getId(), node.getTargetAgent());
                 // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计 + 上报心跳失败
-                breakerFailureCounts.put(targetAgent, failCount + 1);
+                breakerFailureCounts.merge(targetAgent, 1, Integer::sum);
                 degradationService.recordCall(false);
                 if (requestId != null && targetAgent != null) {
                     heartbeatService.markFailed(requestId, targetAgent, "节点返回空结果(已达最大重试)");
@@ -747,7 +747,7 @@ public class GraphExecutionService {
                 log.warn("[GraphExecutor] 节点异常(不可重试): {}|{}, error={}, type={}",
                         node.getId(), node.getTargetAgent(), e.getMessage(), errorType);
                 // ⭐ 节点失败：递增该 Agent 的连续失败计数 + 记录降级统计 + 上报心跳失败
-                breakerFailureCounts.put(targetAgent, failCount + 1);
+                breakerFailureCounts.merge(targetAgent, 1, Integer::sum);
                 degradationService.recordCall(false);
                 if (requestId != null && targetAgent != null) {
                     heartbeatService.markFailed(requestId, targetAgent, truncate(e.getMessage(), 100));

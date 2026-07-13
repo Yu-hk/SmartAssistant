@@ -66,7 +66,9 @@ public class Bm25SearchHandler implements RagSearchHandler {
                         if (info != null && !info.contains("PRODUCT_NOT_FOUND")) {
                             allResults.add(info);
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        log.debug("[RagHandler] BM25 单个查询失败: {}", e.getMessage());
+                    }
                 }
             } catch (Exception e) {
                 log.warn("[RagHandler] BM25 失败 (variant={}): {}", variant, e.getMessage());
@@ -101,7 +103,9 @@ public class Bm25SearchHandler implements RagSearchHandler {
                                     -1L                     // expireAt (永不过期)
                             ));
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        log.debug("[RagHandler] BM25 数据库索引重建失败: {}", e.getMessage());
+                    }
                 }
             }
         }
