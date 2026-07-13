@@ -1,7 +1,7 @@
 package com.example.smartassistant.common.agent;
 
 /**
- * ⭐ 循环决策状态机（文章⑥ 10 条优先级链路）。
+ * ⭐ 循环决策状态机（文章⑥ 11 条优先级链路）。
  *
  * <p>从 {@code SmartReActAgent} 提取，职责单一：根据当前循环上下文 {@link DecisionContext}
  * 及少量配置参数，按优先级（高→低）返回下一步 {@link LoopAction}。不持有 Agent 状态，
@@ -17,8 +17,9 @@ package com.example.smartassistant.common.agent;
  *  6. PAUSE              → 守卫请求暂停         → 暂停
  *  7. PARSE_FAILURE      → 连续解析失败≥阈值    → 暂停
  *  8. ITERATION_BUDGET   → 达到 maxIterations   → 暂停
- *  9. STRATEGY_SWITCH    → 无进展≥阈值          → 换策略
- * 10. CONTINUE           → 一切正常             → 继续
+ *  9. NO_INCREMENT       → 连续相同工具调用≥阈值 → 停止（无增量保护）
+ * 10. STRATEGY_SWITCH    → 无进展≥阈值          → 换策略/终止
+ * 11. CONTINUE           → 一切正常             → 继续
  * </pre>
  */
 public final class AgentLoopDecision {
@@ -26,8 +27,14 @@ public final class AgentLoopDecision {
     /** 连续解析失败保护阈值：评估器连续返回无效结果的最多次数 */
     public static final int MAX_PARSE_FAILURES = 3;
 
-    /** 策略切换前的最大无进展轮次 */
-    public static final int STRATEGY_SWITCH_THRESHOLD = 2;
+    /** 无进展计数器阈值：连续几轮无实质进展时提前终止（= 原 MAX_NO_PROGRESS_ITERATIONS） */
+    public static final int MAX_NO_PROGRESS_ITERATIONS = 3;
+
+    /** 连续无增量检测阈值：连续几次"同工具同参数"调用时强制停止（= 原 NO_INCREMENT_LIMIT） */
+    public static final int NO_INCREMENT_LIMIT = 2;
+
+    /** 策略切换前的最大无进展轮次（与 MAX_NO_PROGRESS_ITERATIONS 对齐，使 STRATEGY_SWITCH = 无进展终止） */
+    public static final int STRATEGY_SWITCH_THRESHOLD = 3;
 
     private AgentLoopDecision() {
     }
@@ -43,6 +50,7 @@ public final class AgentLoopDecision {
      * PAUSE               → 评估器/守卫请求暂停
      * PARSE_FAILURE       → 连续解析失败，暂停以避免烧预算
      * ITERATION_BUDGET    → 达到迭代上限（maxIterations），暂停
+     * NO_INCREMENT        → 连续相同工具调用，停止避免调用风暴
      * STRATEGY_SWITCH     → 无进展达到阈值，换策略或委派
      * CONTINUE            → 一切正常，继续推进
      * </pre>
@@ -50,7 +58,7 @@ public final class AgentLoopDecision {
     public enum LoopAction {
         FINALIZE, ADVANCE_PHASE, PAUSE_BLOCKED, PAUSE_INFRA,
         AWAIT_CONFIRMATION, PAUSE, PARSE_FAILURE, ITERATION_BUDGET,
-        STRATEGY_SWITCH, CONTINUE
+        NO_INCREMENT, STRATEGY_SWITCH, CONTINUE
     }
 
     /**
@@ -94,11 +102,15 @@ public final class AgentLoopDecision {
         if (ctx.iteration() >= maxIterations) {
             return LoopAction.ITERATION_BUDGET;
         }
-        // 9. STRATEGY_SWITCH
+        // 9. NO_INCREMENT — 连续相同工具调用（同名称+同参数）形成调用风暴
+        if (ctx.noIncrementCount() >= NO_INCREMENT_LIMIT) {
+            return LoopAction.NO_INCREMENT;
+        }
+        // 10. STRATEGY_SWITCH — 无进展达到阈值，换策略或委派
         if (ctx.noProgressCount() >= STRATEGY_SWITCH_THRESHOLD) {
             return LoopAction.STRATEGY_SWITCH;
         }
-        // 10. CONTINUE
+        // 11. CONTINUE
         return LoopAction.CONTINUE;
     }
 
@@ -109,7 +121,8 @@ public final class AgentLoopDecision {
             String answerText,
             LoopGuardService.GuardAction guardAction,
             int consecutiveParseFailures,
-            int noProgressCount) {
+            int noProgressCount,
+            int noIncrementCount) {
 
         boolean hasSufficientContent() {
             return !noToolCalls || (answerText != null && answerText.length() > 50);
