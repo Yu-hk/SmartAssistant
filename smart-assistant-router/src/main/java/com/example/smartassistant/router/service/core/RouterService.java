@@ -156,6 +156,8 @@ public class RouterService {
     private final RouteFinalizer routeFinalizer;
     // ⭐ 协作执行器
     private final RouteExecutionService routeExecutionService;
+    // ⭐ 上下文构建器
+    private final RouteContextHelper routeContextHelper;
 
     // ⭐ P2 Prompt 管理器
     private final PromptManager promptManager;
@@ -180,7 +182,8 @@ public class RouterService {
                          @Qualifier("lightChatModel") ChatModel lightModel,
                          @Autowired(required = false) BadCaseMinerService badCaseMinerService,
                          RouteFinalizer routeFinalizer,
-                         RouteExecutionService routeExecutionService) {
+                         RouteExecutionService routeExecutionService,
+                         RouteContextHelper routeContextHelper) {
         this.agentCallerService = agentCallerService;
         this.redisTemplate = redisTemplate;
         this.ragService = ragService;
@@ -202,6 +205,7 @@ public class RouterService {
         this.badCaseMinerService = badCaseMinerService;
         this.routeFinalizer = routeFinalizer;
         this.routeExecutionService = routeExecutionService;
+        this.routeContextHelper = routeContextHelper;
     }
 
     /**
@@ -760,59 +764,11 @@ public class RouterService {
         return routeExecutionService.inlineFallback(question, emotion);
     }
 
-    /*
-      子任务结果
-     */
-    /**
-     * 构建上下文
-     * ⭐ 从 Redis 加载会话历史，提升多轮对话的路由准确性
-     */
     private Map<String, Object> buildContext(RouteRequest request) {
-        Map<String, Object> context = new HashMap<>();
-        String sessionId = request.getSessionId();
-        if (sessionId != null) {
-            context.put("sessionId", sessionId);
-        }
-        if (request.getUserId() != null) {
-            context.put("userId", request.getUserId());
-        }
-
-        // ⭐ 从 Redis 加载会话上下文（最近 N 条消息）
-        loadConversationHistoryFromRedis(context, sessionId);
-
-        return context;
+        return routeContextHelper.buildContext(request);
     }
 
-    /**
-     * 从 Redis 加载会话历史消息
-     */
     private void loadConversationHistoryFromRedis(Map<String, Object> context, String sessionId) {
-        if (redisTemplate == null || sessionId == null || sessionId.isBlank()) {
-            return;
-        }
-
-        try {
-            String historyKey = "chat:history:" + sessionId;
-            Long size = redisTemplate.opsForList().size(historyKey);
-
-            if (size == null || size == 0) {
-                log.debug("[Router] Redis 中无会话历史: sessionId={}", sessionId);
-                return;
-            }
-
-            // 读取最近 N 条消息
-            int start = 0;
-            int end = Math.min(maxHistoryMessages - 1, size.intValue() - 1);
-            List<String> history = redisTemplate.opsForList().range(historyKey, start, end);
-
-            if (history != null && !history.isEmpty()) {
-                context.put("conversationHistory", history);
-                log.debug("[Router] 从 Redis 加载会话历史: sessionId={}, messages={}",
-                        sessionId, history.size());
-            }
-        } catch (Exception e) {
-            log.warn("[Router] 从 Redis 加载会话历史失败: sessionId={}, error={}",
-                    sessionId, e.getMessage());
-        }
+        // delegated to RouteContextHelper.buildContext()
     }
 }
