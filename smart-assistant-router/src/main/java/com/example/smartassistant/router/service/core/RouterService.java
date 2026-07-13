@@ -210,7 +210,7 @@ public class RouterService {
      */
     public RoutingResult route(RouteRequest request) {
         log.info("[Router] 收到路由请求: userId={}, sessionId={}, question={}",
-                request.getUserId(), request.getSessionId(), truncate(request.getQuestion(), 100));
+                request.getUserId(), request.getSessionId(), QuestionExtractor.truncate(request.getQuestion(), 100));
 
         // ⭐ P1 预算追踪：会话开始
         if (budgetTracker != null) {
@@ -250,7 +250,7 @@ public class RouterService {
 
             if (guardrail.triggered()) {
                 log.warn("[Router] 🛡️ 护栏激活: question='{}', matchedTerms={}, skipShortCircuit={}, forceRag={}",
-                        truncate(question, 50), guardrail.matchedTerms(),
+                        QuestionExtractor.truncate(question, 50), guardrail.matchedTerms(),
                         guardrail.skipShortCircuit(), guardrail.forceRag());
             }
 
@@ -525,7 +525,7 @@ public class RouterService {
                     var drift = intentDriftDetector.detect(enhancedQuestion, conversationHistory);
                     if (drift.driftDetected()) {
                         log.warn("[Router] 🔄 意图漂移: from='{}' to='{}', similarity={}, strong={}",
-                                truncate(drift.previousQuestion(), 30),
+                                QuestionExtractor.truncate(drift.previousQuestion(), 30),
                                 intentTag,
                                 String.format("%.4f", drift.similarity()),
                                 drift.strongDrift());
@@ -538,7 +538,7 @@ public class RouterService {
 
                 // ⭐ 文章⑥目标连续性裁决：BGE 漂移之外增加词汇重叠度 + 二级裁决
                 if (conversationHistory != null && !conversationHistory.isEmpty()) {
-                    String lastUserQuestion = extractLastUserQuestion(conversationHistory);
+                    String lastUserQuestion = QuestionExtractor.extractLastUserQuestion(conversationHistory);
                     if (lastUserQuestion != null) {
                         GoalContinuityArbiter arbiter = new GoalContinuityArbiter();
                         var goalResult = arbiter.arbitrate(enhancedQuestion, lastUserQuestion);
@@ -588,7 +588,7 @@ public class RouterService {
                 // ⭐ 多 Agent 协作（所有提问均走规划→执行→合并）
                 // 简单问题 plan() 返回单个子任务，merge() 直接返回
                 // 复杂问题自动分解为多个子任务并行执行
-                log.info("[Router] 🤝 启动多 Agent 协作: question={}", truncate(enhancedQuestion, 80));
+                log.info("[Router] 🤝 启动多 Agent 协作: question={}", QuestionExtractor.truncate(enhancedQuestion, 80));
                 result = executeCollaborative(enhancedQuestion, userId, request.getRequestId(), emotion);
             }
 
@@ -597,7 +597,7 @@ public class RouterService {
             result.setIntentTag(intentTag);
 
             // ⭐⭐ 反思器 + 缓存写入 + 经验提取（公共后处理）
-            return finalizeRouting(result, request, extractRawQuestion(question), emotion);
+            return finalizeRouting(result, request, QuestionExtractor.extractRawQuestion(question), emotion);
 
         } catch (Exception e) {
             log.error("[Router] 路由失败: {}", e.getMessage(), e);
@@ -859,31 +859,31 @@ public class RouterService {
         switch (agentName) {
             case "order_agent" -> {
                 if (reply.contains("订单") && (reply.contains("状态") || reply.contains("查询") || reply.contains("ORD-"))) {
-                    String params = extractOrderParams(question);
+                    String params = QuestionExtractor.extractOrderParams(question);
                     experienceService.extractToolExperience(question, agentName, intentTag,
                             "queryOrder", params, "订单{orderId}当前状态为{status}");
                 }
                 if (reply.contains("退款") || reply.contains("退货")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
-                            "refundOrder", "{\"orderId\": \"" + extractOrderId(question) + "\"}", "退款申请已提交");
+                            "refundOrder", "{\"orderId\": \"" + QuestionExtractor.extractOrderId(question) + "\"}", "退款申请已提交");
                 }
             }
             // Product Agent 工具模式
             case "product_agent" -> {
                 if (reply.contains("价格") || reply.contains("多少钱") || reply.contains("报价")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
-                            "queryPrice", "{\"product\": \"" + extractProductName(question) + "\"}", "{product}的价格为{price}");
+                            "queryPrice", "{\"product\": \"" + QuestionExtractor.extractProductName(question) + "\"}", "{product}的价格为{price}");
                 }
                 if (reply.contains("库存") || reply.contains("有货") || reply.contains("缺货")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
-                            "checkStock", "{\"product\": \"" + extractProductName(question) + "\"}", "{product}的库存状态为{status}");
+                            "checkStock", "{\"product\": \"" + QuestionExtractor.extractProductName(question) + "\"}", "{product}的库存状态为{status}");
                 }
             }
             // General Agent 工具模式
             case "general_agent" -> {
                 if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
-                            "getWeather", "{\"location\": \"" + extractLocation(question) + "\"}", "{location}当前天气为{weather}");
+                            "getWeather", "{\"location\": \"" + QuestionExtractor.extractLocation(question) + "\"}", "{location}当前天气为{weather}");
                 }
                 if (reply.contains("新闻") || reply.contains("热点") || reply.contains("头条")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
@@ -1147,21 +1147,6 @@ public class RouterService {
                 .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
-    /**
-     * 从对话历史中提取最近一条用户问题。
-     * 历史格式：["用户：...", "助手：...", "用户：..."]
-     */
-    private String extractLastUserQuestion(List<String> history) {
-        if (history == null || history.isEmpty()) return null;
-        for (int i = history.size() - 1; i >= 0; i--) {
-            String msg = history.get(i);
-            if (msg.startsWith("用户：") || msg.startsWith("用户:")) {
-                return msg.substring(3).trim();
-            }
-        }
-        return null;
-    }
-
     /*
       子任务结果
      */
@@ -1217,112 +1202,4 @@ public class RouterService {
                     sessionId, e.getMessage());
         }
     }
-    
-/**
-    private static class ExtractedContext {
-        String location;
-        String time;
-        
-        ExtractedContext(String location, String time) {
-            this.location = location;
-            this.time = time;
-        }
-    }
-    /**
-     * ⭐ 从完整 Prompt 中提取原始问题
-     * <p>
-     * Router 接收到的 question 可能包含【用户历史信息】【用户画像】【当前问题】等模板标记。
-     * 提取【当前问题】后的文本作为缓存使用的原始问题，确保同一问题的 MD5 一致。
-     * <p>
-     * 格式示例：
-     * 【用户历史信息】
-     * - 历史查询: 3次
-     * 【当前问题】
-     * 故宫几点关门
-     * <p>
-     * 提取后返回: "故宫几点关门"
-     */
-    private String extractRawQuestion(String question) {
-        if (question == null || question.isBlank()) return question;
-        // 查找【当前问题】标记
-        int currentQuestionIdx = question.indexOf("【当前问题】");
-        if (currentQuestionIdx >= 0) {
-            String after = question.substring(currentQuestionIdx + "【当前问题】".length()).trim();
-            // 去除可能的前缀（如换行、编号等），取纯文本
-            return after.replaceAll("^[\\s\\n\\r]+", "").trim();
-        }
-        // 无标记直接返回完整文本
-        return question.trim();
-    }
-    
-    /**
-     * ⭐ 截断字符串（用于日志）
-     * 已提升为 public static，供外部服务使用
-     */
-    public static String truncate(String str, int maxLength) {
-        if (str == null) return "";
-        return str.length() > maxLength ? str.substring(0, maxLength) + "..." : str;
-    }
-
-    // ==================== 参数提取工具（用于 TOOL 经验提取）====================
-
-    /**
-     * 从问题中提取订单 ID
-     */
-    private String extractOrderId(String question) {
-        if (question == null) return "";
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("ORD[-_]?\\d+");
-        java.util.regex.Matcher matcher = pattern.matcher(question);
-        return matcher.find() ? matcher.group() : question;
-    }
-
-    /**
-     * 从问题中提取订单参数
-     */
-    private String extractOrderParams(String question) {
-        String orderId = extractOrderId(question);
-        if (!orderId.isEmpty() && !orderId.equals(question)) {
-            return "{\"orderId\": \"" + orderId + "\"}";
-        }
-        return "{\"orderId\": \"" + question + "\"}";
-    }
-
-    /**
-     * 从问题中提取商品名称
-     */
-    private String extractProductName(String question) {
-        if (question == null) return "";
-        // 常见商品关键词后提取
-        String[] productIndicators = {"多少钱", "价格", "有货", "库存", "怎么样", "好不好"};
-        for (String indicator : productIndicators) {
-            int idx = question.indexOf(indicator);
-            if (idx > 0) {
-                return question.substring(0, idx).trim();
-            }
-        }
-        // 提取第一个名词短语
-        if (question.length() > 8) return question.substring(0, Math.min(question.length(), 20));
-        return question;
-    }
-
-    /**
-     * 从问题中提取地点
-     */
-    private String extractLocation(String question) {
-        if (question == null) return "";
-        // 常见地点指示词
-        String[] indicators = {"在", "到", "去", "于", "的天气", "气温"};
-        for (String ind : indicators) {
-            int idx = question.indexOf(ind);
-            if (idx >= 0) {
-                String before = question.substring(0, idx).trim();
-                String after = question.substring(idx + ind.length()).trim();
-                // 取指示词前的地名（如果指示词在开头取后面）
-                if (before.length() >= 2 && before.length() <= 10) return before;
-                if (after.length() >= 2 && after.length() <= 10 && !after.contains("?")) return after;
-            }
-        }
-        return question.replace("天气", "").replace("气温", "").replace("?", "").trim();
-    }
-
 }
