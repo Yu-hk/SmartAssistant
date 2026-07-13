@@ -84,8 +84,6 @@ public class SmartReActAgent {
     private static final int DEFAULT_COMPRESS_THRESHOLD = 20;
     /** 默认压缩时保留的完整轮次数 */
     private static final int DEFAULT_KEEP_ROUNDS = 3;
-    /** 摘要生成的最大原始内容字符数 */
-    private static final int MAX_SUMMARY_INPUT_CHARS = 6_000;
     /** 默认最大并发工具数 */
     private static final int DEFAULT_MAX_CONCURRENCY = 4;
     /** 默认单个工具超时（毫秒） */
@@ -241,8 +239,10 @@ public class SmartReActAgent {
     /** 每触发一次压缩后递增的摘要代数 */
     private int summaryGeneration = 0;
 
-    /** ⭐ 对话摘要持久化存储（可选：方案 A — 压缩摘要写入向量数据库） */
+    /** ⭐ 对话摘要持久化存储（可选） */
     private ConversationSummaryStore summaryStore;
+    /** ⭐ 上下文压缩器 */
+    private ContextCompressor contextCompressor;
 
     public SmartReActAgent(ChatModel chatModel) {
         this.chatModel = chatModel;
@@ -656,7 +656,10 @@ public class SmartReActAgent {
                     }
                 }
                 if (compressed == null) {
-                    compressed = compressHistory(messages);
+                    if (contextCompressor == null) {
+                        contextCompressor = new ContextCompressor(chatModel, profile, summaryStore, summaryChain);
+                    }
+                    compressed = contextCompressor.compress(messages);
                 }
                 if (compressed != messages) {
                     log.info("[SmartReActAgent] 上下文压缩: {} → {} 条消息 (Scoped={}, FullWindow={})",
@@ -846,7 +849,10 @@ public class SmartReActAgent {
             if (enableCompress && precomputedCompactFuture == null
                     && messages.size() > compressThreshold - 3) {
                 List<Message> snapshot = new ArrayList<>(messages);
-                precomputedCompactFuture = CompletableFuture.supplyAsync(() -> compressHistory(snapshot));
+                if (contextCompressor == null) {
+                    contextCompressor = new ContextCompressor(chatModel, profile, summaryStore, summaryChain);
+                }
+                precomputedCompactFuture = CompletableFuture.supplyAsync(() -> contextCompressor.compress(snapshot));
             }
 
             // ═══════════════════════════════════════════════════════════
@@ -875,209 +881,6 @@ public class SmartReActAgent {
         recoveryService.logRecovery(AgentErrorCode.SYSTEM_MAX_ITERATIONS, RecoveryAction.FALLBACK_AGENT,
                 "maxIterations=" + profile.maxIterations(), profile.maxIterations());
         return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_MAX_ITERATIONS, null);
-    }
-
-    // ==================== 上下文压缩 ====================
-
-    /** ⭐ 增强摘要生成提示词（9 段式，参考 Claude Code 设计） */
-    private static final String SUMMARY_PROMPT = """
-            请把下面的对话历史压缩成结构化摘要。
-
-            必须包含以下 9 个部分：
-            1. 用户的核心诉求与初始目标
-            2. 关键技术概念与业务上下文
-            3. 涉及的文件、服务或数据
-            4. 错误与修复记录
-            5. 问题解决过程（哪些成功了，哪些失败了）
-            6. 用户的关键反馈与偏好
-            7. 已完成的待办事项
-            8. 仍未解决的问题或待办
-            9. 后续建议与下一步计划
-
-            要求：
-            - 按以上 9 个部分编号输出，每个部分 1-3 句
-            - 保留所有重要的技术细节、错误信息和用户反馈
-            - 不要遗漏已完成的工具调用及其核心结果
-            - 如果某部分无内容，标注「无」
-            不要复述每条原文，不要保留无关闲聊。
-            """;
-
-    /**
-     * 压缩对话历史（带 MicroCompact 工具结果清理 + 增量更新）。
-     * <p>
-     * 策略：
-     * <ol>
-     *   <li><b>增量更新</b>：如果已存在摘要，只对新内容追加压缩</li>
-     *   <li><b>MicroCompact</b>：替换旧工具结果为简洁摘要，保留调用结构</li>
-     *   <li><b>LLM 摘要</b>：用 9 段式 SUMMARY_PROMPT 生成结构化摘要</li>
-     * </ol>
-     * 切割点保证落在完整轮次边界，不拆散 tool_call/tool_result 对。
-     *
-     * @param messages 当前消息列表
-     * @return 压缩后的消息列表（若无需压缩则返回原列表引用）
-     */
-    private List<Message> compressHistory(List<Message> messages) {
-        // 至少需要: System + User + 至少 2 轮工具调用才值得压缩
-        if (messages.size() < 6) return messages;
-
-        // ⭐ 检测是否已存在摘要（增量更新模式）
-        String existingSummary = findExistingSummary(messages);
-
-        // ⭐ 从末尾向前扫描，定位保留的起始索引
-        int keepStart = findKeepStart(messages);
-        if (keepStart <= 1) return messages; // 所有消息都在保留范围内
-
-        // ⭐ 将保留起点之前的消息（不含 SystemMessage）转为文本
-        StringBuilder rawBuilder = new StringBuilder();
-        // 如果存在旧摘要，先加入
-        if (existingSummary != null) {
-            rawBuilder.append("【已有摘要】\n").append(existingSummary).append("\n\n");
-            rawBuilder.append("【新对话内容】\n");
-        } else if (!summaryChain.isEmpty()) {
-            // #3: 递归滚动 — 从摘要链中取上一代摘要
-            rawBuilder.append("【上一代摘要】\n").append(summaryChain.get(0)).append("\n\n");
-            rawBuilder.append("【新对话内容】\n");
-        }
-        for (int i = 1; i < keepStart; i++) {
-            Message msg = messages.get(i);
-            String role;
-            String content;
-            if (msg instanceof UserMessage u) {
-                role = "用户";
-                content = u.getText();
-            } else if (msg instanceof AssistantMessage a) {
-                role = "助手";
-                content = a.getText() != null ? a.getText() : "(工具调用)";
-            } else if (msg instanceof ToolResponseMessage) {
-                role = "工具结果";
-                content = "(已压缩)";
-            } else {
-                role = "其他";
-                content = "";
-            }
-            if (!content.isBlank()) {
-                rawBuilder.append(role).append("：").append(content).append("\n");
-            }
-        }
-
-        String rawText = rawBuilder.toString();
-        if (rawText.isBlank()) return messages;
-
-        // ⭐ 截断过长的原始内容（防摘要请求超出上下文窗口）
-        String inputForSummary;
-        boolean truncated = false;
-        if (rawText.length() > MAX_SUMMARY_INPUT_CHARS) {
-            inputForSummary = rawText.substring(0, MAX_SUMMARY_INPUT_CHARS);
-            truncated = true;
-            log.warn("[SmartReActAgent] 摘要输入过长: {} > {}，截断", rawText.length(), MAX_SUMMARY_INPUT_CHARS);
-        } else {
-            inputForSummary = rawText;
-        }
-
-        // ⭐ 调用 LLM 生成摘要
-        String summary;
-        try {
-            ChatResponse summaryResponse = chatModel.call(new Prompt(
-                    SUMMARY_PROMPT + "\n\n【对话内容】\n" + inputForSummary));
-            summary = summaryResponse.getResult().getOutput().getText();
-            if (summary == null || summary.isBlank()) {
-                log.warn("[SmartReActAgent] 摘要生成为空，跳过压缩");
-                return messages;
-            }
-            if (truncated) {
-                summary += "\n\n(部分对话因过长被截断，截断部分未纳入摘要)";
-            }
-
-            // ⭐ #1: 将当前摘要加入摘要链（#3: 递归滚动 — 每生成一代替换上一代）
-            summaryGeneration++;
-            synchronized (summaryChain) {
-                if (summaryGeneration <= 1) {
-                    summaryChain.add(summary);
-                } else {
-                    // 滚动替换：只有最新的摘要保留在链中，前面的由摘要自身携带历史信息
-                    summaryChain.set(0, summary);
-                }
-            }
-            log.info("[SmartReActAgent] 摘要链: 第{}代, 长度={}", summaryGeneration, summary.length());
-
-            // ⭐ 方案 A: 持久化存储摘要到向量数据库（异步安全，异常静默降级）
-            if (summaryStore != null) {
-                try {
-                    summaryStore.store(null, null, null, summary, summaryGeneration);
-                } catch (Exception e) {
-                    log.warn("[SmartReActAgent] 摘要持久化失败: {}", e.getMessage());
-                }
-            }
-        } catch (Exception e) {
-            log.warn("[SmartReActAgent] 摘要生成失败: {}，跳过压缩", e.getMessage());
-            return messages; // 降级：不压缩
-        }
-
-        // ⭐ 重建消息列表
-        List<Message> compressed = new ArrayList<>();
-        compressed.add(messages.get(0)); // SystemMessage
-        compressed.add(new UserMessage("以下是对之前对话的摘要：\n\n" + summary));
-        compressed.add(new AssistantMessage("好的，我已理解之前的对话内容，继续当前任务。"));
-        // 追加保留的最近消息
-        for (int i = keepStart; i < messages.size(); i++) {
-            compressed.add(messages.get(i));
-        }
-
-        return compressed;
-    }
-
-    /**
-     * 检测消息列表中是否已存在摘要（用于增量更新）。
-     * <p>
-     * 查找格式为 "以下是对之前对话的摘要：\n\n..." 的 UserMessage。
-     *
-     * @return 已有摘要文本；不存在时返回 null
-     */
-    private String findExistingSummary(List<Message> messages) {
-        for (Message msg : messages) {
-            if (msg instanceof UserMessage u) {
-                String text = u.getText();
-                if (text != null && text.startsWith("以下是对之前对话的摘要：")) {
-                    return text.replace("以下是对之前对话的摘要：\n\n", "").trim();
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 从末尾向前扫描，找到保留的起始索引。
-     * <p>
-     * 策略：从末尾向前扫描完整的 AssistantMessage + ToolResponseMessage 对，
-     * 收集 {@code keepRounds} 对后停止。
-     * 如果最后一个消息不是 ToolResponseMessage（即 LLM 本轮尚未返回工具结果），
-     * 它本身也需要被保留。
-     *
-     * @param messages 消息列表
-     * @return 保留的起始索引（包含）
-     */
-    private int findKeepStart(List<Message> messages) {
-        int count = 0;
-        int i = messages.size() - 1;
-
-        // 如果最后一条不是 ToolResponseMessage（如刚添加的 AssistantMessage），先保留它
-        if (!(messages.get(i) instanceof ToolResponseMessage)) {
-            i--;
-        }
-
-        // 从后向前扫描完整的 (AssistantMessage + ToolResponseMessage) 对
-        while (i >= 1 && count < keepRounds) {
-            if (messages.get(i) instanceof ToolResponseMessage
-                    && i - 1 >= 1
-                    && messages.get(i - 1) instanceof AssistantMessage) {
-                count++;
-                i -= 2; // 跳过这一对
-            } else {
-                break; // 遇到非标准结构，停止
-            }
-        }
-
-        return i + 1; // 保留起始索引（包含）
     }
 
     // ==================== 并行工具执行 ====================
