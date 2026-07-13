@@ -17,8 +17,8 @@ import org.springframework.ai.tool.definition.ToolDefinition;
  * </ul>
  *
  * <p>此前 {@code SmartReActAgent} 直接调用 {@code ToolCallback.call()}，完全绕过
- * ToolGateway，导致上述治理从未生效。所有经 {@code SpringToolProvider} /
- * {@code ToolRegistryClient} 返回的工具回调都应先经本装饰器包裹。</p>
+ * ToolGateway，导致上述治理从未生效。所有通过 {@code ToolRegistryClient}
+ * 返回的工具回调都应先经本装饰器包裹。</p>
  *
  * <p>实现说明：{@link #getToolDefinition()} 必须返回 Spring AI 的
  * {@link ToolDefinition}（{@code ToolCallback} 接口约定），故装饰器本身不持有

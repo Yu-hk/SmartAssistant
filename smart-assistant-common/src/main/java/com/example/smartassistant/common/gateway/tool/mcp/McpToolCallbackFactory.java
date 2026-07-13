@@ -59,13 +59,13 @@ public class McpToolCallbackFactory {
             McpBackendToolCallback backendCb = new McpBackendToolCallback(def, backendExecutor);
             return new ToolGatewayToolCallback(backendCb, gateway, null, def);
         }
-        // center / 本地：使用传入的本地回调（正常由 SpringToolProvider 提供），def 感知重载包裹
+        // 本地工具回调（从注册/发现的 localCallback 或 def 构建），def 感知重载包裹
         ToolCallback cb = (localCallback != null) ? localCallback : buildLocalFromDef(def);
         return new ToolGatewayToolCallback(cb, gateway, null, def);
     }
 
     /**
-     * MCP-backed 判定（跨 {@code McpToolCallbackFactory} / {@code SpringToolProvider} 统一）：
+     * MCP-backed 判定（统一工具类型识别）：
      * {@code endpoint} 与 {@code inputSchema} 均非空（与 T2b 写入对齐；中心 {@code @Tool} 工具二者为 null）。
      */
     public static boolean isMcpBacked(ToolDefinition def) {
