@@ -149,8 +149,8 @@ public class ToolDefinition {
      * </p>
      * <p>默认空列表（迁移期向后兼容，绝不为 {@code null}）。</p>
      */
-    @Setter(AccessLevel.NONE)
-    @Builder.Default
+    // @Builder.Default 与手动声明 Builder 冲突，由 ToolDefinitionBuilder.field 提供默认值
+    @SuppressWarnings("lombok")
     private List<String> functionalCapabilities = new ArrayList<>();
 
     // ==================== 快捷属性方法 ====================

@@ -12,9 +12,13 @@ import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsTool;
 import com.example.smartassistant.common.prompt.PromptBuilder;
-import com.example.smartassistant.common.tool.client.ToolRegistryProperties;
-import com.example.smartassistant.common.tool.provider.ToolProvider;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.order.tool.CouponTools;
+import com.example.smartassistant.order.tool.OrderAnalyticsTool;
+import com.example.smartassistant.order.tool.OrderKnowledgeTool;
+import com.example.smartassistant.order.tool.OrderMemoryTool;
+import com.example.smartassistant.order.tool.OrderTools;
+import com.example.smartassistant.order.tool.TextToSqlTool;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.monitoring.OrderMetricsCollector;
 import io.micrometer.observation.ObservationRegistry;
@@ -34,10 +38,8 @@ import org.springframework.core.io.Resource;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Order Agent 配置类。
@@ -59,12 +61,6 @@ public class OrderAgentConfig {
     @Value("${spring.application.name}")
     private String agentName;
 
-	@Value("${agent.tool-tag:ORDER}")
-	private String toolTag;
-
-	@Value("${tool-registry.refresh-interval-seconds:60}")
-	private int refreshIntervalSec;
-
 	@Value("classpath:prompts/order-system-prompt.txt")
 	private Resource systemPromptResource;
 
@@ -75,35 +71,39 @@ public class OrderAgentConfig {
 	@Autowired(required = false)
 	private DiscoverToolsTool discoverToolsTool;
 
-	@Autowired
-	private ToolRegistryProperties toolRegistryProperties;
-
     @Bean
     public SmartReActAgent orderAgent(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
-            ToolProvider toolProvider,
+            OrderTools orderTools,
+            OrderMemoryTool orderMemoryTool,
+            OrderAnalyticsTool orderAnalyticsTool,
+            OrderKnowledgeTool orderKnowledgeTool,
+            TextToSqlTool textToSqlTool,
+            CouponTools couponTools,
             OrderMetricsCollector metricsCollector,
             ObservationRegistry observationRegistry,
             AiChatService aiChatService,
             @Autowired(required = false) ReActProfileRegistry reactProfileRegistry) {
 
-        log.info("[OrderAgent] 初始化 Agent: agentName={}, toolTag={}", agentName, toolTag);
+        log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
-		List<ToolCallback> toolList = toolProvider.getToolCallbacks(toolTag);
-		log.info("[OrderAgent] 注册 {} 个工具（从 ToolProvider 获取）", toolList.size());
+		// 从本模块 @Component 工具 Bean 直接扫描加载
+		ToolCallback[] moduleToolCallbacks = MethodToolCallbackProvider.builder()
+				.toolObjects(orderTools, orderMemoryTool, orderAnalyticsTool, orderKnowledgeTool, textToSqlTool, couponTools)
+				.build()
+				.getToolCallbacks();
+		List<ToolCallback> toolList = new ArrayList<>(Arrays.asList(moduleToolCallbacks));
+
+		log.info("[OrderAgent] 加载 {} 个本模块工具", toolList.size());
 
 		// ⭐ T2d：若特性开关启用且 DiscoverToolsTool 可用，注入 discover_tools 元工具
 		List<ToolCallback> effectiveToolList = toolList;
-		if (discoverToolsTool != null && toolRegistryProperties.isT2McpDiscoveryEnabled()) {
+		if (discoverToolsTool != null) {
 			log.info("[OrderAgent] T2d 发现机制已启用，注入 discover_tools 元工具");
-
-			// 从 DiscoverToolsTool 的 @Tool 方法组装 ToolCallback
 			ToolCallback[] discoverCallbacks = MethodToolCallbackProvider.builder()
 					.toolObjects(discoverToolsTool)
 					.build()
 					.getToolCallbacks();
-
-			// 追加到工具列表
 			effectiveToolList = new ArrayList<>(toolList);
 			for (ToolCallback cb : discoverCallbacks) {
 				effectiveToolList.add(cb);
@@ -111,7 +111,7 @@ public class OrderAgentConfig {
 			}
 		}
 
-		// ⭐ 构建 ChatClient（Advisor 链由 AiChatService 统一装配，消除模块级样板）
+		// ⭐ 构建 ChatClient
 		ChatClient chatClient = aiChatService.buildChatClient(chatModel);
 		log.info("[OrderAgent] ChatClient 由 AiChatService 统一装配 Advisor 链");
 
@@ -125,17 +125,12 @@ public class OrderAgentConfig {
 						.withServicePrompt(buildSystemPrompt())
 						.assemble(), effectiveToolList);
 
-		// ⭐ T2d：Agent 创建后设置注册器（必须在 agent 创建之后）
-		if (discoverToolsTool != null && toolRegistryProperties.isT2McpDiscoveryEnabled()) {
+		// ⭐ T2d：Agent 创建后设置注册器
+		if (discoverToolsTool != null) {
 			discoverToolsTool.setToolRegistrar(callbacks ->
 					agent.registerDiscoveredTool(callbacks.toArray(new ToolCallback[0])));
 			log.info("[OrderAgent] DiscoverToolsTool 注册器已绑定到 Agent");
 		}
-
-        // 启动定时刷新（仅当配置了刷新间隔且 > 0）
-        if (refreshIntervalSec > 0) {
-            startToolRefresh(toolProvider, agent);
-        }
 
         return agent;
     }
@@ -147,31 +142,6 @@ public class OrderAgentConfig {
             log.warn("[OrderAgent] 系统提示词文件加载失败，使用默认提示词: {}", e.getMessage());
             return "你是一个专业的电商客服助手。根据用户需求调用工具获取信息，给出推荐。";
         }
-    }
-
-    /**
-     * 启动定时工具刷新任务。
-     * <p>
-     * 每 {@code tool-registry.refresh-interval-seconds} 秒从 ToolProvider 重新拉取工具列表，
-     * 若工具列表发生变化则热更新到 Agent，无需重启。
-     * </p>
-     */
-    private void startToolRefresh(ToolProvider toolProvider, SmartReActAgent agent) {
-        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "order-tool-refresh");
-            t.setDaemon(true);
-            return t;
-        });
-        scheduler.scheduleWithFixedDelay(() -> {
-            try {
-                List<ToolCallback> newTools = toolProvider.getToolCallbacks(toolTag);
-                log.debug("[OrderAgent] 工具刷新完成: {} 个工具", newTools.size());
-                agent.refreshTools(newTools);
-            } catch (Exception e) {
-                log.warn("[OrderAgent] 工具刷新失败，等待下次重试: {}", e.getMessage());
-            }
-        }, refreshIntervalSec, refreshIntervalSec, TimeUnit.SECONDS);
-        log.info("[OrderAgent] 工具热刷新已启动: interval={}s", refreshIntervalSec);
     }
 
     /**
