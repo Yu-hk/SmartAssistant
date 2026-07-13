@@ -231,9 +231,10 @@ public class StreamChatController {
                     String auth = attrs.getRequest().getHeader("Authorization");
                     if (auth != null) conn.setRequestProperty("Authorization", auth);
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                logger.warn("[StreamChat] 设置 Authorization 失败: {}", e.getMessage());
+            }
             conn.connect();
-
             bus.forwardStream(conn);
         } catch (Exception e) {
             logger.error("[StreamChat] 转发失败: {}", e.getMessage());

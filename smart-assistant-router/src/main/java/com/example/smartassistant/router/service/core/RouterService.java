@@ -579,7 +579,9 @@ public class RouterService {
                                     "a2a:rewrite:" + request.getRequestId(),
                                     objectMapper.writeValueAsString(rewriteData),
                                     java.time.Duration.ofSeconds(30));
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            log.warn("[Router] 缓存改写结果失败: {}", e.getMessage());
+                        }
                     }
                 }
 

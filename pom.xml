@@ -224,6 +224,23 @@
                 <artifactId>milvus-sdk-java</artifactId>
                 <version>${milvus-sdk-java.version}</version>
             </dependency>
+
+            <!-- ⭐ Jackson 2 版本钉死（防御 MCP SDK Jackson 3 传递依赖引入低版本 Jackson 2） -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-annotations</artifactId>
+                <version>2.18.4</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>2.18.4</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>2.18.4</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
