@@ -142,7 +142,7 @@ public class SseEventBus {
         if (heartbeatFuture != null) {
             heartbeatFuture.cancel(false);
         }
-        try { response.getOutputStream().close(); } catch (Exception ignored) {}
+        try { response.getOutputStream().close(); } catch (Exception e) { log.debug("[SseEventBus] 关闭输出流: {}", e.getMessage()); }
     }
 
     // ==================== 发送事件 ====================
