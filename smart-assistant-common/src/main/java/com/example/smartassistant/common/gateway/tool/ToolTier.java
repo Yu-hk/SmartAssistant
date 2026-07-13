@@ -13,7 +13,7 @@ package com.example.smartassistant.common.gateway.tool;
  *       全量治理（status / approval / rateLimit / compat / deprecation / health）。</li>
  * </ul>
  *
- * <p>分层对执行路径的影响（见 {@link ToolGateway} 与 {@code SpringToolProvider}）：
+ * <p>分层对执行路径的影响（见 {@link ToolGateway}）：
  * CORE 工具始终在本地可用、不依赖中心存活；SHARED/EXTENSION 经中心 Registry 的
  * allowlist 过滤并受完整治理，中心不可用时仅 CORE 保证可用。</p>
  *
