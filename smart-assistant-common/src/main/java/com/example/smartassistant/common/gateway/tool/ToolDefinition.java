@@ -150,6 +150,7 @@ public class ToolDefinition {
      * <p>默认空列表（迁移期向后兼容，绝不为 {@code null}）。</p>
      */
     @Setter(AccessLevel.NONE)
+    @Builder.Default
     private List<String> functionalCapabilities = new ArrayList<>();
 
     // ==================== 快捷属性方法 ====================
