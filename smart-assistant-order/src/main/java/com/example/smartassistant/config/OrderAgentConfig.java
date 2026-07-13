@@ -10,6 +10,7 @@ package com.example.smartassistant.config;
 import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsHelper;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsTool;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
@@ -96,20 +97,8 @@ public class OrderAgentConfig {
 
 		log.info("[OrderAgent] 加载 {} 个本模块工具", toolList.size());
 
-		// ⭐ T2d：若特性开关启用且 DiscoverToolsTool 可用，注入 discover_tools 元工具
-		List<ToolCallback> effectiveToolList = toolList;
-		if (discoverToolsTool != null) {
-			log.info("[OrderAgent] T2d 发现机制已启用，注入 discover_tools 元工具");
-			ToolCallback[] discoverCallbacks = MethodToolCallbackProvider.builder()
-					.toolObjects(discoverToolsTool)
-					.build()
-					.getToolCallbacks();
-			effectiveToolList = new ArrayList<>(toolList);
-			for (ToolCallback cb : discoverCallbacks) {
-				effectiveToolList.add(cb);
-				log.info("[OrderAgent] 已添加元工具: {}", cb.getToolDefinition().name());
-			}
-		}
+		// ⭐ T2d：注入 discover_tools 元工具 + 绑定注册器
+		List<ToolCallback> effectiveToolList = DiscoverToolsHelper.injectDiscoverTools(toolList, discoverToolsTool);
 
 		// ⭐ 构建 ChatClient
 		ChatClient chatClient = aiChatService.buildChatClient(chatModel);
@@ -126,11 +115,7 @@ public class OrderAgentConfig {
 						.assemble(), effectiveToolList);
 
 		// ⭐ T2d：Agent 创建后设置注册器
-		if (discoverToolsTool != null) {
-			discoverToolsTool.setToolRegistrar(callbacks ->
-					agent.registerDiscoveredTool(callbacks.toArray(new ToolCallback[0])));
-			log.info("[OrderAgent] DiscoverToolsTool 注册器已绑定到 Agent");
-		}
+		DiscoverToolsHelper.bindRegistrar(discoverToolsTool, agent);
 
         return agent;
     }
