@@ -95,7 +95,9 @@ public class RecommendService {
                                         .score(toDouble(rec.get("relevanceScore")) * 0.8)
                                         .build());
                             }
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            log.warn("[Recommend] 解析协同过滤结果失败: {}", e.getMessage());
+                        }
                     }
                 }
             } catch (Exception e) {
