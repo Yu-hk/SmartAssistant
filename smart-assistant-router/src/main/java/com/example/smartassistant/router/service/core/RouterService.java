@@ -122,15 +122,6 @@ public class RouterService {
     @Value("${router.context.history.max-messages:10}")
     private int maxHistoryMessages;
 
-    // ⭐ 多套兜底说辞轮换
-    private static final List<String> FALLBACK_MESSAGES = List.of(
-            "😅 抱歉让你等了这么久，目前服务似乎遇到了一些临时问题。请稍后再试一下，或者联系技术支持看看。谢谢你的耐心！",
-            "🙏 不好意思让你久等了，系统这会儿有点忙不过来，暂时没办法回应你的问题。过一会儿再找我试试吧！",
-            "🤗 哎呀，好像出了点小岔子……你先别着急，我这边正在努力恢复中，等一小会儿再来找我聊聊好吗？",
-            "😊 真抱歉，刚才没能帮上忙。系统可能在打盹儿，你先去喝杯水，待会儿再来找我试试看？"
-    );
-    private final AtomicInteger fallbackIndex = new AtomicInteger(0);
-
     // ⭐ P1 Agent 执行事件总线（可选：无 Redis 时不记录事件）
     @Autowired(required = false)
     private AgentEventBus agentEventBus;
@@ -163,6 +154,8 @@ public class RouterService {
 
     // ⭐ 路由后处理器
     private final RouteFinalizer routeFinalizer;
+    // ⭐ 协作执行器
+    private final RouteExecutionService routeExecutionService;
 
     // ⭐ P2 Prompt 管理器
     private final PromptManager promptManager;
@@ -186,7 +179,8 @@ public class RouterService {
                         PromptManager promptManager,
                          @Qualifier("lightChatModel") ChatModel lightModel,
                          @Autowired(required = false) BadCaseMinerService badCaseMinerService,
-                         RouteFinalizer routeFinalizer) {
+                         RouteFinalizer routeFinalizer,
+                         RouteExecutionService routeExecutionService) {
         this.agentCallerService = agentCallerService;
         this.redisTemplate = redisTemplate;
         this.ragService = ragService;
@@ -207,6 +201,7 @@ public class RouterService {
         this.lightChatClient = ChatClient.create(lightModel);
         this.badCaseMinerService = badCaseMinerService;
         this.routeFinalizer = routeFinalizer;
+        this.routeExecutionService = routeExecutionService;
     }
 
     /**
@@ -731,97 +726,7 @@ public class RouterService {
      */
     private RoutingResult executeCollaborative(String question, Long userId, String requestId,
                                                 EmotionCheckResult emotion) {
-        long start = System.currentTimeMillis();
-
-        // ⭐ Step 0: 检查是否有可用 Agent（无 Agent 时直接使用内联兜底）
-        if (agentCallerService.getAvailableAgentCount() == 0) {
-            log.warn("[Collaborative] 无可用 Agent，降级到内联 ChatClient 兜底");
-            return inlineFallback(question, emotion);
-        }
-
-        // ⭐ Step 0.5: 降级检测 — 解决反常识 2（异常处理本身会制造异常）
-        //   degradationService 可为 null（测试 / 未装配降级服务时默认 NORMAL 不降级）
-        DegradationService.DegradationLevel degLevel = (degradationService != null)
-                ? degradationService.getDegradationLevel()
-                : DegradationService.DegradationLevel.NORMAL;
-        // ⭐ 半开（HALF_OPEN）熔断探测：放行一次请求验证恢复
-        if (degLevel == DegradationService.DegradationLevel.HALF_OPEN) {
-            log.info("[Collaborative] 🟡 半开探测: 放行一次请求验证恢复");
-            RoutingResult probeResult = inlineFallback(question, emotion);
-            boolean success = probeResult != null && probeResult.getResult() != null
-                    && !probeResult.getResult().isBlank()
-                    && !probeResult.getResult().startsWith("❌");
-            if (degradationService != null) {
-                degradationService.recordProbeResult(success);
-            }
-            return probeResult;
-        }
-        if (degLevel == DegradationService.DegradationLevel.HEAVY) {
-            log.warn("[Collaborative] 🔴 重度降级(错误率>40%)，跳过所有 Agent 调用，回退到内联兜底");
-            return inlineFallback(question, emotion);
-        }
-        if (degLevel == DegradationService.DegradationLevel.LIGHT) {
-            log.warn("[Collaborative] 🟡 轻度降级(错误率>20%)，跳过复杂 DAG，降级为单 Agent 通用回复");
-            // 轻度降级：不走 DAG 分解，直接使用 General Agent 简化回复
-            String reply = agentCallerService.callAgent("general_agent", question, userId, requestId);
-            if (reply == null || reply.isBlank() || reply.startsWith("❌")) {
-                return inlineFallback(question, emotion);
-            }
-            long elapsed = System.currentTimeMillis() - start;
-            log.info("[Collaborative] 降级单 Agent 完成: elapsed={}ms, replyLen={}", elapsed, reply.length());
-            return applyEmotion(RoutingResult.builder().result(reply).agentName("general_agent").confidence(1.0).build(), emotion);
-        }
-
-        // Step 1: 图分解（带依赖关系的 DAG）
-        IntentGraph graph = taskPlanner.planToGraph(question);
-        if (graph.getNodeCount() == 0) {
-            log.warn("[Collaborative] 图分解为空，降级到内联 ChatClient 兜底");
-            return inlineFallback(question, emotion);
-        }
-        log.info("[Collaborative] 图分解完成: {} 个节点, hasDeps={}, maxParallelism={}",
-                graph.getNodeCount(), graph.hasDependency(), graph.getMaxParallelism());
-
-        String eventsKey = requestId != null ? SSE_EVENTS_KEY_PREFIX + requestId : null;
-
-        // Step 2: 图执行（根据拓扑并行执行，支持 Checkpoint/条件边/Handoff）
-        List<SubTaskResult> results = graphExecutionService.executeWithResume(graph, userId, eventsKey, requestId);
-
-        // Step 3: SSE — 汇总中
-        storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);
-
-        // Step 4: 合并结果
-        String merged = resultMerger.merge(question, results);
-
-        long elapsed = System.currentTimeMillis() - start;
-
-        // Step 5: 终极兜底 — 所有子任务均失败或结果为空时走内联 ChatClient
-        boolean allFailed = results.isEmpty() || results.stream().noneMatch(SubTaskResult::isSuccess);
-        if (allFailed || merged == null || merged.isBlank()) {
-            log.warn("[Collaborative] 所有子任务均失败，降级到内联 ChatClient 兜底");
-            return inlineFallback(question, emotion);
-        }
-
-        log.info("[Collaborative] 协作完成: {} 个子任务, 耗时={}ms, 结果长度={}",
-                results.size(), elapsed, merged.length());
-
-        String firstAgent = results.stream()
-                .map(SubTaskResult::getAgentName)
-                .filter(Objects::nonNull)
-                .findFirst().orElse("none");
-
-        // ⭐ 提取 REACT 经验（多步协作链路）
-        if (graph.getNodeCount() >= 2) {
-            experienceService.extractReactExperience(question,
-                    graph.getAllNodes().stream()
-                            .map(n -> new SubTask(n.getId(), n.getDescription(), n.getTargetAgent(), n.getDependsOn()))
-                            .collect(java.util.stream.Collectors.toList()));
-        }
-
-        return applyEmotion(RoutingResult.builder()
-                .result(merged)
-                .agentName(firstAgent)
-                .confidence(0.8)
-                .build(), emotion);
+        return routeExecutionService.executeCollaborative(question, userId, requestId, emotion);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -837,18 +742,8 @@ public class RouterService {
                                                 double confidence, String intentTag,
                                                 RouteRequest request, String rawQuestion,
                                                 EmotionCheckResult emotion) {
-        String agentReply = agentCallerService.callAgent(
-                agentName, agentQuestion, request.getUserId(), request.getRequestId());
-        if (agentReply == null || agentReply.isBlank()) {
-            return null;
-        }
-        RoutingResult result = RoutingResult.builder()
-                .result(agentReply)
-                .agentName(agentName)
-                .confidence(confidence)
-                .intentTag(intentTag)
-                .build();
-        return finalizeRouting(result, request, rawQuestion, emotion);
+        return routeExecutionService.callAgentAndFinalize(agentName, agentQuestion, confidence,
+                intentTag, request, rawQuestion, emotion);
     }
 
     /**
@@ -862,88 +757,7 @@ public class RouterService {
      * </ol>
      */
     private RoutingResult inlineFallback(String question, EmotionCheckResult emotion) {
-        // ⭐ G3：按复杂度选档 + 平滑降级调用
-        // P2 Prompt 已外部化到 prompts/router/inline-fallback.txt
-        String warmSystem = promptManager.inlineFallback();
-        try {
-            String localReply;
-            if (tieredModelRouter != null) {
-                Prompt prompt = new Prompt(List.of(
-                        new SystemMessage(warmSystem),
-                        new UserMessage(question)));
-                TierSelection sel = tieredModelRouter.call(prompt, question, null);
-                localReply = sel.response() != null && sel.response().getResult() != null
-                        ? sel.response().getResult().getOutput().getText() : null;
-            } else {
-                localReply = lightChatClient.prompt()
-                        .system(warmSystem)
-                        .user(question)
-                        .call()
-                        .content();
-            }
-            if (localReply != null && !localReply.isBlank()) {
-                return applyEmotion(RoutingResult.builder()
-                        .result(localReply)
-                        .agentName("builtin_fallback")
-                        .confidence(0.2)
-                        .build(), emotion);
-            }
-        } catch (Exception e) {
-            log.warn("[Router] 本地推理兜底失败（含 G3 档位全失败）: {}", e.getMessage());
-        }
-
-        // 终极降级 — 预设文案轮换
-        int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
-        return applyEmotion(RoutingResult.builder()
-                .result(FALLBACK_MESSAGES.get(idx))
-                .agentName("none")
-                .confidence(0.0)
-                .build(), emotion);
-    }
-
-    private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
-    private static final long SSE_EVENTS_TTL_SECONDS = 120;
-    /** ⭐ 每个路由会话的最大 SSE 事件数上限 */
-    private static final int MAX_SSE_EVENTS_PER_KEY = 5_000;
-    /** ⭐ SSE 事件数跟踪（per routing-key，防超限） */
-    private final ConcurrentHashMap<String, Integer> sseEventCounts = new ConcurrentHashMap<>();
-
-    /**
-     * ⭐ 存储 SSE 事件到 Redis（供 Consumer 读取并转发给前端）
-     */
-    private void storeSseEvent(String eventsKey, String type, String content, String agent) {
-        if (eventsKey == null || redisTemplate == null) return;
-        // ⭐ 事件数上限保护
-        int count = sseEventCounts.merge(eventsKey, 1, Integer::sum);
-        if (count > MAX_SSE_EVENTS_PER_KEY) {
-            if (count == MAX_SSE_EVENTS_PER_KEY + 1) {
-                log.warn("[Router] SSE 事件数已达上限 ({}), 停止缓存: key={}", MAX_SSE_EVENTS_PER_KEY, eventsKey);
-            }
-            return;
-        }
-        try {
-            StringBuilder json = new StringBuilder();
-            json.append("{\"type\":\"").append(type).append("\"");
-            if (content != null) {
-                json.append(",\"content\":\"").append(escapeJson(content)).append("\"");
-            }
-            if (agent != null) {
-                json.append(",\"agent\":\"").append(agent).append("\"");
-            }
-            json.append("}");
-            redisTemplate.opsForList().rightPush(eventsKey, json.toString());
-            redisTemplate.expire(eventsKey, SSE_EVENTS_TTL_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            log.warn("[Router] 存储 SSE 事件失败: {}", e.getMessage());
-            // 计数回退 — 避免因异常导致后续都跳过
-            sseEventCounts.computeIfPresent(eventsKey, (k, v) -> v > 0 ? v - 1 : 0);
-        }
-    }
-
-    private String escapeJson(String str) {
-        if (str == null) return "";
-        return str.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
+        return routeExecutionService.inlineFallback(question, emotion);
     }
 
     /*
