@@ -4,6 +4,7 @@ import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.AgentException;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.common.error.RecoveryAction;
+import com.example.smartassistant.common.gateway.tool.meta.GapClarificationService;
 import com.example.smartassistant.common.gateway.tool.meta.ToolGapEvent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.observability.OpsMetrics;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 
 /**
@@ -29,6 +31,12 @@ import java.util.concurrent.*;
 public class AgentToolExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(AgentToolExecutor.class);
+
+    /** ⭐ T2f 二期：数据缺口错误码集合（工具跑通但查无此数据，区别于能力缺口/配置缺口）。
+     *  仅这些码触发 EMPTY_RESULT 遥测，避免对正常成功(errorCode==null)或其他错误误报。 */
+    private static final Set<String> EMPTY_RESULT_CODES = Set.of(
+            "DATA_NOT_FOUND", "ORDER_NOT_FOUND", "PRODUCT_NOT_FOUND",
+            "LOGISTICS_NOT_FOUND", "NO_RESULTS", "WEATHER_NO_DATA");
 
     /** 工具执行线程池（延迟初始化，JDK 21 虚拟线程，每工具一线程） */
     private volatile ExecutorService toolExecutor;
@@ -55,14 +63,25 @@ public class AgentToolExecutor {
     /** 是否启用并行执行 */
     private final boolean parallelExecution;
 
+    /** ⭐ T2f 三期：工具缺口按需澄清（向用户提问，带会话护栏）；每 Agent 实例独立持有 → 天然每会话隔离 */
+    private final GapClarificationService clarificationService;
+
     public AgentToolExecutor(ReActProfile profile, AgentMetricsCollector metrics,
                              ErrorRecoveryService recoveryService, OpsMetrics opsMetrics,
                              boolean parallelExecution) {
+        this(profile, metrics, recoveryService, opsMetrics, parallelExecution,
+                new GapClarificationService());
+    }
+
+    public AgentToolExecutor(ReActProfile profile, AgentMetricsCollector metrics,
+                             ErrorRecoveryService recoveryService, OpsMetrics opsMetrics,
+                             boolean parallelExecution, GapClarificationService clarificationService) {
         this.profile = profile;
         this.metrics = metrics;
         this.recoveryService = recoveryService;
         this.opsMetrics = opsMetrics;
         this.parallelExecution = parallelExecution;
+        this.clarificationService = clarificationService != null ? clarificationService : new GapClarificationService();
     }
 
     // ==================== 入口 ====================
@@ -156,25 +175,35 @@ public class AgentToolExecutor {
             recoveryService.logRecovery(AgentErrorCode.UNKNOWN_TOOL, RecoveryAction.CLARIFY_USER,
                     "tool=" + tc.name(), 0);
             opsMetrics.recordToolCall("smart_react", false);
-            // ⭐ T2f：需求侧缺口遥测（能力缺口——LLM 调用了不存在的工具名）
+            // ⭐ T2f 三期：能力缺口 → 按需向用户澄清（会话护栏内）
             // observationRegistry 当前未注入本执行器，回退 SLF4J 结构化日志（后续可经构造器接入）
+            String clarificationPrompt = "";
+            String resolution = "logged";
             try {
+                GapClarificationService.GapDecision d =
+                        clarificationService.maybeClarify("UNKNOWN_TOOL", tc.name(), "logged");
+                resolution = d.getResolution();
+                clarificationPrompt = d.getPrompt();
                 ToolGapEvent.builder()
                         .gapType("UNKNOWN_TOOL")
                         .attemptedCapability(tc.name())
                         .attemptedArgs(tc.arguments())
                         .reason("LLM 调用了工具集中不存在的工具: " + tc.name())
                         .desiredResultHint("期望能力(工具名): " + tc.name())
-                        .resolution("logged")
+                        .resolution(resolution)
                         .timestamp(Instant.now())
                         .build()
                         .record(null);
             } catch (Exception ignore) {
                 log.debug("[AgentToolExecutor] 记录 ToolGapEvent 失败: {}", ignore.getMessage());
             }
+            // 若触发澄清，将话术注入工具响应，让 LLM 在最终回答中把问题转达给用户
+            String clarificationField = clarificationPrompt.isBlank()
+                    ? ""
+                    : ",\"clarification\":\"" + clarifyEscape(clarificationPrompt) + "\"";
             return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(),
                     "{\"error_code\":\"UNKNOWN_TOOL\",\"message\":\"未知工具: "
-                            + tc.name() + "\",\"retryable\":false}");
+                            + tc.name() + "\",\"retryable\":false" + clarificationField + "}");
         }
 
         int attempt = 0;
@@ -192,6 +221,11 @@ public class AgentToolExecutor {
                 log.debug("[AgentToolExecutor] 工具 {} 完成 (耗时 {}ms)", tc.name(), elapsed);
 
                 String errorCode = extractErrorCode(result);
+                // ⭐ T2f 二期：数据缺口遥测（工具能跑但返回"数据未找到"类错误，区别于能力/配置缺口）
+                // 仅首次尝试记录，避免重试时重复 emit；正常成功(errorCode==null)与其他错误码不触发
+                if (attempt == 1 && errorCode != null && EMPTY_RESULT_CODES.contains(errorCode)) {
+                    recordEmptyResultGap(tc, errorCode);
+                }
                 if (errorCode == null) {
                     String truncated = truncateResult(result, tc.name());
                     opsMetrics.recordToolCall("smart_react", true);
@@ -284,6 +318,26 @@ public class AgentToolExecutor {
         return toolExecutor;
     }
 
+    // ==================== T2f 二期：数据缺口记录 ====================
+
+    /** 记录数据缺口事件（resolution=logged，永不向用户提问）。 */
+    private void recordEmptyResultGap(AssistantMessage.ToolCall tc, String errorCode) {
+        try {
+            ToolGapEvent.builder()
+                    .gapType("EMPTY_RESULT")
+                    .attemptedCapability(tc.name())
+                    .attemptedArgs(tc.arguments())
+                    .reason("工具返回数据未找到: " + errorCode)
+                    .desiredResultHint("期望数据(工具=" + tc.name() + ")")
+                    .resolution("logged")
+                    .timestamp(Instant.now())
+                    .build()
+                    .record(null);
+        } catch (Exception ignore) {
+            log.debug("[AgentToolExecutor] 记录 EMPTY_RESULT 缺口事件失败: {}", ignore.getMessage());
+        }
+    }
+
     // ==================== 静态工具方法 ====================
 
     /** 工具参数的稳定指纹（FNV-1a 64-bit），用于无增量检测。 */
@@ -321,6 +375,12 @@ public class AgentToolExecutor {
     private static ToolResponseMessage.ToolResponse timeoutError() {
         return new ToolResponseMessage.ToolResponse("", "",
                 "{\"error_code\":\"TOOL_TIMEOUT\",\"message\":\"工具执行超时\",\"retryable\":true}");
+    }
+
+    /** 转义澄清话术中的 JSON 特殊字符（反斜杠 / 双引号），用于手动拼接工具响应 JSON。 */
+    private static String clarifyEscape(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     // ═══════════════════════════════════════════════════════════════

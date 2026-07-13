@@ -78,6 +78,9 @@ public class DiscoverToolsTool {
     /** 当前会话发现计数器（重置手段：构造新实例或外部调用 reset） */
     private int discoveryCount = 0;
 
+    /** ⭐ T2f 三期：工具缺口按需澄清（本类为单例 → 退化为全局去重；配合 discoveredCapabilities 已保证每能力最多一次） */
+    private final GapClarificationService clarificationService = new GapClarificationService();
+
     public DiscoverToolsTool(McpRegistryDiscoveryClient discoveryClient,
                              McpToolCallbackFactory callbackFactory,
                              ToolRegistryProperties properties,
@@ -120,6 +123,7 @@ public class DiscoverToolsTool {
                                 String matchMode,
                                 int limit) {
         long startTime = System.currentTimeMillis();
+        String clarification = "";
         String effectiveMatchMode = (matchMode != null && !matchMode.isBlank()) ? matchMode.toUpperCase() : "OR";
         int effectiveLimit = limit > 0 ? Math.min(limit, properties.getMaxDynamicTools()) : 20;
 
@@ -163,10 +167,10 @@ public class DiscoverToolsTool {
             log.warn("[DiscoverToolsTool] 发现失败（降级返回仅预载可用）: capabilityQuery={}, error={}",
                     capabilityQuery, e.getMessage());
             // ⭐ T2f：需求侧缺口（Registry 不可用，能力无法发现）
-            recordGap("DISCOVER_MISS", capabilityQuery, null,
+            clarification = recordGap("DISCOVER_MISS", capabilityQuery, null,
                     "Registry 不可用，无法发现能力: " + capabilityQuery, "degraded");
             // 降级：返回「仅预载可用」，不阻断对话
-            return buildResultJson(capabilityQuery, List.of(), List.of(), "registry-unavailable", elapsed);
+            return buildResultJson(capabilityQuery, List.of(), List.of(), "registry-unavailable", elapsed, clarification);
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -208,7 +212,7 @@ public class DiscoverToolsTool {
 
         // ⭐ T2f：需求侧缺口（Registry 中无匹配能力）
         if (matchedNames.isEmpty()) {
-            recordGap("DISCOVER_MISS", capabilityQuery, null,
+            clarification = recordGap("DISCOVER_MISS", capabilityQuery, null,
                     "Registry 中无匹配能力: " + capabilityQuery, "logged");
         }
 
@@ -234,43 +238,56 @@ public class DiscoverToolsTool {
             log.debug("[DiscoverToolsTool] 记录 DiscoveryEvent 失败: {}", e.getMessage());
         }
 
-        return buildResultJson(capabilityQuery, matchedNames, injectedNames, "registry", elapsed);
+        return buildResultJson(capabilityQuery, matchedNames, injectedNames, "registry", elapsed, clarification);
     }
 
     // ==================== 内部方法 ====================
 
     /**
-     * ⭐ T2f：记录需求侧工具缺口事件。
-     * <p>统一封装 {@link ToolGapEvent} 的构建与记录，observationRegistry 复用本类注入的实例
-     * （为 null 时自动回退 SLF4J 结构化日志）。</p>
+     * ⭐ T2f：记录需求侧工具缺口事件，并返回（若触发）向用户澄清的话术。
+     * <p>统一封装 {@link ToolGapEvent} 的构建与记录，并经 {@link GapClarificationService}
+     * 决定是否向用户提问（仅能力缺口可问，数据缺口永不问，带会话护栏）。</p>
      *
-     * @param gapType   缺口类型（UNKNOWN_TOOL / DISCOVER_MISS / EMPTY_RESULT）
-     * @param capability LLM 尝试的能力（工具名或 capabilityQuery）
-     * @param args      LLM 实际传入参数（JSON 原文，可为 null）
-     * @param reason    派生原因
-     * @param resolution 处置方式（logged / asked_user / degraded）
+     * @param gapType           缺口类型（UNKNOWN_TOOL / DISCOVER_MISS / EMPTY_RESULT）
+     * @param capability        LLM 尝试的能力（工具名或 capabilityQuery）
+     * @param args              LLM 实际传入参数（JSON 原文，可为 null）
+     * @param reason            派生原因
+     * @param fallbackResolution 护栏未触发提问时采用的处置方式（logged / degraded）
+     * @return 向用户澄清的话术（未触发提问时为空串）
      */
-    private void recordGap(String gapType, String capability, String args,
-                           String reason, String resolution) {
+    private String recordGap(String gapType, String capability, String args,
+                             String reason, String fallbackResolution) {
+        String clarification = "";
         try {
+            GapClarificationService.GapDecision d =
+                    clarificationService.maybeClarify(gapType, capability, fallbackResolution);
+            clarification = d.getPrompt();
             ToolGapEvent.builder()
                     .gapType(gapType)
                     .attemptedCapability(capability)
                     .attemptedArgs(args)
                     .reason(reason)
                     .desiredResultHint("期望能力: " + capability)
-                    .resolution(resolution)
+                    .resolution(d.getResolution())
                     .timestamp(Instant.now())
                     .build()
                     .record(observationRegistry);
         } catch (Exception e) {
             log.debug("[DiscoverToolsTool] 记录 ToolGapEvent 失败: {}", e.getMessage());
         }
+        return clarification;
     }
 
     @SuppressWarnings("unchecked")
     private String buildResultJson(String query, List<String> matchedNames,
                                    List<String> injectedNames, String source, long latencyMs) {
+        return buildResultJson(query, matchedNames, injectedNames, source, latencyMs, "");
+    }
+
+    @SuppressWarnings("unchecked")
+    private String buildResultJson(String query, List<String> matchedNames,
+                                   List<String> injectedNames, String source, long latencyMs,
+                                   String clarification) {
         try {
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("query", query);
@@ -278,6 +295,10 @@ public class DiscoverToolsTool {
             result.put("injectedTools", injectedNames);
             result.put("source", source);
             result.put("latencyMs", latencyMs);
+            // ⭐ T2f 三期：触发澄清时附带话术，交由 LLM 转达用户
+            if (clarification != null && !clarification.isBlank()) {
+                result.put("clarification", clarification);
+            }
             return objectMapper.writeValueAsString(result);
         } catch (Exception e) {
             log.warn("[DiscoverToolsTool] JSON 序列化失败，回退纯文本: {}", e.getMessage());

@@ -89,6 +89,26 @@ class AgentToolExecutorTest {
     }
 
     @Test
+    @DisplayName("未知工具 → 触发向用户澄清（clarification 非空且含工具名, resolution=asked_user）")
+    void execute_unknownTool_clarifies() {
+        var res = serialExecutor().execute(List.of(call("nope", "{}")), Map.of());
+        String data = res.get(0).responseData();
+        assertTrue(data.contains("UNKNOWN_TOOL"));
+        assertTrue(data.contains("\"clarification\""), "应携带向用户澄清的话术");
+        assertTrue(data.contains("nope"), "澄清话术应包含被臆造的工具名");
+    }
+
+    @Test
+    @DisplayName("数据未找到(ORDER_NOT_FOUND) → 记录 EMPTY_RESULT 缺口且不重试、原样返回")
+    void execute_dataNotFound_recordsEmptyResultGap() {
+        ToolCallback tool = mock(ToolCallback.class);
+        when(tool.call("{}")).thenReturn("{\"error_code\":\"ORDER_NOT_FOUND\",\"message\":\"未找到该订单\"}");
+        var res = serialExecutor().execute(List.of(call("queryOrder", "{}")), Map.of("queryOrder", tool));
+        // 非可重试 → 立即返回，且内容透传（不被截断/改写）
+        assertTrue(res.get(0).responseData().contains("ORDER_NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("成功工具 → 原样返回结果")
     void execute_successTool() {
         ToolCallback tool = mock(ToolCallback.class);
