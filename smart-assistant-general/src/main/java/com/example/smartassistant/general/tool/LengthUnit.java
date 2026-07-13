@@ -5,7 +5,7 @@
  * full license information.
  */
 
-package com.example.smartassistant.toolregistry.tool.general;
+package com.example.smartassistant.general.tool;
 
 /**
  * Length unit enum with built-in conversion factors relative to meters.

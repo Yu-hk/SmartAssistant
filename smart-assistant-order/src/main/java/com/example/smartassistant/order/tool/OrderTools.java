@@ -5,7 +5,7 @@
  * full license information.
  */
 
-package com.example.smartassistant.toolregistry.tool.order;
+package com.example.smartassistant.order.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.gateway.tool.ToolDefinition;

@@ -46,8 +46,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Configuration
 @ComponentScan(basePackages = {
-    "com.example.smartassistant",
-    "com.example.smartassistant.toolregistry.tool"
+    "com.example.smartassistant"
 })
 @Slf4j
 public class ProductAgentConfig {
