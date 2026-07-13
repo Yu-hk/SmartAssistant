@@ -58,6 +58,10 @@
         <otel.version>2.17.0</otel.version>
         <!-- ⭐ SpringDoc OpenAPI（自动 API 文档） -->
         <springdoc.version>2.6.0</springdoc.version>
+        <!-- ⭐ ONNX Runtime（统一版本，所有模块用 1.20.0） -->
+        <onnxruntime.version>1.20.0</onnxruntime.version>
+        <!-- ⭐ Milvus SDK（统一版本，所有模块用 2.5.5） -->
+        <milvus-sdk-java.version>2.5.5</milvus-sdk-java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
@@ -205,6 +209,20 @@
                 <groupId>com.github.jsqlparser</groupId>
                 <artifactId>jsqlparser</artifactId>
                 <version>${jsqlparser.version}</version>
+            </dependency>
+
+            <!-- ⭐ ONNX Runtime（BGE 向量推理） -->
+            <dependency>
+                <groupId>com.microsoft.onnxruntime</groupId>
+                <artifactId>onnxruntime</artifactId>
+                <version>${onnxruntime.version}</version>
+            </dependency>
+
+            <!-- ⭐ Milvus 向量数据库 SDK -->
+            <dependency>
+                <groupId>io.milvus</groupId>
+                <artifactId>milvus-sdk-java</artifactId>
+                <version>${milvus-sdk-java.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
