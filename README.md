@@ -2595,6 +2595,31 @@ UPLOADED ──▶ PARSING ──▶ CHUNKING ──▶ EMBEDDING ──▶ INDE
 
 ---
 
+
+## 工具统一治理与解耦（tool-registry 模块）
+
+> 本节记录 2026-07-10 的架构调整：所有业务工具已从 order / product / general / consumer 模块迁移至独立的 `smart-assistant-tool-registry` 服务，实现 agent 与工具彻底解耦。
+
+### 背景与目标
+- 原有工具分散在四个业务模块的 `tools` / `tool` 包中，agent 在初始化时硬编码绑定具体工具类。
+- 现统一收敛到 `smart-assistant-tool-registry`（独立 Spring Boot 服务），业务模块不再直接依赖工具实现，新增工具只需在 registry 中注册即可被所有 agent 使用。
+
+### 解耦规则
+- 业务模块 `main` 源码**不得** `import com.example.smartassistant.toolregistry.tool.*` 具体工具类。
+- 数据访问走 SPI 接口：`OrderDataProvider` / `ProductDataProvider` / `GeneralDataProvider`（接口定义在 `common.tool.spi`，实现在各业务模块）。
+- 共享能力走 `common`：`KnowledgeRetrievalService`、`ToolRegistryClient`（HTTP 客户端，带本地缓存）、`AiToolRegistry`（工具组装）、`ToolProvider`（ApplicationContext 扫描 + Registry 过滤）。
+- 进程内共享状态抽为 Bean：`GifCacheStore`（替代 `DataGifTool` 静态缓存）、`RegistryTool`（标记接口，业务模块经 `ApplicationContext.getBeansOfType(RegistryTool)` 发现 registry 工具 Bean）。
+
+### 新增工具流程
+1. 在 `smart-assistant-tool-registry` 的 `tool/<domain>` 包下实现工具类（建议实现 `RegistryTool` 标记接口）。
+2. 构造注入所需 SPI 接口与 common Bean，不依赖业务模块。
+3. 工具随 registry 服务注册；业务模块经 `ToolRegistryClient` 按需获取，**无需修改 agent 代码**。
+
+### 构建注意
+- `tool-registry` 配置了 `spring-boot-maven-plugin` 的 `classifier=exec`：普通（库）jar 作为主 artifact 被安装，可执行 jar 带 `-exec` 后缀，便于其他模块编译期依赖。
+- 构建统一使用项目脚本 `mvn21.sh`（系统 `mvn` 不可用）。
+
+
 ## 许可证
 
 [MIT License](LICENSE)

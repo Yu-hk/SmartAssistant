@@ -1,0 +1,98 @@
+#!/bin/bash
+# Registry CLI — Tool Registry 命令行工具
+# 使用: registry-cli list|deprecate|health|dependents|get [options]
+#
+# 需要: curl, python3 (用于格式化 JSON 输出)
+#
+# 环境变量:
+#   REGISTRY_URL — Registry 服务地址（默认 http://localhost:8088）
+
+set -e
+
+REGISTRY_URL="${REGISTRY_URL:-http://localhost:8088}"
+
+usage() {
+    echo "Tool Registry CLI v1.0"
+    echo ""
+    echo "用法:"
+    echo "  $0 list [tags=TAG] [status=STATUS] [namespace=NS]  列出工具"
+    echo "  $0 get <name>                                      获取工具详情"
+    echo "  $0 health                                           健康检查"
+    echo "  $0 dependents <name>                                查询依赖者"
+    echo "  $0 deprecate <name> <deprecatedBy> <sunset> <reason> 废弃工具"
+    echo "  $0 activate <name>                                  启用工具"
+    echo ""
+    echo "示例:"
+    echo "  $0 list                                             # 列出全部"
+    echo "  $0 list tags=ORDER                                  # 按标签过滤"
+    echo "  $0 list tags=ORDER,READ_ONLY status=ACTIVE           # 多条件"
+    echo "  $0 get order.queryOrder                             # 查看工具"
+    echo "  $0 health                                           # 健康检查"
+    echo "  $0 dependents order.queryOrder                      # 依赖查询"
+    echo "  $0 deprecate order.v1 order.v2 2026-08-10 '重构迁移' # 废弃"
+    echo "  $0 activate order.v1                                # 启用"
+    echo ""
+    echo "环境变量:"
+    echo "  REGISTRY_URL=${REGISTRY_URL}  (可自定义)"
+}
+
+# 请求包装
+api_get() {
+    local path="$1"
+    curl -s "${REGISTRY_URL}${path}" | python3 -m json.tool
+}
+
+api_post() {
+    local path="$1"
+    local data="$2"
+    curl -s -X POST "${REGISTRY_URL}${path}" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-Id: cli-$(date +%s)" \
+        -d "$data" | python3 -m json.tool
+}
+
+# 主逻辑
+CMD="${1:-help}"
+
+case "$CMD" in
+    list)
+        shift
+        query=""
+        for arg in "$@"; do
+            case "$arg" in
+                tags=*)      query="${query}&tags=${arg#tags=}" ;;
+                status=*)    query="${query}&status=${arg#status=}" ;;
+                namespace=*) query="${query}&namespace=${arg#namespace=}" ;;
+                *)           echo "未知参数: $arg"; exit 1 ;;
+            esac
+        done
+        api_get "/api/tools${query}" ;;
+    
+    get)
+        [ -z "$2" ] && { echo "用法: $0 get <name>"; exit 1; }
+        api_get "/api/tools/$2" ;;
+    
+    health)
+        api_get "/api/tools/health" ;;
+    
+    dependents)
+        [ -z "$2" ] && { echo "用法: $0 dependents <name>"; exit 1; }
+        api_get "/api/tools/$2/dependents" ;;
+    
+    deprecate)
+        [ -z "$5" ] && { echo "用法: $0 deprecate <name> <deprecatedBy> <sunset> <reason>"; exit 1; }
+        api_post "/api/tools/deprecate" \
+            "{\"name\":\"$2\",\"deprecatedBy\":\"$3\",\"sunsetDate\":\"$4\",\"reason\":\"$5\"}" ;;
+    
+    activate)
+        [ -z "$2" ] && { echo "用法: $0 activate <name>"; exit 1; }
+        api_post "/api/tools/$2/activate" "" ;;
+    
+    help|--help|-h)
+        usage ;;
+    
+    *)
+        echo "未知命令: $CMD"
+        usage
+        exit 1 ;;
+esac

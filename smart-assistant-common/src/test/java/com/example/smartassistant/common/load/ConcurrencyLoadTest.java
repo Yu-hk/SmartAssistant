@@ -8,6 +8,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,7 +77,9 @@ class ConcurrencyLoadTest {
         AtomicInteger rejectedByL2 = new AtomicInteger(0);
         AtomicInteger accepted = new AtomicInteger(0);
 
-        long elapsed = runSessionAwareTest(totalRequests, userCount, requestsPerUser, LLM_PROCESSING_TIME_MS, slots, sessionConcurrency, rejectedByL2, accepted);
+        long elapsed = runSessionAwareTest(totalRequests, userCount, requestsPerUser,
+                LLM_PROCESSING_TIME_MS, slots, sessionConcurrency,
+                rejectedByL2, accepted);
 
         double throughput = totalRequests / (elapsed / 1000.0);
         System.out.printf("L1(slots=%d)+L2: 5用户×200刷屏, 吞吐=%.0f req/s, L2拒绝=%d, 接受=%d%n",
@@ -168,7 +171,8 @@ class ConcurrencyLoadTest {
 
     // ==================== 辅助方法 ====================
 
-    private long runConcurrentTest(int totalRequests, long processTimeMs, Runnable acquire, Runnable release) {
+    private long runConcurrentTest(int totalRequests, long processTimeMs,
+                                    Runnable acquire, Runnable release) {
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         CountDownLatch latch = new CountDownLatch(totalRequests);
         AtomicLong totalTime = new AtomicLong(0);
@@ -197,7 +201,10 @@ class ConcurrencyLoadTest {
         return System.currentTimeMillis() - start;
     }
 
-    private long runSessionAwareTest(int totalRequests, int userCount, int requestsPerUser, long processTimeMs, Semaphore slots, ConcurrentHashMap<String, AtomicInteger> sessionConcurrency, AtomicInteger rejectedByL2, AtomicInteger accepted) {
+    private long runSessionAwareTest(int totalRequests, int userCount, int requestsPerUser,
+                                      long processTimeMs, Semaphore slots,
+                                      ConcurrentHashMap<String, AtomicInteger> sessionConcurrency,
+                                      AtomicInteger rejectedByL2, AtomicInteger accepted) {
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         CountDownLatch latch = new CountDownLatch(totalRequests);
 
@@ -239,8 +246,7 @@ class ConcurrencyLoadTest {
         return System.currentTimeMillis() - start;
     }
 
-    private long runFullTest(int totalRequests, long processTimeMs,
-                              Semaphore slots,
+    private long runFullTest(int totalRequests, long processTimeMs, Semaphore slots,
                               PriorityBlockingQueue<PrioritizedTask> queue,
                               ConcurrentHashMap<String, AtomicInteger> sessionConcurrency,
                               AtomicInteger rejectedByL2, AtomicInteger accepted,

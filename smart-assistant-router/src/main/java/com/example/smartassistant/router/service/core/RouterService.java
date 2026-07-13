@@ -298,8 +298,12 @@ public class RouterService {
                     List<AgentTask> multiAgentTasks = new java.util.ArrayList<>();
 
                     // 主意图 → 构建任务
-                    multiAgentTasks.add(buildAgentTask(experienceMatch.agentName,experienceMatch.reroutedQuestion != null
-                                    ? experienceMatch.reroutedQuestion : question,experienceMatch.experience.getIntentTag(),experienceMatch.matchScore));
+                    multiAgentTasks.add(buildAgentTask(
+                            experienceMatch.agentName,
+                            experienceMatch.reroutedQuestion != null
+                                    ? experienceMatch.reroutedQuestion : question,
+                            experienceMatch.experience.getIntentTag(),
+                            experienceMatch.matchScore));
 
                     // 副意图 → 各构建独立任务
                     for (var si : experienceMatch.secondaryIntents) {
@@ -1018,7 +1022,8 @@ public class RouterService {
     }
 
     /** 从经验匹配结果构建一个 Agent 调用任务 */
-    private AgentTask buildAgentTask(String agentName, String question, String intentTag, double confidence) {
+    private AgentTask buildAgentTask(String agentName, String question,
+                                      String intentTag, double confidence) {
         return new AgentTask(agentName, question, intentTag, confidence);
     }
 
