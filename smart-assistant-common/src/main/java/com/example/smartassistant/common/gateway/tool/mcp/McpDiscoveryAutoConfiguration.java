@@ -70,7 +70,7 @@ public class McpDiscoveryAutoConfiguration {
 	 */
 	@Bean
 	@ConditionalOnMissingBean
-	@ConditionalOnProperty(prefix = "tool-registry", name = "t2-mcp-discovery-enabled", havingValue = "true", matchIfMissing = false)
+	@ConditionalOnProperty(prefix = "tool-registry", name = "t2-mcp-discovery-enabled", havingValue = "true", matchIfMissing = true)
 	public DiscoverToolsTool discoverToolsTool(McpRegistryDiscoveryClient discoveryClient,
 	                                           McpToolCallbackFactory callbackFactory,
 	                                           ToolRegistryProperties properties,

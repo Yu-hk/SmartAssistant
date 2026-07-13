@@ -62,7 +62,9 @@ public class DataGifTool implements RegistryTool {
     public void initTools() {
         // SHARED 层：跨 agent 共享基建，注册到中心 Registry 接受统一治理
         ToolDefinition def = ToolDefinition.write("generateTrendGif", "生成趋势动画GIF",
-                ToolRiskLevel.LOW).toBuilder().toolTier(ToolTier.SHARED).build();
+                ToolRiskLevel.LOW).toBuilder().toolTier(ToolTier.SHARED)
+                .tags(new String[]{"GENERAL", "READ_ONLY"})
+                .functionalCapabilities(java.util.List.of("gif-generation", "chart", "data-visualization", "trend-chart")).build();
         toolRegistry.register(def);
         registryClient.registerWithFallback(def, toolRegistry);
     }
