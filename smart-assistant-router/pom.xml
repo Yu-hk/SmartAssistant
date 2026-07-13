@@ -133,15 +133,15 @@
         <dependency>
             <groupId>io.milvus</groupId>
             <artifactId>milvus-sdk-java</artifactId>
-            <version>2.3.5</version>
             <optional>true</optional>
+            <!-- version managed by parent: ${milvus-sdk-java.version} -->
         </dependency>
 
         <!-- ⭐ ONNX Runtime（BGE 向量推理，从华为云镜像下载） -->
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>
             <artifactId>onnxruntime</artifactId>
-            <version>1.18.0</version>
+            <!-- version managed by parent: ${onnxruntime.version} -->
         </dependency>
 
     </dependencies>
