@@ -119,30 +119,6 @@
         </dependency>
     </dependencies>
 
-    <!-- ⭐ 强制 Jackson 2 注解版本：registry 的 MCP server 使用 Jackson 3 (tools.jackson) 的 JsonMapper，
-         其在构建时通过兼容层访问 com.fasterxml.jackson.annotation.JsonSerializeAs（Jackson 2.12+ 才引入）。
-         若传递依赖带入旧的 jackson-annotations（如 2.9.x，仅有 JsonInclude 而无 JsonSerializeAs），
-         会在 mcpServerJsonMapper 实例化时报 NoClassDefFoundError。此处统一锁定到 Spring Boot 管理的 2.18.4。 -->
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-annotations</artifactId>
-                <version>2.18.4</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-core</artifactId>
-                <version>2.18.4</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>2.18.4</version>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
     <build>
         <plugins>
             <plugin>

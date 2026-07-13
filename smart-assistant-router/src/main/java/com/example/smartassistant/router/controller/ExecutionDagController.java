@@ -126,7 +126,9 @@ public class ExecutionDagController {
                     if (!nodeOrder.contains(nodeId)) {
                         nodeOrder.add(nodeId);
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.warn("[ExecutionDag] 解析 SSE 事件失败: {}", e.getMessage());
+                }
             }
 
             // 3. 读取完整决策 → 提取 finalAgent 和 question
@@ -142,7 +144,9 @@ public class ExecutionDagController {
                     finalAgent = (String) decision.getOrDefault("agentName", "");
                     question = (String) decision.getOrDefault("result", "");
                     if (question.length() > 100) question = question.substring(0, 100) + "...";
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.warn("[ExecutionDag] 解析决策 JSON 失败: {}", e.getMessage());
+                }
             }
 
             // 4. 按顺序输出节点，构建简单的链式边
