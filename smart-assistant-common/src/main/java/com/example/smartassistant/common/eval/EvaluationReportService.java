@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.common.eval;
 
+import com.example.smartassistant.common.rag.compliance.ComplianceGoldenSuiteEvaluator;
+import com.example.smartassistant.common.rag.compliance.ComplianceTestCase;
 import com.example.smartassistant.common.rag.eval.RAGEvaluationResult;
 import com.example.smartassistant.common.rag.eval.RAGEvaluator;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -73,6 +75,7 @@ public class EvaluationReportService {
     /** 黄金测试集 */
     private List<RAGTestSpec> ragTestCases = new ArrayList<>();
     private List<AgentTestSpec> agentTestCases = new ArrayList<>();
+    private List<ComplianceTestCase> complianceTestCases = new ArrayList<>();
 
     private final RAGEvaluator ragEvaluator = new RAGEvaluator();
 
@@ -102,6 +105,9 @@ public class EvaluationReportService {
                 agentTestCases = MAPPER.convertValue(agentRaw, new TypeReference<>() {});
                 log.info("[EvalReportSvc] 加载 Agent 测试用例: {} 条", agentTestCases.size());
             }
+
+            // 解析 Compliance 测试（REQ-8）：复用 ComplianceGoldenSuiteEvaluator 的解析，单一数据源
+            complianceTestCases = ComplianceGoldenSuiteEvaluator.loadCases(classpathResource);
 
         } catch (Exception e) {
             log.error("[EvalReportSvc] 加载测试集失败: {}", e.getMessage(), e);
@@ -236,12 +242,20 @@ public class EvaluationReportService {
     }
 
     /**
+     * 获取已加载的合规测试用例规格（REQ-8，complianceTests 段）。
+     */
+    public List<ComplianceTestCase> getComplianceTestCases() {
+        return List.copyOf(complianceTestCases);
+    }
+
+    /**
      * 获取统计摘要。
      */
     public Map<String, Object> getSummary() {
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("ragTestCases", ragTestCases.size());
         summary.put("agentTestCases", agentTestCases.size());
+        summary.put("complianceTestCases", complianceTestCases.size());
         summary.put("totalRuns", history.size());
 
         long lastRun = history.isEmpty() ? 0 : history.get(history.size() - 1).timestamp;

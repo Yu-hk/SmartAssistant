@@ -7,6 +7,9 @@
 
 package com.example.smartassistant.common.eval;
 
+import com.example.smartassistant.common.rag.compliance.ComplianceEvaluationResult;
+import com.example.smartassistant.common.rag.compliance.ComplianceGoldenSuiteEvaluator;
+import com.example.smartassistant.common.rag.compliance.ComplianceTestCase;
 import com.example.smartassistant.common.rag.eval.RAGEvaluationResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -16,7 +19,9 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 黄金测试集评测闭环编排器 — 将「加载黄金集 → 跑 RAG/Agent 评测 → 门禁判定 → 报告/基线」串成一条离线可运行链路。
@@ -108,6 +113,8 @@ public class GoldenSuiteEvalGate {
         cfg.agentTrialCount = 5;          // ⭐ Trial×5
         cfg.minAgentPassKRate = 0.8;      // ⭐ pass^k≥0.8 才算稳定
         cfg.minAgentPassRate = 0.8;
+        cfg.enableComplianceGate = true;  // ⭐ REQ-8：默认启用合规规则回归门禁
+        cfg.requireAllCompliancePass = true;
         cfg.compareToBaseline = false;    // 默认不比对基线（避免缺失基线文件阻断）
         cfg.maxRegression = 0.05;
         return cfg;
@@ -147,6 +154,18 @@ public class GoldenSuiteEvalGate {
             agent = svc.runAgentEvaluationDetailed(null);
         }
 
+        // 1.5 合规规则回归（REQ-8）：仅当启用合规门禁且黄金集含 complianceTests 时运行；
+        //      无 complianceTests 时跳过，绝不阻断既有 RAG/Agent 门禁。
+        List<ComplianceEvaluationResult> compliance = new ArrayList<>();
+        if (cfg.enableComplianceGate) {
+            List<ComplianceTestCase> complianceCases = svc.getComplianceTestCases();
+            if (complianceCases != null && !complianceCases.isEmpty()) {
+                ComplianceGoldenSuiteEvaluator complianceEval = new ComplianceGoldenSuiteEvaluator();
+                compliance = complianceEval.evaluate(complianceCases);
+                log.info("[EvalGate] 合规回归评测：{} 条用例", compliance.size());
+            }
+        }
+
         // 2. 加载基线
         EvalBaseline baseline = (baselinePath != null) ? EvalBaseline.load(baselinePath) : null;
         if (baseline == null && cfg.compareToBaseline) {
@@ -156,6 +175,11 @@ public class GoldenSuiteEvalGate {
         // 3. 门禁判定（复用既有 EvalGate，Agent 通过率由 overridePassed 携带 pass^k 结论）
         EvalGate gate = new EvalGate();
         EvalGate.GateResult result = gate.evaluate(rag, agent, cfg, baseline);
+
+        // 3.5 合规门禁并入（REQ-8）：compliance 全过才 passed，否则往 violations 追加说明
+        if (cfg.enableComplianceGate && !compliance.isEmpty()) {
+            result = mergeCompliance(result, compliance, cfg);
+        }
 
         // 4. 报告导出
         int ragPassed = (int) rag.stream().filter(RAGEvaluationResult::passed).count();
@@ -262,6 +286,49 @@ public class GoldenSuiteEvalGate {
         return trials.stream()
                 .max(java.util.Comparator.comparingDouble(AgentEvaluationResult::getCompositeScore))
                 .orElse(trials.get(0));
+    }
+
+    /**
+     * 将合规回归结果并入既有门禁判定（REQ-8）。
+     * <p>策略（改动最小且清晰）：不改动 {@link EvalGate#evaluate} 的既有指标聚合，
+     * 而是在其 {@link EvalGate.GateResult} 之上做「合规叠加」：</p>
+     * <ul>
+     *   <li>当 {@code requireAllCompliancePass=true}（默认）且存在未通过用例时，门禁判定为失败，
+     *       并向 {@code violations} 追加每条失败用例的说明；</li>
+     *   <li>当 {@code requireAllCompliancePass=false} 时，仅观测、不阻断；</li>
+     *   <li>无论是否阻断，都在指标快照中写入 {@code compliance.passRate} 供报告/基线观测。</li>
+     * </ul>
+     */
+    private EvalGate.GateResult mergeCompliance(EvalGate.GateResult base,
+                                                List<ComplianceEvaluationResult> compliance,
+                                                EvalGateConfig cfg) {
+        List<String> violations = new ArrayList<>(base.violations());
+        long passCount = compliance.stream().filter(ComplianceEvaluationResult::isPassed).count();
+        double compliancePassRate = compliance.isEmpty() ? 1.0 : passCount / (double) compliance.size();
+        boolean block = cfg.requireAllCompliancePass && passCount < compliance.size();
+
+        if (block) {
+            for (ComplianceEvaluationResult r : compliance) {
+                if (!r.isPassed()) {
+                    violations.add(String.format(
+                            "合规回归: 用例[%s] 未通过 —— %s（命中=%s, 期望=%s）",
+                            r.getCaseId(), r.getMessage(), r.getMatchedRuleIds(), r.getExpectedRuleIds()));
+                }
+            }
+        }
+
+        Map<String, Double> metrics = new LinkedHashMap<>(base.metrics());
+        metrics.put("compliance.passRate", compliancePassRate);
+
+        boolean passed = base.passed() && !block;
+        if (!passed) {
+            log.error("[EvalGate] ❌ 合规回归门禁未通过（passRate={}）",
+                    String.format("%.4f", compliancePassRate));
+        } else {
+            log.info("[EvalGate] ✅ 合规回归门禁通过（passRate={}）",
+                    String.format("%.4f", compliancePassRate));
+        }
+        return new EvalGate.GateResult(passed, violations, metrics);
     }
 
     private EvalGateConfig loadConfig(String resource) {
