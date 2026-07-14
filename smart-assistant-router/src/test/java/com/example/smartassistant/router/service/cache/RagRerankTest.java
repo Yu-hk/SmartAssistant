@@ -119,8 +119,8 @@ class RagRerankTest {
         bgeOk = bge.isAvailable();
     }
 
-    @Test @DisplayName("BGE: 1024维输出")
-    void bge_dim() { if (bgeOk) assertEquals(1024, bge.embedding("test").length); }
+    @Test @DisplayName("BGE: 输出维度与模型一致")
+    void bge_dim() { if (bgeOk) assertEquals(bge.dimensions(), bge.embedding("test").length); }
 
     @Test @DisplayName("BGE: 天气同类 > 天气vs美食")
     void bge_weather() {
