@@ -53,6 +53,20 @@ public class EvalGateConfig {
      */
     public boolean enableAgentGate = false;
 
+    /**
+     * 是否启用合规规则门禁（REQ-8）。
+     * <p>默认开启：当黄金测试集含 {@code complianceTests} 且本开关为 true 时，
+     * 由 {@link GoldenSuiteEvalGate} 运行 {@link ComplianceGoldenSuiteEvaluator} 并把结果并入门禁——
+     * 任一条合规规则正则失效 / 改写不生效即门禁拦截。无 complianceTests 时不生效、绝不阻断既有门禁。</p>
+     */
+    public boolean enableComplianceGate = true;
+
+    /**
+     * 是否要求每条 compliance 用例都通过（任一失败即门禁失败）。
+     * <p>优先级高于通过率阈值；默认 true 表示「全过才放行」。置 false 时仅做指标观测、不阻断。</p>
+     */
+    public boolean requireAllCompliancePass = true;
+
     /** Agent 用例通过率下限（0~1，仅 {@link #enableAgentGate}=true 时生效）。 */
     public double minAgentPassRate = 0.8;
 
