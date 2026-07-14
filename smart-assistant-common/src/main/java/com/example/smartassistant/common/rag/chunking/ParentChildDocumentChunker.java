@@ -9,6 +9,7 @@ package com.example.smartassistant.common.rag.chunking;
 
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.common.rag.document.ParsedDocument;
+import com.example.smartassistant.common.rag.ingestion.DocumentMetadataEnricher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -146,7 +147,8 @@ public class ParentChildDocumentChunker {
                 element.getVersion(),
                 element.getSourceUrl(),
                 chunkIndex,
-                parentDocId
+                parentDocId,
+                DocumentMetadataEnricher.toSourceType(element.getContentType())
         );
     }
 

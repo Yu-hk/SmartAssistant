@@ -393,7 +393,9 @@ public class KnowledgeIngestionService {
                         p.getDocId(), p.getTitle(), p.getContent(),
                         p.getCategory(), p.getKeywords(),
                         p.getEffectiveAt(), p.getExpireAt(),
-                        p.getTenantId(), p.getVersion(), p.getSourceUrl(), 0));
+                        p.getTenantId(), p.getVersion(), p.getSourceUrl(), 0,
+                        "", // parentDocId（结构化整篇入库，无父块）
+                        DocumentMetadataEnricher.toSourceType(p.getContentType())));
             }
 
             // 文本类文档：走分块器
@@ -435,7 +437,8 @@ public class KnowledgeIngestionService {
                             doc.getChunkIndex(),
                             doc.getParentDocId(),
                             AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE,
-                            activeIndexVersion))
+                            activeIndexVersion,
+                            doc.getSourceType())) // ⭐ 保留上游已绑定的 sourceType
                     .toList();
 
             // ⭐ Step 4.2: 入库前质检 pipeline（对标字节 RAG 七连问第二问）
@@ -458,7 +461,8 @@ public class KnowledgeIngestionService {
                         doc.getSourceUrl(), doc.getChunkIndex(),
                         doc.getParentDocId(),
                         authorityLevel, DocumentStatus.ACTIVE,
-                        activeIndexVersion);
+                        activeIndexVersion,
+                        doc.getSourceType()); // ⭐ 保留上游已绑定的 sourceType
 
                 // ② 质量评分门禁：低于阈值不入库，避免污染检索
                 if (!qualityScorer.isQualified(scrubbedDoc)) {

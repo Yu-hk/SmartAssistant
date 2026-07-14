@@ -9,6 +9,7 @@ package com.example.smartassistant.common.rag.chunking;
 
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.common.rag.document.ParsedDocument;
+import com.example.smartassistant.common.rag.ingestion.DocumentMetadataEnricher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -90,7 +91,9 @@ public class DocumentChunker {
                         element.getTenantId(),
                         element.getVersion(),
                         element.getSourceUrl(),
-                        globalSequence
+                        globalSequence,
+                        "", // parentDocId（纯文本分块无父块）
+                        DocumentMetadataEnricher.toSourceType(element.getContentType())
                 );
 
                 result.add(doc);
