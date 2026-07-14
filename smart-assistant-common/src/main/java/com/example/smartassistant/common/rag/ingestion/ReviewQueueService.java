@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 复核队列服务（REQ-1）——脏数据拦截后落入 {@code knowledge_review_queue} 供运营复核。
@@ -40,6 +41,8 @@ public class ReviewQueueService {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper mapper = new ObjectMapper();
     private final Map<String, ReviewItem> memory = new ConcurrentHashMap<>();
+    /** 幂等建表标记（仅尝试一次，避免每次写入都探测 DDL） */
+    private final AtomicBoolean tableEnsured = new AtomicBoolean(false);
 
     public ReviewQueueService() {
         this(null);
@@ -47,6 +50,9 @@ public class ReviewQueueService {
 
     public ReviewQueueService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+        // ⭐ 自愈建表：PG 可用时确保 knowledge_review_queue 存在（与 V1 迁移脚本列定义对齐）。
+        // Flyway 自动迁移未接入 Spring Boot，运行时由本服务首次构造时补齐，保证任何环境可用。
+        ensureTable();
     }
 
     /** 入队一条脏数据 */
@@ -157,6 +163,34 @@ public class ReviewQueueService {
     /** 待复核数量 */
     public int pendingCount() {
         return (int) list(ReviewItem.STATUS_REVIEW).size();
+    }
+
+    /**
+     * 幂等建表（PG 可用时确保 {@code knowledge_review_queue} 存在）。
+     * <p>不依赖 Flyway 自动迁移（生产可走 V1 脚本）；构造时尝试一次，
+     * 失败则忽略（降级内存）。字段与 {@code V1__rag_knowledge_schema.sql} 严格对齐：
+     * {@code id / raw_payload(JSONB) / reason / source_type / submitted_by / status /
+     * reviewed_by / reviewed_at / created_at}。</p>
+     */
+    private void ensureTable() {
+        if (jdbcTemplate == null) return;
+        if (!tableEnsured.compareAndSet(false, true)) return;
+        try {
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS knowledge_review_queue ("
+                    + "id VARCHAR(64) PRIMARY KEY, "
+                    + "raw_payload JSONB, "
+                    + "reason TEXT, "
+                    + "source_type VARCHAR(32) DEFAULT '', "
+                    + "submitted_by VARCHAR(128) DEFAULT '', "
+                    + "status VARCHAR(16) DEFAULT 'REVIEW', "
+                    + "reviewed_by VARCHAR(128), "
+                    + "reviewed_at BIGINT, "
+                    + "created_at BIGINT NOT NULL)");
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_review_queue_status "
+                    + "ON knowledge_review_queue (status)");
+        } catch (Exception e) {
+            log.warn("[ReviewQueue] 建表 knowledge_review_queue 失败（可忽略，将降级内存）: {}", e.getMessage());
+        }
     }
 
     private ReviewItem mapRow(ResultSet rs) throws java.sql.SQLException {
