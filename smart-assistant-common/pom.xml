@@ -187,6 +187,26 @@
             <version>3.0.3</version>
         </dependency>
 
+        <!-- ⭐ Apache Tika — 内容嗅探（html/markdown 判别，REQ-1） -->
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>2.9.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parsers-standard-package</artifactId>
+            <version>2.9.2</version>
+        </dependency>
+
+        <!-- ⭐ CommonMark — Markdown 解析（REQ-1）。front-matter 由代码手动解析（正则），
+             无需 commonmark-ext-front-matter 扩展（该坐标在可达仓库无 0.21.0 版本）。 -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+            <version>0.21.0</version>
+        </dependency>
+
         <!-- ⭐ Apache POI — Word 文档解析（.docx/.doc） -->
         <dependency>
             <groupId>org.apache.poi</groupId>

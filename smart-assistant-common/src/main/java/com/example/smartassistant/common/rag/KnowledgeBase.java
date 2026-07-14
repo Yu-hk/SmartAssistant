@@ -115,6 +115,15 @@ public interface KnowledgeBase {
      */
     void updateStatus(String docId, DocumentStatus status);
 
+    /**
+     * ⭐ 列出知识库内全部文档（用于内存快照刷新 / 运维对账，REQ-4）。
+     * <p>默认实现抛 {@link UnsupportedOperationException}，持久化实现（PG）与内存实现应覆盖。</p>
+     */
+    default List<KnowledgeDocument> listAll() {
+        throw new UnsupportedOperationException(
+                "listAll() 未实现: " + getClass().getSimpleName());
+    }
+
     /** 隔离文档（从检索排除，可恢复） */
     default void quarantine(String docId) {
         updateStatus(docId, DocumentStatus.QUARANTINED);

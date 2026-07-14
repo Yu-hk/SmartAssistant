@@ -15,6 +15,7 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 文档解析路由——根据文件扩展名自动选择对应的解析器。
@@ -39,9 +40,13 @@ public class DocumentParseRouter {
     /** 默认文本解析器兜底 */
     private final DocumentParser fallbackParser;
 
+    /** ⭐ 内容嗅探器（扩展名不可靠时兜底路由） */
+    private final TikaDocumentSniffer sniffer;
+
     public DocumentParseRouter() {
         this.parsers = new HashMap<>();
         this.fallbackParser = new TextFallbackParser();
+        this.sniffer = new TikaDocumentSniffer();
 
         // 注册标准解析器
         parsers.put("pdf", new PdfDocumentParser());
@@ -49,6 +54,9 @@ public class DocumentParseRouter {
         parsers.put("html", new HtmlDocumentParser());
         parsers.put("htm", new HtmlDocumentParser());
         parsers.put("txt", new TextFallbackParser());
+        // ⭐ REQ-1：新增 Markdown 解析
+        parsers.put("md", new MarkdownDocumentParser());
+        parsers.put("markdown", new MarkdownDocumentParser());
     }
 
     /**
@@ -76,9 +84,20 @@ public class DocumentParseRouter {
 
         DocumentParser parser = parsers.get(extension);
         if (parser == null) {
-            log.warn("[DocRouter] 未找到 .{} 的专用解析器，使用兜底文本解析: {}",
-                    extension, fileName);
-            parser = fallbackParser;
+            // ⭐ REQ-1：扩展名未知时启动 Tika 内容嗅探兜底路由
+            String sniffed = Optional.ofNullable(sniffer.sniff(Paths.get(filePath))).orElse(null);
+            if (sniffed != null) {
+                parser = parsers.get(sniffed);
+                if (parser != null) {
+                    log.info("[DocRouter] 内容嗅探命中: file={}, 嗅探类型={}, 路由到 {}",
+                            fileName, sniffed, parser.getClass().getSimpleName());
+                }
+            }
+            if (parser == null) {
+                log.warn("[DocRouter] 未找到 .{} 的专用解析器（嗅探也无果），使用兜底文本解析: {}",
+                        extension, fileName);
+                parser = fallbackParser;
+            }
         }
 
         log.info("[DocRouter] 路由解析: file={}, extension=.{}, parser={}",

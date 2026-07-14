@@ -33,6 +33,9 @@ import java.util.regex.Pattern;
  *   <li>authorityLevel：来源权威性等级（L1 官方 &gt; L2 内部 &gt; L3 笔记 &gt; L4 外部），冲突处理时排序</li>
  *   <li>documentStatus：文档状态（ACTIVE 可检索 / SUPERSEDED 已取代 / QUARANTINED 隔离），治理隔离</li>
  * </ul>
+ *
+ * <p>RAG 生产化改造（2026-07-14，仅增不删）：新增 {@code sourceType} / {@code rawChecksum} /
+ * {@code ingestBatchId} 三个字段，用于路由摄入管道（REQ-1）的溯源与变更检测。</p>
  */
 public class KnowledgeDocument {
 
@@ -114,6 +117,17 @@ public class KnowledgeDocument {
     /** 🟡 ACL 细粒度：安全等级（0=公开；数字越大越敏感；用户 clearance 须 ≥ 此值方可查看） */
     private final int securityLevel;
 
+    // ==================== 生产化摄入字段（RAG 生产化改造，仅增不删）====================
+
+    /** 🟡 来源类型（PDF / WORD / HTML / MARKDOWN / TXT / IMAGE），由解析路由结果映射 */
+    private final String sourceType;
+
+    /** 🟡 原始文件 SHA-256 校验和（用于变更检测与去重） */
+    private final String rawChecksum;
+
+    /** 🟡 一次摄入任务批次 ID（UUID），关联同一批次的所有 chunk */
+    private final String ingestBatchId;
+
     // ==================== 构造器 ====================
 
     public KnowledgeDocument(String id, String title, String content,
@@ -182,7 +196,7 @@ public class KnowledgeDocument {
     }
 
     /**
-     * ⭐ 最全构造器（含治理能力字段 + 索引版本 + ACL 细粒度字段）。
+     * ⭐ 全参构造器（含治理能力字段 + 索引版本 + ACL 细粒度字段）。
      *
      * @param authorityLevel    来源权威性等级（null → L2_INTERNAL）
      * @param documentStatus    文档状态（null → ACTIVE）
@@ -202,6 +216,42 @@ public class KnowledgeDocument {
                              Set<String> authorizedRoles,
                              Set<String> authorizedUsers,
                              int securityLevel) {
+        // ⭐ 向后兼容：旧调用方（不含生产化摄入三字段）委托到最全构造器，默认空串
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, parentDocId,
+                authorityLevel, documentStatus, indexVersion,
+                authorizedRoles, authorizedUsers, securityLevel,
+                "", "", "");
+    }
+
+    /**
+     * ⭐⭐ 最全构造器（含治理能力字段 + 索引版本 + ACL 细粒度字段 + 生产化摄入三字段）。
+     * <p>RAG 生产化改造（2026-07-14）：在既有最全构造器基础上新增
+     * {@code sourceType} / {@code rawChecksum} / {@code ingestBatchId} 三个字段，
+     * 仅增不删，旧构造器链通过空串默认值委托至此。</p>
+     *
+     * @param authorityLevel    来源权威性等级（null → L2_INTERNAL）
+     * @param documentStatus    文档状态（null → ACTIVE）
+     * @param indexVersion      索引版本（null → "v1"）
+     * @param authorizedRoles   授权角色集合（null/空 = 租户内任意角色可见）
+     * @param authorizedUsers   授权用户集合（null/空 = 租户内任意用户可见）
+     * @param securityLevel     安全等级（0=公开；越大越敏感）
+     * @param sourceType        来源类型（PDF/WORD/HTML/MARKDOWN/TXT/IMAGE，null → ""）
+     * @param rawChecksum       原始文件 SHA-256（null → ""）
+     * @param ingestBatchId     摄入批次 ID（null → ""）
+     */
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId,
+                             AuthorityLevel authorityLevel, DocumentStatus documentStatus,
+                             String indexVersion,
+                             Set<String> authorizedRoles,
+                             Set<String> authorizedUsers,
+                             int securityLevel,
+                             String sourceType, String rawChecksum, String ingestBatchId) {
         this.id = id;
         this.title = title;
         this.content = content;
@@ -225,6 +275,9 @@ public class KnowledgeDocument {
                 ? Collections.unmodifiableSet(new LinkedHashSet<>(authorizedUsers))
                 : Set.of();
         this.securityLevel = securityLevel;
+        this.sourceType = sourceType != null ? sourceType : "";
+        this.rawChecksum = rawChecksum != null ? rawChecksum : "";
+        this.ingestBatchId = ingestBatchId != null ? ingestBatchId : "";
     }
 
     /** 文档是否在有效期内且未被隔离 */
@@ -267,6 +320,17 @@ public class KnowledgeDocument {
     public Set<String> getAuthorizedRoles() { return authorizedRoles; }
     public Set<String> getAuthorizedUsers() { return authorizedUsers; }
     public int getSecurityLevel() { return securityLevel; }
+
+    // ==================== 生产化摄入字段 Getters（RAG 生产化改造，仅增不删）====================
+
+    /** 来源类型（PDF / WORD / HTML / MARKDOWN / TXT / IMAGE） */
+    public String getSourceType() { return sourceType; }
+
+    /** 原始文件 SHA-256 校验和 */
+    public String getRawChecksum() { return rawChecksum; }
+
+    /** 一次摄入任务批次 ID */
+    public String getIngestBatchId() { return ingestBatchId; }
 
     // ==================== 版本控制方法 ====================
 

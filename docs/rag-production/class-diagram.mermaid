@@ -1,0 +1,156 @@
+classDiagram
+    %% ===== 数据模型 =====
+    class KnowledgeDocument {
+        +String id
+        +String title
+        +String content
+        +String category
+        +String keywords
+        +long effectiveAt
+        +long expireAt
+        +String tenantId
+        +String version
+        +String sourceUrl
+        +int chunkIndex
+        +String parentDocId
+        +AuthorityLevel authorityLevel
+        +DocumentStatus documentStatus
+        +String indexVersion
+        +Set~String~ authorizedRoles
+        +Set~String~ authorizedUsers
+        +int securityLevel
+        +String sourceType
+        +String rawChecksum
+        +String ingestBatchId
+        +getIndexVersion() String
+        +getSourceType() String
+        +getRawChecksum() String
+        +getIngestBatchId() String
+        +isRetrievable() boolean
+    }
+
+    %% ===== 存储抽象 =====
+    class KnowledgeBase {
+        <<interface>>
+        +String getName()
+        +void addDocument(KnowledgeDocument)
+        +void addDocuments(List)
+        +void removeDocument(String)
+        +void removeByBaseDocId(String)
+        +List~KnowledgeHit~ search(String, int, AclContext)
+        +int size()
+        +void reindex()
+        +List~String~ listIdsByBaseDocId(String)
+        +void updateStatus(String, DocumentStatus)
+    }
+    KnowledgeBase <|.. InMemoryKnowledgeBase
+    KnowledgeBase <|.. PgVectorKnowledgeBase
+    KnowledgeBase <|-- ResilientKnowledgeBase
+
+    class InMemoryKnowledgeBase {
+        -Map~String,KnowledgeDocument~ docs
+        -Map~String,float[]~ vectors
+        +search(String,int,AclContext) List~KnowledgeHit~
+    }
+    class PgVectorKnowledgeBase {
+        -JdbcTemplate jdbcTemplate
+        -int dimensions
+        -String activeIndexVersion
+        +search(String,int,AclContext) List~KnowledgeHit~
+        -buildAclClause(AclContext) String
+        -realCosineScore(double dist) double
+    }
+    class ResilientKnowledgeBase {
+        -KnowledgeBase primary
+        -KnowledgeBase fallback
+        +search(...) List~KnowledgeHit~
+    }
+    ResilientKnowledgeBase o-- KnowledgeBase
+
+    class KnowledgeRetrievalService {
+        -Map~String,KnowledgeBase~ bases
+        +search(kbName,query,topK,acl) String
+        +register(KnowledgeBase) KnowledgeRetrievalService
+    }
+    KnowledgeRetrievalService o-- KnowledgeBase
+
+    %% ===== 摄入（REQ-1） =====
+    class KnowledgeIngestionService {
+        -DocumentParseRouter router
+        -DocumentChunker chunker
+        -KnowledgeBase knowledgeBase
+        -DocumentMetadataEnricher enricher
+        -DocumentValidator validator
+        +parseAndIngestWithValidation(path,tenant) IngestionResult
+    }
+    KnowledgeIngestionService --> KnowledgeBase : upsert
+    KnowledgeIngestionService --> DocumentMetadataEnricher
+    KnowledgeIngestionService --> DocumentValidator
+    KnowledgeIngestionService --> ReviewQueueService
+
+    class DocumentParseRouter {
+        +parse(path) List~ParsedDocument~
+        +registerParser(ext,parser)
+    }
+    class MarkdownDocumentParser
+    DocumentParseRouter o-- MarkdownDocumentParser
+    DocumentParseRouter ..> TikaDocumentSniffer : 内容嗅探
+
+    class DocumentMetadataEnricher {
+        +enrich(ParsedDocument) ParsedDocument
+    }
+    class DocumentValidator {
+        +validate(KnowledgeDocument) ValidationResult
+    }
+    class ReviewQueueService {
+        +enqueue(ReviewItem)
+        +approve(id, overrides)
+        +reject(id)
+    }
+    class IngestionJobController
+    class IngestionWebhookController
+    class ScheduledIngestionPoller
+    class ReviewQueueController
+
+    %% ===== indexVersion 元数据 =====
+    class KnowledgeIndexMetaService {
+        +getActiveVersion() String
+        +bump(newVersion) void
+        +stamp(doc) void
+    }
+    KnowledgeIngestionService --> KnowledgeIndexMetaService
+    PgVectorKnowledgeBase --> KnowledgeIndexMetaService : 读 activeVersion 过滤
+
+    %% ===== 合规（REQ-3） =====
+    class ComplianceGuard {
+        +check(text) ComplianceResult
+        -rewrite(text) String
+        -block() String
+    }
+    class ComplianceGrader {
+        +grade(text) ComplianceResult
+    }
+    class ComplianceRuleSet {
+        +rules : List~ComplianceRule~
+    }
+    class ComplianceResult {
+        +boolean hit
+        +List~ComplianceRule~ matched
+        +Severity severity
+        +String rewritten
+    }
+    class ComplianceAuditRecorder {
+        +record(ComplianceAuditEvent)
+    }
+    class PostGenerationComplianceAdvisor
+    ComplianceGuard --> ComplianceGrader
+    ComplianceGrader --> ComplianceRuleSet
+    ComplianceGuard --> ComplianceAuditRecorder
+    PostGenerationComplianceAdvisor --> ComplianceGuard
+
+    %% ===== 种子 =====
+    class KnowledgeSeedData {
+        +productDocuments() List~KnowledgeDocument~
+        +orderDocuments() List~KnowledgeDocument~
+    }
+    ProductKnowledgeConfig ..> KnowledgeSeedData : 首启动灌 PG
