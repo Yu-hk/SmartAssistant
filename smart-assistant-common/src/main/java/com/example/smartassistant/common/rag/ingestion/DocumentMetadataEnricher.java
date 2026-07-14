@@ -37,6 +37,8 @@ public class DocumentMetadataEnricher {
 
     private static final Map<String, String> CONTENT_TYPE_TO_SOURCE = Map.ofEntries(
             Map.entry("pdf", "PDF"),
+            Map.entry("pdf-table", "PDF"),
+            Map.entry("pdf-ocr", "PDF"),
             Map.entry("docx", "WORD"),
             Map.entry("doc", "WORD"),
             Map.entry("html", "HTML"),
@@ -107,10 +109,11 @@ public class DocumentMetadataEnricher {
     private long[] deriveValidity(ParsedDocument p) {
         long[] result = {-1, -1};
         String content = p.getContent() != null ? p.getContent() : "";
+        // 正则分组：group(2)=完整日期串, group(3)=年, group(4)=月, group(5)=日
         Matcher me = DATE_IN_TEXT.matcher(content);
-        if (me.find()) result[0] = parseLocalDate(me.group(2), me.group(3), me.group(4));
+        if (me.find()) result[0] = parseLocalDate(me.group(3), me.group(4), me.group(5));
         Matcher mx = EXPIRE_IN_TEXT.matcher(content);
-        if (mx.find()) result[1] = parseLocalDate(mx.group(2), mx.group(3), mx.group(4));
+        if (mx.find()) result[1] = parseLocalDate(mx.group(3), mx.group(4), mx.group(5));
         return result;
     }
 

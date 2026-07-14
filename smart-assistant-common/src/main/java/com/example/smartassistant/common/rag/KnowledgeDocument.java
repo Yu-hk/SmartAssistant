@@ -196,6 +196,43 @@ public class KnowledgeDocument {
     }
 
     /**
+     * ⭐ 含 sourceType 的构造器（parentDocId + sourceType），委托最全构造器。
+     * <p>RAG 生产化修复（KI-1）：摄入管线经此把 contentType 映射的 sourceType 写入文档，
+     * 使 DocumentValidator 不再对所有文档判 UNKNOWN_SOURCE。</p>
+     */
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId, String sourceType) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, parentDocId,
+                AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE, null,
+                Set.of(), Set.of(), 0,
+                sourceType, "", "");
+    }
+
+    /**
+     * ⭐ 含 sourceType 的全参构造器（parentDocId + authorityLevel + documentStatus + indexVersion + sourceType），
+     * 委托最全构造器。摄入管线在重映射/清洗阶段用此构造器保留治理字段并补 sourceType。
+     */
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId,
+                             AuthorityLevel authorityLevel, DocumentStatus documentStatus,
+                             String indexVersion, String sourceType) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, parentDocId,
+                authorityLevel, documentStatus, indexVersion,
+                Set.of(), Set.of(), 0,
+                sourceType, "", "");
+    }
+
+    /**
      * ⭐ 全参构造器（含治理能力字段 + 索引版本 + ACL 细粒度字段）。
      *
      * @param authorityLevel    来源权威性等级（null → L2_INTERNAL）

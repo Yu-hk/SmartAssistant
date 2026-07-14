@@ -3,7 +3,7 @@
 > 模块：SmartAssistant（SmartAssistant 多智能体客服系统）
 > 角色：Engineer（寇豆码）
 > 范围：T01–T05 全量落地（REQ-1 路由摄入 / REQ-2 持久化 / REQ-3 生成后合规 / REQ-4 多实例读共享 / 集成验收）
-> 技术栈：Java 21 · Spring Boot 3.5.16 · Spring AI 1.1.2 · pgvector · Flyway
+> 技术栈：Java 21 · Spring Boot 3.5.16 · Spring AI 1.0.9 · pgvector · Flyway
 
 ---
 
@@ -122,4 +122,4 @@
 - ✅ `ProductRagService.retrieve` / `retrieveWithQualityResult` / `KnowledgeRetrievalService` API 签名未变。
 - ✅ `KnowledgeDocument` 仅新增可选字段（向后兼容）。
 - ✅ GoldenSuite 基线无回归（common 全量测试通过）。
-- ✅ Java 21 + Spring Boot 3.5.16 + Spring AI 1.1.2（parent 声明 1.0.9，BOM 解析至 1.1.2）。
+- ✅ Java 21 + Spring Boot 3.5.16 + Spring AI 1.0.9（实测版本，parent 亦声明 1.0.9，无 Nullness P0 回退风险）。
