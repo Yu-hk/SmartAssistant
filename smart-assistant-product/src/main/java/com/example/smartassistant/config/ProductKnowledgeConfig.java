@@ -8,14 +8,11 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
-import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
+import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
-import com.example.smartassistant.common.rag.Reranker;
-import com.example.smartassistant.common.rag.SafeReranker;
 import com.example.smartassistant.common.rag.graph.KnowledgeGraphService;
-import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -53,33 +50,13 @@ public class ProductKnowledgeConfig {
         return new BgeEmbeddingModel(modelPath, vocabPath);
     }
 
+    /**
+     * ⭐ 生产化知识库 Bean 已迁移至 {@code RagProductionAutoConfiguration#productKnowledgeBase}：
+     * 默认 {@code auto} 模式（PG 主库 + 内存降级），无 PG 时退化为纯内存（与改造前行为一致）。
+     * 此处仅保留检索服务装配，注入统一的 {@link KnowledgeBase}（类型注入，检索 API 不变）。
+     */
     @Bean
-    public InMemoryKnowledgeBase productKnowledgeBase(BgeEmbeddingModel productBgeEmbeddingModel,
-                                                       ChineseTokenizer tokenizer,
-                                                       ObjectProvider<Reranker> rerankerProvider) {
-        Reranker reranker;
-        if (rerankerEnabled) {
-            Reranker raw = rerankerProvider.getIfAvailable();
-            if (raw != null) {
-                reranker = new SafeReranker(raw);
-                log.info("[ProductKnowledge] Reranker 已启用: {} (SafeReranker 包装)", raw.getClass().getSimpleName());
-            } else {
-                reranker = Reranker.identity();
-                log.info("[ProductKnowledge] Reranker 启用但无可用实例，降级为恒等映射");
-            }
-        } else {
-            reranker = Reranker.identity();
-            log.info("[ProductKnowledge] Reranker 未启用 (app.rag.reranker.enabled=false)");
-        }
-
-        InMemoryKnowledgeBase kb = KnowledgeSeedData.createProductKnowledgeBase(
-                productBgeEmbeddingModel, tokenizer, reranker);
-        log.info("[ProductKnowledge] 产品知识库就绪: {} 篇文档", kb.size());
-        return kb;
-    }
-
-    @Bean
-    public KnowledgeRetrievalService productKnowledgeRetrievalService(InMemoryKnowledgeBase productKnowledgeBase) {
+    public KnowledgeRetrievalService productKnowledgeRetrievalService(KnowledgeBase productKnowledgeBase) {
         return new KnowledgeRetrievalService()
                 .register(productKnowledgeBase);
     }

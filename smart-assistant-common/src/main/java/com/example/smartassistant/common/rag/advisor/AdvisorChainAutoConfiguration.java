@@ -95,8 +95,10 @@ public class AdvisorChainAutoConfiguration {
             @org.springframework.beans.factory.annotation.Autowired(required = false) SafeGuardAdvisor safeGuardAdvisor,
             @org.springframework.beans.factory.annotation.Autowired(required = false) TokenUsageAdvisor tokenUsageAdvisor,
             @org.springframework.beans.factory.annotation.Autowired(required = false) ThinkingCollectorAdvisor thinkingCollectorAdvisor,
-            @org.springframework.beans.factory.annotation.Autowired(required = false) PromptAuditAdvisor promptAuditAdvisor) {
-        return new AiChatService(safeGuardAdvisor, tokenUsageAdvisor, thinkingCollectorAdvisor, promptAuditAdvisor);
+            @org.springframework.beans.factory.annotation.Autowired(required = false) PromptAuditAdvisor promptAuditAdvisor,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) PostGenerationComplianceAdvisor postGenerationComplianceAdvisor) {
+        return new AiChatService(safeGuardAdvisor, tokenUsageAdvisor, thinkingCollectorAdvisor,
+                promptAuditAdvisor, postGenerationComplianceAdvisor);
     }
 
     /** 工具注册聚合器 — 收敛工具对象 → ToolCallback 列表的构建样板 */

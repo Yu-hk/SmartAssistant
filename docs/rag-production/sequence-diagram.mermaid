@@ -1,0 +1,103 @@
+%% ===== 主链路 A：上传 → 路由解析 → 元数据绑定 → PG upsert（REQ-1 + REQ-2 + REQ-4 写） =====
+sequenceDiagram
+    actor Ops as 知识运营/Webhook
+    participant Ctl as IngestionJobController/Webhook
+    participant Mgr as IngestionJobManager
+    participant Ing as KnowledgeIngestionService
+    participant Rtr as DocumentParseRouter
+    participant MDE as DocumentMetadataEnricher
+    participant Val as DocumentValidator
+    participant Chk as DocumentChunker
+    participant KB as ResilientKnowledgeBase
+    participant PG as PgVectorKnowledgeBase
+    participant Meta as KnowledgeIndexMetaService
+    participant RQ as ReviewQueueService
+
+    Ops->>Ctl: POST /api/knowledge/ingest/submit(file,tenant)
+    Ctl->>Mgr: submit(...)
+    Mgr-->>Ctl: 202 jobId
+    Mgr->>Ing: parseAndIngestWithValidation(file,tenant)
+    Ing->>Rtr: parse(file)
+    Rtr-->>Ing: List~ParsedDocument~
+    loop 每个 ParsedDocument
+        Ing->>MDE: enrich(doc)
+        MDE-->>Ing: enriched
+    end
+    Ing->>Chk: chunk(enriched)
+    Chk-->>Ing: List~KnowledgeDocument~
+    loop 每个 KnowledgeDocument
+        Ing->>Val: validate(doc)
+        alt 脏数据
+            Val-->>Ing: ValidationResult.REJECT(reason)
+            Ing->>RQ: enqueue(rawPayload, reason, submittedBy)
+            RQ-->>Ing: reviewId
+        else 通过
+            Val-->>Ing: ValidationResult.PASS
+            Ing->>Meta: getActiveVersion()
+            Meta-->>Ing: v2
+            Ing->>KB: addDocument(doc indexVersion=v2)
+            KB->>PG: INSERT ... ON CONFLICT(id) DO UPDATE (upsert+embed)
+            PG-->>KB: ok
+        end
+    end
+    Ing-->>Mgr: IngestionResult(docCount)
+    Note over PG,RQ: 统一写入 PG；其他实例下一次 search 即见（REQ-4），无需重启
+
+%% ===== 主链路 B：生成后 → 合规校验 → 改写/拒答（REQ-3） =====
+sequenceDiagram
+    participant LLM as 生成链路(router)
+    participant Adv as PostGenerationComplianceAdvisor
+    participant Guard as ComplianceGuard
+    participant Grade as ComplianceGrader
+    participant RS as ComplianceRuleSet
+    participant Audit as ComplianceAuditRecorder
+    participant User as 终端用户
+
+    LLM->>Adv: 拦截 LLM 输出文本
+    Adv->>Guard: check(text)
+    Guard->>Grade: grade(text)
+    Grade->>RS: 规则匹配（≥20条超承诺/模糊政策）
+    RS-->>Grade: matchedRules[]
+    alt 未命中
+        Grade-->>Guard: ComplianceResult(hit=false)
+        Guard-->>Adv: 放行原文
+        Adv-->>User: 原文
+    else 命中
+        Grade-->>Guard: ComplianceResult(hit=true,severity,matched)
+        alt strategy=rewrite
+            Guard->>Guard: rewrite(text)
+            Guard->>Audit: record(rewrite事件)
+            Guard-->>Adv: 改写后文本
+            Adv-->>User: 改写后文本
+        else strategy=block
+            Guard->>Guard: block()
+            Guard->>Audit: record(block事件)
+            Guard-->>Adv: 拒答模板
+            Adv-->>User: 拒答
+        else strategy=warn
+            Guard->>Audit: record(warn事件)
+            Guard-->>Adv: 放行+告警
+            Adv-->>User: 原文
+        end
+    end
+
+%% ===== 检索链路（保留自研 Pipeline，仅底层换 PG） =====
+sequenceDiagram
+    participant Caller as ProductRagService.retrieve*(不变)
+    participant Pipe as RagSearchPipeline(不变)
+    participant KRS as KnowledgeRetrievalService(不变)
+    participant KB as ResilientKnowledgeBase
+    participant PG as PgVectorKnowledgeBase
+    participant Meta as KnowledgeIndexMetaService
+
+    Caller->>Pipe: execute(ctx)
+    Pipe->>KRS: search(PRODUCT_KB, query, 5, acl)
+    KRS->>KB: search(query,5,acl)
+    KB->>PG: search(query,5,acl)
+    PG->>Meta: getActiveVersion()
+    Meta-->>PG: v2
+    PG->>PG: SELECT ... WHERE acl_clause AND index_version='v2' ORDER BY embedding<->vec LIMIT 50
+    PG-->>KB: candidates(真实余弦距离精排)
+    KB-->>KRS: hits
+    KRS-->>Pipe: formatted context
+    Pipe-->>Caller: 融合结果（行为不变）

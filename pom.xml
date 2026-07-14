@@ -62,6 +62,8 @@
         <onnxruntime.version>1.20.0</onnxruntime.version>
         <!-- ⭐ Milvus SDK（统一版本，所有模块用 2.5.5） -->
         <milvus-sdk-java.version>2.5.5</milvus-sdk-java.version>
+        <!-- ⭐ Flyway（RAG 生产化改造 V1 迁移；core + postgresql 同版本对齐） -->
+        <flyway.version>11.0.0</flyway.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
@@ -223,6 +225,18 @@
                 <groupId>io.milvus</groupId>
                 <artifactId>milvus-sdk-java</artifactId>
                 <version>${milvus-sdk-java.version}</version>
+            </dependency>
+
+            <!-- ⭐ Flyway（RAG 生产化改造：V1 建扩展 + 建表；core 与 database-postgresql 同版本） -->
+            <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-core</artifactId>
+                <version>${flyway.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-database-postgresql</artifactId>
+                <version>${flyway.version}</version>
             </dependency>
 
             <!-- ⭐ Jackson 2 版本钉死（防御 MCP SDK 的 Jackson 3 传递依赖）

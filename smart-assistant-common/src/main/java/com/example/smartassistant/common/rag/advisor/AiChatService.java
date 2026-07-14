@@ -27,16 +27,34 @@ public class AiChatService {
     private final TokenUsageAdvisor tokenUsageAdvisor;
     private final ThinkingCollectorAdvisor thinkingCollectorAdvisor;
     private final PromptAuditAdvisor promptAuditAdvisor;
+    private final PostGenerationComplianceAdvisor postGenerationComplianceAdvisor;
 
+    /**
+     * 全参构造（含生成后合规 Advisor）。由 {@code AdvisorChainAutoConfiguration} 使用。
+     */
+    public AiChatService(
+            SafeGuardAdvisor safeGuardAdvisor,
+            TokenUsageAdvisor tokenUsageAdvisor,
+            ThinkingCollectorAdvisor thinkingCollectorAdvisor,
+            PromptAuditAdvisor promptAuditAdvisor,
+            PostGenerationComplianceAdvisor postGenerationComplianceAdvisor) {
+        this.safeGuardAdvisor = safeGuardAdvisor;
+        this.tokenUsageAdvisor = tokenUsageAdvisor;
+        this.thinkingCollectorAdvisor = thinkingCollectorAdvisor;
+        this.promptAuditAdvisor = promptAuditAdvisor;
+        this.postGenerationComplianceAdvisor = postGenerationComplianceAdvisor;
+    }
+
+    /**
+     * 向后兼容构造（不含合规 Advisor）。测试与旧调用点使用。
+     */
     public AiChatService(
             SafeGuardAdvisor safeGuardAdvisor,
             TokenUsageAdvisor tokenUsageAdvisor,
             ThinkingCollectorAdvisor thinkingCollectorAdvisor,
             PromptAuditAdvisor promptAuditAdvisor) {
-        this.safeGuardAdvisor = safeGuardAdvisor;
-        this.tokenUsageAdvisor = tokenUsageAdvisor;
-        this.thinkingCollectorAdvisor = thinkingCollectorAdvisor;
-        this.promptAuditAdvisor = promptAuditAdvisor;
+        this(safeGuardAdvisor, tokenUsageAdvisor, thinkingCollectorAdvisor,
+                promptAuditAdvisor, null);
     }
 
     /** 构建装配了完整 Advisor 链的 ChatClient */
@@ -50,6 +68,7 @@ public class AiChatService {
         if (tokenUsageAdvisor != null) builder.defaultAdvisors(tokenUsageAdvisor);
         if (thinkingCollectorAdvisor != null) builder.defaultAdvisors(thinkingCollectorAdvisor);
         if (promptAuditAdvisor != null) builder.defaultAdvisors(promptAuditAdvisor);
+        if (postGenerationComplianceAdvisor != null) builder.defaultAdvisors(postGenerationComplianceAdvisor);
         return builder;
     }
 
