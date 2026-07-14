@@ -81,6 +81,14 @@ class RouterServiceEndToEndTest {
     @Mock private GuardrailService guardrailService;
     @Mock private PromptManager promptManager;
 
+    // ⭐ 从 RouterService 拆出的三个【必需】协作者（构造器形参，非 @Autowired(required=false)）。
+    //   旧版测试传 null 导致 route() 内 routeContextHelper.buildContext / routeExecutionService.*
+    //   / routeFinalizer.* 直接 NPE，被 catch 兜底吞掉后返回 agentName=null 的结果，断言全部失败。
+    //   这里用 mock 注入，并以 thenAnswer 忠实复刻其最小契约（调用 agentCallerService / 兜底文案）。
+    @Mock private RouteContextHelper routeContextHelper;
+    @Mock private RouteFinalizer routeFinalizer;
+    @Mock private RouteExecutionService routeExecutionService;
+
     private RouterService routerService;
 
     @BeforeEach
@@ -130,6 +138,54 @@ class RouterServiceEndToEndTest {
         when(routingToolChecker.checkAgentHealth(anyString()))
                 .thenReturn(RoutingToolChecker.ToolHealthResult.healthy("test", ""));
 
+        // ── RouteContextHelper：返回空上下文（无会话历史，避免触发意图漂移/目标连续性检测）──
+        when(routeContextHelper.buildContext(any(RouteRequest.class))).thenReturn(new java.util.HashMap<>());
+
+        // ── RouteFinalizer：finalizeRouting / applyEmotion 直接透传；storeTaskAnalysisToRedis 空操作 ──
+        when(routeFinalizer.finalizeRouting(any(RoutingResult.class), any(RouteRequest.class), anyString(), any(EmotionCheckResult.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        when(routeFinalizer.applyEmotion(any(RoutingResult.class), any(EmotionCheckResult.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        doNothing().when(routeFinalizer).storeTaskAnalysisToRedis(anyString(), any(TaskAnalysisResult.class));
+
+        // ── RouteExecutionService：忠实复刻核心契约 ──
+        //   callAgentAndFinalize：委派 agentCallerService.callAgent，空回复返回 null（与真实实现一致）
+        when(routeExecutionService.callAgentAndFinalize(anyString(), anyString(), anyDouble(), anyString(),
+                any(RouteRequest.class), anyString(), any(EmotionCheckResult.class)))
+                .thenAnswer(inv -> {
+                    String agentName = inv.getArgument(0);
+                    String agentQuestion = inv.getArgument(1);
+                    double confidence = inv.getArgument(2);
+                    String intentTag = inv.getArgument(3);
+                    RouteRequest req = inv.getArgument(4);
+                    EmotionCheckResult emo = inv.getArgument(6);
+                    String reply = agentCallerService.callAgent(agentName, agentQuestion, req.getUserId(), req.getRequestId());
+                    if (reply == null || reply.isBlank()) {
+                        return null;
+                    }
+                    RoutingResult r = RoutingResult.builder()
+                            .result(reply).agentName(agentName).confidence(confidence).intentTag(intentTag).build();
+                    return routeFinalizer.finalizeRouting(r, req, agentQuestion, emo);
+                });
+        //   executeCollaborative：协作路径聚合结果（测试仅关心其返回非空 RoutingResult）
+        when(routeExecutionService.executeCollaborative(anyString(), anyLong(), anyString(), any(EmotionCheckResult.class)))
+                .thenAnswer(inv -> {
+                    String question = inv.getArgument(0);
+                    Long userId = inv.getArgument(1);
+                    String requestId = inv.getArgument(2);
+                    String reply = agentCallerService.callAgent("general_agent", question, userId, requestId);
+                    if (reply == null || reply.isBlank()) {
+                        reply = "抱歉，暂时无法处理您的问题，请稍后再试。";
+                    }
+                    return RoutingResult.builder()
+                            .result(reply).agentName("general_agent").confidence(0.6).build();
+                });
+        //   inlineFallback：终极兜底文案（语义缓存命中 builtin_fallback/none 时使用）
+        when(routeExecutionService.inlineFallback(anyString(), any(EmotionCheckResult.class)))
+                .thenAnswer(inv -> RoutingResult.builder()
+                        .result("抱歉，暂时无法处理您的问题，请稍后再试。")
+                        .agentName("builtin_fallback").confidence(0.2).build());
+
         // ── 构造 RouterService ──
         routerService = new RouterService(
                 agentCallerService,
@@ -139,7 +195,7 @@ class RouterServiceEndToEndTest {
                 graphExecutionService, taskAnalysisService, qualityEvaluationService,
                 queryRewriter, keywordFastRouteService, routingToolChecker, null, // degradationService
                 guardrailService, promptManager, // ⭐ 新增必填参数
-                lightChatModel, null, null, null, null // BadCaseMinerService, RouteFinalizer, RouteExecutionService, RouteContextHelper
+                lightChatModel, null, routeFinalizer, routeExecutionService, routeContextHelper // BadCaseMinerService, RouteFinalizer, RouteExecutionService, RouteContextHelper
         );
 
         // ── @Autowired(required=false) 可选字段注入 ──
