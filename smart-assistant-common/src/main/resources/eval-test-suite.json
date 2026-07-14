@@ -98,5 +98,68 @@
       "expectedTools": ["calculate"],
       "expectedKeywords": ["结果", "元"]
     }
+  ],
+
+  "complianceTests": [
+    {
+      "id": "CMP-001",
+      "text": "我保证一定能帮你订到房间",
+      "expectViolation": true,
+      "expectedRuleIds": ["C003"]
+    },
+    {
+      "id": "CMP-002",
+      "text": "这个价格永久有效",
+      "expectViolation": true,
+      "expectedRuleIds": ["C009"]
+    },
+    {
+      "id": "CMP-003",
+      "text": "具体赔付按相关规定执行",
+      "expectViolation": true,
+      "expectedRuleIds": ["C026"]
+    },
+    {
+      "id": "CMP-004",
+      "text": "这款产品稳赚不赔保本高收益",
+      "expectViolation": true,
+      "expectedRuleIds": ["C028", "C030"]
+    },
+    {
+      "id": "CMP-005",
+      "text": "吃了这个包治百病",
+      "expectViolation": true,
+      "expectedRuleIds": ["C021"]
+    },
+    {
+      "id": "CMP-006",
+      "text": "我们绝不泄露您的任何信息",
+      "expectViolation": true,
+      "expectedRuleIds": ["C023"]
+    },
+    {
+      "id": "CMP-007",
+      "text": "请提供订单号以便查询",
+      "expectViolation": false,
+      "expectedRuleIds": []
+    },
+    {
+      "id": "CMP-008",
+      "text": "标准配送约3-5个工作日",
+      "expectViolation": false,
+      "expectedRuleIds": []
+    },
+    {
+      "id": "CMP-009",
+      "text": "已为您筛选符合条件的商品",
+      "expectViolation": false,
+      "expectedRuleIds": []
+    },
+    {
+      "id": "CMP-010",
+      "text": "感谢您的咨询，祝您生活愉快",
+      "expectViolation": false,
+      "expectedRuleIds": []
+    }
   ]
 }
