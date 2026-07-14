@@ -21,6 +21,7 @@ import com.example.smartassistant.common.rag.multimodal.ImageReference;
 import com.example.smartassistant.common.rag.multimodal.MultimodalIngestor;
 import com.example.smartassistant.common.rag.multimodal.NoopImageCaptioner;
 import com.example.smartassistant.common.rag.ingestion.job.IngestionJobStatus;
+import com.example.smartassistant.common.rag.store.KnowledgeIndexMetaService;
 import com.example.smartassistant.common.rag.util.HashUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +53,15 @@ import java.util.stream.Collectors;
  *   <li>摄入前检查 hash 是否变化，未变更的文档跳过解析/分块/入库</li>
  *   <li>使用 {@link HashUtil#normalizeAndHash(String)} 做规范化检测，
  *       避免页脚时间、广告位等假变更触发全量重建</li>
+ * </ul>
+ *
+ * <p>RAG 生产化改造（2026-07-14，REQ-1）：</p>
+ * <ul>
+ *   <li>注入 {@link DocumentMetadataEnricher}（版本/时效/分类/ACL/sourceType 绑定）；</li>
+ *   <li>注入 {@link DocumentValidator} + {@link ReviewQueueService}（脏数据 100% 拦截入复核队列）；</li>
+ *   <li>indexVersion 取自 {@link KnowledgeIndexMetaService} 的 active 版本（替代硬编码 v1）；</li>
+ *   <li><b>去除每次摄入的强制全量 reindex</b>（架构缺陷 #3）：embedding 在 addDocument 内完成，
+ *       摄入仅做增量 upsert，多实例互不触发重算（REQ-4）。</li>
  * </ul>
  */
 public class KnowledgeIngestionService {
@@ -99,6 +109,20 @@ public class KnowledgeIngestionService {
 
     /** 是否启用变更检测（默认 true） */
     private boolean changeDetectionEnabled = true;
+
+    // ==================== RAG 生产化改造：摄入治理组件 ====================
+
+    /** ⭐ 元数据绑定器（REQ-1，可空：空则跳过绑定） */
+    private DocumentMetadataEnricher metadataEnricher;
+
+    /** ⭐ 脏数据校验器（REQ-1，可空：空则跳过校验，全部放行） */
+    private DocumentValidator validator;
+
+    /** ⭐ 复核队列服务（REQ-1，可空：空则脏数据仅日志，不入队） */
+    private ReviewQueueService reviewQueueService;
+
+    /** ⭐ 索引版本元数据服务（REQ-2，可空：空则用 CURRENT_INDEX_VERSION） */
+    private KnowledgeIndexMetaService indexMetaService;
 
     public KnowledgeIngestionService(DocumentParseRouter router,
                                       DocumentChunker chunker,
@@ -169,7 +193,7 @@ public class KnowledgeIngestionService {
      * ⭐ 注入知识图谱服务——摄取时联动抽取实体/关系写入图谱。
      * <p>
      * 仅当 {@link KnowledgeGraphService#getExtractor()} 可用（即装配了真实
-     * {@link EntityExtractor}，如 {@code LlmEntityExtractor}）时才会实际抽取，
+     * {@link com.example.smartassistant.common.rag.graph.EntityExtractor}，如 {@code LlmEntityExtractor}）时才会实际抽取，
      * 否则该服务为空操作，不影响摄取性能。
      * </p>
      */
@@ -193,6 +217,28 @@ public class KnowledgeIngestionService {
         this.changeDetectionEnabled = enabled;
     }
 
+    // ==================== RAG 生产化改造：摄入治理组件注入 ====================
+
+    /** 注入元数据绑定器（REQ-1） */
+    public void setMetadataEnricher(DocumentMetadataEnricher enricher) {
+        this.metadataEnricher = enricher;
+    }
+
+    /** 注入脏数据校验器（REQ-1） */
+    public void setValidator(DocumentValidator validator) {
+        this.validator = validator;
+    }
+
+    /** 注入复核队列服务（REQ-1） */
+    public void setReviewQueueService(ReviewQueueService reviewQueueService) {
+        this.reviewQueueService = reviewQueueService;
+    }
+
+    /** 注入索引版本元数据服务（REQ-2） */
+    public void setIndexMetaService(KnowledgeIndexMetaService indexMetaService) {
+        this.indexMetaService = indexMetaService;
+    }
+
     /**
      * ⭐ 设置阶段回调（供异步任务管线监听解析/分块/向量化阶段，驱动状态机）。
      * <p>传入 {@code null} 视为无操作。</p>
@@ -207,18 +253,14 @@ public class KnowledgeIngestionService {
     }
 
     /**
-     * 解析并摄入文档。
-     * <p>
-     * 流程：
-     * <ol>
-     *   <li>文档解析（若变更检测开启且 hash 未变则跳过后续步骤）</li>
-     *   <li>注入租户元数据</li>
-     *   <li>语义分块</li>
-     *   <li>注入租户 ID</li>
-     *   <li>批量入库</li>
-     *   <li>重建索引</li>
-     * </ol>
-     * </p>
+     * 解析并摄入文档（默认公开租户）。
+     */
+    public IngestionResult parseAndIngest(String filePath) {
+        return parseAndIngest(filePath, "");
+    }
+
+    /**
+     * 解析并摄入文档（含租户）。
      */
     public IngestionResult parseAndIngest(String filePath, String tenantId) {
         return parseAndIngest(filePath, tenantId, "v1");
@@ -241,10 +283,40 @@ public class KnowledgeIngestionService {
      */
     public IngestionResult parseAndIngest(String filePath, String tenantId, String version,
                                           Consumer<IngestionJobStatus> stageListener) {
+        return ingestInternal(filePath, tenantId, version, stageListener, null);
+    }
+
+    /**
+     * ⭐ 解析并摄入（含脏数据拦截 + 复核分支），供 Webhook / 定时扫描 / 复核审批重投调用。
+     * <p>
+     * 内部复用 {@link #ingestInternal}；{@code submittedBy} 用于复核队列溯源（缺省回退 tenantId/system）。
+     * </p>
+     *
+     * @param filePath    文档路径
+     * @param tenantId    租户 ID
+     * @param submittedBy 提交人（运营/系统），用于审计溯源
+     */
+    public IngestionResult parseAndIngestWithValidation(String filePath, String tenantId, String submittedBy) {
+        return ingestInternal(filePath, tenantId, "v1", this.stageListener, submittedBy);
+    }
+
+    /**
+     * 核心摄入逻辑（原 {@code parseAndIngest(filePath,tenantId,version,stageListener)} 的实现）。
+     * <p>新增：元数据绑定、动态 indexVersion、脏数据校验→复核队列分支；并去除每次摄入的强制 reindex。</p>
+     */
+    private IngestionResult ingestInternal(String filePath, String tenantId, String version,
+                                           Consumer<IngestionJobStatus> stageListener,
+                                           String submittedBy) {
         Consumer<IngestionJobStatus> sl = stageListener != null ? stageListener : NOOP_LISTENER;
         long start = System.currentTimeMillis();
         if (version == null || version.isBlank()) version = "v1";
-        log.info("[Ingestion] 开始摄入: file={}, tenantId={}, version={}", filePath, tenantId, version);
+
+        // ⭐ 动态索引版本：取 active 版本打标（无服务则回退 CURRENT_INDEX_VERSION）
+        String activeIndexVersion = (indexMetaService != null)
+                ? indexMetaService.getActiveVersion() : CURRENT_INDEX_VERSION;
+
+        log.info("[Ingestion] 开始摄入: file={}, tenantId={}, version={}, indexVersion={}",
+                filePath, tenantId, version, activeIndexVersion);
 
         try {
             // Step 1: 文档解析
@@ -256,9 +328,15 @@ public class KnowledgeIngestionService {
             // ⭐ 阶段回调：解析完成
             sl.accept(IngestionJobStatus.PARSING);
 
+            // ⭐ Step 1.2：元数据绑定（REQ-1）——补全 sourceType/version/effectiveAt/expireAt/category
+            if (metadataEnricher != null) {
+                parsed = parsed.stream()
+                        .map(metadataEnricher::enrich)
+                        .collect(Collectors.toList());
+            }
+
             // ⭐ Step 1.5: 变更检测——基于 baseDocId 聚合 hash 跳过未变更文档
             if (changeDetectionEnabled) {
-                // 按 baseDocId 分组
                 Map<String, List<ParsedDocument>> byBase = parsed.stream()
                         .collect(Collectors.groupingBy(p -> extractBaseDocId(p.getDocId())));
 
@@ -267,8 +345,6 @@ public class KnowledgeIngestionService {
 
                 for (Map.Entry<String, List<ParsedDocument>> entry : byBase.entrySet()) {
                     String baseDocId = entry.getKey();
-
-                    // 计算该 baseDocId 下所有段落的聚合 hash
                     List<String> contents = entry.getValue().stream()
                             .map(ParsedDocument::getContent)
                             .filter(c -> c != null && !c.isBlank())
@@ -276,7 +352,6 @@ public class KnowledgeIngestionService {
                     String newHash = HashUtil.aggregateHash(contents);
 
                     if (hashCache.needsReingest(baseDocId, newHash)) {
-                        // 文档已变更或首次摄入 → 标记为需要处理
                         changedDocs.addAll(entry.getValue());
                     } else {
                         unchangedBases.add(baseDocId);
@@ -284,32 +359,19 @@ public class KnowledgeIngestionService {
                 }
 
                 if (changedDocs.isEmpty()) {
-                    // 全部未变更 → 直接跳过
                     long elapsed = System.currentTimeMillis() - start;
                     log.info("[Ingestion] 全部文档未变更，跳过: file={}, 耗时={}ms", filePath, elapsed);
                     return IngestionResult.skipped("全部未变更", 0, elapsed);
                 }
-
                 if (!unchangedBases.isEmpty()) {
                     log.info("[Ingestion] 部分跳过: unchanged={}, changed={}",
                             unchangedBases.size(), changedDocs.size());
                 }
-
-                // 用变更后的文档列表替换 parsed
                 parsed = changedDocs;
             }
 
-            // ⭐ Step 1.8: 知识图谱实体/关系抽取（联动）—
-            //   仅当 knowledgeGraphService 已注入且其实体抽取器可用（如 LlmEntityExtractor）时生效，
-            //   否则为空操作，不影响摄取性能。
+            // ⭐ Step 1.8: 知识图谱实体/关系抽取（联动）
             extractEntitiesToGraph(parsed, tenantId);
-
-            // Step 2: 注入租户元数据
-            if (tenantId != null && !tenantId.isBlank()) {
-                for (ParsedDocument doc : parsed) {
-                    // ParsedDocument 不可变，通过分块后的 KnowledgeDocument 注入 tenantId
-                }
-            }
 
             // Step 3: ⭐ 按 contentType 分流 — 结构化类型跳过 chunking 直接入库
             List<ParsedDocument> textDocs = new ArrayList<>();
@@ -338,7 +400,6 @@ public class KnowledgeIngestionService {
             List<KnowledgeDocument> chunkedDocs;
             if (!textDocs.isEmpty()) {
                 if (parentChildChunker != null) {
-                    // ⭐ Parent-Child 策略：子块建索引（检索用），父块也入库（通过 parentDocId 关联）
                     ParentChildDocumentChunker.ParentChildResult pcResult =
                             parentChildChunker.chunkParentChild(textDocs);
                     List<KnowledgeDocument> childDocs = pcResult.childDocs();
@@ -374,14 +435,16 @@ public class KnowledgeIngestionService {
                             doc.getChunkIndex(),
                             doc.getParentDocId(),
                             AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE,
-                            CURRENT_INDEX_VERSION))
+                            activeIndexVersion))
                     .toList();
 
             // ⭐ Step 4.2: 入库前质检 pipeline（对标字节 RAG 七连问第二问）
-            // ① PII 脱敏 → ② Chunk 质量评分门禁 → ③ 注入来源权威性 + 状态
+            // ① PII 脱敏 → ② Chunk 质量评分门禁 → ③ 脏数据校验(REQ-1) → 复核队列
             List<KnowledgeDocument> qualityPassed = new ArrayList<>();
             int scrubbed = 0;
             int rejected = 0;
+            String operator = (submittedBy != null && !submittedBy.isBlank()) ? submittedBy
+                    : (tenantId != null && !tenantId.isBlank() ? tenantId : "system");
             for (KnowledgeDocument doc : docs) {
                 // ① PII 脱敏（覆盖式，保留语义结构）
                 String cleanContent = piiScrubber.scrub(doc.getContent());
@@ -395,25 +458,40 @@ public class KnowledgeIngestionService {
                         doc.getSourceUrl(), doc.getChunkIndex(),
                         doc.getParentDocId(),
                         authorityLevel, DocumentStatus.ACTIVE,
-                        CURRENT_INDEX_VERSION);
+                        activeIndexVersion);
 
                 // ② 质量评分门禁：低于阈值不入库，避免污染检索
-                if (qualityScorer.isQualified(scrubbedDoc)) {
-                    qualityPassed.add(scrubbedDoc);
-                } else {
+                if (!qualityScorer.isQualified(scrubbedDoc)) {
                     rejected++;
                     log.debug("[Ingestion] 低质 chunk 跳过入库: id={}, score={}",
                             doc.getId(), qualityScorer.score(scrubbedDoc));
+                    continue;
                 }
+
+                // ③ ⭐ 脏数据校验（REQ-1）：命中即 100% 拦截入复核队列，不入库
+                if (validator != null) {
+                    ValidationResult vr = validator.validate(scrubbedDoc);
+                    if (!vr.isPassed()) {
+                        rejected++;
+                        if (reviewQueueService != null) {
+                            reviewQueueService.enqueue(
+                                    ReviewItem.of(scrubbedDoc, vr.getReason(), vr.getCode(), operator));
+                        }
+                        log.warn("[Ingestion] 脏数据拦截: id={}, code={}, reason={}",
+                                scrubbedDoc.getId(), vr.getCode(), vr.getReason());
+                        continue;
+                    }
+                }
+
+                qualityPassed.add(scrubbedDoc);
             }
             if (rejected > 0) {
-                log.info("[Ingestion] 质检完成: scrubbed={}, rejected(低质)={}, passed={}",
+                log.info("[Ingestion] 质检完成: scrubbed={}, rejected(低质/脏数据)={}, passed={}",
                         scrubbed, rejected, qualityPassed.size());
             }
             docs = qualityPassed;
 
-            // ⭐ Step 4.2: chunk 级增量 diff（P2-a）——仅对内容变更的 chunk 重新摄入，
-            // 跳过未变更 chunk 的重复向量化，降低大文档微调成本。
+            // ⭐ Step 4.2: chunk 级增量 diff（P2-a）
             if (changeDetectionEnabled) {
                 List<KnowledgeDocument> changedDocs = new ArrayList<>();
                 int skipped = 0;
@@ -434,7 +512,6 @@ public class KnowledgeIngestionService {
             }
 
             // ⭐ Step 4.5: 非覆盖式版本——标记旧版 SUPERSEDED，而非物理删除（P0）
-            String operator = (tenantId != null && !tenantId.isBlank()) ? tenantId : "system";
             for (KnowledgeDocument newDoc : docs) {
                 String baseDocId = newDoc.getBaseDocId();
                 if (baseDocId == null || baseDocId.isBlank()) continue;
@@ -443,7 +520,7 @@ public class KnowledgeIngestionService {
                         baseDocId, version, "keep=" + newDoc.getId()));
             }
 
-            // Step 5: 批量入库
+            // Step 5: 批量入库（增量 upsert，embedding 在 addDocument 内完成）
             knowledgeBase.addDocuments(docs);
             // ⭐ 阶段回调：向量化（嵌入在 addDocument 内完成）与入库已结束
             sl.accept(IngestionJobStatus.EMBEDDING);
@@ -452,8 +529,8 @@ public class KnowledgeIngestionService {
             auditRecorder.record(IngestAuditEvent.of(operator, "INGEST", "", version,
                     "docs=" + docs.size()));
 
-            // Step 6: 重建索引（确保向量 + BM25 索引一致）
-            knowledgeBase.reindex();
+            // ⭐ 修复架构缺陷 #3：去除每次摄入的强制全量 reindex（增量 upsert 即可；
+            //    PG 多实例共享 + 不互相触发重算，满足 REQ-2/REQ-4）
 
             long elapsed = System.currentTimeMillis() - start;
             log.info("[Ingestion] 摄入完成: file={}, docs={}, 耗时={}ms",
@@ -462,8 +539,6 @@ public class KnowledgeIngestionService {
             // ⭐ Step 7: 更新内容哈希缓存
             if (changeDetectionEnabled) {
                 updateHashCache(parsed);
-                // ⭐ chunk 级哈希（P2-a）：仅变更的 chunk 在 docs 中，写回其哈希；
-                // 未变更 chunk 的哈希已在上一轮缓存中，无需重写。
                 for (KnowledgeDocument d : docs) {
                     hashCache.putChunk(d.getBaseDocId(), HashUtil.normalizeAndHash(d.getContent()));
                 }
@@ -499,10 +574,6 @@ public class KnowledgeIngestionService {
 
     /**
      * ⭐ 将解析文档的实体 / 关系抽取进知识图谱（仅在图谱服务可用时生效）。
-     * <p>
-     * 过短段落（&lt;30 字）跳过以避免无效 LLM 调用；图谱服务的抽取器不可用时
-     * （{@link EntityExtractor#isAvailable()} 为 false）内部自动降级为空操作。
-     * </p>
      */
     private void extractEntitiesToGraph(List<ParsedDocument> parsedDocs, String tenantId) {
         if (knowledgeGraphService == null) return;
@@ -530,15 +601,6 @@ public class KnowledgeIngestionService {
 
     /**
      * 将版本编入 chunk id 后缀（仅 {@code v\d+} 格式），实现非覆盖式版本。
-     * <p>
-     * 例如 id="file-p1-s1", version="v2" → "file-p1-s1-v2"。
-     * 旧版 id（无后缀或旧版本后缀）经 {@link KnowledgeDocument#getBaseDocId()} 解析后
-     * 与新版 baseDocId 一致，可被 {@code markSupersededByBaseId} 定位标记。
-     * </p>
-     * <p>
-     * 非 {@code v\d+} 格式（如日期版本 "2026-01"）不编入 id，降级为 upsert 覆盖
-     * （与旧行为一致，避免破坏 baseDocId 解析）。
-     * </p>
      */
     private static String withVersionSuffix(String id, String version) {
         if (version == null || version.isBlank()) version = "v1";
@@ -549,10 +611,6 @@ public class KnowledgeIngestionService {
 
     /**
      * ⭐ 触发缓存失效回调（知识库更新后调用）。
-     * <p>
-     * 注册方（如 {@code AnswerCacheService}）实现 {@link Runnable#run()} 来失效相关缓存。
-     * 确保知识库变更后，旧的缓存回答不再被返回。
-     * </p>
      */
     private void fireCacheInvalidationHooks() {
         for (Runnable hook : cacheInvalidationHooks) {
@@ -562,45 +620,6 @@ public class KnowledgeIngestionService {
                 log.warn("[Ingestion] 缓存失效回调异常: {}", e.getMessage());
             }
         }
-    }
-
-    /**
-     * 解析并摄入文档（默认公开租户）。
-     */
-    public IngestionResult parseAndIngest(String filePath) {
-        return parseAndIngest(filePath, "");
-    }
-
-    /**
-     * ⭐ 多模态摄取——将图片经视觉描述转为知识文档入库。
-     * <p>
-     * 仅当 {@link ImageCaptioner#isAvailable()} 为 true 时生效；描述器为空操作或
-     * 图片描述为空时直接返回 0，不改变知识库。摄取成功后触发缓存失效 + 索引重建，
-     * 与文本摄取 {@link #parseAndIngest} 保持一致的最终态。
-     * </p>
-     *
-     * @param images   图片引用列表
-     * @param tenantId 租户 ID（空串表示公开）
-     * @return 实际入库的图片数（0 表示未摄取）
-     */
-    public int ingestImages(List<ImageReference> images, String tenantId) {
-        if (images == null || images.isEmpty()) {
-            return 0;
-        }
-        if (imageCaptioner == null || !imageCaptioner.isAvailable()) {
-            log.debug("[Ingestion] 图片描述器不可用，跳过多模态摄取");
-            return 0;
-        }
-        MultimodalIngestor ingestor = new MultimodalIngestor(imageCaptioner, knowledgeBase);
-        int ingested = ingestor.ingestImages(images, tenantId);
-        if (ingested > 0) {
-            String operator = (tenantId != null && !tenantId.isBlank()) ? tenantId : "system";
-            auditRecorder.record(IngestAuditEvent.of(
-                    operator, "INGEST_MULTIMODAL", "", "v1", "imgs=" + ingested));
-            knowledgeBase.reindex();
-            fireCacheInvalidationHooks();
-        }
-        return ingested;
     }
 
     /**

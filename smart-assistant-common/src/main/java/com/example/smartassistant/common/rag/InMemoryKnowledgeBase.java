@@ -365,6 +365,31 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     @Override
     public int size() { return docs.size(); }
 
+    /**
+     * ⭐ 列出全部文档（REQ-4 内存快照刷新用）。
+     */
+    @Override
+    public List<KnowledgeDocument> listAll() {
+        return new ArrayList<>(docs.values());
+    }
+
+    /**
+     * ⭐ 全量替换文档集（供 {@code MemoryRefreshCoordinator} 周期性从 PG 拉取最新快照）。
+     * <p>清空现有存储并重新嵌入给定文档，使内存降级快照与 PG 主库保持一致。</p>
+     *
+     * @param documents 新的文档集合（可为空，表示清空）
+     */
+    public void replaceAll(java.util.Collection<KnowledgeDocument> documents) {
+        docs.clear();
+        vectors.clear();
+        if (documents != null) {
+            for (KnowledgeDocument doc : documents) {
+                addDocument(doc);
+            }
+        }
+        log.info("[KnowledgeBase:{}] 内存快照刷新完成: {} 篇文档", name, docs.size());
+    }
+
     @Override
     public void reindex() {
         vectors.clear();
