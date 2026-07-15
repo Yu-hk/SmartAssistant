@@ -43,13 +43,21 @@ spring:
           filters:
             - StripPrefix=1  # 移除 /assistant，保留 /api/auth 或 /api/user
         
-        # Consumer Service 路由（聊天业务）
+        # Consumer Service 路由（聊天业务，/assistant 前缀）
         - id: consumer-service
           uri: lb://consumer-service
           predicates:
             - Path=/assistant/api/chat/**,/assistant/api/math/**
           filters:
             - StripPrefix=1  # 移除 /assistant，保留 /api/chat 或 /api/math → 匹配 Consumer 的 @RequestMapping("/api/math")
+
+        # ⚠️ Consumer 裸前缀路由（前端 dev 代理 /api → 网关 8081，保留 /api 前缀直转 consumer）
+        # 覆盖 consumer 暴露的全部 /api 子路径（math/session/feedback/data/analytics/prompt-monitoring/monitor/admin）
+        - id: consumer-service-bare
+          uri: lb://consumer-service
+          predicates:
+            - Path=/api/math/**,/api/session/**,/api/feedback/**,/api/data/**,/api/analytics/**,/api/prompt-monitoring/**,/api/monitor/**,/api/sessions/**,/api/faq/**,/api/check-login/**,/api/save-env-config/**,/api/permission-response/**,/api/admin/**
+          # 不剥离前缀，保留 /api/... 原样转发给 Consumer（其 @RequestMapping 以 /api 开头）
         
         # Router Service 路由（内部服务）
         - id: router-service
@@ -105,7 +113,7 @@ jwt:
 # 白名单配置 (无需认证的路径)
 gateway:
   security:
-    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/health,/actuator/info,/assistant/api/router/agents/**
+    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/health,/actuator/info,/assistant/api/router/agents/**,/assistant/api/math/stream/**,/api/math/stream/**
   
   # 限流配置
   rate-limit:

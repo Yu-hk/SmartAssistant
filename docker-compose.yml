@@ -34,7 +34,8 @@ services:
       - NACOS_AUTH_ENABLE=true
       - NACOS_AUTH_IDENTITY_KEY=serverIdentity
       - NACOS_AUTH_IDENTITY_VALUE=security
-      - NACOS_AUTH_TOKEN=SecretKey012345678901234567890123456789012345678901234567890123456789
+      # 生产务必通过环境变量注入强 Token（Base64 且 ≥32 字节）：export NACOS_AUTH_TOKEN=$(openssl rand -base64 48)
+      - NACOS_AUTH_TOKEN=${NACOS_AUTH_TOKEN:?NACOS_AUTH_TOKEN must be set (base64, >=32 bytes)}
       - NACOS_AUTH_USERNAME=${NACOS_USERNAME:-nacos}
       - NACOS_AUTH_PASSWORD=${NACOS_PASSWORD:-nacos123}
     volumes:
