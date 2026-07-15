@@ -41,8 +41,10 @@
         <nacos-client.version>3.2.0</nacos-client.version>
         <!-- JetBrains Annotations — 原由 spring-ai-alibaba 传递引入 -->
         <jetbrains-annotations.version>26.0.2</jetbrains-annotations.version>
-        <!-- ⭐ JDK Windows 长类路径修复（Surefire 长 classpath bug，JDK 21 下仍保留该系统属性，无害） -->
-        <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+        <!-- ⭐ JaCoCo 覆盖率门禁：默认不阻断构建（haltOnFailure=false），
+             运行 `mvn -B verify -Djacoco.haltOnFailure=true` 时开启硬门禁（需保证全量单测可跑） -->
+        <jacoco.version>0.8.12</jacoco.version>
+        <jacoco.haltOnFailure>false</jacoco.haltOnFailure>
         <!-- ⭐ 统一管理的第三方依赖版本 -->
         <mybatis-plus.version>3.5.9</mybatis-plus.version>
         <jjwt.version>0.12.5</jjwt.version>
@@ -316,13 +318,95 @@
                         </annotationProcessorPaths>
                     </configuration>
                 </plugin>
-                <!-- ⭐ Surefire 配置 -->
+                <!-- ⭐ Surefire 配置：合并 JaCoCo agent 与 JDK21 长类路径修复参数 -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <!-- @{jacocoArgLine} 由 jacoco:prepare-agent 注入（late binding），
+                             避免覆盖父 pom 原有的 URLClassPath 修复参数 -->
+                        <argLine>@{jacocoArgLine} -Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+                    </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>
+
+        <!-- ⭐ 实际生效的构建插件（所有子模块继承） -->
+        <plugins>
+            <!-- JaCoCo 覆盖率采集：prepare-agent(initialize) + report(test)，
+                 任何 `mvn test` 都会产出 target/site/jacoco；check(verify) 受 jacoco.haltOnFailure 控制 -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <configuration>
+                    <!-- 跳过非 .class 的二进制资源（模型权重等），否则 report/check 分析
+                         target/classes 下的 .bin/.onnx 会因非合法 class 触发 ZipException 崩溃 -->
+                    <excludes>
+                        <exclude>**/models/**</exclude>
+                        <exclude>**/*.bin</exclude>
+                        <exclude>**/*.onnx</exclude>
+                        <exclude>**/*.data</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                        <configuration>
+                            <propertyName>jacocoArgLine</propertyName>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <haltOnFailure>${jacoco.haltOnFailure}</haltOnFailure>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit><counter>INSTRUCTION</counter><value>COVEREDRATIO</value><minimum>0.30</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.20</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 工程合规门禁：绑在 validate 阶段，故现有 compile-all / router-e2e-gate 等
+                 CI job 自动继承；违反则构建立即失败。规则刻意保守，避免破坏现有构建。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-build-hygiene</id>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,22)</version>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.9.0,)</version>
+                                </requireMavenVersion>
+                                <banDuplicatePomDependencyVersions/>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 
 </project>

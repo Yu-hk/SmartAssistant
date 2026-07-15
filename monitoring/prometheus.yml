@@ -4,15 +4,15 @@ global:
   scrape_interval:     15s
   evaluation_interval: 15s
 
-# Alertmanager 配置（预留）
+# Alertmanager 配置：告警经 alertmanager 分发到钉钉/企微/邮件
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: []
+        - targets: ['alertmanager:9093']
 
-# 规则文件（预留告警规则）
+# 规则文件：加载 rules/ 目录下所有 Prometheus 原生告警规则
 rule_files:
-  # - "alerts.yml"
+  - "rules/*.yml"
 
 scrape_configs:
   # ========== SmartAssistant 微服务 ==========
@@ -51,6 +51,12 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:8086']
         labels: { service: 'user-service', team: 'smartassistant' }
+
+  - job_name: 'smartassistant-general'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8087']
+        labels: { service: 'general-service', team: 'smartassistant' }
 
   # ========== Docker 基础设施 ==========
   - job_name: 'nacos'

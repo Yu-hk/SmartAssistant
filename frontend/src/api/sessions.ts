@@ -24,16 +24,6 @@ export interface ChatResponse {
   error?: string;
 }
 
-export interface SessionTransferRequest {
-  agentId: string;
-  reason?: string;
-}
-
-export interface SatisfactionRequest {
-  score: number;
-  comment?: string;
-}
-
 /** 获取所有会话列表 */
 export async function fetchSessions(): Promise<Session[]> {
   const resp = await apiClient.get<{ sessions: Session[] }>('/sessions');
@@ -53,22 +43,6 @@ export async function deleteSession(sessionId: string): Promise<void> {
 /** 发送聊天消息 */
 export async function sendChatMessage(params: ChatRequest): Promise<ChatResponse> {
   return apiClient.post<ChatResponse>('/chat', params);
-}
-
-/** 转人工 */
-export async function transferToHuman(
-  sessionId: string,
-  params: SessionTransferRequest,
-): Promise<void> {
-  return apiClient.post(`/sessions/${sessionId}/transfer`, params);
-}
-
-/** 满意度评价 */
-export async function submitSatisfaction(
-  sessionId: string,
-  params: SatisfactionRequest,
-): Promise<void> {
-  return apiClient.post(`/sessions/${sessionId}/satisfaction`, params);
 }
 
 /** 权限确认（允许） */

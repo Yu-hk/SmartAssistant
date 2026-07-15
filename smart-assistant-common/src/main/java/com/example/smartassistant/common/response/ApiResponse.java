@@ -104,7 +104,12 @@ public class ApiResponse<T> {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ErrorDetail {
 
-        /** 错误分类：validation_error / auth_error / rate_limit / agent_timeout / tool_error / internal_error */
+        /**
+         * 错误码（错误分类的具体编码）。
+         * <p>取值为模块前缀码（如 {@code ROUTER_001}、{@code GATEWAY_004}）或业务码
+         * （如 {@code VALIDATION_ERROR}、{@code AUTH_ERROR}、{@code NOT_FOUND}、{@code INTERNAL_ERROR}），
+         * 与 HTTP 状态码语义对应。前端/跨服务消费方应据此码做分支判断。</p>
+         */
         private String type;
 
         /** 详细错误描述 */
