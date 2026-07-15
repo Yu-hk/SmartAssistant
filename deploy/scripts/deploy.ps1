@@ -5,14 +5,20 @@
 # 在开发机（Windows）上执行，自动构建 + 上传 + 远程启动
 # =============================================================================
 param(
-    [string]$ServerIP = "123.56.6.102",
-    [string]$ServerUser = "root",
+    # 不再硬编码生产 IP，须通过参数或环境变量 DEPLOY_SERVER_IP 传入
+    [string]$ServerIP = $env:DEPLOY_SERVER_IP,
+    [string]$ServerUser = $(if ($env:DEPLOY_SERVER_USER) { $env:DEPLOY_SERVER_USER } else { "root" }),
     [string]$ServerPath = "/opt/smart-assistant",
     [switch]$SkipBuild,
     [switch]$OnlyRestart
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($ServerIP)) {
+    Write-Host "ERROR: 未指定服务器 IP。请使用 -ServerIP <ip> 或设置环境变量 DEPLOY_SERVER_IP。" -ForegroundColor Red
+    exit 1
+}
 $ProjectRoot = Resolve-Path (Split-Path -Parent $PSScriptRoot | Join-Path -ChildPath "..")
 
 Write-Host "============================================" -ForegroundColor Cyan
@@ -83,6 +89,7 @@ if ($rsync) {
     rsync -avz --progress --delete `
         --exclude=node_modules --exclude=.git --exclude=logs --exclude=dumpstream `
         --exclude=frontend/node_modules --exclude=*.log `
+        --exclude=.env --exclude=.env.local --exclude=.env.*.local `
         --exclude=ai --exclude=data --exclude=hanlp-data --exclude=training --exclude=test-data `
         -e "ssh -o StrictHostKeyChecking=no" `
         "$ProjectRoot/" "$ServerUser@${ServerIP}:$ServerPath/"

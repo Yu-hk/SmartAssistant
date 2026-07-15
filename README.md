@@ -2419,12 +2419,15 @@ Gateway   Consumer    Router     Travel / Food / User / General
 | gateway | 33 | JWT 工具、白名单过滤、Filter 认证、Filter 集成测试 |
 | user | 9 | JWT 服务 |
 | consumer | 25 | 对话叙事摘要、文档沉淀服务、DataGifTool、Chat 集成测试 |
-| router | **95+** | Agent 调用、语义缓存...**IntentRetriever(1用例)**、**ExperienceValidator(5用例)**、**HandoffCommand(3用例)**、**KeywordFastRoute(12基准测试:7.3μs/次+多意图检测)**、**BadCaseMiner(6决策逻辑测试)**、**RouterServiceEndToEnd(8全链路集成测试)**、**⭐ GraphCheckpoint(含checkpoint/条件边/循环)** |
+| router | **95+** | Agent 调用、语义缓存...**IntentRetriever(1用例)**、**ExperienceValidator(5用例)**、**HandoffCommand(3用例)**、**KeywordFastRoute(12基准测试:7.3μs/次+多意图检测)**、**BadCaseMiner(6决策逻辑测试)**、**RouterServiceEndToEnd(9全链路集成测试)**、**⭐ GraphCheckpoint(含checkpoint/条件边/循环)** |
 | product | 11 | **ProductGraph(6图谱测试:15节点/36边/1.947μs)**、**RAG质量评分(5评分测试)** |
 | order | 11 | **ApprovalStateMachine(11状态机测试:0.87μs/次/200线程并发安全)** |
 | recommend | 5 | **RecommendEngine(5推荐引擎集成测试:图谱+协同过滤+去重+性能0.120ms)** |
 | general | **44** | 数学计算、温度/长度/重量/货币转换、边界条件、**ScriptSandbox 沙箱(14测试)**、**⭐ 4处工具返回值结构化修复** |
 | **总计** | **490+** | **含 LangGraph 对标全特性测试，0 Failures** |
+
+> ⚠️ **CI 已接入路由核心回归卡点**：`.github/workflows/eval-gate.yml` 新增 `router-e2e-gate` 作业（纯 Mockito 注入、零基础设施依赖），将 `RouterServiceEndToEndTest` 设为 **required status check**，防止该类红灯被长期掩盖。本地复跑：
+> `bash mvn21.sh -pl smart-assistant-router -am test -Dtest=RouterServiceEndToEndTest -Dsurefire.failIfNoSpecifiedTests=false`
 
 ---
 
@@ -2619,6 +2622,17 @@ UPLOADED ──▶ PARSING ──▶ CHUNKING ──▶ EMBEDDING ──▶ INDE
 - `tool-registry` 配置了 `spring-boot-maven-plugin` 的 `classifier=exec`：普通（库）jar 作为主 artifact 被安装，可执行 jar 带 `-exec` 后缀，便于其他模块编译期依赖。
 - 构建统一使用项目脚本 `mvn21.sh`（系统 `mvn` 不可用）。
 
+
+## 2026-07-15 P0 阻断项修复（评估路线图）
+
+对 `docs/project-assessment-2026-07-15.md`（综合评分 66/100）列出的 4 个 P0 阻断项完成修复：
+
+- **P0-① 密钥治理**：消除入库弱密钥。`deploy/.env.production` 改写为纯占位符模板（`CHANGE_ME_*`）；`deploy/docker-compose.yml`、`docker-compose.yml`/`docker-compose-infra.yml`、`monitoring/*` 的生产/入库路径密码与 `NACOS_AUTH_TOKEN` 全部改为 `${VAR:?...}` 强制注入；`Dockerfile.services` 硬编码 Key → 环境变量；`deploy/scripts/deploy.ps1` 的 rsync 增 `--exclude=.env*`（阻断真实 Key 上传），硬编码公网 IP → 必填 `$env:DEPLOY_SERVER_IP`；`.gitignore` 显式忽略 `deploy/.env`。**本地开发栈保留可覆盖弱默认以便一键启动。**
+- **P0-② 前端接口契约**：根因是 `StreamChatController` SSE 端点"只等待、从不触发"路由决策，且 `triggerRoutingDecision` 调用了不存在的 `/api/router/decision`。改为调用真实 `/api/router/route` 并在 SSE 前先触发；`RouterClient` 读超时 5s→30s；网关新增 `consumer-service-bare` 裸路由 + SSE 免鉴权白名单；前端 `/api` 代理与本地会话创建改走网关。
+- **P0-③ 部署编排**：`docker-compose.deploy.yml` 补齐 `postgres` 并为各后端服务补全容器网络环境变量；`docker-compose.ha.yml` 修正 Dockerfile 引用（`deploy/Dockerfile`）、`PORT`、`NACOS_DISCOVERY_SERVER_ADDR`。
+- **P0-④ 路由 E2E + CI**：`RouterServiceEndToEndTest` 当前 9/9 通过（评估引用的 `regression2.log` 为陈旧数据）；将其接入 `eval-gate.yml` 的 `router-e2e-gate` 必需卡点。
+
+> 待用户侧：轮换根 `.env` 真实 API Key（DEEPSEEK / DASHSCOPE / AMAP）。
 
 ## 许可证
 

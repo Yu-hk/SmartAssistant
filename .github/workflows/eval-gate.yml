@@ -75,10 +75,42 @@ jobs:
           path: smart-assistant-common/target/eval-reports/
           if-no-files-found: warn
 
+  # 路由核心回归卡点 —— P0-④ 修复项
+  # 此前 RouterServiceEndToEndTest 长期红灯却被 CI 掩盖（CI 不跑该模块单测）。
+  # 本作业以纯 Mockito 注入运行，零基础设施依赖（不需要 Redis/PG/Ollama），
+  # 可在任意 Runner 确定性运行，直接防止该类回归再次静默漏过。
+  router-e2e-gate:
+    name: Router E2E gate (mocked, no-infra)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Run router end-to-end test
+        run: >-
+          mvn -B -pl smart-assistant-router -am test
+          -Dtest=RouterServiceEndToEndTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -DfailIfNoTests=false
+      - name: Upload surefire report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-e2e-report
+          path: smart-assistant-router/target/surefire-reports/
+          if-no-files-found: warn
+
 # 说明：
-# 1. 本工作流是「评测闭环接入 CI」的核心卡点。请在 GitHub 分支保护规则中将
-#    "Evaluation gate (golden suite)" 设为必需状态检查（required status check），
-#    才能在 PR 中真正阻断质量回归。
+# 1. 本工作流是「评测闭环接入 CI」的核心卡点。请在 GitHub 分支保护规则中将以下
+#    状态检查设为必需（required status check），才能在 PR 中真正阻断质量回归：
+#      - "Evaluation gate (golden suite)"   （common 模块金标准评测门禁）
+#      - "Router E2E gate (mocked, no-infra)"（router 模块核心路由回归卡点，P0-④）
 # 2. 重新生成基线（仅人工确认质量变化后执行）：
 #    本地运行 GoldenSuiteEvalGate.main 并将生成的 src/test/resources/eval-baseline.json 提交。
 # 3. 其他模块依赖 Redis/PG 的集成测试不在本工作流范围内（需 service container，另行编排）。
+#    后续若要扩展"全量单测"，可在本工作流增 job 并挂 Redis/PG service container，
+#    再运行 `mvn -B test -pl <module>`（注意排除 Redis/BGE 强依赖用例）。
