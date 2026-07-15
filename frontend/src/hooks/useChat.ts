@@ -59,36 +59,25 @@ export function useChat(options: UseChatOptions) {
       contentBlocks: [],
     };
 
-    // 如果没有会话，先创建
+    // 如果没有会话，本地生成 sessionId 直接开聊（微服务未提供会话创建端点，dev/demo 模式）
     if (!sessionId) {
-      try {
-        const res = await fetch('/api/sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: selectedModel, title: messageContent.slice(0, 30) }),
-        });
-        const data = await res.json();
-        sessionId = data.session.id;
-        const newSession: Session = {
-          id: sessionId!,
-          title: data.session.title,
-          model: selectedModel,
-          intent: 'unknown',
-          status: 'active',
-          satisfaction: null,
-          satisfaction_comment: null,
-          user_name: '访客',
-          agent_name: null,
-          createdAt: new Date(data.session.created_at),
-          messages: [userMessage, assistantMessage],
-        };
-        setSessions(prev => [newSession, ...prev]);
-        setCurrentSessionId(sessionId!);
-        onNavigate?.(`/chat/${sessionId}`);
-      } catch (e) {
-        console.error('Failed to create session:', e);
-        return;
-      }
+      sessionId = uuidv4();
+      const newSession: Session = {
+        id: sessionId,
+        title: messageContent.slice(0, 30),
+        model: selectedModel,
+        intent: 'unknown',
+        status: 'active',
+        satisfaction: null,
+        satisfaction_comment: null,
+        user_name: '访客',
+        agent_name: null,
+        createdAt: new Date(),
+        messages: [userMessage, assistantMessage],
+      };
+      setSessions(prev => [newSession, ...prev]);
+      setCurrentSessionId(sessionId);
+      onNavigate?.(`/chat/${sessionId}`);
     } else {
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {

@@ -63,7 +63,7 @@ public class RouterClient {
         // ⭐ 配置 RestTemplate 超时：连接 3s、读取 5s
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(3000);
-        factory.setReadTimeout(5000);
+        factory.setReadTimeout(30000);  // ⚠️ 路由决策含 LLM 推理，5s 过短；放宽至 30s
         this.restTemplate = new RestTemplate(factory);
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
@@ -262,20 +262,33 @@ public class RouterClient {
                 requestId, message != null ? message.length() : 0);
 
         try {
+            // ⚠️ 原实现调用 /api/router/decision，但该端点并不存在（RouterController 仅暴露 /api/router/route 等）。
+            // /api/router/route 执行完整路由决策，并经由 RouteFinalizer.finalizeRouting
+            // -> SemanticRouteCacheService.saveFullDecisionForConsumer 写入 FULL_DECISION_KEY + notify，
+            // 供 Consumer SSE 端点 waitForDecisionFromRedis 阻塞读取。
             Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("userId", userId != null ? userId : "anonymous");
+            // userId 与 callRouterRaw 保持一致：非数字（如 anonymous）映射为 0L
+            Object userIdVal;
+            try {
+                userIdVal = userId != null ? Long.parseLong(userId) : 0L;
+            } catch (NumberFormatException e) {
+                userIdVal = 0L;
+            }
+            requestBody.put("userId", userIdVal);
             requestBody.put("question", message);
+            requestBody.put("sessionId", requestId);
             requestBody.put("requestId", requestId);
+            requestBody.put("enableRag", false);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
 
-            String url = routerServiceUrl + "/api/router/decision";
-            log.debug("[RouterClient] 调用 Router: {}", url);
+            String url = routerServiceUrl + "/api/router/route";
+            log.debug("[RouterClient] 触发路由决策(调用 Router.route): {}", url);
 
-            // 发送请求触发决策
+            // 发送请求触发决策（route 端点同步返回，内部已写入 Redis 决策）
             restTemplate.postForEntity(url, request, Map.class);
             log.debug("[RouterClient] Router 决策请求已发送: requestId={}", requestId);
 

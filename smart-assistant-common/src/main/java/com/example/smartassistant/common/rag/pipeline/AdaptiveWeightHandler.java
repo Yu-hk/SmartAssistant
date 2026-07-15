@@ -82,7 +82,7 @@ public class AdaptiveWeightHandler implements RagSearchHandler {
         }
 
         // 限定到 0.3~0.8
-        return Math.max(0.3, Math.min(0.8, baseWeight));
+        return Math.clamp(baseWeight, 0.3, 0.8);
     }
 
     /**

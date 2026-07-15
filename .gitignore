@@ -24,9 +24,12 @@ logs/
 *.gz
 
 # Environment variables (IMPORTANT!)
+# 真实密钥文件一律忽略；仅 deploy/.env.production 作为占位符模板允许入库
 .env
 .env.local
 .env.*.local
+deploy/.env
+!deploy/.env.production
 
 # OS files
 .DS_Store

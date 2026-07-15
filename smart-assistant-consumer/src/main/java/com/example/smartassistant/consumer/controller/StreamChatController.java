@@ -67,6 +67,7 @@ public class StreamChatController {
     public void streamChat(
             @RequestParam String message,
             @RequestParam(required = false) String requestId,
+            @RequestParam(required = false) String sessionId,
             @RequestParam(required = false, defaultValue = "true") boolean showThinking,
             @RequestParam(required = false, defaultValue = "5") int priority,
             @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId,
@@ -74,6 +75,9 @@ public class StreamChatController {
 
         logger.info("[StreamChat] 流式请求: messageLength={}, requestId={}, priority={}",
                 message != null ? message.length() : 0, requestId, priority);
+
+        // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
+        String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
 
         SseEventBus bus = createBus(response, requestId);
 
@@ -85,7 +89,7 @@ public class StreamChatController {
         }
 
         // 获取路由决策
-        Map<String, Object> decision = getRoutingDecision(requestId, bus);
+        Map<String, Object> decision = getRoutingDecision(requestId, sessionId, message, bus);
         if (decision == null || !decision.containsKey("agentName")) {
             bus.sendError("路由决策获取失败，请稍后重试");
             return;
@@ -94,6 +98,15 @@ public class StreamChatController {
         String agentName = (String) decision.get("agentName");
         Double confidence = (Double) decision.getOrDefault("confidence", 0.0);
         logger.info("[StreamChat] 路由: agentName={}, confidence={}", agentName, confidence);
+        // 对齐前端 useChat 期望的 init 事件（带 sessionId/intent），保证消息块正确挂载
+        try {
+            String initJson = objectMapper.writeValueAsString(Map.of(
+                    "type", "init",
+                    "sessionId", decisionKey != null ? decisionKey : "",
+                    "intent", decision.getOrDefault("intentTag", "unknown")));
+            bus.send(SseEvent.raw("init", initJson));
+        } catch (Exception ignored) {
+        }
         bus.sendRouted(agentName, confidence);
 
         // 多 Agent SSE 事件检查
@@ -114,8 +127,8 @@ public class StreamChatController {
         }
 
         // 排队
-        if (requestId != null && !requestId.isBlank()) {
-            if (!handleQueue(requestId, priority, bus)) return;
+        if (decisionKey != null && !decisionKey.isBlank()) {
+            if (!handleQueue(decisionKey, priority, bus)) return;
         }
 
         // 转发 Agent SSE
@@ -126,8 +139,8 @@ public class StreamChatController {
             // ⭐ 流结束后发送 token 用量事件
             injectTokenUsageEvent(bus, requestId);
         } finally {
-            if (requestId != null && !requestId.isBlank()) {
-                requestQueueService.complete(requestId);
+            if (decisionKey != null && !decisionKey.isBlank()) {
+                requestQueueService.complete(decisionKey);
             }
         }
     }
@@ -156,11 +169,12 @@ public class StreamChatController {
     public void streamChatPost(@RequestBody Map<String, Object> request, HttpServletResponse response) {
         String message = (String) request.getOrDefault("message", request.get("question"));
         String requestId = (String) request.getOrDefault("requestId", null);
+        String sessionId = (String) request.getOrDefault("sessionId", null);
         boolean showThinking = request.containsKey("showThinking")
                 ? (Boolean) request.get("showThinking") : true;
         int priority = request.containsKey("priority")
                 ? ((Number) request.get("priority")).intValue() : RequestQueueService.PRIORITY_NORMAL;
-        streamChat(message, requestId, showThinking, priority, null, response);
+        streamChat(message, requestId, sessionId, showThinking, priority, null, response);
     }
 
     @PostMapping("/chat/cancel")
@@ -180,15 +194,41 @@ public class StreamChatController {
         return new SseEventBus(response, requestId, redisCache);
     }
 
-    private Map<String, Object> getRoutingDecision(String requestId, SseEventBus bus) {
-        if (requestId == null || requestId.isBlank()) return null;
+    private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message, SseEventBus bus) {
+        // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
+        String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
+        if (decisionKey == null || decisionKey.isBlank()) {
+            logger.warn("[StreamChat] 无决策键(requestId/sessionId 均空)，无法触发路由");
+            return null;
+        }
+        // ⚠️ 先触发路由决策写入 Redis（修复原"只等待、不触发"导致永久失败的问题）
+        try {
+            routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey);
+        } catch (Exception e) {
+            logger.warn("[StreamChat] 触发路由决策异常(将尝试等待已有决策): {}", e.getMessage());
+        }
         bus.sendWaiting();
         try {
-            return routerClient.waitForDecisionFromRedis(requestId, DECISION_TIMEOUT_MS);
+            return routerClient.waitForDecisionFromRedis(decisionKey, DECISION_TIMEOUT_MS);
         } catch (Exception e) {
             logger.error("[StreamChat] 获取决策失败: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 解析用户 ID：从网关注入的 X-User-Id 取；SSE 走白名单(免鉴权)时为 anonymous。
+     */
+    private String resolveUserId() {
+        try {
+            var attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                String uid = attrs.getRequest().getHeader("X-User-Id");
+                if (uid != null && !uid.isBlank()) return uid;
+            }
+        } catch (Exception ignored) {
+        }
+        return "anonymous";
     }
 
     private boolean handleQueue(String requestId, int priority, SseEventBus bus) {

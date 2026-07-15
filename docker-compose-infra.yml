@@ -34,7 +34,7 @@ services:
       - NACOS_AUTH_ENABLE=false
       - NACOS_AUTH_IDENTITY_KEY=serverIdentity
       - NACOS_AUTH_IDENTITY_VALUE=security
-      - NACOS_AUTH_TOKEN=${NACOS_AUTH_TOKEN:-SecretKey012345678901234567890123456789012345678901234567890123456789}
+      - NACOS_AUTH_TOKEN=${NACOS_AUTH_TOKEN:-}
       - NACOS_AUTH_USERNAME=${NACOS_USERNAME:-nacos}
       - NACOS_AUTH_PASSWORD=${NACOS_PASSWORD:-nacos123}
       - NACOS_CORE_API_COMPATIBILITY_CONSOLE_ENABLED=true
@@ -111,10 +111,10 @@ services:
       - ./monitoring/grafana-dashboard.json:/dashboards/smartassistant.json:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
       - GF_INSTALL_PLUGINS=grafana-piechart-panel
       - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/dashboards/smartassistant.json
-      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ENABLED=false
     restart: unless-stopped
     depends_on:
       - prometheus
