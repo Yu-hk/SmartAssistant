@@ -310,14 +310,6 @@ function SessionItem({ session, isActive, onSelect, onDelete }: {
         }}>
           ● {STATUS_LABELS[session.status] || session.status}
         </span>
-        {session.satisfaction && (
-          <span style={{
-            fontSize: '10px', color: 'var(--nova-text-tertiary)',
-            marginLeft: 'auto',
-          }}>
-            ★ {session.satisfaction}
-          </span>
-        )}
       </div>
     </div>
   );

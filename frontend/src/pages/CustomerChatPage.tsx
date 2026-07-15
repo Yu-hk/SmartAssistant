@@ -2,8 +2,6 @@ import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Session, PermissionRequest, FaqItem } from '../types';
 import { ChatMessages } from '../components/ChatMessages';
-import { TransferBanner } from '../components/TransferBanner';
-import { SatisfactionDialog } from '../components/SatisfactionDialog';
 import { FaqSuggestions } from '../components/FaqSuggestions';
 import { IntentBadge } from '../components/IntentBadge';
 import { sessions as sessionApi } from '../api';
@@ -13,19 +11,14 @@ interface CustomerChatPageProps {
   isLoading: boolean;
   inputValue: string;
   permissionRequest: PermissionRequest | null;
-  transferPending: boolean;
-  showSatisfaction: boolean;
   faqSuggestions: FaqItem[];
   queuePosition: number | null;
   queueEstimatedWait: number | null;
   onSendMessage: (message: string, sessionIdOverride?: string, onNavigate?: (path: string) => void) => void;
   onStop: () => void;
   onInputChange: (value: string) => void;
-  onTransfer: () => void;
-  onSatisfaction: (score: number, comment?: string) => void;
   onPermissionAllow: () => void;
   onPermissionDeny: () => void;
-  onSkipSatisfaction: () => void;
 }
 
 // 快捷问题 — 旅游主题
@@ -42,19 +35,14 @@ export function CustomerChatPage({
   isLoading,
   inputValue,
   permissionRequest,
-  transferPending,
-  showSatisfaction,
   faqSuggestions,
   queuePosition,
   queueEstimatedWait,
   onSendMessage,
   onStop,
   onInputChange,
-  onTransfer,
-  onSatisfaction,
   onPermissionAllow,
   onPermissionDeny,
-  onSkipSatisfaction,
 }: CustomerChatPageProps) {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -288,14 +276,6 @@ export function CustomerChatPage({
         )}
       </div>
 
-      {/* 转人工横幅 */}
-      {currentSession && (
-        <TransferBanner
-          status={currentSession.status}
-          onRequestTransfer={onTransfer}
-        />
-      )}
-
       {/* 输入框 */}
       <CustomerChatInput
         inputValue={inputValue}
@@ -306,12 +286,6 @@ export function CustomerChatPage({
         onChange={onInputChange}
       />
 
-      {/* 满意度弹窗 */}
-      <SatisfactionDialog
-        visible={showSatisfaction && !!currentSession}
-        onSubmit={onSatisfaction}
-        onSkip={onSkipSatisfaction}
-      />
     </>
   );
 }

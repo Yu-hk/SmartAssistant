@@ -1,9 +1,9 @@
 package com.example.smartassistant.router.exception;
 
+import com.example.smartassistant.common.exception.ExceptionHandlerSupport;
 import com.example.smartassistant.common.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * {@link com.example.smartassistant.common.exception.GlobalExceptionHandler} 统一处理。
  * <p>
  * 使用 {@code @Order(HIGHEST_PRECEDENCE)} 确保独有异常优先于 common 的兜底处理器。
+ * <p>
+ * traceId 解析、错误明细构造、日志均复用 {@link ExceptionHandlerSupport}，与 common / gateway 保持一致。
  */
 @Slf4j
 @Order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)
@@ -33,8 +35,8 @@ public class GlobalExceptionHandler {
 
         String msg = e.getMessage() != null ? e.getMessage() : "路由失败，暂无可用服务";
 
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(
-                "ROUTER_002", msg, null, getTraceId());
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                "ROUTER_002", msg, null, ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(
                 ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE.value(), msg, error));
     }
@@ -47,16 +49,9 @@ public class GlobalExceptionHandler {
         log.error("[ROUTER_003] Agent 调用失败 | path={} | agent={} | status={} | msg={}",
                 request.getRequestURI(), e.getAgentName(), e.getHttpStatus(), e.getMessage());
 
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(
-                "ROUTER_003", e.getMessage(), null, getTraceId());
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                "ROUTER_003", e.getMessage(), null, ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.status(e.getHttpStatus()).body(
                 ApiResponse.error(e.getHttpStatus(), "服务调用失败: " + e.getMessage(), error));
-    }
-
-    // ===================== 工具方法 =====================
-
-    private String getTraceId() {
-        String traceId = MDC.get("traceId");
-        return traceId != null ? traceId : null;
     }
 }

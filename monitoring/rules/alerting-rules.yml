@@ -1,6 +1,8 @@
 groups:
   # ──────────────────────────────────────────
   # Consumer Service 告警
+  # 指标来源：com.example.smartassistant.consumer.service.monitoring.ConsumerMetricsCollector
+  # （a2a_consumer_requests_*/a2a_consumer_request_latency_seconds_*/a2a_consumer_cache_*/a2a_consumer_active_sessions）
   # ──────────────────────────────────────────
   - name: a2a_consumer_alerts
     # 评估间隔（继承 global.evaluation_interval = 15s）
@@ -23,11 +25,12 @@ groups:
           runbook: "检查 Consumer 日志 (port 8082)，确认下游 Router 是否正常"
 
       # 2. P95 高延迟
+      # 注：Micrometer Timer 自动加 _seconds 后缀，原始 meter 名为 a2a_consumer_request_latency
       - alert: ConsumerHighLatency
         expr: |
           histogram_quantile(
             0.95,
-            rate(a2a_consumer_request_latency_bucket[5m])
+            rate(a2a_consumer_request_latency_seconds_bucket[5m])
           ) > 1000
         for: 5m
         labels:
@@ -43,7 +46,7 @@ groups:
         expr: |
           histogram_quantile(
             0.99,
-            rate(a2a_consumer_request_latency_bucket[5m])
+            rate(a2a_consumer_request_latency_seconds_bucket[5m])
           ) > 3000
         for: 2m
         labels:
@@ -86,74 +89,9 @@ groups:
           description: "活跃会话数超过 100，当前值: {{ $value }}"
 
   # ──────────────────────────────────────────
-  # 缓存预热告警
-  # ──────────────────────────────────────────
-  - name: cache_preload_alerts
-    rules:
-      # 1. 预热失败率过高
-      - alert: HighPreloadFailureRate
-        expr: |
-          rate(cache_preload_failure_total[5m]) 
-          / 
-          rate(cache_preload_total_total[5m]) > 0.05
-        for: 5m
-        labels:
-          severity: warning
-          service: consumer
-          component: cache-preload
-        annotations:
-          summary: "缓存预热失败率过高 (>5%)"
-          description: "当前失败率: {{ printf \"%.2f\" $value | humanizePercentage }}"
-          runbook: "检查数据库连接、Redis 状态，查看 Consumer 日志中的 [UserProfileCache] 错误"
-
-      # 2. 预热耗时过长（P95）
-      - alert: HighPreloadDuration
-        expr: |
-          histogram_quantile(0.95, rate(cache_preload_duration_bucket[5m])) > 200
-        for: 5m
-        labels:
-          severity: warning
-          service: consumer
-          component: cache-preload
-        annotations:
-          summary: "缓存预热 P95 延迟过高 (>200ms)"
-          description: "当前 P95 延迟: {{ printf \"%.0f\" $value }}ms"
-          runbook: "检查 PostgreSQL 慢查询、网络延迟，考虑优化 SQL 或增加索引"
-
-      # 3. Redis 缓存完全失效
-      - alert: RedisCacheMiss
-        expr: |
-          rate(cache_preload_skipped_total[5m]) == 0
-          and
-          rate(cache_preload_total_total[5m]) > 10
-        for: 10m
-        labels:
-          severity: critical
-          service: consumer
-          component: cache-preload
-        annotations:
-          summary: "Redis 缓存完全失效"
-          description: "所有预热请求都未命中缓存，Redis 可能故障或配置错误"
-          runbook: "检查 Redis 连接状态、KEYS user_profile:* 是否存在，验证 TTL 设置"
-
-      # 4. 预热成功率过低
-      - alert: LowPreloadSuccessRate
-        expr: |
-          rate(cache_preload_success_total[5m]) 
-          / 
-          (rate(cache_preload_total_total[5m]) - rate(cache_preload_skipped_total[5m])) < 0.9
-        for: 10m
-        labels:
-          severity: warning
-          service: consumer
-          component: cache-preload
-        annotations:
-          summary: "缓存预热成功率过低 (<90%)"
-          description: "当前成功率: {{ printf \"%.2f\" $value | humanizePercentage }}"
-          runbook: "检查用户画像表数据完整性，确认 UserProfileMapper.findByUserId() 是否正常"
-
-  # ──────────────────────────────────────────
   # Router Service 告警
+  # 指标来源：com.example.smartassistant.router.service.monitoring.RouterMetricsCollector
+  # （a2a_router_routing_*）
   # ──────────────────────────────────────────
   - name: a2a_router_alerts
     rules:
@@ -175,11 +113,12 @@ groups:
           runbook: "检查 Router 日志 (port 8083)，确认 Agent 服务是否可达"
 
       # 2. Router 高延迟
+      # 注：Micrometer Timer 自动加 _seconds 后缀，原始 meter 名为 a2a_router_routing_latency
       - alert: RouterHighLatency
         expr: |
           histogram_quantile(
             0.95,
-            rate(a2a_router_routing_latency_bucket[5m])
+            rate(a2a_router_routing_latency_seconds_bucket[5m])
           ) > 500
         for: 5m
         labels:
@@ -200,17 +139,18 @@ groups:
         annotations:
           summary: "Router 无活跃 Agent"
           description: "Router 检测到 0 个活跃 Agent，所有下游服务可能已下线"
-          runbook: "检查 Travel Service (8084) 和 Food Service (8085) 是否在运行"
+          runbook: "检查 Order Service (8085) 和 Product Service (8084) 是否在运行"
 
   # ──────────────────────────────────────────
   # 服务存活告警
+  # job 名必须与 prometheus.yml 的 job_name 一致（smartassistant-*）
   # ──────────────────────────────────────────
   - name: a2a_availability_alerts
     rules:
       # 1. Consumer 服务不可达
       - alert: ConsumerServiceDown
         expr: |
-          up{job="a2a-consumer"} == 0
+          up{job="smartassistant-consumer"} == 0
         for: 1m
         labels:
           severity: critical
@@ -222,7 +162,7 @@ groups:
       # 2. Router 服务不可达
       - alert: RouterServiceDown
         expr: |
-          up{job="a2a-router"} == 0
+          up{job="smartassistant-router"} == 0
         for: 1m
         labels:
           severity: critical
@@ -231,10 +171,10 @@ groups:
           summary: "Router Service 宕机"
           description: "Prometheus 无法抓取 Router 指标，服务可能已停止 (port 8083)"
 
-      # 3. Agent 服务不可达
+      # 3. Agent 服务不可达（order/product/general，原 travel/food 已重命名）
       - alert: AgentServiceDown
         expr: |
-          up{job=~"a2a-travel|a2a-food"} == 0
+          up{job=~"smartassistant-order|smartassistant-product|smartassistant-general"} == 0
         for: 2m
         labels:
           severity: warning
@@ -242,73 +182,3 @@ groups:
         annotations:
           summary: "Agent Service 宕机 ({{ $labels.job }})"
           description: "Prometheus 无法抓取 {{ $labels.job }} 指标，服务可能已停止"
-
-  # ──────────────────────────────────────────
-  # Agent / LLM 告警 (新增指标)
-  # ──────────────────────────────────────────
-  - name: a2a_agent_llm_alerts
-    rules:
-      # 1. Agent 超时率过高
-      - alert: AgentTimeoutHigh
-        expr: |
-          rate(a2a_agent_timeout_total[5m]) > 0.5
-        for: 2m
-        labels:
-          severity: warning
-          service: agent
-        annotations:
-          summary: "Agent 超时率过高"
-          description: "Agent 每分钟超时 {{ $value | humanize }} 次，可能模型响应过慢"
-          runbook: "检查 LLM 推理延迟 (a2a_llm_inference_latency)，确认模型是否正常响应"
-
-      # 2. 工具幻觉频发
-      - alert: ToolHallucinationFrequent
-        expr: |
-          rate(a2a_agent_tool_hallucination_total[5m]) > 1
-        for: 2m
-        labels:
-          severity: warning
-          service: agent
-        annotations:
-          summary: "工具幻觉频繁"
-          description: "每分钟 {{ $value | humanize }} 次工具幻觉，LLM 频繁调用不存在的工具"
-          runbook: "检查系统提示词中的工具描述是否正确，工具名是否匹配 @Tool 注解的 name"
-
-      # 3. LLM 推理延迟过高
-      - alert: LLMInferenceHighLatency
-        expr: |
-          histogram_quantile(0.95, rate(a2a_llm_inference_latency_bucket[5m])) > 10000
-        for: 3m
-        labels:
-          severity: warning
-          service: agent
-        annotations:
-          summary: "LLM P95 推理延迟过高"
-          description: "P95 推理延迟超过 10000ms，当前值: {{ printf \"%.0f\" $value }}ms"
-          runbook: "检查 Ollama 负载、显存使用，考虑切换更快的模型或增加推理节点"
-
-      # 4. 工具错误率过高
-      - alert: ToolErrorRateHigh
-        expr: |
-          rate(a2a_tool_error_total[5m]) > 2
-        for: 3m
-        labels:
-          severity: warning
-          service: agent
-        annotations:
-          summary: "工具执行错误率过高"
-          description: "每分钟 {{ $value | humanize }} 次工具错误，可能有下游服务异常"
-          runbook: "检查各工具对应的数据库/API 是否正常，查看 ToolLogAspect 日志"
-
-      # 5. Agent 上下文压缩频繁（Token 超预算）
-      - alert: AgentFrequentContextCompression
-        expr: |
-          rate(a2a_agent_context_compress_total[5m]) > 3
-        for: 5m
-        labels:
-          severity: info
-          service: agent
-        annotations:
-          summary: "Agent 上下文压缩频繁"
-          description: "每分钟 {{ $value | humanize }} 次上下文压缩，对话轮次可能过长"
-          runbook: "建议增加 contextWindow 或 compressThreshold 配置"

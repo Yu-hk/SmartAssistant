@@ -104,11 +104,45 @@ jobs:
           path: smart-assistant-router/target/surefire-reports/
           if-no-files-found: warn
 
+  # 工程合规 + 覆盖率门禁 —— Phase2-②
+  # Enforcer 绑在 validate 阶段，故 `mvn validate` 即触发 Java/Maven/依赖重复版本校验
+  # （现有 compile-all / router-e2e-gate 等 job 也自动继承该门禁）；
+  # 同时以 router 模块无 infra 单测产出 JaCoCo 覆盖率报告（在 `mvn test` 中自动采集）。
+  # JaCoCo 硬门禁（check）默认关闭（jacoco.haltOnFailure=false），
+  # 运行 `mvn -B verify -Djacoco.haltOnFailure=true` 时开启（需保证全量单测可跑）。
+  quality-gate:
+    name: Quality gate (enforcer + jacoco)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Enforcer build-hygiene check (validate)
+        run: mvn -B validate
+      - name: Run router unit test with JaCoCo coverage
+        run: >-
+          mvn -B -pl smart-assistant-router -am test
+          -Dtest=RouterServiceEndToEndTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -DfailIfNoTests=false
+      - name: Upload jacoco coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-router-report
+          path: smart-assistant-router/target/site/jacoco/
+          if-no-files-found: warn
+
 # 说明：
 # 1. 本工作流是「评测闭环接入 CI」的核心卡点。请在 GitHub 分支保护规则中将以下
 #    状态检查设为必需（required status check），才能在 PR 中真正阻断质量回归：
 #      - "Evaluation gate (golden suite)"   （common 模块金标准评测门禁）
 #      - "Router E2E gate (mocked, no-infra)"（router 模块核心路由回归卡点，P0-④）
+#      - "Quality gate (enforcer + jacoco)"  （Phase2-② 工程合规 + 覆盖率门禁）
 # 2. 重新生成基线（仅人工确认质量变化后执行）：
 #    本地运行 GoldenSuiteEvalGate.main 并将生成的 src/test/resources/eval-baseline.json 提交。
 # 3. 其他模块依赖 Redis/PG 的集成测试不在本工作流范围内（需 service container，另行编排）。

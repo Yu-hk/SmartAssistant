@@ -3,13 +3,13 @@ groups:
   - name: a2a-system-alerts
     rules:
       # ========== 错误率告警 ==========
-      
+
       # Critical: 请求失败率超过 10%
       - alert: HighErrorRateCritical
         expr: |
           (
-            sum(rate(a2a_consumer_requests_failed_total[5m])) 
-            / 
+            sum(rate(a2a_consumer_requests_failed_total[5m]))
+            /
             sum(rate(a2a_consumer_requests_total[5m]))
           ) * 100 > 10
         for: 2m
@@ -20,13 +20,13 @@ groups:
           summary: "🚨 Consumer 服务高错误率（Critical）"
           description: "错误率 {{ $value | humanize }}% 超过 10% 阈值，持续 2 分钟"
           runbook_url: "http://wiki.example.com/runbooks/high-error-rate"
-      
+
       # Warning: 请求失败率超过 5%
       - alert: HighErrorRateWarning
         expr: |
           (
-            sum(rate(a2a_consumer_requests_failed_total[5m])) 
-            / 
+            sum(rate(a2a_consumer_requests_failed_total[5m]))
+            /
             sum(rate(a2a_consumer_requests_total[5m]))
           ) * 100 > 5
         for: 5m
@@ -36,14 +36,15 @@ groups:
         annotations:
           summary: "⚠️ Consumer 服务错误率偏高（Warning）"
           description: "错误率 {{ $value | humanize }}% 超过 5% 阈值，持续 5 分钟"
-      
+
       # ========== 延迟告警 ==========
-      
+      # 注：Micrometer Timer 自动加 _seconds 后缀，原始 meter 名为 a2a_consumer_request_latency
+
       # Critical: P95 延迟超过 2 秒
       - alert: HighLatencyP95Critical
         expr: |
-          histogram_quantile(0.95, 
-            sum(rate(a2a_consumer_request_latency_bucket[5m])) by (le)
+          histogram_quantile(0.95,
+            sum(rate(a2a_consumer_request_latency_seconds_bucket[5m])) by (le)
           ) > 2
         for: 3m
         labels:
@@ -52,12 +53,12 @@ groups:
         annotations:
           summary: "🚨 P95 延迟过高（Critical）"
           description: "P95 延迟 {{ $value | humanizeDuration }} 超过 2 秒"
-      
+
       # Warning: P95 延迟超过 1 秒
       - alert: HighLatencyP95Warning
         expr: |
-          histogram_quantile(0.95, 
-            sum(rate(a2a_consumer_request_latency_bucket[5m])) by (le)
+          histogram_quantile(0.95,
+            sum(rate(a2a_consumer_request_latency_seconds_bucket[5m])) by (le)
           ) > 1
         for: 5m
         labels:
@@ -66,15 +67,15 @@ groups:
         annotations:
           summary: "⚠️ P95 延迟偏高（Warning）"
           description: "P95 延迟 {{ $value | humanizeDuration }} 超过 1 秒"
-      
+
       # ========== QPS 告警 ==========
-      
+
       # Warning: QPS 突降超过 50%
       - alert: QPSSuddenDrop
         expr: |
           (
-            sum(rate(a2a_consumer_requests_total[5m])) 
-            < 
+            sum(rate(a2a_consumer_requests_total[5m]))
+            <
             sum(rate(a2a_consumer_requests_total[1h])) * 0.5
           )
           and
@@ -88,13 +89,12 @@ groups:
         annotations:
           summary: "⚠️ QPS 突降检测"
           description: "当前 QPS {{ $value | humanize }} 比 1 小时前下降超过 50%"
-      
+
       # ========== Agent 路由告警 ==========
-      
-      # Warning: Agent 不可用
+      # job 名必须与 prometheus.yml 一致；原 travel/food 已重命名为 order/product
       - alert: AgentUnavailable
         expr: |
-          up{job=~"a2a-(food|travel|router)"} == 0
+          up{job=~"smartassistant-(order|product|router)"} == 0
         for: 1m
         labels:
           severity: critical
@@ -102,15 +102,15 @@ groups:
         annotations:
           summary: "🚨 Agent 服务不可用"
           description: "{{ $labels.instance }} 已下线超过 1 分钟"
-      
+
       # ========== 数据库连接池告警 ==========
-      
+
       # Warning: 数据库连接池使用率超过 80%
       - alert: DatabaseConnectionPoolHigh
         expr: |
           (
-            hikaricp_connections_active{pool="HikariPool-1"} 
-            / 
+            hikaricp_connections_active{pool="HikariPool-1"}
+            /
             hikaricp_connections{pool="HikariPool-1"}
           ) * 100 > 80
         for: 5m
@@ -120,7 +120,7 @@ groups:
         annotations:
           summary: "⚠️ 数据库连接池使用率高"
           description: "连接池使用率 {{ $value | humanize }}%，建议增加最大连接数"
-      
+
       # Critical: 数据库连接池耗尽
       - alert: DatabaseConnectionPoolExhausted
         expr: |
@@ -132,15 +132,15 @@ groups:
         annotations:
           summary: "🚨 数据库连接池耗尽"
           description: "空闲连接数为 0，持续 2 分钟，可能导致请求超时"
-      
+
       # ========== Redis 告警 ==========
-      
+
       # Warning: Redis 内存使用超过 80%
       - alert: RedisMemoryHigh
         expr: |
           (
-            redis_used_memory 
-            / 
+            redis_used_memory
+            /
             redis_maxmemory
           ) * 100 > 80
         for: 5m
@@ -150,15 +150,15 @@ groups:
         annotations:
           summary: "⚠️ Redis 内存使用率高"
           description: "Redis 内存使用率 {{ $value | humanize }}%"
-      
+
       # ========== 缓存命中率告警 ==========
-      
+
       # Warning: 缓存命中率低于 60%
       - alert: LowCacheHitRate
         expr: |
           (
-            a2a_consumer_cache_hits 
-            / 
+            a2a_consumer_cache_hits
+            /
             (a2a_consumer_cache_hits + a2a_consumer_cache_misses)
           ) * 100 < 60
         for: 10m
@@ -168,14 +168,14 @@ groups:
         annotations:
           summary: "⚠️ 缓存命中率低"
           description: "缓存命中率 {{ $value | humanize }}% 低于 60%，可能影响性能"
-      
+
       # ========== Prompt 构建时间告警 ==========
-      
+
       # Warning: Prompt 构建平均时间超过 500ms
       - alert: SlowPromptBuild
         expr: |
-          rate(a2a_consumer_prompt_build_time_seconds_sum[5m]) 
-          / 
+          rate(a2a_consumer_prompt_build_time_seconds_sum[5m])
+          /
           rate(a2a_consumer_prompt_build_time_seconds_count[5m]) > 0.5
         for: 5m
         labels:
@@ -184,10 +184,10 @@ groups:
         annotations:
           summary: "⚠️ Prompt 构建缓慢"
           description: "平均构建时间 {{ $value | humanizeDuration }} 超过 500ms"
-  
+
   # 注意：Loki 日志告警应在 Grafana 中配置，不在 Prometheus 规则文件中
   # 原因：Prometheus 无法解析 LogQL 查询语法
-  
+
   # 服务健康检查
   - name: service-health-checks
     rules:
@@ -200,7 +200,7 @@ groups:
         annotations:
           summary: "🚨 服务宕机: {{ $labels.job }}"
           description: "{{ $labels.instance }} 已停止响应"
-      
+
       # Prometheus 自身健康
       - alert: PrometheusTargetMissing
         expr: up == 0
