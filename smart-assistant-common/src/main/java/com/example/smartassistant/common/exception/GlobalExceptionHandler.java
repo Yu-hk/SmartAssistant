@@ -3,7 +3,6 @@ package com.example.smartassistant.common.exception;
 import com.example.smartassistant.common.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
@@ -38,6 +37,9 @@ import java.util.regex.Pattern;
  *   <li>{PREFIX}_099: 未知错误</li>
  * </ul>
  * 模块独有错误码（003/005 等）通过 {@link ServiceException} 携带。
+ * <p>
+ * 所有错误码格式化、错误明细构造、traceId 解析均委托
+ * {@link ExceptionHandlerSupport}，与 router / gateway 保持一致，避免漂移。
  */
 @Slf4j
 @Order
@@ -60,7 +62,7 @@ public class GlobalExceptionHandler {
 
         log.warn("[{}_001] 参数校验失败 | path={} | msg={}", moduleName, request.getRequestURI(), msg);
 
-        return badRequest(errorCode("001"), msg, collectFieldErrors(e));
+        return badRequest(ExceptionHandlerSupport.formatModuleCode(moduleName, "001"), msg, collectFieldErrors(e));
     }
 
     @ExceptionHandler(BindException.class)
@@ -73,7 +75,7 @@ public class GlobalExceptionHandler {
 
         log.warn("[{}_001] 参数绑定失败 | path={}", moduleName, request.getRequestURI());
 
-        return badRequest(errorCode("001"), msg, null);
+        return badRequest(ExceptionHandlerSupport.formatModuleCode(moduleName, "001"), msg, null);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
@@ -81,7 +83,7 @@ public class GlobalExceptionHandler {
             IllegalArgumentException e, HttpServletRequest request) {
         log.warn("[{}_001] 非法参数 | path={} | msg={}", moduleName, request.getRequestURI(), e.getMessage());
 
-        return badRequest(errorCode("001"), e.getMessage(), null);
+        return badRequest(ExceptionHandlerSupport.formatModuleCode(moduleName, "001"), e.getMessage(), null);
     }
 
     // ===================== 认证异常 =====================
@@ -91,8 +93,9 @@ public class GlobalExceptionHandler {
             SecurityException e, HttpServletRequest request) {
         log.warn("[{}_002] 认证失败 | path={} | msg={}", moduleName, request.getRequestURI(), e.getMessage());
 
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(
-                errorCode("002"), "认证失败，请重新登录", null, getTraceId());
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                ExceptionHandlerSupport.formatModuleCode(moduleName, "002"), "认证失败，请重新登录", null,
+                ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                 ApiResponse.error(HttpStatus.UNAUTHORIZED.value(), "认证失败，请重新登录", error));
     }
@@ -105,8 +108,8 @@ public class GlobalExceptionHandler {
         log.warn("[SERVICE_EX] path={} | code={} | msg={}",
                 request.getRequestURI(), e.getErrorCode(), e.getMessage());
 
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(
-                e.getErrorCode(), e.getDetail(), null, getTraceId());
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                e.getErrorCode(), e.getDetail(), null, ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.status(e.getHttpStatus()).body(
                 ApiResponse.error(e.getHttpStatus(), e.getMessage(), error));
     }
@@ -119,8 +122,10 @@ public class GlobalExceptionHandler {
         log.error("[{}_004] 数据访问异常 | path={} | msg={}",
                 moduleName, request.getRequestURI(), e.getMessage());
 
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(
-                errorCode("004"), truncate(e.getMessage(), 200), null, getTraceId());
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                ExceptionHandlerSupport.formatModuleCode(moduleName, "004"),
+                ExceptionHandlerSupport.truncate(e.getMessage(), 200), null,
+                ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(
                 ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE.value(), "数据库暂时不可用，请稍后重试", error));
     }
@@ -138,8 +143,9 @@ public class GlobalExceptionHandler {
                 ? "服务暂时不可用（" + targetService + "），请稍后重试"
                 : "服务暂时不可用，请稍后重试";
 
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(
-                errorCode("004"), e.getMessage(), null, getTraceId());
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                ExceptionHandlerSupport.formatModuleCode(moduleName, "004"), e.getMessage(), null,
+                ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(
                 ApiResponse.error(HttpStatus.BAD_GATEWAY.value(), userMsg, error));
     }
@@ -150,8 +156,10 @@ public class GlobalExceptionHandler {
         log.error("[{}_004] 远程服务返回错误 | path={} | status={}",
                 moduleName, request.getRequestURI(), e.getStatusCode().value());
 
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(
-                errorCode("004"), truncate(e.getMessage(), 200), null, getTraceId());
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                ExceptionHandlerSupport.formatModuleCode(moduleName, "004"),
+                ExceptionHandlerSupport.truncate(e.getMessage(), 200), null,
+                ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(
                 ApiResponse.error(HttpStatus.BAD_GATEWAY.value(), "上游服务异常，请稍后重试", error));
     }
@@ -164,29 +172,22 @@ public class GlobalExceptionHandler {
         log.error("[{}_099] 未处理异常 | path={} | type={} | msg={}",
                 moduleName, request.getRequestURI(), e.getClass().getSimpleName(), e.getMessage(), e);
 
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(
-                errorCode("099"), e.getClass().getSimpleName() + ": " + e.getMessage(), null, getTraceId());
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                ExceptionHandlerSupport.formatModuleCode(moduleName, "099"),
+                e.getClass().getSimpleName() + ": " + e.getMessage(), null,
+                ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.internalServerError().body(
                 ApiResponse.error(HttpStatus.INTERNAL_SERVER_ERROR.value(), "服务内部异常，请联系管理员", error));
     }
 
     // ===================== 工具方法 =====================
 
-    /** 生成模块限定错误码 */
-    private String errorCode(String seq) {
-        return moduleName.toUpperCase() + "_" + seq;
-    }
-
     /** 快速创建 400 响应 */
     private ResponseEntity<ApiResponse<Void>> badRequest(String code, String msg, Map<String, String> fieldErrors) {
-        ApiResponse.ErrorDetail error = new ApiResponse.ErrorDetail(code, msg, fieldErrors, getTraceId());
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                code, msg, fieldErrors, ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.badRequest().body(
                 ApiResponse.error(HttpStatus.BAD_REQUEST.value(), msg, error));
-    }
-
-    private String getTraceId() {
-        String traceId = MDC.get("traceId");
-        return traceId != null ? traceId : null;
     }
 
     private String extractServiceName(String message) {
@@ -204,10 +205,5 @@ public class GlobalExceptionHandler {
         e.getBindingResult().getFieldErrors().forEach(err ->
                 fieldErrors.put(err.getField(), err.getDefaultMessage()));
         return fieldErrors.isEmpty() ? null : fieldErrors;
-    }
-
-    private String truncate(String s, int maxLen) {
-        if (s == null) return null;
-        return s.length() > maxLen ? s.substring(0, maxLen) : s;
     }
 }
