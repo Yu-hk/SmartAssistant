@@ -153,11 +153,9 @@ function AppContent() {
 
   const {
     isLoading, inputValue, setInputValue,
-    permissionRequest, transferPending, showSatisfaction, faqSuggestions,
+    permissionRequest, faqSuggestions,
     sendMessage, handleStop,
-    handleTransferToHuman, handleSatisfaction,
     handlePermissionAllow, handlePermissionDeny,
-    setShowSatisfaction, setTransferPending,
     queuePosition, queueEstimatedWait,
   } = useChat({
     currentSession,
@@ -286,19 +284,14 @@ function AppContent() {
               isLoading={isLoading}
               inputValue={inputValue}
               permissionRequest={permissionRequest}
-              transferPending={transferPending}
-              showSatisfaction={showSatisfaction}
               faqSuggestions={faqSuggestions}
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
               onSendMessage={sendMessage}
               onStop={handleStop}
               onInputChange={setInputValue}
-              onTransfer={handleTransferToHuman}
-              onSatisfaction={handleSatisfaction}
               onPermissionAllow={handlePermissionAllow}
               onPermissionDeny={handlePermissionDeny}
-              onSkipSatisfaction={() => setShowSatisfaction(false)}
             />
           </>
         )}

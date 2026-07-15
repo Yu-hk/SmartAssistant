@@ -17,10 +17,6 @@ export function useChat(options: UseChatOptions) {
   const [isLoading, setIsLoading] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
-  // 转人工状态
-  const [transferPending, setTransferPending] = useState(false);
-  // 满意度弹窗
-  const [showSatisfaction, setShowSatisfaction] = useState(false);
   // FAQ 建议
   const [faqSuggestions, setFaqSuggestions] = useState<FaqItem[]>([]);
   // ⭐ 排队状态
@@ -246,12 +242,6 @@ export function useChat(options: UseChatOptions) {
               }));
             }
 
-          } else if (data.type === 'transfer_to_human') {
-            setSessions(prev => prev.map(s =>
-              s.id === realSessionId ? { ...s, status: 'human_transfer' } : s
-            ));
-            setTransferPending(true);
-
           } else if (data.type === 'done') {
             isDone = true;
             setSessions(prev => prev.map(s => {
@@ -265,7 +255,6 @@ export function useChat(options: UseChatOptions) {
               }
               return s;
             }));
-            setTimeout(() => setShowSatisfaction(true), 2000);
             eventSourceRef.current = null; // 清除引用
             es.close();
             resolve();
@@ -338,31 +327,7 @@ export function useChat(options: UseChatOptions) {
         }
       };
     });
-  }, [setSessions, setFaqSuggestions, setTransferPending, setShowSatisfaction, setPermissionRequest, setQueuePosition, setQueueEstimatedWait]);
-
-  // 转人工
-  const handleTransferToHuman = useCallback(async () => {
-    if (!currentSessionId) return;
-    try {
-      await sessionApi.transferToHuman(currentSessionId, { reason: '用户请求人工客服', agentId: '' });
-      setSessions(prev => prev.map(s =>
-        s.id === currentSessionId ? { ...s, status: 'human_transfer' } : s
-      ));
-      setTransferPending(false);
-    } catch (e) { console.error(e); }
-  }, [currentSessionId, setSessions]);
-
-  // 提交满意度
-  const handleSatisfaction = useCallback(async (score: number, comment?: string) => {
-    if (!currentSessionId) return;
-    try {
-      await sessionApi.submitSatisfaction(currentSessionId, { score, comment });
-      setSessions(prev => prev.map(s =>
-        s.id === currentSessionId ? { ...s, satisfaction: score, status: 'closed' } : s
-      ));
-      setShowSatisfaction(false);
-    } catch (e) { console.error(e); }
-  }, [currentSessionId, setSessions]);
+  }, [setSessions, setFaqSuggestions, setPermissionRequest, setQueuePosition, setQueueEstimatedWait]);
 
   // 权限处理
   const handlePermissionAllow = useCallback(async () => {
@@ -404,18 +369,12 @@ export function useChat(options: UseChatOptions) {
     inputValue,
     setInputValue,
     permissionRequest,
-    transferPending,
-    showSatisfaction,
     faqSuggestions,
     queuePosition,
     queueEstimatedWait,
     sendMessage,
     handleStop,
-    handleTransferToHuman,
-    handleSatisfaction,
     handlePermissionAllow,
     handlePermissionDeny,
-    setShowSatisfaction,
-    setTransferPending,
   };
 }
