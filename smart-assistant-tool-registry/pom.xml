@@ -48,7 +48,9 @@
         </dependency>
 
         <!-- ⭐ Spring AI MCP Server (WebMvc/SSE 传输) — T2a 发现层暴露
-             版本由父 pom 的 spring-ai-bom (2.0.0) 统一管理，不显式指定版本以避免全局升级 -->
+             版本由父 pom 的 spring-ai-bom (1.0.9) 统一管理，不显式指定版本以避免全局升级。
+             注意：MCP SDK（io.modelcontextprotocol.sdk，mcp-core / mcp-json-jackson3）独立版本为 2.0.0，
+             与 Spring AI 1.0.9 是两回事，勿因“2.0.0”误判为 Spring AI 2.0 而升级。 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
