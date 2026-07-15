@@ -24,7 +24,7 @@
 | Tool Registry | 8088 | 工具注册中心、兼容性检查 |
 | Gateway | 8081 | API 网关、鉴权 |
 | Embedding | 8091 | 向量嵌入服务 |
-| Recommend | 8088 | 推荐引擎 |
+| Recommend | 8089 | 推荐引擎 |
 | User | 8086 | 用户管理、画像 |
 
 ## 3. 编码规范

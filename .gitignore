@@ -75,6 +75,14 @@ EmbeddingDebugTool.class
 # Build logs
 build.log
 consumer-build.log
+build2.log
+regression*.log
+round2*.log
+
+# Downloaded/extracted artifacts at root (project tech debt, not source)
+*.tgz
+*.tar.gz
+.mvn_extracted/
 
 # Post result test files
 post_result*.json
