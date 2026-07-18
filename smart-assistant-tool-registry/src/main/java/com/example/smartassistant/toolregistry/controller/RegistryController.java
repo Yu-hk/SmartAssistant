@@ -126,6 +126,34 @@ public class RegistryController {
         return ApiResponse.error(404, "工具未注册: " + name);
     }
 
+    // ==================== 心跳 & 反注册 API ====================
+
+    /**
+     * 心跳续期（供注册方周期性调用，维持 TTL 存活）。
+     */
+    @PostMapping("/{name}/heartbeat")
+    public ApiResponse<String> heartbeat(@PathVariable String name) {
+        boolean ok = registryService.heartbeat(name);
+        if (ok) {
+            return ApiResponse.ok("心跳成功", name);
+        }
+        return ApiResponse.error(404, "工具未注册: " + name);
+    }
+
+    /**
+     * 反注册（彻底移除）工具。
+     */
+    @DeleteMapping("/{name}")
+    public ApiResponse<String> deregister(@PathVariable String name) {
+        boolean ok = registryService.remove(name);
+        if (ok) {
+            log.info("[RegistryController][{}] DELETE /api/tools/{}: 反注册成功",
+                    RequestIdHolder.get(), name);
+            return ApiResponse.ok("反注册成功", name);
+        }
+        return ApiResponse.error(404, "工具未注册: " + name);
+    }
+
     // ==================== 健康检查 API ====================
 
     /**

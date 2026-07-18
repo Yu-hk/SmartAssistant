@@ -12,6 +12,8 @@ import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsHelper;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsTool;
+import com.example.smartassistant.common.memory.AgentMemoryService;
+import com.example.smartassistant.common.memory.MemoryExtractor;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.order.tool.CouponTools;
@@ -71,6 +73,13 @@ public class OrderAgentConfig {
 	 */
 	@Autowired(required = false)
 	private DiscoverToolsTool discoverToolsTool;
+
+    @Bean
+    public MemoryExtractor memoryExtractor(
+            @Qualifier("deepSeekChatModel") ChatModel chatModel,
+            AgentMemoryService memoryService) {
+        return new MemoryExtractor(chatModel, memoryService);
+    }
 
     @Bean
     public SmartReActAgent orderAgent(

@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.aop.Advisor;
 import org.springframework.aop.framework.AopInfrastructureBean;
 import org.springframework.aop.support.DefaultPointcutAdvisor;
+import org.springframework.aop.support.StaticMethodMatcherPointcut;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportAware;
@@ -98,9 +99,17 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
         // 使用 AnnotationMatchingPointcut 也可以，但我们需要按包路径匹配
         // 改用自定义的 MethodBeforeAdvice + 包路径匹配
         ServiceInterceptorMethodInterceptor advice =
-                new ServiceInterceptorMethodInterceptor(interceptorChain, basePackages);
+                new ServiceInterceptorMethodInterceptor(interceptorChain);
 
-        DefaultPointcutAdvisor advisor = new DefaultPointcutAdvisor(advice);
+        StaticMethodMatcherPointcut pointcut = new StaticMethodMatcherPointcut() {
+            @Override
+            public boolean matches(Method method, Class<?> targetClass) {
+                return method.getDeclaringClass() != Object.class
+                        && matchesBasePackage(targetClass.getName(), basePackages);
+            }
+        };
+
+        DefaultPointcutAdvisor advisor = new DefaultPointcutAdvisor(pointcut, advice);
         advisor.setOrder(Ordered.LOWEST_PRECEDENCE - 100);
         return advisor;
     }
@@ -112,11 +121,9 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
             implements org.aopalliance.intercept.MethodInterceptor, Ordered {
 
         private final ServiceInterceptorChain chain;
-        private final String[] basePackages;
 
-        ServiceInterceptorMethodInterceptor(ServiceInterceptorChain chain, String[] basePackages) {
+        ServiceInterceptorMethodInterceptor(ServiceInterceptorChain chain) {
             this.chain = chain;
-            this.basePackages = basePackages;
         }
 
         @Override
@@ -130,11 +137,7 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
                 return invocation.proceed();
             }
 
-            // 包路径匹配检查
             String className = target.getClass().getName();
-            if (!matchesBasePackage(className)) {
-                return invocation.proceed();
-            }
 
             // 跳过 Object 类方法
             if (method.getDeclaringClass() == Object.class) {
@@ -161,21 +164,22 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
             }
         }
 
-        private boolean matchesBasePackage(String className) {
-            if (basePackages == null || basePackages.length == 0) {
-                return false;
-            }
-            for (String pkg : basePackages) {
-                if (pkg != null && !pkg.isEmpty() && className.startsWith(pkg)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         @Override
         public int getOrder() {
             return Ordered.LOWEST_PRECEDENCE - 100;
         }
+    }
+
+    private static boolean matchesBasePackage(String className, String[] basePackages) {
+        if (basePackages == null || basePackages.length == 0) {
+            return false;
+        }
+        for (String pkg : basePackages) {
+            if (pkg != null && !pkg.isBlank()
+                    && (className.equals(pkg) || className.startsWith(pkg + "."))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

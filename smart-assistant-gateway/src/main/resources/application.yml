@@ -13,7 +13,7 @@ spring:
 
   cloud:
     # Spring Cloud Gateway 配置
-    gateway:
+    gateway.server.webflux:
       # 启用服务发现路由
       discovery:
         locator:
@@ -131,13 +131,14 @@ management:
     health:
       show-details: always
     prometheus:
-      enabled: true
+      access: unrestricted
     gateway:
-      enabled: true
-  metrics:
-    export:
-      prometheus:
+      access: unrestricted
+  prometheus:
+    metrics:
+      export:
         enabled: true
+  metrics:
     tags:
       application: ${spring.application.name}
       environment: development

@@ -7,18 +7,19 @@
 
 package com.example.smartassistant.user;
 
+import com.example.smartassistant.common.exception.GlobalExceptionHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
-import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Import;
 
 @Slf4j
 @SpringBootApplication
 @EnableDiscoveryClient
-@ComponentScan("com.example.smartassistant.common")
+@Import(GlobalExceptionHandler.class)
 @MapperScan("com.example.smartassistant.user.mapper")
 public class UserServiceApplication {
 

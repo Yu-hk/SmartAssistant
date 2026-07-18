@@ -10,13 +10,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <pre>{@code
  * tool-registry:
- *   url: http://localhost:8088         # Registry 服务地址
+ *   url: http://localhost:8090         # Registry 服务地址
  *   cache-ttl-seconds: 30              # 本地缓存 TTL（秒）
  *   connect-timeout-ms: 2000           # 连接超时（毫秒）
  *   read-timeout-ms: 5000              # 读取超时（毫秒）
  *   # ===== T2c：MCP 发现 / 转发（默认关闭，一键回退 T2' 前行为）=====
  *   mcp-discovery-enabled: false       # 是否启用 MCP 优先发现通道（true=经 registry MCP server 发现）
- *   mcp-endpoint: http://localhost:8088# registry MCP server SSE 基址（默认 = url，SDK 自动补 /sse）
+ *   mcp-endpoint: http://localhost:8090# registry MCP server SSE 基址（默认 = url，SDK 自动补 /sse）
  *   mcp-request-timeout-ms: 5000       # 发现（listTools/search_tools）请求超时（毫秒）
  *   mcp-backend-request-timeout-ms: 5000 # 后端 MCP server tools/call 转发超时（毫秒）
  *   mcp-backend-max-idle-seconds: 300  # 后端连接池最大空闲时间（预留，当前按需懒加载+重连）
@@ -29,7 +29,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class ToolRegistryProperties {
 
     /** Registry 服务地址 */
-    private String url = "http://localhost:8088";
+    private String url = "http://localhost:8090";
 
     /** 本地缓存 TTL（秒） */
     private int cacheTtlSeconds = 30;
