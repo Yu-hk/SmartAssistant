@@ -8,14 +8,16 @@
 .gitignore
 
 # 开发构建产物
-**/target/
+**/target/*
+!smart-assistant-*/target/*.jar
 **/build/
 **/node_modules/
 **/logs/
 **/dumpstream/
 
 # 大文件
-models/  # 模型文件单独 volume 挂载，不包含在镜像中
+# 模型文件单独通过 volume 挂载，不包含在镜像中
+models/
 data/
 
 # 前端构建会单独处理

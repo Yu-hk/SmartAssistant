@@ -168,8 +168,8 @@ services:
   # ===========================
   gateway:
     build:
-      context: ../
-      dockerfile: deploy/Dockerfile
+      context: ../smart-assistant-gateway
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-gateway
     container_name: smart-gateway
@@ -206,8 +206,8 @@ services:
 
   user:
     build:
-      context: ../
-      dockerfile: deploy/Dockerfile
+      context: ../smart-assistant-user
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-user
     container_name: smart-user
@@ -246,8 +246,8 @@ services:
 
   consumer:
     build:
-      context: ../
-      dockerfile: deploy/Dockerfile
+      context: ../smart-assistant-consumer
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-consumer
     container_name: smart-consumer
@@ -297,8 +297,8 @@ services:
 
   router:
     build:
-      context: ../
-      dockerfile: deploy/Dockerfile
+      context: ../smart-assistant-router
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-router
     container_name: smart-router
@@ -342,8 +342,8 @@ services:
 
   order:
     build:
-      context: ../
-      dockerfile: deploy/Dockerfile
+      context: ../smart-assistant-order
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-order
     container_name: smart-order
@@ -387,8 +387,8 @@ services:
 
   product:
     build:
-      context: ../
-      dockerfile: deploy/Dockerfile
+      context: ../smart-assistant-product
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-product
     container_name: smart-product
@@ -432,8 +432,8 @@ services:
 
   general:
     build:
-      context: ../
-      dockerfile: deploy/Dockerfile
+      context: ../smart-assistant-general
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-general
     container_name: smart-general
@@ -468,8 +468,8 @@ services:
 
   embedding-service:
     build:
-      context: ../
-      dockerfile: deploy/Dockerfile
+      context: ../smart-assistant-embedding-service
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-embedding-service
     container_name: smart-embedding
