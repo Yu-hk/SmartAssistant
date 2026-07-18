@@ -6,9 +6,9 @@
 ## 1. 技术栈
 
 - **语言**: Java 21（虚拟线程、record、switch 表达式）
-- **框架**: Spring Boot 3.4.8 + Spring AI 2.0.0
+- **框架**: Spring Boot 3.5.16 + Spring AI 1.0.9
 - **构建**: Maven 多模块
-- **数据库**: PostgreSQL 16（主库）+ Milvus 2.4（向量库）+ Redis 7（缓存/会话）
+- **数据库**: PostgreSQL 16（主库）+ Milvus 2.4（向量库，Java SDK 2.5.5）+ Redis 7（缓存/会话）
 - **注册中心**: Nacos 2.3
 - **前端**: React 18 + Vite + MUI + Tailwind CSS
 - **CI/CD**: GitHub Actions（评测门禁 + 安全扫描）
@@ -21,7 +21,7 @@
 | Consumer | 8082 | MCP Agent、混合查询 |
 | Order | 8085 | 订单查询、退款、物流 |
 | Product | 8084 | 商品搜索、详情、推荐 |
-| Tool Registry | 8088 | 工具注册中心、兼容性检查 |
+| Tool Registry | 8090 | 工具注册中心、兼容性检查 |
 | Gateway | 8081 | API 网关、鉴权 |
 | Embedding | 8091 | 向量嵌入服务 |
 | Recommend | 8088 | 推荐引擎 |

@@ -356,7 +356,7 @@ public boolean register(ToolDefinition definition) {
 | Consumer | 8081 | 用户对话入口 + SSE 推送 |
 | Order | 8082 | 订单 Agent + 售后/退款 |
 | Product | 8083 | 商品 Agent + RAG 检索 |
-| Tool Registry | 8088 | 工具注册中心 |
+| Tool Registry | 8090 | 工具注册中心 |
 
 ## 编码规范
 - 工具定义使用 @Tool 注解 + ToolDefinition.builder()
