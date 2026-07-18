@@ -43,7 +43,7 @@ import java.util.regex.Pattern;
  */
 @Slf4j
 @Order
-@RestControllerAdvice
+@RestControllerAdvice(name = "commonGlobalExceptionHandler")
 public class GlobalExceptionHandler {
 
     /** 模块标识（由 spring.application.name 决定错误码前缀） */

@@ -13,8 +13,12 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,11 +31,22 @@ import java.util.stream.Collectors;
  * 基于内存 {@link ConcurrentHashMap} 的轻量级注册中心，提供工具注册、查询、废弃、
  * 健康检查聚合和依赖追踪功能。后续可迁移到数据库存储。
  * </p>
+ * <p>
+ * ⚠️ 生产化注意（P0 修复）：
+ * <ul>
+ *   <li><b>HA 不共享</b>：存储为进程内存态，多实例部署（如 docker-compose.ha.yml）下各实例注册表相互独立，
+ *       实例 A 注册的工具对实例 B 不可见。跨实例一致需迁移到共享存储（Redis/DB），详见 {@code registry.store.type}。</li>
+ *   <li><b>心跳 / TTL</b>：通过 {@link #heartbeat(String)} 续期、{@link #evictStaleEntries()} 按 TTL 淘汰未心跳的 ACTIVE 工具；
+ *       默认关闭（{@code registry.eviction.enabled=false}），以兼容「启动即注册、进程生命周期内长期存活」的既有工具。启用后注册方须周期性心跳。</li>
+ *   <li><b>反注册</b>：{@link #remove(String)} 真正释放资源（区别于仅改状态的 {@link #deprecate}）。</li>
+ * </ul>
+ * </p>
  *
  * @author Yu-hk
  * @since 2026-07-10
  */
 @Service
+@EnableScheduling
 public class RegistryService {
 
     private static final Logger log = LoggerFactory.getLogger(RegistryService.class);
@@ -50,6 +65,17 @@ public class RegistryService {
 
     /** 调用次数（Registry 视角）：toolName → callCount */
     private final Map<String, AtomicLong> callCount = new ConcurrentHashMap<>();
+
+    /** 最后心跳时间：toolName → Instant（用于 TTL 过期清理与存活判定） */
+    private final Map<String, Instant> lastHeartbeat = new ConcurrentHashMap<>();
+
+    /** TTL 过期清理开关（默认关闭，避免影响「启动即注册、长期存活」的既有工具） */
+    @Value("${registry.eviction.enabled:false}")
+    private boolean evictionEnabled;
+
+    /** 心跳超时阈值（秒）：超过该时长未心跳且状态 ACTIVE 的工具将被清理 */
+    @Value("${registry.eviction.ttl-seconds:3600}")
+    private long evictionTtlSeconds;
 
     /** 兼容性检查器 */
     private final ToolCompatibilityChecker compatibilityChecker;
@@ -128,6 +154,7 @@ public class RegistryService {
 
         // 3. 写入存储
         definitions.put(definition.getName(), definition);
+        lastHeartbeat.put(definition.getName(), Instant.now());
 
         if (existing != null) {
             log.info("[RegistryService][{}] 更新工具: name={}, version={}→{}, status={}→{}, compatibility={}",
@@ -405,8 +432,78 @@ public class RegistryService {
                 .build();
 
         definitions.put(toolName, updated);
+        lastHeartbeat.put(toolName, Instant.now());
         log.info("[RegistryService] 启用工具: name={}", toolName);
         return true;
+    }
+
+    // ==================== 心跳 & 反注册 ====================
+
+    /**
+     * 心跳续期：更新工具的最后心跳时间。供运行时注册方周期性调用，
+     * 以维持 TTL 过期清理机制下的存活状态。
+     *
+     * @param toolName 工具名称
+     * @return 若工具已注册则返回 true
+     */
+    public boolean heartbeat(String toolName) {
+        if (!definitions.containsKey(toolName)) {
+            return false;
+        }
+        lastHeartbeat.put(toolName, Instant.now());
+        return true;
+    }
+
+    /**
+     * 反注册（移除）工具：从定义存储及所有关联统计中彻底删除。
+     * <p>与 {@link #deprecate} 不同，deprecate 仅标记状态，本方法真正释放资源，
+     * 用于下线/重启前清理陈旧条目。</p>
+     *
+     * @param toolName 工具名称
+     * @return 若移除成功返回 true
+     */
+    public boolean remove(String toolName) {
+        boolean removed = definitions.remove(toolName) != null;
+        if (removed) {
+            dependencies.remove(toolName);
+            errorCounts.remove(toolName);
+            totalLatency.remove(toolName);
+            callCount.remove(toolName);
+            lastHeartbeat.remove(toolName);
+            log.info("[RegistryService][{}] 反注册工具: name={}", RequestIdHolder.get(), toolName);
+        } else {
+            log.warn("[RegistryService] 反注册失败: 工具未注册 name={}", toolName);
+        }
+        return removed;
+    }
+
+    // ==================== TTL 过期清理 ====================
+
+    /**
+     * 定时清理过期工具（按 TTL 淘汰未心跳的 ACTIVE 工具）。
+     * <p>仅当 {@code registry.eviction.enabled=true} 时生效；默认关闭，
+     * 以兼容「启动即注册、进程生命周期内长期存活」的既有工具。启用后注册方须周期性调用
+     * {@link #heartbeat} 维持存活。</p>
+     */
+    @Scheduled(initialDelay = 60000, fixedDelay = 60000)
+    public void evictStaleEntries() {
+        if (!evictionEnabled) {
+            return;
+        }
+        Instant threshold = Instant.now().minusSeconds(evictionTtlSeconds);
+        int evicted = 0;
+        for (Map.Entry<String, Instant> entry : lastHeartbeat.entrySet()) {
+            if (entry.getValue().isBefore(threshold)) {
+                ToolDefinition def = definitions.get(entry.getKey());
+                if (def != null && def.getStatus() == ToolStatus.ACTIVE) {
+                    remove(entry.getKey());
+                    evicted++;
+                }
+            }
+        }
+        if (evicted > 0) {
+            log.info("[RegistryService] TTL 过期清理完成: 移除 {} 个未心跳工具", evicted);
+        }
     }
 
     // ==================== 健康检查 ====================
@@ -431,8 +528,14 @@ public class RegistryService {
                     ? totalLatency.getOrDefault(def.getName(), new AtomicLong(0)).get() / cc
                     : 0;
 
+            boolean stale = evictionEnabled
+                    && lastHeartbeat.getOrDefault(def.getName(), Instant.EPOCH)
+                        .isBefore(Instant.now().minusSeconds(evictionTtlSeconds));
+
             String healthStatus;
-            if (def.getStatus() == ToolStatus.DISABLED || def.getStatus() == ToolStatus.REMOVED) {
+            if (stale) {
+                healthStatus = "DOWN";
+            } else if (def.getStatus() == ToolStatus.DISABLED || def.getStatus() == ToolStatus.REMOVED) {
                 healthStatus = "DOWN";
             } else if (def.getStatus() == ToolStatus.DEPRECATED) {
                 healthStatus = "DEGRADED";

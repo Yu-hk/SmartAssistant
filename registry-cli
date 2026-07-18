@@ -5,11 +5,11 @@
 # 需要: curl, python3 (用于格式化 JSON 输出)
 #
 # 环境变量:
-#   REGISTRY_URL — Registry 服务地址（默认 http://localhost:8088）
+#   REGISTRY_URL — Registry 服务地址（默认 http://localhost:8090）
 
 set -e
 
-REGISTRY_URL="${REGISTRY_URL:-http://localhost:8088}"
+REGISTRY_URL="${REGISTRY_URL:-http://localhost:8090}"
 
 usage() {
     echo "Tool Registry CLI v1.0"
@@ -31,6 +31,8 @@ usage() {
     echo "  $0 dependents order.queryOrder                      # 依赖查询"
     echo "  $0 deprecate order.v1 order.v2 2026-08-10 '重构迁移' # 废弃"
     echo "  $0 activate order.v1                                # 启用"
+    echo "  $0 heartbeat order.queryOrder                       # 心跳续期（维持 TTL 存活）"
+    echo "  $0 deregister order.queryOrder                      # 反注册（彻底移除）"
     echo ""
     echo "环境变量:"
     echo "  REGISTRY_URL=${REGISTRY_URL}  (可自定义)"
@@ -87,6 +89,14 @@ case "$CMD" in
     activate)
         [ -z "$2" ] && { echo "用法: $0 activate <name>"; exit 1; }
         api_post "/api/tools/$2/activate" "" ;;
+
+    heartbeat)
+        [ -z "$2" ] && { echo "用法: $0 heartbeat <name>"; exit 1; }
+        api_post "/api/tools/$2/heartbeat" "" ;;
+
+    deregister)
+        [ -z "$2" ] && { echo "用法: $0 deregister <name>"; exit 1; }
+        curl -s -X DELETE "${REGISTRY_URL}/api/tools/$2" | python3 -m json.tool ;;
     
     help|--help|-h)
         usage ;;

@@ -72,6 +72,9 @@ public class SseEventBus {
     /** 心跳定时任务 */
     private ScheduledFuture<?> heartbeatFuture;
 
+    /** 心跳调度器（必须在 close 时 shutdownNow，否则执行器/线程泄漏） */
+    private ScheduledThreadPoolExecutor heartbeatScheduler;
+
     public SseEventBus(HttpServletResponse response, String requestId, RedisZSetCache redisCache) {
         this.response = response;
         this.redisKey = requestId != null ? SSE_BUFFER_PREFIX + requestId : null;
@@ -109,6 +112,7 @@ public class SseEventBus {
             t.setDaemon(true);
             return t;
         });
+        this.heartbeatScheduler = scheduler;
         heartbeatFuture = scheduler.scheduleAtFixedRate(() -> {
             try {
                 if (closed || response.isCommitted()) {
@@ -141,6 +145,9 @@ public class SseEventBus {
         closed = true;
         if (heartbeatFuture != null) {
             heartbeatFuture.cancel(false);
+        }
+        if (heartbeatScheduler != null) {
+            heartbeatScheduler.shutdownNow();
         }
         try { response.getOutputStream().close(); } catch (Exception e) { log.debug("[SseEventBus] 关闭输出流: {}", e.getMessage()); }
     }
