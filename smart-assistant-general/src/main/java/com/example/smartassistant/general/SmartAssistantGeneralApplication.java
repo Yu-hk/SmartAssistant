@@ -7,14 +7,23 @@
 
 package com.example.smartassistant.general;
 
+import com.example.smartassistant.common.agent.ReActProfileAutoConfiguration;
+import com.example.smartassistant.common.correction.CorrectionService;
+import com.example.smartassistant.common.exception.GlobalExceptionHandler;
+import com.example.smartassistant.common.memory.AgentMemoryService;
+import com.example.smartassistant.common.rag.advisor.AdvisorChainAutoConfiguration;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.ComponentScan;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+import org.springframework.context.annotation.Import;
 
-@SpringBootApplication
-@ComponentScan({
-    "com.example.smartassistant.general",
-    "com.example.smartassistant.common"
+@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)
+@Import({
+    AgentMemoryService.class,
+    AdvisorChainAutoConfiguration.class,
+    CorrectionService.class,
+    GlobalExceptionHandler.class,
+    ReActProfileAutoConfiguration.class
 })
 public class SmartAssistantGeneralApplication {
 

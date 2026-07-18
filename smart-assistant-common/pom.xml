@@ -109,12 +109,12 @@
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
             <artifactId>mcp</artifactId>
-            <version>2.0.0</version>
+            <version>${mcp-sdk.version}</version>
         </dependency>
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
             <artifactId>mcp-json-jackson3</artifactId>
-            <version>2.0.0</version>
+            <version>${mcp-sdk.version}</version>
         </dependency>
 
         <!-- ⭐ Spring AI Tool（ToolCallback / MethodToolCallbackProvider — 由 spring-ai-model 传递引入）

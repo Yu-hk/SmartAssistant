@@ -10,8 +10,6 @@ spring:
       enabled: true
   application:
     name: general-agent-service
-  main:
-    allow-bean-definition-overriding: true  # ⭐ 允许覆盖 auto-config 的 deepSeekChatModel
 
   # 排除 Spring Security 自动配置
   autoconfigure:
@@ -46,42 +44,6 @@ spring:
           min-client-version: "1.0.0"
           supported-protocols: "a2a-v1"
 
-# ⭐ Nacos A2A Registry 配置（AgentCard 注册）
-# 默认关闭，开启后自动向 Nacos A2A Registry 注册 GeneralChat AgentCard。
-nacos:
-  a2a:
-    registry:
-      enabled: false
-      agent-card:
-        name: GeneralChat
-        description: "通用对话智能体，支持闲聊问答、娱乐陪伴、图片分析和图片生成"
-        version: 1.0.0
-        protocol-version: 0.3.0
-        preferred-transport: JSONRPC
-        url: http://localhost:${server.port}/a2a
-        skills:
-          - id: chat
-            name: 闲聊对话
-            description: 进行自由对话、聊天和问答
-            tags: chat,qa
-            examples:
-              - 你好
-              - 今天天气怎么样
-          - id: image-analysis
-            name: 图片分析
-            description: 分析用户上传的图片内容
-            tags: image,analysis
-            examples:
-              - 这张图里有什么
-              - 分析这张图片
-          - id: image-generation
-            name: 图片生成
-            description: 根据文字描述生成图片
-            tags: image,generate
-            examples:
-              - 帮我画一只猫
-              - 生成一张风景图
-
   # DeepSeek 模型配置（V4-Flash 最新模型）
   ai:
     # ⭐ DeepSeek 云端推理
@@ -93,7 +55,7 @@ nacos:
           temperature: 0.5
           max-tokens: 4096
 
-    # ⭐ Ollama 本地模型配置（本地推理主通道）
+    # ⭐ Ollama 本地模型配置（保留兼容配置，按依赖存在情况启用）
     ollama:
       base-url: http://localhost:11434
       chat:
@@ -133,6 +95,42 @@ nacos:
             name: general_chat
             description: "通用对话智能体 - 闲聊、问答、帮助，当其他专业服务无法处理时作为兜底"
             version: "1.0.0"
+
+# ⭐ Nacos A2A Registry 配置（AgentCard 注册）
+# 默认关闭，开启后自动向 Nacos A2A Registry 注册 GeneralChat AgentCard。
+nacos:
+  a2a:
+    registry:
+      enabled: false
+      agent-card:
+        name: GeneralChat
+        description: "通用对话智能体，支持闲聊问答、娱乐陪伴、图片分析和图片生成"
+        version: 1.0.0
+        protocol-version: 0.3.0
+        preferred-transport: JSONRPC
+        url: http://localhost:${server.port}/a2a
+        skills:
+          - id: chat
+            name: 闲聊对话
+            description: 进行自由对话、聊天和问答
+            tags: chat,qa
+            examples:
+              - 你好
+              - 今天天气怎么样
+          - id: image-analysis
+            name: 图片分析
+            description: 分析用户上传的图片内容
+            tags: image,analysis
+            examples:
+              - 这张图里有什么
+              - 分析这张图片
+          - id: image-generation
+            name: 图片生成
+            description: 根据文字描述生成图片
+            tags: image,generate
+            examples:
+              - 帮我画一只猫
+              - 生成一张风景图
 
 # Actuator + Prometheus + Tracing 配置
 management:

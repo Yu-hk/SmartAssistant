@@ -64,6 +64,8 @@
         <onnxruntime.version>1.20.0</onnxruntime.version>
         <!-- ⭐ Milvus SDK（统一版本，所有模块用 2.5.5） -->
         <milvus-sdk-java.version>2.5.5</milvus-sdk-java.version>
+        <!-- ⭐ MCP SDK（统一版本，所有模块用 2.0.0；此前在两模块硬编码，易漂移） -->
+        <mcp-sdk.version>2.0.0</mcp-sdk.version>
         <!-- ⭐ Flyway（RAG 生产化改造 V1 迁移；core + postgresql 同版本对齐） -->
         <flyway.version>11.0.0</flyway.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

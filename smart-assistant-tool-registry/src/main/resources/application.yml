@@ -1,5 +1,5 @@
 server:
-  port: 8088
+  port: 8090
   shutdown: graceful
 spring:
   lifecycle:
@@ -67,9 +67,17 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{requestId:-}] - %msg%n"
 
+# Registry 治理配置（P0 修复：心跳 / TTL 过期清理）
+registry:
+  eviction:
+    enabled: false        # 默认关闭：兼容「启动即注册、进程生命周期内长期存活」的既有工具
+    ttl-seconds: 3600      # 心跳超时阈值：超过该时长未心跳且 ACTIVE 的工具将被清理
+  store:
+    type: memory           # memory | redis（HA 多实例需 redis 以共享注册表，避免视图分裂）
+
 # Tool Registry 配置（供 ToolRegistryClient 读取）
 tool-registry:
-  url: http://localhost:8088         # Registry 服务地址
+  url: http://localhost:8090         # Registry 服务地址
   cache-ttl-seconds: 30              # 本地缓存 TTL（秒）
   refresh-interval-seconds: 60       # Agent 工具热刷新间隔（秒），0=禁用
   # ⭐ T2b：MCP-backed 后端工具源（源接入 + 目录注册）。
