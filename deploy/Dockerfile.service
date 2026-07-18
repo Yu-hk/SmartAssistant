@@ -1,0 +1,21 @@
+FROM bellsoft/liberica-openjdk-debian:21-cds
+
+ARG SERVICE_NAME
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 拷贝匹配的全部 jar（部分模块如 tool-registry 同时产出普通 jar 与 -exec.jar）
+COPY target/${SERVICE_NAME}-*.jar /app/
+
+RUN mkdir -p /app/logs /app/data
+
+ENV JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC -XX:+UseContainerSupport -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
+
+EXPOSE 8080
+
+# 优先选用 Spring Boot 可执行(-exec) jar；其余模块使用唯一产物 jar
+ENTRYPOINT ["sh", "-c", "JAR=$(ls /app/${SERVICE_NAME}-*-exec.jar 2>/dev/null || ls /app/${SERVICE_NAME}-*.jar | head -1); exec java $JAVA_OPTS -jar $JAR --server.port=${PORT:-8080}"]

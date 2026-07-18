@@ -51,6 +51,7 @@ services:
   gateway:
     build:
       context: ./smart-assistant-gateway
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-gateway
     ports:
@@ -73,6 +74,7 @@ services:
   user:
     build:
       context: ./smart-assistant-user
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-user
     ports:
@@ -100,6 +102,7 @@ services:
   consumer:
     build:
       context: ./smart-assistant-consumer
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-consumer
     ports:
@@ -118,6 +121,7 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      TOOL_REGISTRY_URL: http://tool-registry:8090
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -129,6 +133,7 @@ services:
   router:
     build:
       context: ./smart-assistant-router
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-router
     ports:
@@ -146,6 +151,7 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      TOOL_REGISTRY_URL: http://tool-registry:8090
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -157,6 +163,7 @@ services:
   order:
     build:
       context: ./smart-assistant-order
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-order
     ports:
@@ -174,6 +181,7 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      TOOL_REGISTRY_URL: http://tool-registry:8090
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -185,6 +193,7 @@ services:
   product:
     build:
       context: ./smart-assistant-product
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-product
     ports:
@@ -202,6 +211,7 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      TOOL_REGISTRY_URL: http://tool-registry:8090
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -213,6 +223,7 @@ services:
   general:
     build:
       context: ./smart-assistant-general
+      dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-general
     ports:
@@ -224,11 +235,54 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      TOOL_REGISTRY_URL: http://tool-registry:8090
     depends_on:
       nacos: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
     restart: unless-stopped
 
+  # ⭐ P0 端口冲突修复：tool-registry 由 8088 迁至 8090（与 recommend 8088 分离）
+  tool-registry:
+    build:
+      context: ./smart-assistant-tool-registry
+      dockerfile: ../deploy/Dockerfile.service
+      args:
+        SERVICE_NAME: smart-assistant-tool-registry
+    ports:
+      - "8090:8090"
+    environment:
+      PORT: 8090
+      TOOL_REGISTRY_URL: http://tool-registry:8090
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/actuator/health"]
+    restart: unless-stopped
+
+  # ⭐ P0 端口冲突修复：recommend 容器化（端口保持 8088），经 Nacos 发现 product/order
+  recommend:
+    build:
+      context: ./smart-assistant-recommend
+      dockerfile: ../deploy/Dockerfile.service
+      args:
+        SERVICE_NAME: smart-assistant-recommend
+    ports:
+      - "8088:8088"
+    environment:
+      PORT: 8088
+      NACOS_PASSWORD: ${NACOS_PASSWORD}
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      SPRING_CLOUD_NACOS_CONFIG_SERVER_ADDR: nacos:8848
+      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD}
+    depends_on:
+      nacos: { condition: service_healthy }
+      product: { condition: service_healthy }
+      order: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
+    restart: unless-stopped
+
 volumes:
   postgres-data:
+  redis-data:
+  nacos-data:
