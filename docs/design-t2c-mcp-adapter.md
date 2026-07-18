@@ -38,7 +38,7 @@
 | registry `pom.xml` (T2b) | 含 `spring-ai-starter-mcp-server-webmvc`、`spring-ai-starter-mcp-client-webflux`（本地仓库仅此 client starter）、`mcp-json-jackson3:2.0.0`、并把 `jackson-annotations/core/databind` 锁 `2.18.4`；`spring.ai.mcp.client.enabled=false` + `spring.main.web-application-type=servlet` 守门。 |
 | registry `McpToolSourceIngestor` (T2b) | 用 `McpClient.sync(HttpClientSseClientTransport.builder(endpoint).build()).requestTimeout(Duration).build()` **手动**建 `McpSyncClient`，调 `client.listTools().tools()`。`HttpClientSseClientTransport` 来自 JDK `HttpClient`（非 WebFlux）。 |
 | registry `McpToolRegistryAdapter` (T2a) | **关键事实**：`toMcpTool()` 仅把 `functionalCapabilities/toolTier/tags/riskLevel` 写入 MCP `Tool.meta()`（`_meta`），**并双写 `functionalCapabilities`/`toolTier`**；`annotations` 只有 `title/readOnlyHint/destructiveHint/idempotentHint/openWorldHint`。**`endpoint` 未写入 meta**。 |
-| registry `McpServerConfig` + `application.yml` (T2a) | MCP server `protocol: sse`，`sse-endpoint: /sse`，`sse-message-endpoint: /mcp/message`，端口 8088。`search_tools` 是唯一可调用 tool，其余为"可发现但拒绝执行"。 |
+| registry `McpServerConfig` + `application.yml` (T2a) | MCP server `protocol: sse`，`sse-endpoint: /sse`，`sse-message-endpoint: /mcp/message`，端口 8090。`search_tools` 是唯一可调用 tool，其余为"可发现但拒绝执行"。 |
 | registry `application.yml` `tool-registry.mcp-sources` | 源配置：`sourceId/enabled=false/transport=sse/endpoint(如 http://consumer:8081/mcp)/namespace/...`。 |
 
 ### 0.3 硬约束（本设计遵守）
@@ -99,7 +99,7 @@
 
 - **SSE / `HttpClientSseClientTransport`（JDK `HttpClient`，非 WebFlux）**：与 T2b 拉取后端、与 registry MCP server（WebMvc/SSE）**完全一致**。
 - 客户端**手动构造**（`McpClient.sync(transport).requestTimeout(...).build()`），不使用 Spring AI client 自动装配（避免 `spring.ai.mcp.client.enabled` 触发默认 bean 连接）。
-- registry MCP server 连接基址默认 = `tool-registry.url`（如 `http://localhost:8088`），SDK 自动追加 `/sse`；需与 registry `spring.ai.mcp.server.sse-endpoint: /sse` 对齐（见 §7 配置项）。
+- registry MCP server 连接基址默认 = `tool-registry.url`（如 `http://localhost:8090`），SDK 自动追加 `/sse`；需与 registry `spring.ai.mcp.server.sse-endpoint: /sse` 对齐（见 §7 配置项）。
 
 ### 1.3 关键代码事实驱动的 3 个设计决策
 
