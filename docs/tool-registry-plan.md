@@ -24,7 +24,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                  Tool Registry (8088)                    │
+│                  Tool Registry (8090)                    │
 │                                                         │
 │  ┌──────────┐  ┌───────────┐  ┌───────────────────┐   │
 │  │ 注册 API  │  │ 查询 API   │  │ 执行 Proxy API    │   │
@@ -55,7 +55,7 @@
 
 | 组件 | 改动方式 | 说明 |
 |------|---------|------|
-| `smart-assistant-tool-registry` | **新增服务** | 独立服务，端口 8088 |
+| `smart-assistant-tool-registry` | **新增服务** | 独立服务，端口 8090 |
 | `ToolDefinition` | 扩展 | 新增 `tags`、`version`、`status`、`ownerTeam`、`deprecatedBy`、`sunsetDate` |
 | `common.ToolRegistry` | 保留 + 扩展 | 本地缓存副本，定时从 Registry 服务同步 |
 | `ToolGateway` | 保留 + 扩展 | 增加远程执行路由（Registry 作为执行代理） |
@@ -406,7 +406,7 @@ if (tags != null && tags.length > 0) {
 
 | 任务 | 说明 |
 |------|------|
-| 新建 `smart-assistant-tool-registry` 模块 | Spring Boot 项目，端口 8088 |
+| 新建 `smart-assistant-tool-registry` 模块 | Spring Boot 项目，端口 8090 |
 | 注册 API | `POST /api/tools/register`，含数据校验 + 命名空间去重 |
 | 查询 API | `GET /api/tools`，支持 `tags`、`status`、`namespace` 过滤 |
 | 执行代理 API | `POST /api/tools/execute`，转发到工具实际 endpoint |
