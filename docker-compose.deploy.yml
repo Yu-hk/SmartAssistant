@@ -17,6 +17,12 @@ services:
     extends:
       file: docker-compose.yml
       service: nacos
+    # ⚠️ 本地开发部署：关闭 Nacos 鉴权。
+    # Nacos 3.x 使用自定义 AuthenticationProvider，不读取初始化的 nacos 用户密码，
+    # 导致所有后端注册均 401。关闭后服务侧凭据被忽略，注册正常。
+    # 生产环境请改用正确的鉴权凭证并恢复 NACOS_AUTH_ENABLE=true。
+    environment:
+      - NACOS_AUTH_ENABLE=false
 
   zipkin:
     extends:
@@ -68,7 +74,8 @@ services:
       nacos: { condition: service_healthy }
       redis: { condition: service_started }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
+      start_period: 180s
     restart: unless-stopped
 
   user:
@@ -96,7 +103,8 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
+      start_period: 180s
     restart: unless-stopped
 
   consumer:
@@ -113,8 +121,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NACOS_PASSWORD: ${NACOS_PASSWORD}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
@@ -127,7 +135,8 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
+      start_period: 180s
     restart: unless-stopped
 
   router:
@@ -143,8 +152,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NACOS_PASSWORD: ${NACOS_PASSWORD}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
@@ -157,7 +166,8 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
+      start_period: 180s
     restart: unless-stopped
 
   order:
@@ -173,8 +183,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NACOS_PASSWORD: ${NACOS_PASSWORD}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
@@ -187,7 +197,8 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
+      start_period: 180s
     restart: unless-stopped
 
   product:
@@ -203,8 +214,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NACOS_PASSWORD: ${NACOS_PASSWORD}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      # P0 修复：product 引入 flyway 但无迁移脚本，public 模式已有 JPA 建表；
+      # 开启 baselineOnMigrate 让 flywayInitializer 正常创建（不回放不存在的迁移）。
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
@@ -217,7 +231,8 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
+      start_period: 180s
     restart: unless-stopped
 
   general:
@@ -231,15 +246,16 @@ services:
     environment:
       PORT: 8087
       NACOS_PASSWORD: ${NACOS_PASSWORD}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
       TOOL_REGISTRY_URL: http://tool-registry:8090
     depends_on:
       nacos: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
+      start_period: 180s
     restart: unless-stopped
 
   # ⭐ P0 端口冲突修复：tool-registry 由 8088 迁至 8090（与 recommend 8088 分离）
@@ -255,7 +271,8 @@ services:
       PORT: 8090
       TOOL_REGISTRY_URL: http://tool-registry:8090
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8090/actuator/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/${PORT:-8090}"]
+      start_period: 180s
     restart: unless-stopped
 
   # ⭐ P0 端口冲突修复：recommend 容器化（端口保持 8088），经 Nacos 发现 product/order
@@ -272,14 +289,14 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
-      SPRING_CLOUD_NACOS_CONFIG_SERVER_ADDR: nacos:8848
-      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD}
+      SPRING_CLOUD_NACOS_CONFIG_IMPORT_CHECK_ENABLED: "false"
     depends_on:
       nacos: { condition: service_healthy }
       product: { condition: service_healthy }
       order: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
+      start_period: 180s
     restart: unless-stopped
 
 volumes:

@@ -11,13 +11,6 @@ spring:
         server-addr: localhost:8848
         namespace: public
         group: DEFAULT_GROUP
-      config:
-        server-addr: localhost:8848
-        namespace: public
-        group: DEFAULT_GROUP
-        prefix: ${spring.application.name}
-        file-extension: yml
-        refresh-enabled: true
 
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss

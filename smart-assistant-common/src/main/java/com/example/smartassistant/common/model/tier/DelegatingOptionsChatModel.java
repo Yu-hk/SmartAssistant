@@ -18,14 +18,14 @@ import reactor.core.publisher.Flux;
  * 使同一个底层 {@link ChatModel} 可被不同档位以不同参数复用。
  *
  * <p>与 Router 模块 {@code LightChatModelConfig.LightDelegatingChatModel} 同构，
- * 但沉淀到 common 供 {@link TierModelAutoConfiguration} 三档统一使用，避免重复实现。</p>
+ * 沉淀到 common 供 Router 的 {@code TierModelRouterConfig} 三档统一使用，避免重复实现。</p>
  */
-class DelegatingOptionsChatModel implements ChatModel {
+public class DelegatingOptionsChatModel implements ChatModel {
 
     private final ChatModel delegate;
     private final ChatOptions options;
 
-    DelegatingOptionsChatModel(ChatModel delegate, ChatOptions options) {
+    public DelegatingOptionsChatModel(ChatModel delegate, ChatOptions options) {
         this.delegate = delegate;
         this.options = options;
     }

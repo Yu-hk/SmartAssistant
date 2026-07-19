@@ -7,10 +7,16 @@ spring:
   application:
     name: tool-registry
   # ⭐ T2a：Registry MCP 暴露层（WebMvc/SSE 传输，仅「发现」+ search_tools，不做传递式执行）
+  # P0 临时关闭：Spring AI 1.0.9 的 MCP Server 自动配置（McpWebFluxServerAutoConfiguration）
+  #   硬编码引用 io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper（MCP SDK 0.18.3 / Jackson2 形态），
+  #   而本项目 common 统一采用 MCP SDK 2.0.0 + mcp-json-jackson3（Jackson3 形态，类名 jackson3.JacksonMcpJsonMapper），
+  #   导致启动期 NoClassDefFoundError。注册中心核心能力（REST ToolRegistryClient、本地注册、MCP client 发现）
+  #   不依赖该 Server 传输层，故临时关闭以打通启动；根本修复需升级 Spring AI 至兼容 MCP SDK 2.0.0 的版本，
+  #   或将 MCP SDK 对齐到 0.18.3（并同步 common 手动 McpClient 代码）。
   ai:
     mcp:
       server:
-        enabled: true
+        enabled: false
         name: smart-assistant-tool-registry
         version: 1.0.0
         type: sync

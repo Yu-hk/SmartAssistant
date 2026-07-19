@@ -10,13 +10,16 @@ package com.example.smartassistant.common.rag.config;
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import com.example.smartassistant.common.rag.BgeReranker;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
+import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.Reranker;
 import com.example.smartassistant.common.rag.retrieval.CrossDocumentConflictResolver;
 import com.example.smartassistant.common.rag.trace.RetrievalTraceRepository;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -36,7 +39,13 @@ public class KnowledgeBaseConfig {
     @Value("${knowledge-base.name:default}")
     private String kbName;
 
+    /**
+     * ⭐ BGE Reranker（通用默认实现）。
+     * <p>使用 {@code @ConditionalOnMissingBean(Reranker.class)}：当某服务自定义了 Reranker
+     * （如 order 的 {@code orderReranker}）时，本 Bean 自动让位，避免「多个 Reranker」歧义。</p>
+     */
     @Bean
+    @ConditionalOnMissingBean(Reranker.class)
     public Reranker bgeReranker(BgeEmbeddingModel embeddingModel) {
         log.info("[KBConfig] 创建 BGE Reranker");
         return new BgeReranker(embeddingModel);
@@ -53,11 +62,18 @@ public class KnowledgeBaseConfig {
         return new CrossDocumentConflictResolver();
     }
 
+    /**
+     * ⭐ 通用内存知识库（默认实现）。
+     * <p>使用 {@code @ConditionalOnMissingBean(KnowledgeBase.class)}：当某服务定义了自有
+     * KnowledgeBase（如 product 的 {@code productKnowledgeBase}、order 的 {@code orderKnowledgeBase}）
+     * 时本 Bean 自动让位，避免「多个 KnowledgeBase」歧义。</p>
+     */
     @Bean
+    @ConditionalOnMissingBean(KnowledgeBase.class)
     public InMemoryKnowledgeBase inMemoryKnowledgeBase(
             BgeEmbeddingModel embeddingModel,
             ChineseTokenizer tokenizer,
-            Reranker bgeReranker,
+            @Qualifier("bgeReranker") Reranker bgeReranker,
             RetrievalTraceRepository traceRepository,
             CrossDocumentConflictResolver conflictResolver) {
         log.info("[KBConfig] 创建 InMemoryKnowledgeBase: name={}", kbName);

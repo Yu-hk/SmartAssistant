@@ -15,6 +15,10 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      # ⭐ 关闭内嵌 MCP Server 自动配置（原因同 product：jackson2 JacksonMcpJsonMapper 不存在）
+      - org.springframework.ai.mcp.server.autoconfigure.McpServerAutoConfiguration
+      - org.springframework.ai.mcp.server.autoconfigure.McpWebMvcServerAutoConfiguration
+      - org.springframework.ai.mcp.server.autoconfigure.McpWebFluxServerAutoConfiguration
 
   # Spring Cloud 配置
   cloud:
@@ -89,7 +93,7 @@ spring:
     # ⭐ MCP Server 配置（内嵌模式）
     mcp:
       server:
-        enabled: true  # 启用 MCP Server
+        enabled: false  # P0 临时关闭，避免 NoClassDefFoundError: JacksonMcpJsonMapper
 
 # 高德地图 API 配置（用于搜索附近娱乐项目）
 amap:

@@ -19,6 +19,12 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      # ⭐ 关闭内嵌 MCP Server 自动配置：Spring AI 1.0.9 的 McpWebMvc/WebFluxServerAutoConfiguration
+      # 硬编码 jackson2 的 JacksonMcpJsonMapper，本项目用 MCP SDK 2.0.0 + jackson3，类不存在会
+      # NoClassDefFoundError。这三个服务经 A2A/HTTP 被网关调用，无需对外暴露 MCP Server。
+      - org.springframework.ai.mcp.server.autoconfigure.McpServerAutoConfiguration
+      - org.springframework.ai.mcp.server.autoconfigure.McpWebMvcServerAutoConfiguration
+      - org.springframework.ai.mcp.server.autoconfigure.McpWebFluxServerAutoConfiguration
 
   # Spring Cloud 配置
   cloud:
@@ -151,9 +157,12 @@ nacos:
             version: "1.0.0"
 
     # ⭐ MCP Server 配置（内嵌模式）
+    # 注：Spring AI 1.0.9 的 McpWebMvcServerAutoConfiguration 硬编码 jackson2 的
+    # JacksonMcpJsonMapper，而本项目统一采用 MCP SDK 2.0.0 + mcp-json-jackson3（jackson3 形态），
+    # 类不存在会 NoClassDefFoundError。product 作为 RAG 后端经 A2A/HTTP 被网关调用，无需对外暴露 MCP Server。
     mcp:
       server:
-        enabled: true  # 启用 MCP Server
+        enabled: false  # P0 临时关闭，避免 NoClassDefFoundError: JacksonMcpJsonMapper
 
 # Actuator + Prometheus + Tracing 配置（监控端点）⭐
 management:

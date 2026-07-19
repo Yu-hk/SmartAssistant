@@ -9,6 +9,7 @@ package com.example.smartassistant.common.rag.graph;
 
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -32,9 +33,15 @@ public class RagGraphAutoConfiguration {
     private final ChatModel chatModel;
     private final AiChatService aiChatService;
 
+    /**
+     * ⭐ 多 ChatModel 环境下避免「expected single matching bean but found N」歧义：
+     * 用 {@link ObjectProvider} 取第一个可用模型（图谱抽取为 best-effort，使用任一模型均可）。
+     * 各服务注册的 ChatModel 组合不同（如 consumer 仅 light/ollama，order/product 含 deepSeek），
+     * 故不能写死 @Qualifier 固定名称。
+     */
     @Autowired(required = false)
-    public RagGraphAutoConfiguration(ChatModel chatModel, AiChatService aiChatService) {
-        this.chatModel = chatModel;
+    public RagGraphAutoConfiguration(ObjectProvider<ChatModel> chatModelProvider, AiChatService aiChatService) {
+        this.chatModel = chatModelProvider.stream().findFirst().orElse(null);
         this.aiChatService = aiChatService;
     }
 

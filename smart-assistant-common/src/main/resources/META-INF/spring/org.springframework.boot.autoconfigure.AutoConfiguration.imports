@@ -1,1 +1,4 @@
 com.example.smartassistant.common.tool.client.ToolRegistryAutoConfiguration
+com.example.smartassistant.common.rag.config.ChatModelCandidateConfig
+com.example.smartassistant.common.error.ErrorRecoveryServiceAutoConfiguration
+com.example.smartassistant.common.config.CommonServiceBeansAutoConfiguration
