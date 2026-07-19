@@ -21,7 +21,12 @@ spring:
         import-check:
           enabled: false
       discovery:
-        enabled: false  # ⭐ 禁用标准 Nacos 服务发现（使用 A2A 协议内置 Nacos）
+        server-addr: 127.0.0.1:8848
+        namespace: ""
+        group: DEFAULT_GROUP
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos123}
+        enabled: true  # ⚠️ 同时启用标准发现，供网关 lb://router-service 稳定寻址；A2A 内置发现保留用于 agent 互发现
 
   # 数据源配置（PostgreSQL 统一数据库）
   datasource:
