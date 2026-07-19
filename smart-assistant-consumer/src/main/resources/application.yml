@@ -31,6 +31,10 @@ spring:
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeImageAutoConfiguration
+      # ⭐ 关闭内嵌 MCP Server 自动配置（原因同 product：jackson2 JacksonMcpJsonMapper 不存在）
+      - org.springframework.ai.mcp.server.autoconfigure.McpServerAutoConfiguration
+      - org.springframework.ai.mcp.server.autoconfigure.McpWebMvcServerAutoConfiguration
+      - org.springframework.ai.mcp.server.autoconfigure.McpWebFluxServerAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeVideoAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioSpeechAutoConfiguration
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioTranscriptionAutoConfiguration
@@ -111,7 +115,7 @@ spring:
     # ⭐ MCP Server 配置（内嵌在 Consumer 中）
     mcp:
       server:
-        enabled: true  # ⭐ 启用内嵌 MCP Server
+        enabled: false  # P0 临时关闭，避免 NoClassDefFoundError: JacksonMcpJsonMapper
         name: smart-assistant-database-mcp
         version: 1.0.0
         type: sync

@@ -7,7 +7,6 @@
 
 package com.example.smartassistant.config;
 
-import com.example.smartassistant.common.embedding.EmbeddingClient;
 import com.example.smartassistant.common.rag.pipeline.AdaptiveRerankTopK;
 import com.example.smartassistant.common.rag.pipeline.AdaptiveWeightHandler;
 import com.example.smartassistant.common.rag.pipeline.DedupHandler;
@@ -20,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -106,8 +106,8 @@ public class ProductRagPipelineConfig {
      */
     @Bean
     @ConditionalOnProperty(name = "product.rag.rerank.enabled", havingValue = "true", matchIfMissing = true)
-    public RerankHandler rerankHandler(EmbeddingClient embeddingClient) {
-        log.info("[ProductRagPipeline] 注册 RerankHandler（使用 EmbeddingClient）");
+    public RerankHandler rerankHandler(EmbeddingModel embeddingClient) {
+        log.info("[ProductRagPipeline] 注册 RerankHandler（使用 EmbeddingModel：远程 EmbeddingClient 或本地 BGE）");
 
         EmbeddingScorer scorer = new EmbeddingScorer(text -> {
             try {
