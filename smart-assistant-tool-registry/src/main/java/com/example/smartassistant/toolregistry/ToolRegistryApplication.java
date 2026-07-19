@@ -1,7 +1,11 @@
 package com.example.smartassistant.toolregistry;
 
+import com.example.smartassistant.common.gateway.tool.ToolGateway;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.tool.GifCacheStore;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Import;
 
 /**
  * Tool Registry 服务启动类。
@@ -14,6 +18,13 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @since 2026-07-10
  */
 @SpringBootApplication
+// P0 修复：tool-registry 组件扫描仅覆盖自身包，需显式引入 common 中的本地注册中心 Bean，
+// 否则 DataGifTool 注入 ToolRegistry / ToolRegistryClient 会因缺少 Bean 而启动失败。
+@Import({
+        ToolRegistry.class,
+        ToolGateway.class,
+        GifCacheStore.class
+})
 public class ToolRegistryApplication {
 
     public static void main(String[] args) {

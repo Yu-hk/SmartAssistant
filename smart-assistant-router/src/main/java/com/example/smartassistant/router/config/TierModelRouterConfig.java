@@ -5,16 +5,19 @@
  * full license information.
  */
 
-package com.example.smartassistant.common.model.tier;
+package com.example.smartassistant.router.config;
 
-import com.example.smartassistant.common.rag.pipeline.QueryComplexityClassifier;
+import com.example.smartassistant.common.model.tier.DelegatingOptionsChatModel;
+import com.example.smartassistant.common.model.tier.ModelTier;
+import com.example.smartassistant.common.model.tier.TierModelRegistry;
+import com.example.smartassistant.common.model.tier.TieredModelRouter;
+import com.example.smartassistant.common.model.tier.TieredModelRouterProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaOptions;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -24,22 +27,21 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * G3 Tier 多模型路由自动配置（common 中台，供所有服务复用）。
+ * G3 Tier 多模型路由配置（Router 模块侧，用户配置）。
  *
- * <p><b>关键约束</b>：为避免与 common 内 {@code @ConditionalOnBean(ChatModel.class)} 的自动配置
- * （如 RagGraphAutoConfiguration）争抢无限定 {@code ChatModel} 注入，本配置<b>不注册新的 ChatModel Spring Bean</b>。
- * 三档模型以 {@link DelegatingOptionsChatModel} 形式在 {@link TierModelRegistry} 内部持有，
- * 仅注入 {@link OllamaChatModel}（具体类型，唯一且明确）作为委托底层。</p>
+ * <p><b>为何放在 Router 而非 common 自动配置</b>：common 中的 {@code TierModelAutoConfiguration}
+ * 作为 auto-configuration 在排序批次中求值，{@code @ConditionalOnBean(OllamaChatModel.class)}
+ * 因跨 jar 自动配置排序不可靠而稳定失败。本配置位于 Router 应用上下文（被 {@code @ComponentScan}
+ * 扫描的用户配置），在所有 auto-configuration 之后处理，{@code OllamaChatModel} 此时必然已注册，
+ * 直接注入即可，无需脆弱的 {@code @ConditionalOnBean}。</p>
  *
- * <p>仅在存在 {@link OllamaChatModel} 时激活；无 Ollama 的环境（如纯 HTTP 转发的 user 服务）
- * 不创建任何 bean，调用方以 {@code @Autowired(required = false)} 优雅降级。</p>
+ * <p>仅 Router 依赖 {@link TieredModelRouter}（经由 {@code ModelRouterService}），故注册收敛于此。</p>
  */
 @Configuration
-@ConditionalOnBean(OllamaChatModel.class)
 @EnableConfigurationProperties(TieredModelRouterProperties.class)
-public class TierModelAutoConfiguration {
+public class TierModelRouterConfig {
 
-    private static final Logger log = LoggerFactory.getLogger(TierModelAutoConfiguration.class);
+    private static final Logger log = LoggerFactory.getLogger(TierModelRouterConfig.class);
 
     /**
      * 档位模型注册表——内部持有三档 DelegatingOptionsChatModel（非 Spring Bean）。
@@ -55,10 +57,7 @@ public class TierModelAutoConfiguration {
     }
 
     /**
-     * 统一模型接入层路由器——复用 {@link QueryComplexityClassifier} 做动态路由 + 平滑降级。
-     *
-     * <p>当 {@code tier.canary-model} 配置非空时，构建灰度模型（委托同一 Ollama 实例、覆盖模型名与温度），
-     * 作为灰度流量的首选节点；命中灰度比例的请求先试灰度模型，失败自动回退到正常档位降级链。</p>
+     * 统一模型接入层路由器——复用查询复杂度分类做动态路由 + 平滑降级。
      */
     @Bean
     public TieredModelRouter tieredModelRouter(TierModelRegistry registry,
@@ -73,10 +72,12 @@ public class TierModelAutoConfiguration {
                     .temperature(props.getCanaryTemperature())
                     .build();
             canaryModel = new DelegatingOptionsChatModel(ollama, canaryOptions);
-            log.info("[TierModelAutoConfiguration] 灰度模型已就绪: {} (ratio={})", canaryName, props.getCanaryRatio());
+            log.info("[TierModelRouterConfig] 灰度模型已就绪: {} (ratio={})", canaryName, props.getCanaryRatio());
         }
+        log.info("[TierModelRouterConfig] TieredModelRouter 已注册（三档：{}/{}/{}）",
+                props.getLight().getModel(), props.getStandard().getModel(), props.getHeavy().getModel());
         return new TieredModelRouter(
-                new QueryComplexityClassifier(),
+                new com.example.smartassistant.common.rag.pipeline.QueryComplexityClassifier(),
                 registry,
                 props.getIntentOverrides(),
                 props.isDegradationEnabled(),

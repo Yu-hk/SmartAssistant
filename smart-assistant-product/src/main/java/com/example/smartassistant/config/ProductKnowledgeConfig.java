@@ -8,7 +8,9 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
+import com.example.smartassistant.common.rag.Bm25Scorer;
 import com.example.smartassistant.common.rag.KnowledgeBase;
+import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
@@ -48,6 +50,18 @@ public class ProductKnowledgeConfig {
     public BgeEmbeddingModel productBgeEmbeddingModel() {
         log.info("[ProductKnowledge] 加载 BGE 模型 (path={})", modelPath);
         return new BgeEmbeddingModel(modelPath, vocabPath);
+    }
+
+    /**
+     * ⭐ BM25 评分器 Bean——供 {@code Bm25SearchHandler}（@Component）构造注入。
+     * <p>common.rag.Bm25Scorer 本身非 Spring Bean，且依赖 ChineseTokenizer（已扫描为 Bean），
+     * 故在此显式注册，避免「required a bean of type Bm25Scorer that could not be found」。</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public Bm25Scorer productBm25Scorer(ChineseTokenizer tokenizer) {
+        log.info("[ProductKnowledge] 创建 BM25 评分器（基于 ChineseTokenizer）");
+        return new Bm25Scorer(tokenizer);
     }
 
     /**
