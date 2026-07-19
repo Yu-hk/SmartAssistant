@@ -64,7 +64,7 @@ public class GeneralAgentConfig {
      */
     @Bean
     public SmartReActAgent generalChatAgent(
-            @Qualifier("deepSeekChatModel") ChatModel chatModel,
+            @Qualifier("ollamaChatModel") ChatModel chatModel,
             WeatherTool weatherTool,
             ImageTools imageTools,
             GeneralTools generalTools,

@@ -34,7 +34,7 @@ spring:
         username: ${NACOS_USERNAME:nacos}
         password: ${NACOS_PASSWORD}
         metadata:
-          agent-type: general_chat
+          agent-type: general
           capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
           priority: 100  # 最低优先级，作为兜底；无 keywords 约束，仅通过 fallback 匹配
           cache-ttl-seconds: "7200"    # ⭐ 回复缓存 TTL（秒），闲聊类 2h
@@ -57,7 +57,7 @@ spring:
 
     # ⭐ Ollama 本地模型配置（保留兼容配置，按依赖存在情况启用）
     ollama:
-      base-url: http://localhost:11434
+      base-url: http://ollama:11434
       chat:
         options:
           model: qwen2.5:7b
@@ -79,7 +79,7 @@ spring:
             username: ${NACOS_USERNAME:nacos}
             password: ${NACOS_PASSWORD}
             metadata:
-              agent-type: general_chat
+              agent-type: general
               capabilities: chat,qa,entertainment,companion,image_analysis,image_generation
               keywords: ""  # ⭐ 无 keywords 约束，纯 fallback 兜底
               priority: 100  # 最低优先级，作为兜底
@@ -92,7 +92,7 @@ spring:
         server:
           enabled: true
           card:
-            name: general_chat
+            name: general
             description: "通用对话智能体 - 闲聊、问答、帮助，当其他专业服务无法处理时作为兜底"
             version: "1.0.0"
 
