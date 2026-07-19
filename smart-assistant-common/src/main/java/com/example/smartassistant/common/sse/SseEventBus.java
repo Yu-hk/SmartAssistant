@@ -158,7 +158,11 @@ public class SseEventBus {
      * 发送一个 SSE 事件。
      */
     public synchronized void send(SseEvent event) {
-        if (closed || response.isCommitted()) return;
+        // ⚠️ 不能用 response.isCommitted() 作为中止条件：initResponse() 中的 flushBuffer()
+        // 会立即提交(commit)响应，导致 isCommitted() 永远为 true，从而使所有 send() 变成空操作、
+        // 客户端收不到任何 SSE 事件（含 init/routed/转发的 agent 流）。
+        // 已发送响应头(committed)后仍可继续写入事件，只有 closed 才应停止。
+        if (closed) return;
         try {
             String idLine = "id: " + seqNo + "\n";
             response.getOutputStream().write(idLine.getBytes(StandardCharsets.UTF_8));

@@ -130,6 +130,9 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
       TOOL_REGISTRY_URL: http://tool-registry:8090
+      ROUTER_SERVICE_URL: http://router:8083
+      # ⚠️ Ollama 容器化：覆盖 jar 内 base-url（避免重新构建），指向同网络 ollama 服务
+      AI_OLLAMA_BASE_URL: http://ollama:11434
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -161,6 +164,7 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
       TOOL_REGISTRY_URL: http://tool-registry:8090
+      AI_OLLAMA_BASE_URL: http://ollama:11434
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -192,6 +196,7 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
       TOOL_REGISTRY_URL: http://tool-registry:8090
+      AI_OLLAMA_BASE_URL: http://ollama:11434
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -226,6 +231,7 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
       TOOL_REGISTRY_URL: http://tool-registry:8090
+      AI_OLLAMA_BASE_URL: http://ollama:11434
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -251,6 +257,7 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
       TOOL_REGISTRY_URL: http://tool-registry:8090
+      AI_OLLAMA_BASE_URL: http://ollama:11434
     depends_on:
       nacos: { condition: service_healthy }
     healthcheck:
@@ -297,6 +304,37 @@ services:
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
       start_period: 180s
+    restart: unless-stopped
+
+  # ⭐ 本地 Ollama 容器化：替代 host.docker.internal
+  # Docker Desktop Windows 下容器无法路由到宿主机（host.docker.internal→192.168.65.254 不可达），
+  # 故将 Ollama 跑在同 compose 网络中，各后端服务通过 http://ollama:11434 访问。
+  # 模型目录挂载宿主机已下载权重（D:\ollama-models），避免重复拉取。
+  ollama:
+    image: ollama/ollama:latest
+    container_name: smartassistant-ollama-1
+    ports:
+      - "11434:11434"
+    volumes:
+      - D:\ollama-models:/root/.ollama
+    environment:
+      OLLAMA_MODELS: /root/.ollama
+      OLLAMA_HOST: 0.0.0.0:11434
+      # ⭐ 模型常驻内存（-1=无限），避免首次推理耗时 ~60s 加载模型
+      OLLAMA_KEEP_ALIVE: -1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      start_period: 120s
+      interval: 30s
+      timeout: 10s
+      retries: 5
     restart: unless-stopped
 
 volumes:

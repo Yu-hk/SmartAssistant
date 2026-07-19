@@ -304,7 +304,7 @@ public class RouteFinalizer {
                             "checkStock", "{\"product\": \"" + QuestionExtractor.extractProductName(question) + "\"}", "{product}的库存状态为{status}");
                 }
             }
-            case "general_agent" -> {
+            case "general" -> {
                 if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
                             "getWeather", "{\"location\": \"" + QuestionExtractor.extractLocation(question) + "\"}", "{location}当前天气为{weather}");
