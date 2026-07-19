@@ -661,16 +661,25 @@ public class SmartReActAgent {
                 final List<Message> callMessages = messages;
                 final ToolCallingChatOptions callOptions = options;
 
-                if (chatClient != null) {
-                    // ⭐ 使用 ChatClient（含 Advisor 链：TokenUsage/ThinkingCollector/PromptAudit）
-                    // 通过 tools() 动态传递工具列表，通过 options() 传模型参数
-                    var spec = chatClient.prompt()
-                            .messages(callMessages);
-                    if (!effectiveTools.isEmpty()) {
-                        spec = spec.tools(effectiveTools.toArray(new ToolCallback[0]));
-                    }
-                    response = spec.call().chatResponse();
-                } else {
+            if (chatClient != null) {
+                // ⭐ 使用 ChatClient（含 Advisor 链：TokenUsage/ThinkingCollector/PromptAudit）
+                // 通过 toolCallbacks() 传递 ToolCallback 实例（⚠️ 不能用 .tools()：
+                //   .tools() 只接受"待扫描 @Tool 方法的 tool 对象"或 ToolCallbackProvider，
+                //   传入 ToolCallback 实例会抛
+                //   "No @Tool annotated methods found ... use .toolCallbacks() instead of .tool()"）
+                // 关闭 ChatClient 内部工具执行（internalToolExecutionEnabled=false），
+                // 交回 SmartReActAgent 的 ReAct 循环统一控制工具调用（与 chatModel.call() 路径一致）。
+                var spec = chatClient.prompt()
+                        .messages(callMessages);
+                if (!effectiveTools.isEmpty()) {
+                    ToolCallingChatOptions toolOpts = ToolCallingChatOptions.builder()
+                            .toolCallbacks(effectiveTools.toArray(new ToolCallback[0]))
+                            .internalToolExecutionEnabled(false)
+                            .build();
+                    spec = spec.options(toolOpts);
+                }
+                response = spec.call().chatResponse();
+            } else {
                     // 兼容旧调用：直接使用 ChatModel
                     response = TraceSpan.of(observationRegistry, "agent-llm-call")
                             .run(() -> chatModel.call(new Prompt(callMessages, callOptions)));

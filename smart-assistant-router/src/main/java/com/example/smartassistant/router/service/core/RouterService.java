@@ -240,10 +240,10 @@ public class RouterService {
                 log.warn("[Router] 💗 重度情绪风险，进入安全兜底: userId={}, signals={}",
                         request.getUserId(), emotion.signals());
                 // ⭐ G4 运营指标：重度情绪风险触发人工/专业接管
-                opsMetrics.recordHandoff("emotion_heavy", "general_agent");
+                opsMetrics.recordHandoff("emotion_heavy", "general");
                 return RoutingResult.builder()
                         .result(emotion.guidance())
-                        .agentName("general_agent")
+                        .agentName("general")
                         .confidence(1.0)
                         .emotionLevel(EmotionLevel.HEAVY)
                         .emotionIntervention(true)
@@ -705,7 +705,7 @@ public class RouterService {
                 }
             }
             // General Agent 工具模式
-            case "general_agent" -> {
+            case "general" -> {
                 if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
                             "getWeather", "{\"location\": \"" + QuestionExtractor.extractLocation(question) + "\"}", "{location}当前天气为{weather}");

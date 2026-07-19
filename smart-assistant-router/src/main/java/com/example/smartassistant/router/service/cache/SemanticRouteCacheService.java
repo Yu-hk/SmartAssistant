@@ -961,6 +961,13 @@ public class SemanticRouteCacheService {
             String key = FULL_DECISION_KEY_PREFIX + requestId;  // 使用独立 key，不覆盖审计日志
             String json = objectMapper.writeValueAsString(decision);
             redisTemplate.opsForValue().set(key, json, 120, TimeUnit.SECONDS);
+
+            // ⭐ 向 notify 队列推送信号，唤醒 Consumer 的 BLPOP 等待（对应 RouterClient.waitForDecisionFromRedis）。
+            // 原实现只写决策值、未推送 notify，导致 Consumer 端 BLPOP 永远收不到通知而阻塞到 Redis 命令超时。
+            String notifyKey = FULL_DECISION_KEY_PREFIX + "notify:" + requestId;
+            redisTemplate.opsForList().rightPush(notifyKey, requestId);
+            redisTemplate.expire(notifyKey, 120, TimeUnit.SECONDS);
+
             log.debug("[SemanticCache] 完整决策已写入 Redis(供Consumer读取): requestId={}, agent={}, intent={}",
                     requestId, agentName, intentTag);
         } catch (Exception e) {

@@ -904,10 +904,10 @@ public class ExperienceService {
      */
     private String findFallbackAgent(String primaryAgent) {
         return switch (primaryAgent) {
-            case "order_agent" -> "general_agent";
-            case "product_agent" -> "general_agent";
-            case "general_agent" -> "builtin_fallback";
-            default -> "general_agent";
+            case "order_agent" -> "general";
+            case "product_agent" -> "general";
+            case "general" -> "builtin_fallback";
+            default -> "general";
         };
     }
 

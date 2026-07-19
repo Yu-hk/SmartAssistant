@@ -132,14 +132,14 @@ public class RouteExecutionService {
         }
         if (degLevel == DegradationService.DegradationLevel.LIGHT) {
             log.warn("[Collaborative] 🟡 轻度降级，跳过复杂 DAG");
-            String reply = agentCallerService.callAgent("general_agent", question, userId, requestId);
+            String reply = agentCallerService.callAgent("general", question, userId, requestId);
             if (reply == null || reply.isBlank() || reply.startsWith("❌")) {
                 return inlineFallback(question, emotion);
             }
             long elapsed = System.currentTimeMillis() - start;
             log.info("[Collaborative] 降级单 Agent 完成: elapsed={}ms, replyLen={}", elapsed, reply.length());
             return routeFinalizer.applyEmotion(RoutingResult.builder()
-                    .result(reply).agentName("general_agent").confidence(1.0).build(), emotion);
+                    .result(reply).agentName("general").confidence(1.0).build(), emotion);
         }
 
         IntentGraph graph = taskPlanner.planToGraph(question);

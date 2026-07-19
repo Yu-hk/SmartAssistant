@@ -76,7 +76,7 @@ spring:
   ai:
     # ⭐ Ollama 本地模型配置（本地推理主通道）
     ollama:
-      base-url: http://localhost:11434
+      base-url: http://ollama:11434
       chat:
         options:
           model: qwen2.5:7b
@@ -97,7 +97,7 @@ spring:
 # 本地环境三档可指向同一 Ollama 实例的不同模型名；云端 heavy 可指向 DeepSeek/GPT 等强模型
 tier:
   light:
-    model: qwen2.5:3b        # Tier1 轻量：本地小模型，低延迟低成本
+    model: qwen2.5:7b        # Tier1 轻量：原配 qwen2.5:3b，因本地拉取不稳定临时改用已就绪的 qwen2.5:7b
     temperature: 0.1
   standard:
     model: deepseek-r1:7b    # Tier2 标准：本地主力，兼顾能力与成本

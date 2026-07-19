@@ -263,7 +263,19 @@ public class TaskAnalysisService {
     private String buildDynamicPrompt(String question, List<String> conversationHistory) {
         // System Prompt 始终不变（意图定义 + 输出格式要求）
         // 多轮上下文通过 User Message 注入，而非 System Prompt
-        return buildDynamicPrompt(question);
+        // ⚠️ 注意：此处必须构建真实 prompt，绝不能再回调用 buildDynamicPrompt(question)，
+        //    否则会与 1-arg 重载互相递归导致 StackOverflowError。
+        String prompt = systemPrompt;
+        try {
+            List<IntentDef> intents = intentRetriever.retrieve(question, 3);
+            String intentSection = intentRetriever.buildIntentSection(intents);
+            if (intentSection != null && !intentSection.isBlank()) {
+                prompt = prompt + "\n\n" + intentSection;
+            }
+        } catch (Exception e) {
+            log.warn("[TaskAnalysis] 意图检索失败，降级使用基础 prompt: {}", e.getMessage());
+        }
+        return prompt;
     }
 
     /**
