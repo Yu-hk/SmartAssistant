@@ -38,4 +38,12 @@ public interface OcrStrategy {
     default boolean isAvailable() {
         return true;
     }
+
+    /**
+     * 引擎名称标记，用于解析质量指标（如 {@code metadata["pdf.ocrEngine"]}）。
+     * 默认 "ocr"，各实现应覆盖为具体引擎名（tesseract / ollama）。
+     */
+    default String engineName() {
+        return "ocr";
+    }
 }
