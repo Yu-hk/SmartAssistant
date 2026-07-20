@@ -25,44 +25,81 @@ import java.util.List;
  * </p>
  *
  * <p>激活条件：构造时探测 {@code tesseract --version} 是否可成功执行；
- * 仅当可执行文件存在于 PATH 时 {@link #isAvailable()} 返回 true，否则应降级为
+ * 仅当可执行文件存在且可运行时 {@link #isAvailable()} 返回 true，否则应降级为
  * {@link NoopOcrStrategy}（由 {@link OcrStrategies#autoDetect()} 自动选择）。</p>
  *
- * <p>中文文档可注入语言参数（如 {@code "chi_sim+eng"}），但需对应 traineddata 已安装。</p>
+ * <p>二进制路径解析顺序（便于离线/便携部署）：
+ * <ol>
+ *   <li>系统属性 {@code sa.ocr.tesseract.bin}；</li>
+ *   <li>环境变量 {@code TESSERACT_BIN}；</li>
+ *   <li>项目内便携路径 {@code deploy/tesseract/tesseract[.exe]}（相对工作目录）；</li>
+ *   <li>回退到 PATH 上的 {@code tesseract}。</li>
+ * </ol>
+ * 默认语言为中文优先的 {@code chi_sim+eng}，覆盖绝大多数中文文档场景。</p>
  */
 public class TesseractOcrStrategy implements OcrStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(TesseractOcrStrategy.class);
 
+    /** 便携部署相对路径（工作目录下的 deploy/tesseract） */
+    private static final String PORTABLE_REL = "deploy/tesseract/tesseract";
+
     private final boolean available;
     private final String languages;
+    private final String binary;
 
     public TesseractOcrStrategy() {
-        this("eng");
+        this(null);
     }
 
     public TesseractOcrStrategy(String languages) {
-        this.languages = (languages != null && !languages.isBlank()) ? languages : "eng";
+        this.languages = (languages != null && !languages.isBlank())
+                ? languages : OcrStrategies.DEFAULT_LANGUAGES;
+        this.binary = resolveBinary();
         this.available = detect();
     }
 
-    private static boolean detect() {
+    /** 解析 tesseract 可执行文件路径（见类文档顺序） */
+    private static String resolveBinary() {
+        String prop = System.getProperty("sa.ocr.tesseract.bin");
+        if (prop != null && !prop.isBlank() && Files.exists(Path.of(prop))) {
+            return prop;
+        }
+        String env = System.getenv("TESSERACT_BIN");
+        if (env != null && !env.isBlank() && Files.exists(Path.of(env))) {
+            return env;
+        }
+        // 便携路径：Windows .exe / Linux 无后缀
+        for (String candidate : new String[]{PORTABLE_REL + ".exe", PORTABLE_REL}) {
+            if (Files.exists(Path.of(candidate))) {
+                return candidate;
+            }
+        }
+        return "tesseract"; // 回退 PATH
+    }
+
+    private boolean detect() {
         try {
-            Process p = new ProcessBuilder("tesseract", "--version")
+            Process p = new ProcessBuilder(binary, "--version")
                     .redirectErrorStream(true)
                     .start();
             boolean ok = p.waitFor() == 0;
             if (!ok) {
-                log.debug("[TesseractOcr] tesseract --version 退出码非 0，视为不可用");
+                log.debug("[TesseractOcr] {} --version 退出码非 0，视为不可用", binary);
             }
             return ok;
         } catch (IOException e) {
-            log.debug("[TesseractOcr] 未找到 tesseract 可执行文件: {}", e.getMessage());
+            log.debug("[TesseractOcr] 未找到 tesseract 可执行文件({})，降级: {}", binary, e.getMessage());
             return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
         }
+    }
+
+    @Override
+    public String engineName() {
+        return "tesseract";
     }
 
     @Override
@@ -86,7 +123,7 @@ public class TesseractOcrStrategy implements OcrStrategy {
             Files.deleteIfExists(txtOut);
 
             List<String> cmd = new ArrayList<>();
-            cmd.add("tesseract");
+            cmd.add(binary);
             cmd.add(input.toString());
             cmd.add(outBase.toString());
             cmd.add("-l");
