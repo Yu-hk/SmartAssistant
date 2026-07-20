@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.rag.document;
 
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -62,6 +63,9 @@ public class ParsedDocument {
     /** 自定义关键词（用于 BM25 增强检索） */
     private final String keywords;
 
+    /** 扩展元数据（解析质量指标等），如 pdf.table / pdf.ocr / pdf.ocrChars，默认空 */
+    private final Map<String, String> metadata;
+
     // ==================== 构造器 ====================
 
     private ParsedDocument(Builder builder) {
@@ -79,6 +83,7 @@ public class ParsedDocument {
         this.contentHash = builder.contentHash != null ? builder.contentHash : "";
         this.category = builder.category != null ? builder.category : "";
         this.keywords = builder.keywords != null ? builder.keywords : "";
+        this.metadata = builder.metadata != null ? builder.metadata : Map.of();
     }
 
     // ==================== Getters ====================
@@ -97,6 +102,7 @@ public class ParsedDocument {
     public String getContentHash() { return contentHash; }
     public String getCategory() { return category; }
     public String getKeywords() { return keywords; }
+    public Map<String, String> getMetadata() { return metadata; }
 
     // ==================== Builder ====================
 
@@ -119,6 +125,7 @@ public class ParsedDocument {
         private String contentHash;
         private String category;
         private String keywords;
+        private Map<String, String> metadata;
 
         public Builder docId(String val) { this.docId = val; return this; }
         public Builder title(String val) { this.title = val; return this; }
@@ -134,6 +141,7 @@ public class ParsedDocument {
         public Builder contentHash(String val) { this.contentHash = val; return this; }
         public Builder category(String val) { this.category = val; return this; }
         public Builder keywords(String val) { this.keywords = val; return this; }
+        public Builder metadata(Map<String, String> val) { this.metadata = val; return this; }
 
         public ParsedDocument build() {
             Objects.requireNonNull(docId, "docId must not be null");
