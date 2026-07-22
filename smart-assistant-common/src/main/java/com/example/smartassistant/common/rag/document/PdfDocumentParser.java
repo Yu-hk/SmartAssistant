@@ -12,6 +12,7 @@ import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
@@ -43,6 +44,8 @@ import javax.imageio.ImageIO;
  *       合并单元格/跨列（colspan）场景，重构为 Markdown 表格，作为 contentType=pdf-table
  *       的独立文档输出，正文段落不受表格干扰）；</li>
  *   <li>⭐ 扫描件 OCR（页面无文本但有图片时，渲染整页交 OCR 策略提取，结果为 pdf-ocr 文档）。</li>
+ *   <li>⭐ 内嵌图区域 OCR（文本页含图片时，逐个抽取 {@code PDImageXObject} 仅对图片本身 OCR，
+ *       输出 pdf-image-ocr 文档，并与同页正文/表格去重，避免正文被重复索引）。</li>
  * </ul>
  * 解析质量指标通过 {@code metadata} 透出（pdf.table / pdf.columns / pdf.ocr*），
  * OCR 引擎不可用时对扫描件打出 WARN 降级告警，绝不阻断解析。
@@ -96,6 +99,7 @@ public class PdfDocumentParser implements DocumentParser {
                 }
 
                 // 1) 表格：每个检测到的表格作为一个独立 ParsedDocument（含质量指标）
+                List<String> pageExistingTexts = new ArrayList<>();
                 int tableIdx = 0;
                 for (TwoColumnPdfTextStripper.TableBlock table : pageResult.tables()) {
                     tableIdx++;
@@ -114,6 +118,7 @@ public class PdfDocumentParser implements DocumentParser {
                                     "pdf.table", "1",
                                     "pdf.tableIndex", String.valueOf(tableIdx)))
                             .build());
+                    pageExistingTexts.add(table.markdown());
                 }
 
                 // 2) 正文：排除表格文本块后，按空行分割为段落（标注栏数指标）
@@ -143,15 +148,22 @@ public class PdfDocumentParser implements DocumentParser {
                                 .contentHash(contentHash)
                                 .metadata(meta)
                                 .build());
+                        pageExistingTexts.add(para);
                     }
                 }
 
-                // 3) OCR 图片文本提取（可选，仅在 OCR 策略可用时生效）
-                if (ocrStrategy.isAvailable()) {
-                    results.addAll(runOcr(pageNum, document, sourceUrl, fileName, false));
-                } else if (pageHasImages) {
-                    log.warn("[PdfParser] 第{}页含图片但 OCR 不可用(engine={})，图片内文字将缺失，请部署 Tesseract 或 Ollama",
-                            pageNum, ocrStrategy.engineName());
+                // 3) 图片处理：扫描件整页 OCR；文本页只抽取内嵌图区域 OCR（去重，避免正文重复）
+                if (pageHasImages) {
+                    if (pageResult.isEmpty()) {
+                        // 扫描件（无文本）：整页渲染 OCR
+                        results.addAll(runOcr(pageNum, document, sourceUrl, fileName, true));
+                    } else if (ocrStrategy.isAvailable()) {
+                        // 文本页内嵌图：逐图区域 OCR（不整页重扫，正文不重复）
+                        results.addAll(runImageOcr(pageNum, page, sourceUrl, fileName, pageExistingTexts));
+                    } else {
+                        log.warn("[PdfParser] 第{}页含内嵌图片但 OCR 不可用(engine={})，图片内文字将缺失，请部署 Tesseract 或 Ollama",
+                                pageNum, ocrStrategy.engineName());
+                    }
                 }
             }
 
@@ -223,6 +235,90 @@ public class PdfDocumentParser implements DocumentParser {
                     fileName, pageNum, e.getMessage());
         }
         return out;
+    }
+
+    /**
+     * 文本页内嵌图区域 OCR：逐个抽取页面中的 {@link PDImageXObject}（而非整页重渲染），
+     * 仅对图片本身做 OCR，输出 pdf-image-ocr 文档。配合 {@code pageExistingTexts} 去重，
+     * 若 OCR 文本与同页正文/表格高度重合则丢弃，避免正文被重复索引。永不抛异常。
+     */
+    private List<ParsedDocument> runImageOcr(int pageNum, PDPage page, String sourceUrl,
+                                            String fileName, List<String> pageExistingTexts) {
+        List<ParsedDocument> out = new ArrayList<>();
+        try {
+            PDResources res = page.getResources();
+            if (res == null) return out;
+            int imgIdx = 0;
+            for (COSName name : res.getXObjectNames()) {
+                Object xobj;
+                try {
+                    xobj = res.getXObject(name);
+                } catch (IOException e) {
+                    continue;
+                }
+                if (!(xobj instanceof PDImageXObject img)) continue;
+                imgIdx++;
+                try {
+                    java.awt.image.BufferedImage bim = img.getImage();
+                    byte[] bytes = toPngBytes(bim);
+                    List<String> texts = ocrStrategy.extractText(bytes, fileName + "-p" + pageNum + "-img" + imgIdx);
+                    for (int i = 0; i < texts.size(); i++) {
+                        String text = texts.get(i);
+                        if (text.isBlank()) continue;
+                        // 去重：与同页已有正文/表格高度重合则丢弃
+                        if (isDuplicate(text, pageExistingTexts)) {
+                            log.debug("[PdfParser] 内嵌图OCR文本与正文重复，跳过: file={}, page={}, img={}",
+                                    fileName, pageNum, imgIdx);
+                            continue;
+                        }
+                        out.add(ParsedDocument.builder()
+                                .docId(fileName + "-p" + pageNum + "-img" + imgIdx + "-ocr" + i)
+                                .title("图片OCR: " + fileName + " 第" + pageNum + "页-图" + imgIdx)
+                                .content(text)
+                                .sourceUrl(sourceUrl)
+                                .pageNumber(pageNum)
+                                .section("第" + pageNum + "页-图片" + imgIdx)
+                                .contentType("pdf-image-ocr")
+                                .contentHash(sha256(text))
+                                .metadata(Map.of(
+                                        "pdf.image", "1",
+                                        "pdf.imageIndex", String.valueOf(imgIdx),
+                                        "pdf.ocr", "1",
+                                        "pdf.ocrChars", String.valueOf(text.length()),
+                                        "pdf.ocrEngine", ocrStrategy.engineName(),
+                                        "pdf.ocrRegion", "image"))
+                                .build());
+                    }
+                } catch (Exception e) {
+                    log.warn("[PdfParser] 内嵌图OCR失败: file={}, page={}, img={}, error={}",
+                            fileName, pageNum, imgIdx, e.getMessage());
+                }
+            }
+            if (!out.isEmpty()) {
+                log.info("[PdfParser] 内嵌图区域OCR: file={}, page={}, docs={}", fileName, pageNum, out.size());
+            }
+        } catch (Exception e) {
+            log.debug("[PdfParser] 读取页面资源失败: {}", e.getMessage());
+        }
+        return out;
+    }
+
+    /** OCR 文本是否与已有文本高度重合（互为包含即判重，过短不判以免误删） */
+    private static boolean isDuplicate(String candidate, List<String> existing) {
+        String c = normalize(candidate);
+        if (c.length() < 8) return false;
+        for (String e : existing) {
+            String n = normalize(e);
+            if (n.length() < 8) continue;
+            if (c.contains(n) || n.contains(c)) return true;
+        }
+        return false;
+    }
+
+    /** 归一化：转小写并去除空白与标点，用于重复判定 */
+    private static String normalize(String s) {
+        if (s == null) return "";
+        return s.toLowerCase().replaceAll("[\\s\\p{P}]+", "");
     }
 
     /**
