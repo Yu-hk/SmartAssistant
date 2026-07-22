@@ -12,6 +12,8 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -19,6 +21,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -120,20 +126,46 @@ class PdfDocumentParserMetricsTest {
         assertTrue(ok, "正文应标注 pdf.columns");
     }
 
+    private Path buildImagePdf() throws Exception {
+        Path file = tempDir.resolve("metrics-image.pdf");
+        try (PDDocument doc = new PDDocument()) {
+            PDPage page = new PDPage();
+            doc.addPage(page);
+            try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
+                cs.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                cs.beginText();
+                cs.newLineAtOffset(50, 700);
+                cs.showText("A paragraph with an embedded image.");
+                cs.endText();
+                BufferedImage bim = new BufferedImage(80, 80, BufferedImage.TYPE_INT_RGB);
+                Graphics2D g = bim.createGraphics();
+                g.setColor(Color.WHITE);
+                g.fillRect(0, 0, 80, 80);
+                g.dispose();
+                PDImageXObject img = LosslessFactory.createFromImage(doc, bim);
+                cs.drawImage(img, 50, 500);
+            }
+            doc.save(file.toFile());
+        }
+        return file;
+    }
+
     @Test
     void ocrDocumentCarriesQualityMetadata() throws Exception {
         PdfDocumentParser parser = new PdfDocumentParser();
         parser.setOcrStrategy(new StubOcr());
-        List<ParsedDocument> docs = parser.parse(buildPlainPdf().toString());
+        List<ParsedDocument> docs = parser.parse(buildImagePdf().toString());
 
         List<ParsedDocument> ocrDocs = docs.stream()
-                .filter(d -> "pdf-ocr".equals(d.getContentType())).toList();
-        assertFalse(ocrDocs.isEmpty(), "桩 OCR 应产出 pdf-ocr 文档");
+                .filter(d -> "pdf-image-ocr".equals(d.getContentType())).toList();
+        assertFalse(ocrDocs.isEmpty(), "文本页内嵌图应产出 pdf-image-ocr 文档");
 
         ParsedDocument ocr = ocrDocs.get(0);
         Map<String, String> meta = ocr.getMetadata();
         assertEquals("1", meta.get("pdf.ocr"), "应标注 pdf.ocr=1");
         assertEquals("stub", meta.get("pdf.ocrEngine"));
+        assertEquals("image", meta.get("pdf.ocrRegion"), "应为图片区域 OCR");
+        assertEquals("1", meta.get("pdf.image"), "应标注 pdf.image=1");
         assertTrue(Integer.parseInt(meta.get("pdf.ocrChars")) > 0, "pdf.ocrChars 应大于 0");
         assertTrue(ocr.getContent().contains("STUB_OCR_TEXT"));
     }
