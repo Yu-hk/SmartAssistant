@@ -112,6 +112,11 @@ class PdfParserTableTest {
                 "表格应包含第一行数据，实际:\n" + tableContent);
         assertTrue(tableContent.contains("| Bob | 25 | Shanghai |"),
                 "表格应包含第二行数据，实际:\n" + tableContent);
+
+        // 缺陷 A 回归：表头必须在 Markdown 首行（视觉自顶向下，而非沉到最底）
+        String firstLine = tableContent.lines().findFirst().orElse("").trim();
+        assertEquals("| Name | Age | City |", firstLine,
+                "表格表头应在 Markdown 首行（自顶向下），实际首行:\n" + firstLine);
     }
 
     @Test
