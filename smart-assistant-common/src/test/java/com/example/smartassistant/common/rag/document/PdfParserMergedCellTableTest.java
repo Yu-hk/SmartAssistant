@@ -102,5 +102,10 @@ class PdfParserMergedCellTableTest {
         // 表格不应污染正文
         assertFalse(docs.stream().anyMatch(d -> "pdf".equals(d.getContentType())
                 && d.getContent().contains("| A |")), "正文不应含表格 Markdown");
+
+        // 缺陷 A 回归：合并单元格表格的表头也必须在 Markdown 首行（视觉自顶向下）
+        String firstLine = md.lines().findFirst().orElse("").trim();
+        assertEquals("| A | B | C |", firstLine,
+                "合并单元格表格表头应在 Markdown 首行，实际首行:\n" + firstLine);
     }
 }
