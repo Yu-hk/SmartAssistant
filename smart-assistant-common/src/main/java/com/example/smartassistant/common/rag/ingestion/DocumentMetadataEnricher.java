@@ -40,6 +40,7 @@ public class DocumentMetadataEnricher {
             Map.entry("pdf-table", "PDF"),
             Map.entry("pdf-ocr", "PDF"),
             Map.entry("pdf-image-ocr", "PDF"),
+            Map.entry("pdf-image-caption", "PDF"),
             Map.entry("docx", "WORD"),
             Map.entry("doc", "WORD"),
             Map.entry("html", "HTML"),
