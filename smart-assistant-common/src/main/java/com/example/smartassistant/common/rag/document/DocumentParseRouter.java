@@ -17,6 +17,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import com.example.smartassistant.common.rag.document.mineru.MinerUClient;
+import com.example.smartassistant.common.rag.document.mineru.MinerUProperties;
+import com.example.smartassistant.common.rag.document.mineru.PdfParserRouter;
+
 /**
  * 文档解析路由——根据文件扩展名自动选择对应的解析器。
  * <p>
@@ -44,12 +48,32 @@ public class DocumentParseRouter {
     private final TikaDocumentSniffer sniffer;
 
     public DocumentParseRouter() {
+        this(null, null);
+    }
+
+    /**
+     * MinerU 感知构造（R1/R2）。
+     * <p>
+     * 当 {@code properties != null && properties.isEnabled() && minerUClient != null} 时，
+     * 将 {@code "pdf"} 映射为 {@link PdfParserRouter}（PDFBox 主 / MinerU 补）；
+     * 否则行为完全不变（纯 PDFBox，零回归）。
+     * </p>
+     *
+     * @param properties     MinerU 配置（可为 null）
+     * @param minerUClient   MinerU 客户端（可为 null，未启用时不注入）
+     */
+    public DocumentParseRouter(MinerUProperties properties, MinerUClient minerUClient) {
         this.parsers = new HashMap<>();
         this.fallbackParser = new TextFallbackParser();
         this.sniffer = new TikaDocumentSniffer();
 
-        // 注册标准解析器
-        parsers.put("pdf", new PdfDocumentParser());
+        // 注册 PDF 解析器：启用 MinerU 且客户端可用时切换为路由，否则纯 PDFBox
+        DocumentParser pdfParser = new PdfDocumentParser();
+        if (properties != null && properties.isEnabled() && minerUClient != null) {
+            pdfParser = new PdfParserRouter(minerUClient, properties);
+            log.info("[DocRouter] MinerU 已启用，pdf 路由切换为 PdfParserRouter（PDFBox 主 / MinerU 补）");
+        }
+        parsers.put("pdf", pdfParser);
         parsers.put("docx", new WordDocumentParser());
         parsers.put("html", new HtmlDocumentParser());
         parsers.put("htm", new HtmlDocumentParser());
