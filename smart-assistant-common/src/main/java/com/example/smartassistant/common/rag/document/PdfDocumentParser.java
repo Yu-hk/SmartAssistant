@@ -46,6 +46,8 @@ import javax.imageio.ImageIO;
  *   <li>⭐ 扫描件 OCR（页面无文本但有图片时，渲染整页交 OCR 策略提取，结果为 pdf-ocr 文档）。</li>
  *   <li>⭐ 内嵌图区域 OCR（文本页含图片时，逐个抽取 {@code PDImageXObject} 仅对图片本身 OCR，
  *       输出 pdf-image-ocr 文档，并与同页正文/表格去重，避免正文被重复索引）。</li>
+ *   <li>⭐ 内嵌图语义说明（文本页含图片且 caption 策略可用时，逐个抽取嵌入图交多模态模型
+ *       理解内容，输出 pdf-image-caption 文档，与 OCR 互补：OCR 抽图内文字，caption 理解图在表达什么）。</li>
  * </ul>
  * 解析质量指标通过 {@code metadata} 透出（pdf.table / pdf.columns / pdf.ocr*），
  * OCR 引擎不可用时对扫描件打出 WARN 降级告警，绝不阻断解析。
@@ -61,6 +63,14 @@ public class PdfDocumentParser implements DocumentParser {
     /** 设置 OCR 策略 */
     public void setOcrStrategy(OcrStrategy ocrStrategy) {
         this.ocrStrategy = ocrStrategy != null ? ocrStrategy : new NoopOcrStrategy();
+    }
+
+    /** 图片语义说明策略（可插拔，默认空操作降级，需显式注入多模态策略才生效） */
+    private ImageCaptionStrategy imageCaptionStrategy = new NoopImageCaptionStrategy();
+
+    /** 设置图片语义说明策略 */
+    public void setImageCaptionStrategy(ImageCaptionStrategy imageCaptionStrategy) {
+        this.imageCaptionStrategy = imageCaptionStrategy != null ? imageCaptionStrategy : new NoopImageCaptionStrategy();
     }
 
     @Override
@@ -152,7 +162,7 @@ public class PdfDocumentParser implements DocumentParser {
                     }
                 }
 
-                // 3) 图片处理：扫描件整页 OCR；文本页只抽取内嵌图区域 OCR（去重，避免正文重复）
+                // 3) 图片处理：扫描件整页 OCR；文本页抽取内嵌图区域 OCR + 语义说明
                 if (pageHasImages) {
                     if (pageResult.isEmpty()) {
                         // 扫描件（无文本）：整页渲染 OCR
@@ -163,6 +173,11 @@ public class PdfDocumentParser implements DocumentParser {
                     } else {
                         log.warn("[PdfParser] 第{}页含内嵌图片但 OCR 不可用(engine={})，图片内文字将缺失，请部署 Tesseract 或 Ollama",
                                 pageNum, ocrStrategy.engineName());
+                    }
+                    // 嵌入图语义说明（仅文本页的图表/截图；扫描件整页已走 OCR，不再 caption）：
+                    // 与 OCR 互补——OCR 抽图内文字，caption 理解图在表达什么
+                    if (!pageResult.isEmpty()) {
+                        results.addAll(runImageCaption(pageNum, page, sourceUrl, fileName));
                     }
                 }
             }
@@ -296,6 +311,63 @@ public class PdfDocumentParser implements DocumentParser {
             }
             if (!out.isEmpty()) {
                 log.info("[PdfParser] 内嵌图区域OCR: file={}, page={}, docs={}", fileName, pageNum, out.size());
+            }
+        } catch (Exception e) {
+            log.debug("[PdfParser] 读取页面资源失败: {}", e.getMessage());
+        }
+        return out;
+    }
+
+    /**
+     * 文本页内嵌图语义说明：逐个抽取页面中的 {@link PDImageXObject}，交图片说明策略（多模态模型）
+     * 理解图片内容，输出 pdf-image-caption 文档。与 {@link #runImageOcr} 互补（OCR 抽字，
+     * caption 释义），用于让图表/截图含义进入检索。策略不可用时自动跳过。永不抛异常。
+     */
+    private List<ParsedDocument> runImageCaption(int pageNum, PDPage page, String sourceUrl, String fileName) {
+        List<ParsedDocument> out = new ArrayList<>();
+        if (imageCaptionStrategy == null || !imageCaptionStrategy.isAvailable()) {
+            return out;
+        }
+        try {
+            PDResources res = page.getResources();
+            if (res == null) return out;
+            int imgIdx = 0;
+            for (COSName name : res.getXObjectNames()) {
+                Object xobj;
+                try {
+                    xobj = res.getXObject(name);
+                } catch (IOException e) {
+                    continue;
+                }
+                if (!(xobj instanceof PDImageXObject img)) continue;
+                imgIdx++;
+                try {
+                    java.awt.image.BufferedImage bim = img.getImage();
+                    byte[] bytes = toPngBytes(bim);
+                    String caption = imageCaptionStrategy.caption(bytes, fileName + "-p" + pageNum + "-img" + imgIdx);
+                    if (caption == null || caption.isBlank()) continue;
+                    out.add(ParsedDocument.builder()
+                            .docId(fileName + "-p" + pageNum + "-img" + imgIdx + "-cap")
+                            .title("图片说明: " + fileName + " 第" + pageNum + "页-图" + imgIdx)
+                            .content(caption)
+                            .sourceUrl(sourceUrl)
+                            .pageNumber(pageNum)
+                            .section("第" + pageNum + "页-图片" + imgIdx)
+                            .contentType("pdf-image-caption")
+                            .contentHash(sha256(caption))
+                            .metadata(Map.of(
+                                    "pdf.image", "1",
+                                    "pdf.imageIndex", String.valueOf(imgIdx),
+                                    "pdf.caption", "1",
+                                    "pdf.captionEngine", imageCaptionStrategy.engineName()))
+                            .build());
+                } catch (Exception e) {
+                    log.warn("[PdfParser] 内嵌图语义说明失败: file={}, page={}, img={}, error={}",
+                            fileName, pageNum, imgIdx, e.getMessage());
+                }
+            }
+            if (!out.isEmpty()) {
+                log.info("[PdfParser] 内嵌图语义说明: file={}, page={}, docs={}", fileName, pageNum, out.size());
             }
         } catch (Exception e) {
             log.debug("[PdfParser] 读取页面资源失败: {}", e.getMessage());

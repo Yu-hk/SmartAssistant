@@ -10,6 +10,8 @@ package com.example.smartassistant.common.rag.ingestion.job;
 import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.chunking.DocumentChunker;
 import com.example.smartassistant.common.rag.document.DocumentParseRouter;
+import com.example.smartassistant.common.rag.document.mineru.MinerUClient;
+import com.example.smartassistant.common.rag.document.mineru.MinerUProperties;
 import com.example.smartassistant.common.rag.graph.KnowledgeGraphService;
 import com.example.smartassistant.common.rag.ingestion.DocumentMetadataEnricher;
 import com.example.smartassistant.common.rag.ingestion.DocumentValidator;
@@ -39,8 +41,13 @@ public class IngestionJobAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public DocumentParseRouter ingestionDocumentParseRouter() {
-        return new DocumentParseRouter();
+    public DocumentParseRouter ingestionDocumentParseRouter(
+            ObjectProvider<MinerUProperties> minerUPropertiesProvider,
+            ObjectProvider<MinerUClient> minerUClientProvider) {
+        // 未启用 MinerU（或 sidecar Bean 不可用）时，两 provider 均返回 null → 纯 PDFBox 行为
+        return new DocumentParseRouter(
+                minerUPropertiesProvider.getIfAvailable(),
+                minerUClientProvider.getIfAvailable());
     }
 
     @Bean
