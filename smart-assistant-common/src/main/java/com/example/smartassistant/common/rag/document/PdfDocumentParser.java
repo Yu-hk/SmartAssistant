@@ -73,6 +73,25 @@ public class PdfDocumentParser implements DocumentParser {
         this.imageCaptionStrategy = imageCaptionStrategy != null ? imageCaptionStrategy : new NoopImageCaptionStrategy();
     }
 
+    /**
+     * 图片 caption 开关（R5 caption 独占），默认开启。
+     * MinerU 活跃路径下由调用方关闭，避免与 MinerU 对同一图片重复 caption。
+     */
+    private boolean captionEnabled = true;
+
+    /** 内嵌图片 OCR 开关（R5），默认开启 */
+    private boolean imageOcrEnabled = true;
+
+    /** 设置图片 caption 开关（R5） */
+    public void setCaptionEnabled(boolean captionEnabled) {
+        this.captionEnabled = captionEnabled;
+    }
+
+    /** 设置内嵌图片 OCR 开关（R5） */
+    public void setImageOcrEnabled(boolean imageOcrEnabled) {
+        this.imageOcrEnabled = imageOcrEnabled;
+    }
+
     @Override
     public List<ParsedDocument> parse(String filePath) throws DocumentParseException {
         Path path = Paths.get(filePath);
@@ -167,16 +186,19 @@ public class PdfDocumentParser implements DocumentParser {
                     if (pageResult.isEmpty()) {
                         // 扫描件（无文本）：整页渲染 OCR
                         results.addAll(runOcr(pageNum, document, sourceUrl, fileName, true));
-                    } else if (ocrStrategy.isAvailable()) {
+                    } else if (ocrStrategy.isAvailable() && imageOcrEnabled) {
                         // 文本页内嵌图：逐图区域 OCR（不整页重扫，正文不重复）
                         results.addAll(runImageOcr(pageNum, page, sourceUrl, fileName, pageExistingTexts));
+                    } else if (ocrStrategy.isAvailable() && !imageOcrEnabled) {
+                        log.debug("[PdfParser] 第{}页内嵌图 OCR 已按 R5 开关关闭（captionExclusive）", pageNum);
                     } else {
                         log.warn("[PdfParser] 第{}页含内嵌图片但 OCR 不可用(engine={})，图片内文字将缺失，请部署 Tesseract 或 Ollama",
                                 pageNum, ocrStrategy.engineName());
                     }
                     // 嵌入图语义说明（仅文本页的图表/截图；扫描件整页已走 OCR，不再 caption）：
                     // 与 OCR 互补——OCR 抽图内文字，caption 理解图在表达什么
-                    if (!pageResult.isEmpty()) {
+                    // R5：captionEnabled 为 false 时结构性禁用（MinerU 活跃路径），避免同图双重 caption
+                    if (!pageResult.isEmpty() && captionEnabled) {
                         results.addAll(runImageCaption(pageNum, page, sourceUrl, fileName));
                     }
                 }
@@ -190,8 +212,11 @@ public class PdfDocumentParser implements DocumentParser {
         return results;
     }
 
-    /** 页面是否包含图片（用于扫描件探测） */
-    private static boolean hasImages(PDPage page) {
+    /**
+     * 页面是否包含图片（用于扫描件探测）。
+     * <p>提升为 public static 以便路由层 {@code PdfParserRouter} 复用（R2 预扫描），不破坏既有调用。</p>
+     */
+    public static boolean hasImages(PDPage page) {
         try {
             PDResources res = page.getResources();
             if (res == null) return false;
@@ -204,6 +229,27 @@ public class PdfDocumentParser implements DocumentParser {
             log.debug("[PdfParser] 读取页面资源失败: {}", e.getMessage());
         }
         return false;
+    }
+
+    /**
+     * 判断指定页是否为扫描件（无提取文本）。
+     * <p>提升为 public static 供路由层 {@code PdfParserRouter} 预扫描复用（R2/R3）。</p>
+     *
+     * @param doc     已加载的 PDF 文档
+     * @param pageNum 页号（从 1 开始）
+     * @return true 表示该页无可提取文本（疑似扫描件）
+     */
+    public static boolean isScannedPage(PDDocument doc, int pageNum) {
+        try {
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setStartPage(pageNum);
+            stripper.setEndPage(pageNum);
+            String text = stripper.getText(doc);
+            return text == null || text.trim().isEmpty();
+        } catch (IOException e) {
+            log.debug("[PdfParser] 单页文本提取失败，保守视为扫描件: {}", e.getMessage());
+            return true;
+        }
     }
 
     /** 渲染整页并调用 OCR 策略；返回 pdf-ocr 文档列表（含质量指标），永不抛异常 */
@@ -457,10 +503,10 @@ public class PdfDocumentParser implements DocumentParser {
         private List<TableBlock> detectTables(double colTol, double medianFont) {
             if (cells.size() < 4) return List.of();
 
-            // 1) 按 y 降序（页面自上而下）排序，附带原始索引
+            // 1) 按 y 升序排序（PDFBox getY() 自页面顶部向下递增，故升序即视觉自上而下列序），附带原始索引
             List<IndexedCell> sorted = new ArrayList<>();
             for (Cell c : cells) sorted.add(new IndexedCell(c.index, c));
-            sorted.sort(Comparator.<IndexedCell>comparingDouble(ic -> ic.cell.y).reversed());
+            sorted.sort(Comparator.comparingDouble(ic -> ic.cell.y));
 
             // 2) 聚合成行
             List<Row> rows = new ArrayList<>();
@@ -487,7 +533,7 @@ public class PdfDocumentParser implements DocumentParser {
                 int j = i + 1;
                 while (j < rows.size()) {
                     Row nxt = rows.get(j);
-                    if (nxt.cells.size() >= 2 && alignsWithCanon(nxt, canonLefts, colTol)) {
+                    if (nxt.cells.size() >= 2 && alignsWithTableStructure(nxt, canonLefts, colTol)) {
                         run.add(nxt);
                         // 把新行的列左边界并入 canon（允许合并单元格导致的列数差异）
                         for (Double nl : clusterLefts(nxt, colTol)) {
@@ -523,8 +569,35 @@ public class PdfDocumentParser implements DocumentParser {
             return true;
         }
 
+        /**
+         * 判断一行是否与表格列结构一致（缺陷 B 修复）。
+         * <p>真实表格行会把单元格分布到表格的<b>多个不同列</b>（跨列对齐），而紧贴表格的左对齐正文行
+         * 即使被拆成多个 token，也只会落在同一列（左边界）附近，不应并入表格。因此在
+         * {@link #alignsWithCanon} 的基础上，额外要求该行映射到的“不同列数” ≥ 2 且列填充比例达标。</p>
+         *
+         * @param row        待判定行
+         * @param canonLefts 当前表格 canon 列左边界
+         * @param colTol     列容差
+         * @return 该行与表格列结构一致（应纳入表格）返回 true
+         */
+        private static boolean alignsWithTableStructure(Row row, List<Double> canonLefts, double colTol) {
+            if (!alignsWithCanon(row, canonLefts, colTol)) return false;
+            // 统计该行单元格映射到的不同列集合
+            Set<Integer> covered = new HashSet<>();
+            for (IndexedCell ic : row.cells) {
+                covered.add(columnIndex(ic.cell.x, ic.cell.x + ic.cell.width, canonLefts, colTol));
+            }
+            int colCount = canonLefts.size();
+            // 至少跨 2 个不同列（左对齐正文单行只落一列，应排除）
+            if (covered.size() < 2) return false;
+            // 列填充比例：覆盖列数 / 表格总列数 需 ≥ 0.5
+            return (double) covered.size() / colCount >= 0.5;
+        }
+
         /** 将一组对齐行用列桶算法重构为 Markdown 表格（支持合并单元格/跨列） */
         private TableBlock buildTable(List<Row> run, List<Double> canonLefts, double colTol) {
+            // 缺陷 A 修复：按 y 坐标自上而下排序，确保视觉顶部行作为 Markdown 表头
+            run.sort(Comparator.comparingDouble(r -> r.y));
             int colCount = canonLefts.size();
             List<Integer> idx = new ArrayList<>();
 
