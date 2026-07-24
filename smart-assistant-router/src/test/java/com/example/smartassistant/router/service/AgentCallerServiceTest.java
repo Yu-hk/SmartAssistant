@@ -7,15 +7,21 @@
 
 package com.example.smartassistant.router.service;
 
+import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
+import com.example.smartassistant.router.service.agent.AgentVersionNegotiator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Method;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * AgentCallerService 单元测试
@@ -23,6 +29,29 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @ExtendWith(MockitoExtension.class)
 class AgentCallerServiceTest {
+
+    @Test
+    @DisplayName("领域别名 order 应匹配注册名 order_agent")
+    void testFindAgentUrl_AcceptsDomainAlias() throws Exception {
+        AgentDiscoveryService discoveryService = mock(AgentDiscoveryService.class);
+        AgentVersionNegotiator versionNegotiator = mock(AgentVersionNegotiator.class);
+        AgentCallerService service = new AgentCallerService(
+                discoveryService, null, versionNegotiator);
+
+        DiscoveredAgent orderAgent = new DiscoveredAgent();
+        orderAgent.setAgentName("order_agent");
+        orderAgent.setServiceName("smart-assistant-order-service");
+        orderAgent.setUrl("http://smart-order:8085/a2a");
+        when(versionNegotiator.selectCompatibleAgent("order", "1.0.0", "a2a-v1"))
+                .thenReturn(null);
+        when(discoveryService.discoverAllAgents()).thenReturn(List.of(orderAgent));
+
+        Method method = AgentCallerService.class
+                .getDeclaredMethod("findAgentUrl", String.class);
+        method.setAccessible(true);
+
+        assertEquals("http://smart-order:8085/a2a", method.invoke(service, "order"));
+    }
 
     @Test
     @DisplayName("空值清理返回空")
