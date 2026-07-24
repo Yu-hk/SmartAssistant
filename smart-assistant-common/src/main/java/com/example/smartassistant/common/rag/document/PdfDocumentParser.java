@@ -67,6 +67,11 @@ public class PdfDocumentParser implements DocumentParser {
             int totalPages = document.getNumberOfPages();
             log.info("[PdfParser] 开始解析 PDF: file={}, pages={}", fileName, totalPages);
 
+            // ⭐ 跨页标题接力：若某页以"孤立标题行"结尾（正文在下一页），
+            //   将该标题携带到下一页，作为下一页首个 section 的标题与前缀，
+            //   避免出现"标题-正文错配"（标题挂在上一页、正文成无题元素）。
+            String carryHeading = null;
+
             for (int pageNum = 1; pageNum <= totalPages; pageNum++) {
                 PDPage page = document.getPage(pageNum - 1);
                 float pageWidth = (page.getMediaBox() != null) ? page.getMediaBox().getWidth() : 612f;
@@ -108,9 +113,26 @@ public class PdfDocumentParser implements DocumentParser {
                 //       导致 chunkParentChild 在每个 ~150 token 段落内独立分块，parentMaxTokens=1024 永不可达。
                 String pageText = pageResult.prose().trim();
                 if (!pageText.isBlank()) {
-                    String[] paragraphs = pageText.split("\n\\s*\n");
+                    List<String> paraList = new ArrayList<>(
+                            List.of(pageText.split("\n\\s*\n")));
+
+                    // ⭐ 页尾孤立标题（正文在下一页）→ 摘下并接力到下一页，
+                    //   避免"标题挂上一页、正文成无题元素"的标题-正文错配
+                    String nextCarry = null;
+                    if (pageNum < totalPages && !paraList.isEmpty()) {
+                        String lastPara = paraList.get(paraList.size() - 1).trim();
+                        if (!lastPara.contains("\n") && lastPara.length() <= 60
+                                && isHeadingLine(lastPara)) {
+                            nextCarry = lastPara;
+                            paraList.remove(paraList.size() - 1);
+                            log.debug("[PdfParser] 页尾孤立标题接力到下一页: page={}, heading={}",
+                                    pageNum, nextCarry);
+                        }
+                    }
+
                     List<ParsedDocument> sectionDocs = mergeParagraphsToSections(
-                            paragraphs, fileName, pageNum, sourceUrl);
+                            paraList.toArray(new String[0]), fileName, pageNum, sourceUrl, carryHeading);
+                    carryHeading = nextCarry;
                     results.addAll(sectionDocs);
                 }
 
@@ -159,30 +181,53 @@ public class PdfDocumentParser implements DocumentParser {
     private static final int SECTION_SOFT_CAP = 1000;
 
     /**
+     * ⭐ 标题切分的最小 flush 阈值（约 token 数）。
+     * 阅读顺序修复后标题识别变准，若每个标题都切一刀，section 会退化为 ~150 token
+     * 的段落级粒度（Parent-Child 双粒度失效）。因此遇到新标题时仅当已积累内容
+     * ≥ 该阈值才切分；小章节合并进同一父块，子块检索定位由标题前缀注入（P1）保证。
+     */
+    private static final int SECTION_MIN_FLUSH = 600;
+
+    /**
      * ⭐ 将一页的正文段落合并为"长元素"（按标题切分 + 大小封顶）。
      * <p>修复 Parent-Child 父子粒度退化：原实现逐段落输出独立 ParsedDocument，
      * 导致 chunkParentChild 在每个 ~150 token 段落内独立分块，parentMaxTokens=1024 永不可达。
      * 合并后每个元素接近父块粒度，父子双粒度才能真正成立；标题文本并入内容以保留上下文。</p>
      */
     private List<ParsedDocument> mergeParagraphsToSections(
-            String[] paragraphs, String fileName, int pageNum, String sourceUrl) {
+            String[] paragraphs, String fileName, int pageNum, String sourceUrl,
+            String carryHeading) {
         List<ParsedDocument> out = new ArrayList<>();
         StringBuilder content = new StringBuilder();
         String sectionTitle = null;
         int sectionIdx = 0;
+
+        // ⭐ 上一页接力来的孤立标题：作为本页首个 section 的标题与内容前缀
+        if (carryHeading != null && !carryHeading.isBlank()) {
+            sectionTitle = carryHeading;
+            content.append(carryHeading);
+        }
 
         for (String raw : paragraphs) {
             String para = raw.trim();
             if (para.isBlank()) continue;
 
             if (isHeadingLine(para)) {
-                // 遇到新标题：先 flush 当前 section（标题文本已并入内容，保留上下文）
-                if (content.length() > 0) {
+                // 遇到新标题：仅当已积累内容达到最小 flush 阈值才切分，
+                // 否则将小章节继续并入当前 section（保持父块章节级粒度）
+                if (content.length() > 0
+                        && estimateTokens(content.toString()) >= SECTION_MIN_FLUSH) {
                     out.add(buildSectionDoc(fileName, pageNum, sourceUrl,
                             ++sectionIdx, sectionTitle, content.toString().trim(), sha256(content.toString())));
                     content.setLength(0);
                 }
-                sectionTitle = para.length() > 80 ? para.substring(0, 80) + "..." : para;
+                String headingTitle = para.length() > 80 ? para.substring(0, 80) + "..." : para;
+                if (content.length() == 0) {
+                    sectionTitle = headingTitle;
+                } else {
+                    content.append("\n\n");
+                    if (sectionTitle == null) sectionTitle = headingTitle;
+                }
                 content.append(para);
             } else {
                 if (content.length() == 0) {
@@ -272,12 +317,39 @@ public class PdfDocumentParser implements DocumentParser {
         protected void writeString(String text, List<TextPosition> positions) {
             if (positions == null || positions.isEmpty()) return;
             TextPosition first = positions.get(0);
+            TextPosition last = positions.get(positions.size() - 1);
             float x = first.getX();
             float y = first.getY();
-            float width = first.getWidth();
+            // ⭐ 全行真实宽度 = 末字形右边缘 - 首字形左边缘（原实现误用首字形宽度，
+            //   导致列间隙/跨栏判定全部失真）
+            float width = Math.max(0, last.getX() + last.getWidth() - x);
             float fontSize = first.getFontSize();
-            int col = (x < pageWidth / 2f) ? 0 : 1;
-            cells.add(new Cell(cells.size(), col, x, y, width, fontSize, text));
+            // ⭐ 栏归属延后判定：先收集，getPageResult 中统计整页是否真的双栏
+            cells.add(new Cell(cells.size(), x, y, width, fontSize, text));
+        }
+
+        /**
+         * ⭐ 判定整页是否为真正的双栏排版：
+         * 大量文本行横跨页面中线 → 单栏（绝不能按栏切分重排）；
+         * 仅当"跨中线行极少 且 右半页起始的行足够多"才认定为双栏。
+         */
+        private boolean isTwoColumnLayout() {
+            if (cells.isEmpty()) return false;
+            double mid = pageWidth / 2.0;
+            int crossing = 0;
+            int rightStart = 0;
+            for (Cell c : cells) {
+                if (c.x < mid && c.x + c.width > mid + pageWidth * 0.05) crossing++;
+                if (c.x >= mid) rightStart++;
+            }
+            // 超过 5% 的行跨越中线 → 单栏；双栏还要求右半页起始行占比 ≥ 20%
+            if (crossing > Math.max(2, cells.size() * 0.05)) return false;
+            return rightStart >= cells.size() * 0.20;
+        }
+
+        /** 栏归属：仅在真双栏时按中线切分，单栏页恒为 0 */
+        private int colOf(Cell c, boolean twoColumn) {
+            return (twoColumn && c.x >= pageWidth / 2.0) ? 1 : 0;
         }
 
         /** 执行表格检测 + 正文重组，返回整页解析结果 */
@@ -306,14 +378,18 @@ public class PdfDocumentParser implements DocumentParser {
             if (cells.size() < 4) return List.of();
 
             // 1) 计算行容忍度（基于中位数字号）
+            //    ⭐ rowTol 必须小于正文行距（约 1.5 倍字号），只把"同一视觉行"聚在一起。
+            //      原实现 medianFont*1.8 ≈ 18.9 > 正文行距 16，相邻正文行被并成"多列行"，
+            //      拼出伪表格吞掉正文（第1页文本丢失的根因之一）。同行 cell 的 y 实际完全相同。
             double medianFont = median(cells.stream().map(c -> c.fontSize).sorted().toList());
-            double rowTol = Math.max(10, medianFont * 1.8);
+            double rowTol = Math.max(3, medianFont * 0.5);
             double colTol = Math.max(15, medianFont * 1.5);
 
-            // 2) 按 y 降序（页面自上而下）排序，附带原始索引
+            // 2) 按 y 升序排序（PDFTextStripper 的 TextPosition.getY 自页顶向下递增，
+            //    升序即自上而下的阅读顺序；原实现按降序误把页面倒序处理，表头跑到表尾）
             List<IndexedCell> sorted = new ArrayList<>();
             for (Cell c : cells) sorted.add(new IndexedCell(c.index, c));
-            sorted.sort(Comparator.<IndexedCell>comparingDouble(ic -> ic.cell.y).reversed());
+            sorted.sort(Comparator.comparingDouble(ic -> ic.cell.y));
 
             // 3) 聚合成行
             List<Row> rows = new ArrayList<>();
@@ -463,7 +539,17 @@ public class PdfDocumentParser implements DocumentParser {
             return new TableBlock(md.toString().strip(), idx);
         }
 
-        /** 排除表格文本块后，按 (栏, y) 重排为正文纯文本 */
+        /**
+         * 排除表格文本块后，重排为正文纯文本。
+         * <p>⭐ 修复要点：</p>
+         * <ol>
+         *   <li>y 自上而下升序排序（原实现按 -y 排序导致整页倒序，标题-正文错配的根因）；</li>
+         *   <li>仅在真双栏时按栏切分（原实现逐词按中线切栏，单栏页右半文本被挪到页尾）；</li>
+         *   <li>同一视觉行的多个文本块按 x 合并为一行；</li>
+         *   <li>按"大字号标题行 / 行距突变"插入空行段落边界，
+         *       使下游 split("\\n\\s*\\n") 能切出独立标题行与真实段落。</li>
+         * </ol>
+         */
         private String buildProse(Set<Integer> excluded) {
             List<Cell> proseCells = new ArrayList<>();
             for (Cell c : cells) {
@@ -471,15 +557,74 @@ public class PdfDocumentParser implements DocumentParser {
             }
             if (proseCells.isEmpty()) return "";
 
-            proseCells.sort(Comparator.comparingInt((Cell c) -> c.col).thenComparingDouble(c -> -c.y));
-            StringBuilder sb = new StringBuilder();
-            Integer lastCol = null;
+            boolean twoColumn = isTwoColumnLayout();
+            double medianFont = median(proseCells.stream().map(c -> c.fontSize).sorted().toList());
+            double rowTol = Math.max(3, medianFont * 0.5);
+
+            // 1) 按 (栏, y 升序, x 升序) 排序 —— 自上而下的阅读顺序
+            proseCells.sort(Comparator
+                    .comparingInt((Cell c) -> colOf(c, twoColumn))
+                    .thenComparingDouble(c -> c.y)
+                    .thenComparingDouble(c -> c.x));
+
+            // 2) 聚合"同一视觉行"（同栏且 y 接近），行内按 x 拼接
+            List<ProseLine> lines = new ArrayList<>();
+            ProseLine current = null;
             for (Cell c : proseCells) {
-                if (lastCol != null && c.col != lastCol) sb.append("\n\n");
-                sb.append(c.text).append("\n");
-                lastCol = c.col;
+                int col = colOf(c, twoColumn);
+                if (current == null || col != current.col || Math.abs(c.y - current.y) > rowTol) {
+                    current = new ProseLine(col, c.y, c.fontSize);
+                    lines.add(current);
+                } else {
+                    current.fontSize = Math.max(current.fontSize, c.fontSize);
+                }
+                if (current.text.length() > 0) current.text.append(' ');
+                current.text.append(c.text.strip());
+            }
+
+            // 3) 典型行距（中位数），用于识别"段落间空隙"
+            List<Double> gaps = new ArrayList<>();
+            for (int k = 1; k < lines.size(); k++) {
+                if (lines.get(k).col != lines.get(k - 1).col) continue;
+                double g = lines.get(k).y - lines.get(k - 1).y;
+                if (g > rowTol) gaps.add(g);
+            }
+            double medianGap = gaps.isEmpty() ? medianFont * 1.5 : median(gaps.stream().sorted().toList());
+
+            // 4) 输出：标题行（字号明显大于正文）独立成段；行距突变处分段
+            StringBuilder sb = new StringBuilder();
+            ProseLine prev = null;
+            for (ProseLine line : lines) {
+                boolean heading = line.fontSize >= medianFont * 1.15
+                        && line.fontSize - medianFont >= 1.0;
+                if (prev != null) {
+                    boolean colChanged = line.col != prev.col;
+                    boolean bigGap = !colChanged && (line.y - prev.y) > medianGap * 1.6;
+                    boolean prevHeading = prev.fontSize >= medianFont * 1.15
+                            && prev.fontSize - medianFont >= 1.0;
+                    if (colChanged || bigGap || heading || prevHeading) {
+                        sb.append("\n\n");
+                    } else {
+                        sb.append('\n');
+                    }
+                }
+                sb.append(line.text);
+                prev = line;
             }
             return sb.toString();
+        }
+
+        /** 聚合后的一行正文（同栏、同视觉行的文本块拼接） */
+        private static class ProseLine {
+            final int col;
+            final double y;
+            double fontSize;
+            final StringBuilder text = new StringBuilder();
+            ProseLine(int col, double y, double fontSize) {
+                this.col = col;
+                this.y = y;
+                this.fontSize = fontSize;
+            }
         }
 
         private static double median(List<Double> sorted) {
@@ -509,8 +654,8 @@ public class PdfDocumentParser implements DocumentParser {
         }
     }
 
-    /** 文本块（writeString 收集的最小单元） */
-    private record Cell(int index, int col, double x, double y, double width, double fontSize, String text) {}
+    /** 文本块（writeString 收集的最小单元；栏归属由 colOf 延后判定） */
+    private record Cell(int index, double x, double y, double width, double fontSize, String text) {}
 
     /** 提取段落标题：取首行前 80 字 */
     private static String extractTitle(String paragraph, String fallback) {
