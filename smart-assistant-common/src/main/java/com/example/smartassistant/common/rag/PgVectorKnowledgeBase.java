@@ -160,6 +160,8 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                     + " ADD COLUMN IF NOT EXISTS ingest_batch_id VARCHAR(64) DEFAULT ''");
             jdbcTemplate.execute("ALTER TABLE " + TABLE
                     + " ADD COLUMN IF NOT EXISTS index_version VARCHAR(32) DEFAULT 'v1'");
+            jdbcTemplate.execute("ALTER TABLE " + TABLE
+                    + " ADD COLUMN IF NOT EXISTS chunk_role VARCHAR(16) DEFAULT 'STANDALONE'");
         } catch (Exception e) {
             log.warn("[PgVectorKB:{}] 摄入列迁移失败（可忽略，可能已存在）: {}", name, e.getMessage());
         }
@@ -171,7 +173,10 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     @Override
     public void addDocument(KnowledgeDocument doc) {
         if (doc == null) return;
-        float[] vec = embeddingModel.embedding(doc.toEmbedText());
+        // ⭐ Parent-Child：父块（PARENT）不嵌入——父块是整接口/大段上下文，超嵌入窗且仅供 LLM 阅读，
+        // 跳过嵌入既省算力，又避免 NULL embedding 参与检索导致 dist=NaN、余弦精排崩坏。
+        float[] vec = (doc.getChunkRole() == ChunkRole.PARENT)
+                ? null : embeddingModel.embedding(doc.toEmbedText());
         String vecStr = vec != null ? arrayToPgVector(vec) : null;
 
         jdbcTemplate.update(
@@ -180,11 +185,11 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         + "authority_level, document_status, security_level, "
                         + "authorized_roles, authorized_users, "
                         + "parent_doc_id, source_type, raw_checksum, ingest_batch_id, index_version, "
-                        + "embedding, created_at) "
+                        + "chunk_role, embedding, created_at) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
                         + toPgTextArray(doc.getAuthorizedRoles()) + ", "
                         + toPgTextArray(doc.getAuthorizedUsers()) + ", "
-                        + "?, ?, ?, ?, ?, "
+                        + "?, ?, ?, ?, ?, ?, "
                         + (vecStr != null ? "?::vector" : "NULL") + ", ?) "
                         + "ON CONFLICT (id) DO UPDATE SET "
                         + "title=EXCLUDED.title, content=EXCLUDED.content, "
@@ -197,6 +202,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         + "parent_doc_id=EXCLUDED.parent_doc_id, source_type=EXCLUDED.source_type, "
                         + "raw_checksum=EXCLUDED.raw_checksum, ingest_batch_id=EXCLUDED.ingest_batch_id, "
                         + "index_version=EXCLUDED.index_version, "
+                        + "chunk_role=EXCLUDED.chunk_role, "
                         + "embedding=" + (vecStr != null ? "EXCLUDED.embedding" : "NULL"),
                 doc.getId(), doc.getTitle(), doc.getContent(),
                 doc.getCategory(), doc.getKeywords(),
@@ -207,6 +213,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 doc.getSecurityLevel(),
                 doc.getParentDocId(), doc.getSourceType(), doc.getRawChecksum(),
                 doc.getIngestBatchId(), doc.getIndexVersion(),
+                doc.getChunkRole().name(),
                 vecStr, System.currentTimeMillis());
     }
 
@@ -300,12 +307,13 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "tenant_id, version, source_url, chunk_index, created_at, "
                 + "authority_level, document_status, security_level, "
                 + "authorized_roles, authorized_users, parent_doc_id, source_type, "
-                + "raw_checksum, ingest_batch_id, index_version, "
+                + "raw_checksum, ingest_batch_id, index_version, chunk_role, "
                 + "(embedding <-> ?::vector) AS dist "
                 + "FROM " + TABLE + " "
                 + "WHERE (effective_at <= 0 OR effective_at <= ?) "
                 + "AND (expire_at <= 0 OR expire_at > ?) "
                 + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
+                + "AND embedding IS NOT NULL "
                 + aclClause
                 + versionClause
                 + "ORDER BY embedding <-> ?::vector LIMIT ?";
@@ -340,6 +348,64 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     }
 
     /**
+     * ⭐ Parent-Child 检索回链（JavaGuide 方案）：
+     * 向量检索仅命中子块（CHILD），命中后通过其 {@code parentDocId} 二次查询取父块（PARENT），
+     * 返回父块整内容供 LLM 阅读，同时保留子块的检索得分与排序，使最相关接口的完整上下文优先呈现。
+     * <p>父块入库时 embedding=NULL（见 {@link #addDocument}），故普通 {@link #search} 已通过
+     * {@code AND embedding IS NOT NULL} 将其排除，本方法不会把父块当作检索候选；父块仅作为回链结果返回。</p>
+     * <p>若命中文档自身无 parent（STANDALONE 或已是 PARENT），则原样返回该文档。</p>
+     */
+    @Override
+    public List<KnowledgeHit> searchWithParentExpansion(String query, int topK, AclContext acl) {
+        // 1) 仅检子块（search 已排除 embedding=NULL 的父块）
+        List<KnowledgeHit> childHits = search(query, topK, acl);
+        if (childHits.isEmpty()) return childHits;
+
+        // 2) 按子块命中顺序收集父块，去重保留首遇（=最相关接口优先）
+        Map<String, KnowledgeHit> expanded = new LinkedHashMap<>();
+        for (KnowledgeHit hit : childHits) {
+            KnowledgeDocument doc = hit.getDocument();
+            String parentId = doc.getParentDocId();
+            if (parentId == null || parentId.isBlank()) {
+                // 无 parent：独立块或父块本身，原样保留
+                expanded.put(doc.getId(), hit);
+                continue;
+            }
+            if (expanded.containsKey(parentId)) continue; // 同父块只取一次
+            KnowledgeDocument parent = loadById(parentId, acl);
+            if (parent != null) {
+                // 父块整内容 + 子块得分（保留子块相关度排序）
+                expanded.put(parentId, new KnowledgeHit(parent, hit.getScore()));
+            } else {
+                // 父块未找到（被 ACL 过滤/已删除），降级保留子块
+                expanded.put(doc.getId(), hit);
+            }
+        }
+        return new ArrayList<>(expanded.values());
+    }
+
+    /** 按 ID + ACL 二次查询单个文档（父块回链用）；无权限或无记录返回 null */
+    private KnowledgeDocument loadById(String id, AclContext acl) {
+        String aclClause = buildAclClause(acl);
+        try {
+            return jdbcTemplate.queryForObject(
+                    "SELECT id, title, content, category, keywords, effective_at, expire_at, "
+                            + "tenant_id, version, source_url, chunk_index, created_at, "
+                            + "authority_level, document_status, security_level, "
+                            + "authorized_roles, authorized_users, parent_doc_id, source_type, "
+                            + "raw_checksum, ingest_batch_id, index_version, chunk_role "
+                            + "FROM " + TABLE + " "
+                            + "WHERE id = ? "
+                            + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
+                            + aclClause,
+                    (ResultSet rs, int rowNum) -> mapDoc(rs), id);
+        } catch (Exception e) {
+            log.warn("[PgVectorKB:{}] 父块回链加载失败: id={}, {}", name, id, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 设置检索侧跨文档冲突消解器（Q6 第二层）。
      * <p>在精排之后、返回之前生效；null 时跳过消解。</p>
      */
@@ -364,8 +430,10 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     @Override
     public void reindex() {
         // 重新计算所有 embedding（接口要求保留；摄入流程不再调用，避免全量重算）
-        List<KnowledgeDocument> allDocs = listAllInternal();
+        List<KnowledgeDocument> allDocs = listAll();
         for (KnowledgeDocument doc : allDocs) {
+            // ⭐ 父块（PARENT）不嵌入：保持 embedding=NULL，避免污染向量索引与回链语义
+            if (doc.getChunkRole() == ChunkRole.PARENT) continue;
             float[] vec = embeddingModel.embedding(doc.toEmbedText());
             if (vec != null) {
                 jdbcTemplate.update(
@@ -381,17 +449,6 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
 
     // ==================== 内部方法 ====================
 
-    private List<KnowledgeDocument> listAllInternal() {
-        return jdbcTemplate.query(
-                "SELECT id, title, content, category, keywords, effective_at, expire_at, created_at "
-                        + "FROM " + TABLE,
-                (ResultSet rs, int rowNum) -> new KnowledgeDocument(
-                        rs.getString("id"), rs.getString("title"),
-                        rs.getString("content"), rs.getString("category"),
-                        rs.getString("keywords"),
-                        rs.getLong("effective_at"), rs.getLong("expire_at")));
-    }
-
     /**
      * ⭐ 列出全部文档（REQ-4 内存快照刷新用）。
      * <p>读取全部列并通过 {@link #mapDoc} 还原为 {@link KnowledgeDocument}，保证快照字段完整。</p>
@@ -402,7 +459,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "tenant_id, version, source_url, chunk_index, created_at, "
                 + "authority_level, document_status, security_level, "
                 + "authorized_roles, authorized_users, parent_doc_id, source_type, "
-                + "raw_checksum, ingest_batch_id, index_version FROM " + TABLE;
+                + "raw_checksum, ingest_batch_id, index_version, chunk_role FROM " + TABLE;
         try {
             return jdbcTemplate.query(sql, (ResultSet rs, int rowNum) -> mapDoc(rs));
         } catch (Exception e) {
@@ -419,9 +476,9 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         + "tenant_id, version, source_url, chunk_index, created_at, "
                         + "authority_level, document_status, security_level, "
                         + "authorized_roles, authorized_users, parent_doc_id, source_type, "
-                        + "raw_checksum, ingest_batch_id, index_version "
-                        + "FROM " + TABLE + " "
-                        + "WHERE (title ILIKE ? OR content ILIKE ? OR keywords ILIKE ?) "
+                + "raw_checksum, ingest_batch_id, index_version, chunk_role "
+                + "FROM " + TABLE + " "
+                + "WHERE (title ILIKE ? OR content ILIKE ? OR keywords ILIKE ?) "
                         + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
                         + aclClause
                         + "LIMIT ?",
@@ -515,6 +572,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 readStringSet(rs, "authorized_roles"),
                 readStringSet(rs, "authorized_users"),
                 rs.getObject("security_level") != null ? rs.getInt("security_level") : 0,
+                parseChunkRole(safeString(rs, "chunk_role")),
                 safeString(rs, "source_type"),
                 safeString(rs, "raw_checksum"),
                 safeString(rs, "ingest_batch_id"));
@@ -553,6 +611,16 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
             return val != null ? val : "";
         } catch (Exception e) {
             return "";
+        }
+    }
+
+    /** chunk_role 字符串 → ChunkRole 枚举（未知/空 → STANDALONE） */
+    private static ChunkRole parseChunkRole(String role) {
+        if (role == null || role.isBlank()) return ChunkRole.STANDALONE;
+        try {
+            return ChunkRole.valueOf(role.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return ChunkRole.STANDALONE;
         }
     }
 

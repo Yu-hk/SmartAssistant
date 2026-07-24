@@ -95,6 +95,30 @@ public interface KnowledgeBase {
         return search(query, topK, acl.getTenantId());
     }
 
+    // ==================== Parent-Child 检索回链（命中子块 → 取父块整内容）====================
+
+    /**
+     * ⭐ Parent-Child 检索回链：向量检索仅命中子块，命中后回链父块整内容交 LLM 阅读。
+     * <p>默认实现退化为普通检索（不回链）；支持父-子双写且父块不嵌入的实现（如 PG）应覆盖本方法，
+     * 在命中 CHILD 块后按 {@code parentDocId} 二次查询父块，返回父块完整上下文而保留子块相关度排序。</p>
+     *
+     * @param query 检索查询（自然语言）
+     * @param topK  返回条数
+     * @param acl   访问控制上下文
+     * @return 按相关度降序排列的结果（content 为父块整内容）
+     */
+    default List<KnowledgeHit> searchWithParentExpansion(String query, int topK, AclContext acl) {
+        return search(query, topK, acl);
+    }
+
+    default List<KnowledgeHit> searchWithParentExpansion(String query, int topK, String tenantId) {
+        return searchWithParentExpansion(query, topK, AclContext.forTenant(tenantId));
+    }
+
+    default List<KnowledgeHit> searchWithParentExpansion(String query, int topK) {
+        return searchWithParentExpansion(query, topK, PUBLIC_TENANT);
+    }
+
     /** 获取文档总数 */
     int size();
 

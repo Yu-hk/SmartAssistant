@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.rag.ingestion;
 
 import com.example.smartassistant.common.rag.AuthorityLevel;
+import com.example.smartassistant.common.rag.ChunkRole;
 import com.example.smartassistant.common.rag.DocumentStatus;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 import org.junit.jupiter.api.Test;
@@ -40,7 +41,7 @@ class DocumentValidatorTest {
                 effectiveAt, expireAt, "", "v1", "", 0, "",
                 AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE, "v1",
                 Set.of(), Set.of(), securityLevel,
-                sourceType, "", "");
+                ChunkRole.STANDALONE, sourceType, "", "");
     }
 
     @Test
