@@ -103,30 +103,15 @@ public class PdfDocumentParser implements DocumentParser {
                             .build());
                 }
 
-                // 2) 正文：排除表格文本块后，按空行分割为段落
+                // 2) 正文：排除表格文本块后，按空行分割为段落，再【按标题/大小合并为长元素】
+                //    —— 修复 Parent-Child 父子粒度退化：原实现逐段落输出独立 ParsedDocument，
+                //       导致 chunkParentChild 在每个 ~150 token 段落内独立分块，parentMaxTokens=1024 永不可达。
                 String pageText = pageResult.prose().trim();
                 if (!pageText.isBlank()) {
                     String[] paragraphs = pageText.split("\n\\s*\n");
-                    for (int paraIdx = 0; paraIdx < paragraphs.length; paraIdx++) {
-                        String para = paragraphs[paraIdx].trim();
-                        if (para.isBlank()) continue;
-
-                        String title = extractTitle(para, fileName);
-                        String section = "第" + pageNum + "页";
-                        String contentHash = sha256(para);
-
-                        ParsedDocument parsed = ParsedDocument.builder()
-                                .docId(fileName + "-p" + pageNum + "-s" + (paraIdx + 1))
-                                .title(title)
-                                .content(para)
-                                .sourceUrl(sourceUrl)
-                                .pageNumber(pageNum)
-                                .section(section)
-                                .contentType("pdf")
-                                .contentHash(contentHash)
-                                .build();
-                        results.add(parsed);
-                    }
+                    List<ParsedDocument> sectionDocs = mergeParagraphsToSections(
+                            paragraphs, fileName, pageNum, sourceUrl);
+                    results.addAll(sectionDocs);
                 }
 
                 // 3) OCR 图片文本提取（可选，仅在 OCR 策略可用时生效）
@@ -168,6 +153,97 @@ public class PdfDocumentParser implements DocumentParser {
         }
 
         return results;
+    }
+
+    /** ⭐ 正文段落合并上限（约 token 数），接近 Parent-Child 的 parentMaxTokens(1024)，避免父块粒度退化 */
+    private static final int SECTION_SOFT_CAP = 1000;
+
+    /**
+     * ⭐ 将一页的正文段落合并为"长元素"（按标题切分 + 大小封顶）。
+     * <p>修复 Parent-Child 父子粒度退化：原实现逐段落输出独立 ParsedDocument，
+     * 导致 chunkParentChild 在每个 ~150 token 段落内独立分块，parentMaxTokens=1024 永不可达。
+     * 合并后每个元素接近父块粒度，父子双粒度才能真正成立；标题文本并入内容以保留上下文。</p>
+     */
+    private List<ParsedDocument> mergeParagraphsToSections(
+            String[] paragraphs, String fileName, int pageNum, String sourceUrl) {
+        List<ParsedDocument> out = new ArrayList<>();
+        StringBuilder content = new StringBuilder();
+        String sectionTitle = null;
+        int sectionIdx = 0;
+
+        for (String raw : paragraphs) {
+            String para = raw.trim();
+            if (para.isBlank()) continue;
+
+            if (isHeadingLine(para)) {
+                // 遇到新标题：先 flush 当前 section（标题文本已并入内容，保留上下文）
+                if (content.length() > 0) {
+                    out.add(buildSectionDoc(fileName, pageNum, sourceUrl,
+                            ++sectionIdx, sectionTitle, content.toString().trim(), sha256(content.toString())));
+                    content.setLength(0);
+                }
+                sectionTitle = para.length() > 80 ? para.substring(0, 80) + "..." : para;
+                content.append(para);
+            } else {
+                if (content.length() == 0) {
+                    sectionTitle = extractTitle(para, fileName);
+                } else {
+                    content.append("\n\n");
+                }
+                content.append(para);
+
+                // 超过软上限则切分，保持每个元素接近父块粒度（后续交给 Parent-Child 再切子块）
+                if (estimateTokens(content.toString()) > SECTION_SOFT_CAP) {
+                    out.add(buildSectionDoc(fileName, pageNum, sourceUrl,
+                            ++sectionIdx, sectionTitle, content.toString().trim(), sha256(content.toString())));
+                    content.setLength(0);
+                    sectionTitle = null;
+                }
+            }
+        }
+        if (content.length() > 0) {
+            out.add(buildSectionDoc(fileName, pageNum, sourceUrl,
+                    ++sectionIdx, sectionTitle, content.toString().trim(), sha256(content.toString())));
+        }
+        return out;
+    }
+
+    /** 构造一个合并后的 section ParsedDocument（contentType=pdf） */
+    private ParsedDocument buildSectionDoc(String fileName, int pageNum, String sourceUrl,
+                                           int sectionIdx, String title, String content, String hash) {
+        return ParsedDocument.builder()
+                .docId(fileName + "-p" + pageNum + "-sec" + sectionIdx)
+                .title(title != null ? title : fileName)
+                .content(content)
+                .sourceUrl(sourceUrl)
+                .pageNumber(pageNum)
+                .section("第" + pageNum + "页-" + sectionIdx)
+                .contentType("pdf")
+                .contentHash(hash)
+                .build();
+    }
+
+    /** 判断是否为标题行（仅保守匹配首行，避免把编号列表当作标题再次碎片化） */
+    private static boolean isHeadingLine(String line) {
+        String t = line.trim();
+        if (t.isEmpty()) return false;
+        // 仅看首行：PDF 标题常与正文同处一个段落块（无空行分隔），需按首行判断
+        String first = t.split("\n", 2)[0].trim();
+        if (first.matches("^#{1,6}\\s+.*")) return true;                              // Markdown 标题
+        if (first.matches("^第[一二三四五六七八九十百千0-9]+[章节条款篇].*")) return true;   // 第X章/节/条/款
+        if (first.matches("^[一二三四五六七八九十]+[、．.].*")) return true;              // 一、二、 中文数字标题
+        return false;
+    }
+
+    /** 估算 token 数（中文 1 字≈1 token，与 RecursiveChunkStrategy 同公式；本地实现避免包循环依赖） */
+    private static int estimateTokens(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        int han = 0, other = 0;
+        for (char c : text.toCharArray()) {
+            if (Character.UnicodeScript.of(c) == Character.UnicodeScript.HAN) han++;
+            else other++;
+        }
+        return han + (int) Math.ceil(other * 0.4);
     }
 
     /**
@@ -257,6 +333,10 @@ public class PdfDocumentParser implements DocumentParser {
             }
 
             // 5) 寻找对齐的多列多行区域（连续 >=2 行，每行 >=2 列，列 x 对齐）
+            //    ⭐ 收紧判定：排除"编号列表 / 相邻文本伪表格"——要求列间存在真实横向间隙 +
+            //       表格横向跨度足够 + 非有序列表（避免单栏中文文档被误判为 pdf-table 绕过 chunking）。
+            double minColGap = Math.max(18, medianFont * 1.0);
+            double minTableSpan = pageWidth * 0.25;
             List<TableBlock> tables = new ArrayList<>();
             int i = 0;
             while (i < rows.size()) {
@@ -278,7 +358,10 @@ public class PdfDocumentParser implements DocumentParser {
                     }
                 }
 
-                if (run.size() >= 2) {
+                if (run.size() >= 2
+                        && hasRealColumnGaps(run, minColGap)
+                        && spansEnough(run, minTableSpan)
+                        && !looksLikeOrderedList(run)) {
                     tables.add(buildTable(run));
                     i = j; // 跳过整个表格区域
                 } else {
@@ -295,6 +378,64 @@ public class PdfDocumentParser implements DocumentParser {
                 if (Math.abs(a[k] - b[k]) > colTol) return false;
             }
             return true;
+        }
+
+        /** 真实表格判定：相邻列之间必须存在真实横向间隙（排除相邻文本被误判为列） */
+        private static boolean hasRealColumnGaps(List<Row> run, double minColGap) {
+            for (Row r : run) {
+                for (int k = 0; k < r.cells.size() - 1; k++) {
+                    Cell cur = r.cells.get(k).cell;
+                    Cell nxt = r.cells.get(k + 1).cell;
+                    double gap = nxt.x - (cur.x + cur.width);
+                    if (gap < minColGap) return false;
+                }
+            }
+            return true;
+        }
+
+        /** 真实表格判定：表格整体横向跨度应足够大（排除极小对齐区域） */
+        private static boolean spansEnough(List<Row> run, double minSpan) {
+            for (Row r : run) {
+                if (r.cells.isEmpty()) return false;
+                Cell first = r.cells.get(0).cell;
+                Cell last = r.cells.get(r.cells.size() - 1).cell;
+                double span = (last.x + last.width) - first.x;
+                if (span < minSpan) return false;
+            }
+            return true;
+        }
+
+        /** 有序列表判定：两列且首列为项目符号/顺序编号（避免编号列表被误判为表格） */
+        private static boolean looksLikeOrderedList(List<Row> run) {
+            if (run.isEmpty() || run.get(0).cells.size() != 2) return false;
+            List<String> col0 = new ArrayList<>();
+            for (Row r : run) col0.add(r.cells.get(0).cell.text.strip());
+
+            // 项目符号列表（所有首列均为 bullet 字符）
+            if (col0.stream().allMatch(t -> t.matches("^[-•*·▪◦●○■□◆➢➤]\\s*.*"))) return true;
+
+            // 数字顺序编号（1. 2. 3. ... 严格递增）
+            if (col0.stream().allMatch(t -> t.matches("^\\d+[.、）)]\\s*.*"))) {
+                List<Integer> nums = new ArrayList<>();
+                boolean ok = true;
+                for (String t : col0) {
+                    try {
+                        nums.add(Integer.parseInt(t.replaceAll("[^0-9].*$", "")));
+                    } catch (NumberFormatException e) { ok = false; break; }
+                }
+                if (ok && nums.size() >= 2) {
+                    for (int k = 1; k < nums.size(); k++) {
+                        if (nums.get(k) != nums.get(k - 1) + 1) { ok = false; break; }
+                    }
+                    if (ok) return true;
+                }
+            }
+
+            // 中文数字编号（一、二、三、...）
+            if (col0.stream().allMatch(t -> t.matches("^[一二三四五六七八九十]+[.、）)．]\\s*.*"))) {
+                return true;
+            }
+            return false;
         }
 
         /** 将一组对齐行重构为 Markdown 表格 */
