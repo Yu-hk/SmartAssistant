@@ -164,6 +164,34 @@ public class TieredKnowledgeBase implements KnowledgeBase {
         return hotStore.size() + coldStore.size();
     }
 
+    /**
+     * ⭐ 按 ID 精确查询（Parent-Child 检索取父块）。
+     * <p>与 {@link #search} 的「先热后冷」策略一致：先查热层，未命中再降级冷层。
+     * 父块与子块均通过 {@code addDocument} 双写，故热/冷层均持有完整父块对象
+     * （含 {@code parentDocId}），反查结果可直接用于上下文替换。</p>
+     */
+    @Override
+    public KnowledgeDocument getById(String id) {
+        if (id == null || id.isBlank()) return null;
+        // 1. 热层优先
+        try {
+            KnowledgeDocument hot = hotStore.getById(id);
+            if (hot != null) {
+                log.debug("[TieredKB] getById 热层命中: id={}", id);
+                return hot;
+            }
+        } catch (Exception e) {
+            log.trace("[TieredKB] hotStore.getById 失败（可降级冷层）: {}", e.getMessage());
+        }
+        // 2. 降级冷层
+        try {
+            return coldStore.getById(id);
+        } catch (Exception e) {
+            log.trace("[TieredKB] coldStore.getById 失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
     @Override
     public void reindex() {
         hotStore.reindex();

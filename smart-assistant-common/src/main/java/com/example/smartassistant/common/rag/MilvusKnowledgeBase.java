@@ -584,6 +584,59 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
         return resolver.resolveHits(hits);
     }
 
+    /**
+     * ⭐ 按 ID 精确查询（Parent-Child 检索取父块）。
+     * <p>按 {@code doc_id} 字段查询并重建 {@link KnowledgeDocument}。
+     * 注意：Milvus Collection 当前未存储 {@code parent_doc_id} 字段，
+     * 故反查出的文档 {@code parentDocId} 为空——对 Milvus 知识库的父块扩展
+     * 不会生效（仅在 PG/InMemory 路径生效），但本方法仍覆盖默认 {@code null}
+     * 实现以避免委托型包装器（Tiered/Resilient）静默失效。</p>
+     */
+    @Override
+    public KnowledgeDocument getById(String id) {
+        if (id == null || id.isBlank()) return null;
+        try {
+            R<QueryResults> resp = client.query(io.milvus.param.dml.QueryParam.newBuilder()
+                    .withCollectionName(collectionName)
+                    .withOutFields(List.of("doc_id", "title", "content", "category", "keywords",
+                            "effective_at", "expire_at", "tenant_id", "version", "source_url",
+                            "chunk_index", "updated_at", "authority_level", "document_status",
+                            "security_level", "authorized_roles", "authorized_users"))
+                    .withExpr("doc_id == \"" + escapeMilvusStr(id) + "\"")
+                    .build());
+            if (resp.getStatus() != 0 || resp.getData() == null) {
+                log.warn("[MilvusKB:{}] getById 查询失败: id={}", name, id);
+                return null;
+            }
+            QueryResultsWrapper w = new QueryResultsWrapper(resp.getData());
+            List<QueryResultsWrapper.RowRecord> rows = w.getRowRecords();
+            if (rows == null || rows.isEmpty()) return null;
+            Map<String, Object> fv = rows.get(0).getFieldValues();
+            return new KnowledgeDocument(
+                    strVal(fv.get("doc_id")),
+                    strVal(fv.get("title")),
+                    strVal(fv.get("content")),
+                    strVal(fv.get("category")),
+                    strVal(fv.get("keywords")),
+                    longVal(fv.get("effective_at")),
+                    longVal(fv.get("expire_at")),
+                    strVal(fv.get("tenant_id")),
+                    strVal(fv.get("version")),
+                    strVal(fv.get("source_url")),
+                    (int) longVal(fv.get("chunk_index")),
+                    null, // parentDocId（Milvus 未存储）
+                    AuthorityLevel.fromRank((int) longVal(fv.get("authority_level"))),
+                    DocumentStatus.fromCode(strVal(fv.get("document_status"))),
+                    null, // indexVersion
+                    new LinkedHashSet<>(readStringList(fv.get("authorized_roles"))),
+                    new LinkedHashSet<>(readStringList(fv.get("authorized_users"))),
+                    (int) longVal(fv.get("security_level")));
+        } catch (Exception e) {
+            log.warn("[MilvusKB:{}] getById 异常: {} - {}", name, id, e.getMessage());
+            return null;
+        }
+    }
+
     @Override
     public int size() {
         try {

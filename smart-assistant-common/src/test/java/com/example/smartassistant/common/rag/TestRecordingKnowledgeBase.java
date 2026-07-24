@@ -100,6 +100,11 @@ public class TestRecordingKnowledgeBase implements KnowledgeBase {
     }
 
     @Override
+    public KnowledgeDocument getById(String id) {
+        return id == null ? null : docs.get(id);
+    }
+
+    @Override
     public int size() {
         return docs.size();
     }

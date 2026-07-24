@@ -95,6 +95,21 @@ public interface KnowledgeBase {
         return search(query, topK, acl.getTenantId());
     }
 
+    /**
+     * ⭐ 按文档 ID 精确查询单个文档（Parent-Child 检索取父块用）。
+     * <p>
+     * 对标 RAG「小块召回、大块生成」（small-to-big）：向量检索命中的是细粒度子块，
+     * 需按子块的 {@code parentDocId} 反查父块以获取完整上下文再注入 LLM。
+     * 默认实现返回 {@code null}；持久化实现（PG）与内存实现应覆盖以支持反查。
+     * </p>
+     *
+     * @param id 文档 ID
+     * @return 匹配的文档，未找到返回 {@code null}
+     */
+    default KnowledgeDocument getById(String id) {
+        return null;
+    }
+
     /** 获取文档总数 */
     int size();
 

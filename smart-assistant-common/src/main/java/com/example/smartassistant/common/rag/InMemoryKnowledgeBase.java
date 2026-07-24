@@ -362,6 +362,15 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         return fusedHits;
     }
 
+    /**
+     * ⭐ 按 ID 精确查询单个文档（Parent-Child 检索取父块）。
+     */
+    @Override
+    public KnowledgeDocument getById(String id) {
+        if (id == null || id.isBlank()) return null;
+        return docs.get(id);
+    }
+
     @Override
     public int size() { return docs.size(); }
 
