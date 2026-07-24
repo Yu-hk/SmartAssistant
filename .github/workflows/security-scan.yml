@@ -22,11 +22,16 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: OWASP Dependency Check
-        uses: dependency-check/dependency-check-action@v4
+        uses: dependency-check/Dependency-Check_Action@main
+        env:
+          # Docker action 自带 JDK；setup-java 会改写 JAVA_HOME 导致
+          # "Error: JAVA_HOME is not defined correctly"，此处复位到镜像内 JDK
+          JAVA_HOME: /opt/jdk
         with:
           project: 'SmartAssistant'
           path: '.'
           format: 'SARIF'
+          out: 'reports'
           args: >
             --failOnCVSS 9
             --enableRetired
@@ -53,7 +58,7 @@ jobs:
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: results/gitleaks.sarif
+          sarif_file: results.sarif
           category: secret-scan
 
   # PR 标题安全扫描 — 阻断危险字符注入

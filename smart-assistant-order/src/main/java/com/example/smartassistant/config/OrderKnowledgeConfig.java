@@ -19,6 +19,7 @@ import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -53,6 +54,7 @@ public class OrderKnowledgeConfig {
     public InMemoryKnowledgeBase orderKnowledgeBase(
             BgeEmbeddingModel embeddingModel,
             ChineseTokenizer tokenizer,
+            @Qualifier("orderReranker")
             ObjectProvider<Reranker> rerankerProvider,
             ObjectProvider<CrossDocumentConflictResolver> conflictResolverProvider) {
         Reranker reranker = rerankerProvider.getIfAvailable();

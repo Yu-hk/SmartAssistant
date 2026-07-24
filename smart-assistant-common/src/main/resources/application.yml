@@ -30,3 +30,18 @@ otel:
 # OTEL_EXPORTER_OTLP_HEADERS: 认证头（Authorization=Basic base64(publicKey:secretKey)）
 # 同时向 Jaeger 发送时，可部署 OTel Collector 或配置双导出器。
 # 当前 Jaeger OTLP gRPC 地址: http://localhost:4317
+
+# ⭐ MinerU 适配器配置（PDF 解析增强：扫描件/复杂混排走 MinerU，数字 PDF 走 PDFBox 零子进程）
+# 默认关闭；在部署环境安装 magic-pdf 与 sidecar 后设为 true 启用。
+# 配置前缀 app.rag.mineru.*（见 MinerUProperties）
+app:
+  rag:
+    mineru:
+      enabled: false                       # 总开关
+      sidecar-command: python mineru_sidecar.py   # 常驻 sidecar CLI 启动命令
+      warm-instances: 1                    # 进程池预热实例数（模型仅加载一次）
+      timeout-ms: 120000                   # 单次解析超时（毫秒）
+      fallback-to-pdfbox: true             # MinerU 失败回退 PDFBox 全链路
+      caption-exclusive: true              # R5 caption 独占：MinerU 活跃时禁用 PDFBox 图片 caption/OCR
+      images-temp-dir: /tmp/mineru         # MinerU 抽取图片临时目录
+      enabled-image-vectorization: false   # 图片向量化（v1 仅存路径，不向量化）

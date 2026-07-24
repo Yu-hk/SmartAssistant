@@ -45,4 +45,27 @@ class TesseractOcrStrategyTest {
         assertNotNull(strategy);
         assertDoesNotThrow(() -> strategy.extractText(new byte[]{9}, "img.png"));
     }
+
+    @Test
+    @DisplayName("engineName 标记为 tesseract")
+    void testEngineName() {
+        assertEquals("tesseract", new TesseractOcrStrategy().engineName());
+    }
+
+    @Test
+    @DisplayName("显式指定不存在的二进制路径：优雅降级为不可用，extractText 返回空")
+    void testExplicitMissingBinaryDegrades() {
+        String bogus = "C:/nonexistent/path/tesseract-xyz.exe";
+        // 确保该路径确实不存在
+        java.io.File f = new java.io.File(bogus);
+        org.junit.jupiter.api.Assumptions.assumeTrue(!f.exists(), "意外存在，跳过");
+        System.setProperty("sa.ocr.tesseract.bin", bogus);
+        try {
+            TesseractOcrStrategy strategy = new TesseractOcrStrategy();
+            assertFalse(strategy.isAvailable(), "无效二进制路径应判定为不可用");
+            assertEquals(List.of(), strategy.extractText(new byte[]{1}, "x.png"));
+        } finally {
+            System.clearProperty("sa.ocr.tesseract.bin");
+        }
+    }
 }

@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 
+import java.util.Locale;
+
 /**
  * ⭐ 订单意图识别服务。
  * <p>
@@ -63,6 +65,12 @@ public class OrderIntentService {
             return IntentType.OTHER;
         }
 
+        IntentType keywordIntent = detectCommonIntent(message);
+        if (keywordIntent != null) {
+            log.info("[OrderIntent] 关键词识别结果: message={}, intent={}", message, keywordIntent);
+            return keywordIntent;
+        }
+
         // P2 Prompt 外部化：prompts/order/intent-classifier.txt
         String system = promptManager.orderIntentClassifier();
 
@@ -76,6 +84,39 @@ public class OrderIntentService {
             log.warn("[OrderIntent] 识别失败，默认 OTHER: {}", e.getMessage());
             return IntentType.OTHER;
         }
+    }
+
+    /**
+     * Common order operations should not depend on an LLM classification round trip.
+     * The LLM remains the fallback for ambiguous natural-language requests.
+     */
+    IntentType detectCommonIntent(String message) {
+        String normalized = message.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
+
+        if (containsAny(normalized, "退款", "退货", "售后")) {
+            return IntentType.REFUND;
+        }
+        if (containsAny(normalized, "取消订单", "取消下单", "撤销订单")) {
+            return IntentType.CANCEL;
+        }
+        if (containsAny(normalized, "下单", "提交订单", "立即购买")) {
+            return IntentType.CREATE_ORDER;
+        }
+        if (containsAny(normalized,
+                "物流", "快递", "配送", "运单", "发货", "到哪",
+                "订单状态", "查询订单", "查订单", "最近一笔订单")) {
+            return IntentType.QUERY_ORDER;
+        }
+        return null;
+    }
+
+    private boolean containsAny(String message, String... keywords) {
+        for (String keyword : keywords) {
+            if (message.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

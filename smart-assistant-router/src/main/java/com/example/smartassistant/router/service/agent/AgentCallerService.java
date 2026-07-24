@@ -298,7 +298,7 @@ public class AgentCallerService {
 
             // 从 Nacos 返回的 /a2a 路径转换为自定义 HTTP 端点
             String baseUrl = agentUrl.replaceAll("/a2a$", "");
-            String processUrl = baseUrl + "/api/order/agent/process";
+            String processUrl = baseUrl + resolveProcessPath(agentName);
 
             log.info("[AgentCaller] HTTP 直调 URL: {}", processUrl);
 
@@ -349,6 +349,20 @@ public class AgentCallerService {
      * 则回退到原有按名匹配逻辑。
      * </p>
      */
+    private String resolveProcessPath(String agentName) {
+        String normalized = agentName == null ? "" : agentName.toLowerCase(java.util.Locale.ROOT);
+        if (normalized.contains("general")) {
+            return "/general/stream/chat/sync";
+        }
+        if (normalized.contains("product")) {
+            return "/product/stream/chat/sync";
+        }
+        if (normalized.contains("order")) {
+            return "/api/order/agent/process";
+        }
+        throw new IllegalArgumentException("Unsupported agent endpoint: " + agentName);
+    }
+
     private String findAgentUrl(String agentName) {
         try {
             // ⭐ 第一步：尝试版本协商（选择兼容版本）
@@ -365,8 +379,8 @@ public class AgentCallerService {
             log.warn("[AgentCaller] 版本协商无兼容 Agent: {}, 回退到直接匹配", agentName);
             List<DiscoveredAgent> agents = agentDiscoveryService.discoverAllAgents();
             for (DiscoveredAgent agent : agents) {
-                if (agent.getAgentName().equals(agentName) ||
-                    agent.getServiceName().equals(agentName)) {
+                if (matchesAgentName(agent.getAgentName(), agentName)
+                        || matchesAgentName(agent.getServiceName(), agentName)) {
                     log.info("[AgentCaller] 找到 Agent (回退): {}, URL: {}", agentName, agent.getUrl());
                     return agent.getUrl();
                 }
@@ -378,6 +392,27 @@ public class AgentCallerService {
             log.error("[AgentCaller] 查找 Agent URL 失败: {}", e.getMessage(), e);
             return null;
         }
+    }
+
+    /**
+     * 兼容路由层使用的领域别名（order/product/general）与注册中心中的标准名称
+     * （order_agent、smart-assistant-order-service 等）。
+     */
+    private boolean matchesAgentName(String registeredName, String requestedName) {
+        if (registeredName == null || requestedName == null) {
+            return false;
+        }
+        return normalizeAgentName(registeredName).equals(normalizeAgentName(requestedName));
+    }
+
+    private String normalizeAgentName(String name) {
+        return name.toLowerCase(java.util.Locale.ROOT)
+                .replace("smart-assistant-", "")
+                .replace("_service", "")
+                .replace("-service", "")
+                .replace("_agent", "")
+                .replace("-agent", "")
+                .replaceAll("[^a-z0-9]", "");
     }
 
     /**
