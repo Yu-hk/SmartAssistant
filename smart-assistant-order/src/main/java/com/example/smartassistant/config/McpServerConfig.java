@@ -13,7 +13,6 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
@@ -27,8 +26,7 @@ import java.util.Map;
  * <p>
  * 表访问权限通过配置化白名单管理（支持热重载）。
  */
-@Component
-@Configuration
+@Configuration("orderMcpServerConfig")
 @Slf4j
 public class McpServerConfig {
 

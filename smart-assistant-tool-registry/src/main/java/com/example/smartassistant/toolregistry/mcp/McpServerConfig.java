@@ -5,6 +5,7 @@ import com.example.smartassistant.toolregistry.service.RegistryService;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -32,6 +33,10 @@ import java.util.List;
  * @see RegistryService
  */
 @Configuration
+@ConditionalOnProperty(
+        name = "spring.ai.mcp.server.enabled",
+        havingValue = "true",
+        matchIfMissing = true)
 public class McpServerConfig {
 
     private static final Logger log = LoggerFactory.getLogger(McpServerConfig.class);

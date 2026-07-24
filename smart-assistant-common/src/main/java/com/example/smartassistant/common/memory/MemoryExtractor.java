@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -43,7 +44,9 @@ public class MemoryExtractor {
     private final AgentMemoryService memoryService;
     private final ObjectMapper objectMapper;
 
-    public MemoryExtractor(ChatModel chatModel, AgentMemoryService memoryService) {
+    public MemoryExtractor(
+            @Qualifier("lightChatModel") ChatModel chatModel,
+            AgentMemoryService memoryService) {
         this.chatModel = chatModel;
         this.memoryService = memoryService;
         this.objectMapper = new ObjectMapper();
