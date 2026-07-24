@@ -93,6 +93,13 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
     private final MilvusServiceClient client;
     private final Bm25Scorer bm25Scorer;
 
+    /**
+     * ⭐ parent_doc_id 字段是否受支持（Parent-Child 检索取父块用）。
+     * <p>旧 Collection 在 2.5.5 早期 schema 中不含该字段；初始化时探测，
+     * 不支持则读写路径均跳过该字段，避免老集合报错（仅降级为无父块扩展）。</p>
+     */
+    private boolean parentDocIdSupported = false;
+
     /** ⭐ 检索侧跨文档冲突消解器（Q6 第二层，可选，null 时不消解） */
     private CrossDocumentConflictResolver conflictResolver;
 
@@ -137,6 +144,7 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                 log.info("[MilvusKB:{}] Collection 已存在: {}", name, collectionName);
                 client.loadCollection(LoadCollectionParam.newBuilder()
                         .withCollectionName(collectionName).build());
+                this.parentDocIdSupported = detectParentDocIdField();
                 return;
             }
 
@@ -149,6 +157,8 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                             .withPrimaryKey(true).withAutoID(false).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("doc_id").withDataType(DataType.VarChar).withMaxLength(128).build())
+                    .addFieldType(FieldType.newBuilder()
+                            .withName("parent_doc_id").withDataType(DataType.VarChar).withMaxLength(128).build())
                     .addFieldType(FieldType.newBuilder()
                             .withName("title").withDataType(DataType.VarChar).withMaxLength(1024).build())
                     .addFieldType(FieldType.newBuilder()
@@ -210,6 +220,7 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
             // 加载到内存
             client.loadCollection(LoadCollectionParam.newBuilder()
                     .withCollectionName(collectionName).build());
+            this.parentDocIdSupported = detectParentDocIdField();
 
             log.info("[MilvusKB:{}] Collection 索引创建完成", name);
         } catch (Exception e) {
@@ -238,6 +249,11 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
             // Int64 主键
             fields.add(new Field("id", List.of(milvusId)));
             fields.add(new Field("doc_id", List.of(doc.getId())));
+            // ⭐ Parent-Child：父块 ID（旧 Collection 不支持时跳过，避免写入报错）
+            if (parentDocIdSupported) {
+                fields.add(new Field("parent_doc_id",
+                        List.of(doc.getParentDocId() != null ? doc.getParentDocId() : "")));
+            }
             fields.add(new Field("title", List.of(doc.getTitle())));
             fields.add(new Field("content", List.of(doc.getContent())));
             fields.add(new Field("category", List.of(doc.getCategory() != null ? doc.getCategory() : "")));
@@ -341,13 +357,15 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
         try {
             long milvusId = hashToLong(docId);
             // 查询完整文档（含 embedding）以重建实体（Milvus 不支持单字段部分更新）
+            List<String> queryOutFields = new ArrayList<>(List.of("doc_id", "title", "content", "category", "keywords",
+                    "effective_at", "expire_at", "tenant_id", "version", "source_url",
+                    "chunk_index", "updated_at", "authority_level", "document_status",
+                    "security_level", "authorized_roles", "authorized_users",
+                    "embedding", "created_at"));
+            if (parentDocIdSupported) queryOutFields.add("parent_doc_id");
             R<QueryResults> resp = client.query(io.milvus.param.dml.QueryParam.newBuilder()
                     .withCollectionName(collectionName)
-                    .withOutFields(List.of("doc_id", "title", "content", "category", "keywords",
-                            "effective_at", "expire_at", "tenant_id", "version", "source_url",
-                            "chunk_index", "updated_at", "authority_level", "document_status",
-                            "security_level", "authorized_roles", "authorized_users",
-                            "embedding", "created_at"))
+                    .withOutFields(queryOutFields)
                     .withExpr("id in [" + milvusId + "]")
                     .build());
             if (resp.getStatus() != 0 || resp.getData() == null) {
@@ -376,6 +394,10 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
             fields.add(new Field("version", List.of(strVal(fv.get("version")))));
             fields.add(new Field("source_url", List.of(strVal(fv.get("source_url")))));
             fields.add(new Field("chunk_index", List.of(longVal(fv.get("chunk_index")))));
+            // ⭐ Parent-Child：从原文档重建父块 ID（旧集合不含该字段时跳过，避免 upsert 报错）
+            if (parentDocIdSupported) {
+                fields.add(new Field("parent_doc_id", List.of(strVal(fv.get("parent_doc_id")))));
+            }
             fields.add(new Field("updated_at", List.of(System.currentTimeMillis())));
             fields.add(new Field("authority_level", List.of(longVal(fv.get("authority_level")))));
             fields.add(new Field("document_status", List.of(status.name())));
@@ -450,6 +472,29 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    /**
+     * 探测当前 Collection 是否含 {@code parent_doc_id} 字段（Parent-Child 扩展前置条件）。
+     * <p>通过一次「匹配空结果」的查询并带上该 outfield：若返回 status==0 说明字段存在，
+     * 否则（旧集合 schema 不含该字段）查询会失败，按不支持处理。仅在集合已 load 后调用。</p>
+     *
+     * @return 是否支持 parent_doc_id
+     */
+    private boolean detectParentDocIdField() {
+        try {
+            R<QueryResults> resp = client.query(io.milvus.param.dml.QueryParam.newBuilder()
+                    .withCollectionName(collectionName)
+                    .withOutFields(List.of("parent_doc_id"))
+                    .withExpr("id == -999999")
+                    .build());
+            boolean supported = resp != null && resp.getStatus() == 0;
+            log.info("[MilvusKB:{}] parent_doc_id 字段探测: supported={}", name, supported);
+            return supported;
+        } catch (Exception e) {
+            log.debug("[MilvusKB:{}] parent_doc_id 探测异常，按不支持处理: {}", name, e.getMessage());
+            return false;
+        }
+    }
+
     @Override
     public List<KnowledgeHit> search(String query, int topK) {
         return search(query, topK, KnowledgeBase.PUBLIC_TENANT);
@@ -486,14 +531,18 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
             // 🔴 ACL 检索前过滤 + 状态过滤：仅返回 ACTIVE 且未隔离文档
             String expr = buildAclExpr(acl) + " and document_status == \"ACTIVE\"";
 
+            // ⭐ Parent-Child：父块 ID 需在返回结果中携带，方能触发后续父块反查扩展
+            List<String> outFields = new ArrayList<>(List.of("doc_id", "title", "content", "category",
+                    "keywords", "effective_at", "expire_at", "created_at",
+                    "tenant_id", "version", "source_url", "chunk_index", "updated_at",
+                    "authority_level", "document_status",
+                    "security_level", "authorized_roles", "authorized_users"));
+            if (parentDocIdSupported) outFields.add("parent_doc_id");
+
             SearchParam searchParam = SearchParam.newBuilder()
                     .withCollectionName(collectionName)
                     .withMetricType(MetricType.COSINE)
-                    .withOutFields(List.of("doc_id", "title", "content", "category",
-                            "keywords", "effective_at", "expire_at", "created_at",
-                            "tenant_id", "version", "source_url", "chunk_index", "updated_at",
-                            "authority_level", "document_status",
-                            "security_level", "authorized_roles", "authorized_users"))
+                    .withOutFields(outFields)
                     .withTopK(k)
                     .withVectors(queryVectors)
                     .withParams(SEARCH_PARAM)
@@ -539,10 +588,12 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                 int securityLevel = (int) safeGetLong(wrapper, "security_level", i);
                 Set<String> authorizedRoles = safeGetStringSet(wrapper, "authorized_roles", i);
                 Set<String> authorizedUsers = safeGetStringSet(wrapper, "authorized_users", i);
+                // ⭐ Parent-Child：子块的父块 ID（缺失时 safeGetString 返回空串，降级为无扩展）
+                String parentDocId = safeGetString(wrapper, "parent_doc_id", i);
 
                 KnowledgeDocument doc = new KnowledgeDocument(
                         docId, title, content, category, keywords, effectiveAt, expireAt,
-                        tenantFromMilvus, "v1", "", 0, "",
+                        tenantFromMilvus, "v1", "", 0, parentDocId,
                         AuthorityLevel.fromRank(authorityRank),
                         DocumentStatus.fromCode(statusStr),
                         null,
@@ -587,21 +638,21 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
     /**
      * ⭐ 按 ID 精确查询（Parent-Child 检索取父块）。
      * <p>按 {@code doc_id} 字段查询并重建 {@link KnowledgeDocument}。
-     * 注意：Milvus Collection 当前未存储 {@code parent_doc_id} 字段，
-     * 故反查出的文档 {@code parentDocId} 为空——对 Milvus 知识库的父块扩展
-     * 不会生效（仅在 PG/InMemory 路径生效），但本方法仍覆盖默认 {@code null}
-     * 实现以避免委托型包装器（Tiered/Resilient）静默失效。</p>
+     * 当 Collection 支持 {@code parent_doc_id}（新建集合）时一并反查该字段，
+     * 使 Milvus 路径的父块扩展生效；旧集合不支持时按空串处理（降级为无扩展）。</p>
      */
     @Override
     public KnowledgeDocument getById(String id) {
         if (id == null || id.isBlank()) return null;
         try {
+            List<String> outFields = new ArrayList<>(List.of("doc_id", "title", "content", "category", "keywords",
+                    "effective_at", "expire_at", "tenant_id", "version", "source_url",
+                    "chunk_index", "updated_at", "authority_level", "document_status",
+                    "security_level", "authorized_roles", "authorized_users"));
+            if (parentDocIdSupported) outFields.add("parent_doc_id");
             R<QueryResults> resp = client.query(io.milvus.param.dml.QueryParam.newBuilder()
                     .withCollectionName(collectionName)
-                    .withOutFields(List.of("doc_id", "title", "content", "category", "keywords",
-                            "effective_at", "expire_at", "tenant_id", "version", "source_url",
-                            "chunk_index", "updated_at", "authority_level", "document_status",
-                            "security_level", "authorized_roles", "authorized_users"))
+                    .withOutFields(outFields)
                     .withExpr("doc_id == \"" + escapeMilvusStr(id) + "\"")
                     .build());
             if (resp.getStatus() != 0 || resp.getData() == null) {
@@ -624,7 +675,7 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                     strVal(fv.get("version")),
                     strVal(fv.get("source_url")),
                     (int) longVal(fv.get("chunk_index")),
-                    null, // parentDocId（Milvus 未存储）
+                    strVal(fv.get("parent_doc_id")), // ⭐ Parent-Child：父块 ID
                     AuthorityLevel.fromRank((int) longVal(fv.get("authority_level"))),
                     DocumentStatus.fromCode(strVal(fv.get("document_status"))),
                     null, // indexVersion
