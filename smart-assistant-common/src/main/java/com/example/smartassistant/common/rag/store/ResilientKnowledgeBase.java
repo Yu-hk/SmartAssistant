@@ -158,6 +158,23 @@ public class ResilientKnowledgeBase implements KnowledgeBase {
     }
 
     @Override
+    public KnowledgeDocument getById(String id) {
+        if (!forceDegraded && primary != null) {
+            try {
+                KnowledgeDocument doc = primary.getById(id);
+                failureStreak.set(0);
+                forceDegraded = false;
+                if (doc != null) return doc;
+                // 主库健康但未命中：尝试内存快照（快照可能滞后但胜于空）
+            } catch (Exception e) {
+                log.warn("[ResilientKB:{}] 主库 getById 失败，降级内存快照: {}", name, e.getMessage());
+                recordFailure();
+            }
+        }
+        return fallback != null ? fallback.getById(id) : null;
+    }
+
+    @Override
     public int size() {
         if (!forceDegraded && primary != null) {
             try {

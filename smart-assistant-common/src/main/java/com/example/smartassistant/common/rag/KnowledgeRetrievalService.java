@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.rag;
 
+import com.example.smartassistant.common.rag.retrieval.ParentChildExpander;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +29,24 @@ public class KnowledgeRetrievalService {
 
     /** 默认 Top-K */
     private static final int DEFAULT_TOP_K = 5;
+
+    /**
+     * ⭐ Parent-Child 检索侧取父块开关（默认开启）。
+     * <p>开启后：命中子块按 {@code parentDocId} 反查父块替换进上下文（small-to-big），
+     * 同父块多子块去重。父块反查失败自动兜底为子块，故开启无额外风险。</p>
+     */
+    private boolean parentChildExpansion = true;
+
+    /** 设置是否启用 Parent-Child 取父块（默认开启）。 */
+    public KnowledgeRetrievalService setParentChildExpansion(boolean enabled) {
+        this.parentChildExpansion = enabled;
+        return this;
+    }
+
+    /** 是否启用 Parent-Child 取父块。 */
+    public boolean isParentChildExpansion() {
+        return parentChildExpansion;
+    }
 
     /**
      * 注册知识库。
@@ -81,6 +100,10 @@ public class KnowledgeRetrievalService {
         if (hits.isEmpty()) {
             return "INSUFFICIENT_EVIDENCE: 知识库 '" + kbName + "' 中未找到与 '" + query + "' 相关的信息。";
         }
+        // ⭐ Parent-Child：命中子块 → 取父块内容替换（small-to-big）
+        if (parentChildExpansion) {
+            hits = ParentChildExpander.expand(hits, kb);
+        }
         return formatResults(kbName, hits);
     }
 
@@ -97,7 +120,12 @@ public class KnowledgeRetrievalService {
     public String searchAll(String query, int topK, AclContext acl) {
         List<KnowledgeHit> allHits = new ArrayList<>();
         for (var kb : bases.values()) {
-            allHits.addAll(kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K, acl));
+            List<KnowledgeHit> kbHits = kb.search(query, topK > 0 ? topK : DEFAULT_TOP_K, acl);
+            // ⭐ Parent-Child：按各自知识库反查父块（getById 需对应 kb），再汇入总列表
+            if (parentChildExpansion) {
+                kbHits = ParentChildExpander.expand(kbHits, kb);
+            }
+            allHits.addAll(kbHits);
         }
         allHits.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
         if (allHits.isEmpty()) {

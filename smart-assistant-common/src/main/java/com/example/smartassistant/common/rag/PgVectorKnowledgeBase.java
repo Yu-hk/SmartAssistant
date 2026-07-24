@@ -411,6 +411,31 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         }
     }
 
+    /**
+     * ⭐ 按 ID 精确查询单个文档（Parent-Child 检索取父块）。
+     * <p>不做 ACL/状态过滤：父块反查发生在子块已通过 ACL 检索之后，
+     * 父块与子块同租户/同权限，且父块本身可能状态为 ACTIVE 之外（如被隔离）时
+     * 仍应能取回其内容用于展示决策；如需严格过滤可在调用侧判断。</p>
+     */
+    @Override
+    public KnowledgeDocument getById(String id) {
+        if (id == null || id.isBlank()) return null;
+        String sql = "SELECT id, title, content, category, keywords, effective_at, expire_at, "
+                + "tenant_id, version, source_url, chunk_index, created_at, "
+                + "authority_level, document_status, security_level, "
+                + "authorized_roles, authorized_users, parent_doc_id, source_type, "
+                + "raw_checksum, ingest_batch_id, index_version "
+                + "FROM " + TABLE + " WHERE id = ? LIMIT 1";
+        try {
+            List<KnowledgeDocument> found = jdbcTemplate.query(sql,
+                    (ResultSet rs, int rowNum) -> mapDoc(rs), id);
+            return found.isEmpty() ? null : found.get(0);
+        } catch (Exception e) {
+            log.warn("[PgVectorKB:{}] getById 失败: id={}, err={}", name, id, e.getMessage());
+            return null;
+        }
+    }
+
     private List<KnowledgeHit> fallbackSearch(String query, int topK, AclContext acl) {
         String q = "%" + query + "%";
         String aclClause = buildAclClause(acl);
