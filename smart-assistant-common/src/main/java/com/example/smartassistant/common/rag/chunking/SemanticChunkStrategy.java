@@ -72,6 +72,11 @@ public class SemanticChunkStrategy implements ChunkStrategy {
         // Stage 3: 对仍超长的段落进行递归分块 fallback
         result = applyFallbackForOversized(result, maxTokens);
 
+        // Stage 4: ⭐ 硬上限兜底——保证任何输出块都不超过 maxTokens（CJK≈1字1token）。
+        // 递归 fallback 在个别文本（如解析器产出的异常长片段、缺失句读）上可能未压到上限，
+        // 这里按字符长度硬截断，避免产生超大体量 chunk 污染检索与嵌入。
+        result = enforceHardCap(result, maxTokens);
+
         log.debug("[SemanticChunk] 分块完成: textLen={}, sections={}, chunks={}",
                 text.length(), sections.size(), result.size());
         return result;
@@ -185,6 +190,34 @@ public class SemanticChunkStrategy implements ChunkStrategy {
                 }
             } else {
                 result.add(chunk);
+            }
+        }
+        return result;
+    }
+
+    /** ⭐ 硬上限兜底：按字符长度截断，保证每个输出块 ≤ maxTokens（CJK 中文约 1 字 1 token） */
+    private List<Chunk> enforceHardCap(List<Chunk> chunks, int maxTokens) {
+        List<Chunk> result = new ArrayList<>();
+        for (Chunk chunk : chunks) {
+            String text = chunk.getText();
+            if (RecursiveChunkStrategy.estimateTokens(text) <= maxTokens) {
+                result.add(chunk);
+                continue;
+            }
+            // 超长：按 maxTokens 字符硬截断为多块（前缀保留在首块，后续块不带前缀以免重复）
+            int start = 0;
+            boolean first = true;
+            while (start < text.length()) {
+                int end = Math.min(start + maxTokens, text.length());
+                String piece = text.substring(start, end).trim();
+                if (!piece.isEmpty()) {
+                    String prefix = first ? chunk.getPrefix() : "";
+                    result.add(new Chunk(piece, result.size(),
+                            RecursiveChunkStrategy.estimateTokens(piece), prefix));
+                }
+                if (end >= text.length()) break;
+                start = end;
+                first = false;
             }
         }
         return result;

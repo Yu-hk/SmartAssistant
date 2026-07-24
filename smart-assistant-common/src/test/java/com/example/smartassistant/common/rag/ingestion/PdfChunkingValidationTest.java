@@ -117,11 +117,32 @@ class PdfChunkingValidationTest {
             System.out.printf("   含章节标记的父块: %d/%d%n", headingParents, parents.size());
 
             // 子块大小合规（≤256 + 容差）
+            // ⭐ P1 注意：子块 content 可能含注入的"标题\n\n"上下文前缀，属元数据而非正文，
+            //    校验前先剥离该前缀，只量正文尺寸，避免上下文前缀触发误报。
             long oversized = children.stream()
-                    .filter(c -> RecursiveChunkStrategy.estimateTokens(c.getContent()) > 256 * 1.2)
+                    .filter(c -> {
+                        String body = stripInjectedHeadingPrefix(c.getContent());
+                        return RecursiveChunkStrategy.estimateTokens(body) > 256 * 1.2;
+                    })
                     .count();
-            System.out.printf("   超阈值(>307tok)子块: %d 个%n", oversized);
+            System.out.printf("   超阈值(>307tok)子块: %d 个（已剔除标题前缀）%n", oversized);
             assertTrue(oversized == 0, fileName + " 不应有严重超阈值的子块");
+
+            // ⭐ 回归门禁：标题注入子块 prefix（Contextual Chunking）
+            // 至少部分子块应以章节标题开头（或自身片段即标题，或注入了最近标题前缀）
+            long ctxChildren = children.stream()
+                    .filter(c -> {
+                        String firstLine = c.getContent().split("\n", 2)[0].trim();
+                        return firstLine.matches(
+                                "^(#{1,6}\\s+.+|第[一二三四五六七八九十百千0-9]+[章节条款篇]"
+                                        + "|[一二三四五六七八九十]+[、．.]"
+                                        + "|\\d{1,3}(\\.\\d{1,3})*\\.?\\s+\\S).*");
+                    })
+                    .count();
+            System.out.printf("   携带章节标题上下文的子块: %d/%d（Contextual Chunking 应 > 0）%n",
+                    ctxChildren, children.size());
+            assertTrue(ctxChildren > 0,
+                    fileName + " 应至少有子块携带章节标题前缀（标题注入子块 prefix 生效）");
 
             // ⭐ 回归门禁：表格检测器收紧后，pdf-table 数量应与真表数一致（不应再误报编号列表/相邻文本）
             long tableCount = parsed.stream()
@@ -169,6 +190,15 @@ class PdfChunkingValidationTest {
         return docs.stream()
                 .mapToInt(d -> RecursiveChunkStrategy.estimateTokens(d.getContent()))
                 .average().orElse(0);
+    }
+
+    /** 去除子块前可能注入的"标题\n\n"上下文前缀（P1 Contextual Chunking），仅保留正文 */
+    private static String stripInjectedHeadingPrefix(String content) {
+        if (content == null) return "";
+        return content.replaceFirst(
+                "^(#{1,6}\\s+.+|第[一二三四五六七八九十百千0-9]+[章节条款篇]"
+                        + "|[一二三四五六七八九十]+[、．.]"
+                        + "|\\d{1,3}(\\.\\d{1,3})*\\.?\\s+\\S)[\\n\\r]+\\s*[\\n\\r]+", "");
     }
 
     /** 从 classpath 资源解析为文件系统路径（Maven 会把 resources 复制到 target/test-classes） */
