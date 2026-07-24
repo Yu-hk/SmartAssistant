@@ -63,7 +63,7 @@ public class RouterClient {
         // ⭐ 配置 RestTemplate 超时：连接 3s、读取 5s
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(3000);
-        factory.setReadTimeout(30000);  // ⚠️ 路由决策含 LLM 推理，5s 过短；放宽至 30s
+        factory.setReadTimeout(180000);  // 路由决策可能包含本地 LLM 推理，允许最长 180s
         this.restTemplate = new RestTemplate(factory);
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
@@ -200,6 +200,19 @@ public class RouterClient {
         long startTime = System.currentTimeMillis();
 
         try {
+            // Router 的 /route 端点是同步调用；返回时决策通常已经写入 Redis。
+            // 先直接读取，避免 Redis 客户端命令超时（3s）早于 BLPOP 等待时间。
+            String existingValue = redisTemplate.opsForValue().get(decisionKey);
+            if (existingValue != null) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> decision = objectMapper.readValue(existingValue, Map.class);
+                redisTemplate.delete(decisionKey);
+                redisTemplate.delete(notifyKey);
+                log.info("[RouterClient] 直接读取到路由决策: requestId={}, agentName={}",
+                        requestId, decision.get("agentName"));
+                return decision;
+            }
+
             // ⭐ 第一步：使用 BLPOP 阻塞等待通知
             String notifyResult = redisTemplate.opsForList().leftPop(
                     notifyKey, Duration.ofMillis(timeoutMs));
@@ -257,7 +270,7 @@ public class RouterClient {
      * @param userId    用户 ID
      * @param requestId 请求 ID（用于 Redis 存储）
      */
-    public void triggerRoutingDecision(String message, String userId, String requestId) {
+    public Map<String, Object> triggerRoutingDecision(String message, String userId, String requestId) {
         log.debug("[RouterClient] 触发路由决策: requestId={}, messageLength={}", 
                 requestId, message != null ? message.length() : 0);
 
@@ -289,11 +302,25 @@ public class RouterClient {
             log.debug("[RouterClient] 触发路由决策(调用 Router.route): {}", url);
 
             // 发送请求触发决策（route 端点同步返回，内部已写入 Redis 决策）
-            restTemplate.postForEntity(url, request, Map.class);
+            var response = restTemplate.postForEntity(url, request, Map.class);
             log.debug("[RouterClient] Router 决策请求已发送: requestId={}", requestId);
+            Map<?, ?> responseBody = response.getBody();
+            if (responseBody == null) {
+                return null;
+            }
+            Object data = responseBody.get("data");
+            if (data instanceof Map<?, ?> decision) {
+                Map<String, Object> result = new HashMap<>();
+                decision.forEach((key, value) -> result.put(String.valueOf(key), value));
+                return result;
+            }
+            Map<String, Object> result = new HashMap<>();
+            responseBody.forEach((key, value) -> result.put(String.valueOf(key), value));
+            return result;
 
         } catch (Exception e) {
             log.error("[RouterClient] 触发路由决策失败: requestId={}, error={}", requestId, e.getMessage(), e);
+            return null;
         }
     }
 }

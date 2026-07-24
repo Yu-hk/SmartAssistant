@@ -58,7 +58,7 @@ jobs:
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: results/gitleaks.sarif
+          sarif_file: results.sarif
           category: secret-scan
 
   # PR 标题安全扫描 — 阻断危险字符注入

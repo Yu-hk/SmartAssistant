@@ -42,7 +42,8 @@ jobs:
           mvn -B test
           -Dtest="*ManifestValidation*"
           -pl smart-assistant-tool-registry
-          -DfailIfNoTests=false
+          -am
+          -Dsurefire.failIfNoSpecifiedTests=false
       - name: Run manifest shell validator
         run: |
           chmod +x scripts/validate-tool-manifest.sh
