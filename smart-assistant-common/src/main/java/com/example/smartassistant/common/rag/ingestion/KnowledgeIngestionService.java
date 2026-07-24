@@ -426,19 +426,26 @@ public class KnowledgeIngestionService {
             // Step 4: 注入租户 ID + 编入版本到 chunk id（非覆盖式版本，P0）
             final String ver = version;
             docs = docs.stream()
-                    .map(doc -> new KnowledgeDocument(
-                            withVersionSuffix(doc.getId(), ver),
-                            doc.getTitle(), doc.getContent(),
-                            doc.getCategory(), doc.getKeywords(),
-                            doc.getEffectiveAt(), doc.getExpireAt(),
-                            tenantId != null && !tenantId.isBlank() ? tenantId : doc.getTenantId(),
-                            doc.getVersion(),
-                            doc.getSourceUrl(),
-                            doc.getChunkIndex(),
-                            doc.getParentDocId(),
-                            AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE,
-                            activeIndexVersion,
-                            doc.getSourceType())) // ⭐ 保留上游已绑定的 sourceType
+                    .map(doc -> {
+                        // ⭐ 父块 ID 同步版本后缀：保持 child.parentDocId 与 versioned parent.id 一致，回链不失效
+                        String rawParent = doc.getParentDocId();
+                        String versionedParent = (rawParent == null || rawParent.isBlank())
+                                ? "" : withVersionSuffix(rawParent, ver);
+                        return new KnowledgeDocument(
+                                withVersionSuffix(doc.getId(), ver),
+                                doc.getTitle(), doc.getContent(),
+                                doc.getCategory(), doc.getKeywords(),
+                                doc.getEffectiveAt(), doc.getExpireAt(),
+                                tenantId != null && !tenantId.isBlank() ? tenantId : doc.getTenantId(),
+                                doc.getVersion(),
+                                doc.getSourceUrl(),
+                                doc.getChunkIndex(),
+                                versionedParent,
+                                AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE,
+                                activeIndexVersion,
+                                doc.getChunkRole(), // ⭐ 保留 PARENT/CHILD 角色，避免父块被误嵌入
+                                doc.getSourceType()); // ⭐ 保留上游已绑定的 sourceType
+                    })
                     .toList();
 
             // ⭐ Step 4.2: 入库前质检 pipeline（对标字节 RAG 七连问第二问）
@@ -459,9 +466,10 @@ public class KnowledgeIngestionService {
                         doc.getEffectiveAt(), doc.getExpireAt(),
                         doc.getTenantId(), doc.getVersion(),
                         doc.getSourceUrl(), doc.getChunkIndex(),
-                        doc.getParentDocId(),
+                        doc.getParentDocId(),   // ⭐ 已是版本化父块 ID，原样保留回链
                         authorityLevel, DocumentStatus.ACTIVE,
                         activeIndexVersion,
+                        doc.getChunkRole(),     // ⭐ 保留 PARENT/CHILD 角色
                         doc.getSourceType()); // ⭐ 保留上游已绑定的 sourceType
 
                 // ② 质量评分门禁：低于阈值不入库，避免污染检索
