@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.rag.chunking;
 
+import com.example.smartassistant.common.rag.ChunkRole;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.common.rag.document.ParsedDocument;
 import com.example.smartassistant.common.rag.ingestion.DocumentMetadataEnricher;
@@ -93,11 +94,11 @@ public class ParentChildDocumentChunker {
                 // 生成父块 ID（用于子块关联）
                 String parentDocId = generateParentDocId(element, globalSequence);
 
-                // 创建父块 KnowledgeDocument（parentDocId 为空，表示自身就是父块）
+                // 创建父块 KnowledgeDocument（parentDocId 为空，表示自身就是父块，角色 PARENT 不嵌入）
                 KnowledgeDocument parentDoc = createKnowledgeDoc(
                         parentDocId, element, parentContent,
                         buildKeywords(element, parentChunk, pIdx, parentChunks.size()),
-                        globalSequence, ""
+                        globalSequence, "", ChunkRole.PARENT
                 );
                 parentDocs.add(parentDoc);
 
@@ -112,7 +113,7 @@ public class ParentChildDocumentChunker {
                     String childKeywords = buildKeywords(element, childChunk, cIdx, childChunks.size());
 
                     KnowledgeDocument childDoc = createKnowledgeDoc(
-                            childDocId, element, childContent, childKeywords, globalSequence, parentDocId
+                            childDocId, element, childContent, childKeywords, globalSequence, parentDocId, ChunkRole.CHILD
                     );
                     childDocs.add(childDoc);
                     globalSequence++;
@@ -131,10 +132,11 @@ public class ParentChildDocumentChunker {
         return baseId + "-parent-" + seq;
     }
 
-    /** 创建 KnowledgeDocument（支持 parentDocId） */
+    /** 创建 KnowledgeDocument（支持 parentDocId + chunkRole） */
     private KnowledgeDocument createKnowledgeDoc(String docId, ParsedDocument element,
                                                   String content, String keywords,
-                                                  int chunkIndex, String parentDocId) {
+                                                  int chunkIndex, String parentDocId,
+                                                  ChunkRole chunkRole) {
         return new KnowledgeDocument(
                 docId,
                 element.getTitle(),
@@ -148,6 +150,7 @@ public class ParentChildDocumentChunker {
                 element.getSourceUrl(),
                 chunkIndex,
                 parentDocId,
+                chunkRole,
                 DocumentMetadataEnricher.toSourceType(element.getContentType())
         );
     }
