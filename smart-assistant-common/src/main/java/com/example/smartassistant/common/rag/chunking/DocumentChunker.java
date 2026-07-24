@@ -70,12 +70,21 @@ public class DocumentChunker {
 
             for (int i = 0; i < chunks.size(); i++) {
                 Chunk chunk = chunks.get(i);
-                String chunkContent = chunk.getPrefix() + chunk.getText();
+
+                // ⭐ P1: 标题注入子块 prefix（Contextual Chunking）
+                // 独立分块路径下，每个块即检索/嵌入单元，同样携带最近章节标题以避免语义歧义。
+                String headingPrefix = ChunkContextUtil.resolveChildPrefix(
+                        text, chunk.getText(), element.getTitle(), element.getSection());
+                Chunk contextual = headingPrefix.isEmpty()
+                        ? chunk
+                        : new Chunk(chunk.getText(), chunk.getIndex(),
+                                chunk.getTokenCount(), headingPrefix);
+                String chunkContent = contextual.getPrefix() + contextual.getText();
 
                 // 构造 docId: 原始ID + 全局序号 + 块内序号
                 String docId = element.getDocId()
                         + "-g" + globalSequence
-                        + "-c" + chunk.getIndex();
+                        + "-c" + contextual.getIndex();
 
                 // 构造关键词（取标题和原有关键词）
                 String keywords = buildKeywords(element, chunk, i, chunks.size());

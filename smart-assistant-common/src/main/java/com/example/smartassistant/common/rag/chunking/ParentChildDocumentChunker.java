@@ -106,7 +106,16 @@ public class ParentChildDocumentChunker {
 
                 for (int cIdx = 0; cIdx < childChunks.size(); cIdx++) {
                     Chunk childChunk = childChunks.get(cIdx);
-                    String childContent = childChunk.getPrefix() + childChunk.getText();
+
+                    // ⭐ P1: 标题注入子块 prefix（Contextual Chunking）
+                    // 子块片段脱离父块后语义可能模糊，向量化前携带其最近章节标题作为上下文。
+                    String headingPrefix = ChunkContextUtil.resolveChildPrefix(
+                            parentContent, childChunk.getText(), element.getTitle(), element.getSection());
+                    Chunk contextualChild = headingPrefix.isEmpty()
+                            ? childChunk
+                            : new Chunk(childChunk.getText(), childChunk.getIndex(),
+                                    childChunk.getTokenCount(), headingPrefix);
+                    String childContent = contextualChild.getPrefix() + contextualChild.getText();
 
                     String childDocId = parentDocId + "-child-" + cIdx;
                     String childKeywords = buildKeywords(element, childChunk, cIdx, childChunks.size());
