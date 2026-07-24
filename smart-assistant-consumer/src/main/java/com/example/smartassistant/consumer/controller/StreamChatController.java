@@ -107,8 +107,28 @@ public class StreamChatController {
             bus.send(SseEvent.raw("init", initJson));
         } catch (Exception ignored) {
         }
+        if (agentName == null || agentName.isBlank() || "none".equals(agentName)) {
+            bus.sendError("当前没有可用的处理服务，请稍后重试");
+            return;
+        }
+
         bus.sendRouted(agentName, confidence);
 
+        Object routedResult = decision.get("result");
+        // /route is synchronous and may already contain the completed Agent result.
+        // Prefer that result even when Redis advertises a stream URL: forwarding again
+        // would execute the same request twice, and non-streaming endpoints can close
+        // after "processing" without ever producing a text/done event.
+        if (sendDecisionResult(bus, routedResult)) {
+            logger.info("[StreamChat] Agent={} returned a synchronous result; adapted it to SSE", agentName);
+            return;
+        }
+        if ("builtin_fallback".equals(agentName)) {
+            if (!sendDecisionResult(bus, routedResult)) {
+                bus.sendError("路由服务未返回有效结果");
+            }
+            return;
+        }
         // 多 Agent SSE 事件检查
         if (requestId != null && redisTemplate != null) {
             String eventsKey = "routing:sse:events:" + requestId;
@@ -122,6 +142,13 @@ public class StreamChatController {
 
         // 流式支持检查
         if (!agentStreamClient.isStreamingSupported(agentName)) {
+            // Router 的 /route 是同步接口，通常已经完成 Agent 调用并在 decision.result
+            // 中返回最终答案。对于只提供同步接口的 Agent（如 order_agent），将该结果
+            // 适配成统一的 text + done SSE 事件，避免把有效结果误判为“不支持流式响应”。
+            if (sendDecisionResult(bus, routedResult)) {
+                logger.info("[StreamChat] Agent={} 使用同步结果适配为 SSE 响应", agentName);
+                return;
+            }
             bus.sendError("Agent 不支持流式响应");
             return;
         }
@@ -194,6 +221,28 @@ public class StreamChatController {
         return new SseEventBus(response, requestId, redisCache);
     }
 
+    /**
+     * 将 Router 已经取得的同步 Agent 结果包装成前端统一识别的 SSE 事件。
+     *
+     * @return {@code true} 表示存在结果且已经发送（包括发送过程中出现错误的情况）
+     */
+    private boolean sendDecisionResult(SseEventBus bus, Object result) {
+        if (result == null || result.toString().isBlank()) {
+            return false;
+        }
+        try {
+            String textJson = objectMapper.writeValueAsString(Map.of(
+                    "type", "text",
+                    "content", result.toString()));
+            bus.send(SseEvent.raw("text", textJson));
+            bus.sendDone();
+        } catch (Exception e) {
+            logger.error("[StreamChat] 同步 Agent 结果转发失败: {}", e.getMessage(), e);
+            bus.sendError("Agent 结果返回失败");
+        }
+        return true;
+    }
+
     private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message, SseEventBus bus) {
         // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
@@ -201,13 +250,17 @@ public class StreamChatController {
             logger.warn("[StreamChat] 无决策键(requestId/sessionId 均空)，无法触发路由");
             return null;
         }
-        // ⚠️ 先触发路由决策写入 Redis（修复原"只等待、不触发"导致永久失败的问题）
+        bus.sendWaiting();
+        // 优先使用 Router 同步返回的决策；Redis 通知仅作为旧链路兼容兜底。
         try {
-            routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey);
+            Map<String, Object> directDecision =
+                    routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey);
+            if (directDecision != null && directDecision.containsKey("agentName")) {
+                return directDecision;
+            }
         } catch (Exception e) {
             logger.warn("[StreamChat] 触发路由决策异常(将尝试等待已有决策): {}", e.getMessage());
         }
-        bus.sendWaiting();
         try {
             return routerClient.waitForDecisionFromRedis(decisionKey, DECISION_TIMEOUT_MS);
         } catch (Exception e) {
