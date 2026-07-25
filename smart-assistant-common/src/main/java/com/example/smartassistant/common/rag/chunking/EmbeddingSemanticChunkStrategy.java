@@ -103,7 +103,10 @@ public class EmbeddingSemanticChunkStrategy implements ChunkStrategy {
             // 4. rolling 分位找 breakpoint 阈值
             double threshold = quantile(sim, breakpointQuantile);
             // 5. 按边界聚合 + minChunk 护栏 + hardMax 截断（返回句子组结构，便于句子级重叠）
-            List<List<String>> groups = merge(sentences, sim, threshold, hardMax);
+            //    oversizedPrefixes 与 groups 对齐：超长组（单语义组超 hardMax）由规则递归切分，
+            //    其递归产出的重叠前缀需原样保留，不可被句子级 applyOverlap 覆盖丢弃。
+            List<String> oversizedPrefixes = new ArrayList<>();
+            List<List<String>> groups = merge(sentences, sim, threshold, hardMax, overlap, oversizedPrefixes);
             // 6. 边界重叠控制（仅 overlap>0 时生效；与 RecursiveChunkStrategy 语义一致：复制不移动）
             List<String> prefixes = applyOverlap(groups, overlap);
             // 7. 转 Chunk（prefix 承载重叠文本，内容 = prefix + text 仅一份重叠）
@@ -112,7 +115,9 @@ public class EmbeddingSemanticChunkStrategy implements ChunkStrategy {
             for (int i = 0; i < groups.size(); i++) {
                 String g = String.join(" ", groups.get(i)).trim();
                 if (g.isEmpty()) continue;
-                String prefix = prefixes.get(i);
+                // 超长组来源：沿用递归切分已算好的重叠前缀；其余：用句子级 breakpoint 重叠
+                String prefix = (!oversizedPrefixes.isEmpty() && !oversizedPrefixes.get(i).isEmpty())
+                        ? oversizedPrefixes.get(i) : prefixes.get(i);
                 result.add(new Chunk(g, idx++, RecursiveChunkStrategy.estimateTokens(g),
                         prefix != null ? prefix : ""));
             }
@@ -175,7 +180,8 @@ public class EmbeddingSemanticChunkStrategy implements ChunkStrategy {
      *   <li>阶段2：超长组（罕见，单段超 hardMax）用 fallback 规则切。</li>
      * </ol>
      */
-    private List<List<String>> merge(List<String> sentences, double[] sim, double threshold, int hardMax) {
+    private List<List<String>> merge(List<String> sentences, double[] sim, double threshold,
+                                   int hardMax, int overlap, List<String> oversizedPrefixes) {
         // 阶段1：按 breakpoint 切原始组（每组 = 句子列表）
         List<List<String>> raw = new ArrayList<>();
         List<String> cur = new ArrayList<>();
@@ -202,23 +208,24 @@ public class EmbeddingSemanticChunkStrategy implements ChunkStrategy {
                     continue;
                 }
             }
-            // 超长组：fallback 规则切（极少触发）
+            // 超长组：fallback 规则切（极少触发）。⭐ 传入 overlap（此前硬编码 0），
+            // 使单组超 hardMax 时子级递归切分同样携带边界重叠，避免子块语义被硬切。
             if (gTok > hardMax) {
                 StringBuilder sb = new StringBuilder();
                 for (String s : g) {
                     if (sb.length() > 0) sb.append(" ");
                     sb.append(s);
                 }
-                for (Chunk c : fallback.chunk(sb.toString(), hardMax, 0)) {
-                    for (String piece : splitSentences(c.getText())) {
-                        List<String> one = new ArrayList<>();
-                        one.add(piece);
-                        groups.add(one);
-                    }
+                // ⭐ 保留递归切分产出的重叠前缀：把每个递归子块整体作为一个组，
+                // 其 prefix（上一子块尾部）原样记入 oversizedPrefixes，避免被句子级 applyOverlap 覆盖丢弃。
+                for (Chunk c : fallback.chunk(sb.toString(), hardMax, overlap)) {
+                    groups.add(List.of(c.getText()));
+                    oversizedPrefixes.add(c.getPrefix());
                 }
                 continue;
             }
             groups.add(g);
+            oversizedPrefixes.add("");
         }
         return groups;
     }

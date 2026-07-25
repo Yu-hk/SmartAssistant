@@ -200,7 +200,16 @@ public class RecursiveChunkStrategy implements ChunkStrategy {
         result.add(new Chunk(text, idx, estimateTokens(text), ""));
     }
 
-    /** 应用重叠：从上一个 chunk 的尾部取 overlap 字符拼到当前 chunk 开头 */
+    /**
+     * 应用重叠：从上一个 chunk 的尾部取 overlap 字符作为当前 chunk 的 prefix。
+     * <p>
+     * ⭐ 复制不移动：重叠文本只写进 {@link Chunk#getPrefix()}，不重复写入
+     * {@link Chunk#getText()}。调用方统一以 {@code prefix + text} 组装最终内容
+     * （见 {@link ParentChildDocumentChunker} / {@link DocumentChunker}），
+     * 若此处再把重叠 prepend 进 text 会导致重叠被计入两次（double-count）。
+     * 此约定与 {@link EmbeddingSemanticChunkStrategy} 的 applyOverlap 保持一致。
+     * </p>
+     */
     private void applyOverlap(List<Chunk> chunks, int overlap) {
         for (int i = chunks.size() - 1; i > 0; i--) {
             Chunk prev = chunks.get(i - 1);
@@ -209,9 +218,9 @@ public class RecursiveChunkStrategy implements ChunkStrategy {
             String overlapText = prevText.substring(prevText.length() - overlapLen);
 
             Chunk current = chunks.get(i);
-            String newText = overlapText + current.getText();
-            chunks.set(i, new Chunk(newText, current.getIndex(),
-                    estimateTokens(newText), overlapText));
+            // 仅写入 prefix，text 保持原样（避免与调用方 prefix+text 组装重复）
+            chunks.set(i, new Chunk(current.getText(), current.getIndex(),
+                    estimateTokens(current.getText()), overlapText));
         }
     }
 
