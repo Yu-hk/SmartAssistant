@@ -10,10 +10,13 @@ import com.example.smartassistant.common.rag.AuthorityLevel;
 import com.example.smartassistant.common.rag.DocumentStatus;
 import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
+import com.example.smartassistant.common.rag.chunking.ParentChildDocumentChunker;
+import com.example.smartassistant.common.rag.document.ParsedDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -40,13 +43,25 @@ public class MultimodalIngestor {
 
     private final KnowledgeBase knowledgeBase;
 
+    /**
+     * ⭐ 可选：注入后图片描述经 Parent-Child + 路由分块入库（图片走 BGE 语义切分），
+     * 享受小块召回/大块生成的上下文增强；未注入则整段直写（向后兼容）。
+     */
+    private final ParentChildDocumentChunker chunker;
+
     public MultimodalIngestor(KnowledgeBase knowledgeBase) {
-        this(new NoopImageCaptioner(), knowledgeBase);
+        this(new NoopImageCaptioner(), knowledgeBase, null);
     }
 
     public MultimodalIngestor(ImageCaptioner captioner, KnowledgeBase knowledgeBase) {
+        this(captioner, knowledgeBase, null);
+    }
+
+    public MultimodalIngestor(ImageCaptioner captioner, KnowledgeBase knowledgeBase,
+                              ParentChildDocumentChunker chunker) {
         this.captioner = captioner != null ? captioner : new NoopImageCaptioner();
         this.knowledgeBase = knowledgeBase;
+        this.chunker = chunker;
     }
 
     /**
@@ -71,23 +86,53 @@ public class MultimodalIngestor {
                 continue;
             }
             String docId = "img-" + hashBytes(img.getBytes());
-            KnowledgeDocument doc = new KnowledgeDocument(
-                    docId,
-                    "图片知识-" + (img.getSourceName() != null ? img.getSourceName() : "unknown"),
-                    caption,
-                    "multimodal",
-                    "image," + (img.getMimeType() != null ? img.getMimeType() : "image"),
-                    -1, -1,
-                    (tenantId != null && !tenantId.isBlank()) ? tenantId : "",
-                    "v1", "", 0, "",
-                    AuthorityLevel.L3_NOTE, DocumentStatus.ACTIVE);
-            knowledgeBase.addDocument(doc);
-            ingested++;
+            if (chunker != null) {
+                ingested += ingestViaChunker(img, caption, docId, tenantId);
+            } else {
+                ingested += ingestDirect(img, caption, docId, tenantId);
+            }
         }
         if (ingested > 0) {
             log.info("[MultimodalIngestor] 多模态入库完成: 输入={}, 入库={}", images.size(), ingested);
         }
         return ingested;
+    }
+
+    /**
+     * ⭐ 归一化进 chunker：图片描述包成 {@code image-caption} 类型的 ParsedDocument，
+     * 交给 Parent-Child + 路由分块（图片 → BGE 语义切分），child+parent 均入库。
+     */
+    private int ingestViaChunker(ImageReference img, String caption, String docId, String tenantId) {
+        ParsedDocument pd = ParsedDocument.builder()
+                .docId(docId)
+                .title("图片知识-" + (img.getSourceName() != null ? img.getSourceName() : "unknown"))
+                .content(caption)
+                .contentType("image-caption")
+                .tenantId((tenantId != null && !tenantId.isBlank()) ? tenantId : "")
+                .version("v1")
+                .build();
+        ParentChildDocumentChunker.ParentChildResult r = chunker.chunkParentChild(List.of(pd));
+        List<KnowledgeDocument> all = new ArrayList<>(r.childDocs());
+        all.addAll(r.parentDocs());
+        if (all.isEmpty()) return 0;
+        knowledgeBase.addDocuments(all);
+        return 1;
+    }
+
+    /** 直写（向后兼容）：整段描述作为单个 KnowledgeDocument 入库 */
+    private int ingestDirect(ImageReference img, String caption, String docId, String tenantId) {
+        KnowledgeDocument doc = new KnowledgeDocument(
+                docId,
+                "图片知识-" + (img.getSourceName() != null ? img.getSourceName() : "unknown"),
+                caption,
+                "multimodal",
+                "image," + (img.getMimeType() != null ? img.getMimeType() : "image"),
+                -1, -1,
+                (tenantId != null && !tenantId.isBlank()) ? tenantId : "",
+                "v1", "", 0, "",
+                AuthorityLevel.L3_NOTE, DocumentStatus.ACTIVE);
+        knowledgeBase.addDocument(doc);
+        return 1;
     }
 
     /** 由图片字节派生稳定短哈希（SHA-256 取前 8 字节） */

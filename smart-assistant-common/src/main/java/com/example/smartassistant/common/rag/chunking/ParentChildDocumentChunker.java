@@ -52,16 +52,31 @@ public class ParentChildDocumentChunker {
     /** 主分块策略 */
     private final ChunkStrategy chunkStrategy;
 
+    /** 按文档选策略的选择器（默认回退到 chunkStrategy，向后兼容） */
+    private final ChunkStrategySelector selector;
+
     public ParentChildDocumentChunker() {
         this(new SemanticChunkStrategy(), 256, 1024, 50);
     }
 
     public ParentChildDocumentChunker(ChunkStrategy chunkStrategy,
                                        int childMaxTokens, int parentMaxTokens, int overlap) {
+        this(chunkStrategy, childMaxTokens, parentMaxTokens, overlap, doc -> chunkStrategy);
+    }
+
+    /**
+     * ⭐ 支持按文档类型/结构路由分块策略（图片→BGE、长无结构 txt→BGE，其余→主策略）。
+     *
+     * @param selector 策略选择器；为 {@code null} 时所有文档统一用 {@code chunkStrategy}
+     */
+    public ParentChildDocumentChunker(ChunkStrategy chunkStrategy,
+                                       int childMaxTokens, int parentMaxTokens, int overlap,
+                                       ChunkStrategySelector selector) {
         this.chunkStrategy = chunkStrategy;
         this.childMaxTokens = childMaxTokens;
         this.parentMaxTokens = parentMaxTokens;
         this.overlap = overlap;
+        this.selector = selector != null ? selector : (doc -> chunkStrategy);
     }
 
     /**
@@ -83,8 +98,11 @@ public class ParentChildDocumentChunker {
             String text = element.getContent();
             if (text == null || text.isBlank()) continue;
 
+            // ⭐ 按文档选择分块策略（图片→BGE、长无结构 txt→BGE，其余→主策略）
+            ChunkStrategy strategy = selector.select(element);
+
             // Step 1: 以父块粒度分块（阅读用，大块）
-            List<Chunk> parentChunks = chunkStrategy.chunk(text, parentMaxTokens, overlap);
+            List<Chunk> parentChunks = strategy.chunk(text, parentMaxTokens, overlap);
 
             for (int pIdx = 0; pIdx < parentChunks.size(); pIdx++) {
                 Chunk parentChunk = parentChunks.get(pIdx);
@@ -102,7 +120,7 @@ public class ParentChildDocumentChunker {
                 parentDocs.add(parentDoc);
 
                 // Step 2: 以子块粒度分块（检索用，小块），关联到父块
-                List<Chunk> childChunks = chunkStrategy.chunk(parentContent, childMaxTokens, 0);
+                List<Chunk> childChunks = strategy.chunk(parentContent, childMaxTokens, 0);
 
                 for (int cIdx = 0; cIdx < childChunks.size(); cIdx++) {
                     Chunk childChunk = childChunks.get(cIdx);
