@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
 
@@ -23,6 +24,11 @@ import java.util.function.Function;
  * 相似度骤降处（低于 rolling 分位阈值）即为语义边界 → 聚合成块。
  * 用于弥补规则分块在「无结构长文 / OCR 流水 / 图片描述」上切断语义的缺陷。
  * </p>
+ *
+ * <p>边界重叠控制：当调用方传入 {@code overlap>0} 时，在相邻语义块边界把上一块尾部
+ * （≤ overlap token，且不超过上块一半，避免「重叠比正文还长」）按句子粒度复制到当前块头部，
+ * 作为 {@link Chunk#getPrefix()} 承载；内容与 {@link RecursiveChunkStrategy#applyOverlap} 一致
+ * （复制不移动），缓解 breakpoint 硬切导致的边界上下文丢失。</p>
  *
  * <p>安全措施（对标文章对语义切分的三条硬警告）：</p>
  * <ul>
@@ -96,18 +102,22 @@ public class EmbeddingSemanticChunkStrategy implements ChunkStrategy {
             }
             // 4. rolling 分位找 breakpoint 阈值
             double threshold = quantile(sim, breakpointQuantile);
-            // 5. 按边界聚合 + minChunk 护栏 + hardMax 截断
-            List<String> groups = merge(sentences, sim, threshold, hardMax);
-            // 6. 转 Chunk
+            // 5. 按边界聚合 + minChunk 护栏 + hardMax 截断（返回句子组结构，便于句子级重叠）
+            List<List<String>> groups = merge(sentences, sim, threshold, hardMax);
+            // 6. 边界重叠控制（仅 overlap>0 时生效；与 RecursiveChunkStrategy 语义一致：复制不移动）
+            List<String> prefixes = applyOverlap(groups, overlap);
+            // 7. 转 Chunk（prefix 承载重叠文本，内容 = prefix + text 仅一份重叠）
             List<Chunk> result = new ArrayList<>();
             int idx = 0;
-            for (String g : groups) {
-                g = g.trim();
+            for (int i = 0; i < groups.size(); i++) {
+                String g = String.join(" ", groups.get(i)).trim();
                 if (g.isEmpty()) continue;
-                result.add(new Chunk(g, idx++, RecursiveChunkStrategy.estimateTokens(g), ""));
+                String prefix = prefixes.get(i);
+                result.add(new Chunk(g, idx++, RecursiveChunkStrategy.estimateTokens(g),
+                        prefix != null ? prefix : ""));
             }
-            log.debug("[EmbeddingSemantic] 语义分块: sents={}, groups={}, threshold={.3f}",
-                    sentences.size(), result.size(), threshold);
+            log.debug("[EmbeddingSemantic] 语义分块: sents={}, groups={}, threshold={.3f}, overlap={}",
+                    sentences.size(), result.size(), threshold, overlap);
             return result;
         } catch (Exception e) {
             log.warn("[EmbeddingSemantic] 语义分块异常，降级规则分块: {}", e.getMessage());
@@ -157,49 +167,100 @@ public class EmbeddingSemanticChunkStrategy implements ChunkStrategy {
     }
 
     /**
-     * 按 breakpoint 聚合句子，并施加护栏。
+     * 按 breakpoint 聚合句子，并施加护栏。返回「句子组」结构（每个元素是一组句子列表），
+     * 以便后续按句子粒度施加边界重叠。
      * <ol>
      *   <li>阶段1：相邻相似度 < threshold 处切分为原始组；</li>
      *   <li>阶段2：minChunk 护栏——过小的组并入前一组（不超 hardMax 时）；</li>
      *   <li>阶段2：超长组（罕见，单段超 hardMax）用 fallback 规则切。</li>
      * </ol>
      */
-    private List<String> merge(List<String> sentences, double[] sim, double threshold, int hardMax) {
-        // 阶段1：按 breakpoint 切原始组
-        List<String> raw = new ArrayList<>();
-        StringBuilder cur = new StringBuilder();
+    private List<List<String>> merge(List<String> sentences, double[] sim, double threshold, int hardMax) {
+        // 阶段1：按 breakpoint 切原始组（每组 = 句子列表）
+        List<List<String>> raw = new ArrayList<>();
+        List<String> cur = new ArrayList<>();
         for (int i = 0; i < sentences.size(); i++) {
-            if (cur.length() > 0) cur.append(" ");
-            cur.append(sentences.get(i));
+            cur.add(sentences.get(i));
             boolean boundary = (i < sim.length) && (sim[i] < threshold);
             if (boundary) {
-                raw.add(cur.toString().trim());
-                cur.setLength(0);
+                raw.add(new ArrayList<>(cur));
+                cur = new ArrayList<>();
             }
         }
-        if (cur.length() > 0) raw.add(cur.toString().trim());
+        if (!cur.isEmpty()) raw.add(cur);
 
         // 阶段2：护栏 + 硬上限
-        List<String> groups = new ArrayList<>();
-        for (String g : raw) {
-            int gTok = RecursiveChunkStrategy.estimateTokens(g);
+        List<List<String>> groups = new ArrayList<>();
+        for (List<String> g : raw) {
+            int gTok = estimateGroupTokens(g);
             // minChunk 护栏：过小且可并入前组（不超 hardMax）→ 并入
             if (gTok < minChunkTokens && !groups.isEmpty()) {
-                int prevTok = RecursiveChunkStrategy.estimateTokens(groups.get(groups.size() - 1));
+                List<String> prev = groups.get(groups.size() - 1);
+                int prevTok = estimateGroupTokens(prev);
                 if (prevTok + gTok <= hardMax) {
-                    groups.set(groups.size() - 1, groups.get(groups.size() - 1) + " " + g);
+                    prev.addAll(g);
                     continue;
                 }
             }
             // 超长组：fallback 规则切（极少触发）
             if (gTok > hardMax) {
-                for (Chunk c : fallback.chunk(g, hardMax, 0)) {
-                    groups.add(c.getText());
+                StringBuilder sb = new StringBuilder();
+                for (String s : g) {
+                    if (sb.length() > 0) sb.append(" ");
+                    sb.append(s);
+                }
+                for (Chunk c : fallback.chunk(sb.toString(), hardMax, 0)) {
+                    for (String piece : splitSentences(c.getText())) {
+                        List<String> one = new ArrayList<>();
+                        one.add(piece);
+                        groups.add(one);
+                    }
                 }
                 continue;
             }
             groups.add(g);
         }
         return groups;
+    }
+
+    /** 句子组的 token 估算（拼接后估算，避免重复 join 开销由调用方视情况使用） */
+    private static int estimateGroupTokens(List<String> group) {
+        StringBuilder sb = new StringBuilder();
+        for (String s : group) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(s);
+        }
+        return RecursiveChunkStrategy.estimateTokens(sb.toString());
+    }
+
+    /**
+     * 边界重叠控制（仅 overlap>0 生效）：把上一组的尾部若干句子（累计 token ≤ overlap，
+     * 且不超过上组一半）复制到当前组头部，作为 prefix 写入当前块。
+     * <p>与 {@link RecursiveChunkStrategy#applyOverlap} 语义一致：复制不移动，上一组内容不变。</p>
+     *
+     * @return 与 groups 对齐的 prefix 列表（groups[i] 对应的重叠前缀文本，无重叠则为空串）
+     */
+    private List<String> applyOverlap(List<List<String>> groups, int overlap) {
+        List<String> prefixes = new ArrayList<>(Collections.nCopies(groups.size(), ""));
+        if (overlap <= 0 || groups.size() <= 1) return prefixes;
+        for (int i = 1; i < groups.size(); i++) {
+            List<String> prev = groups.get(i - 1);
+            if (prev.isEmpty()) continue;
+            int prevTok = estimateGroupTokens(prev);
+            // 重叠预算：不超过调用方指定 overlap，且不超过上组一半（防止「重叠比正文还长」）
+            int budget = Math.min(overlap, prevTok / 2);
+            List<String> tail = new ArrayList<>();
+            int acc = 0;
+            for (int j = prev.size() - 1; j >= 0 && acc < budget; j--) {
+                int t = RecursiveChunkStrategy.estimateTokens(prev.get(j));
+                if (acc + t > budget) break;
+                tail.add(0, prev.get(j));
+                acc += t;
+            }
+            if (!tail.isEmpty()) {
+                prefixes.set(i, String.join(" ", tail));
+            }
+        }
+        return prefixes;
     }
 }
