@@ -120,7 +120,9 @@ public class ParentChildDocumentChunker {
                 parentDocs.add(parentDoc);
 
                 // Step 2: 以子块粒度分块（检索用，小块），关联到父块
-                List<Chunk> childChunks = strategy.chunk(parentContent, childMaxTokens, 0);
+                // ⭐ P0: 子块同样启用语义重叠（与父块一致）——BGE 路径下会把上一子块的语义
+                // 边界尾作为 prefix 带入当前子块，缓解子块被硬切导致的边界上下文丢失。
+                List<Chunk> childChunks = strategy.chunk(parentContent, childMaxTokens, overlap);
 
                 for (int cIdx = 0; cIdx < childChunks.size(); cIdx++) {
                     Chunk childChunk = childChunks.get(cIdx);
@@ -129,10 +131,15 @@ public class ParentChildDocumentChunker {
                     // 子块片段脱离父块后语义可能模糊，向量化前携带其最近章节标题作为上下文。
                     String headingPrefix = ChunkContextUtil.resolveChildPrefix(
                             parentContent, childChunk.getText(), element.getTitle(), element.getSection());
-                    Chunk contextualChild = headingPrefix.isEmpty()
+
+                    // ⭐ P0: 保留策略产出的语义重叠前缀（如 BGE 路径 breakpoint 边界尾），
+                    //       与标题前缀叠加，二者都不丢弃——重叠尾提供边界上下文，标题提供章节上下文。
+                    String overlapPrefix = childChunk.getPrefix(); // 来自策略的重叠前缀（可能为空串）
+                    String combinedPrefix = headingPrefix + overlapPrefix;
+                    Chunk contextualChild = combinedPrefix.isEmpty()
                             ? childChunk
                             : new Chunk(childChunk.getText(), childChunk.getIndex(),
-                                    childChunk.getTokenCount(), headingPrefix);
+                                    childChunk.getTokenCount(), combinedPrefix);
                     String childContent = contextualChild.getPrefix() + contextualChild.getText();
 
                     String childDocId = parentDocId + "-child-" + cIdx;
