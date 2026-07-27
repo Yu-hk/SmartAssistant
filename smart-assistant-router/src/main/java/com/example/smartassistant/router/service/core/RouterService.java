@@ -227,6 +227,33 @@ public class RouterService {
             // ⭐ 经验匹配可直接跳过 LLM 推理，命中 TOOL 经验时甚至直接执行工具
             String question = request.getQuestion();
 
+            if (isCapabilityOverviewRequest(question)) {
+                log.info("[Router] 系统能力查询命中快路径: question={}",
+                        QuestionExtractor.truncate(question, 80));
+                return RoutingResult.builder()
+                        .result("""
+                                当前部署已确认可用的服务：
+                                - general_chat（通用对话）：处理知识问答、计算、单位换算、天气、联网搜索、图片和用户偏好等请求。
+
+                                通用服务当前加载了 14 个工具：
+                                - calculate：数学表达式计算
+                                - convertTemperature / convertLength / convertWeight：温度、长度、重量单位换算
+                                - getHotNews / searchWeb：热点榜单与联网搜索
+                                - convertCurrency：货币汇率换算
+                                - queryWeather：天气查询
+                                - analyzeImage / generateImage：图片分析与图片生成
+                                - savePreference / recallMemories：保存与读取用户偏好
+                                - queryCorrections：查询历史纠错记录
+                                - executeScript：多步计算脚本
+
+                                订单和商品 Agent 属于可选业务服务，仅在对应服务在线并完成注册时参与路由。
+                                """)
+                        .agentName("builtin_fallback")
+                        .confidence(1.0)
+                        .intentTag("system_capabilities")
+                        .build();
+            }
+
             // ⭐ P1 确定性护栏：检查高风险关键词（退款/退货/投诉等）
             GuardrailService.GuardrailCheckResult guardrail = guardrailService.check(question);
             boolean guardrailSkipped = guardrail.triggered() && guardrail.skipShortCircuit();
@@ -762,6 +789,27 @@ public class RouterService {
      */
     private RoutingResult inlineFallback(String question, EmotionCheckResult emotion) {
         return routeExecutionService.inlineFallback(question, emotion);
+    }
+
+    private boolean isCapabilityOverviewRequest(String question) {
+        if (question == null || question.isBlank()) {
+            return false;
+        }
+        String normalized = question.toLowerCase(Locale.ROOT);
+        boolean mentionsCapability = normalized.contains("工具")
+                || normalized.contains("服务")
+                || normalized.contains("能力");
+        boolean asksForOverview = normalized.contains("展示")
+                || normalized.contains("列出")
+                || normalized.contains("列表")
+                || normalized.contains("查看")
+                || normalized.contains("哪些")
+                || normalized.contains("有什么")
+                || normalized.contains("可用")
+                || normalized.contains("可以调用")
+                || normalized.contains("能调用")
+                || normalized.contains("支持什么");
+        return mentionsCapability && asksForOverview;
     }
 
     private Map<String, Object> buildContext(RouteRequest request) {

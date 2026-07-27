@@ -72,8 +72,6 @@ echo "[4/5] 检查防火墙..."
 if command -v firewall-cmd &> /dev/null; then
     firewall-cmd --permanent --add-port=80/tcp
     firewall-cmd --permanent --add-port=443/tcp
-    firewall-cmd --permanent --add-port=8080-8099/tcp
-    firewall-cmd --permanent --add-port=8848/tcp
     firewall-cmd --reload
     echo "  Firewalld 端口已放行"
 else
@@ -90,7 +88,7 @@ echo " 服务器初始化完成！"
 echo "============================================"
 echo ""
 echo "请在阿里云控制台 → 防火墙 → 添加规则："
-echo "  TCP 80-443, 8080-8099, 8848, 11434"
+echo "  TCP 80 and 443 only (keep application and infrastructure ports private)"
 echo ""
 echo "接下来将项目文件上传到 /opt/smart-assistant 即可启动"
 echo "============================================"

@@ -10,6 +10,7 @@ package com.example.smartassistant.common.rag.graph;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -33,7 +34,9 @@ public class RagGraphAutoConfiguration {
     private final AiChatService aiChatService;
 
     @Autowired(required = false)
-    public RagGraphAutoConfiguration(ChatModel chatModel, AiChatService aiChatService) {
+    public RagGraphAutoConfiguration(
+            @Qualifier("ollamaChatModel") ChatModel chatModel,
+            AiChatService aiChatService) {
         this.chatModel = chatModel;
         this.aiChatService = aiChatService;
     }

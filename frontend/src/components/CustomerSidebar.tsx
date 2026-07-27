@@ -57,7 +57,7 @@ export function CustomerSidebar({
             boxShadow: '0 0 20px var(--nova-accent-glow)',
             position: 'relative',
           }}>
-            N
+            S
             <div style={{
               position: 'absolute', inset: 0, borderRadius: '12px',
               border: '1px solid rgba(255,255,255,0.2)',
@@ -69,14 +69,14 @@ export function CustomerSidebar({
               color: 'var(--nova-text-primary)',
               letterSpacing: '0.03em',
             }}>
-              Nova
+              SmartAssistant
             </div>
             <div style={{
               fontSize: '10px', color: 'var(--nova-secondary)',
               fontWeight: 500, letterSpacing: '0.1em',
               textTransform: 'uppercase',
             }}>
-              Travel AI
+              Multi-Agent AI
             </div>
           </div>
         </div>

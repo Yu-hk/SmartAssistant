@@ -12,7 +12,7 @@ import com.example.smartassistant.common.model.tier.TieredModelRouter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 /**
@@ -33,9 +33,8 @@ public class ModelRouterService {
 
     private final TieredModelRouter tierRouter;
 
-    @Autowired(required = false)
-    public ModelRouterService(TieredModelRouter tierRouter) {
-        this.tierRouter = tierRouter;
+    public ModelRouterService(ObjectProvider<TieredModelRouter> tierRouterProvider) {
+        this.tierRouter = tierRouterProvider.getIfAvailable();
         if (tierRouter == null) {
             log.warn("[ModelRouter] common TieredModelRouter 未装配（无 OllamaChatModel？），本门面仅保留 API 壳。");
         }

@@ -22,6 +22,9 @@ async function request<T>(
     ...options,
     headers: {
       ...DEFAULT_HEADERS,
+      ...(localStorage.getItem('smart-assistant-token')
+        ? { Authorization: `Bearer ${localStorage.getItem('smart-assistant-token')}` }
+        : {}),
       ...options.headers,
     },
   });

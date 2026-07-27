@@ -52,7 +52,9 @@ public class SseEventBus {
     /** 心跳间隔（毫秒） */
     private static final long HEARTBEAT_INTERVAL_MS = 15_000;
     /** 闲置超时（毫秒）— 超过此时间无事件发送则自动关闭 */
-    private static final long IDLE_TIMEOUT_MS = 60_000;
+    // Local 7B models can need around a minute to cold-start on CPU-only hosts.
+    // Keep the SSE channel alive long enough for the first generated response.
+    private static final long IDLE_TIMEOUT_MS = 180_000;
 
     /** ⭐ 每个缓冲区的最大事件数上限 —— 超过后停止缓存（防 Redis 内存溢出） */
     private static final int MAX_EVENTS_PER_BUFFER = 10_000;
@@ -111,7 +113,10 @@ public class SseEventBus {
         });
         heartbeatFuture = scheduler.scheduleAtFixedRate(() -> {
             try {
-                if (closed || response.isCommitted()) {
+                // A streaming response is expected to be committed as soon as its
+                // headers are flushed. "Committed" does not mean the output stream
+                // is closed, so it must not be used as a connection-liveness check.
+                if (closed) {
                     close();
                     return;
                 }
@@ -151,7 +156,9 @@ public class SseEventBus {
      * 发送一个 SSE 事件。
      */
     public synchronized void send(SseEvent event) {
-        if (closed || response.isCommitted()) return;
+        // SSE events are written after the response headers have been committed.
+        // Only the explicit lifecycle flag determines whether this bus is closed.
+        if (closed) return;
         try {
             String idLine = "id: " + seqNo + "\n";
             response.getOutputStream().write(idLine.getBytes(StandardCharsets.UTF_8));
