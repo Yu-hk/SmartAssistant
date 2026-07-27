@@ -57,7 +57,6 @@ public class ContextCompressor {
     private static final int COMPRESS_MIN_SIZE = 6;
 
     private final ChatModel chatModel;
-    private final ReActProfile profile;
     private final ConversationSummaryStore summaryStore;
     private final List<String> summaryChain;
     private int summaryGeneration = 0;
@@ -65,12 +64,9 @@ public class ContextCompressor {
     public ContextCompressor(ChatModel chatModel, ReActProfile profile,
                              ConversationSummaryStore summaryStore, List<String> summaryChain) {
         this.chatModel = chatModel;
-        this.profile = profile;
         this.summaryStore = summaryStore;
         this.summaryChain = summaryChain;
     }
-
-    public int getSummaryGeneration() { return summaryGeneration; }
 
     /**
      * 压缩对话历史（带 MicroCompact 工具结果清理 + 增量更新）。

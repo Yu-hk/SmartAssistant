@@ -96,6 +96,12 @@ public class PdfParserRouter implements DocumentParser {
                     break;
                 }
             }
+            // 路由开关 route-on-images：MinerU 开启且 PDF 含图片 → 整体路由到 MinerU
+            //（拿 OCR + 版面 + 表格）。即便每页都有文字（数字 PDF），含图片也走 MinerU，
+            // 以抽出 PDFBox 无法直接获取的图片内表格/文字结构。
+            if (properties != null && properties.isEnabled() && properties.isRouteOnImages() && anyImage) {
+                return true;
+            }
             if (!anyImage) {
                 // 数字 PDF 无图，必走 PDFBox
                 return false;

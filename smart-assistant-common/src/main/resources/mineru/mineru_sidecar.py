@@ -42,7 +42,14 @@ def parse_with_magic_pdf(pdf_path, images_dir):
     解析产物通常位于 <output_dir>/<pdf_name>/<pdf_name>/content_list.json
     """
     output_dir = tempfile.mkdtemp(prefix="mineru_out_")
-    cmd = ["magic-pdf", "pdf", "-p", pdf_path, "-o", output_dir]
+    # 不要用裸 "magic-pdf"（依赖 PATH，子进程可能找不到）。基于当前 venv 的 python 可执行文件
+    # 定位同目录下的 magic-pdf 可执行；不存在再回退 PATH 中的 "magic-pdf"。
+    mp = os.path.join(os.path.dirname(sys.executable), "magic-pdf.exe")
+    if not os.path.exists(mp):
+        mp = "magic-pdf"
+    # magic-pdf 1.3.x CLI：无 `pdf` 子命令，直接 `magic-pdf -p <path> -o <dir>`
+    # （旧版曾有 `magic-pdf pdf -p ...`，已在 1.3 移除，误用会 crash/报 unexpected argument）
+    cmd = [mp, "-p", pdf_path, "-o", output_dir]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        timeout=600)
