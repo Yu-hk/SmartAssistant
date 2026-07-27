@@ -112,6 +112,25 @@ export interface AdminStats {
   transferRate: number;
 }
 
+// 实时会话洞察相关类型
+export interface KbHit {
+  title: string;
+  match: number;
+  source?: string;
+}
+
+export interface EmotionResult {
+  label: string;
+  score: number;
+  confidence: number;
+}
+
+export interface TicketResult {
+  id: string;
+  status: string;
+  error?: string;
+}
+
 export type Theme = 'light' | 'dark';
 
 export interface Agent {

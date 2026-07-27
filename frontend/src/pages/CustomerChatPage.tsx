@@ -276,6 +276,7 @@ export function CustomerChatPage({
               sessionStatus={currentSession?.status}
               satisfaction={currentSession?.satisfaction}
               onRateSession={onRateSession}
+              agentName={currentSession?.agent_name ?? undefined}
             />
           </div>
         )}

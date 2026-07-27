@@ -7,6 +7,7 @@ import { useSessions } from './hooks/useSessions';
 import { useChat } from './hooks/useChat';
 
 import { CustomerSidebar } from './components/CustomerSidebar';
+import { InsightPanel } from './components/InsightPanel';
 import { CustomerChatPage } from './pages/CustomerChatPage';
 import { AdminPage } from './pages/AdminPage';
 import { LoginPage } from './pages/LoginPage';
@@ -260,7 +261,7 @@ function AppContent() {
                 flexShrink: 0,
                 boxShadow: '0 0 16px var(--nova-accent-glow)',
               }}>
-                  S
+                  智
               </div>
               <div>
                 <div style={{
@@ -268,7 +269,7 @@ function AppContent() {
                   color: 'var(--nova-text-primary)', lineHeight: 1.2,
                   letterSpacing: '0.02em',
                 }}>
-                  SmartAssistant
+                  智服 SmartAssistant
                 </div>
                 <div style={{
                   fontSize: '11px', color: 'var(--nova-secondary)',
@@ -279,8 +280,25 @@ function AppContent() {
                     background: 'var(--nova-secondary)', display: 'inline-block',
                     boxShadow: '0 0 8px var(--nova-secondary)',
                   }}></span>
-                  在线 · 多智能体业务助手
+                  多智能体客服工作台
                 </div>
+              </div>
+
+              {/* 协同状态药丸 */}
+              <div style={{
+                marginLeft: '8px',
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '5px 12px', borderRadius: '100px',
+                background: 'var(--nova-secondary-light, rgba(6,182,212,0.12))',
+                fontSize: '12px', color: 'var(--nova-secondary)',
+              }}>
+                <span style={{
+                  width: '7px', height: '7px', borderRadius: '50%',
+                  background: 'var(--nova-secondary)',
+                  boxShadow: '0 0 8px var(--nova-secondary)',
+                  animation: 'breathe 3s ease-in-out infinite',
+                }}></span>
+                智能体协同处理中
               </div>
               {currentSession && (
                 <div style={{
@@ -340,6 +358,14 @@ function AppContent() {
           </>
         )}
       </main>
+
+      {/* 右栏 — 实时会话洞察 */}
+      {!isAdmin && (
+        <InsightPanel
+          session={currentSession}
+          userName={getAuthUser()?.username}
+        />
+      )}
     </div>
   );
 }
