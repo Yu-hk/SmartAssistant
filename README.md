@@ -78,7 +78,7 @@ SmartAssistant 是一个多智能体对话系统，基于 **Spring AI** 框架�
 | 🔍 **12 维 Agent 可标注评测** | LLM 输出后自动执行 6 层规则后处理：实体归一化(日期/金额/地点/纠错) → 词槽状态机(6意图词槽表+缺失/冲突检测) → 澄清判断(追问生成) → 输入鲁棒性(错别字/别名纠错)。叠加 LLM 层 6 维（意图识别、多意图拆分、隐含意图、拒识、实体识别、工具评分），完整覆盖文章推荐的 12 个评测维度 |
 | 🎯 **意图置信度 + 阈值路由** | LLM 输出意图置信度(0.0~1.0)，低于 0.6 阈值时自动触发澄清流程而非盲目执行，避免误操作 |
 | 🔄 **意图引导的查询改写** | 任务分析后根据意图类型选择改写策略：多意图→查询分解、模糊→查询扩展(补充实体)、精确→保留、对话→指代消解 |
-| 🗂️ **多样性 RAG + 生产级增强** | PDF/Word/HTML 文档解析路由 + 语义/递归分块(Chunking) + 5路召回+RRF融合 + BM25混合评分 + 分级检索策略(LIGHT/STANDARD/DEEP) + 版本控制(自动淘汰旧版) + ACL 租户隔离 + INSUFFICIENT_EVIDENCE 规范拒答 |
+| 🗂️ **多样性 RAG + 生产级增强** | PDF/Word/HTML 文档解析路由 + 语义/递归分块(Chunking) + 5路召回+RRF融合 + BM25混合评分 + 分级检索策略(LIGHT/STANDARD/DEEP) + 版本控制(自动淘汰旧版) + ACL 租户隔离 + INSUFFICIENT_EVIDENCE 规范拒答 + MinerU 侧车增强(PDFBox 主 / MinerU 补扫描件与复杂混排) + 父-子分块检索回链(父块不嵌入) + 知识图谱实体/关系抽取 |
 | 🧩 **P0 LLM 调用网关** | `AgentLLMGateway` 统一封装 ChatClient 调用，内置超时(虚拟线程Future.get)、指数退避重试、熔断保护(5次失败→30s恢复)、Token 计量。与模型 SDK 解耦(LLMExecutor函数式接口) |
 | 🔑 **P0 统一工具治理** | `ToolRegistry` + `ToolGateway`：工具注册→鉴权(Scope)→熔断(3次失败)→限流(令牌桶)→幂等(IdempotencyKey)→审计日志全链路。38 个 @Tool 全部注册，9 个高风险工具需审批 |
 | 🧠 **P0 工具能力分类 + MCP 发现（T1→T2e）** | 新增 `functionalCapabilities` 字段分离**风险/访问维度**(已有)与**功能性维度**(业务语义，如 `query-order` / `refund` / `sql-query`)，32 枚受控令牌。`smart-assistant-tool-registry` 独立服务作为 **MCP 兼容聚合网关**（WebMvc/SSE），暴露 `tools/list` + `search_tools`, 接入后端 MCP Server（SQL 等）。Agent 侧 `McpBackendToolExecutor` 转发 `tools/call` 100% 经 `ToolGateway` 治理链（status 拦截 / 审批 / 限流 / 超时 / 审计，**P0 接线不破**）。Agent 可在运行期通过 `discover_tools` CORE 元工具按能力名自主发现并加载预载集之外的工具（护栏杆：去重/每轮1次/每会话10次/最多15动态工具/Registry挂时优雅降级）|
