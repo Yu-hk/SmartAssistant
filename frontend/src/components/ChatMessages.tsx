@@ -16,6 +16,7 @@ interface ChatMessagesProps {
   sessionStatus?: SessionStatus;
   satisfaction?: number | null;
   onRateSession?: (score: number) => void;
+  agentName?: string;
 }
 
 export function ChatMessages({ 
@@ -30,6 +31,7 @@ export function ChatMessages({
   sessionStatus,
   satisfaction,
   onRateSession,
+  agentName,
 }: ChatMessagesProps) {
   const satisfactionOptions = [
     { score: 1, emoji: '😞', label: '很不满意' },
@@ -168,15 +170,24 @@ export function ChatMessages({
           </div>
 
           <div className={`flex flex-col gap-2 ${message.role === 'user' ? 'items-end' : ''}`} style={{ maxWidth: '80%' }}>
-            {/* 模型标签 */}
-            {message.role === 'assistant' && message.model && (
+            {/* 智能体归属标签（优先展示归属智能体，否则回退模型名） */}
+            {message.role === 'assistant' && (agentName || message.model) && (
               <span style={{
                 fontSize: '11px',
                 color: 'var(--nova-text-tertiary)',
                 fontWeight: 500,
                 marginLeft: '4px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
               }}>
-                {formatModelName(message.model)}
+                <span style={{
+                  width: '6px', height: '6px', borderRadius: '50%',
+                  background: 'var(--nova-accent)',
+                  display: 'inline-block',
+                  boxShadow: '0 0 6px var(--nova-accent)',
+                }} />
+                {agentName || formatModelName(message.model!)}
               </span>
             )}
             

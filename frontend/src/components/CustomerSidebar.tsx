@@ -12,6 +12,18 @@ interface CustomerSidebarProps {
   onToggleTheme: () => void;
 }
 
+/**
+ * 智能体团队 — 当前为 UI 展示用静态列表（贴合「多智能体客服」主题）。
+ * TODO: 接入运行时智能体注册表后，改为从后端拉取在线状态与归属。
+ */
+const AGENT_TEAM: { name: string; glyph: string; color: string }[] = [
+  { name: '售前顾问', glyph: '售', color: '#14B8A6' },
+  { name: '技术支持', glyph: '技', color: '#38BDF8' },
+  { name: '订单助手', glyph: '单', color: '#A78BFA' },
+  { name: '投诉处理', glyph: '诉', color: '#FB7185' },
+  { name: '知识管家', glyph: '知', color: '#FBBF24' },
+];
+
 const STATUS_COLORS: Record<string, string> = {
   active: 'var(--nova-success)',
   human_transfer: 'var(--nova-warm)',
@@ -30,7 +42,7 @@ export function CustomerSidebar({
 }: CustomerSidebarProps) {
   return (
     <aside className="glass" style={{
-      width: '270px',
+      width: '264px',
       flexShrink: 0,
       display: 'flex',
       flexDirection: 'column',
@@ -40,48 +52,42 @@ export function CustomerSidebar({
     }}>
       {/* 品牌区域 */}
       <div style={{
-        padding: '20px 18px 16px',
+        padding: '18px 16px 14px',
         borderBottom: '1px solid var(--nova-border)',
       }}>
         <div style={{
-          display: 'flex', alignItems: 'center', gap: '12px',
-          marginBottom: '16px',
+          display: 'flex', alignItems: 'center', gap: '11px',
+          marginBottom: '14px',
         }}>
-          {/* 科技感 Logo */}
+          {/* 品牌 Logo — 罗盘渐变 */}
           <div style={{
-            width: '40px', height: '40px', borderRadius: '12px',
+            width: '38px', height: '38px', borderRadius: '11px',
             background: 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '18px', fontWeight: 800, color: 'white',
+            fontSize: '17px', fontWeight: 800, color: 'white',
             flexShrink: 0,
-            boxShadow: '0 0 20px var(--nova-accent-glow)',
-            position: 'relative',
+            boxShadow: '0 0 18px var(--nova-accent-glow)',
           }}>
-            S
-            <div style={{
-              position: 'absolute', inset: 0, borderRadius: '12px',
-              border: '1px solid rgba(255,255,255,0.2)',
-            }} />
+            智
           </div>
           <div>
             <div style={{
-              fontSize: '15px', fontWeight: 700,
+              fontSize: '14px', fontWeight: 700,
               color: 'var(--nova-text-primary)',
-              letterSpacing: '0.03em',
+              letterSpacing: '0.02em', lineHeight: 1.25,
             }}>
-              SmartAssistant
+              智服 SmartAssistant
             </div>
             <div style={{
               fontSize: '10px', color: 'var(--nova-secondary)',
-              fontWeight: 500, letterSpacing: '0.1em',
-              textTransform: 'uppercase',
+              fontWeight: 500, letterSpacing: '0.04em',
             }}>
-              Multi-Agent AI
+              多智能体客服工作台
             </div>
           </div>
         </div>
 
-        {/* 新建对话按钮 — 霓虹风格 */}
+        {/* 新建会话按钮 — 渐变实心 */}
         <button
           onClick={onNewChat}
           className="neon-btn"
@@ -99,28 +105,91 @@ export function CustomerSidebar({
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          新建对话
+          新建会话
         </button>
       </div>
 
-      {/* 会话列表 */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '10px 8px' }}>
+      {/* 可滚动区域：智能体团队 + 我的会话 */}
+      <div style={{ flex: 1, overflow: 'auto', padding: '12px 10px' }}>
+        {/* 智能体团队 */}
+        <div style={{
+          fontSize: '11px', fontWeight: 600,
+          color: 'var(--nova-text-tertiary)',
+          letterSpacing: '0.08em', textTransform: 'uppercase',
+          padding: '4px 6px 8px',
+        }}>
+          智能体团队
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '6px' }}>
+          {AGENT_TEAM.map(agent => (
+            <div
+              key={agent.name}
+              className="glass-hover"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '10px',
+                padding: '8px 10px', borderRadius: '10px',
+                border: '1px solid transparent', cursor: 'default',
+              }}
+            >
+              {/* Agent 图标 */}
+              <div style={{
+                width: '30px', height: '30px', borderRadius: '9px',
+                flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '13px', fontWeight: 700, color: '#fff',
+                background: agent.color + '2e',
+                boxShadow: `inset 0 0 0 1px ${agent.color}55`,
+              }}>
+                <span style={{ color: agent.color }}>{agent.glyph}</span>
+              </div>
+              <span style={{
+                flex: 1, fontSize: '13px', fontWeight: 500,
+                color: 'var(--nova-text-primary)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {agent.name}
+              </span>
+              {/* 在线状态点 */}
+              <span style={{
+                width: '8px', height: '8px', borderRadius: '50%',
+                background: 'var(--nova-success)', flexShrink: 0,
+                boxShadow: '0 0 6px var(--nova-success)',
+              }} />
+            </div>
+          ))}
+        </div>
+
+        {/* 分隔线 */}
+        <div style={{
+          height: '1px', background: 'var(--nova-border)',
+          margin: '10px 6px 12px',
+        }} />
+
+        {/* 我的会话 */}
+        <div style={{
+          fontSize: '11px', fontWeight: 600,
+          color: 'var(--nova-text-tertiary)',
+          letterSpacing: '0.08em', textTransform: 'uppercase',
+          padding: '0 6px 8px',
+        }}>
+          我的会话
+        </div>
         {sessions.length === 0 ? (
           <div style={{
             textAlign: 'center',
             color: 'var(--nova-text-tertiary)',
-            padding: '48px 16px',
+            padding: '24px 12px',
             fontSize: '13px',
           }}>
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
               strokeLinejoin="round"
-              style={{ margin: '0 auto 12px', display: 'block', opacity: 0.4 }}>
+              style={{ margin: '0 auto 10px', display: 'block', opacity: 0.4 }}>
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            暂无对话记录<br />
-            <span style={{ fontSize: '11px', color: 'var(--nova-text-tertiary)' }}>
-              点击「新建对话」开始咨询
+            暂无会话记录<br />
+            <span style={{ fontSize: '11px' }}>
+              点击「新建会话」开始咨询
             </span>
           </div>
         ) : (
