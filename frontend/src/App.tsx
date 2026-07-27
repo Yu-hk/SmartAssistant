@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 import '@tdesign-react/chat/es/style/index.js';
 
 import { useTheme } from './hooks/useTheme';
@@ -9,6 +9,8 @@ import { useChat } from './hooks/useChat';
 import { CustomerSidebar } from './components/CustomerSidebar';
 import { CustomerChatPage } from './pages/CustomerChatPage';
 import { AdminPage } from './pages/AdminPage';
+import { LoginPage } from './pages/LoginPage';
+import { clearAuth, getAuthUser } from './api/auth';
 
 // ===================================================
 // 🌌 粒子背景系统 — Canvas 动态科技背景
@@ -129,12 +131,23 @@ function App() {
     <>
       <ParticleBackground />
       <Routes>
-        <Route path="/" element={<AppContent />} />
-        <Route path="/chat/:sessionId" element={<AppContent />} />
-        <Route path="/admin" element={<AppContent />} />
+        <Route path="/login" element={
+          localStorage.getItem('smart-assistant-token')
+            ? <Navigate to="/" replace />
+            : <LoginPage />
+        } />
+        <Route path="/" element={<ProtectedRoute><AppContent /></ProtectedRoute>} />
+        <Route path="/chat/:sessionId" element={<ProtectedRoute><AppContent /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute><AppContent /></ProtectedRoute>} />
       </Routes>
     </>
   );
+}
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  return localStorage.getItem('smart-assistant-token')
+    ? <>{children}</>
+    : <Navigate to="/login" replace />;
 }
 
 function AppContent() {
@@ -148,7 +161,8 @@ function AppContent() {
     sessions, setSessions,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, deleteSession,
+    fetchSessions, deleteSession, createSession,
+    updateSession,
   } = useSessions();
 
   const {
@@ -167,20 +181,20 @@ function AppContent() {
 
   // URL 同步
   useEffect(() => {
-    if (urlSessionId && urlSessionId !== currentSessionId) {
-      setCurrentSessionId(urlSessionId);
-    } else if (!urlSessionId && !isAdmin && currentSessionId) {
-      setCurrentSessionId(null);
-    }
-  }, [urlSessionId, isAdmin, currentSessionId, setCurrentSessionId]);
+    if (isAdmin) return;
+    const routeSessionId = urlSessionId || null;
+    setCurrentSessionId(previous =>
+      previous === routeSessionId ? previous : routeSessionId
+    );
+  }, [urlSessionId, isAdmin, setCurrentSessionId]);
 
   // 初始加载
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
   const handleNewChat = useCallback(() => {
-    setCurrentSessionId(null);
-    navigate('/');
-  }, [navigate, setCurrentSessionId]);
+    const sessionId = createSession();
+    navigate(`/chat/${sessionId}`);
+  }, [createSession, navigate]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId);
@@ -191,6 +205,15 @@ function AppContent() {
     const navigateTo = await deleteSession(sessionId);
     if (navigateTo) navigate(navigateTo);
   }, [deleteSession, navigate]);
+
+  const handleRateSession = useCallback((score: number) => {
+    if (!currentSessionId) return;
+    updateSession(currentSessionId, {
+      satisfaction: score,
+      status: 'closed',
+    });
+    // 后续接入后端时，在这里提交 sessionId、score 和可选评价内容。
+  }, [currentSessionId, updateSession]);
 
   return (
     <div className="relative z-10" style={{
@@ -237,7 +260,7 @@ function AppContent() {
                 flexShrink: 0,
                 boxShadow: '0 0 16px var(--nova-accent-glow)',
               }}>
-                N
+                  S
               </div>
               <div>
                 <div style={{
@@ -245,7 +268,7 @@ function AppContent() {
                   color: 'var(--nova-text-primary)', lineHeight: 1.2,
                   letterSpacing: '0.02em',
                 }}>
-                  Nova 旅行规划
+                  SmartAssistant
                 </div>
                 <div style={{
                   fontSize: '11px', color: 'var(--nova-secondary)',
@@ -256,7 +279,7 @@ function AppContent() {
                     background: 'var(--nova-secondary)', display: 'inline-block',
                     boxShadow: '0 0 8px var(--nova-secondary)',
                   }}></span>
-                  在线 · AI 旅游助手
+                  在线 · 多智能体业务助手
                 </div>
               </div>
               {currentSession && (
@@ -276,6 +299,26 @@ function AppContent() {
                   {currentSession.title.slice(0, 24)}
                 </div>
               )}
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--nova-text-secondary)' }}>
+                  {getAuthUser()?.username || '用户'}
+                </span>
+                <button
+                  onClick={() => {
+                    clearAuth();
+                    navigate('/login', { replace: true });
+                  }}
+                  style={{
+                    padding: '6px 10px', borderRadius: '8px',
+                    border: '1px solid var(--nova-border)',
+                    background: 'var(--nova-bg-component)',
+                    color: 'var(--nova-text-secondary)', cursor: 'pointer',
+                    fontSize: '12px',
+                  }}
+                >
+                  退出登录
+                </button>
+              </div>
             </div>
 
             {/* 聊天区域 */}
@@ -292,6 +335,7 @@ function AppContent() {
               onInputChange={setInputValue}
               onPermissionAllow={handlePermissionAllow}
               onPermissionDeny={handlePermissionDeny}
+              onRateSession={handleRateSession}
             />
           </>
         )}

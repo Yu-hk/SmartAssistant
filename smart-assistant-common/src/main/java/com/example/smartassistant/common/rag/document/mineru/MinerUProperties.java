@@ -36,6 +36,14 @@ public class MinerUProperties {
     /** 总开关：是否启用 MinerU 增强解析（默认关闭） */
     private boolean enabled = false;
 
+    /**
+     * 含图片即路由到 MinerU（OCR + 版面 + 表格）：当 {@code enabled=true} 且 PDF 含内嵌图片时，
+     * 无论该 PDF 是否含文本，整体路由到 MinerU。默认 false（保持「PDFBox 主、MinerU 仅补扫描件」行为，无回归）。
+     * <p>用途：用户手册多为「每页有文字 + 含图片/表格」的数字 PDF，PDFBox 无法直接抽出图片中的表格结构，
+     * 需经 MinerU 抽取；开启此项即可让此类 PDF 走 MinerU 而非 PDFBox。需与 {@code enabled=true} 同时生效。</p>
+     */
+    private boolean routeOnImages = false;
+
     /** 常驻 sidecar CLI 启动命令（默认 python mineru_sidecar.py） */
     private String sidecarCommand = "python mineru_sidecar.py";
 

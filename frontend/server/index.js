@@ -307,6 +307,16 @@ app.patch("/api/faq/:id", function (req, res) {
         res.status(500).json({ error: e === null || e === void 0 ? void 0 : e.message });
     }
 });
+// ⭐ PUT 别名（前端使用 PUT）
+app.put("/api/faq/:id", function (req, res) {
+    try {
+        var success = db.updateFaq(req.params.id, req.body);
+        res.json({ success: success });
+    }
+    catch (e) {
+        res.status(500).json({ error: e === null || e === void 0 ? void 0 : e.message });
+    }
+});
 app.delete("/api/faq/:id", function (req, res) {
     try {
         var success = db.deleteFaq(req.params.id);

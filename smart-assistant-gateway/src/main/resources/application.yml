@@ -47,7 +47,7 @@ spring:
         - id: consumer-service
           uri: lb://consumer-service
           predicates:
-            - Path=/assistant/api/chat/**,/assistant/api/math/**
+            - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/session/**,/assistant/api/sessions/**,/assistant/api/feedback/**,/assistant/api/data/**,/assistant/api/analytics/**,/assistant/api/prompt-monitoring/**,/assistant/api/monitor/**,/assistant/api/faq/**,/assistant/api/check-login/**,/assistant/api/save-env-config/**,/assistant/api/permission-response/**,/assistant/api/admin/**
           filters:
             - StripPrefix=1  # 移除 /assistant，保留 /api/chat 或 /api/math → 匹配 Consumer 的 @RequestMapping("/api/math")
 

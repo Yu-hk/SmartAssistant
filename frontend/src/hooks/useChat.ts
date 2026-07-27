@@ -142,6 +142,38 @@ export function useChat(options: UseChatOptions) {
       let realAssistantMessageId = assistantMessageId;
       let isDone = false;
 
+      const updateAssistantMessage = (updater: (message: Message) => Message) => {
+        setSessions(prev => prev.map(current => {
+          if (current.id !== realSessionId && current.id !== sessionId) {
+            return current;
+          }
+
+          const exactMatch = current.messages.some(message =>
+            message.id === realAssistantMessageId || message.id === assistantMessageId
+          );
+          let fallbackMessageId: string | null = null;
+          if (!exactMatch) {
+            for (let index = current.messages.length - 1; index >= 0; index--) {
+              const candidate = current.messages[index];
+              if (candidate.role === 'assistant' && candidate.isStreaming) {
+                fallbackMessageId = candidate.id;
+                break;
+              }
+            }
+          }
+
+          return {
+            ...current,
+            messages: current.messages.map(message => {
+              const isTarget = exactMatch
+                ? message.id === realAssistantMessageId || message.id === assistantMessageId
+                : message.id === fallbackMessageId;
+              return isTarget ? updater(message) : message;
+            }),
+          };
+        }));
+      };
+
       const url = `/api/math/stream/chat?message=${encodeURIComponent(message)}&sessionId=${encodeURIComponent(sessionId)}&model=${encodeURIComponent(model)}`;
       const es = new EventSource(url);
       eventSourceRef.current = es; // ⭐ 保存引用，供 handleStop 关闭
@@ -149,14 +181,19 @@ export function useChat(options: UseChatOptions) {
       // ⭐ 通用事件处理：解析 data: JSON
       const handleEvent = (event: MessageEvent) => {
         try {
-          const data = JSON.parse(event.data);
+          const parsed = JSON.parse(event.data);
+          const data = parsed?.data && typeof parsed.data === 'object'
+            ? { ...parsed.data, type: parsed.type || parsed.data.type || event.type }
+            : { ...parsed, type: parsed.type || event.type };
 
           if (data.type === 'init') {
             realSessionId = data.sessionId || sessionId;
             realAssistantMessageId = data.assistantMessageId || assistantMessageId;
             if (data.intent && data.intent !== 'unknown') {
               setSessions(prev => prev.map(s =>
-                s.id === realSessionId ? { ...s, intent: data.intent as IntentType } : s
+                s.id === realSessionId || s.id === sessionId
+                  ? { ...s, intent: data.intent as IntentType }
+                  : s
               ));
             }
             if (data.faqSuggestions?.length) {
@@ -176,27 +213,24 @@ export function useChat(options: UseChatOptions) {
               }));
             }
 
-          } else if (data.type === 'text') {
-            fullContent += data.content;
-            currentTextBlock += data.content;
+          } else if (data.type === 'text' || data.type === 'response') {
+            const chunk = typeof data.content === 'string'
+              ? data.content
+              : typeof data.message === 'string' ? data.message : '';
+            if (!chunk) return;
+            fullContent += chunk;
+            currentTextBlock += chunk;
             const lastBlock = contentBlocks[contentBlocks.length - 1];
             if (lastBlock && lastBlock.type === 'text') {
               lastBlock.text = currentTextBlock;
             } else if (currentTextBlock) {
               contentBlocks.push({ type: 'text', text: currentTextBlock });
             }
-            setSessions(prev => prev.map(s => {
-              if (s.id === realSessionId) {
-                return {
-                  ...s,
-                  messages: s.messages.map(m =>
-                    m.id === realAssistantMessageId
-                      ? { ...m, content: fullContent, toolCalls: [...currentToolCalls], contentBlocks: [...contentBlocks] }
-                      : m
-                  ),
-                };
-              }
-              return s;
+            updateAssistantMessage(current => ({
+              ...current,
+              content: fullContent,
+              toolCalls: [...currentToolCalls],
+              contentBlocks: [...contentBlocks],
             }));
 
           } else if (data.type === 'tool') {
@@ -244,17 +278,7 @@ export function useChat(options: UseChatOptions) {
 
           } else if (data.type === 'done') {
             isDone = true;
-            setSessions(prev => prev.map(s => {
-              if (s.id === realSessionId) {
-                return {
-                  ...s,
-                  messages: s.messages.map(m =>
-                    m.id === realAssistantMessageId ? { ...m, isStreaming: false } : m
-                  ),
-                };
-              }
-              return s;
-            }));
+            updateAssistantMessage(current => ({ ...current, isStreaming: false }));
             eventSourceRef.current = null; // 清除引用
             es.close();
             resolve();
@@ -270,18 +294,10 @@ export function useChat(options: UseChatOptions) {
             });
 
           } else if (data.type === 'error') {
-            setSessions(prev => prev.map(s => {
-              if (s.id === realSessionId) {
-                return {
-                  ...s,
-                  messages: s.messages.map(m =>
-                    m.id === realAssistantMessageId
-                      ? { ...m, content: `⚠️ ${data.content || data.message}`, isStreaming: false }
-                      : m
-                  ),
-                };
-              }
-              return s;
+            updateAssistantMessage(current => ({
+              ...current,
+              content: `⚠️ ${data.content || data.message}`,
+              isStreaming: false,
             }));
             es.close();
             eventSourceRef.current = null; // 清除引用

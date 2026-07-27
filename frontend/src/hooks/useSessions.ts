@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { Session, Message, IntentType } from '../types';
 import { sessions as sessionApi } from '../api';
 
@@ -29,9 +30,39 @@ export function useSessions() {
           createdAt: new Date(s.created_at),
           messages: [],
         }));
-        setSessions(loaded);
+        setSessions(prev => {
+          const remoteIds = new Set(loaded.map(session => session.id));
+          const localOnly = prev.filter(session => !remoteIds.has(session.id));
+          const mergedRemote = loaded.map(remote => {
+            const local = prev.find(session => session.id === remote.id);
+            return local?.messages.length
+              ? { ...remote, messages: local.messages }
+              : remote;
+          });
+          return [...localOnly, ...mergedRemote];
+        });
       }
     } catch (e) { console.error('fetchSessions error:', e); }
+  }, []);
+
+  const createSession = useCallback((title = '新对话'): string => {
+    const sessionId = uuidv4();
+    const session: Session = {
+      id: sessionId,
+      title,
+      model: 'claude-sonnet-4',
+      intent: 'unknown',
+      status: 'active',
+      satisfaction: null,
+      satisfaction_comment: null,
+      user_name: '用户',
+      agent_name: null,
+      createdAt: new Date(),
+      messages: [],
+    };
+    setSessions(prev => [session, ...prev]);
+    setCurrentSessionId(sessionId);
+    return sessionId;
   }, []);
 
   const loadSessionMessages = useCallback(async (sessionId: string) => {
@@ -109,7 +140,7 @@ export function useSessions() {
     sessions, setSessions,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, loadSessionMessages,
+    fetchSessions, loadSessionMessages, createSession,
     deleteSession,
     updateSessionModel, updateSession, updateSessionMessages,
   };

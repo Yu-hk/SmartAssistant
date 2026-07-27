@@ -56,9 +56,12 @@ services:
   nacos:
     image: nacos/nacos-server:v3.1.0
     container_name: smart-nacos
-    ports:
-      - "8848:8080"
-      - "9848:9848"
+    # Nacos is an internal control-plane dependency. Keep its console, API,
+    # and gRPC endpoints on the Docker network instead of publishing them.
+    expose:
+      - "8080"
+      - "8848"
+      - "9848"
     environment:
       - MODE=standalone
       - JVM_XMS=256m
@@ -183,6 +186,7 @@ services:
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
@@ -223,6 +227,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
@@ -266,6 +271,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
@@ -317,6 +323,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
@@ -362,6 +370,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
@@ -407,6 +417,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
@@ -446,6 +458,7 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       # Docker 环境覆盖
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
@@ -480,6 +493,7 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       # Docker 环境覆盖
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       BGE_MODEL_PATH: /app/models/bge-large-zh-v1.5.onnx
       BGE_VOCAB_PATH: /app/models/tokenizer.json

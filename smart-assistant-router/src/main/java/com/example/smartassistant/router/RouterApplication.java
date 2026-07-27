@@ -8,11 +8,14 @@
 package com.example.smartassistant.router;
 
 import com.example.smartassistant.common.interceptor.EnableServiceInterceptor;
+import com.example.smartassistant.common.error.ErrorRecoveryService;
+import com.example.smartassistant.common.observability.OpsMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;  // ⭐ 启用定时任务
 
 /**
@@ -36,6 +39,16 @@ import org.springframework.scheduling.annotation.EnableScheduling;  // ⭐ 启�
         "com.example.smartassistant.common"      // ⭐ 公共模块（ChineseTokenizer 等）
 })
 public class RouterApplication {
+
+    @Bean
+    public ErrorRecoveryService errorRecoveryService() {
+        return ErrorRecoveryService.DEFAULT;
+    }
+
+    @Bean
+    public OpsMetrics opsMetrics() {
+        return new OpsMetrics();
+    }
     
     public static void main(String[] args) {
         SpringApplication.run(RouterApplication.class, args);

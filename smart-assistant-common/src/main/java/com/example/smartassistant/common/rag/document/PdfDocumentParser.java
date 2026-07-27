@@ -495,7 +495,7 @@ public class PdfDocumentParser implements DocumentParser {
             Set<Integer> tableCellIdx = new HashSet<>();
             for (TableBlock t : tables) tableCellIdx.addAll(t.cellIndices());
 
-            ProseResult prose = buildProse(tableCellIdx, colTol);
+            ProseResult prose = buildProse(tableCellIdx, colTol, rowTol);
             return new PageParseResult(prose, tables);
         }
 
@@ -627,8 +627,20 @@ public class PdfDocumentParser implements DocumentParser {
             return new TableBlock(md.toString().strip(), idx);
         }
 
-        /** 排除表格文本块后，按 (栏, y) 重排为正文纯文本，并返回栏数指标 */
-        private ProseResult buildProse(Set<Integer> excluded, double colTol) {
+        /**
+         * 排除表格文本块后，按 (栏, y) 重排为正文纯文本，并返回栏数指标。
+         * <p>
+         * ⭐ 逐词换行缺陷修复：把<b>同栏、且 y 坐标相近（同一视觉基线）</b>的相邻 Cell 归并为「一整行」，
+         * 行内各词按 x 升序排序后用<b>空格</b>连接；仅当 y 跳变（跨视觉行）才换行，换栏才插入空行。
+         * 这样正文 / 代码 / 表格型散文不再「一行一词」，且仍保持两栏阅读顺序
+         * （左栏自上而下 → 右栏自上而下，由 (col, y) 排序保证）。
+         * </p>
+         *
+         * @param excluded 被表格路径占用的原始 cell 索引集合
+         * @param colTol   列聚类容差
+         * @param rowTol   行（视觉基线）容差：同栏内 |Δy| <= rowTol 视为同一行
+         */
+        private ProseResult buildProse(Set<Integer> excluded, double colTol, double rowTol) {
             List<Cell> proseCells = new ArrayList<>();
             for (Cell c : cells) {
                 if (!excluded.contains(c.index)) proseCells.add(c);
@@ -643,14 +655,37 @@ public class PdfDocumentParser implements DocumentParser {
             for (Cell c : proseCells) {
                 c.col = nearestCol(c.x, colCenters);
             }
-            proseCells.sort(Comparator.comparingInt((Cell c) -> c.col).thenComparingDouble(c -> -c.y));
+            // 按 (栏, y) 排序：先栏后行，保证两栏阅读顺序（左栏自上而下 → 右栏自上而下）
+            proseCells.sort(Comparator.comparingInt((Cell c) -> c.col).thenComparingDouble(c -> c.y));
 
+            // 归并为「视觉行」：同栏且 |y - 行 y| <= rowTol 的连续 cells 并入同一行
+            List<VisualLine> lines = new ArrayList<>();
+            VisualLine current = null;
+            for (Cell c : proseCells) {
+                if (current == null || current.col() != c.col || Math.abs(c.y - current.y()) > rowTol) {
+                    current = new VisualLine(c.col, c.y, new ArrayList<>());
+                    lines.add(current);
+                }
+                current.cells().add(c);
+            }
+
+            // 逐行拼装：行内词按 x 升序、strip 后用空格连接；跨行换行、跨栏空行
             StringBuilder sb = new StringBuilder();
             Integer lastCol = null;
-            for (Cell c : proseCells) {
-                if (lastCol != null && c.col != lastCol) sb.append("\n\n");
-                sb.append(c.text).append("\n");
-                lastCol = c.col;
+            for (VisualLine line : lines) {
+                line.cells().sort(Comparator.comparingDouble(c -> c.x));
+                String lineText = line.cells().stream()
+                        .map(c -> c.text.strip())
+                        .reduce((a, b) -> a + " " + b)
+                        .orElse("");
+                if (lastCol == null) {
+                    sb.append(lineText);            // 首行：直接追加
+                } else if (line.col() == lastCol) {
+                    sb.append("\n").append(lineText); // 同栏换行：单换行
+                } else {
+                    sb.append("\n\n").append(lineText); // 换栏：空行分隔
+                }
+                lastCol = line.col();
             }
             return new ProseResult(sb.toString(), colCount);
         }
@@ -734,6 +769,9 @@ public class PdfDocumentParser implements DocumentParser {
 
         /** 一行文本块（含原始索引） */
         private record IndexedCell(int index, Cell cell) {}
+
+        /** 归并后的「视觉行」：同栏、同一基线（y 相近）的若干 Cell 组成一行，行内按 x 升序重排 */
+        private record VisualLine(int col, double y, List<Cell> cells) {}
 
         /** 聚类后的行 */
         private static class Row {

@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.aop.Advisor;
 import org.springframework.aop.framework.AopInfrastructureBean;
 import org.springframework.aop.support.DefaultPointcutAdvisor;
+import org.springframework.aop.support.StaticMethodMatcherPointcut;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportAware;
@@ -68,7 +69,12 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
     @Bean
     public PerformanceMonitorInterceptor performanceMonitorInterceptor(
             io.micrometer.core.instrument.MeterRegistry meterRegistry) {
-        long slowThreshold = annotationAttributes.getNumber("slowThresholdMs");
+        // This configuration can also be discovered by a broad component scan,
+        // in which case ImportAware is not invoked. Use the annotation default
+        // instead of failing application startup.
+        long slowThreshold = annotationAttributes != null
+                ? annotationAttributes.getNumber("slowThresholdMs")
+                : 1000L;
         return new PerformanceMonitorInterceptor(slowThreshold, meterRegistry);
     }
 
@@ -89,7 +95,9 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
     @Bean
     public Advisor serviceInterceptorAdvisor(
             ServiceInterceptorChain interceptorChain) {
-        String[] basePackages = annotationAttributes.getStringArray("basePackages");
+        String[] basePackages = annotationAttributes != null
+                ? annotationAttributes.getStringArray("basePackages")
+                : new String[0];
 
         if (basePackages == null || basePackages.length == 0) {
             log.warn("[Interceptor] No basePackages configured, advisor will not match any methods");
@@ -100,7 +108,20 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
         ServiceInterceptorMethodInterceptor advice =
                 new ServiceInterceptorMethodInterceptor(interceptorChain, basePackages);
 
-        DefaultPointcutAdvisor advisor = new DefaultPointcutAdvisor(advice);
+        StaticMethodMatcherPointcut pointcut = new StaticMethodMatcherPointcut() {
+            @Override
+            public boolean matches(Method method, Class<?> targetClass) {
+                String className = targetClass.getName();
+                for (String pkg : basePackages) {
+                    if (pkg != null && !pkg.isEmpty() && className.startsWith(pkg)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        };
+
+        DefaultPointcutAdvisor advisor = new DefaultPointcutAdvisor(pointcut, advice);
         advisor.setOrder(Ordered.LOWEST_PRECEDENCE - 100);
         return advisor;
     }

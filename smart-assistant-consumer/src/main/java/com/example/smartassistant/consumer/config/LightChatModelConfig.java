@@ -36,7 +36,7 @@ public class LightChatModelConfig {
 
     private static final Logger log = LoggerFactory.getLogger(LightChatModelConfig.class);
 
-    @Bean
+    @Bean(defaultCandidate = false)
     @Qualifier("lightChatModel")
     public ChatModel lightChatModel(
             OllamaChatModel ollamaChatModel,

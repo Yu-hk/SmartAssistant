@@ -246,7 +246,16 @@ public class TaskAnalysisService {
      * @return 构建完成的 prompt 文本
      */
     private String buildDynamicPrompt(String question) {
-        return buildDynamicPrompt(question, Collections.emptyList());
+        try {
+            List<IntentDef> relevantIntents = intentRetriever.retrieve(question, 3);
+            String intentSection = intentRetriever.buildIntentSection(relevantIntents);
+            return intentSection == null || intentSection.isBlank()
+                    ? systemPrompt
+                    : systemPrompt + "\n\n" + intentSection;
+        } catch (Exception e) {
+            log.debug("[TaskAnalysis] 意图检索增强失败，使用基础 prompt: {}", e.getMessage());
+            return systemPrompt;
+        }
     }
 
     /**

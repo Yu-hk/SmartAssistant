@@ -6,7 +6,6 @@ spring:
       observations:
         log-prompt: true        # 将 prompt 内容写入 OTel span（Langfuse 需要）
         log-completion: true    # 将 completion 内容写入 OTel span
-
 management:
   tracing:
     sampling:
@@ -17,7 +16,6 @@ management:
     enable:
       "http.server.requests": false   # 抑制重复的 HTTP server span
       "http.client.requests": false   # 抑制重复的 HTTP client span
-
 otel:
   instrumentation:
     spring-webmvc:
@@ -25,23 +23,18 @@ otel:
     spring-web:
       enabled: false                  # 抑制重复的 OTel HTTP client span
 
-# ⭐ Langfuse OTLP 端点配置（通过环境变量注入）
-# OTEL_EXPORTER_OTLP_ENDPOINT: Langfuse OTLP 地址（如 https://cloud.langfuse.com/api/public/otel）
-# OTEL_EXPORTER_OTLP_HEADERS: 认证头（Authorization=Basic base64(publicKey:secretKey)）
-# 同时向 Jaeger 发送时，可部署 OTel Collector 或配置双导出器。
-# 当前 Jaeger OTLP gRPC 地址: http://localhost:4317
-
 # ⭐ MinerU 适配器配置（PDF 解析增强：扫描件/复杂混排走 MinerU，数字 PDF 走 PDFBox 零子进程）
-# 默认关闭；在部署环境安装 magic-pdf 与 sidecar 后设为 true 启用。
+# 部署环境安装 magic-pdf 与 sidecar 后启用；route-on-images=true 时含图片即整体路由 MinerU。
 # 配置前缀 app.rag.mineru.*（见 MinerUProperties）
 app:
   rag:
     mineru:
-      enabled: false                       # 总开关
-      sidecar-command: python mineru_sidecar.py   # 常驻 sidecar CLI 启动命令
+      enabled: true                        # 总开关（部署环境已安装 magic-pdf 后启用）
+      route-on-images: true                # 含图片即路由 MinerU（OCR+版面+表格），让数字手册中的图片/表格经 MinerU 入索引
+      sidecar-command: ${MINERU_SIDECAR_CMD:C:/Users/14928/.workbuddy/binaries/python/envs/mineru/Scripts/python.exe C:/Users/14928/.workbuddy/binaries/python/envs/mineru/mineru_sidecar.py}
       warm-instances: 1                    # 进程池预热实例数（模型仅加载一次）
-      timeout-ms: 120000                   # 单次解析超时（毫秒）
+      timeout-ms: 600000                   # 单次解析超时（毫秒，65 页文档 MinerU 较慢）
       fallback-to-pdfbox: true             # MinerU 失败回退 PDFBox 全链路
       caption-exclusive: true              # R5 caption 独占：MinerU 活跃时禁用 PDFBox 图片 caption/OCR
-      images-temp-dir: /tmp/mineru         # MinerU 抽取图片临时目录
+      images-temp-dir: ${MINERU_IMAGES_TMP:C:/tmp/mineru}       # MinerU 抽取图片临时目录（覆盖用 MINERU_IMAGES_TMP 环境变量）
       enabled-image-vectorization: false   # 图片向量化（v1 仅存路径，不向量化）

@@ -16,7 +16,7 @@ if (!fs.existsSync(dataDir)) {
 }
 
 // 创建数据库连接
-const db = new Database(dbPath);
+const db: Database.Database = new Database(dbPath);
 
 // 启用 WAL 模式以提高性能
 db.pragma('journal_mode = WAL');

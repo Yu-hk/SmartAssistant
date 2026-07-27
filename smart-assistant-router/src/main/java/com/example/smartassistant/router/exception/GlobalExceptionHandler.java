@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  */
 @Slf4j
 @Order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)
-@RestControllerAdvice
+@RestControllerAdvice(name = "routerGlobalExceptionHandler")
 public class GlobalExceptionHandler {
 
     // ===================== 路由异常 =====================
