@@ -83,6 +83,9 @@ public class GraphExecutionService {
     /** ⭐ 单 Graph 执行期间每个 Agent 的连续失败计数（节点级熔断） */
     private static final int NODE_LEVEL_BREAKER_THRESHOLD = 2; // 连续失败2次后熔断该 Agent
 
+    /** ⭐ G5: Handoff 链式传递的最大轮次（子代理深度上限），防止失控递归/无限交接 */
+    private static final int MAX_HANDOFF_DEPTH = 5;
+
     /** ⭐ 进度事件 SSE 推送（与 RouterService 共用同一 Redis Key 前缀） */
     private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
     private static final long SSE_EVENTS_TTL_SECONDS = 120;
@@ -383,7 +386,13 @@ public class GraphExecutionService {
 
         // ⭐ 检测是否有 Handoff 请求
         List<SubTaskResult> handoffResults = processHandoffs(results, userId, eventsKey, requestId, handoffBreakerCounts);
+        int handoffRound = 0;
         while (!handoffResults.isEmpty()) {
+            // ⭐ G5: 子代理深度上限，防止 Handoff 链失控
+            if (++handoffRound > MAX_HANDOFF_DEPTH) {
+                log.warn("[GraphExecutor] ⚠️ Handoff 链达到深度上限 {}，停止继续交接", MAX_HANDOFF_DEPTH);
+                break;
+            }
             results.addAll(handoffResults);
             handoffResults = processHandoffs(results, userId, eventsKey, requestId, handoffBreakerCounts);
         }
@@ -424,6 +433,11 @@ public class GraphExecutionService {
         int handoffRound = 0;
         while (!handoffResults.isEmpty()) {
             handoffRound++;
+            // ⭐ G5: 子代理深度上限，防止 Handoff 链失控
+            if (handoffRound > MAX_HANDOFF_DEPTH) {
+                log.warn("[GraphExecutor] ⚠️ Handoff 链达到深度上限 {}，停止继续交接", MAX_HANDOFF_DEPTH);
+                break;
+            }
             results.addAll(handoffResults);
             handoffResults = processHandoffs(results, userId,
                     eventsKey, requestId, handoffBreakerCounts);

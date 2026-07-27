@@ -111,8 +111,20 @@ public class SmartReActAgent {
     /** Full Window 阈值：总 token 数超过此比例时强制压缩 */
     private static final double FULL_WINDOW_RATIO = 0.95;
 
-    /** 压缩后重置的 prefill 基线（首次压缩后设为摘要占据的 token） */
-    private int prefillBaseline = 0;
+    /** ⭐ G1: 窗口剩余 token 低于此缓冲带即触发压缩（参考文章 13K 缓冲） */
+    private static final long COMPRESS_TOKEN_BUFFER = 13_000;
+    /** ⭐ G1: 触发压缩的最小消息数（避免极小对话被压缩） */
+    private static final int COMPRESS_MIN_TRIGGER = 6;
+    /** ⭐ G5: 压缩连续失败达到此次数即打开断路器（暂停 LLM 压缩，改廉价截断兜底） */
+    private static final int COMPRESS_BREAKER_MAX_FAILURES = 3;
+
+    /** ⭐ G1: 压缩后重置的 prefill 基线（token 口径，首次压缩后设为摘要占据的 token 数） */
+    private long prefillTokenBaseline = 0;
+
+    /** ⭐ G5: 压缩连续失败计数（触发断路器） */
+    private int consecutiveCompressFailures = 0;
+    /** ⭐ G5: 压缩断路器是否打开（打开后暂停 LLM 压缩，改用廉价截断兜底，避免反复烧预算） */
+    private boolean compressBreakerOpen = false;
 
     // ═══════════════════════════════════════════════════════════════
     // ⭐ P1 Loop Engineering（文章⑥确定性约束组件）
@@ -151,6 +163,8 @@ public class SmartReActAgent {
     private int compressThreshold = DEFAULT_COMPRESS_THRESHOLD;
     /** 压缩时保留的完整轮次数 */
     private int keepRounds = DEFAULT_KEEP_ROUNDS;
+    /** 是否启用工具结果预算（G3：超阈写盘 + 预览） */
+    private boolean enableToolResultBudget = true;
     /** 是否启用并行工具执行 */
     private boolean parallelExecution = true;
 
@@ -192,6 +206,8 @@ public class SmartReActAgent {
     private ConversationSummaryStore summaryStore;
     /** ⭐ 上下文压缩器 */
     private ContextCompressor contextCompressor;
+    /** ⭐ G2: 多级渐进压缩器（SNAP 廉价档 → LLM 全量档 逐级升级） */
+    private ProgressiveContextCompressor progressiveCompressor;
     /** ⭐ 工具执行器（延迟初始化） */
     private volatile AgentToolExecutor agentToolExecutor;
 
@@ -249,6 +265,65 @@ public class SmartReActAgent {
         this.compressThreshold = threshold;
         this.keepRounds = keepRounds;
         return this;
+    }
+
+    /** ⭐ G3: 配置工具结果预算（超阈写盘 + 上下文预览）。默认启用。 */
+    public SmartReActAgent withToolResultBudget(boolean enable) {
+        this.enableToolResultBudget = enable;
+        return this;
+    }
+
+    /**
+     * ⭐ G5: 廉价截断兜底——压缩断路器打开或 LLM 压缩失败时，丢弃最旧的非系统消息，
+     * 保留系统提示与最近 {@code keepRounds*2} 条，避免窗口撑爆且无 LLM 开销。
+     * ⭐ G6: 同时钉选首条用户请求，防止原始诉求在裁剪中丢失（Lost-in-the-Middle 防护）。
+     */
+    private List<Message> cheapTruncate(List<Message> src) {
+        if (src.size() <= keepRounds + 1) {
+            return src;
+        }
+        Message firstUser = ContextPinning.firstUserMessage(src);
+        List<Message> out = new ArrayList<>();
+        int systemIdx = -1;
+        for (int i = 0; i < src.size(); i++) {
+            if (src.get(i) instanceof SystemMessage) {
+                systemIdx = i;
+                break;
+            }
+        }
+        if (systemIdx >= 0) {
+            out.add(src.get(systemIdx));
+        }
+        int keep = Math.max(keepRounds * 2, 4);
+        int start = Math.max(systemIdx >= 0 ? 1 : 0, src.size() - keep);
+        boolean addedFirstUser = false;
+        for (int i = start; i < src.size(); i++) {
+            Message m = src.get(i);
+            out.add(m);
+            if (m == firstUser) {
+                addedFirstUser = true;
+            }
+        }
+        // ⭐ G6: 首条用户请求被裁掉则回钉（系统之后 / 或首位）
+        if (firstUser != null && !addedFirstUser) {
+            if (systemIdx >= 0 && out.size() > 1) {
+                out.add(1, firstUser);
+            } else {
+                out.add(0, firstUser);
+            }
+        }
+        return out;
+    }
+
+    /** ⭐ G2: 惰性构建渐进压缩器（SNAP 廉价档包裹 LLM 全量档） */
+    private ProgressiveContextCompressor getProgressiveCompressor() {
+        if (progressiveCompressor == null) {
+            if (contextCompressor == null) {
+                contextCompressor = new ContextCompressor(chatModel, profile, summaryStore, summaryChain);
+            }
+            progressiveCompressor = new ProgressiveContextCompressor(contextCompressor, keepRounds);
+        }
+        return progressiveCompressor;
     }
 
     /**
@@ -598,19 +673,28 @@ public class SmartReActAgent {
                 return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_BUDGET_EXCEEDED, null);
             }
 
-            // ⭐ 上下文压缩检查（双阈值：Scoped 提前触发 + Full Window 绝对兜底）
-            // 参考文章二：Scoped 管增速，Full Window 做绝对兜底
-            // Scoped 阈值：净增长超过窗口的 90% 时触发
-            // Full Window 阈值：消息数超过硬上限时触发
-            int scopedThreshold = (int) (prefillBaseline
-                    + (compressThreshold - prefillBaseline) * SCOPED_RATIO);
-            boolean scopedTriggered = enableCompress
-                    && prefillBaseline > 0
-                    && messages.size() > scopedThreshold;
-            boolean fullWindowTriggered = enableCompress
-                    && messages.size() > compressThreshold;
+            // ⭐ G1: 基于「消息列表实际 token 占用」触发压缩（替代仅看消息数）
+            // 参考文章二：以有效窗口占用率驱动，留 13K 缓冲带，避免大工具结果撑爆窗口
+            long contextWindow = profile.contextWindow();
+            long currentTokens = TokenEstimator.estimateMessages(messages);
+            long remainingTokens = contextWindow - currentTokens;
 
-            if (scopedTriggered || fullWindowTriggered) {
+            // Scoped：自上次压缩后净增长超过窗口 90% 触发（token 口径）
+            long scopedTokenThreshold = (long) (prefillTokenBaseline
+                    + (contextWindow - prefillTokenBaseline) * SCOPED_RATIO);
+            boolean scopedTriggered = enableCompress
+                    && prefillTokenBaseline > 0
+                    && currentTokens > scopedTokenThreshold;
+            // 缓冲带触发：剩余窗口 < 13K 即提前压缩
+            boolean bufferTriggered = enableCompress
+                    && remainingTokens < COMPRESS_TOKEN_BUFFER;
+            // 绝对兜底：占用率 > 95%，或消息数超过硬上限（兼容大量小消息）
+            boolean fullWindowTriggered = enableCompress
+                    && (((double) currentTokens / contextWindow) > FULL_WINDOW_RATIO
+                        || messages.size() > compressThreshold);
+
+            if ((scopedTriggered || bufferTriggered || fullWindowTriggered)
+                    && messages.size() >= COMPRESS_MIN_TRIGGER) {
                 // 优先使用后台预计算的结果，避免阻塞
                 List<Message> compressed = null;
                 if (precomputedCompactFuture != null && precomputedCompactFuture.isDone()) {
@@ -621,19 +705,49 @@ public class SmartReActAgent {
                         log.debug("[SmartReActAgent] 预计算压缩结果无效，回退同步: {}", e.getMessage());
                     }
                 }
-                if (compressed == null) {
-                    if (contextCompressor == null) {
-                        contextCompressor = new ContextCompressor(chatModel, profile, summaryStore, summaryChain);
+                // ⭐ G5: 断路器未打开时尝试压缩；失败累计，达阈值则打开断路器
+                // ⭐ G2: 走渐进压缩——先 SNAP 廉价裁剪，仅超预算才升级 LLM 全量摘要
+                if (compressed == null && !compressBreakerOpen) {
+                    try {
+                        ProgressiveContextCompressor pc = getProgressiveCompressor();
+                        long compressBudget = (long) (contextWindow * DEFAULT_TOKEN_BUDGET_RATIO);
+                        compressed = pc.compress(messages, compressBudget);
+                        // 成功：重置断路器
+                        consecutiveCompressFailures = 0;
+                        compressBreakerOpen = false;
+                    } catch (Exception e) {
+                        consecutiveCompressFailures++;
+                        log.warn("[SmartReActAgent] 上下文压缩失败({}/{}): {}",
+                                consecutiveCompressFailures, COMPRESS_BREAKER_MAX_FAILURES, e.getMessage());
+                        if (consecutiveCompressFailures >= COMPRESS_BREAKER_MAX_FAILURES) {
+                            compressBreakerOpen = true;
+                            log.error("[SmartReActAgent] 压缩断路器已打开：连续 {} 次失败，改用廉价截断兜底，暂停 LLM 压缩",
+                                    COMPRESS_BREAKER_MAX_FAILURES);
+                        }
                     }
-                    compressed = contextCompressor.compress(messages);
                 }
-                if (compressed != messages) {
-                    log.info("[SmartReActAgent] 上下文压缩: {} → {} 条消息 (Scoped={}, FullWindow={})",
-                            messages.size(), compressed.size(), scopedTriggered, fullWindowTriggered);
+                if (compressed != null && compressed != messages) {
+                    long compressedTokens = TokenEstimator.estimateMessages(compressed);
+                    log.info("[SmartReActAgent] 上下文压缩: {}条/{}tokens → {}条/{}tokens (Scoped={}, Buffer={}, FullWindow={})",
+                            messages.size(), currentTokens, compressed.size(), compressedTokens,
+                            scopedTriggered, bufferTriggered, fullWindowTriggered);
                     messages = compressed;
+                    // ⭐ G6: 钉选系统指令到首位（防 Lost-in-the-Middle）
+                    messages = ContextPinning.pinSystemToFront(messages);
                     metrics.recordContextCompression();
-                    // ⭐ 压缩后更新 prefill 基线：新基线 = 压缩后的消息数 + 系统消息
-                    prefillBaseline = messages.size();
+                    // ⭐ G1: 压缩后更新 token 基线（用于 Scoped 净增长判断）
+                    prefillTokenBaseline = TokenEstimator.estimateMessages(messages);
+                } else if (compressBreakerOpen || compressed == null) {
+                    // ⭐ G5 兜底：断路器打开或压缩失败 → 廉价截断（丢弃最旧非系统消息），防窗口撑爆
+                    List<Message> truncated = cheapTruncate(messages);
+                    if (truncated != messages) {
+                        log.warn("[SmartReActAgent] 压缩不可用，执行廉价截断兜底: {} → {} 条消息",
+                                messages.size(), truncated.size());
+                        messages = truncated;
+                        // ⭐ G6: 截断后钉选系统指令到首位
+                        messages = ContextPinning.pinSystemToFront(messages);
+                        prefillTokenBaseline = TokenEstimator.estimateMessages(messages);
+                    }
                 }
             }
 
@@ -853,16 +967,21 @@ public class SmartReActAgent {
                 noIncrementCount = 0;
             }
 
+            // ⭐ G3: 工具结果预算（超阈写盘 + 上下文预览，防窗口撑爆）
+            if (enableToolResultBudget) {
+                toolResponses = ToolResultBudget.apply(toolResponses);
+            }
             messages.add(new ToolResponseMessage(toolResponses));
 
-            // ⭐ PrecomputedCompact：消息数接近阈值时后台异步预压缩
+            // ⭐ PrecomputedCompact：消息数接近阈值或剩余窗口不足时后台异步预压缩
+            // ⭐ G2: 预压缩同样走渐进压缩器（先 SNAP 后 LLM）
             if (enableCompress && precomputedCompactFuture == null
-                    && messages.size() > compressThreshold - 3) {
+                    && (messages.size() > compressThreshold - 3
+                        || remainingTokens < COMPRESS_TOKEN_BUFFER * 2)) {
                 List<Message> snapshot = new ArrayList<>(messages);
-                if (contextCompressor == null) {
-                    contextCompressor = new ContextCompressor(chatModel, profile, summaryStore, summaryChain);
-                }
-                precomputedCompactFuture = CompletableFuture.supplyAsync(() -> contextCompressor.compress(snapshot));
+                ProgressiveContextCompressor pc = getProgressiveCompressor();
+                long compressBudget = (long) (contextWindow * DEFAULT_TOKEN_BUDGET_RATIO);
+                precomputedCompactFuture = CompletableFuture.supplyAsync(() -> pc.compress(snapshot, compressBudget));
             }
 
             // ═══════════════════════════════════════════════════════════
