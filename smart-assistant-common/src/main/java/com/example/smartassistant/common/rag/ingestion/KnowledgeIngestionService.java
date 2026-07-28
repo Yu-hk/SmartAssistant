@@ -349,7 +349,10 @@ public class KnowledgeIngestionService {
                             .map(ParsedDocument::getContent)
                             .filter(c -> c != null && !c.isBlank())
                             .toList();
-                    String newHash = HashUtil.aggregateHash(contents);
+                    // ⭐ PII 同源：变更检测 hash 基于【脱敏后】内容，确保脱敏规则升级时
+                    //    存量文档能因 hash 变化触发重摄入（否则规则升级对存量永不生效）
+                    String newHash = HashUtil.aggregateHash(
+                            contents.stream().map(piiScrubber::scrub).toList());
 
                     if (hashCache.needsReingest(baseDocId, newHash)) {
                         changedDocs.addAll(entry.getValue());
@@ -493,6 +496,18 @@ public class KnowledgeIngestionService {
                                 scrubbedDoc.getId(), vr.getCode(), vr.getReason());
                         continue;
                     }
+                }
+
+                // ④ ⭐ 脱敏后残留 PII 检测（合规安全网）：覆盖式脱敏后若仍命中已知模式，
+                //    说明存在规则未覆盖的 PII（如护照号、自由文本姓名），送复核队列不入库
+                if (piiScrubber.containsPii(cleanContent)) {
+                    rejected++;
+                    if (reviewQueueService != null) {
+                        reviewQueueService.enqueue(
+                                ReviewItem.of(scrubbedDoc, "脱敏后仍存在未覆盖 PII", "PII_RESIDUAL", operator));
+                    }
+                    log.warn("[Ingestion] 残留 PII 送复核: id={}", scrubbedDoc.getId());
+                    continue;
                 }
 
                 qualityPassed.add(scrubbedDoc);
