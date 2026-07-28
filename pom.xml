@@ -34,7 +34,17 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- ⭐ Spring AI 基线锁定 1.0.9（P4 固化，2026-07-28）
+             决策：维持 1.0.9，不升级 2.0.0。
+             原因：Spring AI 2.0.0 与 Spring Boot 3.5 / Spring Framework 6.2 不兼容
+                   （API 破坏性变更，已实测升级失败），故回退并钉死 1.0.9。
+             约束：全局经 spring-ai-bom 统一管理；请勿在任意模块硬编码其他 spring-ai 版本。
+                   如需升级，必须先在隔离分支验证 Boot 3.5.16 兼容性后再动本属性。
+             注：历史文档曾误写 1.1.2（见 docs/rag-production/QA-REPORT.md KI-3），
+                 实际解析版本以本属性 + BOM 1.0.9 为准。 -->
         <spring-ai.version>1.0.9</spring-ai.version>
+        <!-- ⭐ OWASP dependency-check 版本（P4-2 依赖安全扫描，security-scan profile 使用） -->
+        <dependency-check.version>12.1.0</dependency-check.version>
         <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
         <spring-cloud.version>2025.0.0</spring-cloud.version>
         <!-- ⭐ 强制使用 Nacos 3.x 客户端以支持 A2A -->
@@ -408,5 +418,40 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- ⭐ 依赖安全扫描（P4-2，常态化按需启用，默认不激活以免破坏离线/普通构建）
+         运行方式（CI 中）：
+           mvn -Psecurity-scan verify                  绑定 verify 阶段，CVSS>=9 阻断构建
+           mvn -Psecurity-scan dependency-check:check  仅扫描不绑定阶段
+         首次运行需联网下载 NVD 漏洞库（约数分钟）；报告输出到各模块 target/dependency-check/。
+         已接受的误报/不适用项统一在仓库根 dependency-check-suppressions.xml 抑制。 -->
+    <profiles>
+        <profile>
+            <id>security-scan</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <version>${dependency-check.version}</version>
+                        <configuration>
+                            <!-- 仅阻断严重级(CVSS>=9)；中低危仅报告，靠 suppression 管控 -->
+                            <failBuildOnCVSS>9</failBuildOnCVSS>
+                            <suppressionFile>${maven.multiModuleProjectDirectory}/dependency-check-suppressions.xml</suppressionFile>
+                            <outputDirectory>${project.build.directory}/dependency-check</outputDirectory>
+                            <nvdValidForHours>24</nvdValidForHours>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>security-scan</id>
+                                <phase>verify</phase>
+                                <goals><goal>check</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>
