@@ -39,9 +39,9 @@ jobs:
           cache: 'maven'
       - name: Run manifest validation tests
         run: >-
-          mvn -B test
-          -Dtest="*ManifestValidation*"
-          -pl smart-assistant-tool-registry
+          mvn -B -pl smart-assistant-tool-registry -am test
+          -Dtest=ToolManifestValidatorTest
+          -Dsurefire.failIfNoSpecifiedTests=false
           -DfailIfNoTests=false
       - name: Run manifest shell validator
         run: |
