@@ -25,6 +25,7 @@ jobs:
           args: >
             --failOnCVSS 9
             --enableRetired
+            --suppression /github/workspace/.github/dependency-check-suppressions.xml
       - name: Upload SARIF report
         if: always() && hashFiles('reports/*.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
