@@ -70,6 +70,7 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       nacos: { condition: service_healthy }
       redis: { condition: service_started }
@@ -98,6 +99,7 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -131,12 +133,14 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
       TOOL_REGISTRY_URL: http://tool-registry:8090
       ROUTER_SERVICE_URL: http://router:8083
-      # ⚠️ Ollama 容器化：覆盖 jar 内 base-url（避免重新构建），指向同网络 ollama 服务
-      AI_OLLAMA_BASE_URL: http://ollama:11434
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
+      embedding-service: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
       start_period: 180s
@@ -163,12 +167,16 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      SPRING_AI_ALIBABA_A2A_NACOS_SERVER_ADDR: nacos:8848
       TOOL_REGISTRY_URL: http://tool-registry:8090
-      AI_OLLAMA_BASE_URL: http://ollama:11434
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
+      embedding-service: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
       start_period: 180s
@@ -196,11 +204,14 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
       TOOL_REGISTRY_URL: http://tool-registry:8090
-      AI_OLLAMA_BASE_URL: http://ollama:11434
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
+      embedding-service: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
       start_period: 180s
@@ -228,14 +239,19 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      SPRING_AI_ALIBABA_A2A_NACOS_SERVER_ADDR: nacos:8848
       TOOL_REGISTRY_URL: http://tool-registry:8090
-      AI_OLLAMA_BASE_URL: http://ollama:11434
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
+      embedding-service: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
       start_period: 180s
@@ -256,12 +272,41 @@ services:
       SPRING_AI_DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      SPRING_AI_ALIBABA_A2A_NACOS_SERVER_ADDR: nacos:8848
       TOOL_REGISTRY_URL: http://tool-registry:8090
-      AI_OLLAMA_BASE_URL: http://ollama:11434
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      MANAGEMENT_HEALTH_REDIS_ENABLED: "false"
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
     depends_on:
       nacos: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8080}"]
+      start_period: 180s
+    restart: unless-stopped
+
+  embedding-service:
+    build:
+      context: ./smart-assistant-embedding-service
+      dockerfile: ../deploy/Dockerfile.service
+      args:
+        SERVICE_NAME: smart-assistant-embedding-service
+    ports:
+      - "8091:8091"
+    environment:
+      PORT: 8091
+      NACOS_PASSWORD: ${NACOS_PASSWORD}
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
+      BGE_MODEL_PATH: /app/models/bge-large-zh-v1.5.onnx
+      BGE_VOCAB_PATH: /app/models/tokenizer.json
+      MANAGEMENT_HEALTH_REDIS_ENABLED: "false"
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+    volumes:
+      - ./models:/app/models:ro
+    depends_on:
+      nacos: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/$${PORT:-8091}"]
       start_period: 180s
     restart: unless-stopped
 

@@ -156,6 +156,8 @@ services:
         condition: service_healthy
     entrypoint: >
       sh -c "
+      echo 'Pulling qwen2.5:7b model...' &&
+      ollama pull qwen2.5:7b &&
       echo 'Pulling deepseek-r1:7b model...' &&
       ollama pull deepseek-r1:7b &&
       echo 'Model pull complete' &&
@@ -184,7 +186,8 @@ services:
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
     networks:
       - smart-network
     depends_on:
@@ -193,7 +196,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8081/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -217,14 +220,17 @@ services:
       PORT: 8086
       JWT_SECRET: ${JWT_SECRET}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       # Docker 环境覆盖
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
     networks:
       - smart-network
     depends_on:
@@ -232,8 +238,10 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8086/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -268,12 +276,12 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
-      MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
-      # BGE 嵌入模型路径（容器内路径）
-      BGE_MODEL_PATH: /app/models/bge-large-zh-v1.5.onnx
-      BGE_VOCAB_PATH: /app/models/tokenizer.json
-    volumes:
-      - ../models:/app/models:ro
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      ROUTER_SERVICE_URL: http://smart-router:8083
+      CONSUMER_LIGHT_MODEL_NAME: qwen2.5:7b
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      OTEL_SDK_DISABLED: "true"
     networks:
       - smart-network
     depends_on:
@@ -283,8 +291,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      embedding-service:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8082/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -317,8 +327,13 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_AI_ALIBABA_A2A_NACOS_SERVER_ADDR: smart-nacos:8848
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
-      MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      ROUTER_LIGHT_MODEL_NAME: qwen2.5:7b
+      ROUTER_QUALITY_EVALUATION_ENABLED: "false"
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
     networks:
       - smart-network
     depends_on:
@@ -328,8 +343,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      embedding-service:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8083/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -363,7 +380,10 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
-      MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      ORDER_LIGHT_MODEL_NAME: qwen2.5:7b
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
     networks:
       - smart-network
     depends_on:
@@ -373,8 +393,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      embedding-service:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8085/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -402,13 +424,18 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       # Docker 环境覆盖
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: "true"
       SPRING_DATA_REDIS_HOST: smart-redis
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_AI_ALIBABA_A2A_NACOS_SERVER_ADDR: smart-nacos:8848
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
-      MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
     networks:
       - smart-network
     depends_on:
@@ -418,8 +445,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      embedding-service:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8084/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -447,15 +476,18 @@ services:
       # Docker 环境覆盖
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
+      SPRING_AI_ALIBABA_A2A_NACOS_SERVER_ADDR: smart-nacos:8848
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
-      MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_HEALTH_REDIS_ENABLED: "false"
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
     networks:
       - smart-network
     depends_on:
       nacos:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8087/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -472,7 +504,7 @@ services:
       dockerfile: ../deploy/Dockerfile.service
       args:
         SERVICE_NAME: smart-assistant-embedding-service
-    container_name: smart-embedding
+    container_name: smart-embedding-service
     expose:
       - "8091"
     environment:
@@ -483,6 +515,7 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       BGE_MODEL_PATH: /app/models/bge-large-zh-v1.5.onnx
       BGE_VOCAB_PATH: /app/models/tokenizer.json
+      MANAGEMENT_HEALTH_REDIS_ENABLED: "false"
     volumes:
       - ../models:/app/models:ro
     networks:
@@ -491,7 +524,7 @@ services:
       nacos:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8091/actuator/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8091/actuator/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -500,13 +533,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 3G
 
 # ===========================
 # 网络 & 持久卷
 # ===========================
 networks:
   smart-network:
+    name: smart-network
     driver: bridge
 
 volumes:

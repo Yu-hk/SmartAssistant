@@ -10,7 +10,7 @@ COPY target/${SERVICE_NAME}-*.jar /app/
 
 RUN mkdir -p /app/logs /app/data
 
-ENV JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseG1GC -XX:+UseContainerSupport -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
+ENV JAVA_OPTS="-Xms256m -Xmx384m -XX:+UseG1GC -XX:+UseContainerSupport -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai"
 
 EXPOSE 8080
 
