@@ -201,10 +201,12 @@ public class ReviewQueueService {
         String status = rs.getString("status");
         long createdAt = rs.getLong("created_at");
         String id = rs.getString("id");
+        String batchId = "";
         try {
             JsonNode node = mapper.readTree(raw);
             String code = node.has("code") ? node.get("code").asText() : "";
             if (code.isBlank()) code = node.has("reason") ? node.get("reason").asText() : "";
+            if (node.has("batchId")) batchId = node.get("batchId").asText("");
         } catch (Exception ignored) {
             // ignore
         }
@@ -214,8 +216,47 @@ public class ReviewQueueService {
                 .reason(reason)
                 .sourceType(sourceType)
                 .submittedBy(submittedBy)
+                .batchId(batchId)
                 .status(status)
                 .createdAt(createdAt)
                 .build();
+    }
+
+    /**
+     * ⭐ 批次级审批通过（P3-4 审批门禁）：将待审批次对应的复核条目置 APPROVED。
+     */
+    public boolean approveBatch(String ingestBatchId, String reviewedBy) {
+        return resolveByBatchId(ingestBatchId, ReviewItem.STATUS_APPROVED, reviewedBy);
+    }
+
+    /**
+     * ⭐ 批次级审批拒绝（P3-4 审批门禁）：将待审批次对应的复核条目置 REJECTED。
+     */
+    public boolean rejectBatch(String ingestBatchId, String reviewedBy) {
+        return resolveByBatchId(ingestBatchId, ReviewItem.STATUS_REJECTED, reviewedBy);
+    }
+
+    private boolean resolveByBatchId(String ingestBatchId, String status, String reviewedBy) {
+        if (ingestBatchId == null || ingestBatchId.isBlank()) return false;
+        List<ReviewItem> items = memory.values().stream()
+                .filter(i -> ingestBatchId.equals(i.getBatchId())
+                        && ReviewItem.STATUS_REVIEW.equals(i.getStatus()))
+                .toList();
+        if (items.isEmpty()) return false;
+        for (ReviewItem it : items) {
+            memory.put(it.getId(), it.toBuilder().status(status).build());
+        }
+        if (jdbcTemplate != null) {
+            try {
+                jdbcTemplate.update(
+                        "UPDATE knowledge_review_queue SET status = ? "
+                                + "WHERE raw_payload->>'batchId' = ? AND status = ?",
+                        status, ingestBatchId, ReviewItem.STATUS_REVIEW);
+            } catch (Exception e) {
+                log.warn("[ReviewQueue] 批次审批写 PG 失败: {}", e.getMessage());
+            }
+        }
+        log.info("[ReviewQueue] 批次审批: batch={}, status={}, reviewer={}", ingestBatchId, status, reviewedBy);
+        return true;
     }
 }

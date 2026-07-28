@@ -253,6 +253,29 @@ public class KnowledgeDocument {
     }
 
     /**
+     * ⭐ 含 chunkRole + 摄入打标字段的构造器（P3-1 打标注入）。
+     * <p>摄入管线重映射 / PII 重建经此把 {@code rawChecksum} 与 {@code ingestBatchId} 写入文档，
+     * 使同一摄入批次的所有 chunk 可溯源、可销毁、可列版本、可走审批门禁。
+     * 治理字段（authorityLevel / documentStatus / indexVersion）取默认值，
+     * 由调用方在重映射阶段已显式透传的版本/状态在此处延续。</p>
+     */
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId,
+                             AuthorityLevel authorityLevel, DocumentStatus documentStatus,
+                             String indexVersion, ChunkRole chunkRole, String sourceType,
+                             String rawChecksum, String ingestBatchId) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, parentDocId,
+                authorityLevel, documentStatus, indexVersion,
+                Set.of(), Set.of(), 0,
+                chunkRole, sourceType, rawChecksum, ingestBatchId);
+    }
+
+    /**
      * ⭐ 含 sourceType 的全参构造器（parentDocId + authorityLevel + documentStatus + indexVersion + sourceType），
      * 委托最全构造器。摄入管线在重映射/清洗阶段用此构造器保留治理字段并补 sourceType。
      */
