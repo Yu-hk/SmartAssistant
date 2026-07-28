@@ -140,7 +140,8 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         if (docId == null || docId.isBlank() || status == null) return;
         KnowledgeDocument old = docs.get(docId);
         if (old == null) return;
-        // KnowledgeDocument 字段为 final，需重建
+        // KnowledgeDocument 字段为 final，需重建；⭐ 保留全部治理/打标字段
+        // （批次标签 ingestBatchId / 校验和 / 角色 / ACL 须在隔离-恢复-回滚中存活）
         KnowledgeDocument updated = new KnowledgeDocument(
                 old.getId(), old.getTitle(), old.getContent(),
                 old.getCategory(), old.getKeywords(),
@@ -148,9 +149,49 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
                 old.getTenantId(), old.getVersion(),
                 old.getSourceUrl(), old.getChunkIndex(),
                 old.getParentDocId(),
-                old.getAuthorityLevel(), status);
+                old.getAuthorityLevel(), status,
+                old.getIndexVersion(),
+                old.getAuthorizedRoles(), old.getAuthorizedUsers(),
+                old.getSecurityLevel(),
+                old.getChunkRole(), old.getSourceType(),
+                old.getRawChecksum(), old.getIngestBatchId());
         docs.put(docId, updated);
         log.info("[KnowledgeBase:{}] 状态更新: id={}, status={}", name, docId, status);
+    }
+
+    // ==================== 治理：版本历史 + 回滚（P3-2 / P3-3）====================
+
+    @Override
+    public List<DocumentVersionMeta> listVersionsByBaseDocId(String baseDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return List.of();
+        return docs.values().stream()
+                .filter(d -> baseDocId.equals(d.getBaseDocId()))
+                .map(DocumentVersionMeta::from)
+                .sorted((a, b) -> Long.compare(b.createdAt(), a.createdAt()))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public void rollbackToVersion(String baseDocId, String targetVersion) {
+        if (baseDocId == null || baseDocId.isBlank()
+                || targetVersion == null || targetVersion.isBlank()) return;
+        for (KnowledgeDocument d : docs.values()) {
+            if (baseDocId.equals(d.getBaseDocId())) {
+                DocumentStatus next = targetVersion.equals(d.getVersion())
+                        ? DocumentStatus.ACTIVE : DocumentStatus.SUPERSEDED;
+                updateStatus(d.getId(), next);
+            }
+        }
+    }
+
+    @Override
+    public void removeByIngestBatchId(String ingestBatchId) {
+        if (ingestBatchId == null || ingestBatchId.isBlank()) return;
+        List<String> toRemove = docs.values().stream()
+                .filter(d -> ingestBatchId.equals(d.getIngestBatchId()))
+                .map(KnowledgeDocument::getId)
+                .toList();
+        toRemove.forEach(this::removeDocument);
     }
 
     @Override

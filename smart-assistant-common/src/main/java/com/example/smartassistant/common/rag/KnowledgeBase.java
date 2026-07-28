@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.rag;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -170,5 +171,65 @@ public interface KnowledgeBase {
                 updateStatus(id, DocumentStatus.SUPERSEDED);
             }
         });
+    }
+
+    // ==================== 治理：版本历史 + 回滚（P3-2 / P3-3，2026-07-28）====================
+
+    /**
+     * ⭐ 按 ID 取单文档（默认实现基于 {@link #listAll}；持久化实现可覆盖为单点查询）。
+     */
+    default KnowledgeDocument getDocument(String id) {
+        if (id == null || id.isBlank()) return null;
+        for (KnowledgeDocument d : listAll()) {
+            if (id.equals(d.getId())) return d;
+        }
+        return null;
+    }
+
+    /**
+     * ⭐ 列出某基础文档的所有版本元信息（含状态/批次/源/校验和）。
+     * <p>用于知识库版本治理面板与回滚决策。默认实现基于 {@link #listAll()} 过滤，
+     * 持久化实现应覆盖为按 {@code base_doc_id} 查询的高性能实现。</p>
+     */
+    default List<DocumentVersionMeta> listVersionsByBaseDocId(String baseDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return List.of();
+        List<DocumentVersionMeta> metas = new ArrayList<>();
+        for (KnowledgeDocument d : listAll()) {
+            if (baseDocId.equals(d.getBaseDocId())) {
+                metas.add(DocumentVersionMeta.from(d));
+            }
+        }
+        metas.sort((a, b) -> Long.compare(b.createdAt(), a.createdAt()));
+        return metas;
+    }
+
+    /**
+     * ⭐ 回滚到指定版本：同 baseDocId 下，目标版本置 ACTIVE，其余置 SUPERSEDED。
+     * <p>非破坏性（保留历史版本，可供再次回滚）。默认实现基于
+     * {@link #listIdsByBaseDocId} + {@link #updateStatus}。</p>
+     */
+    default void rollbackToVersion(String baseDocId, String targetVersion) {
+        if (baseDocId == null || baseDocId.isBlank()
+                || targetVersion == null || targetVersion.isBlank()) return;
+        for (String id : listIdsByBaseDocId(baseDocId)) {
+            KnowledgeDocument d = getDocument(id);
+            if (d == null) continue;
+            DocumentStatus next = targetVersion.equals(d.getVersion())
+                    ? DocumentStatus.ACTIVE : DocumentStatus.SUPERSEDED;
+            updateStatus(id, next);
+        }
+    }
+
+    /**
+     * ⭐ 按摄入批次物理删除所有关联 chunk（审核拒绝时销毁整个批次）。
+     * <p>默认实现基于 {@link #listAll} 过滤 + {@link #removeDocument}。</p>
+     */
+    default void removeByIngestBatchId(String ingestBatchId) {
+        if (ingestBatchId == null || ingestBatchId.isBlank()) return;
+        List<String> toRemove = new ArrayList<>();
+        for (KnowledgeDocument d : listAll()) {
+            if (ingestBatchId.equals(d.getIngestBatchId())) toRemove.add(d.getId());
+        }
+        toRemove.forEach(this::removeDocument);
     }
 }

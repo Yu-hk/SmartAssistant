@@ -254,6 +254,52 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         }
     }
 
+    // ==================== 治理：版本历史 + 回滚（P3-2 / P3-3）====================
+
+    @Override
+    public List<DocumentVersionMeta> listVersionsByBaseDocId(String baseDocId) {
+        if (baseDocId == null || baseDocId.isBlank()) return List.of();
+        String sql = "SELECT id, title, content, category, keywords, effective_at, expire_at, "
+                + "tenant_id, version, source_url, chunk_index, created_at, "
+                + "authority_level, document_status, security_level, "
+                + "authorized_roles, authorized_users, parent_doc_id, source_type, "
+                + "raw_checksum, ingest_batch_id, index_version, chunk_role FROM " + TABLE
+                + " WHERE id = ? OR id LIKE ? || '-%' ORDER BY created_at DESC";
+        try {
+            return jdbcTemplate.query(sql,
+                    (ResultSet rs, int rowNum) -> DocumentVersionMeta.from(mapDoc(rs)),
+                    baseDocId, baseDocId);
+        } catch (Exception e) {
+            log.warn("[PgVectorKB:{}] listVersionsByBaseDocId 失败: {}", name, e.getMessage());
+            return List.of();
+        }
+    }
+
+    @Override
+    public void rollbackToVersion(String baseDocId, String targetVersion) {
+        if (baseDocId == null || baseDocId.isBlank()
+                || targetVersion == null || targetVersion.isBlank()) return;
+        int updated = jdbcTemplate.update(
+                "UPDATE " + TABLE
+                        + " SET document_status = CASE WHEN version = ? THEN 'ACTIVE' ELSE 'SUPERSEDED' END"
+                        + " WHERE id = ? OR id LIKE ? || '-%'",
+                targetVersion, baseDocId, baseDocId);
+        if (updated > 0) {
+            log.info("[PgVectorKB:{}] 回滚: baseId={}, target={}, affected={}",
+                    name, baseDocId, targetVersion, updated);
+        }
+    }
+
+    @Override
+    public void removeByIngestBatchId(String ingestBatchId) {
+        if (ingestBatchId == null || ingestBatchId.isBlank()) return;
+        int deleted = jdbcTemplate.update(
+                "DELETE FROM " + TABLE + " WHERE ingest_batch_id = ?", ingestBatchId);
+        if (deleted > 0) {
+            log.info("[PgVectorKB:{}] 按批次删除: batch={}, removed={}", name, ingestBatchId, deleted);
+        }
+    }
+
     @Override
     public List<KnowledgeHit> search(String query, int topK) {
         return search(query, topK, KnowledgeBase.PUBLIC_TENANT);

@@ -20,12 +20,24 @@ import java.util.List;
 public record IngestionResult(
         int docCount,
         long elapsedMs,
-        List<String> errors
+        List<String> errors,
+        String ingestBatchId,
+        boolean pendingApproval
 ) {
 
-    /** 是否成功（无错误且文档数 > 0） */
+    /** 向后兼容：3 参构造（无批次/待审信息） */
+    public IngestionResult(int docCount, long elapsedMs, List<String> errors) {
+        this(docCount, elapsedMs, errors, "", false);
+    }
+
+    /** 是否成功（无错误、文档数 > 0、且非待审批挂起） */
     public boolean isSuccess() {
-        return errors.isEmpty() && docCount > 0;
+        return errors.isEmpty() && docCount > 0 && !pendingApproval;
+    }
+
+    /** 是否待审批挂起（已隔离入库，等待运营审批后激活） */
+    public boolean isHeld() {
+        return pendingApproval;
     }
 
     /** 是否部分成功（有文档但存在错误） */
@@ -67,6 +79,17 @@ public record IngestionResult(
      */
     public static IngestionResult skipped(String reason, int docCount, long elapsedMs) {
         return new IngestionResult(docCount, elapsedMs, List.of("SKIPPED: " + reason));
+    }
+
+    /**
+     * 待审批挂起结果（已隔离入库，等待运营审批后激活）。
+     *
+     * @param docCount      隔离入库的文档数
+     * @param elapsedMs     耗时（毫秒）
+     * @param ingestBatchId 摄入批次 ID（供审批 API 定位批次）
+     */
+    public static IngestionResult held(int docCount, long elapsedMs, String ingestBatchId) {
+        return new IngestionResult(docCount, elapsedMs, Collections.emptyList(), ingestBatchId, true);
     }
 
     @Override
