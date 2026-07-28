@@ -3,6 +3,7 @@ package com.example.smartassistant.router.service.cache;
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -22,9 +23,20 @@ public class BgeOnnxEmbeddingService {
     private static final Logger log = LoggerFactory.getLogger(BgeOnnxEmbeddingService.class);
 
     private BgeEmbeddingModel delegate;
+    private boolean ownsDelegate;
+
+    @Autowired(required = false)
+    void setManagedEmbeddingModel(BgeEmbeddingModel embeddingModel) {
+        this.delegate = embeddingModel;
+    }
 
     @PostConstruct
     public void init() {
+        if (delegate != null) {
+            log.info("[BGE] 使用 Spring 管理的嵌入模型, dim={}, available={}",
+                    delegate.dimensions(), delegate.isAvailable());
+            return;
+        }
         try {
             // 优先从外部文件加载，回退到 classpath
             String modelPath = "../models/bge-large-zh-v1.5.onnx";
@@ -38,6 +50,7 @@ public class BgeOnnxEmbeddingService {
                 vocabPath = "models/tokenizer.json";
             }
             delegate = new BgeEmbeddingModel(modelPath, vocabPath);
+            ownsDelegate = true;
             log.info("[BGE] 委托到 common.BgeEmbeddingModel, dim={}, available={}",
                     delegate.dimensions(), delegate.isAvailable());
         } catch (Exception e) {
@@ -47,7 +60,7 @@ public class BgeOnnxEmbeddingService {
 
     @PreDestroy
     public void destroy() {
-        if (delegate != null) {
+        if (ownsDelegate && delegate != null) {
             try { delegate.close(); } catch (Exception ignored) {}
         }
     }

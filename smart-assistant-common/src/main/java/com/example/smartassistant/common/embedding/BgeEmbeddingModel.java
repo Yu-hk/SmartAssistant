@@ -28,6 +28,18 @@ public class BgeEmbeddingModel implements AutoCloseable {
         this(modelPath, null);
     }
 
+    /**
+     * Constructor for compatibility adapters that delegate embedding work to
+     * another process instead of loading ONNX in the current JVM.
+     */
+    protected BgeEmbeddingModel(int embedDim) {
+        this.env = null;
+        this.session = null;
+        this.vocab = Collections.emptyMap();
+        this.embedDim = embedDim;
+        this.available = true;
+    }
+
     public BgeEmbeddingModel(String modelPath, String vocabPath) {
         OrtEnvironment e = null;
         OrtSession s = null;

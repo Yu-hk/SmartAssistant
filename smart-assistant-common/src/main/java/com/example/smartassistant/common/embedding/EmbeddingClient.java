@@ -10,6 +10,7 @@ import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -26,6 +27,7 @@ import java.util.stream.Collectors;
  * <p>启用条件：{@code embedding.service.url} 属性已设置</p>
  */
 @Component
+@Primary
 @ConditionalOnProperty(name = "embedding.service.url")
 public class EmbeddingClient implements EmbeddingModel {
 
