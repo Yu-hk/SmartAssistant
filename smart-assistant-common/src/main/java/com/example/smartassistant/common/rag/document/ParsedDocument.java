@@ -10,6 +10,8 @@ package com.example.smartassistant.common.rag.document;
 import java.util.Map;
 import java.util.Objects;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 /**
  * 解析后的文档单元——文档预处理管线的统一输出。
  * <p>
@@ -66,6 +68,11 @@ public class ParsedDocument {
     /** 扩展元数据（解析质量指标等），如 pdf.table / pdf.ocr / pdf.ocrChars，默认空 */
     private final Map<String, String> metadata;
 
+    /** 图片字节载体（仅图片类文档；开启图片向量化时由解析器填充，下游视觉嵌入步骤消费）。
+     *  不参与常规 JSON 序列化，避免大体积字节数组进入 review/元数据传输。 */
+    @JsonIgnore
+    private final byte[] imageBytes;
+
     // ==================== 构造器 ====================
 
     private ParsedDocument(Builder builder) {
@@ -84,6 +91,7 @@ public class ParsedDocument {
         this.category = builder.category != null ? builder.category : "";
         this.keywords = builder.keywords != null ? builder.keywords : "";
         this.metadata = builder.metadata != null ? builder.metadata : Map.of();
+        this.imageBytes = builder.imageBytes;
     }
 
     // ==================== Getters ====================
@@ -103,6 +111,7 @@ public class ParsedDocument {
     public String getCategory() { return category; }
     public String getKeywords() { return keywords; }
     public Map<String, String> getMetadata() { return metadata; }
+    public byte[] getImageBytes() { return imageBytes; }
 
     // ==================== Builder ====================
 
@@ -126,6 +135,7 @@ public class ParsedDocument {
         private String category;
         private String keywords;
         private Map<String, String> metadata;
+        private byte[] imageBytes;
 
         public Builder docId(String val) { this.docId = val; return this; }
         public Builder title(String val) { this.title = val; return this; }
@@ -142,6 +152,7 @@ public class ParsedDocument {
         public Builder category(String val) { this.category = val; return this; }
         public Builder keywords(String val) { this.keywords = val; return this; }
         public Builder metadata(Map<String, String> val) { this.metadata = val; return this; }
+        public Builder imageBytes(byte[] val) { this.imageBytes = val; return this; }
 
         public ParsedDocument build() {
             Objects.requireNonNull(docId, "docId must not be null");

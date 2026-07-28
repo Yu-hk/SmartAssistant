@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import com.example.smartassistant.common.rag.document.mineru.ImageEmbeddingModel;
 import com.example.smartassistant.common.rag.document.mineru.MinerUClient;
 import com.example.smartassistant.common.rag.document.mineru.MinerUProperties;
 import com.example.smartassistant.common.rag.document.mineru.PdfParserRouter;
@@ -63,6 +64,18 @@ public class DocumentParseRouter {
      * @param minerUClient   MinerU 客户端（可为 null，未启用时不注入）
      */
     public DocumentParseRouter(MinerUProperties properties, MinerUClient minerUClient) {
+        this(properties, minerUClient, null);
+    }
+
+    /**
+     * MinerU 感知构造（R1/R2），含图片向量化模型（P5-B）。
+     *
+     * @param properties            MinerU 配置（可为 null）
+     * @param minerUClient          MinerU 客户端（可为 null，未启用时不注入）
+     * @param imageEmbeddingModel   图像嵌入模型（可为 null；非空且 MinerU 启用时接入图片向量化）
+     */
+    public DocumentParseRouter(MinerUProperties properties, MinerUClient minerUClient,
+                               ImageEmbeddingModel imageEmbeddingModel) {
         this.parsers = new HashMap<>();
         this.fallbackParser = new TextFallbackParser();
         this.sniffer = new TikaDocumentSniffer();
@@ -70,8 +83,10 @@ public class DocumentParseRouter {
         // 注册 PDF 解析器：启用 MinerU 且客户端可用时切换为路由，否则纯 PDFBox
         DocumentParser pdfParser = new PdfDocumentParser();
         if (properties != null && properties.isEnabled() && minerUClient != null) {
-            pdfParser = new PdfParserRouter(minerUClient, properties);
-            log.info("[DocRouter] MinerU 已启用，pdf 路由切换为 PdfParserRouter（PDFBox 主 / MinerU 补）");
+            pdfParser = new PdfParserRouter(minerUClient, properties, imageEmbeddingModel);
+            log.info("[DocRouter] MinerU 已启用，pdf 路由切换为 PdfParserRouter（PDFBox 主 / MinerU 补）"
+                    + (imageEmbeddingModel != null && imageEmbeddingModel.isAvailable()
+                    ? "，图片向量化已接入" : "（图片向量化未接入）"));
         }
         parsers.put("pdf", pdfParser);
         parsers.put("docx", new WordDocumentParser());
