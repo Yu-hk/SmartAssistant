@@ -2453,7 +2453,7 @@ Gateway   Consumer    Router     Travel / Food / User / General
 
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|---------|
-| common | **269** | SQL 安全校验器、中文分词器...**AgentMemoryService(6用例)**、**TraceSpan(3用例)**、**GoldenTestRunner(5用例)**、**⭐ RAG评测框架(22用例:RetrievalMetrics/HallucinationDetector/RAGEvaluator/RAGEvaluationResult)**、**⭐ Agent评测框架(5用例:AgentEvaluationResult)**、**⭐ 知识库版本治理(12用例:打标/版本历史/回滚/批次删除/审批门禁)** |
+| common | **274** | SQL 安全校验器、中文分词器...**AgentMemoryService(6用例)**、**TraceSpan(3用例)**、**GoldenTestRunner(5用例)**、**⭐ RAG评测框架(22用例:RetrievalMetrics/HallucinationDetector/RAGEvaluator/RAGEvaluationResult)**、**⭐ Agent评测框架(5用例:AgentEvaluationResult)**、**⭐ 知识库版本治理(12用例:打标/版本历史/回滚/批次删除/审批门禁)**、**⭐ MinerU PDF解析升级(5用例:图片向量化SPI/路由接线/真实引擎端到端 + Python sidecar自测10/10)** |
 | gateway | 33 | JWT 工具、白名单过滤、Filter 认证、Filter 集成测试 |
 | user | 9 | JWT 服务 |
 | consumer | 25 | 对话叙事摘要、文档沉淀服务、DataGifTool、Chat 集成测试 |
@@ -2462,7 +2462,7 @@ Gateway   Consumer    Router     Travel / Food / User / General
 | order | 11 | **ApprovalStateMachine(11状态机测试:0.87μs/次/200线程并发安全)** |
 | recommend | 5 | **RecommendEngine(5推荐引擎集成测试:图谱+协同过滤+去重+性能0.120ms)** |
 | general | **44** | 数学计算、温度/长度/重量/货币转换、边界条件、**ScriptSandbox 沙箱(14测试)**、**⭐ 4处工具返回值结构化修复** |
-| **总计** | **502+** | **含 LangGraph 对标全特性测试，0 Failures** |
+| **总计** | **507+** | **含 LangGraph 对标全特性测试，0 Failures** |
 
 > ⚠️ **CI 已接入路由核心回归卡点**：`.github/workflows/eval-gate.yml` 新增 `router-e2e-gate` 作业（纯 Mockito 注入、零基础设施依赖），将 `RouterServiceEndToEndTest` 设为 **required status check**，防止该类红灯被长期掩盖。本地复跑：
 > `bash mvn21.sh -pl smart-assistant-router -am test -Dtest=RouterServiceEndToEndTest -Dsurefire.failIfNoSpecifiedTests=false`
@@ -2486,6 +2486,16 @@ Gateway   Consumer    Router     Travel / Food / User / General
 |------|------|
 | 🔒 **Spring AI 1.0.9 基线固化** | 根 pom `spring-ai.version` 注释钉死决策：维持 1.0.9、不升 2.0.0（与 Boot3.5/Spring6.2 不兼容，已实测降级失败）；全模块禁硬编码字面版本 |
 | 🛡️ **依赖安全 CI** | 新增 `security-scan` profile 接入 OWASP dependency-check（复用 `dependency-check-suppressions.xml`，`failBuildOnCVSS=9` 仅阻断严重级，绑定 `verify`），默认不激活不影响离线构建 |
+
+### PDF 解析升级（P5 · MinerU sidecar 加固 + 图片向量化 + 端到端验证）
+
+| 子任务 | 改进 | 说明 |
+|--------|------|------|
+| **P5-A sidecar 加固** | `mineru_sidecar.py` 生产就绪 | 消除 3 处 TODO：新增 `MinerUError` 错误码分类（MINERU_NOT_INSTALLED/TIMEOUT/NO_OUTPUT/PARSE_ERROR/BAD_JSON）；`_resolve_magic_pdf_cli()` 定位 venv 同目录 CLI；`parse_with_magic_pdf()` 用 `magic-pdf -p/-o`（1.3.x 形态）+ content_list.json 多候选兜底；块类型归一（text/title/paragraph/equation→text，table，image/picture/figure→image）；图片路径多候选解析 + 拷贝到 images_dir（仅存 basename）。配套 `test_mineru_sidecar.py` 自测 **10/10** |
+| **P5-B 图片向量化** | `ImageEmbeddingModel` SPI + 安全降级 | 新增 SPI 接口（默认 `NoopImageEmbeddingModel` 不可用→安全降级）与 `ParsedDocument.imageBytes` 载体（`@JsonIgnore`，不进常规传输）；`MinerUDocumentParser.tryVectorizeImage` 在 `enabledImageVectorization=true` 且模型可用时嵌入图片、标记 `pdf.imageVector=1`/`pdf.imageVectorDim`；模型不可用/读图失败/嵌入异常均**安全降级**（仅索引 caption/OCR 文本，不阻断解析）。`MinerUAutoConfiguration`/`IngestionJobAutoConfiguration` 完成 Bean 接线（Noop 默认，`@Primary` 可覆盖）。`MinerUImageVectorizationTest` **4 用例全绿** |
+| **P5-C 端到端验证** | 真实引擎测试 + Runbook | `MinerURealEngineE2ETest`：opt-in（`-Dp5.e2e.enabled=true`）+ 自动 skip（无 magic-pdf 时），在已部署环境跑真实 magic-pdf→sidecar→parser 全链路并断言图片块向量化贯通；沙箱/CI 绝不阻塞。配套 `docs/p5-pdf-mineru-e2e-runbook.md` 验证手册 |
+
+> **测试策略**：P5-A/B 单测无需 magic-pdf（沙箱可跑）；P5-C 真实引擎测试默认关闭、探测到 magic-pdf 才执行，保证「本地实测 + CI 不挂」兼得。
 
 ---
 
