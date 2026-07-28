@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.rag.document.mineru;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -34,5 +35,16 @@ public class MinerUAutoConfiguration {
     @ConditionalOnProperty(prefix = "app.rag.mineru", name = "enabled", havingValue = "true")
     public MinerUClient minerUClient(MinerUProperties properties) {
         return new MinerUSidecarClient(properties);
+    }
+
+    /**
+     * 图像嵌入模型 Bean——默认 {@link NoopImageEmbeddingModel}（不可用，parser 安全跳过图片向量化）。
+     * <p>接入真实视觉模型（CLIP / BGE-Vision / 多模态 Embedding 等）时，提供同名
+     * {@code @Primary} Bean 即可覆盖，parser 侧（{@code MinerUDocumentParser}）无需任何改动。</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ImageEmbeddingModel imageEmbeddingModel() {
+        return new NoopImageEmbeddingModel();
     }
 }
