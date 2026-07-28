@@ -10,6 +10,7 @@ package com.example.smartassistant.common.rag.ingestion.job;
 import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.chunking.DocumentChunker;
 import com.example.smartassistant.common.rag.document.DocumentParseRouter;
+import com.example.smartassistant.common.rag.document.mineru.ImageEmbeddingModel;
 import com.example.smartassistant.common.rag.document.mineru.MinerUClient;
 import com.example.smartassistant.common.rag.document.mineru.MinerUProperties;
 import com.example.smartassistant.common.rag.graph.KnowledgeGraphService;
@@ -43,11 +44,14 @@ public class IngestionJobAutoConfiguration {
     @ConditionalOnMissingBean
     public DocumentParseRouter ingestionDocumentParseRouter(
             ObjectProvider<MinerUProperties> minerUPropertiesProvider,
-            ObjectProvider<MinerUClient> minerUClientProvider) {
+            ObjectProvider<MinerUClient> minerUClientProvider,
+            ObjectProvider<ImageEmbeddingModel> imageEmbeddingModelProvider) {
         // 未启用 MinerU（或 sidecar Bean 不可用）时，两 provider 均返回 null → 纯 PDFBox 行为
+        // ImageEmbeddingModel 默认 Noop（不可用）→ 图片向量化安全降级（仅索引 caption/OCR 文本）
         return new DocumentParseRouter(
                 minerUPropertiesProvider.getIfAvailable(),
-                minerUClientProvider.getIfAvailable());
+                minerUClientProvider.getIfAvailable(),
+                imageEmbeddingModelProvider.getIfAvailable());
     }
 
     @Bean

@@ -11,6 +11,7 @@ import com.example.smartassistant.common.rag.document.DocumentParseException;
 import com.example.smartassistant.common.rag.document.DocumentParser;
 import com.example.smartassistant.common.rag.document.ParsedDocument;
 import com.example.smartassistant.common.rag.document.PdfDocumentParser;
+import com.example.smartassistant.common.rag.document.mineru.ImageEmbeddingModel;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -41,9 +42,17 @@ public class PdfParserRouter implements DocumentParser {
     private final MinerUDocumentParser minerUParser;
     private final MinerUProperties properties;
 
-    /** 便捷构造：内部构建默认 PDFBox 与 MinerU 解析器 */
+    /** 便捷构造：内部构建默认 PDFBox 与 MinerU 解析器（不含图片向量化模型） */
     public PdfParserRouter(MinerUClient minerUClient, MinerUProperties properties) {
-        this(new PdfDocumentParser(), new MinerUDocumentParser(minerUClient, properties), properties);
+        this(minerUClient, properties, null);
+    }
+
+    /** 便捷构造（含图片向量化模型，P5-B） */
+    public PdfParserRouter(MinerUClient minerUClient, MinerUProperties properties,
+                           ImageEmbeddingModel imageEmbeddingModel) {
+        this(new PdfDocumentParser(),
+                new MinerUDocumentParser(minerUClient, properties, imageEmbeddingModel),
+                properties);
     }
 
     /** 完全可控构造（便于测试注入 spy / 假客户端） */

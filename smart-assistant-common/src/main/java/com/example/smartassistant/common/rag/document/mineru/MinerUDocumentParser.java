@@ -45,14 +45,22 @@ public class MinerUDocumentParser implements DocumentParser {
 
     private final MinerUClient client;
     private final MinerUProperties properties;
+    /** 图像嵌入模型（可空：空则图片不向量化，仅索引 caption/OCR 文本）。 */
+    private final ImageEmbeddingModel imageEmbeddingModel;
 
     public MinerUDocumentParser(MinerUClient client) {
-        this(client, null);
+        this(client, null, null);
     }
 
     public MinerUDocumentParser(MinerUClient client, MinerUProperties properties) {
+        this(client, properties, null);
+    }
+
+    public MinerUDocumentParser(MinerUClient client, MinerUProperties properties,
+                                ImageEmbeddingModel imageEmbeddingModel) {
         this.client = client;
         this.properties = properties;
+        this.imageEmbeddingModel = imageEmbeddingModel;
     }
 
     @Override
@@ -67,7 +75,7 @@ public class MinerUDocumentParser implements DocumentParser {
                 path.toAbsolutePath().toString(), "all", requestId, imagesDir);
 
         MinerUParseResponse resp = client.parse(req);
-        List<ParsedDocument> docs = mapResponse(fileName, sourceUrl, resp);
+        List<ParsedDocument> docs = mapResponse(fileName, sourceUrl, resp, imagesDir);
         log.info("[MinerU] 解析完成: file={}, elements={}", fileName, docs.size());
         return docs;
     }
@@ -89,7 +97,7 @@ public class MinerUDocumentParser implements DocumentParser {
     // ==================== JSON → ParsedDocument 映射（R4） ====================
 
     private List<ParsedDocument> mapResponse(String fileName, String sourceUrl,
-                                             MinerUParseResponse resp) {
+                                             MinerUParseResponse resp, String imagesDir) {
         List<ParsedDocument> out = new ArrayList<>();
         if (resp.getPages() == null) return out;
         for (MinerUPage page : resp.getPages()) {
@@ -111,7 +119,8 @@ public class MinerUDocumentParser implements DocumentParser {
                         break;
                     case "image":
                         ParsedDocument imgDoc =
-                                buildImage(fileName, sourceUrl, pageNo, blockIdx, block, pageHasTextBlocks);
+                                buildImage(fileName, sourceUrl, pageNo, blockIdx, block,
+                                        pageHasTextBlocks, imagesDir);
                         if (imgDoc != null) out.add(imgDoc);
                         break;
                     default:
@@ -162,7 +171,8 @@ public class MinerUDocumentParser implements DocumentParser {
     }
 
     private ParsedDocument buildImage(String fileName, String sourceUrl, int pageNo,
-                                      int blockIdx, MinerUBlock block, boolean pageHasTextBlocks) {
+                                      int blockIdx, MinerUBlock block, boolean pageHasTextBlocks,
+                                      String imagesDir) {
         boolean hasCaption = block.getImageCaption() != null && !block.getImageCaption().isBlank();
         boolean hasOcr = block.getText() != null && !block.getText().isBlank();
 
@@ -208,6 +218,15 @@ public class MinerUDocumentParser implements DocumentParser {
             meta.put("pdf.ocrEngine", "mineru");
         }
 
+        // ⭐ 图片向量化（P5-B）：开启 enabledImageVectorization 且视觉模型可用时，
+        // 读取图片字节经模型嵌入，载体随 ParsedDocument 透传至下游 KB 视觉嵌入步骤。
+        // 模型不可用 / 读图失败 / 嵌入异常均安全降级（仅索引 caption/OCR 文本，不阻断解析）。
+        byte[] imageVecBytes = tryVectorizeImage(block, imagesDir);
+        if (imageVecBytes != null && imageEmbeddingModel != null) {
+            meta.put("pdf.imageVector", "1");
+            meta.put("pdf.imageVectorDim", String.valueOf(imageEmbeddingModel.dimension()));
+        }
+
         return ParsedDocument.builder()
                 .docId(fileName + "-p" + pageNo + "-b" + blockIdx)
                 .title("图片" + (hasCaption ? "说明: " : "OCR: ") + fileName + " 第" + pageNo + "页-图" + blockIdx)
@@ -218,7 +237,32 @@ public class MinerUDocumentParser implements DocumentParser {
                 .contentType(contentType)
                 .contentHash(sha256(content))
                 .metadata(meta)
+                .imageBytes(imageVecBytes)
                 .build();
+    }
+
+    /** 读取图片字节并经视觉模型嵌入；任何异常/不可用均安全返回 null（降级为文本索引）。 */
+    private byte[] tryVectorizeImage(MinerUBlock block, String imagesDir) {
+        if (properties == null || !properties.isEnabledImageVectorization()) return null;
+        if (imageEmbeddingModel == null || !imageEmbeddingModel.isAvailable()) return null;
+        String rel = block.getImagePath();
+        if (rel == null || rel.isBlank() || imagesDir == null || imagesDir.isBlank()) return null;
+        try {
+            java.nio.file.Path p = java.nio.file.Paths.get(imagesDir, rel);
+            if (!java.nio.file.Files.exists(p)) return null;
+            byte[] bytes = java.nio.file.Files.readAllBytes(p);
+            float[] vec = imageEmbeddingModel.embed(bytes);
+            if (vec == null || vec.length == 0) {
+                log.debug("[MinerU] 图像嵌入返回空向量（模型不可用），跳过向量化: {}",
+                        block.getImagePath());
+                return null;
+            }
+            log.info("[MinerU] 图片向量化成功: file={}, dim={}", block.getImagePath(), vec.length);
+            return bytes; // 载体：下游 KB 视觉嵌入步骤据 pdf.imageVector 标记消费
+        } catch (Exception e) {
+            log.warn("[MinerU] 图片向量化失败，降级为文本索引: {}", e.getMessage());
+            return null;
+        }
     }
 
     /** 公共元数据打点：标记 MinerU 来源与块类型 */
