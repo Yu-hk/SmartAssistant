@@ -26,9 +26,14 @@ import com.example.smartassistant.common.rag.util.HashUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -123,6 +128,13 @@ public class KnowledgeIngestionService {
 
     /** ⭐ 索引版本元数据服务（REQ-2，可空：空则用 CURRENT_INDEX_VERSION） */
     private KnowledgeIndexMetaService indexMetaService;
+
+    /**
+     * ⭐ 审批门禁开关（P3-4，Q7 核心）：开启后新源/大版本入库需先隔离待审（QUARANTINED）再激活。
+     * <p>默认 <b>关闭（opt-in）</b>：避免静默改变既有摄入语义、破坏已建立的测试套件；
+     * 生产环境接入审批 UI 时应调用 {@link #setRequireApproval(boolean)} 置 true 以满足 Q7 合规要求。</p>
+     */
+    private boolean requireApproval = false;
 
     public KnowledgeIngestionService(DocumentParseRouter router,
                                       DocumentChunker chunker,
@@ -239,6 +251,11 @@ public class KnowledgeIngestionService {
         this.indexMetaService = indexMetaService;
     }
 
+    /** 设置审批门禁开关（P3-4，Q7 核心，默认开启） */
+    public void setRequireApproval(boolean requireApproval) {
+        this.requireApproval = requireApproval;
+    }
+
     /**
      * ⭐ 设置阶段回调（供异步任务管线监听解析/分块/向量化阶段，驱动状态机）。
      * <p>传入 {@code null} 视为无操作。</p>
@@ -311,6 +328,9 @@ public class KnowledgeIngestionService {
         long start = System.currentTimeMillis();
         if (version == null || version.isBlank()) version = "v1";
 
+        // ⭐ P3-1 打标注入：批次 ID（同一摄入任务所有 chunk 共享，用于溯源/销毁/审批）
+        String ingestBatchId = UUID.randomUUID().toString();
+
         // ⭐ 动态索引版本：取 active 版本打标（无服务则回退 CURRENT_INDEX_VERSION）
         String activeIndexVersion = (indexMetaService != null)
                 ? indexMetaService.getActiveVersion() : CURRENT_INDEX_VERSION;
@@ -334,6 +354,9 @@ public class KnowledgeIngestionService {
                         .map(metadataEnricher::enrich)
                         .collect(Collectors.toList());
             }
+
+            // ⭐ P3-1 打标注入：原始文件/内容校验和（溯源 + 变更检测去重）
+            String rawChecksum = computeRawChecksum(filePath, parsed);
 
             // ⭐ Step 1.5: 变更检测——基于 baseDocId 聚合 hash 跳过未变更文档
             if (changeDetectionEnabled) {
@@ -440,14 +463,15 @@ public class KnowledgeIngestionService {
                                 doc.getCategory(), doc.getKeywords(),
                                 doc.getEffectiveAt(), doc.getExpireAt(),
                                 tenantId != null && !tenantId.isBlank() ? tenantId : doc.getTenantId(),
-                                doc.getVersion(),
+                                ver, // ⭐ P3-1: version 字段与 id 后缀一致（显式参数优先）
                                 doc.getSourceUrl(),
                                 doc.getChunkIndex(),
                                 versionedParent,
                                 AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE,
                                 activeIndexVersion,
                                 doc.getChunkRole(), // ⭐ 保留 PARENT/CHILD 角色，避免父块被误嵌入
-                                doc.getSourceType()); // ⭐ 保留上游已绑定的 sourceType
+                                doc.getSourceType(), // ⭐ 保留上游已绑定的 sourceType
+                                rawChecksum, ingestBatchId); // ⭐ P3-1: 摄入打标（溯源 + 批次）
                     })
                     .toList();
 
@@ -467,13 +491,14 @@ public class KnowledgeIngestionService {
                         doc.getId(), doc.getTitle(), cleanContent,
                         doc.getCategory(), doc.getKeywords(),
                         doc.getEffectiveAt(), doc.getExpireAt(),
-                        doc.getTenantId(), doc.getVersion(),
+                        doc.getTenantId(), ver, // ⭐ P3-1: version 字段与 id 后缀一致（显式参数优先）
                         doc.getSourceUrl(), doc.getChunkIndex(),
                         doc.getParentDocId(),   // ⭐ 已是版本化父块 ID，原样保留回链
                         authorityLevel, DocumentStatus.ACTIVE,
                         activeIndexVersion,
                         doc.getChunkRole(),     // ⭐ 保留 PARENT/CHILD 角色
-                        doc.getSourceType()); // ⭐ 保留上游已绑定的 sourceType
+                        doc.getSourceType(),   // ⭐ 保留上游已绑定的 sourceType
+                        rawChecksum, ingestBatchId); // ⭐ P3-1: 摄入打标（溯源 + 批次）
 
                 // ② 质量评分门禁：低于阈值不入库，避免污染检索
                 if (!qualityScorer.isQualified(scrubbedDoc)) {
@@ -538,7 +563,38 @@ public class KnowledgeIngestionService {
                 docs = changedDocs;
             }
 
-            // ⭐ Step 4.5: 非覆盖式版本——标记旧版 SUPERSEDED，而非物理删除（P0）
+            // ⭐ Step 4.5: 审批门禁（Q7 核心）——需审批时以 QUARANTINED 隔离入库 + 入复核队列，等待审批
+            boolean needsApproval = approvalRequired(docs);
+            if (needsApproval) {
+                List<KnowledgeDocument> quarantined = docs.stream().map(d ->
+                        new KnowledgeDocument(
+                                d.getId(), d.getTitle(), d.getContent(),
+                                d.getCategory(), d.getKeywords(),
+                                d.getEffectiveAt(), d.getExpireAt(),
+                                d.getTenantId(), d.getVersion(),
+                                d.getSourceUrl(), d.getChunkIndex(),
+                                d.getParentDocId(),
+                                d.getAuthorityLevel(), DocumentStatus.QUARANTINED,
+                                d.getIndexVersion(),
+                                d.getAuthorizedRoles(), d.getAuthorizedUsers(),
+                                d.getSecurityLevel(),
+                                d.getChunkRole(), d.getSourceType(),
+                                d.getRawChecksum(), d.getIngestBatchId())
+                ).toList();
+                knowledgeBase.addDocuments(quarantined);
+                if (reviewQueueService != null) {
+                    reviewQueueService.enqueue(
+                            ReviewItem.ofBatch(ingestBatchId, operator, quarantined.size()));
+                }
+                auditRecorder.record(IngestAuditEvent.of(operator, "PENDING_APPROVAL", "", version,
+                        "batch=" + ingestBatchId + ",docs=" + quarantined.size()));
+                long elapsed = System.currentTimeMillis() - start;
+                log.info("[Ingestion] 待审批隔离入库: batch={}, docs={}, 耗时={}ms",
+                        ingestBatchId, quarantined.size(), elapsed);
+                return IngestionResult.held(quarantined.size(), elapsed, ingestBatchId);
+            }
+
+            // 非覆盖式版本：标记旧版 SUPERSEDED（仅无需审批时直接生效，P0）
             for (KnowledgeDocument newDoc : docs) {
                 String baseDocId = newDoc.getBaseDocId();
                 if (baseDocId == null || baseDocId.isBlank()) continue;
@@ -574,7 +630,8 @@ public class KnowledgeIngestionService {
             // ⭐ Step 8: 失效相关缓存
             fireCacheInvalidationHooks();
 
-            return new IngestionResult(docs.size(), elapsed, List.of());
+            // ⭐ P3-1: 正常成功路径同样回传批次 ID，供调用方做版本/回滚追溯
+            return new IngestionResult(docs.size(), elapsed, List.of(), ingestBatchId, false);
 
         } catch (Exception e) {
             log.error("[Ingestion] 摄入失败: file={}, error={}", filePath, e.getMessage(), e);
@@ -634,6 +691,91 @@ public class KnowledgeIngestionService {
         if (!version.matches("v\\d+(\\.\\d+)?")) return id;
         if (id.matches(".*-v\\d+(\\.\\d+)?$")) return id;
         return id + "-" + version;
+    }
+
+    /**
+     * ⭐ P3-1 计算原始校验和：优先取真实文件的 SHA-256（溯源/去重最可靠）；
+     * 文件不可读（测试桩 / 流式输入 / 网络源）时降级为解析内容聚合哈希。
+     */
+    private static String computeRawChecksum(String filePath, List<ParsedDocument> parsed) {
+        try {
+            Path p = Paths.get(filePath);
+            if (Files.isRegularFile(p)) {
+                byte[] bytes = Files.readAllBytes(p);
+                return HashUtil.sha256Hex(new String(bytes, StandardCharsets.UTF_8));
+            }
+        } catch (Exception ignored) {
+            // 文件不可读，走降级路径
+        }
+        return HashUtil.aggregateHash(parsed.stream()
+                .map(ParsedDocument::getContent)
+                .filter(c -> c != null && !c.isBlank())
+                .toList());
+    }
+
+    /**
+     * ⭐ 判定本次摄入是否需走审批门禁（P3-4，Q7 核心）。
+     * <p>默认策略：开启开关时，任一文档的基础文档 ID 在库内尚无 ACTIVE 版本
+     * （即新源首次入库）即需审批。已存在 ACTIVE 版本的覆盖式更新可免审直接生效。</p>
+     */
+    private boolean approvalRequired(List<KnowledgeDocument> docs) {
+        if (!requireApproval) return false;
+        for (KnowledgeDocument d : docs) {
+            String base = d.getBaseDocId();
+            if (base == null || base.isBlank()) continue;
+            boolean existsActive = knowledgeBase.listIdsByBaseDocId(base).stream()
+                    .map(knowledgeBase::getDocument)
+                    .anyMatch(x -> x != null && x.getDocumentStatus() == DocumentStatus.ACTIVE);
+            if (!existsActive) return true;
+        }
+        return false;
+    }
+
+    /**
+     * ⭐ 审批通过某摄入批次（P3-4，Q7 核心）：激活该批次全部 chunk（QUARANTINED→ACTIVE），
+     * 并将同基础文档的旧版本标记 SUPERSEDED（非覆盖式生效）。
+     *
+     * @param ingestBatchId 摄入批次 ID（由 {@code IngestionResult.ingestBatchId()} 取得）
+     * @return 是否成功激活
+     */
+    public boolean approveBatch(String ingestBatchId) {
+        if (ingestBatchId == null || ingestBatchId.isBlank()) return false;
+        List<KnowledgeDocument> batch = knowledgeBase.listAll().stream()
+                .filter(d -> ingestBatchId.equals(d.getIngestBatchId()))
+                .toList();
+        if (batch.isEmpty()) return false;
+        for (KnowledgeDocument d : batch) {
+            knowledgeBase.updateStatus(d.getId(), DocumentStatus.ACTIVE);
+            // 非覆盖式生效：同基础文档的旧版本标记 SUPERSEDED
+            knowledgeBase.markSupersededByBaseId(d.getBaseDocId(), d.getId());
+        }
+        if (reviewQueueService != null) {
+            reviewQueueService.approveBatch(ingestBatchId, "system");
+        }
+        auditRecorder.record(IngestAuditEvent.of("system", "APPROVE_BATCH", "", "", "batch=" + ingestBatchId));
+        log.info("[Ingestion] 批次审批通过: batch={}, docs={}", ingestBatchId, batch.size());
+        return true;
+    }
+
+    /**
+     * ⭐ 审批拒绝某摄入批次（P3-4，Q7 核心）：按批次物理删除全部 chunk（销毁），旧版本保持 ACTIVE。
+     *
+     * @param ingestBatchId 摄入批次 ID
+     * @return 是否成功拒绝（销毁）
+     */
+    public boolean rejectBatch(String ingestBatchId) {
+        if (ingestBatchId == null || ingestBatchId.isBlank()) return false;
+        List<KnowledgeDocument> batch = knowledgeBase.listAll().stream()
+                .filter(d -> ingestBatchId.equals(d.getIngestBatchId()))
+                .toList();
+        if (batch.isEmpty()) return false;
+        knowledgeBase.removeByIngestBatchId(ingestBatchId);
+        if (reviewQueueService != null) {
+            reviewQueueService.rejectBatch(ingestBatchId, "system");
+        }
+        auditRecorder.record(IngestAuditEvent.of("system", "REJECT_BATCH", "", "", "batch=" + ingestBatchId));
+        log.info("[Ingestion] 批次审批拒绝(销毁): batch={}, docs={}", ingestBatchId, batch.size());
+        return true;
     }
 
     /**

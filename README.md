@@ -517,6 +517,27 @@ CacheVersionManager（全局版本戳）
   └── 知识库更新后 fireCacheInvalidationHooks() 自动触发缓存失效
 ```
 
+#### 版本治理 API（P3 · Q7 审核 + 回滚）
+
+在既有 `SUPERSEDED` 单向标记之上，补齐**可审计、可回滚、可审批**的原语（接口 `KnowledgeBase`，PG/内存双实现）：
+
+```
+KnowledgeBase（治理接口，default 方法 PG 可覆盖优化）
+  ├── listVersionsByBaseDocId(baseId) → List<DocumentVersionMeta>
+  │       version / status / sourceUrl / ingestBatchId / indexVersion / createdAt / rawChecksum
+  ├── rollbackToVersion(baseId, targetVersion)
+  │       同 baseId 下 version=target 置 ACTIVE、其余置 SUPERSEDED（检索自动过滤）
+  └── removeByIngestBatchId(ingestBatchId)   按批次物理删除（回滚到旧版前的脏数据清理）
+
+KnowledgeIngestionService（摄入打标 + 审批门禁）
+  ├── parseAndIngest 入口统一生成 ingestBatchId(UUID) + rawChecksum(SHA-256/内容聚合降级)
+  ├── version 字段语义 = 显式参数优先（doc.getVersion() 回退），id 后缀与字段一致
+  ├── requireApproval 开关（默认 false，生产接线开启即满足 Q7）
+  │       开启时新源/大版本以 QUARANTINED 隔离入库（检索自动不可见）+ ReviewQueue 入队
+  └── approveBatch(ingestBatchId) / rejectBatch(ingestBatchId)
+          审批通过 → restore(ACTIVE) 激活该批次；拒绝 → removeByIngestBatchId 删除
+```
+
 ### 检索侧跨文档冲突消解（Q6 第二层）
 
 `ContextFaithfulnessChecker`(markConflicts) 处理**上下文内**正反义词冲突；`CrossDocumentConflictResolver` 处理 **rerank 后跨文档**的相反结论冲突（如 L1 官方说"支持"、L4 用户笔记说"不支持"）：
@@ -1648,6 +1669,23 @@ docker --version
 
 ---
 
+## 依赖安全扫描（漏洞门禁）
+
+根 `pom.xml` 内置 `security-scan` profile，接入 **OWASP dependency-check**（默认版本走 `dependency-check.version`，复用根级 `dependency-check-suppressions.xml` 抑制误报，`failBuildOnCVSS=9` 仅阻断严重级，绑定 `verify` 阶段）。默认不激活，不影响普通离线构建。
+
+```powershell
+# 首次运行需联网拉取 NVD 漏洞库（后续走本地缓存）
+bash mvn21.sh -Psecurity-scan verify
+
+# 仅扫描某模块
+bash mvn21.sh -Psecurity-scan -pl smart-assistant-common verify
+# 报告输出：各模块 target/dependency-check/dependency-check-report.html
+```
+
+> ⚠️ 该 profile 故意**不挂默认生命周期**，避免离线/普通 `compile`/`test` 因无法访问 NVD 而失败。CI 流水线在独立 job 中显式 `-Psecurity-scan` 启用即可常态化拦截新 CVE。
+
+---
+
 ## 快速开始
 
 ### 1. 启动基础设施
@@ -2415,7 +2453,7 @@ Gateway   Consumer    Router     Travel / Food / User / General
 
 | 模块 | 测试数 | 覆盖内容 |
 |------|--------|---------|
-| common | **257** | SQL 安全校验器、中文分词器...**AgentMemoryService(6用例)**、**TraceSpan(3用例)**、**GoldenTestRunner(5用例)**、**⭐ RAG评测框架(22用例:RetrievalMetrics/HallucinationDetector/RAGEvaluator/RAGEvaluationResult)**、**⭐ Agent评测框架(5用例:AgentEvaluationResult)** |
+| common | **269** | SQL 安全校验器、中文分词器...**AgentMemoryService(6用例)**、**TraceSpan(3用例)**、**GoldenTestRunner(5用例)**、**⭐ RAG评测框架(22用例:RetrievalMetrics/HallucinationDetector/RAGEvaluator/RAGEvaluationResult)**、**⭐ Agent评测框架(5用例:AgentEvaluationResult)**、**⭐ 知识库版本治理(12用例:打标/版本历史/回滚/批次删除/审批门禁)** |
 | gateway | 33 | JWT 工具、白名单过滤、Filter 认证、Filter 集成测试 |
 | user | 9 | JWT 服务 |
 | consumer | 25 | 对话叙事摘要、文档沉淀服务、DataGifTool、Chat 集成测试 |
@@ -2424,10 +2462,30 @@ Gateway   Consumer    Router     Travel / Food / User / General
 | order | 11 | **ApprovalStateMachine(11状态机测试:0.87μs/次/200线程并发安全)** |
 | recommend | 5 | **RecommendEngine(5推荐引擎集成测试:图谱+协同过滤+去重+性能0.120ms)** |
 | general | **44** | 数学计算、温度/长度/重量/货币转换、边界条件、**ScriptSandbox 沙箱(14测试)**、**⭐ 4处工具返回值结构化修复** |
-| **总计** | **490+** | **含 LangGraph 对标全特性测试，0 Failures** |
+| **总计** | **502+** | **含 LangGraph 对标全特性测试，0 Failures** |
 
 > ⚠️ **CI 已接入路由核心回归卡点**：`.github/workflows/eval-gate.yml` 新增 `router-e2e-gate` 作业（纯 Mockito 注入、零基础设施依赖），将 `RouterServiceEndToEndTest` 设为 **required status check**，防止该类红灯被长期掩盖。本地复跑：
 > `bash mvn21.sh -pl smart-assistant-router -am test -Dtest=RouterServiceEndToEndTest -Dsurefire.failIfNoSpecifiedTests=false`
+
+---
+
+## 近期改进（2026-07-28）
+
+### 知识库版本治理（P3 · Q7 审核 + 回滚）
+
+| 改进 | 说明 |
+|------|------|
+| 🗂️ **摄入打标** | `parseAndIngest` 入口统一生成 `ingestBatchId`(UUID) + `rawChecksum`(SHA-256/内容聚合降级)，`version` 字段显式参数优先（与 id 后缀一致） |
+| 📜 **版本历史 API** | `KnowledgeBase.listVersionsByBaseDocId` → `DocumentVersionMeta`（version/status/sourceUrl/ingestBatchId/indexVersion/createdAt/rawChecksum），PG/内存双实现 |
+| ↩️ **回滚 API** | `rollbackToVersion(baseId,ver)`（目标 ACTIVE、其余 SUPERSEDED）+ `removeByIngestBatchId(batchId)`（按批次物理删除），PG/内存双实现 |
+| ✅ **审批门禁** | `requireApproval` 开关（默认 false，生产开启满足 Q7）：需审批批次以 `QUARANTINED` 隔离入库（检索自动不可见）+ `ReviewQueue` 入队；`approveBatch`/`rejectBatch` 激活或删除。测试 `KnowledgeGovernanceP3Test` 12 用例全绿 |
+
+### 依赖与安全基线（P4）
+
+| 改进 | 说明 |
+|------|------|
+| 🔒 **Spring AI 1.0.9 基线固化** | 根 pom `spring-ai.version` 注释钉死决策：维持 1.0.9、不升 2.0.0（与 Boot3.5/Spring6.2 不兼容，已实测降级失败）；全模块禁硬编码字面版本 |
+| 🛡️ **依赖安全 CI** | 新增 `security-scan` profile 接入 OWASP dependency-check（复用 `dependency-check-suppressions.xml`，`failBuildOnCVSS=9` 仅阻断严重级，绑定 `verify`），默认不激活不影响离线构建 |
 
 ---
 

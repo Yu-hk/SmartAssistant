@@ -30,6 +30,7 @@ public class ReviewItem {
     private final String code;
     private final String sourceType;
     private final String submittedBy;
+    private final String batchId;
     private final String status;
     private final long createdAt;
 
@@ -40,6 +41,7 @@ public class ReviewItem {
         this.code = b.code;
         this.sourceType = b.sourceType;
         this.submittedBy = b.submittedBy;
+        this.batchId = b.batchId != null ? b.batchId : "";
         this.status = b.status;
         this.createdAt = b.createdAt;
     }
@@ -54,6 +56,7 @@ public class ReviewItem {
         payload.put("tenantId", doc.getTenantId());
         payload.put("version", doc.getVersion());
         payload.put("indexVersion", doc.getIndexVersion());
+        payload.put("batchId", "");
         try {
             payload.put("serialized", new com.fasterxml.jackson.databind.ObjectMapper()
                     .writeValueAsString(doc));
@@ -73,6 +76,38 @@ public class ReviewItem {
                 .code(code)
                 .sourceType(doc.getSourceType())
                 .submittedBy(submittedBy)
+                .batchId("")
+                .status(STATUS_REVIEW)
+                .createdAt(System.currentTimeMillis())
+                .build();
+    }
+
+    /**
+     * ⭐ 批次级复核条目（P3-4 审批门禁）：待审批次隔离入库后入队，供运营审批。
+     *
+     * @param ingestBatchId 摄入批次 ID（同批次所有 chunk 共享）
+     * @param submittedBy   提交人（运营/系统）
+     * @param docCount      批次 chunk 数
+     */
+    public static ReviewItem ofBatch(String ingestBatchId, String submittedBy, int docCount) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("batchId", ingestBatchId);
+        payload.put("docCount", docCount);
+        payload.put("submittedBy", submittedBy);
+        String raw;
+        try {
+            raw = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(payload);
+        } catch (Exception e) {
+            raw = "{\"batchId\":\"" + ingestBatchId + "\"}";
+        }
+        return builder()
+                .id(UUID.randomUUID().toString().replace("-", ""))
+                .rawPayload(raw)
+                .reason("新源/大版本入库待审批")
+                .code("PENDING_APPROVAL")
+                .sourceType("")
+                .submittedBy(submittedBy)
+                .batchId(ingestBatchId)
                 .status(STATUS_REVIEW)
                 .createdAt(System.currentTimeMillis())
                 .build();
@@ -86,12 +121,14 @@ public class ReviewItem {
     public String getCode() { return code; }
     public String getSourceType() { return sourceType; }
     public String getSubmittedBy() { return submittedBy; }
+    public String getBatchId() { return batchId; }
     public String getStatus() { return status; }
     public long getCreatedAt() { return createdAt; }
 
     public Builder toBuilder() {
         return builder().id(id).rawPayload(rawPayload).reason(reason).code(code)
-                .sourceType(sourceType).submittedBy(submittedBy).status(status).createdAt(createdAt);
+                .sourceType(sourceType).submittedBy(submittedBy).batchId(batchId)
+                .status(status).createdAt(createdAt);
     }
 
     public static class Builder {
@@ -101,6 +138,7 @@ public class ReviewItem {
         private String code;
         private String sourceType;
         private String submittedBy;
+        private String batchId;
         private String status = STATUS_REVIEW;
         private long createdAt = System.currentTimeMillis();
 
@@ -110,6 +148,7 @@ public class ReviewItem {
         public Builder code(String v) { this.code = v; return this; }
         public Builder sourceType(String v) { this.sourceType = v; return this; }
         public Builder submittedBy(String v) { this.submittedBy = v; return this; }
+        public Builder batchId(String v) { this.batchId = v; return this; }
         public Builder status(String v) { this.status = v; return this; }
         public Builder createdAt(long v) { this.createdAt = v; return this; }
         public ReviewItem build() { return new ReviewItem(this); }
