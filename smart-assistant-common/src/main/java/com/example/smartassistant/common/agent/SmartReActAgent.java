@@ -309,7 +309,7 @@ public class SmartReActAgent {
             if (systemIdx >= 0 && out.size() > 1) {
                 out.add(1, firstUser);
             } else {
-                out.add(0, firstUser);
+                out.addFirst(firstUser);
             }
         }
         return out;
