@@ -13,14 +13,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-# 1. 检查 Java
-if ! command -v java &> /dev/null; then
-    echo "ERROR: Java 21 not found. Please install JDK 21."
+# 1. 检查 JDK 21
+if ! command -v java &> /dev/null || ! command -v javac &> /dev/null; then
+    echo "ERROR: JDK 21 not found. Please install a complete JDK 21."
     exit 1
 fi
 
-JAVA_VERSION=$(java -version 2>&1 | head -1 | cut -d'"' -f2 | cut -d'.' -f1)
-echo "[1/3] Java version: $(java -version 2>&1 | head -1)"
+JAVA_VERSION_LINE="$(java -version 2>&1 | head -1)"
+JAVAC_VERSION_LINE="$(javac -version 2>&1 | head -1)"
+JAVA_VERSION="$(printf '%s\n' "$JAVA_VERSION_LINE" | sed -nE 's/.*version "([0-9]+).*/\1/p')"
+JAVAC_VERSION="$(printf '%s\n' "$JAVAC_VERSION_LINE" | sed -nE 's/^javac ([0-9]+).*/\1/p')"
+if [ "$JAVA_VERSION" != "21" ] || [ "$JAVAC_VERSION" != "21" ]; then
+    echo "ERROR: JDK 21 is required."
+    echo "  java:  $JAVA_VERSION_LINE"
+    echo "  javac: $JAVAC_VERSION_LINE"
+    exit 1
+fi
+echo "[1/3] Java version: $JAVA_VERSION_LINE"
 
 # 2. Maven 构建后端
 echo "[2/3] Building backend services with Maven..."
@@ -37,8 +46,8 @@ echo "  Backend build complete."
 echo "[3/3] Building frontend..."
 cd frontend
 
-if ! command -v node &> /dev/null; then
-    echo "ERROR: Node.js not found."
+if ! command -v node &> /dev/null || ! command -v npm &> /dev/null; then
+    echo "ERROR: Node.js or npm not found."
     exit 1
 fi
 
@@ -48,12 +57,16 @@ if [ -z "$NODE_BIN" ] && [ -f "/usr/local/bin/node" ]; then
     NODE_BIN="/usr/local/bin/node"
 fi
 
-if [ -f "$SCRIPT_DIR/../node_modules/.bin/vite" ]; then
-    # 使用本地 node 模块
-    npm run build
-else
-    npm install --silent && npm run build
+if [ ! -d node_modules ]; then
+    if [ -f package-lock.json ]; then
+        echo "  node_modules not found; running npm ci..."
+        npm ci
+    else
+        echo "  package-lock.json not found; running npm install..."
+        npm install --silent
+    fi
 fi
+npm run build
 echo "  Frontend build complete."
 
 echo "============================================"

@@ -8,6 +8,7 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
+import com.example.smartassistant.common.embedding.EmbeddingClient;
 import com.example.smartassistant.common.rag.Bm25Scorer;
 import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
@@ -46,7 +47,7 @@ public class ProductKnowledgeConfig {
     private boolean rerankerEnabled;
 
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean({BgeEmbeddingModel.class, EmbeddingClient.class})
     public BgeEmbeddingModel productBgeEmbeddingModel() {
         log.info("[ProductKnowledge] 加载 BGE 模型 (path={})", modelPath);
         return new BgeEmbeddingModel(modelPath, vocabPath);
