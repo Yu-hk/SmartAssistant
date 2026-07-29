@@ -267,6 +267,21 @@ export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
               {profile.agentMemorySummaries.length > 0 && (
                 <Tag text={`笔记 ${profile.agentMemorySummaries.length} 条`} />
               )}
+              {/* ⭐ P2-C 隐藏关键信息（潜在需求/隐性信号） */}
+              {profile.keyInsights && profile.keyInsights.length > 0 && (
+                <div style={{ width: '100%', marginTop: '6px' }}>
+                  <div style={{
+                    fontSize: '10px', color: 'var(--nova-text-tertiary)', marginBottom: '4px',
+                  }}>
+                    潜在关键信息
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {profile.keyInsights.slice(0, 6).map((k, i) => (
+                      <Tag key={i} text={k} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <>
