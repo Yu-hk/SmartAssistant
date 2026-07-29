@@ -34,6 +34,7 @@ import java.util.Map;
  * @param emotionAvgScore       情绪分数滑动平均 (0-100)
  * @param agentMemorySummaries  各 Agent 坐席笔记摘要
  * @param emotionHistory        情绪历史趋势（近 N 条）
+ * @param keyInsights           隐藏关键信息（潜在需求/隐性信号），用户不经意透露的关键上下文（⭐ P2-C）
  */
 public record CustomerProfileVO(
         String userName,
@@ -53,7 +54,8 @@ public record CustomerProfileVO(
         int positiveTouchCount,
         Double emotionAvgScore,
         List<String> agentMemorySummaries,
-        List<EmotionSnapshot> emotionHistory) {
+        List<EmotionSnapshot> emotionHistory,
+        List<String> keyInsights) {
 
     /** 情绪快照 — 单条情绪记录（时间戳 + 等级 + 触发话题） */
     public record EmotionSnapshot(

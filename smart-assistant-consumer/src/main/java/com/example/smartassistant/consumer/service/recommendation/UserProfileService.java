@@ -225,6 +225,28 @@ public class UserProfileService {
                 if (location != null) recordMemory(userId, "LOCATION", location, "常用地点", MemorySource.INFERRED);
             }
 
+            // ⭐ P2-C：隐藏关键信息（潜在需求 / 隐性信号）合并
+            // 双通道：LLM 提取的 keyInsights + 确定性正则探测（任何语句都跑，不依赖 LLM）
+            List<String> keyInsights = new ArrayList<>();
+            if (llmPrefs.keyInsights() != null) keyInsights.addAll(llmPrefs.keyInsights());
+            keyInsights.addAll(llmExtractor.detectLatentSignals(question));
+            if (!keyInsights.isEmpty()) {
+                Set<String> existing = new LinkedHashSet<>();
+                if (profile.getKeyInsightsArray() != null) {
+                    existing.addAll(Arrays.asList(profile.getKeyInsightsArray()));
+                }
+                existing.addAll(keyInsights);
+                // 上限 30，超出保留最近（LinkedHashSet 保序，截尾丢弃最旧）
+                List<String> merged = new ArrayList<>(existing);
+                if (merged.size() > 30) merged = merged.subList(merged.size() - 30, merged.size());
+                profile.setKeyInsightsArray(merged.toArray(new String[0]));
+                if (memoryVersionStore != null) {
+                    for (String k : keyInsights) {
+                        recordMemory(userId, "KEY_INSIGHT", k, "隐藏关键信息", MemorySource.INFERRED);
+                    }
+                }
+            }
+
             saveProfile(profile);
 
         } catch (Exception e) {
@@ -290,6 +312,11 @@ public class UserProfileService {
         String[] sensitive = profile.getSensitiveTopicsArray();
         if (sensitive != null && sensitive.length > 0) {
             prompt.append("- 敏感话题: ").append(String.join(", ", sensitive)).append("\n");
+        }
+        // ⭐ P2-C：隐藏关键信息（潜在需求/隐性信号）参与个性化
+        String[] keyInsights = profile.getKeyInsightsArray();
+        if (keyInsights != null && keyInsights.length > 0) {
+            prompt.append("- 隐藏关键信息: ").append(String.join(", ", keyInsights)).append("\n");
         }
         if (profile.getLastHandoffReason() != null) {
             prompt.append("- 上次转人工原因: ").append(profile.getLastHandoffReason()).append("\n");

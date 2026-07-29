@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * LLM 智能偏好提取服务
@@ -106,12 +107,14 @@ public class LLMPreferenceExtractor {
                 - preferredChannel: 用户偏好的沟通渠道，从问题中推断（wechat / web / phone），无则 null
                 - responsePreference: 回复风格偏好，用户若表达"详细一点"、"说清楚些"则为 detailed；"简洁"、"简单说"则为 concise；无则 normal
                 - sensitiveTopics: 用户表现出负面情绪、不满或敏感的话题列表，如 ["物流", "退款"]，无则空数组
+                - keyInsights: 隐藏关键信息（潜在需求 / 隐性信号）。用户在对话中不经意透露、未明确表达为偏好的关键上下文，例如 "经常出差"、"家里老人用"、"公司采购"、"预算有限"、"怀孕了"、"亲子/带娃"、"竞品来源"、"时效敏感(赶时间)"、"学生/校园"、"无障碍需求"、"宠物家庭"、"新落户/异地" 等。⭐ 该字段不要求情绪性表述，普通陈述句也要提取，无则空数组
                 
                 【重要规则】
                 1. 只有情绪性表述触发的偏好才进入 user_profile
                 2. 普通描述（如"推荐川菜"）不提取为用户画像
                 3. user_profile 中的负面偏好需标注"[负向]"标记
                 4. 同一类型偏好有多项时全部列出
+                5. keyInsights 与情绪无关：任何句子（包括平静陈述）只要透露了用户身份/场景/约束类关键信息，都应提取
                 
                 【用户问题】
                 %s
@@ -130,10 +133,11 @@ public class LLMPreferenceExtractor {
                   "complaintReason": null,
                   "preferredChannel": null,
                   "responsePreference": "normal",
-                  "sensitiveTopics": []
+                  "sensitiveTopics": [],
+                  "keyInsights": []
                 }
                 
-                例2: "发货太慢了！我要投诉，请说清楚赔偿方案"
+                例2: "发货太慢了！我要投诉，我们公司团建急用，请说清楚赔偿方案"
                 {
                   "location": null,
                   "purpose": "other",
@@ -145,7 +149,8 @@ public class LLMPreferenceExtractor {
                   "complaintReason": "发货慢",
                   "preferredChannel": null,
                   "responsePreference": "detailed",
-                  "sensitiveTopics": ["物流", "赔偿"]
+                  "sensitiveTopics": ["物流", "赔偿"],
+                  "keyInsights": ["企业采购(B2B)", "时效敏感"]
                 }
                 
                 例3: "北京有哪些川菜馆？"
@@ -160,7 +165,8 @@ public class LLMPreferenceExtractor {
                   "complaintReason": null,
                   "preferredChannel": null,
                   "responsePreference": "normal",
-                  "sensitiveTopics": []
+                  "sensitiveTopics": [],
+                  "keyInsights": []
                 }
                 
                 【最终输出】
@@ -178,7 +184,7 @@ public class LLMPreferenceExtractor {
 
         ExtractedPreferences prefs = new ExtractedPreferences(
                 null, null, new ArrayList<>(), new ArrayList<>(), null, new ArrayList<>(), null,
-                null, null, "normal", new ArrayList<>());
+                null, null, "normal", new ArrayList<>(), new ArrayList<>());
         
         // 检测是否有情绪性表述
         Set<String> emotionalKeywords = Set.of(
@@ -258,7 +264,7 @@ public class LLMPreferenceExtractor {
                     prefs.location(), prefs.purpose(), prefs.foodPreferences(),
                     prefs.travelPreferences(), prefs.budget(), prefs.dietaryRestrictions(),
                     prefs.time(), "用户表达投诉/不满", null, prefs.responsePreference(),
-                    prefs.sensitiveTopics());
+                    prefs.sensitiveTopics(), prefs.keyInsights());
         }
 
         // ⭐ P1-A：回复偏好检测
@@ -267,17 +273,69 @@ public class LLMPreferenceExtractor {
                     prefs.location(), prefs.purpose(), prefs.foodPreferences(),
                     prefs.travelPreferences(), prefs.budget(), prefs.dietaryRestrictions(),
                     prefs.time(), prefs.complaintReason(), null, "detailed",
-                    prefs.sensitiveTopics());
+                    prefs.sensitiveTopics(), prefs.keyInsights());
         } else if (tokenizer.containsAnyKeyword(question, Set.of("简洁", "简单", "简短"))) {
             prefs = new ExtractedPreferences(
                     prefs.location(), prefs.purpose(), prefs.foodPreferences(),
                     prefs.travelPreferences(), prefs.budget(), prefs.dietaryRestrictions(),
                     prefs.time(), prefs.complaintReason(), null, "concise",
-                    prefs.sensitiveTopics());
+                    prefs.sensitiveTopics(), prefs.keyInsights());
         }
-        
+
+        // ⭐ P2-C：潜在关键信息（隐性需求）探测 —— 不依赖情绪性表述，任何语句都可触发
+        List<String> latent = detectLatentSignals(question);
+        if (!latent.isEmpty()) {
+            List<String> merged = new ArrayList<>(prefs.keyInsights());
+            for (String s : latent) {
+                if (!merged.contains(s)) merged.add(s);
+            }
+            prefs = new ExtractedPreferences(
+                    prefs.location(), prefs.purpose(), prefs.foodPreferences(),
+                    prefs.travelPreferences(), prefs.budget(), prefs.dietaryRestrictions(),
+                    prefs.time(), prefs.complaintReason(), prefs.preferredChannel(),
+                    prefs.responsePreference(), prefs.sensitiveTopics(), merged);
+        }
+
         return prefs;
     }
+
+    /**
+     * ⭐ P2-C：探测对话中隐藏的关键信息（潜在需求 / 隐性信号）。
+     * <p>纯正则实现，确定性、可被单测覆盖；与情绪无关，平静陈述句也会命中。
+     * 命中后返回规整的标签（如 "经常出差"、"企业采购(B2B)"），供画像持久化与个性化使用。</p>
+     *
+     * @param text 用户原始语句
+     * @return 去重后的潜在关键信息标签列表（无则空列表）
+     */
+    public List<String> detectLatentSignals(String text) {
+        List<String> result = new ArrayList<>();
+        if (text == null || text.isBlank()) return result;
+        for (Map.Entry<Pattern, String> e : LATENT_PATTERNS) {
+            if (e.getKey().matcher(text).find()) {
+                if (!result.contains(e.getValue())) result.add(e.getValue());
+            }
+        }
+        return result;
+    }
+
+    /** 潜在关键信息正则 → 规整标签 */
+    private static final List<Map.Entry<Pattern, String>> LATENT_PATTERNS = List.of(
+            Map.entry(Pattern.compile("经常出差|常年在外|总在外出差|频繁出差|一直在外地"), "经常出差"),
+            Map.entry(Pattern.compile("家里老人|给父母|给长辈|我妈|我爸|爷爷奶奶|外公外婆|适老"), "家庭/适老场景"),
+            Map.entry(Pattern.compile("公司采购|我们公司|公司用|团队用|单位采购|企业采购|团建"), "企业采购(B2B)"),
+            Map.entry(Pattern.compile("预算有限|手头紧|省钱|预算不多|资金紧张|囊中羞涩"), "预算敏感"),
+            Map.entry(Pattern.compile("怀孕了|孕期|哺乳期|孕妇|有孕|怀了"), "特殊健康期"),
+            Map.entry(Pattern.compile("小孩|孩子|宝宝|亲子|儿子|女儿|带娃|遛娃"), "亲子场景"),
+            Map.entry(Pattern.compile("过敏|忌口|不吃.*(海鲜|辣|芒果|香菜)|海鲜过敏"), "饮食过敏/忌口"),
+            Map.entry(Pattern.compile("别家|竞品|原来用|以前用|之前在.*(家|平台|App)|一直用.*(家|品牌)"), "竞品来源"),
+            Map.entry(Pattern.compile("急用|马上要|赶时间|赶飞机|赶车|赶高铁|急着用|尽快要|等不及"), "时效敏感"),
+            Map.entry(Pattern.compile("学生|上学|校园|住校|考研|备考"), "学生群体"),
+            Map.entry(Pattern.compile("残疾|行动不便|坐轮椅|无障碍|腿脚不便"), "无障碍需求"),
+            Map.entry(Pattern.compile("刚搬家|新城市|异地|外地来的|刚到.*(城市|这边)|搬来"), "新落户/异地"),
+            Map.entry(Pattern.compile("准备结婚|婚礼|备婚|婚庆|结婚"), "婚庆场景"),
+            Map.entry(Pattern.compile("刚退休|退休了|老年人|上年纪"), "退休群体"),
+            Map.entry(Pattern.compile("养宠物|有猫|有狗|毛孩子|猫主子|狗子"), "宠物家庭")
+    );
     
         /**
      * 提取的偏好数据结构。
@@ -294,32 +352,34 @@ public class LLMPreferenceExtractor {
      * @param complaintReason      投诉/抱怨原因（P1-A）
      * @param preferredChannel     偏好渠道 wechat/web/phone（P1-A）
      * @param responsePreference   回复偏好 concise/detailed/normal（P1-A）
-     * @param sensitiveTopics      敏感话题列表（P1-A）
-     */
-        public record ExtractedPreferences(
-            String location,
-            String purpose,
-            List<String> foodPreferences,
-            List<String> travelPreferences,
-            String budget,
-            List<String> dietaryRestrictions,
-            String time,
-            String complaintReason,
-            String preferredChannel,
-            String responsePreference,
-            List<String> sensitiveTopics) {
+ * @param sensitiveTopics      敏感话题列表（P1-A）
+ * @param keyInsights           隐藏关键信息（潜在需求/隐性信号），不依赖情绪性表述，任何语句都可提取（P2-C）
+ */
+    public record ExtractedPreferences(
+        String location,
+        String purpose,
+        List<String> foodPreferences,
+        List<String> travelPreferences,
+        String budget,
+        List<String> dietaryRestrictions,
+        String time,
+        String complaintReason,
+        String preferredChannel,
+        String responsePreference,
+        List<String> sensitiveTopics,
+        List<String> keyInsights) {
         
         /** 空偏好（无提取结果时的默认值） */
         public static ExtractedPreferences empty() {
             return new ExtractedPreferences(null, null, List.of(), List.of(), null, List.of(), null,
-                    null, null, "normal", List.of());
+                    null, null, "normal", List.of(), List.of());
         }
         
         /** 不可变更新：预算（record 不可变，upsert 用 with* 语义） */
         public ExtractedPreferences withBudget(String budget) {
             return new ExtractedPreferences(location, purpose, foodPreferences,
                     travelPreferences, budget, dietaryRestrictions, time,
-                    complaintReason, preferredChannel, responsePreference, sensitiveTopics);
+                    complaintReason, preferredChannel, responsePreference, sensitiveTopics, keyInsights);
         }
     }
 }

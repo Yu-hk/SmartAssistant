@@ -69,6 +69,9 @@ public class UserProfile {
     /** 上次转人工原因 */
     private String lastHandoffReason;
 
+    /** ⭐ 隐藏关键信息（潜在需求/隐性信号）：用户在对话中不经意透露、未明确表达偏好的关键上下文 */
+    private String[] keyInsights;
+
     /** ⭐ P2-A：情绪数据回流字段（持久化，跨重启保留） */
     /** 最近一次情绪标签 */
     private String lastEmotionLabel;
@@ -109,6 +112,9 @@ public class UserProfile {
 
     public String[] getSensitiveTopicsArray() { return sensitiveTopics; }
     public void setSensitiveTopicsArray(String[] arr) { this.sensitiveTopics = arr; }
+
+    public String[] getKeyInsightsArray() { return keyInsights; }
+    public void setKeyInsightsArray(String[] arr) { this.keyInsights = arr; }
 
     public Map<String, Integer> getPreferenceWeightsMap() {
         return preferenceWeights != null ? preferenceWeights : new HashMap<>();
