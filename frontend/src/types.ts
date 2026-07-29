@@ -178,6 +178,8 @@ export interface CustomerProfile {
   emotionAvgScore?: number | null;
   agentMemorySummaries: string[];
   emotionHistory: Array<{ timestamp: string; score: number; label: string; triggerTopic: string }>;
+  // ⭐ P2-C 隐藏关键信息（潜在需求/隐性信号）
+  keyInsights?: string[];
 }
 
 export type Theme = 'light' | 'dark';
