@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.consumer.service.insight.CustomerProfileVO;
 import com.example.smartassistant.consumer.service.insight.SessionInsightService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,11 +25,15 @@ import java.util.Map;
 /**
  * 实时会话洞察 API。
  *
- * <p>为前端「实时会话洞察」右栏提供三类后端能力：</p>
+ * <p>为前端「实时会话洞察」右栏提供后端能力：</p>
  * <ul>
  *     <li>{@code POST /api/insight/emotion} — 情绪分析（前端传入最新用户文本）；</li>
  *     <li>{@code GET  /api/insight/kb-search} — 知识库检索（基于 faq 表）；</li>
- *     <li>{@code POST /api/insight/ticket} — 创建工单（持久化）。</li>
+ *     <li>{@code POST /api/insight/ticket} — 创建工单（持久化）；</li>
+ *     <li>{@code POST /api/insight/ticket/status} — 推进工单状态（生命周期）；</li>
+ *     <li>{@code POST /api/insight/ticket/close} — 关闭工单（终态，可附结论）；</li>
+ *     <li>{@code GET  /api/insight/tickets} — 工单列表（按 sessionId / customerName 过滤）；</li>
+ *     <li>{@code GET  /api/insight/profile} — 客户 360° 画像（聚合偏好/事实/记忆/情绪）。</li>
  * </ul>
  */
 @RestController
@@ -45,12 +50,18 @@ public class InsightController {
 
     /**
      * 情绪分析。
-     * POST /api/insight/emotion  Body: {"text": "..."}
+     * POST /api/insight/emotion  Body: {"text": "...", "userId": 123}
      */
     @PostMapping("/emotion")
-    public ResponseEntity<Map<String, Object>> analyzeEmotion(@RequestBody(required = false) Map<String, String> body) {
-        String text = (body == null) ? "" : body.getOrDefault("text", "");
-        SessionInsightService.EmotionResult r = insightService.analyzeEmotion(text);
+    public ResponseEntity<Map<String, Object>> analyzeEmotion(@RequestBody(required = false) Map<String, Object> body) {
+        String text = (body == null) ? "" : (String) body.getOrDefault("text", "");
+        // 可选 userId，传入后用于情绪历史追踪
+        Long userId = null;
+        if (body != null && body.get("userId") instanceof Number n) {
+            userId = n.longValue();
+        }
+        String triggerTopic = (body == null) ? null : (String) body.get("triggerTopic");
+        SessionInsightService.EmotionResult r = insightService.analyzeEmotion(text, userId, triggerTopic);
         return ResponseEntity.ok(Map.of(
                 "label", r.label(),
                 "score", r.score(),
@@ -81,11 +92,69 @@ public class InsightController {
         String summary = body.getOrDefault("summary", "");
         String customerName = body.getOrDefault("customerName", "");
         try {
-            SessionInsightService.TicketResult t = insightService.createTicket(sessionId, intent, summary, customerName);
+            SessionInsightService.TicketView t = insightService.createTicket(sessionId, intent, summary, customerName);
             return ResponseEntity.ok(Map.of("id", t.id(), "status", t.status()));
         } catch (Exception e) {
             log.warn("[Insight] 工单创建返回失败态: {}", e.getMessage());
             return ResponseEntity.ok(Map.of("error", e.getMessage(), "status", "FAILED"));
         }
+    }
+
+    /**
+     * 推进工单状态（生命周期）。
+     * POST /api/insight/ticket/status  Body: {"ticketId","status"}
+     */
+    @PostMapping("/ticket/status")
+    public ResponseEntity<Map<String, Object>> updateTicketStatus(@RequestBody Map<String, String> body) {
+        String ticketId = body.get("ticketId");
+        String status = body.get("status");
+        try {
+            SessionInsightService.TicketView t = insightService.updateTicketStatus(ticketId, status);
+            return ResponseEntity.ok(Map.of("id", t.id(), "status", t.status(), "updatedAt", t.updatedAt()));
+        } catch (Exception e) {
+            log.warn("[Insight] 工单状态更新失败: {}", e.getMessage());
+            return ResponseEntity.ok(Map.of("error", e.getMessage(), "status", "FAILED"));
+        }
+    }
+
+    /**
+     * 关闭工单（终态，可附处理结论）。
+     * POST /api/insight/ticket/close  Body: {"ticketId","resolution"}
+     */
+    @PostMapping("/ticket/close")
+    public ResponseEntity<Map<String, Object>> closeTicket(@RequestBody Map<String, String> body) {
+        String ticketId = body.get("ticketId");
+        String resolution = body.getOrDefault("resolution", "");
+        try {
+            SessionInsightService.TicketView t = insightService.closeTicket(ticketId, resolution);
+            return ResponseEntity.ok(Map.of("id", t.id(), "status", t.status(), "closedAt", t.closedAt()));
+        } catch (Exception e) {
+            log.warn("[Insight] 工单关闭失败: {}", e.getMessage());
+            return ResponseEntity.ok(Map.of("error", e.getMessage(), "status", "FAILED"));
+        }
+    }
+
+    /**
+     * 工单列表（前端面板展示）。
+     * GET /api/insight/tickets?sessionId=&customerName=
+     */
+    @GetMapping("/tickets")
+    public ResponseEntity<List<SessionInsightService.TicketView>> listTickets(
+            @RequestParam(value = "sessionId", required = false) String sessionId,
+            @RequestParam(value = "customerName", required = false) String customerName) {
+        List<SessionInsightService.TicketView> tickets = insightService.listTickets(sessionId, customerName);
+        return ResponseEntity.ok(tickets);
+    }
+
+    /**
+     * 客户 360° 画像。
+     * GET /api/insight/profile?userId=123&userName=xxx
+     */
+    @GetMapping("/profile")
+    public ResponseEntity<CustomerProfileVO> getProfile(
+            @RequestParam(value = "userId", required = false) Long userId,
+            @RequestParam(value = "userName", required = false) String userName) {
+        CustomerProfileVO profile = insightService.getCustomerProfile(userId, userName);
+        return ResponseEntity.ok(profile);
     }
 }

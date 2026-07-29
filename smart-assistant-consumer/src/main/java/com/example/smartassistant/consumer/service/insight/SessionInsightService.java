@@ -7,39 +7,70 @@
 
 package com.example.smartassistant.consumer.service.insight;
 
+import com.example.smartassistant.common.memory.AgentMemoryService;
+import com.example.smartassistant.common.memory.EntityProfileService;
+import com.example.smartassistant.common.rag.KnowledgeBase;
+import com.example.smartassistant.common.rag.KnowledgeDocument;
+import com.example.smartassistant.common.rag.KnowledgeHit;
+import com.example.smartassistant.consumer.entity.UserProfile;
+import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * 会话洞察服务。
  *
- * <p>为「实时会话洞察」面板提供三类真实后端能力：</p>
+ * <p>为「实时会话洞察」面板提供四类后端能力：</p>
  * <ul>
  *     <li>情绪分析：基于关键词启发式的确定性算法（consumer 不持久化消息，故由前端传入最新用户文本）；</li>
- *     <li>知识库检索：查询 {@code faq} 表，返回高匹配知识条目；</li>
- *     <li>工单创建：持久化到 {@code insight_ticket} 表（惰性建表）。</li>
+ *     <li>知识库检索：查询 {@code faq} 表��返回高匹配知识条目；</li>
+ *     <li>工单创建：持久化到 {@code insight_ticket} 表（惰性建表）；</li>
+ *     <li>客户 360° 画像：聚合 UserProfile + EntityProfile + AgentMemory + 情绪历史。</li>
  * </ul>
- *
- * <p>客户画像 / 协同链路 / 待办 由前端基于已持有的 session 上下文实时派生，
- * 不在此处实现（服务端无会话/消息存储）。</p>
  */
 @Service
 public class SessionInsightService {
 
     private static final Logger log = LoggerFactory.getLogger(SessionInsightService.class);
+    private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+    // 情绪历史弱引用缓存 —— userId → 情绪快照列表（上限 50 条 / 用户）
+    private static final Map<Long, List<CustomerProfileVO.EmotionSnapshot>> EMOTION_HISTORY =
+            Collections.synchronizedMap(new LinkedHashMap<>() {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<Long, List<CustomerProfileVO.EmotionSnapshot>> eldest) {
+                    return size() > 1024; // 最多缓存 1024 个用户
+                }
+            });
 
     private final JdbcTemplate jdbcTemplate;
+    private final UserProfileService userProfileService;
+    private final EntityProfileService entityProfileService;
+    private final AgentMemoryService agentMemoryService;
+    private final KnowledgeBase knowledgeBase;
 
-    public SessionInsightService(JdbcTemplate jdbcTemplate) {
+    public SessionInsightService(JdbcTemplate jdbcTemplate,
+                                  UserProfileService userProfileService,
+                                  EntityProfileService entityProfileService,
+                                  AgentMemoryService agentMemoryService,
+                                  KnowledgeBase knowledgeBase) {
         this.jdbcTemplate = jdbcTemplate;
+        this.userProfileService = userProfileService;
+        this.entityProfileService = entityProfileService;
+        this.agentMemoryService = agentMemoryService;
+        this.knowledgeBase = knowledgeBase;
     }
 
     // ===================================================
@@ -66,10 +97,20 @@ public class SessionInsightService {
 
     /**
      * 情绪分析：输入用户文本，输出情绪标签 / 分数(0-100) / 置信度(0-100)。
+     * 同时记录情绪快照到缓存，供客户 360° 使用。
      */
     public EmotionResult analyzeEmotion(String text) {
+        return analyzeEmotion(text, null, null);
+    }
+
+    /**
+     * 情绪分析（完整版），接收可选 userId 用于情绪历史记录。
+     */
+    public EmotionResult analyzeEmotion(String text, Long userId, String triggerTopic) {
         if (text == null || text.isBlank()) {
-            return new EmotionResult("平静", 50, 60);
+            EmotionResult r = new EmotionResult("平静", 50, 60);
+            if (userId != null) recordEmotion(userId, r, triggerTopic);
+            return r;
         }
         int score = 50;
         int hits = 0;
@@ -94,7 +135,9 @@ public class SessionInsightService {
         else label = "急切 / 不满";
 
         int confidence = Math.max(60, Math.min(95, 60 + hits * 8));
-        return new EmotionResult(label, score, confidence);
+        EmotionResult r = new EmotionResult(label, score, confidence);
+        if (userId != null) recordEmotion(userId, r, triggerTopic);
+        return r;
     }
 
     // ===================================================
@@ -103,11 +146,46 @@ public class SessionInsightService {
     public record KbHit(String title, int match, String source) {}
 
     /**
-     * 知识库检索：按查询文本或意图匹配 faq 表，返回高匹配条目（含匹配率）。
+     * 知识库检索（⭐ P2-B：RAG 向量检索优先，SQL LIKE 兜底）。
+     *
+     * <p>优先调用 {@link KnowledgeBase#searchWithParentExpansion(String, int)} 进行语义向量召回；
+     * 当 RAG 不可用（KB 为空或未播种）或抛出异常时，降级到既有 faq 表的 SQL LIKE，
+     * 保证「实时会话洞察」右栏始终有数据，不出现空白。</p>
      */
     public List<KbHit> searchKb(String query, String intent) {
+        String q = (query == null ? "" : query).trim();
+
+        // 1. RAG 向量检索（优先）
         try {
-            String q = (query == null ? "" : query).trim();
+            if (knowledgeBase != null && !q.isEmpty()) {
+                List<KnowledgeHit> hits = knowledgeBase.searchWithParentExpansion(q, 5);
+                if (hits != null && !hits.isEmpty()) {
+                    return hits.stream()
+                            .map(h -> {
+                                KnowledgeDocument doc = h.getDocument();
+                                String title = (doc != null && doc.getTitle() != null && !doc.getTitle().isBlank())
+                                        ? doc.getTitle()
+                                        : (q.length() > 20 ? q.substring(0, 20) + "…" : q);
+                                int match = (int) Math.max(0, Math.min(99, Math.round(h.getScore() * 100)));
+                                String source = (doc != null && doc.getSourceUrl() != null && !doc.getSourceUrl().isBlank())
+                                        ? doc.getSourceUrl()
+                                        : (doc != null && doc.getCategory() != null ? doc.getCategory() : "知识库");
+                                return new KbHit(title, match, source);
+                            })
+                            .collect(Collectors.toList());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[Insight] RAG 检索失败，降级 SQL: {}", e.getMessage());
+        }
+
+        // 2. SQL LIKE 兜底（复用既有 faq 表逻辑）
+        return searchKbBySql(q, intent);
+    }
+
+    /** 既有 faq 表 SQL LIKE 检索（RAG 兜底层，参数化防注入）。 */
+    private List<KbHit> searchKbBySql(String q, String intent) {
+        try {
             String sql;
             List<Object> params = new ArrayList<>();
 
@@ -135,15 +213,27 @@ public class SessionInsightService {
                 return new KbHit(title, Math.min(99, base), "知识库");
             }, params.toArray());
         } catch (Exception e) {
-            log.warn("[Insight] KB 检索失败: {}", e.getMessage());
+            log.warn("[Insight] KB 检索(SQL)失败: {}", e.getMessage());
             return List.of();
         }
     }
 
     // ===================================================
-    // 工单创建（持久化）
+    // 工单生命周期（持久化）
     // ===================================================
-    public record TicketResult(String id, String status) {}
+    /** 工单状态机：OPEN → IN_PROGRESS / PENDING → RESOLVED → CLOSED */
+    public static final List<String> TICKET_STATUSES =
+            List.of("OPEN", "IN_PROGRESS", "PENDING", "RESOLVED", "CLOSED");
+
+    /**
+     * 前端工单面板展示视图（含生命周期字段）。
+     * closedAt / resolution 在工单关闭前为 null / 空串。
+     */
+    public record TicketView(
+            String id, String sessionId, String intent, String summary,
+            String customerName, String status,
+            String createdAt, String updatedAt, String closedAt, String resolution
+    ) {}
 
     private static final String CREATE_TICKET_SQL =
             "CREATE TABLE IF NOT EXISTS insight_ticket (" +
@@ -153,25 +243,264 @@ public class SessionInsightService {
             "summary TEXT, " +
             "customer_name VARCHAR(128), " +
             "status VARCHAR(16), " +
-            "created_at TIMESTAMP)";
+            "created_at TIMESTAMP, " +
+            "updated_at TIMESTAMP, " +
+            "closed_at TIMESTAMP, " +
+            "resolution TEXT)";
+
+    /** 幂等迁移：为已存在的旧表补齐生命周期列（updated_at / closed_at / resolution） */
+    private void ensureTicketSchema() {
+        try {
+            jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP");
+            jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP");
+            jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS resolution TEXT");
+        } catch (Exception e) {
+            log.warn("[Insight] 工单表迁移跳过: {}", e.getMessage());
+        }
+    }
 
     /**
-     * 创建工单并持久化，返回工单号与状态。
+     * 创建工单并持久化，返回完整工单视图。
      */
-    public TicketResult createTicket(String sessionId, String intent, String summary, String customerName) {
+    public TicketView createTicket(String sessionId, String intent, String summary, String customerName) {
         try {
             jdbcTemplate.execute(CREATE_TICKET_SQL);
+            ensureTicketSchema();
             String id = UUID.randomUUID().toString().replace("-", "");
+            LocalDateTime now = LocalDateTime.now();
             jdbcTemplate.update(
-                    "INSERT INTO insight_ticket (id, session_id, intent, summary, customer_name, status, created_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    id, sessionId, intent, summary, customerName, "OPEN", LocalDateTime.now()
+                    "INSERT INTO insight_ticket (id, session_id, intent, summary, customer_name, status, created_at, updated_at) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    id, sessionId, intent, summary, customerName, "OPEN", now, now
             );
             log.info("[Insight] 工单已创建: id={}, sessionId={}, intent={}", id, sessionId, intent);
-            return new TicketResult(id, "OPEN");
+            return new TicketView(id, sessionId, intent, summary, customerName, "OPEN",
+                    now.format(DT_FMT), now.format(DT_FMT), null, null);
         } catch (Exception e) {
             log.error("[Insight] 工单创建失败: {}", e.getMessage(), e);
             throw new RuntimeException("工单创建失败: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 推进工单状态（生命周期）。
+     * 允许在合法状态集合内任意流转，但 CLOSED 视为终态，需通过 {@link #closeTicket} 进入。
+     */
+    public TicketView updateTicketStatus(String ticketId, String status) {
+        if (ticketId == null || ticketId.isBlank()) throw new IllegalArgumentException("ticketId 不能为空");
+        String norm = (status == null) ? "" : status.trim().toUpperCase();
+        if (!TICKET_STATUSES.contains(norm) || "CLOSED".equals(norm)) {
+            throw new IllegalArgumentException("非法工单状态（CLOSED 请使用关闭接口）: " + status);
+        }
+        try {
+            ensureTicketSchema();
+            int n = jdbcTemplate.update(
+                    "UPDATE insight_ticket SET status = ?, updated_at = ? WHERE id = ?",
+                    norm, LocalDateTime.now(), ticketId);
+            if (n == 0) throw new RuntimeException("工单不存在: " + ticketId);
+            return getTicket(ticketId);
+        } catch (RuntimeException re) {
+            throw re;
+        } catch (Exception e) {
+            throw new RuntimeException("工单状态更新失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 关闭工单（终态）。可附带处理结论，记录 closed_at。
+     */
+    public TicketView closeTicket(String ticketId, String resolution) {
+        if (ticketId == null || ticketId.isBlank()) throw new IllegalArgumentException("ticketId 不能为空");
+        try {
+            ensureTicketSchema();
+            LocalDateTime now = LocalDateTime.now();
+            int n = jdbcTemplate.update(
+                    "UPDATE insight_ticket SET status = 'CLOSED', closed_at = ?, updated_at = ?, resolution = ? WHERE id = ?",
+                    now, now, resolution == null ? "" : resolution, ticketId);
+            if (n == 0) throw new RuntimeException("工单不存在: " + ticketId);
+            return getTicket(ticketId);
+        } catch (RuntimeException re) {
+            throw re;
+        } catch (Exception e) {
+            throw new RuntimeException("工单关闭失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 按 sessionId 或 customerName 查询工单列表（前端面板展示）。
+     * 两个参数均为可选，同时为空时返回最近 100 条。
+     */
+    public List<TicketView> listTickets(String sessionId, String customerName) {
+        try {
+            ensureTicketSchema();
+            String sql = "SELECT id, session_id, intent, summary, customer_name, status, " +
+                    "created_at, updated_at, closed_at, resolution FROM insight_ticket WHERE 1=1";
+            List<Object> args = new ArrayList<>();
+            if (sessionId != null && !sessionId.isBlank()) {
+                sql += " AND session_id = ?"; args.add(sessionId);
+            }
+            if (customerName != null && !customerName.isBlank()) {
+                sql += " AND customer_name = ?"; args.add(customerName);
+            }
+            sql += " ORDER BY created_at DESC LIMIT 100";
+            return jdbcTemplate.query(sql, (rs, rowNum) -> new TicketView(
+                    rs.getString("id"),
+                    rs.getString("session_id"),
+                    rs.getString("intent"),
+                    rs.getString("summary"),
+                    rs.getString("customer_name"),
+                    rs.getString("status"),
+                    formatTs(rs.getTimestamp("created_at")),
+                    formatTs(rs.getTimestamp("updated_at")),
+                    formatTs(rs.getTimestamp("closed_at")),
+                    rs.getString("resolution")
+            ), args.toArray());
+        } catch (Exception e) {
+            log.warn("[Insight] 工单查询失败: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** 单工单详情 */
+    public TicketView getTicket(String ticketId) {
+        try {
+            ensureTicketSchema();
+            return jdbcTemplate.queryForObject(
+                    "SELECT id, session_id, intent, summary, customer_name, status, " +
+                    "created_at, updated_at, closed_at, resolution FROM insight_ticket WHERE id = ?",
+                    (rs, rowNum) -> new TicketView(
+                            rs.getString("id"),
+                            rs.getString("session_id"),
+                            rs.getString("intent"),
+                            rs.getString("summary"),
+                            rs.getString("customer_name"),
+                            rs.getString("status"),
+                            formatTs(rs.getTimestamp("created_at")),
+                            formatTs(rs.getTimestamp("updated_at")),
+                            formatTs(rs.getTimestamp("closed_at")),
+                            rs.getString("resolution")
+                    ), ticketId);
+        } catch (Exception e) {
+            log.warn("[Insight] 工单查询失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static String formatTs(java.sql.Timestamp ts) {
+        return ts == null ? null : ts.toLocalDateTime().format(DT_FMT);
+    }
+
+    // ===================================================
+    // 情绪历史追踪（内存缓存，供客户 360° API 消费）
+    // ===================================================
+
+    /**
+     * 记录情绪快照到缓存。每条记录包含时间戳、分数、标签、触发话题。
+     * 每用户上限 50 条（FIFO 淘汰）。
+     */
+    private void recordEmotion(Long userId, EmotionResult r, String triggerTopic) {
+        if (userId == null) return;
+        String ts = LocalDateTime.now().format(DT_FMT);
+        var snap = new CustomerProfileVO.EmotionSnapshot(ts, r.score(), r.label(), triggerTopic);
+        EMOTION_HISTORY.compute(userId, (id, list) -> {
+            if (list == null) list = new ArrayList<>();
+            list.add(snap);
+            if (list.size() > 50) list.remove(0); // FIFO 保留最近 50 条
+            return list;
+        });
+        // ⭐ P2-A：情绪数据回流到 UserProfile（持久化，跨重启保留）
+        try {
+            userProfileService.recordEmotion(userId, r.label(), r.score());
+        } catch (Exception e) {
+            log.warn("[Insight] 情绪回流到画像失败: {}", e.getMessage());
+        }
+        log.debug("[Insight] 情绪快照记录: userId={}, label={}, score={}", userId, r.label(), r.score());
+    }
+
+    /** 查询用户的情绪历史（最近 50 条，从旧到新）。 */
+    public List<CustomerProfileVO.EmotionSnapshot> getEmotionHistory(Long userId) {
+        List<CustomerProfileVO.EmotionSnapshot> list = EMOTION_HISTORY.get(userId);
+        return list != null ? List.copyOf(list) : List.of();
+    }
+
+    // ===================================================
+    // 客户 360° 画像聚合（P0）
+    // ===================================================
+
+    /**
+     * 聚合用户画像数据为统一 VO，供前端 InsightPanel「客户画像」卡片展示。
+     *
+     * <p>数据来源：</p>
+     * <ul>
+     *     <li>{@link UserProfileService} — preferences.json（偏好/意图分布/查询次数）</li>
+     *     <li>{@link EntityProfileService} — Redis KV（preference/fear/hobby/location/name）</li>
+     *     <li>{@link AgentMemoryService} — 各 Agent 领域记忆（坐席笔记摘要）</li>
+     *     <li>{@link #getEmotionHistory} — 内存缓存情绪快照</li>
+     * </ul>
+     */
+    public CustomerProfileVO getCustomerProfile(Long userId, String userName) {
+        if (userId == null) {
+            return new CustomerProfileVO(
+                    userName != null ? userName : "访客", 0,
+                    Map.of(), Map.of(), List.of(), List.of(), "", List.of(),
+                    Map.of(), 0, 0, null, 0, 0, 0, null, List.of(), getEmotionHistory(null));
+        }
+
+        // 1. UserProfile 偏好
+        UserProfile profile = userProfileService.getProfile(userId);
+        Map<String, Integer> intentDist = profile != null ? profile.getIntentDistribution() : Map.of();
+        List<String> foodPrefs = profile != null && profile.getFoodPreferencesArray() != null
+                ? List.of(profile.getFoodPreferencesArray()) : List.of();
+        List<String> travelPrefs = profile != null && profile.getTravelPreferencesArray() != null
+                ? List.of(profile.getTravelPreferencesArray()) : List.of();
+        String budget = profile != null ? profile.getBudgetRange() : "";
+        List<String> diet = profile != null && profile.getDietaryRestrictionsArray() != null
+                ? List.of(profile.getDietaryRestrictionsArray()) : List.of();
+        Map<String, Integer> weights = profile != null ? profile.getPreferenceWeightsMap() : Map.of();
+        int totalQueries = profile != null ? profile.getTotalQueries() : 0;
+
+        // 从意图分布推断升级/投诉次数
+        int escalationCount = intentDist.getOrDefault("complaint", 0)
+                + intentDist.getOrDefault("tech", 0) / 3;
+        int complaintCount = intentDist.getOrDefault("refund", 0)
+                + intentDist.getOrDefault("complaint", 0);
+
+        // 2. EntityProfile Redis 事实
+        Map<String, String> entityFacts = entityProfileService.getAll(userId);
+
+        // 3. AgentMemory 坐席笔记摘要
+        List<String> agentMemories = new ArrayList<>();
+        for (String agent : new String[]{"order", "product", "general"}) {
+            String formatted = agentMemoryService.getAllFormatted(String.valueOf(userId), agent);
+            if (formatted != null && !formatted.isBlank()) {
+                String summary = formatted.length() > 100
+                        ? formatted.substring(0, 100) + "…"
+                        : formatted;
+                agentMemories.add("【" + agent + "】" + summary);
+            }
+        }
+
+        // 4. 情绪历史
+        List<CustomerProfileVO.EmotionSnapshot> emotions = getEmotionHistory(userId);
+
+        // ⭐ P2-A：持久化情绪聚合（来自 UserProfile 回流）
+        String lastEmotionLabel = profile != null ? profile.getLastEmotionLabel() : null;
+        int lastEmotionScore = profile != null ? profile.getLastEmotionScore() : 0;
+        int negativeTouchCount = profile != null ? profile.getNegativeTouchCount() : 0;
+        int positiveTouchCount = profile != null ? profile.getPositiveTouchCount() : 0;
+        Double emotionAvgScore = profile != null ? profile.getEmotionAvgScore() : null;
+
+        String name = userName;
+        if ((name == null || name.isBlank()) && entityFacts.containsKey("name")) {
+            name = entityFacts.get("name");
+        }
+        if (name == null || name.isBlank()) name = "访客";
+
+        return new CustomerProfileVO(
+                name, totalQueries, intentDist, entityFacts,
+                foodPrefs, travelPrefs, budget, diet, weights,
+                escalationCount, complaintCount,
+                lastEmotionLabel, lastEmotionScore, negativeTouchCount, positiveTouchCount, emotionAvgScore,
+                agentMemories, emotions);
     }
 }
