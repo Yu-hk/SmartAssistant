@@ -49,6 +49,45 @@ public class UserProfile {
     /** 附加偏好（JSON 对象） */
     private String additionalPreferences;
 
+    /** ⭐ P1-A：以下为客服维度字段 */
+
+    /** 投诉触发次数 */
+    private int complaintCount = 0;
+
+    /** 升级（转人工）次数 */
+    private int escalationCount = 0;
+
+    /** 偏好渠道（wechat / web / phone） */
+    private String preferredChannel;
+
+    /** 回复偏好（concise / detailed / normal） */
+    private String responsePreference;
+
+    /** 敏感话题列表（触发过负面情绪的话题） */
+    private String[] sensitiveTopics;
+
+    /** 上次转人工原因 */
+    private String lastHandoffReason;
+
+    /** ⭐ P2-A：情绪数据回流字段（持久化，跨重启保留） */
+    /** 最近一次情绪标签 */
+    private String lastEmotionLabel;
+
+    /** 最近一次情绪分数 (0-100) */
+    private int lastEmotionScore;
+
+    /** 负面情绪触碰次数（score < 40） */
+    private int negativeTouchCount = 0;
+
+    /** 正面情绪触碰次数（score > 60） */
+    private int positiveTouchCount = 0;
+
+    /** 情绪触碰总次数（用于滑动平均） */
+    private int emotionTouchCount = 0;
+
+    /** 情绪分数滑动平均 (0-100) */
+    private Double emotionAvgScore = null;
+
     private Integer totalQueries = 0;
     private LocalDateTime lastQueryAt;
     private LocalDateTime createdAt;
@@ -67,6 +106,9 @@ public class UserProfile {
 
     public String[] getDietaryRestrictionsArray() { return dietaryRestrictions; }
     public void setDietaryRestrictionsArray(String[] arr) { this.dietaryRestrictions = arr; }
+
+    public String[] getSensitiveTopicsArray() { return sensitiveTopics; }
+    public void setSensitiveTopicsArray(String[] arr) { this.sensitiveTopics = arr; }
 
     public Map<String, Integer> getPreferenceWeightsMap() {
         return preferenceWeights != null ? preferenceWeights : new HashMap<>();

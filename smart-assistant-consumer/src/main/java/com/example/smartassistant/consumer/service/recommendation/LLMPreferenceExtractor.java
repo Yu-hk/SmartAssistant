@@ -85,7 +85,7 @@ public class LLMPreferenceExtractor {
      * - 触发条件：必须出现"喜欢"、"经常"、"讨厌"、"厌烦"、"偏好"、"倾向"等情绪性表述
      * - 其他普通信息（如地点、时间、目的）按正常字段提取，不计入用户画像
      */
-    private String buildExtractionPrompt(String question) {
+        private String buildExtractionPrompt(String question) {
         return """
                 你是一个专业的用户偏好分析助手。请从用户的问题中提取结构化信息。
                 
@@ -102,6 +102,10 @@ public class LLMPreferenceExtractor {
                 - location: 地点名称（城市、省份、景区等），如果没有则留空
                 - purpose: 目的类型，food/ travel/ weather/ other
                 - time: 时间信息，如 "周末"、"明天"，如果未提及则为 null
+                - complaintReason: 投诉/抱怨的原因，如 "发货慢"、"质量问题"、"退款未到账"等，无则 null
+                - preferredChannel: 用户偏好的沟通渠道，从问题中推断（wechat / web / phone），无则 null
+                - responsePreference: 回复风格偏好，用户若表达"详细一点"、"说清楚些"则为 detailed；"简洁"、"简单说"则为 concise；无则 normal
+                - sensitiveTopics: 用户表现出负面情绪、不满或敏感的话题列表，如 ["物流", "退款"]，无则空数组
                 
                 【重要规则】
                 1. 只有情绪性表述触发的偏好才进入 user_profile
@@ -122,18 +126,26 @@ public class LLMPreferenceExtractor {
                   "user_profile": {
                     "positive": ["辣", "川菜"],
                     "negative": []
-                  }
+                  },
+                  "complaintReason": null,
+                  "preferredChannel": null,
+                  "responsePreference": "normal",
+                  "sensitiveTopics": []
                 }
                 
-                例2: "讨厌香菜，不要麻婆豆腐"
+                例2: "发货太慢了！我要投诉，请说清楚赔偿方案"
                 {
                   "location": null,
-                  "purpose": "food",
+                  "purpose": "other",
                   "time": null,
                   "user_profile": {
                     "positive": [],
-                    "negative": ["香菜", "麻婆豆腐"]
-                  }
+                    "negative": ["快递慢", "延迟"]
+                  },
+                  "complaintReason": "发货慢",
+                  "preferredChannel": null,
+                  "responsePreference": "detailed",
+                  "sensitiveTopics": ["物流", "赔偿"]
                 }
                 
                 例3: "北京有哪些川菜馆？"
@@ -144,18 +156,11 @@ public class LLMPreferenceExtractor {
                   "user_profile": {
                     "positive": [],
                     "negative": []
-                  }
-                }
-                
-                例4: "周末去杭州玩，想吃清淡的"
-                {
-                  "location": "杭州",
-                  "purpose": "travel",
-                  "time": "周末",
-                  "user_profile": {
-                    "positive": ["清淡"],
-                    "negative": []
-                  }
+                  },
+                  "complaintReason": null,
+                  "preferredChannel": null,
+                  "responsePreference": "normal",
+                  "sensitiveTopics": []
                 }
                 
                 【最终输出】
@@ -170,9 +175,10 @@ public class LLMPreferenceExtractor {
      */
     private ExtractedPreferences fallbackExtraction(String question) {
         log.info("[LLM提取] 使用降级方案（分词器增强提取）");
-        
+
         ExtractedPreferences prefs = new ExtractedPreferences(
-                null, null, new ArrayList<>(), new ArrayList<>(), null, new ArrayList<>(), null);
+                null, null, new ArrayList<>(), new ArrayList<>(), null, new ArrayList<>(), null,
+                null, null, "normal", new ArrayList<>());
         
         // 检测是否有情绪性表述
         Set<String> emotionalKeywords = Set.of(
@@ -233,7 +239,7 @@ public class LLMPreferenceExtractor {
         } else if (tokenizer.containsAnyKeyword(question, Set.of("人均", "性价比"))) {
             prefs = prefs.withBudget("medium");
         }
-        
+
         // 饮食限制提取（明确限制，非偏好）
         if (tokenizer.containsAnyKeyword(question, Set.of("素食", "斋"))) {
             prefs.dietaryRestrictions().add("素食");
@@ -244,11 +250,36 @@ public class LLMPreferenceExtractor {
         if (tokenizer.containsAnyKeyword(question, Set.of("无辣", "不辣", "少辣"))) {
             prefs.dietaryRestrictions().add("少辣");
         }
+
+        // ⭐ P1-A：投诉/抱怨检测
+        if (tokenizer.containsAnyKeyword(question, Set.of("投诉", "退货", "退款", "赔偿", "差评", "举报"))) {
+            // 用反射方式不可行，直接设置 —— 因 record 不可变，这里只记录原始问题文本
+            prefs = new ExtractedPreferences(
+                    prefs.location(), prefs.purpose(), prefs.foodPreferences(),
+                    prefs.travelPreferences(), prefs.budget(), prefs.dietaryRestrictions(),
+                    prefs.time(), "用户表达投诉/不满", null, prefs.responsePreference(),
+                    prefs.sensitiveTopics());
+        }
+
+        // ⭐ P1-A：回复偏好检测
+        if (tokenizer.containsAnyKeyword(question, Set.of("详细", "具体", "说清楚", "细说"))) {
+            prefs = new ExtractedPreferences(
+                    prefs.location(), prefs.purpose(), prefs.foodPreferences(),
+                    prefs.travelPreferences(), prefs.budget(), prefs.dietaryRestrictions(),
+                    prefs.time(), prefs.complaintReason(), null, "detailed",
+                    prefs.sensitiveTopics());
+        } else if (tokenizer.containsAnyKeyword(question, Set.of("简洁", "简单", "简短"))) {
+            prefs = new ExtractedPreferences(
+                    prefs.location(), prefs.purpose(), prefs.foodPreferences(),
+                    prefs.travelPreferences(), prefs.budget(), prefs.dietaryRestrictions(),
+                    prefs.time(), prefs.complaintReason(), null, "concise",
+                    prefs.sensitiveTopics());
+        }
         
         return prefs;
     }
     
-    /**
+        /**
      * 提取的偏好数据结构。
      * <p>声明为不可变 {@code record} 以适配 {@link AiChatService#entity} 的结构化绑定
      * （Spring AI 的 BeanOutputConverter 对 record + Jackson 兼容，直接映射 LLM 返回的 JSON）。</p>
@@ -260,6 +291,10 @@ public class LLMPreferenceExtractor {
      * @param budget               预算档位 low/medium/high
      * @param dietaryRestrictions  饮食限制/负向偏好
      * @param time                 时间信息
+     * @param complaintReason      投诉/抱怨原因（P1-A）
+     * @param preferredChannel     偏好渠道 wechat/web/phone（P1-A）
+     * @param responsePreference   回复偏好 concise/detailed/normal（P1-A）
+     * @param sensitiveTopics      敏感话题列表（P1-A）
      */
         public record ExtractedPreferences(
             String location,
@@ -268,17 +303,23 @@ public class LLMPreferenceExtractor {
             List<String> travelPreferences,
             String budget,
             List<String> dietaryRestrictions,
-            String time) {
+            String time,
+            String complaintReason,
+            String preferredChannel,
+            String responsePreference,
+            List<String> sensitiveTopics) {
         
         /** 空偏好（无提取结果时的默认值） */
         public static ExtractedPreferences empty() {
-            return new ExtractedPreferences(null, null, List.of(), List.of(), null, List.of(), null);
+            return new ExtractedPreferences(null, null, List.of(), List.of(), null, List.of(), null,
+                    null, null, "normal", List.of());
         }
         
         /** 不可变更新：预算（record 不可变，upsert 用 with* 语义） */
         public ExtractedPreferences withBudget(String budget) {
             return new ExtractedPreferences(location, purpose, foodPreferences,
-                    travelPreferences, budget, dietaryRestrictions, time);
+                    travelPreferences, budget, dietaryRestrictions, time,
+                    complaintReason, preferredChannel, responsePreference, sensitiveTopics);
         }
     }
 }
