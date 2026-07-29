@@ -61,10 +61,17 @@ const TODO_BY_INTENT: Record<IntentType, TodoItem[]> = {
 };
 
 export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
-  const customerName = session?.user_name || userName || '访客用户';
-  const intent: IntentType = session?.intent ?? 'unknown';
-  const intentLabel = session?.intent && session.intent !== 'unknown'
-    ? INTENT_LABELS[session.intent]
+  const customerName = userName || session?.user_name || '访客用户';
+  // The router can return operational tags such as `system_capabilities`.
+  // They are useful server-side, but are not customer-facing intent buckets.
+  // Keep the insight panel on its safe fallback path for an unknown tag rather
+  // than indexing CHAIN_BY_INTENT/TODO_BY_INTENT with an undefined key.
+  const requestedIntent = session?.intent;
+  const intent: IntentType = requestedIntent && requestedIntent in CHAIN_BY_INTENT
+    ? requestedIntent as IntentType
+    : 'unknown';
+  const intentLabel = intent !== 'unknown'
+    ? INTENT_LABELS[intent]
     : '待识别';
 
   const lastUserMessage = useMemo(() => {
@@ -86,6 +93,7 @@ export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
   useEffect(() => {
     if (!session?.id) return;
     let cancelled = false;
+    let profileRefreshTimer: ReturnType<typeof setTimeout> | undefined;
     setLoading(true);
     setTickets([]);
     setTicketError(null);
@@ -104,7 +112,22 @@ export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
       setLoading(false);
     });
 
-    return () => { cancelled = true; };
+    // The first profile read can race with the streaming request that records
+    // the latest user signals. Refresh once after that lightweight write.
+    if (userId !== undefined) {
+      profileRefreshTimer = setTimeout(() => {
+        insightApi.getProfile(userId, customerName).then((latestProfile) => {
+          if (!cancelled) setProfile(latestProfile);
+        }).catch(() => {
+          // Keep the first successful profile response when a refresh fails.
+        });
+      }, 1000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (profileRefreshTimer) clearTimeout(profileRefreshTimer);
+    };
   }, [session?.id, lastUserMessage, intent, userId, customerName, intentLabel]);
 
   const chain = CHAIN_BY_INTENT[intent];

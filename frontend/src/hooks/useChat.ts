@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ToolCall, PermissionRequest, Session, ContentBlock, IntentType, FaqItem } from '../types';
 import { sessions as sessionApi } from '../api';
+import { getAuthUser } from '../api/auth';
 
 interface UseChatOptions {
   currentSession: Session | undefined;
@@ -174,7 +175,11 @@ export function useChat(options: UseChatOptions) {
         }));
       };
 
-      const url = `/api/math/stream/chat?message=${encodeURIComponent(message)}&sessionId=${encodeURIComponent(sessionId)}&model=${encodeURIComponent(model)}`;
+      const authUserId = getAuthUser()?.userId;
+      const userIdParam = Number.isInteger(authUserId) && authUserId! > 0
+        ? `&userId=${encodeURIComponent(String(authUserId))}`
+        : '';
+      const url = `/api/math/stream/chat?message=${encodeURIComponent(message)}&sessionId=${encodeURIComponent(sessionId)}&model=${encodeURIComponent(model)}${userIdParam}`;
       const es = new EventSource(url);
       eventSourceRef.current = es; // ⭐ 保存引用，供 handleStop 关闭
 
