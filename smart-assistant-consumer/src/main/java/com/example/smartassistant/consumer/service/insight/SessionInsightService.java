@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -443,7 +444,7 @@ public class SessionInsightService {
             return new CustomerProfileVO(
                     userName != null ? userName : "访客", 0,
                     Map.of(), Map.of(), List.of(), List.of(), "", List.of(),
-                    Map.of(), 0, 0, null, 0, 0, 0, null, List.of(), getEmotionHistory(null));
+                    Map.of(), 0, 0, null, 0, 0, 0, null, List.of(), getEmotionHistory(null), List.of());
         }
 
         // 1. UserProfile 偏好
@@ -490,6 +491,10 @@ public class SessionInsightService {
         int positiveTouchCount = profile != null ? profile.getPositiveTouchCount() : 0;
         Double emotionAvgScore = profile != null ? profile.getEmotionAvgScore() : null;
 
+        // ⭐ P2-C：隐藏关键信息（潜在需求/隐性信号）
+        List<String> keyInsights = profile != null && profile.getKeyInsightsArray() != null
+                ? Arrays.asList(profile.getKeyInsightsArray()) : List.of();
+
         String name = userName;
         if ((name == null || name.isBlank()) && entityFacts.containsKey("name")) {
             name = entityFacts.get("name");
@@ -501,6 +506,6 @@ public class SessionInsightService {
                 foodPrefs, travelPrefs, budget, diet, weights,
                 escalationCount, complaintCount,
                 lastEmotionLabel, lastEmotionScore, negativeTouchCount, positiveTouchCount, emotionAvgScore,
-                agentMemories, emotions);
+                agentMemories, emotions, keyInsights);
     }
 }
