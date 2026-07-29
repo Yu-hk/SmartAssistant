@@ -3,6 +3,7 @@ package com.example.smartassistant.consumer.controller;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;
+import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -19,34 +20,36 @@ import static org.mockito.Mockito.when;
 class StreamChatControllerTest {
 
     @Test
-    @DisplayName("仅支持同步调用的 Agent 结果应适配为 text + done SSE 事件")
+    @DisplayName("A synchronous Agent result is adapted to text and done SSE events")
     void adaptsSynchronousAgentResultToSse() throws Exception {
         RouterClient routerClient = mock(RouterClient.class);
         AgentStreamClient agentStreamClient = mock(AgentStreamClient.class);
         RequestQueueService requestQueueService = mock(RequestQueueService.class);
+        UserProfileService userProfileService = mock(UserProfileService.class);
         StreamChatController controller = new StreamChatController(
-                routerClient, agentStreamClient, requestQueueService, null);
+                routerClient, agentStreamClient, requestQueueService, userProfileService, null);
 
         String requestId = "req-order-1";
-        String answer = "最近一笔订单已发货，物流状态为运输中。";
-        when(routerClient.triggerRoutingDecision(
-                "帮我查询最近一笔订单的物流状态", "anonymous", requestId))
+        String question = "Check the latest order logistics status";
+        String answer = "The latest order is in transit.";
+        when(routerClient.triggerRoutingDecision(question, "42", requestId))
                 .thenReturn(Map.of(
                         "agentName", "order_agent",
                         "confidence", 0.98d,
                         "intentTag", "order_logistics_query",
                         "result", answer));
-        // Even if discovery incorrectly advertises an SSE URL, the synchronous result
-        // returned by /route must win so the Agent is not invoked a second time.
+        // The synchronous result returned by /route must win so the Agent is not
+        // invoked a second time, even if discovery advertises an SSE URL.
         when(agentStreamClient.isStreamingSupported("order_agent")).thenReturn(true);
 
         MockHttpServletResponse response = new MockHttpServletResponse();
         controller.streamChat(
-                "帮我查询最近一笔订单的物流状态",
+                question,
                 requestId,
                 requestId,
                 true,
                 RequestQueueService.PRIORITY_NORMAL,
+                "42",
                 null,
                 response);
 
@@ -54,8 +57,9 @@ class StreamChatControllerTest {
         assertTrue(body.contains("event: text"));
         assertTrue(body.contains(answer));
         assertTrue(body.contains("event: done"));
-        assertFalse(body.contains("Agent 不支持流式响应"));
+        assertFalse(body.contains("does not support streaming"));
         verify(agentStreamClient, never()).isStreamingSupported("order_agent");
         verify(agentStreamClient, never()).getStreamUrl("order_agent");
+        verify(userProfileService).captureLatentSignals(42L, question);
     }
 }

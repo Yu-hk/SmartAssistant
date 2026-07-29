@@ -13,6 +13,7 @@ import com.example.smartassistant.common.sse.SseEventBus;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;
+import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -50,16 +51,19 @@ public class StreamChatController {
     private final AgentStreamClient agentStreamClient;
     private final StringRedisTemplate redisTemplate;
     private final RequestQueueService requestQueueService;
+    private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public StreamChatController(
             RouterClient routerClient,
             AgentStreamClient agentStreamClient,
             RequestQueueService requestQueueService,
+            UserProfileService userProfileService,
             @Autowired(required = false) StringRedisTemplate redisTemplate) {
         this.routerClient = routerClient;
         this.agentStreamClient = agentStreamClient;
         this.requestQueueService = requestQueueService;
+        this.userProfileService = userProfileService;
         this.redisTemplate = redisTemplate;
     }
 
@@ -70,6 +74,7 @@ public class StreamChatController {
             @RequestParam(required = false) String sessionId,
             @RequestParam(required = false, defaultValue = "true") boolean showThinking,
             @RequestParam(required = false, defaultValue = "5") int priority,
+            @RequestParam(required = false) String userId,
             @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId,
             HttpServletResponse response) {
 
@@ -89,7 +94,10 @@ public class StreamChatController {
         }
 
         // 获取路由决策
-        Map<String, Object> decision = getRoutingDecision(requestId, sessionId, message, bus);
+        String effectiveUserId = resolveUserId(userId);
+        updateUserProfile(effectiveUserId, message);
+        Map<String, Object> decision = getRoutingDecision(
+                requestId, sessionId, message, effectiveUserId, bus);
         if (decision == null || !decision.containsKey("agentName")) {
             bus.sendError("路由决策获取失败，请稍后重试");
             return;
@@ -201,7 +209,8 @@ public class StreamChatController {
                 ? (Boolean) request.get("showThinking") : true;
         int priority = request.containsKey("priority")
                 ? ((Number) request.get("priority")).intValue() : RequestQueueService.PRIORITY_NORMAL;
-        streamChat(message, requestId, sessionId, showThinking, priority, null, response);
+        String userId = request.get("userId") != null ? request.get("userId").toString() : null;
+        streamChat(message, requestId, sessionId, showThinking, priority, userId, null, response);
     }
 
     @PostMapping("/chat/cancel")
@@ -243,7 +252,12 @@ public class StreamChatController {
         return true;
     }
 
-    private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message, SseEventBus bus) {
+    private Map<String, Object> getRoutingDecision(
+            String requestId,
+            String sessionId,
+            String message,
+            String userId,
+            SseEventBus bus) {
         // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
         if (decisionKey == null || decisionKey.isBlank()) {
@@ -254,7 +268,7 @@ public class StreamChatController {
         // 优先使用 Router 同步返回的决策；Redis 通知仅作为旧链路兼容兜底。
         try {
             Map<String, Object> directDecision =
-                    routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey);
+                    routerClient.triggerRoutingDecision(message, userId, decisionKey);
             if (directDecision != null && directDecision.containsKey("agentName")) {
                 return directDecision;
             }
@@ -272,16 +286,37 @@ public class StreamChatController {
     /**
      * 解析用户 ID：从网关注入的 X-User-Id 取；SSE 走白名单(免鉴权)时为 anonymous。
      */
-    private String resolveUserId() {
+    private String resolveUserId(String requestedUserId) {
         try {
             var attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
             if (attrs != null) {
                 String uid = attrs.getRequest().getHeader("X-User-Id");
-                if (uid != null && !uid.isBlank()) return uid;
+                if (isPositiveUserId(uid)) return uid;
             }
         } catch (Exception ignored) {
         }
+        if (isPositiveUserId(requestedUserId)) return requestedUserId;
         return "anonymous";
+    }
+
+    private boolean isPositiveUserId(String userId) {
+        if (userId == null || userId.isBlank()) return false;
+        try {
+            return Long.parseLong(userId) > 0;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private void updateUserProfile(String userId, String message) {
+        if ("anonymous".equals(userId) || userProfileService == null) return;
+        try {
+            userProfileService.captureLatentSignals(Long.parseLong(userId), message);
+            logger.debug("[StreamChat] 用户画像已更新: userId={}", userId);
+        } catch (Exception e) {
+            logger.warn("[StreamChat] 用户画像更新失败，不影响对话: userId={}, error={}",
+                    userId, e.getMessage());
+        }
     }
 
     private boolean handleQueue(String requestId, int priority, SseEventBus bus) {
