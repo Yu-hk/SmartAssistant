@@ -57,6 +57,13 @@ public class UserProfileService {
         PREFERENCE_PATTERNS.put("budget_high", Pattern.compile("(高端|豪华|精品|五星)"));
         PREFERENCE_PATTERNS.put("diet_vegetarian", Pattern.compile("(素食|素菜|不吃肉)"));
         PREFERENCE_PATTERNS.put("diet_halal", Pattern.compile("(清真|回族)"));
+        // ⭐ P1-A：客服维度关键词
+        PREFERENCE_PATTERNS.put("complaint_refund", Pattern.compile("(退款|退货|赔偿|退|投诉)"));
+        PREFERENCE_PATTERNS.put("complaint_service", Pattern.compile("(服务差|不满|客服|态度差)"));
+        PREFERENCE_PATTERNS.put("channel_wechat", Pattern.compile("(微信|公众号|小程序)"));
+        PREFERENCE_PATTERNS.put("channel_phone", Pattern.compile("(电话|热线|客服电话|打电话)"));
+        PREFERENCE_PATTERNS.put("response_detailed", Pattern.compile("(详细|具体|说清楚|细说|解释)"));
+        PREFERENCE_PATTERNS.put("response_concise", Pattern.compile("(简洁|简单|简短|总结|概要)"));
     }
 
     public UserProfileService(LLMPreferenceExtractor llmExtractor, MemoryVersionStore memoryVersionStore) {
@@ -150,6 +157,45 @@ public class UserProfileService {
                 updateLocationWeight(profile, location);
             }
 
+            // ⭐ P1-A：处理投诉/抱怨
+            if (llmPrefs.complaintReason() != null) {
+                profile.setComplaintCount(profile.getComplaintCount() + 1);
+                profile.setEscalationCount(profile.getEscalationCount() + 1);
+                profile.setLastHandoffReason(llmPrefs.complaintReason());
+            } else if (extractComplaint(question)) {
+                profile.setComplaintCount(profile.getComplaintCount() + 1);
+            }
+
+            // ⭐ P1-A：处理偏好渠道
+            String channel = llmPrefs.preferredChannel();
+            if (channel == null) channel = extractChannel(question);
+            if (channel != null) profile.setPreferredChannel(channel);
+
+            // ⭐ P1-A：处理回复偏好
+            String respPref = llmPrefs.responsePreference();
+            if (respPref == null || "normal".equals(respPref)) respPref = extractResponsePreference(question);
+            if (respPref != null && !"normal".equals(respPref)) profile.setResponsePreference(respPref);
+
+            // ⭐ P1-A：处理敏感话题
+            List<String> sensitive = llmPrefs.sensitiveTopics();
+            if (!sensitive.isEmpty()) {
+                Set<String> existing = new HashSet<>();
+                if (profile.getSensitiveTopicsArray() != null) {
+                    existing.addAll(Arrays.asList(profile.getSensitiveTopicsArray()));
+                }
+                existing.addAll(sensitive);
+                profile.setSensitiveTopicsArray(existing.toArray(new String[0]));
+            }
+
+            // ⭐ P1-A：版本化记忆投诉/升级事件
+            if (llmPrefs.complaintReason() != null && memoryVersionStore != null) {
+                recordMemory(userId, "COMPLAINT", "投诉原因", llmPrefs.complaintReason(), MemorySource.EXPLICIT);
+            }
+            if (profile.getResponsePreference() != null && !"normal".equals(profile.getResponsePreference())
+                    && memoryVersionStore != null) {
+                recordMemory(userId, "RESPONSE_PREF", "回复偏好", profile.getResponsePreference(), MemorySource.FACT);
+            }
+
             // 合并美食偏好带权重
             mergePreferences(profile, foodPrefs, "food");
 
@@ -229,6 +275,26 @@ public class UserProfileService {
         if (profile.getBudgetRange() != null) {
             prompt.append("- 预算范围: ").append(profile.getBudgetRange()).append("\n");
         }
+
+        // ⭐ P1-A：客服维度字段
+        if (profile.getComplaintCount() > 0) {
+            prompt.append("- 投诉次数: ").append(profile.getComplaintCount()).append("次\n");
+        }
+        if (profile.getPreferredChannel() != null) {
+            prompt.append("- 偏好渠道: ").append(channelLabel(profile.getPreferredChannel())).append("\n");
+        }
+        if (profile.getResponsePreference() != null && !"normal".equals(profile.getResponsePreference())) {
+            prompt.append("- 回复偏好: ").append(
+                    "detailed".equals(profile.getResponsePreference()) ? "详细" : "简洁").append("\n");
+        }
+        String[] sensitive = profile.getSensitiveTopicsArray();
+        if (sensitive != null && sensitive.length > 0) {
+            prompt.append("- 敏感话题: ").append(String.join(", ", sensitive)).append("\n");
+        }
+        if (profile.getLastHandoffReason() != null) {
+            prompt.append("- 上次转人工原因: ").append(profile.getLastHandoffReason()).append("\n");
+        }
+
         prompt.append("- 历史查询: ").append(profile.getTotalQueries()).append("次\n");
 
         return prompt.toString();
@@ -251,7 +317,8 @@ public class UserProfileService {
             UserProfile profile = loadProfile(userId);
             if (profile == null) return;
 
-            String intentTag = routedAgent.replace("_chat", "").replace("_", "");
+            // ⭐ P1-B：将路由输出映射为客服意图类型（refund/order/tech/general）
+            String intentTag = normalizeIntentTag(routedAgent);
             Map<String, Integer> distribution = profile.getIntentDistribution();
             distribution.merge(intentTag, 1, Integer::sum);
             profile.setIntentDistribution(distribution);
@@ -261,6 +328,67 @@ public class UserProfileService {
         } catch (Exception e) {
             log.warn("[UserProfile] 更新意图分布失败: {}", e.getMessage());
         }
+    }
+
+    /**
+     * ⭐ P1-B：将路由输出的 Agent 名称 / intentTag 归一化为客服意图类型。
+     *
+     * <p>映射规则：</p>
+     * <ul>
+     *   <li>order / order_agent / order_chat → order</li>
+     *   <li>product / product_agent / food / travel → general（非客服直接对应产品/预定咨询）</li>
+     *   <li>general / general_agent → general</li>
+     *   <li>refund / complaint → refund</li>
+     *   <li>tech / technical → tech</li>
+     *   <li>其他 → general（兜底）</li>
+     * </ul>
+     */
+    /**
+     * ⭐ P2-A：将情绪快照回流到 UserProfile 并持久化。
+     * 维护最近一次情绪标签/分数、正负触碰计数与滑动平均，供客户 360° 画像展示。
+     */
+    public void recordEmotion(Long userId, String label, int score) {
+        if (userId == null) return;
+        try {
+            UserProfile profile = loadProfile(userId);
+            if (profile == null) {
+                profile = new UserProfile();
+                profile.setUserId(userId);
+                profile.setId(userId);
+            }
+            profile.setLastEmotionLabel(label);
+            profile.setLastEmotionScore(score);
+            if (score < 40) {
+                profile.setNegativeTouchCount(profile.getNegativeTouchCount() + 1);
+            } else if (score > 60) {
+                profile.setPositiveTouchCount(profile.getPositiveTouchCount() + 1);
+            }
+            int touched = profile.getEmotionTouchCount() + 1;
+            profile.setEmotionTouchCount(touched);
+            double prevAvg = profile.getEmotionAvgScore() != null ? profile.getEmotionAvgScore() : score;
+            profile.setEmotionAvgScore((prevAvg * (touched - 1) + score) / (double) touched);
+
+            saveProfile(profile);
+        } catch (Exception e) {
+            log.warn("[UserProfile] 情绪回流失败: userId={}, error={}", userId, e.getMessage());
+        }
+    }
+
+    private static String normalizeIntentTag(String raw) {
+        if (raw == null) return "general";
+        String tag = raw.toLowerCase()
+                .replace("_chat", "")
+                .replace("_agent", "")
+                .replace("_", "")
+                .trim();
+        return switch (tag) {
+            case "order", "orders" -> "order";
+            case "product", "food", "travel", "products" -> "general";
+            case "refund", "complaint", "return" -> "refund";
+            case "tech", "technical", "technology" -> "tech";
+            case "general", "default" -> "general";
+            default -> "general";
+        };
     }
 
     // ==================== 文件 I/O ====================
@@ -375,6 +503,35 @@ public class UserProfileService {
         return restrictions;
     }
 
+    /** ⭐ P1-A：检测投诉/抱怨关键词 */
+    private boolean extractComplaint(String text) {
+        return PREFERENCE_PATTERNS.entrySet().stream()
+                .filter(e -> e.getKey().startsWith("complaint_"))
+                .anyMatch(e -> e.getValue().matcher(text).find());
+    }
+
+    /** ⭐ P1-A：提取偏好渠道 */
+    private String extractChannel(String text) {
+        if (PREFERENCE_PATTERNS.getOrDefault("channel_wechat", Pattern.compile("")).matcher(text).find()) {
+            return "wechat";
+        }
+        if (PREFERENCE_PATTERNS.getOrDefault("channel_phone", Pattern.compile("")).matcher(text).find()) {
+            return "phone";
+        }
+        return null;
+    }
+
+    /** ⭐ P1-A：提取回复偏好 */
+    private String extractResponsePreference(String text) {
+        if (PREFERENCE_PATTERNS.getOrDefault("response_detailed", Pattern.compile("")).matcher(text).find()) {
+            return "detailed";
+        }
+        if (PREFERENCE_PATTERNS.getOrDefault("response_concise", Pattern.compile("")).matcher(text).find()) {
+            return "concise";
+        }
+        return "normal";
+    }
+
     private String convertBudget(String llmBudget) {
         if (llmBudget == null) return null;
         return switch (llmBudget.toLowerCase()) {
@@ -389,6 +546,17 @@ public class UserProfileService {
         return Arrays.stream(prefs)
                 .map(p -> p + "(" + weights.getOrDefault(p, 1) + ")")
                 .collect(Collectors.joining(", "));
+    }
+
+    /** ⭐ P1-A：渠道标签中文化 */
+    private static String channelLabel(String ch) {
+        if (ch == null) return "在线客服";
+        return switch (ch.toLowerCase()) {
+            case "wechat" -> "微信";
+            case "phone" -> "电话";
+            case "web" -> "网页";
+            default -> "在线客服";
+        };
     }
 
     @SuppressWarnings("unchecked")
