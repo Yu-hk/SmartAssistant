@@ -116,6 +116,55 @@ public class UserProfileService {
     /**
      * 从问题中提取偏好信息并更新用户画像
      */
+    /**
+     * Capture deterministic latent signals for the streaming chat path without
+     * waiting for an LLM call. This keeps SSE startup fast and avoids holding a
+     * database transaction open while a remote model is unavailable.
+     */
+    public synchronized void captureLatentSignals(Long userId, String question) {
+        if (userId == null || question == null || question.isBlank()) return;
+
+        List<String> detected = llmExtractor.detectLatentSignals(question);
+        try {
+            UserProfile profile = loadProfile(userId);
+            if (profile == null) {
+                profile = new UserProfile();
+                profile.setUserId(userId);
+                profile.setTotalQueries(0);
+                profile = applyDefaultProfile(profile);
+            }
+
+            profile.setTotalQueries(profile.getTotalQueries() + 1);
+            profile.setLastQueryAt(LocalDateTime.now());
+
+            if (!detected.isEmpty()) {
+                Set<String> merged = new LinkedHashSet<>();
+                if (profile.getKeyInsightsArray() != null) {
+                    merged.addAll(Arrays.asList(profile.getKeyInsightsArray()));
+                }
+                merged.addAll(detected);
+                List<String> limited = new ArrayList<>(merged);
+                if (limited.size() > 30) {
+                    limited = limited.subList(limited.size() - 30, limited.size());
+                }
+                profile.setKeyInsightsArray(limited.toArray(new String[0]));
+                if (memoryVersionStore != null) {
+                    for (String insight : detected) {
+                        recordMemory(userId, "KEY_INSIGHT", insight, "隐藏关键信息",
+                                MemorySource.INFERRED);
+                    }
+                }
+            }
+
+            saveProfile(profile);
+            log.info("[UserProfile] 流式会话规则画像已更新: userId={}, insights={}",
+                    userId, detected);
+        } catch (Exception e) {
+            log.warn("[UserProfile] 流式会话规则画像更新失败: userId={}, error={}",
+                    userId, e.getMessage());
+        }
+    }
+
     @Transactional
     public void extractAndUpdatePreferences(Long userId, String question, String extractedLocation) {
         if (userId == null || question == null) return;
