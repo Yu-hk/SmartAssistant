@@ -1,10 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Session, INTENT_LABELS, IntentType, KbHit, EmotionResult } from '../types';
+import {
+  Session, INTENT_LABELS, IntentType, KbHit, EmotionResult, CustomerProfile,
+  Ticket, TicketStatus, TICKET_STATUS_META,
+} from '../types';
 import { insight as insightApi } from '../api';
 
 interface InsightPanelProps {
   session?: Session;
   userName?: string;
+  userId?: number;        // P0 新增：传入当前登录用户 ID 用于拉取真实画像
 }
 
 /**
@@ -56,7 +60,7 @@ const TODO_BY_INTENT: Record<IntentType, TodoItem[]> = {
   unknown: [],
 };
 
-export function InsightPanel({ session, userName }: InsightPanelProps) {
+export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
   const customerName = session?.user_name || userName || '访客用户';
   const intent: IntentType = session?.intent ?? 'unknown';
   const intentLabel = session?.intent && session.intent !== 'unknown'
@@ -72,29 +76,36 @@ export function InsightPanel({ session, userName }: InsightPanelProps) {
   const [emotion, setEmotion] = useState<EmotionResult | null>(null);
   const [kbHits, setKbHits] = useState<KbHit[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const [ticket, setTicket] = useState<{ id: string } | null>(null);
+  const [tickets, setTickets] = useState<Ticket[]>([]);  // ⭐ P1-C 工单列表
   const [ticketError, setTicketError] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);  // 正在填写关闭结论的工单
+  const [resolutionText, setResolutionText] = useState<string>('');
+  const [profile, setProfile] = useState<CustomerProfile | null>(null);  // P0 客户 360°
 
-  // 拉取真实后端数据：情绪分析 + 知识库检索
+  // 拉取真实后端数据：情绪分析 + 知识库检索 + 客户画像 + 工单列表
   useEffect(() => {
     if (!session?.id) return;
     let cancelled = false;
     setLoading(true);
-    setTicket(null);
+    setTickets([]);
     setTicketError(null);
 
     Promise.allSettled([
-      insightApi.analyzeEmotion(lastUserMessage),
+      insightApi.analyzeEmotion(lastUserMessage, userId, intentLabel),
       insightApi.searchKb(lastUserMessage, intent),
-    ]).then(([eRes, kRes]) => {
+      userId !== undefined ? insightApi.getProfile(userId, customerName) : Promise.resolve(null),
+      insightApi.listTickets({ sessionId: session.id }),  // ⭐ P1-C 工单列表
+    ]).then(([eRes, kRes, pRes, tRes]) => {
       if (cancelled) return;
       if (eRes.status === 'fulfilled') setEmotion(eRes.value);
       if (kRes.status === 'fulfilled') setKbHits(kRes.value.hits);
+      if (pRes && pRes.status === 'fulfilled' && pRes.value) setProfile(pRes.value);
+      if (tRes.status === 'fulfilled') setTickets(tRes.value);
       setLoading(false);
     });
 
     return () => { cancelled = true; };
-  }, [session?.id, lastUserMessage, intent]);
+  }, [session?.id, lastUserMessage, intent, userId, customerName, intentLabel]);
 
   const chain = CHAIN_BY_INTENT[intent];
   const todos = TODO_BY_INTENT[intent];
@@ -120,10 +131,44 @@ export function InsightPanel({ session, userName }: InsightPanelProps) {
       if (res.status === 'FAILED' || res.error) {
         setTicketError(res.error || '工单创建失败');
       } else {
-        setTicket({ id: res.id });
+        // 刷新本会话工单列表
+        const list = await insightApi.listTickets({ sessionId: session.id });
+        setTickets(list);
       }
     } catch (err) {
       setTicketError('网络异常，工单创建未成功');
+    }
+  };
+
+  // ⭐ P1-C 工单生命周期操作
+  const handleStatusChange = async (ticketId: string, status: TicketStatus) => {
+    setTicketError(null);
+    try {
+      const res = await insightApi.updateTicketStatus(ticketId, status);
+      if (res.status === 'FAILED' || res.error) {
+        setTicketError(res.error || '状态更新失败');
+      } else if (session?.id) {
+        setTickets(await insightApi.listTickets({ sessionId: session.id }));
+      }
+    } catch {
+      setTicketError('网络异常，状态更新未成功');
+    }
+  };
+
+  const handleCloseTicket = async (ticketId: string) => {
+    setTicketError(null);
+    try {
+      const res = await insightApi.closeTicket(ticketId, resolutionText.trim());
+      if (res.status === 'FAILED' || res.error) {
+        setTicketError(res.error || '关闭失败');
+      } else if (session?.id) {
+        setTickets(await insightApi.listTickets({ sessionId: session.id }));
+      }
+    } catch {
+      setTicketError('网络异常，关闭未成功');
+    } finally {
+      setResolvingId(null);
+      setResolutionText('');
     }
   };
 
@@ -163,7 +208,7 @@ export function InsightPanel({ session, userName }: InsightPanelProps) {
         </span>
       </div>
 
-      {/* 客户画像（前端派生） */}
+      {/* 客户画像（P0 客户 360° — 从后端拉取） */}
       <InsightCard>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{
@@ -185,13 +230,50 @@ export function InsightPanel({ session, userName }: InsightPanelProps) {
               {customerName}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--nova-text-secondary)' }}>
-              VIP3 · 微信渠道
+              {profile
+                ? (() => {
+                    const parts: string[] = [];
+                    if (profile.entityFacts?.location) parts.push(profile.entityFacts.location);
+                    if (profile.budgetRange) parts.push('预算:' + profile.budgetRange);
+                    const ch = profile.entityFacts?.channel || '在线客服';
+                    parts.push(ch);
+                    return parts.join(' · ');
+                  })()
+                : `${profile ? '' : '加载中...'}`}
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '6px', marginTop: '12px' }}>
-          <Tag text="历史会话 12" />
-          <Tag text="满意度 96%" />
+        <div style={{ display: 'flex', gap: '6px', marginTop: '12px', flexWrap: 'wrap' }}>
+          {profile ? (
+            <>
+              <Tag text={`历史查询 ${profile.totalQueries} 次`} />
+              <Tag text={`投诉 ${profile.complaintCount} 次`} />
+              {/* ⭐ P2-A 持久化情绪聚合 */}
+              {profile.lastEmotionLabel && (
+                <Tag text={`情绪: ${profile.lastEmotionLabel} (${profile.lastEmotionScore ?? 0})`} />
+              )}
+              {profile.negativeTouchCount ? (
+                <Tag text={`负面触碰 ${profile.negativeTouchCount} 次`} />
+              ) : null}
+              {profile.emotionAvgScore != null && (
+                <Tag text={`情绪均分 ${Math.round(profile.emotionAvgScore)}`} />
+              )}
+              {profile.foodPreferences.length > 0 && (
+                <Tag text={`食: ${profile.foodPreferences.slice(0, 2).join('/')}`} />
+              )}
+              {profile.travelPreferences.length > 0 && (
+                <Tag text={`旅: ${profile.travelPreferences.slice(0, 2).join('/')}`} />
+              )}
+              {profile.agentMemorySummaries.length > 0 && (
+                <Tag text={`笔记 ${profile.agentMemorySummaries.length} 条`} />
+              )}
+            </>
+          ) : (
+            <>
+              <Tag text={`历史查询 ${profile === null ? '?' : '0'} 次`} />
+              <Tag text="满意度 --" />
+            </>
+          )}
         </div>
       </InsightCard>
 
@@ -275,16 +357,16 @@ export function InsightPanel({ session, userName }: InsightPanelProps) {
         </div>
       </InsightCard>
 
-      {/* 待办事项（前端派生 + 后端工单） */}
+      {/* 待办事项 + 工单生命周期（⭐ P1-C） */}
       <InsightCard>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           marginBottom: '10px',
         }}>
           <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--nova-text-primary)' }}>
-            待办事项
+            待办 & 工单
           </span>
-          {todos.length > 0 && !ticket && (
+          {todos.length > 0 && (
             <span style={{
               fontSize: '11px', fontWeight: 700, color: '#fff',
               background: 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))',
@@ -294,35 +376,110 @@ export function InsightPanel({ session, userName }: InsightPanelProps) {
             </span>
           )}
         </div>
-        {todos.length === 0 && !ticket && (
+
+        {/* 待办：生成工单按钮 */}
+        {todos.map(todo => (
+          <button
+            key={todo.id}
+            className="neon-btn"
+            style={{ width: '100%', padding: '10px', fontSize: '13px', marginBottom: '8px' }}
+            onClick={() => handleCreateTicket(todo)}
+          >
+            {todo.label}
+          </button>
+        ))}
+
+        {/* 已生成工单列表 + 生命周期操作 */}
+        {tickets.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: todos.length ? '6px' : 0 }}>
+            {tickets.map(t => {
+              const meta = TICKET_STATUS_META[t.status] ?? TICKET_STATUS_META.OPEN;
+              const isClosed = t.status === 'CLOSED';
+              return (
+                <div key={t.id} style={{
+                  border: '1px solid var(--nova-border)',
+                  borderRadius: '10px', padding: '10px', background: meta.bg,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--nova-text-primary)' }}>
+                      #{t.id.slice(0, 8)}
+                    </span>
+                    <span style={{
+                      fontSize: '10px', fontWeight: 700, color: meta.color,
+                      background: 'rgba(255,255,255,0.6)', borderRadius: '100px', padding: '1px 8px',
+                    }}>
+                      {meta.label}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--nova-text-tertiary)', marginTop: '4px', wordBreak: 'break-all' }}>
+                    {t.summary || '（无摘要）'}
+                  </div>
+
+                  {!isClosed ? (
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                      <select
+                        value={t.status}
+                        onChange={e => handleStatusChange(t.id, e.target.value as TicketStatus)}
+                        style={{
+                          flex: 1, fontSize: '11px', padding: '4px 6px', borderRadius: '8px',
+                          border: '1px solid var(--nova-border)', background: 'var(--nova-bg, #0b1220)',
+                          color: 'var(--nova-text-primary)',
+                        }}
+                      >
+                        {(['OPEN', 'IN_PROGRESS', 'PENDING', 'RESOLVED'] as TicketStatus[]).map(s => (
+                          <option key={s} value={s}>{TICKET_STATUS_META[s].label}</option>
+                        ))}
+                      </select>
+                      <button
+                        className="neon-btn"
+                        style={{ padding: '4px 10px', fontSize: '11px' }}
+                        onClick={() => { setResolvingId(t.id); setResolutionText(''); }}
+                      >
+                        关闭
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '10px', color: 'var(--nova-text-tertiary)', marginTop: '6px' }}>
+                      已关闭{ t.closedAt ? ` · ${t.closedAt}` : '' }
+                      { t.resolution ? ` · ${t.resolution}` : '' }
+                    </div>
+                  )}
+
+                  {/* 关闭结论输入 */}
+                  {resolvingId === t.id && (
+                    <div style={{ marginTop: '8px' }}>
+                      <input
+                        value={resolutionText}
+                        onChange={e => setResolutionText(e.target.value)}
+                        placeholder="处理结论（可选）"
+                        style={{
+                          width: '100%', fontSize: '11px', padding: '5px 8px', borderRadius: '8px',
+                          border: '1px solid var(--nova-border)', background: 'var(--nova-bg, #0b1220)',
+                          color: 'var(--nova-text-primary)', marginBottom: '6px',
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button className="neon-btn" style={{ flex: 1, padding: '5px', fontSize: '11px' }}
+                          onClick={() => handleCloseTicket(t.id)}>确认关闭</button>
+                        <button style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px',
+                          border: '1px solid var(--nova-border)', background: 'transparent', color: 'var(--nova-text-tertiary)' }}
+                          onClick={() => { setResolvingId(null); setResolutionText(''); }}>取消</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : tickets.length === 0 && todos.length === 0 ? (
           <div style={{ fontSize: '12px', color: 'var(--nova-text-tertiary)' }}>
             当前无需生成工单
           </div>
-        )}
-        {ticket ? (
-          <div style={{
-            fontSize: '12px', color: 'var(--nova-secondary)',
-            padding: '10px 12px', borderRadius: '10px',
-            background: 'var(--nova-secondary-light, rgba(6,182,212,0.12))',
-          }}>
-            ✓ 工单已生成 #{ticket.id.slice(0, 8)}
-          </div>
-        ) : (
-          todos.map(todo => (
-            <button
-              key={todo.id}
-              className="neon-btn"
-              style={{ width: '100%', padding: '10px', fontSize: '13px', marginBottom: '8px' }}
-              onClick={() => handleCreateTicket(todo)}
-            >
-              {todo.label}
-            </button>
-          ))
-        )}
+        ) : null}
+
         {ticketError && (
           <div style={{
-            fontSize: '11px', color: '#fca5a5',
-            marginTop: '6px',
+            fontSize: '11px', color: '#fca5a5', marginTop: '6px',
           }}>
             {ticketError}
           </div>

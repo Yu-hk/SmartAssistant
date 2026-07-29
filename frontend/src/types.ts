@@ -131,6 +131,55 @@ export interface TicketResult {
   error?: string;
 }
 
+/** ⭐ P1-C 工单生命周期状态 */
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'PENDING' | 'RESOLVED' | 'CLOSED';
+
+/** ⭐ P1-C 工单面板展示模型（与后端 TicketView 对齐） */
+export interface Ticket {
+  id: string;
+  sessionId: string | null;
+  intent: string | null;
+  summary: string | null;
+  customerName: string | null;
+  status: TicketStatus;
+  createdAt: string | null;
+  updatedAt: string | null;
+  closedAt: string | null;
+  resolution: string | null;
+}
+
+/** 工单状态中文标签与配色（前端展示用） */
+export const TICKET_STATUS_META: Record<TicketStatus, { label: string; color: string; bg: string }> = {
+  OPEN: { label: '待处理', color: '#f59e0b', bg: 'rgba(245,158,11,0.14)' },
+  IN_PROGRESS: { label: '处理中', color: '#3b82f6', bg: 'rgba(59,130,246,0.14)' },
+  PENDING: { label: '挂起', color: '#a78bfa', bg: 'rgba(167,139,250,0.14)' },
+  RESOLVED: { label: '已解决', color: '#14b8a6', bg: 'rgba(20,184,166,0.14)' },
+  CLOSED: { label: '已关闭', color: '#94a3b8', bg: 'rgba(148,163,184,0.14)' },
+};
+
+// 客户 360° 画像 (P0 新增)
+export interface CustomerProfile {
+  userName: string;
+  totalQueries: number;
+  intentDistribution: Record<string, number>;
+  entityFacts: Record<string, string>;
+  foodPreferences: string[];
+  travelPreferences: string[];
+  budgetRange: string;
+  dietaryRestrictions: string[];
+  preferenceWeights: Record<string, number>;
+  escalationCount: number;
+  complaintCount: number;
+  // ⭐ P2-A 持久化情绪聚合
+  lastEmotionLabel?: string | null;
+  lastEmotionScore?: number;
+  negativeTouchCount?: number;
+  positiveTouchCount?: number;
+  emotionAvgScore?: number | null;
+  agentMemorySummaries: string[];
+  emotionHistory: Array<{ timestamp: string; score: number; label: string; triggerTopic: string }>;
+}
+
 export type Theme = 'light' | 'dark';
 
 export interface Agent {

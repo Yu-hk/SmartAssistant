@@ -364,6 +364,7 @@ function AppContent() {
         <InsightPanel
           session={currentSession}
           userName={getAuthUser()?.username}
+          userId={getAuthUser()?.userId}
         />
       )}
     </div>
