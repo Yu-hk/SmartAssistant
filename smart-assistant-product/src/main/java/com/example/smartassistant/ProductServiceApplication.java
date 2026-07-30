@@ -9,13 +9,16 @@ package com.example.smartassistant;
 
 import com.example.smartassistant.common.interceptor.EnableServiceInterceptor;
 import com.example.smartassistant.spi.InMemoryProductBackend;
+import com.example.smartassistant.spi.JdbcProductBackend;
 import com.example.smartassistant.spi.ProductBackend;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * Product Service 启动类
@@ -39,8 +42,11 @@ import org.springframework.context.annotation.ComponentScan;
 public class ProductServiceApplication {
 
     @Bean
-    public ProductBackend inMemoryProductBackend() {
-        return new InMemoryProductBackend();
+    public ProductBackend productBackend(ObjectProvider<JdbcTemplate> jdbcTemplateProvider) {
+        JdbcTemplate jdbcTemplate = jdbcTemplateProvider.getIfAvailable();
+        return jdbcTemplate != null
+                ? new JdbcProductBackend(jdbcTemplate)
+                : new InMemoryProductBackend();
     }
 
     public static void main(String[] args) {

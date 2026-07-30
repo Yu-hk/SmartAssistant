@@ -61,22 +61,20 @@ class StreamingProductAgentServiceTest {
     }
 
     @Test
-    @DisplayName("高质量：应把检索知识注入上下文再调用 LLM")
-    void highQuality_shouldInjectContext() {
+    @DisplayName("高质量：应直接返回数据库检索结果并跳过 LLM")
+    void highQuality_shouldReturnEvidenceDirectly() {
         when(ragService.retrieveWithQualityResult(anyString()))
                 .thenReturn(RetrievalQualityResult.highQuality("【商品检索结果】iPhone 15", 0.92));
-        when(agent.execute(anyString())).thenReturn("iPhone 15 详情如下");
 
         String result = service.execute("iPhone 15 怎么样", "req-p-ok");
 
-        assertNotNull(result);
-        verify(agent, times(1)).execute(argThat(msg ->
-                msg.contains("系统已检索到以下商品信息") && msg.contains("iPhone 15")));
+        assertEquals("【商品检索结果】iPhone 15", result);
+        verify(agent, never()).execute(anyString());
 
         var trace = recorder.findByRequestId("req-p-ok");
         assertNotNull(trace);
         assertFalse(trace.isRejected());
-        assertEquals("OK", trace.lastStageOf(RagStage.GENERATION).status());
+        assertEquals("SKIPPED", trace.lastStageOf(RagStage.GENERATION).status());
     }
 
     @Test

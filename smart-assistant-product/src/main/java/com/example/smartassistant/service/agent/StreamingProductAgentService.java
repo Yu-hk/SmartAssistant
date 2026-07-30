@@ -123,10 +123,14 @@ public class StreamingProductAgentService {
                                                 "highQuality", qr.isHighQuality())));
                     }
                     if (qr.isHighQuality() && qr.getContent() != null && !qr.getContent().isBlank()) {
-                        userMessage = "[系统已检索到以下商品信息]\n" + qr.getContent()
-                                + "\n\n用户问题：" + userMessage;
-                        ragContext = qr.getContent();
-                        log.info("[StreamingProductAgent] RAG 知识已注入上下文");
+                        if (stageTraceRecorder != null) {
+                            stageTraceRecorder.recordStage(rid, RagStage.GENERATION,
+                                    StageSpan.STATUS_SKIPPED, 0,
+                                    Map.of("reason", "deterministic-product-query"));
+                            stageTraceRecorder.save(rid);
+                        }
+                        log.info("[StreamingProductAgent] 高质量商品检索结果直接返回: requestId={}", rid);
+                        return qr.getContent();
                     }
                 } catch (Exception ragEx) {
                     // RAG 失败：降级为无上下文生成，不阻断主流程

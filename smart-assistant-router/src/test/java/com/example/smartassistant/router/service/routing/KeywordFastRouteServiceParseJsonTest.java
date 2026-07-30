@@ -82,4 +82,30 @@ class KeywordFastRouteServiceParseJsonTest {
     void nonArrayReturnsEmpty() {
         assertTrue(service.parseJsonRules("{\"foo\":\"bar\"}").isEmpty());
     }
+
+    @Test
+    @DisplayName("显式 ORD 订单号应直接路由到 order，无需依赖自然语言关键词")
+    void explicitOrderIdUsesOrderFastRoute() {
+        service.init();
+
+        KeywordFastRouteService.MatchResult result =
+                service.match("请帮我查看 ORD-E2E-0001 现在配送到哪里了");
+
+        assertNotNull(result);
+        assertEquals("order", result.getTargetAgent());
+        assertEquals("order_id_fast_route", result.getMatchedRuleName());
+    }
+
+    @Test
+    @DisplayName("显式商品编码应直接路由到 product，不依赖价格/库存关键词")
+    void explicitProductIdUsesProductFastRoute() {
+        service.init();
+
+        KeywordFastRouteService.MatchResult result =
+                service.match("请给出 E2E-PROD-0001 的售价以及杭州仓可售量");
+
+        assertNotNull(result);
+        assertEquals("product", result.getTargetAgent());
+        assertEquals("product_id_fast_route", result.getMatchedRuleName());
+    }
 }

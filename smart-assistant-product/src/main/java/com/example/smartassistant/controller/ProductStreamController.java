@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -94,9 +95,18 @@ public class ProductStreamController {
      * 简单的非流式对话（兼容旧接口）
      */
     @PostMapping("/chat/sync")
-    public String chatSync(@RequestParam String message) {
-        log.info("[ProductStream] 同步对话: {}", message);
-        return streamingAgentService.execute(message);
+    public String chatSync(@RequestParam(required = false) String message,
+                           @RequestBody(required = false) Map<String, Object> request) {
+        Object bodyQuestion = request != null
+                ? request.getOrDefault("question", request.get("message"))
+                : null;
+        String resolvedMessage = message != null ? message
+                : bodyQuestion != null ? bodyQuestion.toString() : null;
+        if (resolvedMessage == null || resolvedMessage.isBlank()) {
+            throw new IllegalArgumentException("question must not be blank");
+        }
+        log.info("[ProductStream] 同步对话: {}", resolvedMessage);
+        return streamingAgentService.execute(resolvedMessage);
     }
 
     /**
