@@ -356,6 +356,26 @@ public class KeywordFastRouteService {
     private void loadDefaultRules() {
         log.info("[KeywordFastRoute] 加载内置默认关键词规则");
 
+        // 规则 0：显式业务订单号（即使用户只说“配送到哪了”也应稳定路由到订单服务）
+        KeywordRule orderIdRule = new KeywordRule();
+        orderIdRule.setName("order_id_fast_route");
+        orderIdRule.setTargetAgent("order");
+        orderIdRule.setIntentTag("订单查询");
+        orderIdRule.setRegex("(?i)(?<![A-Z0-9_])ORD-[A-Z0-9_]+(?:-[A-Z0-9_]+)*(?![A-Z0-9_-])");
+        orderIdRule.setConfidence(0.99);
+        orderIdRule.setPriority(1);
+        activeRules.add(orderIdRule);
+
+        // 规则 0.1：显式业务商品编码。价格、售价、可售量等表达无需依赖自然语言关键词。
+        KeywordRule productIdRule = new KeywordRule();
+        productIdRule.setName("product_id_fast_route");
+        productIdRule.setTargetAgent("product");
+        productIdRule.setIntentTag("商品查询");
+        productIdRule.setRegex("(?i)(?<![A-Z0-9_])E2E-PROD-\\d+(?![A-Z0-9_-])");
+        productIdRule.setConfidence(0.99);
+        productIdRule.setPriority(1);
+        activeRules.add(productIdRule);
+
         // 规则 1：退款（Order 模块）
         KeywordRule refundRule = new KeywordRule();
         refundRule.setName("refund_fast_route");

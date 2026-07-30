@@ -175,7 +175,7 @@ function AppContent() {
   } = useChat({
     currentSession,
     currentSessionId,
-    selectedModel: 'claude-sonnet-4',
+    selectedModel: 'qwen2.5:7b',
     setSessions,
     setCurrentSessionId,
   });

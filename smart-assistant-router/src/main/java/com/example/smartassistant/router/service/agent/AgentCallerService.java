@@ -59,9 +59,9 @@ public class AgentCallerService {
      */
     private static final String DEFAULT_PROTOCOL_VERSION = "a2a-v1";
 
-    /** ⭐ Agent 调用超时配置（与文章建议的"核心链路同步 3s 超时"一致） */
+    /** Agent 调用超时配置。本地 7B 模型首次加载及工具循环可能需要几十秒。 */
     private static final int AGENT_CONNECT_TIMEOUT_MS = 3000;   // 连接超时 3s
-    private static final int AGENT_READ_TIMEOUT_MS = 5000;      // 读取超时 5s
+    private static final int AGENT_READ_TIMEOUT_MS = 180000;    // 读取超时 180s
 
     private final AgentDiscoveryService agentDiscoveryService;
     private final AgentVersionNegotiator versionNegotiator;
@@ -96,7 +96,7 @@ public class AgentCallerService {
         this.versionNegotiator = versionNegotiator;
         this.aiChatService = aiChatService;
         this.lightModel = lightModel;
-        // ⭐ 配置 RestTemplate 超时：连接 3s、读取 5s，与文章建议一致
+        // 连接失败快速返回；模型推理读取允许最长 180s。
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(AGENT_CONNECT_TIMEOUT_MS);
         factory.setReadTimeout(AGENT_READ_TIMEOUT_MS);
