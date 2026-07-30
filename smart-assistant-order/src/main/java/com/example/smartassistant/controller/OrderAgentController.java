@@ -129,8 +129,9 @@ public class OrderAgentController {
 
             // ⭐ P1: 先取检索质量结果，决定是否"无证据拒答"
             long retrievalStart = System.currentTimeMillis();
+            Long authenticatedUserId = parseUserId(userId);
             RetrievalQualityResult qr = (ragService != null)
-                    ? ragService.retrieveWithQualityResult(intent, question)
+                    ? ragService.retrieveWithQualityResult(intent, question, authenticatedUserId)
                     : RetrievalQualityResult.highQuality("", 1.0);
             long retrievalMs = System.currentTimeMillis() - retrievalStart;
 
@@ -151,6 +152,28 @@ public class OrderAgentController {
                 // ⭐ G4 运营指标：记录无证据拒答
                 opsMetrics.recordNoEvidenceAnswer("order", intent.getLabel());
                 return qr.getRejectionMessage();
+            }
+
+            // 只读订单/物流查询已经由数据库预检索拿到完整且高置信度的事实，
+            // 直接返回可避免重复调用生成模型造成延迟、超时或事实改写。
+            if ((intent == IntentType.QUERY_ORDER || intent == IntentType.POLICY_QA)
+                    && qr.isHighQuality()
+                    && qr.getContent() != null && !qr.getContent().isBlank()) {
+                String directReason = intent == IntentType.POLICY_QA
+                        ? "deterministic-policy" : "deterministic-query";
+                if (stageTraceRecorder != null) {
+                    stageTraceRecorder.getOrCreate(requestId, question, "order_agent")
+                            .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
+                                    Map.of("qualityScore", qr.getNormalizedScore(),
+                                            "highQuality", true)));
+                    stageTraceRecorder.recordStage(requestId, RagStage.GENERATION,
+                            StageSpan.STATUS_SKIPPED, 0, Map.of("reason", directReason));
+                    stageTraceRecorder.save(requestId);
+                }
+                log.info("[OrderAgent] 高质量{}结果直接返回: requestId={}, retrievalMs={}",
+                        intent == IntentType.POLICY_QA ? "政策知识" : "只读查询",
+                        requestId, retrievalMs);
+                return qr.getContent();
             }
 
             // 有证据：注入上下文
@@ -214,6 +237,17 @@ public class OrderAgentController {
         } catch (Exception e) {
             log.error("[OrderAgent] 处理失败: {}", e.getMessage(), e);
             return "❌ 处理失败: " + e.getMessage();
+        }
+    }
+
+    private static Long parseUserId(String userId) {
+        if (userId == null || userId.isBlank() || "null".equalsIgnoreCase(userId)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(userId);
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 }

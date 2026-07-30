@@ -17,6 +17,14 @@ management:
       "http.server.requests": false   # 抑制重复的 HTTP server span
       "http.client.requests": false   # 抑制重复的 HTTP client span
 otel:
+  # No OTLP collector is bundled in the default deployment. Keep the SDK
+  # available for Langfuse/OTLP opt-in, but do not retry localhost:4318.
+  traces:
+    exporter: ${OTEL_TRACES_EXPORTER:none}
+  metrics:
+    exporter: ${OTEL_METRICS_EXPORTER:none}
+  logs:
+    exporter: ${OTEL_LOGS_EXPORTER:none}
   instrumentation:
     spring-webmvc:
       enabled: false                  # 抑制重复的 OTel HTTP server span

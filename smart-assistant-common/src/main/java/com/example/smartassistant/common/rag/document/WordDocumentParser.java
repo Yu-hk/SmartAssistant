@@ -22,8 +22,11 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HexFormat;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Word 文档解析器——基于 Apache POI 实现。
@@ -103,7 +106,8 @@ public class WordDocumentParser implements DocumentParser {
             // 2. 逐表格解析
             List<XWPFTable> tables = document.getTables();
             for (int tIdx = 0; tIdx < tables.size(); tIdx++) {
-                String tableContent = extractTableText(tables.get(tIdx));
+                Set<XWPFTable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+                String tableContent = extractTableText(tables.get(tIdx), visited, 0);
                 if (!tableContent.isBlank()) {
                     results.add(buildParsedElement(
                             "【表格】\n" + tableContent,
@@ -157,6 +161,21 @@ public class WordDocumentParser implements DocumentParser {
 
     /** 提取表格文本：行列拼接格式 */
     private static String extractTableText(XWPFTable table) {
+        Set<XWPFTable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        return extractTableText(table, visited, 0);
+    }
+
+    /**
+     * 提取表格文本并保护嵌套遍历。
+     * Apache POI 在部分文档中可能返回重复的表格对象；使用对象身份去重并限制深度，
+     * 避免自引用或异常嵌套导致 StackOverflowError。
+     */
+    private static String extractTableText(XWPFTable table,
+                                           Set<XWPFTable> visited,
+                                           int depth) {
+        if (table == null || depth > 8 || !visited.add(table)) {
+            return "";
+        }
         StringBuilder sb = new StringBuilder();
         List<XWPFTableRow> rows = table.getRows();
         for (int r = 0; r < rows.size(); r++) {
@@ -169,7 +188,10 @@ public class WordDocumentParser implements DocumentParser {
                 List<XWPFTable> nestedTables = cells.get(c).getTables();
                 if (!nestedTables.isEmpty()) {
                     for (XWPFTable nt : nestedTables) {
-                        cellText += "\n  [嵌套表格]: " + extractTableText(nt);
+                        String nested = extractTableText(nt, visited, depth + 1);
+                        if (!nested.isBlank()) {
+                            cellText += "\n  [嵌套表格]: " + nested;
+                        }
                     }
                 }
                 sb.append(cellText);

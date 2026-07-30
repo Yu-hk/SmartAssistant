@@ -8,7 +8,9 @@ set -a
 source deploy/.env
 set +a
 
-JAVA_IMAGE="docker.m.daocloud.io/eclipse-temurin:21-jre-alpine"
+# ONNX Runtime depends on libstdc++. The Debian-based Temurin image includes
+# that native runtime; the Alpine variant does not.
+JAVA_IMAGE="docker.m.daocloud.io/eclipse-temurin:21-jre"
 NETWORK="smart-network"
 NACOS_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' smart-nacos)"
 test -n "$NACOS_IP"
@@ -69,8 +71,19 @@ start_service() {
     # DeepSeekChatAutoConfiguration requires the RetryTemplate created by
     # SpringAiRetryAutoConfiguration. OrderIntentService also requires the
     # Ollama-backed lightChatModel, so keep both auto-configurations enabled.
+    # Point the DeepSeek-compatible primary model at local Ollama as well;
+    # production deployments commonly leave the cloud key unset/placeholder.
     extra_args+=("--spring.ai.mcp.server.enabled=false")
     extra_args+=("--spring.ai.mcp.client.enabled=false")
+    extra_docker_args+=("-e" "SPRING_AI_DEEPSEEK_BASE_URL=http://smart-ollama:11434/v1")
+    extra_docker_args+=("-e" "SPRING_AI_DEEPSEEK_API_KEY=ollama")
+    extra_docker_args+=("-e" "SPRING_AI_DEEPSEEK_CHAT_OPTIONS_MODEL=qwen2.5:7b")
+    extra_docker_args+=("-e" "APP_RAG_STORE_MODE=pg")
+    extra_docker_args+=("-e" "EMBEDDING_SERVICE_URL=http://smart-embedding-service:8091")
+  elif [[ "$service" == "embedding-service" ]]; then
+    extra_docker_args+=("-v" "${APP_DIR}/models:/app/models:ro")
+    extra_docker_args+=("-e" "BGE_MODEL_PATH=/app/models/bge-large-zh-v1.5.onnx")
+    extra_docker_args+=("-e" "BGE_VOCAB_PATH=/app/models/tokenizer.json")
   else
     extra_args+=("--spring.autoconfigure.exclude=org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration,org.springframework.ai.retry.autoconfigure.SpringAiRetryAutoConfiguration")
   fi
@@ -107,6 +120,9 @@ start_service() {
     -e "SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD=${NACOS_PASSWORD}" \
     -e "SPRING_AI_OLLAMA_BASE_URL=http://smart-ollama:11434" \
     -e "MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT=http://smart-zipkin:9411/api/v2/spans" \
+    -e "OTEL_TRACES_EXPORTER=none" \
+    -e "OTEL_METRICS_EXPORTER=none" \
+    -e "OTEL_LOGS_EXPORTER=none" \
     "${extra_docker_args[@]}" \
     "$JAVA_IMAGE" \
     java -Dfile.encoding=UTF-8 -Xmx512m -Xms256m -jar /app/app.jar \
@@ -165,6 +181,11 @@ if [[ "${1:-}" == "order-only" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "embedding-only" ]]; then
+  start_service embedding-service 8091
+  exit 0
+fi
+
 # Recreate Ollama without a host port while retaining downloaded models.
 if docker container inspect ollama-predeploy >/dev/null 2>&1 \
   && ! docker container inspect smart-ollama >/dev/null 2>&1; then
@@ -180,10 +201,10 @@ start_service gateway 8081
 start_service user 8086
 start_service router 8083
 start_service consumer 8082
+start_service embedding-service 8091
 start_service order 8085
 start_service product 8084
 start_service general 8087
-start_service embedding-service 8091
 
 restart_nginx
 

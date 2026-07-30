@@ -26,6 +26,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -97,10 +98,12 @@ public class IngestionJobAutoConfiguration {
                                                                DocumentMetadataEnricher enricher,
                                                                DocumentValidator validator,
                                                                ReviewQueueService reviewQueueService,
-                                                               KnowledgeIndexMetaService indexMetaService) {
+                                                               KnowledgeIndexMetaService indexMetaService,
+                                                               @Value("${app.rag.graph.enabled:false}")
+                                                               boolean graphExtractionEnabled) {
         KnowledgeIngestionService service = new KnowledgeIngestionService(router, chunker, knowledgeBase);
         KnowledgeGraphService graph = graphProvider.getIfAvailable();
-        if (graph != null) {
+        if (graphExtractionEnabled && graph != null) {
             service.setKnowledgeGraphService(graph);
         }
         // ⭐ RAG 生产化：注入治理组件（元数据绑定 / 脏数据校验 / 复核队列 / 索引版本）

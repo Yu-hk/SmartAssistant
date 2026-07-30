@@ -13,6 +13,7 @@ import com.example.smartassistant.common.rag.store.KnowledgeIndexMetaService;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.ResultSet;
@@ -49,7 +50,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     private final int dimensions;
 
     private final String name;
-    private final BgeEmbeddingModel embeddingModel;
+    private final EmbeddingModel embeddingModel;
     private final JdbcTemplate jdbcTemplate;
 
     /** ⭐ 索引版本元数据服务（检索按 active 版本过滤；可空） */
@@ -75,14 +76,25 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
 
     public PgVectorKnowledgeBase(String name, BgeEmbeddingModel embeddingModel,
                                   JdbcTemplate jdbcTemplate, ChineseTokenizer tokenizer) {
-        this(name, embeddingModel, jdbcTemplate, tokenizer, null);
+        this(name, adapt(embeddingModel), jdbcTemplate, tokenizer, null);
     }
 
     public PgVectorKnowledgeBase(String name, BgeEmbeddingModel embeddingModel,
                                   JdbcTemplate jdbcTemplate, ChineseTokenizer tokenizer,
                                   KnowledgeIndexMetaService indexMetaService) {
+        this(name, adapt(embeddingModel), jdbcTemplate, tokenizer, indexMetaService);
+    }
+
+    public PgVectorKnowledgeBase(String name, EmbeddingModel embeddingModel,
+                                 JdbcTemplate jdbcTemplate, ChineseTokenizer tokenizer) {
+        this(name, embeddingModel, jdbcTemplate, tokenizer, null);
+    }
+
+    public PgVectorKnowledgeBase(String name, EmbeddingModel embeddingModel,
+                                 JdbcTemplate jdbcTemplate, ChineseTokenizer tokenizer,
+                                 KnowledgeIndexMetaService indexMetaService) {
         this.name = name;
-        this.embeddingModel = embeddingModel;
+        this.embeddingModel = Objects.requireNonNull(embeddingModel, "embeddingModel");
         int d = embeddingModel != null ? embeddingModel.dimensions() : 0;
         this.dimensions = d > 0 ? d : 1024;
         this.jdbcTemplate = jdbcTemplate;
@@ -99,6 +111,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     private void initSchema() {
         jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS " + TABLE + " ("
                 + "id VARCHAR(128) PRIMARY KEY,"
+                + "knowledge_base VARCHAR(128) NOT NULL DEFAULT 'default',"
                 + "title TEXT NOT NULL,"
                 + "content TEXT NOT NULL,"
                 + "category VARCHAR(64),"
@@ -122,6 +135,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "embedding vector(" + dimensions + "),"
                 + "created_at BIGINT NOT NULL"
                 + ")");
+        alignEmbeddingDimension();
         try {
             jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_embedding_hnsw"
                     + " ON " + TABLE + " USING hnsw (embedding vector_cosine_ops)");
@@ -162,9 +176,51 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                     + " ADD COLUMN IF NOT EXISTS index_version VARCHAR(32) DEFAULT 'v1'");
             jdbcTemplate.execute("ALTER TABLE " + TABLE
                     + " ADD COLUMN IF NOT EXISTS chunk_role VARCHAR(16) DEFAULT 'STANDALONE'");
+            jdbcTemplate.execute("ALTER TABLE " + TABLE
+                    + " ADD COLUMN IF NOT EXISTS knowledge_base VARCHAR(128) NOT NULL DEFAULT 'default'");
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_base"
+                    + " ON " + TABLE + " (knowledge_base)");
         } catch (Exception e) {
             log.warn("[PgVectorKB:{}] 摄入列迁移失败（可忽略，可能已存在）: {}", name, e.getMessage());
         }
+    }
+
+    /**
+     * Align an existing empty vector column with the configured embedding model.
+     *
+     * <p>A dimension change means the embedding model changed. Existing vectors
+     * cannot be converted safely, so a non-empty index must be rebuilt
+     * explicitly instead of silently discarding production data.</p>
+     */
+    private void alignEmbeddingDimension() {
+        Integer existingDimension = jdbcTemplate.queryForObject(
+                "SELECT a.atttypmod FROM pg_attribute a "
+                        + "JOIN pg_class c ON a.attrelid = c.oid "
+                        + "JOIN pg_namespace n ON c.relnamespace = n.oid "
+                        + "WHERE n.nspname = current_schema() "
+                        + "AND c.relname = ? AND a.attname = 'embedding' "
+                        + "AND NOT a.attisdropped",
+                Integer.class,
+                TABLE);
+        if (existingDimension == null || existingDimension == dimensions) {
+            return;
+        }
+
+        Long embeddedRows = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM " + TABLE + " WHERE embedding IS NOT NULL",
+                Long.class);
+        if (embeddedRows != null && embeddedRows > 0) {
+            throw new IllegalStateException(
+                    "knowledge_docs.embedding dimension is " + existingDimension
+                            + " but the configured embedding model returns " + dimensions
+                            + "; rebuild the vector index explicitly before startup");
+        }
+
+        jdbcTemplate.execute("DROP INDEX IF EXISTS idx_knowledge_embedding_hnsw");
+        jdbcTemplate.execute("ALTER TABLE " + TABLE + " ALTER COLUMN embedding TYPE vector("
+                + dimensions + ") USING NULL");
+        log.info("[PgVectorKB:{}] 空向量列维度已从 {} 迁移为 {}",
+                name, existingDimension, dimensions);
     }
 
     @Override
@@ -176,22 +232,22 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         // ⭐ Parent-Child：父块（PARENT）不嵌入——父块是整接口/大段上下文，超嵌入窗且仅供 LLM 阅读，
         // 跳过嵌入既省算力，又避免 NULL embedding 参与检索导致 dist=NaN、余弦精排崩坏。
         float[] vec = (doc.getChunkRole() == ChunkRole.PARENT)
-                ? null : embeddingModel.embedding(doc.toEmbedText());
+                ? null : embeddingModel.embed(doc.toEmbedText());
         String vecStr = vec != null ? arrayToPgVector(vec) : null;
 
         jdbcTemplate.update(
-                "INSERT INTO " + TABLE + " (id, title, content, category, keywords, "
+                "INSERT INTO " + TABLE + " (id, knowledge_base, title, content, category, keywords, "
                         + "effective_at, expire_at, tenant_id, version, source_url, chunk_index, "
                         + "authority_level, document_status, security_level, "
                         + "authorized_roles, authorized_users, "
                         + "parent_doc_id, source_type, raw_checksum, ingest_batch_id, index_version, "
                         + "chunk_role, embedding, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
                         + toPgTextArray(doc.getAuthorizedRoles()) + ", "
                         + toPgTextArray(doc.getAuthorizedUsers()) + ", "
-                        + "?, ?, ?, ?, ?, ?, "
-                        + (vecStr != null ? "?::vector" : "NULL") + ", ?) "
+                        + "?, ?, ?, ?, ?, ?, ?::vector, ?) "
                         + "ON CONFLICT (id) DO UPDATE SET "
+                        + "knowledge_base=EXCLUDED.knowledge_base, "
                         + "title=EXCLUDED.title, content=EXCLUDED.content, "
                         + "category=EXCLUDED.category, keywords=EXCLUDED.keywords, "
                         + "tenant_id=EXCLUDED.tenant_id, version=EXCLUDED.version, "
@@ -202,9 +258,8 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         + "parent_doc_id=EXCLUDED.parent_doc_id, source_type=EXCLUDED.source_type, "
                         + "raw_checksum=EXCLUDED.raw_checksum, ingest_batch_id=EXCLUDED.ingest_batch_id, "
                         + "index_version=EXCLUDED.index_version, "
-                        + "chunk_role=EXCLUDED.chunk_role, "
-                        + "embedding=" + (vecStr != null ? "EXCLUDED.embedding" : "NULL"),
-                doc.getId(), doc.getTitle(), doc.getContent(),
+                        + "chunk_role=EXCLUDED.chunk_role, embedding=EXCLUDED.embedding",
+                doc.getId(), name, doc.getTitle(), doc.getContent(),
                 doc.getCategory(), doc.getKeywords(),
                 doc.getEffectiveAt(), doc.getExpireAt(),
                 doc.getTenantId(), doc.getVersion(),
@@ -219,15 +274,16 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
 
     @Override
     public void removeDocument(String id) {
-        jdbcTemplate.update("DELETE FROM " + TABLE + " WHERE id = ?", id);
+        jdbcTemplate.update("DELETE FROM " + TABLE + " WHERE knowledge_base = ? AND id = ?", name, id);
     }
 
     @Override
     public void removeByBaseDocId(String baseDocId) {
         if (baseDocId == null || baseDocId.isBlank()) return;
         int deleted = jdbcTemplate.update(
-                "DELETE FROM " + TABLE + " WHERE id LIKE ? || '-%' OR id = ?",
-                baseDocId, baseDocId);
+                "DELETE FROM " + TABLE
+                        + " WHERE knowledge_base = ? AND (id LIKE ? || '-%' OR id = ?)",
+                name, baseDocId, baseDocId);
         if (deleted > 0) {
             log.info("[PgVectorKB:{}] 按 baseDocId 删除: baseId={}, removed={} rows",
                     name, baseDocId, deleted);
@@ -238,17 +294,19 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     public List<String> listIdsByBaseDocId(String baseDocId) {
         if (baseDocId == null || baseDocId.isBlank()) return List.of();
         return jdbcTemplate.query(
-                "SELECT id FROM " + TABLE + " WHERE id = ? OR id LIKE ? || '-%'",
+                "SELECT id FROM " + TABLE
+                        + " WHERE knowledge_base = ? AND (id = ? OR id LIKE ? || '-%')",
                 (ResultSet rs, int rowNum) -> rs.getString("id"),
-                baseDocId, baseDocId);
+                name, baseDocId, baseDocId);
     }
 
     @Override
     public void updateStatus(String docId, DocumentStatus status) {
         if (docId == null || docId.isBlank() || status == null) return;
         int n = jdbcTemplate.update(
-                "UPDATE " + TABLE + " SET document_status = ? WHERE id = ?",
-                status.name(), docId);
+                "UPDATE " + TABLE
+                        + " SET document_status = ? WHERE knowledge_base = ? AND id = ?",
+                status.name(), name, docId);
         if (n > 0) {
             log.info("[PgVectorKB:{}] 状态更新: id={}, status={}", name, docId, status);
         }
@@ -264,11 +322,12 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "authority_level, document_status, security_level, "
                 + "authorized_roles, authorized_users, parent_doc_id, source_type, "
                 + "raw_checksum, ingest_batch_id, index_version, chunk_role FROM " + TABLE
-                + " WHERE id = ? OR id LIKE ? || '-%' ORDER BY created_at DESC";
+                + " WHERE knowledge_base = ? AND (id = ? OR id LIKE ? || '-%')"
+                + " ORDER BY created_at DESC";
         try {
             return jdbcTemplate.query(sql,
                     (ResultSet rs, int rowNum) -> DocumentVersionMeta.from(mapDoc(rs)),
-                    baseDocId, baseDocId);
+                    name, baseDocId, baseDocId);
         } catch (Exception e) {
             log.warn("[PgVectorKB:{}] listVersionsByBaseDocId 失败: {}", name, e.getMessage());
             return List.of();
@@ -282,8 +341,8 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         int updated = jdbcTemplate.update(
                 "UPDATE " + TABLE
                         + " SET document_status = CASE WHEN version = ? THEN 'ACTIVE' ELSE 'SUPERSEDED' END"
-                        + " WHERE id = ? OR id LIKE ? || '-%'",
-                targetVersion, baseDocId, baseDocId);
+                        + " WHERE knowledge_base = ? AND (id = ? OR id LIKE ? || '-%')",
+                targetVersion, name, baseDocId, baseDocId);
         if (updated > 0) {
             log.info("[PgVectorKB:{}] 回滚: baseId={}, target={}, affected={}",
                     name, baseDocId, targetVersion, updated);
@@ -294,7 +353,9 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     public void removeByIngestBatchId(String ingestBatchId) {
         if (ingestBatchId == null || ingestBatchId.isBlank()) return;
         int deleted = jdbcTemplate.update(
-                "DELETE FROM " + TABLE + " WHERE ingest_batch_id = ?", ingestBatchId);
+                "DELETE FROM " + TABLE
+                        + " WHERE knowledge_base = ? AND ingest_batch_id = ?",
+                name, ingestBatchId);
         if (deleted > 0) {
             log.info("[PgVectorKB:{}] 按批次删除: batch={}, removed={}", name, ingestBatchId, deleted);
         }
@@ -322,7 +383,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         int k = (topK > 0) ? topK : 5;
 
         // 嵌入查询
-        float[] queryVec = embeddingModel.embedding(query);
+        float[] queryVec = embeddingModel.embed(query);
         if (queryVec == null) {
             log.warn("[PgVectorKB:{}] 嵌入不可用，降级到关键词搜索", name);
             return fallbackSearch(query, k, acl);
@@ -340,13 +401,14 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         String aclClause = buildAclClause(acl);
 
         List<Object> params = new ArrayList<>();
-        params.add(vecStr);   // embedding <-> ?
+        params.add(vecStr);   // embedding <=> ?
         params.add(now);      // effective_at
         params.add(now);      // expire_at
+        params.add(name);     // knowledge_base
         if (versionFilter) {
             params.add(activeVersion);
         }
-        params.add(vecStr);   // ORDER BY embedding <-> ?
+        params.add(vecStr);   // ORDER BY embedding <=> ?
         params.add(50);       // LIMIT
 
         String sql = "SELECT id, title, content, category, keywords, effective_at, expire_at, "
@@ -354,15 +416,16 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "authority_level, document_status, security_level, "
                 + "authorized_roles, authorized_users, parent_doc_id, source_type, "
                 + "raw_checksum, ingest_batch_id, index_version, chunk_role, "
-                + "(embedding <-> ?::vector) AS dist "
+                + "(embedding <=> ?::vector) AS dist "
                 + "FROM " + TABLE + " "
                 + "WHERE (effective_at <= 0 OR effective_at <= ?) "
                 + "AND (expire_at <= 0 OR expire_at > ?) "
+                + "AND knowledge_base = ? "
                 + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
                 + "AND embedding IS NOT NULL "
                 + aclClause
                 + versionClause
-                + "ORDER BY embedding <-> ?::vector LIMIT ?";
+                + "ORDER BY embedding <=> ?::vector LIMIT ?";
 
         // 精排：BM25 + 时间衰减 + ⭐ 真实余弦距离（dist 由 SQL 计算，随文档一同取回）
         List<DocWithDist> candidates = jdbcTemplate.query(sql,
@@ -441,10 +504,10 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                             + "authorized_roles, authorized_users, parent_doc_id, source_type, "
                             + "raw_checksum, ingest_batch_id, index_version, chunk_role "
                             + "FROM " + TABLE + " "
-                            + "WHERE id = ? "
+                            + "WHERE knowledge_base = ? AND id = ? "
                             + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
                             + aclClause,
-                    (ResultSet rs, int rowNum) -> mapDoc(rs), id);
+                    (ResultSet rs, int rowNum) -> mapDoc(rs), name, id);
         } catch (Exception e) {
             log.warn("[PgVectorKB:{}] 父块回链加载失败: id={}, {}", name, id, e.getMessage());
             return null;
@@ -469,7 +532,8 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
     @Override
     public int size() {
         Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM " + TABLE, Integer.class);
+                "SELECT COUNT(*) FROM " + TABLE + " WHERE knowledge_base = ?",
+                Integer.class, name);
         return count != null ? count : 0;
     }
 
@@ -480,11 +544,12 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         for (KnowledgeDocument doc : allDocs) {
             // ⭐ 父块（PARENT）不嵌入：保持 embedding=NULL，避免污染向量索引与回链语义
             if (doc.getChunkRole() == ChunkRole.PARENT) continue;
-            float[] vec = embeddingModel.embedding(doc.toEmbedText());
+            float[] vec = embeddingModel.embed(doc.toEmbedText());
             if (vec != null) {
                 jdbcTemplate.update(
-                        "UPDATE " + TABLE + " SET embedding = ?::vector WHERE id = ?",
-                        arrayToPgVector(vec), doc.getId());
+                        "UPDATE " + TABLE
+                                + " SET embedding = ?::vector WHERE knowledge_base = ? AND id = ?",
+                        arrayToPgVector(vec), name, doc.getId());
             }
         }
         if (bm25Scorer != null) {
@@ -505,9 +570,10 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "tenant_id, version, source_url, chunk_index, created_at, "
                 + "authority_level, document_status, security_level, "
                 + "authorized_roles, authorized_users, parent_doc_id, source_type, "
-                + "raw_checksum, ingest_batch_id, index_version, chunk_role FROM " + TABLE;
+                + "raw_checksum, ingest_batch_id, index_version, chunk_role FROM " + TABLE
+                + " WHERE knowledge_base = ?";
         try {
-            return jdbcTemplate.query(sql, (ResultSet rs, int rowNum) -> mapDoc(rs));
+            return jdbcTemplate.query(sql, (ResultSet rs, int rowNum) -> mapDoc(rs), name);
         } catch (Exception e) {
             log.warn("[PgVectorKB:{}] listAll 失败: {}", name, e.getMessage());
             return List.of();
@@ -524,17 +590,52 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         + "authorized_roles, authorized_users, parent_doc_id, source_type, "
                 + "raw_checksum, ingest_batch_id, index_version, chunk_role "
                 + "FROM " + TABLE + " "
-                + "WHERE (title ILIKE ? OR content ILIKE ? OR keywords ILIKE ?) "
+                + "WHERE knowledge_base = ? "
+                + "AND (title ILIKE ? OR content ILIKE ? OR keywords ILIKE ?) "
                         + "AND (document_status IS NULL OR document_status = 'ACTIVE') "
                         + aclClause
                         + "LIMIT ?",
                 (ResultSet rs, int rowNum) -> new KnowledgeHit(mapDoc(rs), 0.5),
-                q, q, q, topK);
+                name, q, q, q, topK);
+    }
+
+    private static EmbeddingModel adapt(BgeEmbeddingModel model) {
+        Objects.requireNonNull(model, "embeddingModel");
+        return new EmbeddingModel() {
+            @Override
+            public float[] embed(org.springframework.ai.document.Document document) {
+                return model.embedding(document.getText());
+            }
+
+            @Override
+            public float[] embed(String text) {
+                return model.embedding(text);
+            }
+
+            @Override
+            public int dimensions() {
+                return model.dimensions();
+            }
+
+            @Override
+            public org.springframework.ai.embedding.EmbeddingResponse call(
+                    org.springframework.ai.embedding.EmbeddingRequest request) {
+                List<org.springframework.ai.embedding.Embedding> embeddings = new ArrayList<>();
+                List<String> instructions = request.getInstructions();
+                for (int i = 0; i < instructions.size(); i++) {
+                    float[] vector = model.embedding(instructions.get(i));
+                    if (vector != null) {
+                        embeddings.add(new org.springframework.ai.embedding.Embedding(vector, i));
+                    }
+                }
+                return new org.springframework.ai.embedding.EmbeddingResponse(embeddings);
+            }
+        };
     }
 
     /**
      * pgvector 余弦距离 → 余弦相似度。
-     * <p>pgvector 的 {@code <->} 算子返回余弦距离（范围 [0,2]，0 表示完全一致），
+     * <p>pgvector 的 {@code <=>} 算子返回余弦距离（范围 [0,2]，0 表示完全一致），
      * 余弦相似度 = {@code 1 - distance}。</p>
      */
     static double realCosineScore(double dist) {

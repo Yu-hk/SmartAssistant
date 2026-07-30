@@ -665,11 +665,22 @@ public class KnowledgeIngestionService {
         for (ParsedDocument p : parsedDocs) {
             String content = p.getContent();
             if (content == null || content.length() < 30) continue;
-            knowledgeGraphService.extractFromDocument(content, p.getDocId(), tenantId);
+            // 图谱抽取是入库后的可选增强，通常会调用 LLM。不要让模型超时阻塞
+            // 解析/分块/向量入库主链路，否则任务会长期停留在 PARSING 状态，
+            // 也无法给调用方一个可用的知识库。
+            final String docId = p.getDocId();
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    knowledgeGraphService.extractFromDocument(content, docId, tenantId);
+                } catch (Exception e) {
+                    log.debug("[Ingestion] 异步图谱抽取失败（不影响入库）: docId={}, error={}",
+                            docId, e.getMessage());
+                }
+            });
             triggered++;
         }
         if (triggered > 0) {
-            log.info("[Ingestion] 触发实体关系抽取: docs={}", triggered);
+            log.info("[Ingestion] 已异步触发实体关系抽取: docs={}", triggered);
         }
     }
 
