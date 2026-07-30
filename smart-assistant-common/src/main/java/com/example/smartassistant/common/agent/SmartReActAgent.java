@@ -777,11 +777,12 @@ public class SmartReActAgent {
 
                 if (chatClient != null) {
                     // ⭐ 使用 ChatClient（含 Advisor 链：TokenUsage/ThinkingCollector/PromptAudit）
-                    // 通过 tools() 动态传递工具列表，通过 options() 传模型参数
+                    // 传入的是已构建的 ToolCallback，必须使用 toolCallbacks()。
+                    // tools(Object...) 会把回调对象再次当作 @Tool Bean 扫描并在运行时失败。
                     var spec = chatClient.prompt()
                             .messages(callMessages);
                     if (!effectiveTools.isEmpty()) {
-                        spec = spec.tools(effectiveTools.toArray(new ToolCallback[0]));
+                        spec = spec.toolCallbacks(effectiveTools);
                     }
                     response = spec.call().chatResponse();
                 } else {

@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -39,6 +40,11 @@ public class KnowledgeBaseConfig {
 
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean(BgeEmbeddingModel.class)
+    @ConditionalOnProperty(
+            prefix = "app.rag.store",
+            name = "mode",
+            havingValue = "memory",
+            matchIfMissing = true)
     public BgeEmbeddingModel bgeEmbeddingModel(
             @Value("${knowledge-base.embedding.model-path:models/bge-small-zh-v1.5.onnx}") String modelPath,
             @Value("${knowledge-base.embedding.vocab-path:models/tokenizer.json}") String vocabPath) {
@@ -46,6 +52,11 @@ public class KnowledgeBaseConfig {
     }
 
     @Bean
+    @ConditionalOnProperty(
+            prefix = "app.rag.store",
+            name = "mode",
+            havingValue = "memory",
+            matchIfMissing = true)
     public Reranker bgeReranker(BgeEmbeddingModel embeddingModel) {
         log.info("[KBConfig] 创建 BGE Reranker");
         return new BgeReranker(embeddingModel);
@@ -63,6 +74,11 @@ public class KnowledgeBaseConfig {
     }
 
     @Bean
+    @ConditionalOnProperty(
+            prefix = "app.rag.store",
+            name = "mode",
+            havingValue = "memory",
+            matchIfMissing = true)
     public InMemoryKnowledgeBase inMemoryKnowledgeBase(
             BgeEmbeddingModel embeddingModel,
             ChineseTokenizer tokenizer,

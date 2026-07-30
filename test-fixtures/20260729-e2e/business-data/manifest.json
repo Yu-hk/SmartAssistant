@@ -1,0 +1,8 @@
+{
+  "batch": "E2E-DATA-20260729",
+  "products": 120,
+  "inventory_rows": 120,
+  "orders": 300,
+  "logistics": 102,
+  "generated_at": "2026-07-29T17:51:27.490707"
+}

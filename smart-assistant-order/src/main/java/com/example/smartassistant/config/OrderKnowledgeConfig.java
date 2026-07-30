@@ -7,24 +7,22 @@
 
 package com.example.smartassistant.config;
 
-import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
-import com.example.smartassistant.common.rag.BgeReranker;
-import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
+import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.KnowledgeSeedData;
-import com.example.smartassistant.common.rag.MilvusKnowledgeBase;
-import com.example.smartassistant.common.rag.Reranker;
+import com.example.smartassistant.common.rag.PgVectorKnowledgeBase;
 import com.example.smartassistant.common.rag.retrieval.CrossDocumentConflictResolver;
+import com.example.smartassistant.common.rag.store.KnowledgeIndexMetaService;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * 订单知识库配置——BGE + BM25 + pgvector 持久化。
@@ -34,77 +32,44 @@ public class OrderKnowledgeConfig {
 
     private static final Logger log = LoggerFactory.getLogger(OrderKnowledgeConfig.class);
 
-    /** ⭐ bge-reranker Cross-Encoder（改为注入 BgeEmbeddingModel，替换旧有 model+vocab 文件路径） */
-    @Bean
-    @ConditionalOnProperty(name = "reranker.enabled", havingValue = "true")
-    public Reranker orderReranker(BgeEmbeddingModel embeddingModel) {
-        if (embeddingModel == null || !embeddingModel.isAvailable()) {
-            log.warn("[OrderKnowledge] BGE 嵌入模型不可用，Reranker 降级为恒等映射");
-            return Reranker.identity();
-        }
-        log.info("[OrderKnowledge] 初始化 BgeReranker: using BgeEmbeddingModel");
-        BgeReranker reranker = new BgeReranker(embeddingModel);
-        log.info("[OrderKnowledge] BgeReranker 就绪");
-        return reranker;
-    }
-
-    /** 内存知识库（轻量，默认启用） */
+    /**
+     * 订单知识库的生产主库：PostgreSQL + pgvector。
+     *
+     * <p>这里不再自动回落到内存。数据库或嵌入服务不可用时应启动失败并暴露部署问题，
+     * 避免摄取接口表面成功、容器重启后知识却全部丢失。</p>
+     */
     @Bean
     @Primary
-    public InMemoryKnowledgeBase orderKnowledgeBase(
-            BgeEmbeddingModel embeddingModel,
+    public PgVectorKnowledgeBase orderKnowledgeBase(
+            @Qualifier("embeddingClient") EmbeddingModel embeddingModel,
+            JdbcTemplate jdbcTemplate,
             ChineseTokenizer tokenizer,
-            @Qualifier("orderReranker")
-            ObjectProvider<Reranker> rerankerProvider,
+            ObjectProvider<KnowledgeIndexMetaService> indexMetaProvider,
             ObjectProvider<CrossDocumentConflictResolver> conflictResolverProvider) {
-        Reranker reranker = rerankerProvider.getIfAvailable();
-        log.info("[OrderKnowledge] 初始化订单知识库 (InMemory + BGE + BM25), Reranker={}",
-                reranker != null && reranker != Reranker.identity() ? "已启用" : "未启用");
-        InMemoryKnowledgeBase kb = KnowledgeSeedData.createOrderKnowledgeBase(
-                embeddingModel, tokenizer, reranker);
-        // ⭐ 自动接线：检索侧跨文档冲突消解（Q6 第二层）
-        CrossDocumentConflictResolver resolver = conflictResolverProvider.getIfAvailable();
-        if (resolver != null) {
-            kb.setConflictResolver(resolver);
-        }
-        log.info("[OrderKnowledge] 订单知识库就绪: {} 篇文档, 冲突消解={}",
-                kb.size(), resolver != null ? "已接线" : "未接线");
-        return kb;
-    }
+        log.info("[OrderKnowledge] 初始化订单知识库 (PostgreSQL + pgvector), embeddingDim={}",
+                embeddingModel.dimensions());
+        PgVectorKnowledgeBase kb = new PgVectorKnowledgeBase(
+                KnowledgeSeedData.ORDER_KB,
+                embeddingModel,
+                jdbcTemplate,
+                tokenizer,
+                indexMetaProvider.getIfAvailable());
 
-    /** Milvus 持久化知识库（按配置启用，替换 pgvector） */
-    @Bean
-    @ConditionalOnProperty(name = "app.milvus.enabled", havingValue = "true")
-    public MilvusKnowledgeBase orderMilvusKnowledgeBase(
-            BgeEmbeddingModel embeddingModel,
-            ChineseTokenizer tokenizer,
-            @Value("${app.milvus.host:localhost}") String milvusHost,
-            @Value("${app.milvus.port:19530}") int milvusPort,
-            ObjectProvider<CrossDocumentConflictResolver> conflictResolverProvider) {
-        log.info("[OrderKnowledge] 初始化 Milvus 持久化知识库: {}:{}", milvusHost, milvusPort);
-        MilvusKnowledgeBase kb = new MilvusKnowledgeBase(
-                KnowledgeSeedData.ORDER_KB, embeddingModel, milvusHost, milvusPort, tokenizer);
-        // ⭐ 自动接线：检索侧跨文档冲突消解（Q6 第二层）
         CrossDocumentConflictResolver resolver = conflictResolverProvider.getIfAvailable();
         if (resolver != null) {
             kb.setConflictResolver(resolver);
         }
-        log.info("[OrderKnowledge] Milvus 知识库就绪, 冲突消解={}",
-                resolver != null ? "已接线" : "未接线");
+
+        // 固定 ID + upsert，启动时同步种子数据是幂等操作。
+        kb.addDocuments(KnowledgeSeedData.orderDocuments());
+        log.info("[OrderKnowledge] pgvector 知识库就绪: {} 篇文档, 冲突消解={}",
+                kb.size(), resolver != null ? "已接线" : "未接线");
         return kb;
     }
 
     @Bean
     public KnowledgeRetrievalService orderKnowledgeRetrievalService(
-            InMemoryKnowledgeBase orderKnowledgeBase,
-            ObjectProvider<MilvusKnowledgeBase> milvusProvider) {
-        KnowledgeRetrievalService service = new KnowledgeRetrievalService()
-                .register(orderKnowledgeBase);
-        MilvusKnowledgeBase milvusKb = milvusProvider.getIfAvailable();
-        if (milvusKb != null) {
-            service.register(milvusKb);
-            log.info("[OrderKnowledge] Milvus 知识库已注册到检索服务");
-        }
-        return service;
+            @Qualifier("orderKnowledgeBase") KnowledgeBase orderKnowledgeBase) {
+        return new KnowledgeRetrievalService().register(orderKnowledgeBase);
     }
 }

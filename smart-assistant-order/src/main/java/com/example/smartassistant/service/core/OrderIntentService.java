@@ -17,6 +17,7 @@ import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * ⭐ 订单意图识别服务。
@@ -41,6 +42,9 @@ import java.util.Locale;
 public class OrderIntentService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderIntentService.class);
+    private static final Pattern ORDER_ID_PATTERN = Pattern.compile(
+            "(?<![A-Za-z0-9_])ORD-[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*(?![A-Za-z0-9_-])",
+            Pattern.CASE_INSENSITIVE);
 
     private final AiChatService aiChatService;
     private final ChatModel lightModel;
@@ -93,6 +97,14 @@ public class OrderIntentService {
     IntentType detectCommonIntent(String message) {
         String normalized = message.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
 
+        // A concrete order reference always wins over policy language. This keeps
+        // "ORD-xxx 能否退款" on the transactional path while routing generic
+        // "退货运费谁承担" questions to the knowledge base.
+        boolean concreteOrder = hasConcreteOrderReference(message, normalized);
+
+        if (!concreteOrder && isPolicyQuestion(normalized)) {
+            return IntentType.POLICY_QA;
+        }
         if (containsAny(normalized, "退款", "退货", "售后")) {
             return IntentType.REFUND;
         }
@@ -108,6 +120,26 @@ public class OrderIntentService {
             return IntentType.QUERY_ORDER;
         }
         return null;
+    }
+
+    private boolean hasConcreteOrderReference(String original, String normalized) {
+        return ORDER_ID_PATTERN.matcher(original).find()
+                || containsAny(normalized,
+                "最近一笔订单", "最新一笔订单", "上一笔订单", "最后一笔订单",
+                "最近的订单", "最新的订单", "我的订单", "这笔订单", "该订单",
+                "这个订单", "当前订单");
+    }
+
+    private boolean isPolicyQuestion(String normalized) {
+        boolean policyCue = containsAny(normalized,
+                "政策", "规则", "条件", "要求", "流程", "标准", "范围",
+                "时效", "多久到账", "多长时间", "多久", "几天",
+                "运费", "谁承担", "责任归属", "是否支持", "能不能",
+                "可以退", "怎么退", "如何退", "状态含义", "什么意思");
+        boolean orderDomain = containsAny(normalized,
+                "退款", "退货", "换货", "售后", "发货", "物流", "配送",
+                "运费", "取消订单", "订单状态", "签收", "质量问题");
+        return policyCue && orderDomain;
     }
 
     private boolean containsAny(String message, String... keywords) {
@@ -136,6 +168,7 @@ public class OrderIntentService {
         QUERY_ORDER("查询订单"),
         REFUND("退款"),
         CANCEL("取消"),
+        POLICY_QA("政策问答"),
         OTHER("其他");
 
         private final String label;

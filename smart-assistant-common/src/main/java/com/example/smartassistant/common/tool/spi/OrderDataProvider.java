@@ -28,6 +28,9 @@ public interface OrderDataProvider {
     /** Find an order by its business order ID. */
     OrderDTO findOrderByOrderId(String orderId);
 
+    /** Find the most recent orders for a user, newest first. */
+    List<OrderDTO> findRecentOrdersByUserId(Long userId, int limit);
+
     /** Insert a new order. */
     void insertOrder(OrderDTO order);
 

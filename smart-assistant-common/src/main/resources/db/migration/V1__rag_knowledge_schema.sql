@@ -17,6 +17,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- PgVectorKnowledgeBase.initSchema() 会在应用启动时按模型维度重建/迁移。
 CREATE TABLE IF NOT EXISTS knowledge_docs (
     id               VARCHAR(128) PRIMARY KEY,
+    knowledge_base   VARCHAR(128) NOT NULL DEFAULT 'default',
     title            TEXT        NOT NULL,
     content          TEXT        NOT NULL,
     category         VARCHAR(64),
@@ -51,6 +52,8 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_acl_users
     ON knowledge_docs USING gin (authorized_users);
 CREATE INDEX IF NOT EXISTS idx_knowledge_index_version
     ON knowledge_docs (index_version);
+CREATE INDEX IF NOT EXISTS idx_knowledge_base
+    ON knowledge_docs (knowledge_base);
 
 -- ─────────────────────── knowledge_index_meta ───────────────────────
 CREATE TABLE IF NOT EXISTS knowledge_index_meta (

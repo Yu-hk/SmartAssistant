@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.service.core;
 
+import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
@@ -14,7 +15,10 @@ import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 /**
  * ⭐ 订单 RAG 检索服务。
@@ -33,9 +37,17 @@ public class OrderRagService {
     private static final Logger log = LoggerFactory.getLogger(OrderRagService.class);
 
     private final OrderDataProvider orderData;
+    private final KnowledgeRetrievalService knowledgeRetrievalService;
 
-    public OrderRagService(OrderDataProvider orderData) {
+    @Autowired
+    public OrderRagService(OrderDataProvider orderData,
+                           KnowledgeRetrievalService knowledgeRetrievalService) {
         this.orderData = orderData;
+        this.knowledgeRetrievalService = knowledgeRetrievalService;
+    }
+
+    OrderRagService(OrderDataProvider orderData) {
+        this(orderData, null);
     }
 
     /**
@@ -57,20 +69,48 @@ public class OrderRagService {
      * @return 结构化检索质量结果（含归一化分数和明确拒答消息）
      */
     public RetrievalQualityResult retrieveWithQualityResult(IntentType intent, String message) {
+        return retrieveWithQualityResult(intent, message, null);
+    }
+
+    /**
+     * 带用户归属校验的订单检索。登录用户可以使用“最近一笔订单”等自然表达，
+     * 显式订单号也只会返回属于该用户的订单，避免跨用户数据泄露。
+     */
+    public RetrievalQualityResult retrieveWithQualityResult(IntentType intent, String message, Long userId) {
         if (intent == null || message == null) {
             return RetrievalQualityResult.noData("无效查询");
         }
 
         return switch (intent) {
-            case QUERY_ORDER -> retrieveForQualityResult(message, "订单");
-            case REFUND -> retrieveForQualityResult(message, "退款");
+            case QUERY_ORDER -> retrieveForQualityResult(message, "订单", userId);
+            case REFUND -> retrieveForQualityResult(message, "退款", userId);
+            case POLICY_QA -> retrievePolicyKnowledge(message);
             case CREATE_ORDER -> RetrievalQualityResult.highQuality(
                     "【下单引导】请让用户提供以下信息：\n• 商品名称\n• 购买数量\n• 收货人姓名、电话、地址\n• 支付方式\n确认信息后调用 createOrder 创建订单。",
                     1.0);
-            case CANCEL -> retrieveForQualityResult(message, "取消");
+            case CANCEL -> retrieveForQualityResult(message, "取消", userId);
             default -> RetrievalQualityResult.insufficientEvidence("", 0.0,
                     "无法识别该消息的订单意图类型。");
         };
+    }
+
+    private RetrievalQualityResult retrievePolicyKnowledge(String message) {
+        if (knowledgeRetrievalService == null) {
+            return RetrievalQualityResult.insufficientEvidence(
+                    "", 0.0, "政策知识库当前不可用，请稍后再试或联系人工客服。");
+        }
+
+        String content = knowledgeRetrievalService.search("order_knowledge", message, 5);
+        if (content == null || content.isBlank()
+                || content.startsWith("INSUFFICIENT_EVIDENCE:")
+                || content.contains("知识库 'order_knowledge' 不存在")) {
+            return RetrievalQualityResult.insufficientEvidence(
+                    "", 0.0, "暂未检索到相关订单政策，请补充问题细节或联系人工客服。");
+        }
+
+        log.info("[OrderRAG] 政策知识检索成功: query={}, contentLength={}",
+                message, content.length());
+        return RetrievalQualityResult.highQuality(content, 0.85);
     }
 
     /**
@@ -124,19 +164,32 @@ public class OrderRagService {
     /**
      * 通用订单预检索逻辑，根据意图类型返回不同分数和拒绝消息。
      */
-    private RetrievalQualityResult retrieveForQualityResult(String message, String intentLabel) {
+    private RetrievalQualityResult retrieveForQualityResult(String message, String intentLabel, Long userId) {
         String orderId = extractOrderId(message);
         if (orderId == null) {
-            return RetrievalQualityResult.insufficientEvidence(
-                    "", 0.0,
-                    "请提供订单号（格式：ORD-xxx）以便查询" + intentLabel + "信息。");
+            if (isRecentOrderQuery(message)) {
+                if (userId == null) {
+                    return RetrievalQualityResult.insufficientEvidence(
+                            "", 0.0, "请先登录后再查询最近一笔订单。");
+                }
+                List<OrderDTO> recentOrders = orderData.findRecentOrdersByUserId(userId, 1);
+                if (recentOrders == null || recentOrders.isEmpty()) {
+                    return RetrievalQualityResult.insufficientEvidence(
+                            "", 0.0, "当前账号下暂未找到订单。");
+                }
+                orderId = recentOrders.get(0).getOrderId();
+            } else {
+                return RetrievalQualityResult.insufficientEvidence(
+                        "", 0.0,
+                        "请提供订单号（格式：ORD-xxx）以便查询" + intentLabel + "信息。");
+            }
         }
 
         try {
             OrderDTO order = orderData.findOrderByOrderId(orderId);
             boolean foundOrder = order != null;
 
-            if (!foundOrder) {
+            if (!foundOrder || (userId != null && !userId.equals(order.getUserId()))) {
                 return RetrievalQualityResult.insufficientEvidence(
                         "", 0.0,
                         "系统中未找到订单号「" + orderId + "」，请核对后重试。");
@@ -158,6 +211,9 @@ public class OrderRagService {
                     }
                 } catch (Exception e) {
                     log.debug("[OrderRAG] 物流查询失败（可忽略）: {}", e.getMessage());
+                }
+                if (!hasLogistics) {
+                    sb.append("\n【物流信息】当前订单暂无物流记录。");
                 }
             }
 
@@ -181,6 +237,16 @@ public class OrderRagService {
                     "", 0.3,
                     "查询订单「" + orderId + "」时出现系统错误，请稍后重试。");
         }
+    }
+
+    private static boolean isRecentOrderQuery(String message) {
+        if (message == null) return false;
+        return message.contains("最近一笔")
+                || message.contains("最新一笔")
+                || message.contains("上一笔")
+                || message.contains("最后一笔")
+                || message.contains("最近的订单")
+                || message.contains("最新的订单");
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -280,9 +346,10 @@ public class OrderRagService {
     /**
      * 从消息中提取订单号（ORD-xxx 格式）。
      */
-    private String extractOrderId(String message) {
+    static String extractOrderId(String message) {
         if (message == null) return null;
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("ORD-\\w+");
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "(?<![A-Za-z0-9_])ORD-[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*(?![A-Za-z0-9_-])");
         java.util.regex.Matcher matcher = pattern.matcher(message);
         if (matcher.find()) {
             return matcher.group();
