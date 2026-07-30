@@ -7,7 +7,7 @@
 
 package com.example.smartassistant.controller;
 
-import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
+import com.example.smartassistant.common.rag.KnowledgeBase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
@@ -41,12 +41,12 @@ public class KnowledgeController {
     @PostMapping("/reindex")
     public ResponseEntity<Map<String, Object>> reindex(
             @RequestParam(required = false) String kbName) {
-        Map<String, InMemoryKnowledgeBase> bases =
-                applicationContext.getBeansOfType(InMemoryKnowledgeBase.class);
+        Map<String, KnowledgeBase> bases =
+                applicationContext.getBeansOfType(KnowledgeBase.class);
 
         int count = 0;
         for (var entry : bases.entrySet()) {
-            InMemoryKnowledgeBase kb = entry.getValue();
+            KnowledgeBase kb = entry.getValue();
             if (kbName == null || kb.getName().equals(kbName)) {
                 kb.reindex();
                 count++;
@@ -64,8 +64,8 @@ public class KnowledgeController {
 
     @PostMapping("/status")
     public ResponseEntity<Map<String, Object>> status() {
-        Map<String, InMemoryKnowledgeBase> bases =
-                applicationContext.getBeansOfType(InMemoryKnowledgeBase.class);
+        Map<String, KnowledgeBase> bases =
+                applicationContext.getBeansOfType(KnowledgeBase.class);
         return ResponseEntity.ok(Map.of(
                 "knowledge_bases", bases.entrySet().stream()
                         .map(e -> Map.of(

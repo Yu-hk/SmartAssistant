@@ -65,13 +65,6 @@
             <artifactId>jakarta.annotation-api</artifactId>
         </dependency>
 
-        <!-- Spring AI Vector Store (PostgreSQL pgvector) -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
-            <version>${spring-ai.version}</version>
-        </dependency>
-
         <!-- PostgreSQL Driver -->
         <dependency>
             <groupId>org.postgresql</groupId>

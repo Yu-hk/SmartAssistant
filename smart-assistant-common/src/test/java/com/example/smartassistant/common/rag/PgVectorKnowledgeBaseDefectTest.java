@@ -13,7 +13,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,6 +46,9 @@ class PgVectorKnowledgeBaseDefectTest {
     @Mock
     private JdbcTemplate jdbc;
 
+    @Mock
+    private EmbeddingModel remoteEmbedding;
+
     @Test
     void dimensionIsDynamicFromBgeNotHardcoded384() {
         // 使用非 384 的维度，证明建表维度来自 BgeEmbeddingModel.dimensions()，而非写死 384
@@ -70,5 +76,48 @@ class PgVectorKnowledgeBaseDefectTest {
         assertEquals(0.5, PgVectorKnowledgeBase.realCosineScore(0.5), 1e-9);
         assertEquals(0.0, PgVectorKnowledgeBase.realCosineScore(1.0), 1e-9);
         assertEquals(-1.0, PgVectorKnowledgeBase.realCosineScore(2.0), 1e-9);
+    }
+
+    @Test
+    void insertPersistsKnowledgeBaseAndKeepsPlaceholderCountAligned() {
+        when(remoteEmbedding.dimensions()).thenReturn(1024);
+        when(remoteEmbedding.embed(anyString())).thenReturn(new float[1024]);
+        RecordingJdbcTemplate recording = new RecordingJdbcTemplate();
+        PgVectorKnowledgeBase kb = new PgVectorKnowledgeBase(
+                "order_knowledge", remoteEmbedding, recording, null, null);
+
+        kb.addDocument(new KnowledgeDocument(
+                "doc-1", "退款政策", "退款将在审核后原路返回",
+                "售后", "退款", -1, -1));
+
+        assertTrue(recording.lastUpdateSql.contains("knowledge_base"));
+        assertEquals("order_knowledge", recording.lastArgs[1]);
+        long placeholders = recording.lastUpdateSql.chars().filter(ch -> ch == '?').count();
+        assertEquals(placeholders, recording.lastArgs.length,
+                "SQL placeholder 数量必须与 JdbcTemplate 参数数量一致（包括 NULL embedding）");
+        assertTrue(Arrays.asList(recording.lastArgs).contains("doc-1"));
+    }
+
+    private static final class RecordingJdbcTemplate extends JdbcTemplate {
+        private String lastUpdateSql;
+        private Object[] lastArgs;
+
+        @Override
+        public void execute(String sql) {
+            // Constructor schema initialization is intentionally ignored.
+        }
+
+        @Override
+        public <T> T queryForObject(String sql, Class<T> requiredType, Object... args) {
+            // No existing PostgreSQL column in this SQL-capture-only test.
+            return null;
+        }
+
+        @Override
+        public int update(String sql, Object... args) {
+            this.lastUpdateSql = sql;
+            this.lastArgs = args;
+            return 1;
+        }
     }
 }

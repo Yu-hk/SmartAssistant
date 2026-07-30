@@ -203,6 +203,23 @@ class PgVectorKnowledgeBaseIntegrationTest {
         assertNotEquals(384, dim.intValue(), "embedding 维度不应是旧硬编码 384");
     }
 
+    @Test
+    void emptyEmbeddingColumnIsMigratedToModelDimension() {
+        jdbcTemplate.execute("DROP INDEX IF EXISTS idx_knowledge_embedding_hnsw");
+        jdbcTemplate.execute(
+                "ALTER TABLE knowledge_docs ALTER COLUMN embedding TYPE vector(384) USING NULL");
+
+        new PgVectorKnowledgeBase("dimension-migration", stub, jdbcTemplate, null, null);
+
+        Integer dimension = jdbcTemplate.queryForObject(
+                "SELECT a.atttypmod FROM pg_attribute a "
+                        + "JOIN pg_class c ON a.attrelid = c.oid "
+                        + "WHERE c.relname='knowledge_docs' AND a.attname='embedding' "
+                        + "AND NOT a.attisdropped",
+                Integer.class);
+        assertEquals(1024, dimension);
+    }
+
     // ==================== (c) 增量 upsert（不触发整库 reindex）====================
 
     @Test
@@ -267,9 +284,9 @@ class PgVectorKnowledgeBaseIntegrationTest {
     void multiInstanceReadSharing_sharedPgStorage() {
         // 两个独立实例（独立对象），共享同一 JdbcTemplate / 同一 PG
         PgVectorKnowledgeBase instanceA = new PgVectorKnowledgeBase(
-                "inst-A", stub, jdbcTemplate, null, null);
+                "shared-kb", stub, jdbcTemplate, null, null);
         PgVectorKnowledgeBase instanceB = new PgVectorKnowledgeBase(
-                "inst-B", stub, jdbcTemplate, null, null);
+                "shared-kb", stub, jdbcTemplate, null, null);
 
         instanceA.addDocument(new KnowledgeDocument(
                 "shared-doc-1", "共享文档", "多实例读共享验证内容", "cat", "kw", -1, -1));
@@ -279,6 +296,33 @@ class PgVectorKnowledgeBaseIntegrationTest {
         assertFalse(hitsB.isEmpty(),
                 "实例 B 应能直接读到实例 A 写入共享 PG 的文档（REQ-4 多实例一致性）");
         assertEquals("shared-doc-1", hitsB.get(0).getDocument().getId());
+    }
+
+    @Test
+    void logicalKnowledgeBasesAreIsolatedInSharedTable() {
+        PgVectorKnowledgeBase orderKb = new PgVectorKnowledgeBase(
+                "order_knowledge", stub, jdbcTemplate, null, null);
+        PgVectorKnowledgeBase productKb = new PgVectorKnowledgeBase(
+                "product_knowledge", stub, jdbcTemplate, null, null);
+
+        KnowledgeDocument orderDoc = new KnowledgeDocument(
+                "order-only-1", "退款时效", "退款审核后原路返回", "订单", "退款", -1, -1);
+        KnowledgeDocument productDoc = new KnowledgeDocument(
+                "product-only-1", "耳机参数", "支持主动降噪", "商品", "耳机", -1, -1);
+        orderKb.addDocument(orderDoc);
+        productKb.addDocument(productDoc);
+
+        assertEquals(1, orderKb.size());
+        assertEquals(1, productKb.size());
+        assertEquals("order_knowledge", jdbcTemplate.queryForObject(
+                "SELECT knowledge_base FROM knowledge_docs WHERE id='order-only-1'", String.class));
+        assertEquals("product_knowledge", jdbcTemplate.queryForObject(
+                "SELECT knowledge_base FROM knowledge_docs WHERE id='product-only-1'", String.class));
+
+        List<String> orderIds = orderKb.listAll().stream().map(KnowledgeDocument::getId).toList();
+        List<String> productIds = productKb.listAll().stream().map(KnowledgeDocument::getId).toList();
+        assertEquals(List.of("order-only-1"), orderIds);
+        assertEquals(List.of("product-only-1"), productIds);
     }
 
     // ==================== (f) 真实相似度排序 ====================
@@ -297,11 +341,11 @@ class PgVectorKnowledgeBaseIntegrationTest {
 
         // (f1) 直接 pgvector 距离：自身距离 = 0 < 不同文档距离（真实距离排序）
         Double distSelf = jdbcTemplate.queryForObject(
-                "SELECT embedding <-> (SELECT embedding FROM knowledge_docs WHERE id='sim-refund') "
+                "SELECT embedding <=> (SELECT embedding FROM knowledge_docs WHERE id='sim-refund') "
                         + "FROM knowledge_docs WHERE id='sim-refund'",
                 Double.class);
         Double distOther = jdbcTemplate.queryForObject(
-                "SELECT embedding <-> (SELECT embedding FROM knowledge_docs WHERE id='sim-ship') "
+                "SELECT embedding <=> (SELECT embedding FROM knowledge_docs WHERE id='sim-ship') "
                         + "FROM knowledge_docs WHERE id='sim-refund'",
                 Double.class);
         assertNotNull(distSelf);

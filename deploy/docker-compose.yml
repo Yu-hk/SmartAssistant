@@ -373,6 +373,8 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
+      APP_RAG_STORE_MODE: pg
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
       - smart-network
@@ -382,6 +384,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      embedding-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
