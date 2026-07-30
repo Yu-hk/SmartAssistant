@@ -103,6 +103,25 @@ public class ProductRagService {
             return RetrievalQualityResult.noData("空查询");
         }
 
+        /*
+         * 商品编码或名称能够被业务后端精确命中时，数据库结果本身就是最高质量证据。
+         * 先走这条确定性路径，避免为价格/库存这类强实时查询调用 QueryRewrite、
+         * Rerank 等 LLM 阶段，也避免单路召回被通用 RRF 阈值错误拒绝。
+         */
+        try {
+            String exactProduct = productBackend.queryProductInfo(query);
+            if (exactProduct != null
+                    && !exactProduct.isBlank()
+                    && !exactProduct.contains("PRODUCT_NOT_FOUND")) {
+                log.info("[ProductRAG] 精确业务数据命中，跳过通用检索 Pipeline: query={}", query);
+                return RetrievalQualityResult.highQuality(
+                        "【商品检索结果】\n" + exactProduct, 1.0);
+            }
+        } catch (Exception exactMatchError) {
+            log.warn("[ProductRAG] 精确业务数据查询失败，继续通用检索: {}",
+                    exactMatchError.getMessage());
+        }
+
         // 执行 Pipeline
         RagSearchContext ctx = new RagSearchContext(query);
         ctx.setQualityThreshold(0.30);
