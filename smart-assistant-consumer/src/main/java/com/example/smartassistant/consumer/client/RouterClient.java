@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -60,11 +61,21 @@ public class RouterClient {
     public RouterClient(
             @Autowired(required = false) StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper) {
-        // ⭐ 配置 RestTemplate 超时：连接 3s、读取 5s
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(3000);
-        factory.setReadTimeout(30000);  // ⚠️ 路由决策含 LLM 推理，5s 过短；放宽至 30s
-        this.restTemplate = new RestTemplate(factory);
+        this(redisTemplate, objectMapper, new RestTemplateBuilder());
+    }
+
+    /**
+     * 使用 Spring Boot 管理的构建器创建客户端，使 Micrometer 自动注入当前 trace 上下文。
+     */
+    @Autowired
+    public RouterClient(
+            @Autowired(required = false) StringRedisTemplate redisTemplate,
+            ObjectMapper objectMapper,
+            RestTemplateBuilder restTemplateBuilder) {
+        this.restTemplate = restTemplateBuilder
+                .connectTimeout(Duration.ofSeconds(3))
+                .readTimeout(Duration.ofSeconds(180))
+                .build();
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         
@@ -151,9 +162,10 @@ public class RouterClient {
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 Map<String, Object> responseBody = response.getBody();
+                Map<String, Object> normalizedBody = unwrapApiResponse(responseBody);
                 log.info("[RouterClient] Router 调用成功(完整响应): resultLength={}",
-                        responseBody.containsKey("result") ? ((String) responseBody.get("result")).length() : 0);
-                return responseBody;
+                        normalizedBody.get("result") instanceof String result ? result.length() : 0);
+                return normalizedBody;
             }
 
             Map<String, Object> errorMap = new HashMap<>();
@@ -168,6 +180,25 @@ public class RouterClient {
             errorMap.put("error", e.getMessage());
             return errorMap;
         }
+    }
+
+    /**
+     * Router 新版接口使用 ApiResponse 包裹业务数据；Consumer 内部始终暴露扁平的路由结果，
+     * 兼容尚未升级的旧版 Router 返回值。
+     */
+    static Map<String, Object> unwrapApiResponse(Map<String, Object> responseBody) {
+        if (responseBody == null) {
+            return new HashMap<>();
+        }
+        Object data = responseBody.get("data");
+        if (data instanceof Map<?, ?> dataMap) {
+            Map<String, Object> result = new HashMap<>();
+            dataMap.forEach((key, value) -> {
+                if (key != null) result.put(String.valueOf(key), value);
+            });
+            return result;
+        }
+        return responseBody;
     }
 
     /**
@@ -257,7 +288,8 @@ public class RouterClient {
      * @param userId    用户 ID
      * @param requestId 请求 ID（用于 Redis 存储）
      */
-    public void triggerRoutingDecision(String message, String userId, String requestId) {
+    public void triggerRoutingDecision(String message, String userId,
+                                       String sessionId, String requestId) {
         log.debug("[RouterClient] 触发路由决策: requestId={}, messageLength={}", 
                 requestId, message != null ? message.length() : 0);
 
@@ -266,19 +298,8 @@ public class RouterClient {
             // /api/router/route 执行完整路由决策，并经由 RouteFinalizer.finalizeRouting
             // -> SemanticRouteCacheService.saveFullDecisionForConsumer 写入 FULL_DECISION_KEY + notify，
             // 供 Consumer SSE 端点 waitForDecisionFromRedis 阻塞读取。
-            Map<String, Object> requestBody = new HashMap<>();
-            // userId 与 callRouterRaw 保持一致：非数字（如 anonymous）映射为 0L
-            Object userIdVal;
-            try {
-                userIdVal = userId != null ? Long.parseLong(userId) : 0L;
-            } catch (NumberFormatException e) {
-                userIdVal = 0L;
-            }
-            requestBody.put("userId", userIdVal);
-            requestBody.put("question", message);
-            requestBody.put("sessionId", requestId);
-            requestBody.put("requestId", requestId);
-            requestBody.put("enableRag", false);
+            Map<String, Object> requestBody = buildRoutingRequestBody(
+                    message, userId, sessionId, requestId);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -295,5 +316,22 @@ public class RouterClient {
         } catch (Exception e) {
             log.error("[RouterClient] 触发路由决策失败: requestId={}, error={}", requestId, e.getMessage(), e);
         }
+    }
+
+    static Map<String, Object> buildRoutingRequestBody(String message, String userId,
+                                                       String sessionId, String requestId) {
+        Map<String, Object> requestBody = new HashMap<>();
+        Object userIdVal;
+        try {
+            userIdVal = userId != null ? Long.parseLong(userId) : 0L;
+        } catch (NumberFormatException e) {
+            userIdVal = 0L;
+        }
+        requestBody.put("userId", userIdVal);
+        requestBody.put("question", message);
+        requestBody.put("sessionId", sessionId);
+        requestBody.put("requestId", requestId);
+        requestBody.put("enableRag", false);
+        return requestBody;
     }
 }

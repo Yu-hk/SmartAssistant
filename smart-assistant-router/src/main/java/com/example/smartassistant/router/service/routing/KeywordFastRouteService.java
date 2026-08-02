@@ -118,6 +118,8 @@ public class KeywordFastRouteService {
     // ==================== 字段 ====================
 
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final Pattern ORDER_IDENTIFIER_PATTERN = Pattern.compile(
+            "(?i)ORD-[A-Z0-9][A-Z0-9_-]{2,63}");
 
     private final KeywordRouteProperties properties;
     private final List<KeywordRule> activeRules = new ArrayList<>();
@@ -191,6 +193,16 @@ public class KeywordFastRouteService {
         }
 
         String normalized = question.toLowerCase(Locale.CHINESE);
+
+        // A valid order identifier is already a deterministic business signal.
+        // Route it directly instead of asking the LLM to infer an intent.
+        if (ORDER_IDENTIFIER_PATTERN.matcher(question).find()) {
+            MatchResult orderMatch = new MatchResult(
+                    "order_agent", "\u8ba2\u5355\u67e5\u8be2", 0.99, "order_id_fast_route");
+            log.info("[KeywordFastRoute] order identifier matched: rule={}, agent={}, question={}",
+                    orderMatch.matchedRuleName, orderMatch.targetAgent, truncate(question, 50));
+            return orderMatch;
+        }
 
         // ⭐ 两阶段匹配：先找第一命中，再检查是否有多意图
         MatchResult firstMatch = null;
@@ -359,7 +371,7 @@ public class KeywordFastRouteService {
         // 规则 1：退款（Order 模块）
         KeywordRule refundRule = new KeywordRule();
         refundRule.setName("refund_fast_route");
-        refundRule.setTargetAgent("order");
+        refundRule.setTargetAgent("order_agent");
         refundRule.setIntentTag("退款申请");
         refundRule.setAnyContain(Arrays.asList("退款", "退货", "退钱", "不要了", "不想要了"));
         refundRule.setExclude(Arrays.asList("怎么退款", "如何退款", "退款流程", "退款政策"));  // 咨询类排除
@@ -370,9 +382,10 @@ public class KeywordFastRouteService {
         // 规则 2：查订单（Order 模块）
         KeywordRule queryOrderRule = new KeywordRule();
         queryOrderRule.setName("query_order_fast_route");
-        queryOrderRule.setTargetAgent("order");
+        queryOrderRule.setTargetAgent("order_agent");
         queryOrderRule.setIntentTag("订单查询");
-        queryOrderRule.setAnyContain(Arrays.asList("查订单", "我的订单", "订单状态", "订单号", "物流"));
+        queryOrderRule.setAnyContain(Arrays.asList(
+                "查订单", "查询订单", "我的订单", "订单状态", "当前状态", "订单号", "物流"));
         queryOrderRule.setConfidence(0.95);
         queryOrderRule.setPriority(10);
         activeRules.add(queryOrderRule);
@@ -380,7 +393,7 @@ public class KeywordFastRouteService {
         // 规则 3：取消订单（Order 模块）
         KeywordRule cancelRule = new KeywordRule();
         cancelRule.setName("cancel_order_fast_route");
-        cancelRule.setTargetAgent("order");
+        cancelRule.setTargetAgent("order_agent");
         cancelRule.setIntentTag("取消订单");
         cancelRule.setAnyContain(Arrays.asList("取消订单", "撤销订单", "不要了"));
         cancelRule.setExclude(Arrays.asList("怎么取消", "如何取消"));  // 咨询类排除
@@ -391,7 +404,7 @@ public class KeywordFastRouteService {
         // 规则 4：商品查询（Product 模块）
         KeywordRule productRule = new KeywordRule();
         productRule.setName("product_query_fast_route");
-        productRule.setTargetAgent("product");
+        productRule.setTargetAgent("product_agent");
         productRule.setIntentTag("商品查询");
         productRule.setAnyContain(Arrays.asList("商品", "产品", "价格", "多少钱", "有没有", "推荐"));
         productRule.setConfidence(0.90);

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import '@tdesign-react/chat/es/style/index.js';
 
 import { useTheme } from './hooks/useTheme';
@@ -9,6 +9,15 @@ import { useChat } from './hooks/useChat';
 import { CustomerSidebar } from './components/CustomerSidebar';
 import { CustomerChatPage } from './pages/CustomerChatPage';
 import { AdminPage } from './pages/AdminPage';
+import { LoginPage } from './pages/LoginPage';
+import { auth } from './api';
+import {
+  AUTH_CHANGED_EVENT,
+  AuthUser,
+  clearAuthSession,
+  readAccessToken,
+  readStoredUser,
+} from './authStorage';
 
 // ===================================================
 // 🌌 粒子背景系统 — Canvas 动态科技背景
@@ -125,22 +134,83 @@ function ParticleBackground() {
 // 主应用
 // ===================================================
 function App() {
+  const navigate = useNavigate();
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [authenticatedUser, setAuthenticatedUser] = useState<AuthUser | null>(() => readStoredUser());
+
+  useEffect(() => {
+    let active = true;
+    const verifySession = async () => {
+      if (!readAccessToken()) {
+        if (active) {
+          setAuthenticatedUser(null);
+          setIsCheckingAuth(false);
+        }
+        return;
+      }
+      try {
+        const user = await auth.me();
+        if (active) setAuthenticatedUser(user);
+      } catch {
+        clearAuthSession();
+        if (active) setAuthenticatedUser(null);
+      } finally {
+        if (active) setIsCheckingAuth(false);
+      }
+    };
+
+    const handleAuthChanged = () => {
+      if (!readAccessToken()) setAuthenticatedUser(null);
+    };
+
+    window.addEventListener(AUTH_CHANGED_EVENT, handleAuthChanged);
+    void verifySession();
+    return () => {
+      active = false;
+      window.removeEventListener(AUTH_CHANGED_EVENT, handleAuthChanged);
+    };
+  }, []);
+
+  if (isCheckingAuth) {
+    return (
+      <div className="auth-checking" role="status">
+        <span className="auth-checking__mark">智</span>
+        <span>正在验证登录状态…</span>
+      </div>
+    );
+  }
+
+  if (!authenticatedUser) {
+    return <LoginPage onAuthenticated={(user) => {
+      setAuthenticatedUser(user);
+      navigate('/', { replace: true });
+    }} />;
+  }
+
+  const handleLogout = () => {
+    clearAuthSession();
+    setAuthenticatedUser(null);
+    navigate('/', { replace: true });
+  };
+
   return (
-    <>
-      <ParticleBackground />
-      <Routes>
-        <Route path="/" element={<AppContent />} />
-        <Route path="/chat/:sessionId" element={<AppContent />} />
-        <Route path="/admin" element={<AppContent />} />
-      </Routes>
-    </>
+    <Routes>
+      <Route path="*" element={<AppContent user={authenticatedUser} onLogout={handleLogout} />} />
+    </Routes>
   );
 }
 
-function AppContent() {
+interface AppContentProps {
+  user: AuthUser;
+  onLogout: () => void;
+}
+
+function AppContent({ user, onLogout }: AppContentProps) {
   const navigate = useNavigate();
-  const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
   const location = useLocation();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const chatPathMatch = location.pathname.match(/^\/chat\/([^/]+)$/);
+  const urlSessionId = chatPathMatch ? decodeURIComponent(chatPathMatch[1]) : undefined;
   const isAdmin = location.pathname === '/admin';
 
   const { theme, toggleTheme } = useTheme();
@@ -178,11 +248,13 @@ function AppContent() {
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
   const handleNewChat = useCallback(() => {
+    setMobileSidebarOpen(false);
     setCurrentSessionId(null);
     navigate('/');
   }, [navigate, setCurrentSessionId]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
+    setMobileSidebarOpen(false);
     setCurrentSessionId(sessionId);
     navigate(`/chat/${sessionId}`);
   }, [navigate, setCurrentSessionId]);
@@ -193,89 +265,76 @@ function AppContent() {
   }, [deleteSession, navigate]);
 
   return (
-    <div className="relative z-10" style={{
-      display: 'flex',
-      height: '100vh',
-      width: '100vw',
-      overflow: 'hidden',
-    }}>
+    <div className="customer-app-shell relative z-10">
       {!isAdmin && (
-        <CustomerSidebar
-          sessions={sessions}
-          currentSessionId={currentSessionId}
-          theme={theme}
-          onNewChat={handleNewChat}
-          onSelectSession={handleSelectSession}
-          onDeleteSession={handleDeleteSession}
-          onOpenAdmin={() => navigate('/admin')}
-          onToggleTheme={toggleTheme}
-        />
+        <>
+          <button
+            type="button"
+            className={`customer-sidebar-backdrop${mobileSidebarOpen ? ' customer-sidebar-backdrop--visible' : ''}`}
+            aria-label="关闭咨询记录"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <CustomerSidebar
+            sessions={sessions}
+            currentSessionId={currentSessionId}
+            theme={theme}
+            mobileOpen={mobileSidebarOpen}
+            onMobileClose={() => setMobileSidebarOpen(false)}
+            onNewChat={handleNewChat}
+            onSelectSession={handleSelectSession}
+            onDeleteSession={handleDeleteSession}
+            onOpenAdmin={() => navigate('/admin')}
+            onToggleTheme={toggleTheme}
+            username={user.username}
+            onLogout={onLogout}
+          />
+        </>
       )}
 
-      <main className="flex-1 flex flex-col min-w-0 relative">
+      <main className="customer-main flex-1 flex flex-col min-w-0 relative">
         {isAdmin ? (
           <AdminPage onBack={() => navigate('/')} />
         ) : (
           <>
-            {/* 顶部栏 — 玻璃效果 */}
-            <div className="glass" style={{
-              display: 'flex',
-              alignItems: 'center',
-              padding: '0 20px',
-              height: '60px',
-              borderBottom: '1px solid var(--nova-border)',
-              flexShrink: 0,
-              gap: '12px',
-              zIndex: 10,
-            }}>
-              {/* 品牌标识 */}
-              <div style={{
-                width: '32px', height: '32px', borderRadius: '10px',
-                background: 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '14px', fontWeight: 800, color: 'white',
-                flexShrink: 0,
-                boxShadow: '0 0 16px var(--nova-accent-glow)',
-              }}>
-                N
+            {/* 客服状态栏 */}
+            <div className="customer-topbar glass">
+              <button
+                type="button"
+                className="customer-mobile-menu"
+                aria-label="打开咨询记录"
+                onClick={() => setMobileSidebarOpen(true)}
+              >
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="4" y1="7" x2="20" y2="7" />
+                  <line x1="4" y1="12" x2="20" y2="12" />
+                  <line x1="4" y1="17" x2="20" y2="17" />
+                </svg>
+              </button>
+              {/* 客服标识 */}
+              <div className="customer-topbar__avatar">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 14a8 8 0 0 1 16 0" />
+                  <path d="M18 19c0 1.1-.9 2-2 2h-3" />
+                  <path d="M4 14v3a2 2 0 0 0 2 2h1v-7H6a2 2 0 0 0-2 2Z" />
+                  <path d="M20 14v3a2 2 0 0 1-2 2h-1v-7h1a2 2 0 0 1 2 2Z" />
+                </svg>
               </div>
-              <div>
-                <div style={{
-                  fontSize: '15px', fontWeight: 700,
-                  color: 'var(--nova-text-primary)', lineHeight: 1.2,
-                  letterSpacing: '0.02em',
-                }}>
-                  Nova 旅行规划
-                </div>
-                <div style={{
-                  fontSize: '11px', color: 'var(--nova-secondary)',
-                  display: 'flex', alignItems: 'center', gap: '5px',
-                }}>
-                  <span style={{
-                    width: '6px', height: '6px', borderRadius: '50%',
-                    background: 'var(--nova-secondary)', display: 'inline-block',
-                    boxShadow: '0 0 8px var(--nova-secondary)',
-                  }}></span>
-                  在线 · AI 旅游助手
-                </div>
+              <div className="customer-topbar__identity">
+                <strong>小智客服</strong>
+                <span><i aria-hidden="true" /> 在线 · 通常几秒内回复</span>
               </div>
               {currentSession && (
-                <div style={{
-                  marginLeft: '12px',
-                  padding: '4px 12px',
-                  borderRadius: '100px',
-                  background: 'var(--nova-accent-light)',
-                  fontSize: '12px',
-                  color: 'var(--nova-accent)',
-                  fontWeight: 500,
-                  maxWidth: '240px',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
+                <div className="customer-topbar__session">
                   {currentSession.title.slice(0, 24)}
                 </div>
               )}
+              <button type="button" className="customer-topbar__new" onClick={handleNewChat}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                新咨询
+              </button>
             </div>
 
             {/* 聊天区域 */}

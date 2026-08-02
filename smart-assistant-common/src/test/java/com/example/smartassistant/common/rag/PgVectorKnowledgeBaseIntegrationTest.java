@@ -60,16 +60,19 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * 通过 {@link StubBgeEmbeddingModel} 提供 1024 维<b>确定性</b>向量（相同文本 → 相同向量），
  * 无需 embedding-service 即可在真 PG 上验证向量读写与距离语义。
  *
- * <p><b>连接参数</b>（与 docker-compose-infra.yml 的 postgres 服务一致）：
- * url={@code jdbc:postgresql://localhost:5433/a2a_system}，user={@code postgres}，pwd={@code postgres123}。</p>
+ * <p><b>连接参数</b>（与 Docker Compose 的 postgres 服务一致）：默认连接
+ * {@code jdbc:postgresql://localhost:5433/a2a_system}；可通过系统属性
+ * {@code pg.url/pg.user/pg.password} 或环境变量
+ * {@code PG_TEST_URL/PG_TEST_USER/PG_TEST_PASSWORD} 覆盖。</p>
  */
 @Tag("integration")
 class PgVectorKnowledgeBaseIntegrationTest {
 
-    /** 与 docker-compose-infra.yml 的 postgres 服务严格一致 */
-    private static final String PG_URL = "jdbc:postgresql://localhost:5433/a2a_system";
-    private static final String PG_USER = "postgres";
-    private static final String PG_PWD = "postgres123";
+    private static final String PG_URL = setting("pg.url", "PG_TEST_URL",
+            "jdbc:postgresql://localhost:5433/a2a_system");
+    private static final String PG_USER = setting("pg.user", "PG_TEST_USER", "postgres");
+    private static final String PG_PWD = setting("pg.password", "PG_TEST_PASSWORD",
+            setting(null, "POSTGRES_PASSWORD", "postgres123"));
     private static final String V1_SQL_RESOURCE = "db/migration/V1__rag_knowledge_schema.sql";
 
     /** 是否具备可达 PG（@BeforeAll 探测；-Dpg.integration=true 可显式开启） */
@@ -77,6 +80,17 @@ class PgVectorKnowledgeBaseIntegrationTest {
 
     private JdbcTemplate jdbcTemplate;
     private StubBgeEmbeddingModel stub;
+
+    private static String setting(String systemProperty, String environmentVariable, String fallback) {
+        if (systemProperty != null) {
+            String propertyValue = System.getProperty(systemProperty);
+            if (propertyValue != null && !propertyValue.isBlank()) {
+                return propertyValue;
+            }
+        }
+        String environmentValue = System.getenv(environmentVariable);
+        return environmentValue != null && !environmentValue.isBlank() ? environmentValue : fallback;
+    }
 
     // ==================== 环境探测与 setUp ====================
 

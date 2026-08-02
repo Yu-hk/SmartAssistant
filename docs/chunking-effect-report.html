@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG 分块效果报告 · SmartAssistant</title>
+<style>
+  :root{--bg:#f7f8fa;--card:#fff;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif;line-height:1.65}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-weight:400;font-size:15px}
+  .cfg{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:12px 16px;margin:16px 0;font-size:13px;color:var(--muted)}
+  .cfg b{color:var(--ink)}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+    border-radius:10px;overflow:hidden;font-size:13px;margin:14px 0}
+  th,td{padding:9px 10px;text-align:center;border-bottom:1px solid var(--line)}
+  th{background:#eef2ff;color:#374151;font-weight:600}
+  td.fname{text-align:left;font-weight:600}
+  .ok{color:#059669;font-weight:700}
+  .bad{color:#dc2626;font-weight:700}
+  .pdfsec{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:18px 20px;margin:20px 0}
+  .pdfsec h2{font-size:18px;margin:0 0 12px}
+  .tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .tab{border:1px solid var(--line);background:#f3f4f6;color:var(--ink);
+    padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}
+  .tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tabpane{display:none}
+  .tabpane.active{display:block}
+  .el,.chunk{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:10px 0;background:#fcfcfd}
+  .chunk.dup{border-color:#f59e0b;border-left:4px solid #f59e0b}
+  .elhead,.chunkhead{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+  .meta{color:var(--muted);font-size:12px}
+  .badge{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid}
+  .badge.table{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+  .badge.prose{background:#dbeafe;color:#1e40af;border-color:#bfdbfe}
+  .badge.warn{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+  .tok{font-size:12px;font-weight:700;padding:1px 8px;border-radius:6px;border:1px solid}
+  .tokcap{font-weight:400;opacity:.7;font-size:10px;margin-left:2px}
+  pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;color:#374151;
+    background:#fff;border:1px solid var(--line);border-radius:7px;padding:10px 12px;margin:8px 0 0;max-height:320px;overflow:auto}
+  .barwrap{position:relative;height:18px;background:#eef2f7;border-radius:5px;margin:6px 0 2px;overflow:hidden}
+  .bar{height:100%;border-radius:5px}
+  .barval{position:absolute;right:6px;top:0;font-size:11px;color:#374151;line-height:18px}
+  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 18px;margin:18px 0;font-size:13.5px}
+  .note h3{margin:0 0 8px;font-size:15px;color:#92400e}
+  .note code{background:#fde68a55;padding:1px 5px;border-radius:4px}
+  .legend{font-size:12px;color:var(--muted);margin:6px 0 0}
+</style></head>
+<body><div class="wrap">
+  <h1>RAG 分块效果报告 <span class="sub">Parent-Child 双粒度 · 真实管线</span></h1>
+  <div class="cfg">
+    管线：<b>PdfDocumentParser.parse -&gt; ParentChildDocumentChunker.chunkParentChild</b> &nbsp;|&nbsp; 策略：<b>SemanticChunkStrategy</b>
+    &nbsp;|&nbsp; 子块 ≤ <b>256</b> tok &nbsp;|&nbsp; 父块 ≤ <b>1024</b> tok
+    &nbsp;|&nbsp; overlap <b>50</b> &nbsp;|&nbsp; 生成时间：<b>2026-07-25 18:32:08</b>
+  </div>
+
+  <h3 style="margin:18px 0 6px">一、三份 PDF 分块概览</h3>
+  <table>
+    <thead><tr>
+      <th>PDF</th><th>页数</th><th>解析元素</th><th>表格数</th><th>正文字数</th>
+      <th>父块</th><th>子块</th><th>父均tok</th><th>子均tok</th>
+      <th>父块区间</th><th>子块区间</th><th>孤儿子块</th>
+    </tr></thead>
+    <tbody><tr>
+      <td class="fname">下单操作指南.pdf</td>
+      <td>2</td>
+      <td>3</td>
+      <td>1</td>
+      <td>1242</td>
+      <td>3</td>
+      <td>7</td>
+      <td>422</td>
+      <td>183</td>
+      <td>143–740</td>
+      <td>118–259</td>
+      <td class="ok">0</td>
+    </tr><tr>
+      <td class="fname">订单取消与退款政策.pdf</td>
+      <td>2</td>
+      <td>3</td>
+      <td>1</td>
+      <td>879</td>
+      <td>3</td>
+      <td>6</td>
+      <td>312</td>
+      <td>157</td>
+      <td>139–648</td>
+      <td>139–197</td>
+      <td class="ok">0</td>
+    </tr><tr>
+      <td class="fname">支付安全与发票说明.pdf</td>
+      <td>1</td>
+      <td>2</td>
+      <td>1</td>
+      <td>822</td>
+      <td>2</td>
+      <td>6</td>
+      <td>452</td>
+      <td>152</td>
+      <td>154–750</td>
+      <td>104–187</td>
+      <td class="ok">0</td>
+    </tr></tbody>
+  </table>
+  <p class="legend">说明：中文按 1 字≈1 token 估算。父块区间为全部父块的 min–max，子块同理。
+  孤儿子块=未关联父块的子块（应为 0，否则父块扩展会失效）。</p>
+
+  <section class="pdfsec">
+      <h2>📄 下单操作指南.pdf <span class="sub">（2 页 · 解析 3 元素 · 父 3 / 子 7）</span></h2>
+      <div class="tabs">
+        <button class="tab active" onclick="show('pdf0','parse')">① PDF 解析内容</button>
+        <button class="tab" onclick="show('pdf0','parent')">② 父块（阅读用 ≤1024）</button>
+        <button class="tab" onclick="show('pdf0','child')">③ 子块（检索用 ≤256）</button>
+      </div>
+      <div id="pdf0-parse" class="tabpane active"><div class="el">
+          <div class="elhead"><span class="badge table">pdf-table 表格</span> <span class="meta">第 1 页 · 第1页-表格1 · 227 字</span></div>
+          <pre class="elbody">| 支付方式 | 单笔限额 | 单日限额 | 到账/扣款时效 | 是否支持退款原路返回 |
+|---|---|---|---|---|
+| 账户余额 | 无 | 无 | 实时 | 是 |
+| 储蓄卡 | 5万元 | 10万元 | 实时 | 是 |
+| 信用卡 | 2万元 | 5万元 | 实时 | 是 |
+| 第三方支付 | 1万元 | 3万元 | 实时 | 是 |
+| 先用后付 | 3000元 | 3000元 | 确认收货后扣款 | 否（走账单） |</pre>
+        </div><div class="el">
+          <div class="elhead"><span class="badge prose">pdf 正文</span> <span class="meta">第 1 页 · 第1页-1 · 821 字</span></div>
+          <pre class="elbody">智能购物助手 � 下单操作指南
+
+本文档面向使用本平台智能购物助手的最终用户，系统说明从挑选商品到成功提交订单的完整流程、
+支持的支付方式、订单确认要点以及常见问题的处理方法。请在下单前仔细阅读，以确保交易顺利、
+售后无忧。
+
+一、下单前准备
+
+在创建第一笔订单之前，建议先完成以下基础设置，避免在结算环节中断。第一步，登录或注册平台
+账号并完成实名认证，实名信息将用于发票开具与售后身份核验。第二步，进入&quot;我的地址&quot;维护至少一
+个有效的收货地址，系统会依据地址中的省市区自动匹配最近的仓配中心与预估送达时效。第三步，
+在&quot;支付管理&quot;中绑定至少一种支付方式，目前支持余额、银行卡、以及主流第三方支付渠道；若绑定银
+行卡，请确认该卡已开通在线支付功能且未设置单笔限额过低。
+
+二、标准下单流程
+
+在商品详情页选择规格、颜色、数量后点击&quot;加入购物车&quot;，可继续浏览其他商品。 1
+进入购物车，勾选需要结算的商品，点击&quot;去结算&quot;。 2
+选择收货地址与配送方式（普通快递或次日达），系统展示预估运费与送达时间。 3
+选择支付方式，如开启&quot;先用后付&quot;需通过信用评估。 4
+核对订单金额、优惠抵扣与发票信息，确认无误后点击&quot;提交订单&quot;。 5
+在支付页完成付款，页面跳转至&quot;订单详情&quot;即表示下单成功。 6
+
+三、支付方式说明
+
+平台对不同支付渠道设置了单笔与单日额度，下表汇总了常用渠道的限额与到账特征，便于用户在下
+单时做出选择。
+
+四、订单确认与提交
+
+提交订单前的&quot;确认页&quot;是防止误下单的最后一道关卡。请重点核对四项内容：其一，收货人姓名、电话
+与详细地址是否准确，尤其是门牌号与代收点信息；其二，商品规格、数量与单价是否与预期一致，
+促销价通常标注&quot;活动价&quot;；其三，优惠与券的叠加顺序，平台默认优先使用到期时间最近的券；其四，
+发票抬头与类型，企业用户如需增值税专用票须提前维护税号。确认无误后输入支付密码或完成生物
+识别，订单即进入&quot;待发货&quot;状态。</pre>
+        </div><div class="el">
+          <div class="elhead"><span class="badge prose">pdf 正文</span> <span class="meta">第 2 页 · 第2页-1 · 421 字</span></div>
+          <pre class="elbody">五、常见问题
+
+问：提交订单后还能修改收货地址吗？答：订单进入&quot;待发货&quot;前可在订单详情页自助修改地址一次；一
+旦仓库开始拣货，地址将被锁定，需联系客服拦截。问：下单时提示&quot;库存不足&quot;但商品页显示有货，怎
+么办？答：通常为区域仓与展示仓库存口径不一致导致，建议降低购买数量或切换配送仓，系统会在
+三十分钟内刷新可售库存。问：为什么优惠券在结算页不可用？答：优惠券存在品类、门槛与叠加互
+斥三类限制，可在&quot;我的优惠券&quot;查看适用说明，跨店满减券不可与店铺券同用。问：下单成功但未扣款
+，订单是否有效？答：以支付页最终状态为准，若显示&quot;待支付&quot;则订单处于保留状态，超时（默认三十
+分钟）未支付将自动取消并释放库存。
+本指南所述流程适用于标准实物商品。对于预售、定制类商品，下单规则以商品页公示的&quot;预售协议&quot;为
+准，其支付与发货节奏不同于现货订单，请勿直接套用本节时限。如仍遇疑问，可通过助手内的&quot;人工
+客服&quot;入口或帮助中心检索对应词条获取进一步指引。</pre>
+        </div></div>
+      <div id="pdf0-parent" class="tabpane"><div class="chunk">
+          <div class="chunkhead"><span class="tok" style="background:#2563eb1a;color:#2563eb;border-color:#2563eb55">143<span class="tokcap">/1024</span></span> <span class="meta">下单操作指南.pdf-p1-table1-parent-0</span></div>
+          <div class="barwrap"><div class="bar" style="width:13%;background:#2563eb"></div><span class="barval">143</span></div>
+          <pre class="chunkbody">| 支付方式 | 单笔限额 | 单日限额 | 到账/扣款时效 | 是否支持退款原路返回 |
+|---|---|---|---|---|
+| 账户余额 | 无 | 无 | 实时 | 是 |
+| 储蓄卡 | 5万元 | 10万元 | 实时 | 是 |
+| 信用卡 | 2万元 | 5万元 | 实时 | 是 |
+| 第三方支付 | 1万元 | 3万元 | 实时 | 是 |
+| 先用后付 | 3000元 | 3000元 | 确认收货后扣款 | 否（走账单） |</pre>
+        </div><div class="chunk">
+          <div class="chunkhead"><span class="tok" style="background:#2563eb1a;color:#2563eb;border-color:#2563eb55">740<span class="tokcap">/1024</span></span> <span class="meta">下单操作指南.pdf-p1-sec1-parent-1</span></div>
+          <div class="barwrap"><div class="bar" style="width:72%;background:#2563eb"></div><span class="barval">740</span></div>
+          <pre class="chunkbody">智能购物助手 � 下单操作指南
+
+本文档面向使用本平台智能购物助手的最终用户，系统说明从挑选商品到成功提交订单的完整流程、
+支持的支付方式、订单确认要点以及常见问题的处理方法。请在下单前仔细阅读，以确保交易顺利、
+售后无忧。
+
+一、下单前准备
+
+在创建第一笔订单之前，建议先完成以下基础设置，避免在结算环节中断。第一步，登录或注册平台
+账号并完成实名认证，实名信息将用于发票开具与售后身份核验。第二步，进入&quot;我的地址&quot;维护至少一
+个有效的收货地址，系统会依据地址中的省市区自动匹配最近的仓配中心与预估送达时效。第三步，
+在&quot;支付管理&quot;中绑定至少一种支付方式，目前支持余额、银行卡、以及主流第三方支付渠道；若绑定银
+行卡，请确认该卡已开通在线支付功能且未设置单笔限额过低。
+
+二、标准下单流程
+
+在商品详情页选择规格、颜色、数量后点击&quot;加入购物车&quot;，可继续浏览其他商品。 1
+进入购物车，勾选需要结算的商品，点击&quot;去结算&quot;。 2
+选择收货地址与配送方式（普通快递或次日达），系统展示预估运费与送达时间。 3
+选择支付方式，如开启&quot;先用后付&quot;需通过信用评估。 4
+核对订单金额、优惠抵扣与发票信息，确认无误后点击&quot;提交订单&quot;。 5
+在支付页完成付款，页面跳转至&quot;订单详情&quot;即表示下单成功。 6
+
+三、支付方式说明
+
+平台对不同支付渠道设置了单笔与单日额度，下表汇总了常用渠道的限额与到账特征，便于用户在下
+单时做出选择。
+
+四、订单确认与提交
+
+提交订单前的&quot;确认页&quot;是防止误下单的最后一道关卡。请重点核对四项内容：其一，收货人姓名、电话
+与详细地址是否准确，尤其是门牌号与代收点信息；其二，商品规格、数量与单价是否与预期一致，
+促销价通常标注&quot;活动价&quot;；其三，优惠与券的叠加顺序，平台默认优先使用到期时间最近的券；其四，
+发票抬头与类型，企业用户如需增值税专用票须提前维护税号。确认无误后输入支付密码或完成生物
+识别，订单即进入&quot;待发货&quot;状态。</pre>
+        </div><div class="chunk">
+          <div class="chunkhead"><span class="tok" style="background:#2563eb1a;color:#2563eb;border-color:#2563eb55">384<span class="tokcap">/1024</span></span> <span class="meta">下单操作指南.pdf-p2-sec1-parent-5</span></div>
+          <div class="barwrap"><div class="bar" style="width:37%;background:#2563eb"></div><span class="barval">384</span></div>
+          <pre class="chunkbody">五、常见问题
+
+问：提交订单后还能修改收货地址吗？答：订单进入&quot;待发货&quot;前可在订单详情页自助修改地址一次；一
+旦仓库开始拣货，地址将被锁定，需联系客服拦截。问：下单时提示&quot;库存不足&quot;但商品页显示有货，怎
+么办？答：通常为区域仓与展示仓库存口径不一致导致，建议降低购买数量或切换配送仓，系统会在
+三十分钟内刷新可售库存。问：为什么优惠券在结算页不可用？答：优惠券存在品类、门槛与叠加互
+斥三类限制，可在&quot;我的优惠券&quot;查看适用说明，跨店满减券不可与店铺券同用。问：下单成功但未扣款
+，订单是否有效？答：以支付页最终状态为准，若显示&quot;待支付&quot;则订单处于保留状态，超时（默认三十
+分钟）未支付将自动取消并释放库存。
+本指南所述流程适用于标准实物商品。对于预售、定制类商品，下单规则以商品页公示的&quot;预售协议&quot;为
+准，其支付与发货节奏不同于现货订单，请勿直接套用本节时限。如仍遇疑问，可通过助手内的&quot;人工
+客服&quot;入口或帮助中心检索对应词条获取进一步指引。</pre>
+        </div></div>
+      <div id="pdf0-child" class="tabpane"><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">143<span class="tokcap">/256</span></span> <span class="meta">↳ 下单操作指南.pdf-p1-table1-parent-0</span> </div>
+          <div class="barwrap"><div class="bar" style="width:46%;background:#059669"></div><span class="barval">143</span></div>
+          <pre class="chunkbody">| 支付方式 | 单笔限额 | 单日限额 | 到账/扣款时效 | 是否支持退款原路返回 |
+|---|---|---|---|---|
+| 账户余额 | 无 | 无 | 实时 | 是 |
+| 储蓄卡 | 5万元 | 10万元 | 实时 | 是 |
+| 信用卡 | 2万元 | 5万元 | 实时 | 是 |
+| 第三方支付 | 1万元 | 3万元 | 实时 | 是 |
+| 先用后付 | 3000元 | 3000元 | 确认收货后扣款 | 否（走账单） |</pre>
+        </div><div class="chunk dup">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">118<span class="tokcap">/256</span></span> <span class="meta">↳ 下单操作指南.pdf-p1-sec1-parent-1</span> <span class="badge warn">⚠ 标题重复注入</span></div>
+          <div class="barwrap"><div class="bar" style="width:38%;background:#059669"></div><span class="barval">118</span></div>
+          <pre class="chunkbody">智能购物助手 � 下单操作指南
+
+智能购物助手 � 下单操作指南
+
+本文档面向使用本平台智能购物助手的最终用户，系统说明从挑选商品到成功提交订单的完整流程、
+支持的支付方式、订单确认要点以及常见问题的处理方法。请在下单前仔细阅读，以确保交易顺利、
+售后无忧。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">205<span class="tokcap">/256</span></span> <span class="meta">↳ 下单操作指南.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:66%;background:#059669"></div><span class="barval">205</span></div>
+          <pre class="chunkbody">一、下单前准备
+
+在创建第一笔订单之前，建议先完成以下基础设置，避免在结算环节中断。第一步，登录或注册平台
+账号并完成实名认证，实名信息将用于发票开具与售后身份核验。第二步，进入&quot;我的地址&quot;维护至少一
+个有效的收货地址，系统会依据地址中的省市区自动匹配最近的仓配中心与预估送达时效。第三步，
+在&quot;支付管理&quot;中绑定至少一种支付方式，目前支持余额、银行卡、以及主流第三方支付渠道；若绑定银
+行卡，请确认该卡已开通在线支付功能且未设置单笔限额过低。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">237<span class="tokcap">/256</span></span> <span class="meta">↳ 下单操作指南.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:77%;background:#059669"></div><span class="barval">237</span></div>
+          <pre class="chunkbody">二、标准下单流程
+
+在商品详情页选择规格、颜色、数量后点击&quot;加入购物车&quot;，可继续浏览其他商品。 1
+进入购物车，勾选需要结算的商品，点击&quot;去结算&quot;。 2
+选择收货地址与配送方式（普通快递或次日达），系统展示预估运费与送达时间。 3
+选择支付方式，如开启&quot;先用后付&quot;需通过信用评估。 4
+核对订单金额、优惠抵扣与发票信息，确认无误后点击&quot;提交订单&quot;。 5
+在支付页完成付款，页面跳转至&quot;订单详情&quot;即表示下单成功。 6
+
+三、支付方式说明
+
+平台对不同支付渠道设置了单笔与单日额度，下表汇总了常用渠道的限额与到账特征，便于用户在下
+单时做出选择。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">193<span class="tokcap">/256</span></span> <span class="meta">↳ 下单操作指南.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:62%;background:#059669"></div><span class="barval">193</span></div>
+          <pre class="chunkbody">四、订单确认与提交
+
+提交订单前的&quot;确认页&quot;是防止误下单的最后一道关卡。请重点核对四项内容：其一，收货人姓名、电话
+与详细地址是否准确，尤其是门牌号与代收点信息；其二，商品规格、数量与单价是否与预期一致，
+促销价通常标注&quot;活动价&quot;；其三，优惠与券的叠加顺序，平台默认优先使用到期时间最近的券；其四，
+发票抬头与类型，企业用户如需增值税专用票须提前维护税号。确认无误后输入支付密码或完成生物
+识别，订单即进入&quot;待发货&quot;状态。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">259<span class="tokcap">/256</span></span> <span class="meta">↳ 下单操作指南.pdf-p2-sec1-parent-5</span> </div>
+          <div class="barwrap"><div class="bar" style="width:84%;background:#059669"></div><span class="barval">259</span></div>
+          <pre class="chunkbody">五、常见问题
+
+问：提交订单后还能修改收货地址吗？答：订单进入&quot;待发货&quot;前可在订单详情页自助修改地址一次；一
+旦仓库开始拣货，地址将被锁定，需联系客服拦截。问：下单时提示&quot;库存不足&quot;但商品页显示有货，怎
+么办？答：通常为区域仓与展示仓库存口径不一致导致，建议降低购买数量或切换配送仓，系统会在
+三十分钟内刷新可售库存。问：为什么优惠券在结算页不可用？答：优惠券存在品类、门槛与叠加互
+斥三类限制，可在&quot;我的优惠券&quot;查看适用说明，跨店满减券不可与店铺券同用。问：下单成功但未扣款
+，订单是否有效？答：以支付页最终状态为准，若显示&quot;待支付&quot;则订单处于保留状态，超时（默认三十</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">131<span class="tokcap">/256</span></span> <span class="meta">↳ 下单操作指南.pdf-p2-sec1-parent-5</span> </div>
+          <div class="barwrap"><div class="bar" style="width:42%;background:#059669"></div><span class="barval">131</span></div>
+          <pre class="chunkbody">五、常见问题
+
+分钟）未支付将自动取消并释放库存。
+本指南所述流程适用于标准实物商品。对于预售、定制类商品，下单规则以商品页公示的&quot;预售协议&quot;为
+准，其支付与发货节奏不同于现货订单，请勿直接套用本节时限。如仍遇疑问，可通过助手内的&quot;人工
+客服&quot;入口或帮助中心检索对应词条获取进一步指引。</pre>
+        </div></div>
+    </section><section class="pdfsec">
+      <h2>📄 订单取消与退款政策.pdf <span class="sub">（2 页 · 解析 3 元素 · 父 3 / 子 6）</span></h2>
+      <div class="tabs">
+        <button class="tab active" onclick="show('pdf1','parse')">① PDF 解析内容</button>
+        <button class="tab" onclick="show('pdf1','parent')">② 父块（阅读用 ≤1024）</button>
+        <button class="tab" onclick="show('pdf1','child')">③ 子块（检索用 ≤256）</button>
+      </div>
+      <div id="pdf1-parse" class="tabpane active"><div class="el">
+          <div class="elhead"><span class="badge table">pdf-table 表格</span> <span class="meta">第 1 页 · 第1页-表格1 · 222 字</span></div>
+          <pre class="elbody">| 原支付渠道 | 审核通过后退款发起 | 预计到账时效 | 到账路径 |
+|---|---|---|---|
+| 账户余额 | 实时 | 即时 | 退回平台账户余额 |
+| 储蓄卡 | T+0 | 1-3 个工作日 | 原银行卡 |
+| 信用卡 | T+0 | 3-7 个工作日 | 原信用卡（冲抵账单） |
+| 第三方支付 | 实时 | 1-3 个工作日 | 原第三方账户 |
+| 先用后付 | — | 随账单结清 | 减少应付账单金额 |</pre>
+        </div><div class="el">
+          <div class="elhead"><span class="badge prose">pdf 正文</span> <span class="meta">第 1 页 · 第1页-1 · 727 字</span></div>
+          <pre class="elbody">订单取消与退款政策说明
+
+本政策明确用户在何种情形下可以取消订单、申请退款，以及各类支付渠道的退款时效与到账路径。
+政策与《用户协议》具有同等效力，平台保留在法律法规框架内调整细则的权利，重大变更将提前七
+日在帮助中心公告。
+
+一、适用范围
+
+本政策适用于通过本平台智能助手及网页、App 客户端产生的全部实物与部分虚拟商品订单。金融、
+彩票、跨境直邮等受监管类目除外，其退改规则以对应类目专页公示为准。
+
+二、取消订单
+
+未发货订单：在订单详情页点击&quot;取消订单&quot;，系统即时审核，库存自动释放。 1
+已发货未签收：需发起&quot;拦截派送&quot;，成功拦截后按退款流程处理，拦截失败则建议拒收。 2
+已签收订单：不支持整单取消，请走&quot;退货退款&quot;通道，见第三节。 3
+
+三、退款时效
+
+退款审核通过后，资金按原支付渠道返回。不同渠道的到账周期存在差异，下表为平台承诺的最长时
+效，实际到账可能更早。
+
+四、不予退款情形
+
+出于卫生、安全与版权考量，以下情形原则上不支持无理由退款：第一，已拆封使用的贴身衣物、食
+品、保健品；第二，激活或下载后的虚拟商品（如会员权益、电子书）；第三，定制刻字、尺寸改制
+的个性化商品；第四，因用户自身原因导致保质期内变质或人为损坏的商品。若属商品质量问题，不
+受上述限制，仍可按质检结论退款或换货。
+
+五、退款流程步骤
+
+在&quot;我的订单&quot;选择目标订单，点击&quot;申请退款&quot;并选择原因（质量问题需上传凭证）。 1
+系统或商家在四十八小时内审核，超时未处理自动通过。 2
+审核通过后，退货类订单需按提示寄回商品并填写物流单号。 3
+商家确认收货后触发退款，资金按第三节时效原路返回。 4
+用户可在订单详情查看退款状态与流水号，到账后以短信通知。 5</pre>
+        </div><div class="el">
+          <div class="elhead"><span class="badge prose">pdf 正文</span> <span class="meta">第 2 页 · 第2页-1 · 152 字</span></div>
+          <pre class="elbody">六、争议处理
+
+若对退款结果有异议，可先与商家协商；协商不成可在订单页发起&quot;平台介入&quot;，提交聊天记录、商品照
+片、物流证明等材料，平台将在五个工作日内给出裁决。对裁决仍不满的，可依据《用户协议》约定
+的争议解决方式处理。需要强调的是，任何以威胁、骚扰方式主张退款的行为，平台有权暂停相关账
+号的售后权限。</pre>
+        </div></div>
+      <div id="pdf1-parent" class="tabpane"><div class="chunk">
+          <div class="chunkhead"><span class="tok" style="background:#2563eb1a;color:#2563eb;border-color:#2563eb55">149<span class="tokcap">/1024</span></span> <span class="meta">订单取消与退款政策.pdf-p1-table1-parent-0</span></div>
+          <div class="barwrap"><div class="bar" style="width:14%;background:#2563eb"></div><span class="barval">149</span></div>
+          <pre class="chunkbody">| 原支付渠道 | 审核通过后退款发起 | 预计到账时效 | 到账路径 |
+|---|---|---|---|
+| 账户余额 | 实时 | 即时 | 退回平台账户余额 |
+| 储蓄卡 | T+0 | 1-3 个工作日 | 原银行卡 |
+| 信用卡 | T+0 | 3-7 个工作日 | 原信用卡（冲抵账单） |
+| 第三方支付 | 实时 | 1-3 个工作日 | 原第三方账户 |
+| 先用后付 | — | 随账单结清 | 减少应付账单金额 |</pre>
+        </div><div class="chunk">
+          <div class="chunkhead"><span class="tok" style="background:#2563eb1a;color:#2563eb;border-color:#2563eb55">648<span class="tokcap">/1024</span></span> <span class="meta">订单取消与退款政策.pdf-p1-sec1-parent-1</span></div>
+          <div class="barwrap"><div class="bar" style="width:63%;background:#2563eb"></div><span class="barval">648</span></div>
+          <pre class="chunkbody">订单取消与退款政策说明
+
+本政策明确用户在何种情形下可以取消订单、申请退款，以及各类支付渠道的退款时效与到账路径。
+政策与《用户协议》具有同等效力，平台保留在法律法规框架内调整细则的权利，重大变更将提前七
+日在帮助中心公告。
+
+一、适用范围
+
+本政策适用于通过本平台智能助手及网页、App 客户端产生的全部实物与部分虚拟商品订单。金融、
+彩票、跨境直邮等受监管类目除外，其退改规则以对应类目专页公示为准。
+
+二、取消订单
+
+未发货订单：在订单详情页点击&quot;取消订单&quot;，系统即时审核，库存自动释放。 1
+已发货未签收：需发起&quot;拦截派送&quot;，成功拦截后按退款流程处理，拦截失败则建议拒收。 2
+已签收订单：不支持整单取消，请走&quot;退货退款&quot;通道，见第三节。 3
+
+三、退款时效
+
+退款审核通过后，资金按原支付渠道返回。不同渠道的到账周期存在差异，下表为平台承诺的最长时
+效，实际到账可能更早。
+
+四、不予退款情形
+
+出于卫生、安全与版权考量，以下情形原则上不支持无理由退款：第一，已拆封使用的贴身衣物、食
+品、保健品；第二，激活或下载后的虚拟商品（如会员权益、电子书）；第三，定制刻字、尺寸改制
+的个性化商品；第四，因用户自身原因导致保质期内变质或人为损坏的商品。若属商品质量问题，不
+受上述限制，仍可按质检结论退款或换货。
+
+五、退款流程步骤
+
+在&quot;我的订单&quot;选择目标订单，点击&quot;申请退款&quot;并选择原因（质量问题需上传凭证）。 1
+系统或商家在四十八小时内审核，超时未处理自动通过。 2
+审核通过后，退货类订单需按提示寄回商品并填写物流单号。 3
+商家确认收货后触发退款，资金按第三节时效原路返回。 4
+用户可在订单详情查看退款状态与流水号，到账后以短信通知。 5</pre>
+        </div><div class="chunk">
+          <div class="chunkhead"><span class="tok" style="background:#2563eb1a;color:#2563eb;border-color:#2563eb55">139<span class="tokcap">/1024</span></span> <span class="meta">订单取消与退款政策.pdf-p2-sec1-parent-5</span></div>
+          <div class="barwrap"><div class="bar" style="width:13%;background:#2563eb"></div><span class="barval">139</span></div>
+          <pre class="chunkbody">六、争议处理
+
+若对退款结果有异议，可先与商家协商；协商不成可在订单页发起&quot;平台介入&quot;，提交聊天记录、商品照
+片、物流证明等材料，平台将在五个工作日内给出裁决。对裁决仍不满的，可依据《用户协议》约定
+的争议解决方式处理。需要强调的是，任何以威胁、骚扰方式主张退款的行为，平台有权暂停相关账
+号的售后权限。</pre>
+        </div></div>
+      <div id="pdf1-child" class="tabpane"><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">149<span class="tokcap">/256</span></span> <span class="meta">↳ 订单取消与退款政策.pdf-p1-table1-parent-0</span> </div>
+          <div class="barwrap"><div class="bar" style="width:48%;background:#059669"></div><span class="barval">149</span></div>
+          <pre class="chunkbody">| 原支付渠道 | 审核通过后退款发起 | 预计到账时效 | 到账路径 |
+|---|---|---|---|
+| 账户余额 | 实时 | 即时 | 退回平台账户余额 |
+| 储蓄卡 | T+0 | 1-3 个工作日 | 原银行卡 |
+| 信用卡 | T+0 | 3-7 个工作日 | 原信用卡（冲抵账单） |
+| 第三方支付 | 实时 | 1-3 个工作日 | 原第三方账户 |
+| 先用后付 | — | 随账单结清 | 减少应付账单金额 |</pre>
+        </div><div class="chunk dup">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">197<span class="tokcap">/256</span></span> <span class="meta">↳ 订单取消与退款政策.pdf-p1-sec1-parent-1</span> <span class="badge warn">⚠ 标题重复注入</span></div>
+          <div class="barwrap"><div class="bar" style="width:64%;background:#059669"></div><span class="barval">197</span></div>
+          <pre class="chunkbody">订单取消与退款政策说明
+
+订单取消与退款政策说明
+
+本政策明确用户在何种情形下可以取消订单、申请退款，以及各类支付渠道的退款时效与到账路径。
+政策与《用户协议》具有同等效力，平台保留在法律法规框架内调整细则的权利，重大变更将提前七
+日在帮助中心公告。
+
+一、适用范围
+
+本政策适用于通过本平台智能助手及网页、App 客户端产生的全部实物与部分虚拟商品订单。金融、
+彩票、跨境直邮等受监管类目除外，其退改规则以对应类目专页公示为准。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">163<span class="tokcap">/256</span></span> <span class="meta">↳ 订单取消与退款政策.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:53%;background:#059669"></div><span class="barval">163</span></div>
+          <pre class="chunkbody">二、取消订单
+
+未发货订单：在订单详情页点击&quot;取消订单&quot;，系统即时审核，库存自动释放。 1
+已发货未签收：需发起&quot;拦截派送&quot;，成功拦截后按退款流程处理，拦截失败则建议拒收。 2
+已签收订单：不支持整单取消，请走&quot;退货退款&quot;通道，见第三节。 3
+
+三、退款时效
+
+退款审核通过后，资金按原支付渠道返回。不同渠道的到账周期存在差异，下表为平台承诺的最长时
+效，实际到账可能更早。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">149<span class="tokcap">/256</span></span> <span class="meta">↳ 订单取消与退款政策.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:48%;background:#059669"></div><span class="barval">149</span></div>
+          <pre class="chunkbody">四、不予退款情形
+
+出于卫生、安全与版权考量，以下情形原则上不支持无理由退款：第一，已拆封使用的贴身衣物、食
+品、保健品；第二，激活或下载后的虚拟商品（如会员权益、电子书）；第三，定制刻字、尺寸改制
+的个性化商品；第四，因用户自身原因导致保质期内变质或人为损坏的商品。若属商品质量问题，不
+受上述限制，仍可按质检结论退款或换货。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">149<span class="tokcap">/256</span></span> <span class="meta">↳ 订单取消与退款政策.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:48%;background:#059669"></div><span class="barval">149</span></div>
+          <pre class="chunkbody">五、退款流程步骤
+
+在&quot;我的订单&quot;选择目标订单，点击&quot;申请退款&quot;并选择原因（质量问题需上传凭证）。 1
+系统或商家在四十八小时内审核，超时未处理自动通过。 2
+审核通过后，退货类订单需按提示寄回商品并填写物流单号。 3
+商家确认收货后触发退款，资金按第三节时效原路返回。 4
+用户可在订单详情查看退款状态与流水号，到账后以短信通知。 5</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">139<span class="tokcap">/256</span></span> <span class="meta">↳ 订单取消与退款政策.pdf-p2-sec1-parent-5</span> </div>
+          <div class="barwrap"><div class="bar" style="width:45%;background:#059669"></div><span class="barval">139</span></div>
+          <pre class="chunkbody">六、争议处理
+
+若对退款结果有异议，可先与商家协商；协商不成可在订单页发起&quot;平台介入&quot;，提交聊天记录、商品照
+片、物流证明等材料，平台将在五个工作日内给出裁决。对裁决仍不满的，可依据《用户协议》约定
+的争议解决方式处理。需要强调的是，任何以威胁、骚扰方式主张退款的行为，平台有权暂停相关账
+号的售后权限。</pre>
+        </div></div>
+    </section><section class="pdfsec">
+      <h2>📄 支付安全与发票说明.pdf <span class="sub">（1 页 · 解析 2 元素 · 父 2 / 子 6）</span></h2>
+      <div class="tabs">
+        <button class="tab active" onclick="show('pdf2','parse')">① PDF 解析内容</button>
+        <button class="tab" onclick="show('pdf2','parent')">② 父块（阅读用 ≤1024）</button>
+        <button class="tab" onclick="show('pdf2','child')">③ 子块（检索用 ≤256）</button>
+      </div>
+      <div id="pdf2-parse" class="tabpane active"><div class="el">
+          <div class="elhead"><span class="badge table">pdf-table 表格</span> <span class="meta">第 1 页 · 第1页-表格1 · 220 字</span></div>
+          <pre class="elbody">| 渠道 | 适用场景 | 验证方式 | 备注 |
+|---|---|---|---|
+| 账户余额 | 全场景 | 支付密码/生物识别 | 优先使用，无手续费 |
+| 银行卡 | 全场景 | 银行短信验证 | 需开通网银支付 |
+| 第三方支付 | 全场景 | App 内确认 | 受渠道限额约束 |
+| 货到付款 | 部分自营 | 签收时支付 | 仅支持现金或POS |
+| 先用后付 | 信用用户 | 信用评估 | 逾期影响信用分 |</pre>
+        </div><div class="el">
+          <div class="elhead"><span class="badge prose">pdf 正文</span> <span class="meta">第 1 页 · 第1页-1 · 822 字</span></div>
+          <pre class="elbody">支付安全与发票开具说明
+
+支付与发票是交易闭环的关键环节。本文档说明平台在支付安全上的防护措施、支持的支付渠道、发
+票的类型与开具流程，以及发票丢失后的补救措施，帮助用户既放心付款又能合规报销。
+
+一、支付安全
+
+平台全程采用传输层加密，支付敏感信息不与商品订单库同库存储，并由具备资质的第三方支付机构
+托管资金。系统内置风控引擎，对异地登录、大额突变、频繁下单等异常行为实时评分，命中规则时
+将触发二次验证或临时冻结。用户侧也应注意：切勿向任何人透露支付密码与短信验证码，平台客服
+不会以任何理由索要验证码；开启登录设备管理与小额免密额度自设，可进一步降低账户被盗用风险
+。
+
+二、支持的支付渠道
+
+三、发票类型与开具
+
+平台提供增值税普通发票（电子）与增值税专用发票（电子）两类。普通票在订单完成后自动开具并
+推送至预留邮箱，企业用户可在&quot;发票管理&quot;中补开并填写税号、开户行等信息；专用票需先通过企业资
+质认证，且购买方名称须与认证主体一致。单张发票金额上限为单笔订单实付金额，拆单购买的订单
+不可合并开具。
+
+四、发票丢失与重开
+
+电子发票本身不会&quot;丢失&quot;，用户可在&quot;我的发票&quot;中反复下载 PDF 或 OFD 原文件。若误删邮件，重新下
+载即可，无需申请红冲。纸质专票遗失则较为复杂：需取得销售方提供的记账联复印件并加盖发票专
+用章，作为入账凭证，平台不重复开具原票。建议企业用户将电子专票及时归档至报销系统，避免跨
+年无法勾选认证。
+
+五、常见问题
+
+问：支付成功但订单仍显示未支付？答：多为银行回调延迟，请等待五分钟并刷新；如已扣款且三十
+分钟未更新，请联系客服并提供交易流水号。问：能用A账号付款购买B账号的商品吗？答：不可以，
+支付账户与下单账户须一致以防洗钱风控。问：企业开票信息填错如何更正？答：若发票未开具可直
+接修改；已开具电子普票需先红冲再重开，专用票更正同样走红冲流程，当月与跨月处理时效不同，
+建议发现错误立即发起。</pre>
+        </div></div>
+      <div id="pdf2-parent" class="tabpane"><div class="chunk">
+          <div class="chunkhead"><span class="tok" style="background:#2563eb1a;color:#2563eb;border-color:#2563eb55">154<span class="tokcap">/1024</span></span> <span class="meta">支付安全与发票说明.pdf-p1-table1-parent-0</span></div>
+          <div class="barwrap"><div class="bar" style="width:15%;background:#2563eb"></div><span class="barval">154</span></div>
+          <pre class="chunkbody">| 渠道 | 适用场景 | 验证方式 | 备注 |
+|---|---|---|---|
+| 账户余额 | 全场景 | 支付密码/生物识别 | 优先使用，无手续费 |
+| 银行卡 | 全场景 | 银行短信验证 | 需开通网银支付 |
+| 第三方支付 | 全场景 | App 内确认 | 受渠道限额约束 |
+| 货到付款 | 部分自营 | 签收时支付 | 仅支持现金或POS |
+| 先用后付 | 信用用户 | 信用评估 | 逾期影响信用分 |</pre>
+        </div><div class="chunk">
+          <div class="chunkhead"><span class="tok" style="background:#2563eb1a;color:#2563eb;border-color:#2563eb55">750<span class="tokcap">/1024</span></span> <span class="meta">支付安全与发票说明.pdf-p1-sec1-parent-1</span></div>
+          <div class="barwrap"><div class="bar" style="width:73%;background:#2563eb"></div><span class="barval">750</span></div>
+          <pre class="chunkbody">支付安全与发票开具说明
+
+支付与发票是交易闭环的关键环节。本文档说明平台在支付安全上的防护措施、支持的支付渠道、发
+票的类型与开具流程，以及发票丢失后的补救措施，帮助用户既放心付款又能合规报销。
+
+一、支付安全
+
+平台全程采用传输层加密，支付敏感信息不与商品订单库同库存储，并由具备资质的第三方支付机构
+托管资金。系统内置风控引擎，对异地登录、大额突变、频繁下单等异常行为实时评分，命中规则时
+将触发二次验证或临时冻结。用户侧也应注意：切勿向任何人透露支付密码与短信验证码，平台客服
+不会以任何理由索要验证码；开启登录设备管理与小额免密额度自设，可进一步降低账户被盗用风险
+。
+
+二、支持的支付渠道
+
+三、发票类型与开具
+
+平台提供增值税普通发票（电子）与增值税专用发票（电子）两类。普通票在订单完成后自动开具并
+推送至预留邮箱，企业用户可在&quot;发票管理&quot;中补开并填写税号、开户行等信息；专用票需先通过企业资
+质认证，且购买方名称须与认证主体一致。单张发票金额上限为单笔订单实付金额，拆单购买的订单
+不可合并开具。
+
+四、发票丢失与重开
+
+电子发票本身不会&quot;丢失&quot;，用户可在&quot;我的发票&quot;中反复下载 PDF 或 OFD 原文件。若误删邮件，重新下
+载即可，无需申请红冲。纸质专票遗失则较为复杂：需取得销售方提供的记账联复印件并加盖发票专
+用章，作为入账凭证，平台不重复开具原票。建议企业用户将电子专票及时归档至报销系统，避免跨
+年无法勾选认证。
+
+五、常见问题
+
+问：支付成功但订单仍显示未支付？答：多为银行回调延迟，请等待五分钟并刷新；如已扣款且三十
+分钟未更新，请联系客服并提供交易流水号。问：能用A账号付款购买B账号的商品吗？答：不可以，
+支付账户与下单账户须一致以防洗钱风控。问：企业开票信息填错如何更正？答：若发票未开具可直
+接修改；已开具电子普票需先红冲再重开，专用票更正同样走红冲流程，当月与跨月处理时效不同，
+建议发现错误立即发起。</pre>
+        </div></div>
+      <div id="pdf2-child" class="tabpane"><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">154<span class="tokcap">/256</span></span> <span class="meta">↳ 支付安全与发票说明.pdf-p1-table1-parent-0</span> </div>
+          <div class="barwrap"><div class="bar" style="width:50%;background:#059669"></div><span class="barval">154</span></div>
+          <pre class="chunkbody">| 渠道 | 适用场景 | 验证方式 | 备注 |
+|---|---|---|---|
+| 账户余额 | 全场景 | 支付密码/生物识别 | 优先使用，无手续费 |
+| 银行卡 | 全场景 | 银行短信验证 | 需开通网银支付 |
+| 第三方支付 | 全场景 | App 内确认 | 受渠道限额约束 |
+| 货到付款 | 部分自营 | 签收时支付 | 仅支持现金或POS |
+| 先用后付 | 信用用户 | 信用评估 | 逾期影响信用分 |</pre>
+        </div><div class="chunk dup">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">104<span class="tokcap">/256</span></span> <span class="meta">↳ 支付安全与发票说明.pdf-p1-sec1-parent-1</span> <span class="badge warn">⚠ 标题重复注入</span></div>
+          <div class="barwrap"><div class="bar" style="width:33%;background:#059669"></div><span class="barval">104</span></div>
+          <pre class="chunkbody">支付安全与发票开具说明
+
+支付安全与发票开具说明
+
+支付与发票是交易闭环的关键环节。本文档说明平台在支付安全上的防护措施、支持的支付渠道、发
+票的类型与开具流程，以及发票丢失后的补救措施，帮助用户既放心付款又能合规报销。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">187<span class="tokcap">/256</span></span> <span class="meta">↳ 支付安全与发票说明.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:60%;background:#059669"></div><span class="barval">187</span></div>
+          <pre class="chunkbody">一、支付安全
+
+平台全程采用传输层加密，支付敏感信息不与商品订单库同库存储，并由具备资质的第三方支付机构
+托管资金。系统内置风控引擎，对异地登录、大额突变、频繁下单等异常行为实时评分，命中规则时
+将触发二次验证或临时冻结。用户侧也应注意：切勿向任何人透露支付密码与短信验证码，平台客服
+不会以任何理由索要验证码；开启登录设备管理与小额免密额度自设，可进一步降低账户被盗用风险
+。
+
+二、支持的支付渠道</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">143<span class="tokcap">/256</span></span> <span class="meta">↳ 支付安全与发票说明.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:46%;background:#059669"></div><span class="barval">143</span></div>
+          <pre class="chunkbody">三、发票类型与开具
+
+平台提供增值税普通发票（电子）与增值税专用发票（电子）两类。普通票在订单完成后自动开具并
+推送至预留邮箱，企业用户可在&quot;发票管理&quot;中补开并填写税号、开户行等信息；专用票需先通过企业资
+质认证，且购买方名称须与认证主体一致。单张发票金额上限为单笔订单实付金额，拆单购买的订单
+不可合并开具。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">144<span class="tokcap">/256</span></span> <span class="meta">↳ 支付安全与发票说明.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:46%;background:#059669"></div><span class="barval">144</span></div>
+          <pre class="chunkbody">四、发票丢失与重开
+
+电子发票本身不会&quot;丢失&quot;，用户可在&quot;我的发票&quot;中反复下载 PDF 或 OFD 原文件。若误删邮件，重新下
+载即可，无需申请红冲。纸质专票遗失则较为复杂：需取得销售方提供的记账联复印件并加盖发票专
+用章，作为入账凭证，平台不重复开具原票。建议企业用户将电子专票及时归档至报销系统，避免跨
+年无法勾选认证。</pre>
+        </div><div class="chunk ">
+          <div class="chunkhead"><span class="tok" style="background:#0596691a;color:#059669;border-color:#05966955">183<span class="tokcap">/256</span></span> <span class="meta">↳ 支付安全与发票说明.pdf-p1-sec1-parent-1</span> </div>
+          <div class="barwrap"><div class="bar" style="width:59%;background:#059669"></div><span class="barval">183</span></div>
+          <pre class="chunkbody">五、常见问题
+
+问：支付成功但订单仍显示未支付？答：多为银行回调延迟，请等待五分钟并刷新；如已扣款且三十
+分钟未更新，请联系客服并提供交易流水号。问：能用A账号付款购买B账号的商品吗？答：不可以，
+支付账户与下单账户须一致以防洗钱风控。问：企业开票信息填错如何更正？答：若发票未开具可直
+接修改；已开具电子普票需先红冲再重开，专用票更正同样走红冲流程，当月与跨月处理时效不同，
+建议发现错误立即发起。</pre>
+        </div></div>
+    </section>
+
+  <div class="note">
+    <h3>⚠ 观察：两处可优化点（非阻断）</h3>
+    <p><b>1. 首子块「标题重复注入」</b>：在父块开头即含文档标题时，P1 的标题前缀注入会把标题再拼一次，
+    形成 <code>标题\n\n标题\n\n正文…</code>。当前 <code>ChunkContextUtil.resolveChildPrefix</code> 未判断「子块首行是否已是该标题」。
+    影响：轻微 token 浪费 + 向量化文本有冗余，不阻断父子扩展。建议：注入前若子块首段已等于前缀则跳过。</p>
+    <p><b>2. 特殊字形丢失（解析层）</b>：PDF 标题中的 emoji（如 🛒）在 PDFBox 提取时因回退字体（DengXian）不含该字形，
+    被渲染为替换字符 <code>�</code>。属解析鲁棒性备注，非分块逻辑问题；纯文本提取无法还原字形，必要时可走 OCR 路径。</p>
+    <p><b>正面结论</b>：解析阶段双栏/表格检测与章节合并均正常（每 PDF 恰 1 个真表格、无编号列表误报）；
+    Parent-Child 双粒度稳定成立（父/子比 2–2.8×），所有子块正确关联父块，链路已可支撑此前落地的
+    「父子检索取父块」(small-to-big) 扩展。</p>
+  </div>
+</div>
+<script>
+function show(pdf, kind){
+  document.querySelectorAll('#'+pdf+'-parse,#'+pdf+'-parent,#'+pdf+'-child')
+    .forEach(e=>e.classList.remove('active'));
+  document.querySelectorAll('#'+pdf).length;
+  var sec = document.getElementById(pdf+'-'+kind);
+  sec.classList.add('active');
+  var btns = sec.parentElement.querySelectorAll('.tab');
+  btns.forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+</script>
+</body></html>

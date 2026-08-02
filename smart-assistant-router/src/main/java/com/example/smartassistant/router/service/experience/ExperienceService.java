@@ -24,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -64,8 +65,9 @@ public class ExperienceService {
 
     /** 经验 TTL：30 天 */
     private static final long EXP_TTL_SECONDS = 2592000;
-    /** 经验匹配的最低置信度阈值 */
-    private static final double MIN_CONFIDENCE = 0.3;
+    /** 经验匹配的最低置信度阈值。低于该值只作为候选，不允许短路主路由。 */
+    @Value("${router.experience.min-confidence:0.65}")
+    private double minConfidence = 0.65;
     /** TOOL 经验的置信度加成 */
     private static final double TOOL_CONFIDENCE_BOOST = 0.15;
     /** Jaccard 相似度权重 */
@@ -191,7 +193,7 @@ public class ExperienceService {
 
                 Double bgeScore = bgeScoreMap.get(expId);
                 double score = calculateBlendedScore(exp, keywords, bgeScore, useBge, ragQualityFactor);
-                if (score >= MIN_CONFIDENCE) {
+                if (score >= minConfidence) {
                     allMatches.add(new ScoredExperience(exp, score));
                 }
             }
@@ -230,7 +232,7 @@ public class ExperienceService {
             List<ExperienceMatchResult.SecondaryIntent> secondaries = new ArrayList<>();
             for (int i = 1; i < allMatches.size() && secondaries.size() < 3; i++) {
                 ScoredExperience se = allMatches.get(i);
-                if (se.score >= 0.5 && !se.exp.getAgentName().equals(best.exp.getAgentName())) {
+                if (se.score >= minConfidence && !se.exp.getAgentName().equals(best.exp.getAgentName())) {
                     secondaries.add(new ExperienceMatchResult.SecondaryIntent(
                             se.exp.getAgentName(), se.exp.getIntentTag(), se.score));
                 }
@@ -258,11 +260,12 @@ public class ExperienceService {
         result.agentName = exp.getAgentName();
 
         if (exp instanceof ToolExperience toolExp) {
-            result.reroutedQuestion = String.format(
-                    "请直接调用工具 %s，参数：%s。%s",
-                    toolExp.getToolName(),
-                    toolExp.getRecommendedParams() != null ? toolExp.getRecommendedParams() : "根据问题提取参数",
-                    question);
+            String params = containsBusinessEntity(question)
+                    ? "仅从本次用户问题提取参数，禁止复用历史订单号、手机号或其他业务实体"
+                    : (toolExp.getRecommendedParams() != null
+                        ? toolExp.getRecommendedParams() : "根据问题提取参数");
+            result.reroutedQuestion = String.format("请直接调用工具 %s，参数：%s。%s",
+                    toolExp.getToolName(), params, question);
             result.isToolExperience = true;
             result.toolName = toolExp.getToolName();
             result.toolParams = toolExp.getRecommendedParams();
@@ -276,6 +279,14 @@ public class ExperienceService {
         }
 
         return result;
+    }
+
+    private boolean containsBusinessEntity(String question) {
+        if (question == null || question.isBlank()) return false;
+        return java.util.regex.Pattern.compile(
+                "(?i)ORD-[A-Z0-9_-]+|(?:\\+?86[- ]?)?1[3-9]\\d{9}")
+                .matcher(question)
+                .find();
     }
 
     // ==================== 经验提取（Agent 执行后调用）====================

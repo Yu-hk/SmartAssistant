@@ -141,6 +141,9 @@ public class RouterService {
     @Autowired(required = false)
     private NewMetricsCollector newMetrics;
 
+    @Autowired(required = false)
+    private VerifiedCustomerResponseService verifiedCustomerResponseService;
+
     // ⭐ 关键词快车道服务（P2 改进：高频明确意图跳过 LLM 分诊）
     private final KeywordFastRouteService keywordFastRouteService;
     // ⭐ 路由级工具健康检查
@@ -226,14 +229,15 @@ public class RouterService {
             // Step 0: 经验匹配（优先级最高，在语义缓存之上）
             // ⭐ 经验匹配可直接跳过 LLM 推理，命中 TOOL 经验时甚至直接执行工具
             String question = request.getQuestion();
+            String currentQuestion = QuestionExtractor.extractRawQuestion(question);
 
             // ⭐ P1 确定性护栏：检查高风险关键词（退款/退货/投诉等）
-            GuardrailService.GuardrailCheckResult guardrail = guardrailService.check(question);
+            GuardrailService.GuardrailCheckResult guardrail = guardrailService.check(currentQuestion);
             boolean guardrailSkipped = guardrail.triggered() && guardrail.skipShortCircuit();
             boolean guardrailForceRag = guardrail.triggered() && guardrail.forceRag();
 
             // ⭐ P4-A 情绪分级干预（对标文章②）：检测用户心理安全风险
-            EmotionCheckResult emotion = guardrailService.checkEmotion(question);
+            EmotionCheckResult emotion = guardrailService.checkEmotion(currentQuestion);
 
             // 重度风险（自伤/伤人倾向）：立即安全兜底，禁止任何工具调用，引导专业求助
             if (emotion.level() == EmotionLevel.HEAVY) {
@@ -254,8 +258,29 @@ public class RouterService {
 
             if (guardrail.triggered()) {
                 log.warn("[Router] 🛡️ 护栏激活: question='{}', matchedTerms={}, skipShortCircuit={}, forceRag={}",
-                        QuestionExtractor.truncate(question, 50), guardrail.matchedTerms(),
+                        QuestionExtractor.truncate(currentQuestion, 50), guardrail.matchedTerms(),
                         guardrail.skipShortCircuit(), guardrail.forceRag());
+            }
+
+            // 已核验政策与明确人工转接属于确定性客服能力：直接给出可追溯答复，避免模型猜测或误触工具确认。
+            if (verifiedCustomerResponseService != null) {
+                var verified = verifiedCustomerResponseService.match(currentQuestion);
+                if (verified.isPresent()) {
+                    var response = verified.get();
+                    if (response.handoff()) {
+                        opsMetrics.recordHandoff("customer_requested", response.agentName());
+                    }
+                    RoutingResult result = RoutingResult.builder()
+                            .result(response.answer())
+                            .agentName(response.agentName())
+                            .confidence(1.0)
+                            .intentTag(response.intentTag())
+                            .routingMethod(response.routingMethod())
+                            .adminOperation(response.handoff())
+                            .disableTools(response.handoff())
+                            .build();
+                    return finalizeRouting(result, request, currentQuestion, emotion);
+                }
             }
 
             // ⭐ P2 Token 配额检查：开始路由前先检查用户级日配额
@@ -271,7 +296,23 @@ public class RouterService {
                 }
             }
 
-            // Step 0: 经验匹配（护栏触发 + skipShortCircuit 跳过短路）
+            // Step 0: 关键词快车道（确定性规则优先，避免高频明确意图进入向量经验检索）
+            // 确定性路由只决定目标 Agent，不复用历史答案或业务实体；即使高风险护栏触发也应优先执行。
+            // 护栏仍会阻止经验/缓存短路，并由目标 Agent 执行业务数据校验与无证据拒答。
+            KeywordFastRouteService.MatchResult keywordMatch = keywordFastRouteService.match(question);
+            if (keywordMatch != null) {
+                log.info("[Router] ⚡ 关键词快车道命中: rule={}, agent={}, intent={}, confidence={}",
+                        keywordMatch.getMatchedRuleName(), keywordMatch.getTargetAgent(),
+                        keywordMatch.getIntentTag(), keywordMatch.getConfidence());
+                RoutingResult result = callAgentAndFinalize(
+                        keywordMatch.getTargetAgent(), question,
+                        keywordMatch.getConfidence(), keywordMatch.getIntentTag(),
+                        "KEYWORD_FAST_ROUTE",
+                        request, currentQuestion, emotion);
+                if (result != null) return result;
+            }
+
+            // Step 0.5: 经验匹配（仅处理未命中确定性规则的请求）
             if (!guardrailSkipped) {
                 ExperienceService.ExperienceMatchResult experienceMatch = experienceService.match(question);
             if (experienceMatch != null) {
@@ -370,8 +411,9 @@ public class RouterService {
                                 .agentName(primaryAgent)
                                 .confidence(primaryConfidence)
                                 .intentTag(primaryIntent)
+                                .routingMethod("EXPERIENCE")
                                 .build();
-                        return finalizeRouting(result, request, question, emotion);
+                        return finalizeRouting(result, request, currentQuestion, emotion);
 
                     } finally {
                         virtExec.shutdown();
@@ -385,7 +427,8 @@ public class RouterService {
                                 experienceMatch.reroutedQuestion,
                                 experienceMatch.matchScore,
                                 experienceMatch.experience.getIntentTag(),
-                                request, question, emotion);
+                                "EXPERIENCE",
+                                request, currentQuestion, emotion);
                         if (result != null) return result;
                     }
 
@@ -397,26 +440,12 @@ public class RouterService {
                                 experienceMatch.agentName, agentQuestion,
                                 experienceMatch.matchScore,
                                 experienceMatch.experience.getIntentTag(),
-                                request, question, emotion);
+                                "EXPERIENCE",
+                                request, currentQuestion, emotion);
                         if (result != null) return result;
                     }
                 } // end experienceMatch != null
             } // end !guardrailSkipped (护栏激活时跳过经验匹配短路)
-
-            // Step 0.5: 关键词快车道（护栏触发 + skipShortCircuit 时跳过）
-            // 优先级：经验匹配 > 关键词快车道 > 语义缓存 > LLM 意图识别
-            KeywordFastRouteService.MatchResult keywordMatch = !guardrailSkipped
-                    ? keywordFastRouteService.match(question) : null;
-            if (keywordMatch != null) {
-                log.info("[Router] ⚡ 关键词快车道命中: rule={}, agent={}, intent={}, confidence={}",
-                        keywordMatch.getMatchedRuleName(), keywordMatch.getTargetAgent(),
-                        keywordMatch.getIntentTag(), keywordMatch.getConfidence());
-                RoutingResult result = callAgentAndFinalize(
-                        keywordMatch.getTargetAgent(), question,
-                        keywordMatch.getConfidence(), keywordMatch.getIntentTag(),
-                        request, question, emotion);
-                if (result != null) return result;
-            }
 
             // Step 1: 检查语义缓存（仅存 agent 名，不存回复内容）
             SemanticRouteCacheService.CachedRouteDecision cached = semanticCache.getCachedDecision(question);
@@ -744,10 +773,11 @@ public class RouterService {
     /** 调用 Agent → 构建 RoutingResult → finalizeRouting 后处理（含情绪干预）。空回复返回 null。 */
     private RoutingResult callAgentAndFinalize(String agentName, String agentQuestion,
                                                 double confidence, String intentTag,
+                                                String routingMethod,
                                                 RouteRequest request, String rawQuestion,
                                                 EmotionCheckResult emotion) {
         return routeExecutionService.callAgentAndFinalize(agentName, agentQuestion, confidence,
-                intentTag, request, rawQuestion, emotion);
+                intentTag, routingMethod, request, rawQuestion, emotion);
     }
 
     /**

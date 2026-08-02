@@ -1,0 +1,100 @@
+{
+  "generated_at": "2026-08-01T13:01:59.717982+08:00",
+  "method": "closed-loop fixed concurrency",
+  "dataset": {
+    "users": 1000,
+    "sessions": 5000,
+    "products": 120,
+    "orders": 20000,
+    "routing_logs_before_test": 30000
+  },
+  "client": {
+    "python": "3.13.14",
+    "httpx": "0.28.1",
+    "logical_processors": 16
+  },
+  "settings": {
+    "scenarios": [
+      "gateway-router"
+    ],
+    "concurrency": [
+      20,
+      20,
+      20
+    ],
+    "duration_seconds": 15.0,
+    "warmup_seconds": 3.0,
+    "authenticated_users": 20
+  },
+  "results": [
+    {
+      "scenario": "gateway-router",
+      "concurrency": 20,
+      "duration_seconds": 15.073,
+      "attempted": 2948,
+      "succeeded": 2948,
+      "failed": 0,
+      "achieved_qps": 195.58,
+      "success_qps": 195.58,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 34.57,
+      "latency_mean_ms": 101.91,
+      "latency_p50_ms": 76.3,
+      "latency_p95_ms": 231.21,
+      "latency_p99_ms": 400.74,
+      "latency_max_ms": 835.23,
+      "status_codes": {
+        "200": 2948
+      },
+      "error_samples": []
+    },
+    {
+      "scenario": "gateway-router",
+      "concurrency": 20,
+      "duration_seconds": 15.068,
+      "attempted": 3695,
+      "succeeded": 3136,
+      "failed": 559,
+      "achieved_qps": 245.22,
+      "success_qps": 208.12,
+      "error_rate_percent": 15.129,
+      "latency_min_ms": 19.27,
+      "latency_mean_ms": 86.46,
+      "latency_p50_ms": 68.9,
+      "latency_p95_ms": 190.26,
+      "latency_p99_ms": 335.02,
+      "latency_max_ms": 801.57,
+      "status_codes": {
+        "200": 3136,
+        "429": 559
+      },
+      "error_samples": [
+        "HTTP 429"
+      ]
+    },
+    {
+      "scenario": "gateway-router",
+      "concurrency": 20,
+      "duration_seconds": 15.049,
+      "attempted": 4802,
+      "succeeded": 3000,
+      "failed": 1802,
+      "achieved_qps": 319.09,
+      "success_qps": 199.35,
+      "error_rate_percent": 37.526,
+      "latency_min_ms": 31.92,
+      "latency_mean_ms": 67.62,
+      "latency_p50_ms": 60.18,
+      "latency_p95_ms": 111.46,
+      "latency_p99_ms": 200.75,
+      "latency_max_ms": 450.73,
+      "status_codes": {
+        "200": 3000,
+        "429": 1802
+      },
+      "error_samples": [
+        "HTTP 429"
+      ]
+    }
+  ]
+}

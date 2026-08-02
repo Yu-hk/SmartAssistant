@@ -12,6 +12,8 @@ import com.example.smartassistant.router.service.tool.RoutingToolChecker;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,14 +38,17 @@ public class RouterController {
     private final DistributedTracingService tracingService;
     private final RoutingToolChecker routingToolChecker;
     private final AgentEventBus agentEventBus;
+    private final ObservationRegistry observationRegistry;
 
     public RouterController(RouterService routerService,
                            DistributedTracingService tracingService,
                            RoutingToolChecker routingToolChecker,
+                           ObservationRegistry observationRegistry,
                            @Autowired(required = false) AgentEventBus agentEventBus) {
         this.routerService = routerService;
         this.tracingService = tracingService;
         this.routingToolChecker = routingToolChecker;
+        this.observationRegistry = observationRegistry;
         this.agentEventBus = agentEventBus;
     }
 
@@ -66,14 +71,19 @@ public class RouterController {
 
         long startTime = System.currentTimeMillis();
 
-        RoutingResult routingResult = routerService.route(request);
+        String observationRequestId = requestId;
+        RoutingResult routingResult = Observation.createNotStarted("router.route", observationRegistry)
+                .lowCardinalityKeyValue("routing.method", "route")
+                .highCardinalityKeyValue("request.id", observationRequestId)
+                .observe(() -> routerService.route(request));
         long latency = System.currentTimeMillis() - startTime;
 
         RouteResponse response = RouteResponse.builder()
                 .agentName(routingResult.getAgentName() != null ? routingResult.getAgentName() : "determined_by_router")
                 .result(routingResult.getResult())
                 .confidence(routingResult.getConfidence() != null ? routingResult.getConfidence() : 0.9)
-                .routingMethod("LLM_ROUTING")
+                .routingMethod(routingResult.getRoutingMethod() != null
+                        ? routingResult.getRoutingMethod() : "LLM_ROUTING")
                 .intentTag(routingResult.getIntentTag())
                 .fromCache(routingResult.getFromCache() != null && routingResult.getFromCache())
                 .build();

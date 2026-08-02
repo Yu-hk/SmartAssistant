@@ -8,12 +8,14 @@
 package com.example.smartassistant.router.service;
 
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Method;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -23,6 +25,17 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @ExtendWith(MockitoExtension.class)
 class AgentCallerServiceTest {
+
+    @Test
+    @DisplayName("Spring 应选择包含 tracing 依赖的构造器")
+    void springConstructor_shouldIncludeTracingDependencies() {
+        var autowiredConstructors = Arrays.stream(AgentCallerService.class.getConstructors())
+                .filter(constructor -> constructor.isAnnotationPresent(Autowired.class))
+                .toList();
+
+        assertEquals(1, autowiredConstructors.size());
+        assertEquals(7, autowiredConstructors.getFirst().getParameterCount());
+    }
 
     @Test
     @DisplayName("空值清理返回空")

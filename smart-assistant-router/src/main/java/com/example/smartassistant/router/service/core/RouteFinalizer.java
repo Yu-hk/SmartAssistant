@@ -24,11 +24,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.Executor;
 
 /**
  * 路由后处理服务。
@@ -53,6 +55,7 @@ public class RouteFinalizer {
     private final ExperienceService experienceService;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final Executor postProcessingExecutor;
 
     @Autowired(required = false)
     private AgentEventBus agentEventBus;
@@ -74,7 +77,8 @@ public class RouteFinalizer {
             QualityEvaluationService qualityEvaluationService,
             ExperienceService experienceService,
             StringRedisTemplate redisTemplate,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Qualifier("routerPostProcessingExecutor") Executor postProcessingExecutor) {
         this.semanticCache = semanticCache;
         this.opsMetrics = opsMetrics;
         this.routingToolChecker = routingToolChecker;
@@ -83,6 +87,7 @@ public class RouteFinalizer {
         this.experienceService = experienceService;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.postProcessingExecutor = postProcessingExecutor;
     }
 
     // ==================== 情绪干预 ====================
@@ -109,10 +114,18 @@ public class RouteFinalizer {
     public RoutingResult finalizeRouting(RoutingResult result, RouteRequest request,
                                           String rawQuestion, EmotionCheckResult emotion) {
         String question = request.getQuestion();
+        String evaluationQuestion = rawQuestion != null && !rawQuestion.isBlank()
+                ? rawQuestion : QuestionExtractor.extractRawQuestion(question);
+        boolean deterministicResponse = result.getRoutingMethod() != null
+                && result.getRoutingMethod().startsWith("VERIFIED_");
         String intentTag = result.getIntentTag();
         if (intentTag == null || intentTag.isBlank()) {
             intentTag = semanticCache.generateIntentTag(question);
             result.setIntentTag(intentTag);
+        }
+        if (result.getRoutingMethod() == null || result.getRoutingMethod().isBlank()) {
+            result.setRoutingMethod(Boolean.TRUE.equals(result.getFromCache())
+                    ? "SEMANTIC_CACHE" : "LLM_ROUTING");
         }
 
         // ⭐ G4 运营指标
@@ -129,21 +142,26 @@ public class RouteFinalizer {
 
         // ⭐⭐ 反思器
         double reflectScore = 0.7;
+        boolean reflectionPassed = true;
         if (result.getResult() != null && !result.getResult().isBlank()
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
-                && !Boolean.TRUE.equals(result.getFromCache())) {
+                && !Boolean.TRUE.equals(result.getFromCache()) && !deterministicResponse) {
             ReflectionResult reflection = reflectionService.evaluate(
-                    question, result.getResult(), result.getAgentName(), intentTag, request.getUserId());
+                    evaluationQuestion, result.getResult(), result.getAgentName(), intentTag,
+                    request.getUserId());
             reflectScore = reflection.getScore();
+            reflectionPassed = reflection.isAcceptable();
             if (!reflection.isAcceptable()) {
                 log.warn("[Router] 🪞 反思不通过: score={}, agent={}, reason={}",
                         String.format("%.2f", reflection.getScore()),
                         result.getAgentName(), reflection.getReason());
                 String retryResult = reflectionService.retry(
-                        question, result.getResult(), result.getAgentName(),
+                        evaluationQuestion, result.getResult(), result.getAgentName(),
                         intentTag, request.getUserId(), request.getRequestId());
                 if (retryResult != null && !retryResult.equals(result.getResult())) {
                     result.setResult(retryResult);
+                    reflectionPassed = true;
+                    reflectScore = Math.max(reflectScore, 0.80);
                     log.info("[Router] 🪞 反思重试成功，已替换低质量回复");
                 }
             }
@@ -153,9 +171,9 @@ public class RouteFinalizer {
         boolean qualityPassed = true;
         if (result.getResult() != null && !result.getResult().isBlank()
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
-                && !Boolean.TRUE.equals(result.getFromCache())) {
+                && !Boolean.TRUE.equals(result.getFromCache()) && !deterministicResponse) {
             QualityEvaluationResult quality = qualityEvaluationService.evaluate(
-                    question, result.getResult(), reflectScore);
+                    evaluationQuestion, result.getResult(), reflectScore);
             if (quality.isCompleted() && !quality.isPassing(0.6)) {
                 qualityPassed = false;
                 log.warn("[Router] 🔍 质量评估不通过: overall={}, hallucination={}, reason={}",
@@ -170,23 +188,68 @@ public class RouteFinalizer {
         String requestId = request.getRequestId();
         String reply = result.getResult();
 
+        // Consumer 只依赖完整决策；优先写入并通知，避免等待远程 Embedding 缓存写入。
+        if (requestId != null && !requestId.isBlank() && agentName != null) {
+            semanticCache.saveFullDecisionForConsumer(requestId, agentName,
+                    result.getConfidence(), reply, intentTag, result.getRoutingMethod());
+            appendTaskAnalysisToFullDecision(requestId);
+        }
+
         if (agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
-            semanticCache.saveDecision(requestId, question, agentName,
-                    result.getConfidence(), request.getUserId(), intentTag, request.getSessionId());
-            semanticCache.saveExactMatch(rawQuestion != null ? rawQuestion : question, intentTag);
+            final String cacheRequestId = requestId;
+            final String cacheQuestion = question;
+            final String cacheRawQuestion = rawQuestion;
+            final String cacheAgentName = agentName;
+            final String cacheIntentTag = intentTag;
+            final String cacheReply = reply;
+            final boolean cacheQualityPassed = qualityPassed;
+            final boolean cacheReflectionPassed = reflectionPassed;
+            final double cacheReflectScore = reflectScore;
+            final boolean cacheFromCache = Boolean.TRUE.equals(result.getFromCache());
+            final boolean cacheAdminOperation = Boolean.TRUE.equals(result.getAdminOperation());
+            final double cacheConfidence = result.getConfidence();
+            final Long cacheUserId = request.getUserId();
+            final String cacheSessionId = request.getSessionId();
+            final boolean cacheMutableTransactional = isMutableTransactionalRoute(
+                    cacheAgentName, cacheIntentTag);
 
-            if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
-                if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")
-                        && reply.length() >= 20) {
-                    semanticCache.saveReply(question, reply, agentName, intentTag,
-                            Boolean.TRUE.equals(result.getAdminOperation()));
+            postProcessingExecutor.execute(() -> {
+                try {
+                    semanticCache.saveDecision(cacheRequestId, cacheQuestion, cacheAgentName,
+                            cacheConfidence, cacheUserId, cacheIntentTag, cacheSessionId,
+                            !cacheMutableTransactional);
+                    semanticCache.saveExactMatch(
+                            cacheRawQuestion != null ? cacheRawQuestion : cacheQuestion,
+                            cacheIntentTag);
+
+                    boolean reusableAnswer = !cacheMutableTransactional
+                            && cacheReflectionPassed
+                            && cacheReflectScore >= 0.80
+                            && cacheQualityPassed;
+                    if (!cacheFromCache && reusableAnswer
+                            && cacheReply != null && !cacheReply.isBlank()
+                            && !cacheReply.startsWith("❌") && !cacheReply.startsWith("⚠️")
+                            && cacheReply.length() >= 20) {
+                        semanticCache.saveReply(cacheQuestion, cacheReply, cacheAgentName,
+                                cacheIntentTag, cacheAdminOperation);
+                    }
+
+                    if (!cacheFromCache && reusableAnswer) {
+                        experienceService.extractCommonExperience(
+                                cacheQuestion, cacheAgentName, cacheIntentTag);
+                        extractToolExperienceIfApplicable(
+                                cacheReply, cacheAgentName, cacheIntentTag, cacheQuestion);
+                    } else if (!cacheFromCache && !reusableAnswer) {
+                        log.info("[Router] 跳过回复缓存和经验沉淀: requestId={}, reflectionPassed={}, "
+                                        + "reflectScore={}, qualityPassed={}",
+                                cacheRequestId, cacheReflectionPassed,
+                                String.format("%.2f", cacheReflectScore), cacheQualityPassed);
+                    }
+                } catch (Exception e) {
+                    log.warn("[Router] 异步路由后处理失败: requestId={}, error={}",
+                            cacheRequestId, e.getMessage());
                 }
-            }
-
-            if (!Boolean.TRUE.equals(result.getFromCache())) {
-                experienceService.extractCommonExperience(question, agentName, intentTag);
-                extractToolExperienceIfApplicable(reply, agentName, intentTag, question);
-            }
+            });
         }
 
         // ⭐ P1 Agent 执行事件
@@ -201,13 +264,6 @@ public class RouteFinalizer {
                             + ", confidence=" + result.getConfidence() + ", intent=" + intentTag,
                     0, 0
             );
-        }
-
-        // ⭐ 完整决策写入 Redis
-        if (requestId != null && !requestId.isBlank() && agentName != null) {
-            semanticCache.saveFullDecisionForConsumer(requestId, agentName,
-                    result.getConfidence(), reply, intentTag);
-            appendTaskAnalysisToFullDecision(requestId);
         }
 
         // P1 ⭐ Bad Case 自动挖掘
@@ -238,6 +294,22 @@ public class RouteFinalizer {
 
         // ⭐ P4-A 情绪干预
         return applyEmotion(result, emotion);
+    }
+
+    private boolean isMutableTransactionalRoute(String agentName, String intentTag) {
+        if ("order_agent".equalsIgnoreCase(agentName)) {
+            return true;
+        }
+        if (intentTag == null) {
+            return false;
+        }
+        String normalized = intentTag.toLowerCase();
+        return normalized.contains("order")
+                || normalized.contains("refund")
+                || normalized.contains("logistics")
+                || normalized.contains("订单")
+                || normalized.contains("退款")
+                || normalized.contains("物流");
     }
 
     // ==================== 内部方法 ====================
@@ -289,7 +361,7 @@ public class RouteFinalizer {
                     experienceService.extractToolExperience(question, agentName, intentTag,
                             "queryOrder", params, "订单{orderId}当前状态为{status}");
                 }
-                if (reply.contains("退款") || reply.contains("退货")) {
+                if (isConfirmedRefundExecution(question, intentTag, reply)) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
                             "refundOrder", "{\"orderId\": \"" + QuestionExtractor.extractOrderId(question) + "\"}", "退款申请已提交");
                 }
@@ -315,5 +387,17 @@ public class RouteFinalizer {
                 }
             }
         }
+    }
+
+    private boolean isConfirmedRefundExecution(String question, String intentTag, String reply) {
+        boolean refundRequested = (intentTag != null && intentTag.contains("退款"))
+                || (question != null && (question.contains("申请退款")
+                || question.contains("办理退款")
+                || question.contains("提交退款")));
+        boolean executionConfirmed = reply != null && (reply.contains("退款申请已提交")
+                || reply.contains("已提交退款")
+                || reply.contains("退款处理中")
+                || reply.contains("退款中"));
+        return refundRequested && executionConfirmed;
     }
 }

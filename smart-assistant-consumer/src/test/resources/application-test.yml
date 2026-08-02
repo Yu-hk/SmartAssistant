@@ -60,3 +60,9 @@ routing:
 router:
   service:
     url: http://localhost:8083
+
+# 普通 Consumer 集成测试不依赖外部 PG；真实 PGVector 使用独立 integration 测试验证
+app:
+  rag:
+    vector-store:
+      type: simple

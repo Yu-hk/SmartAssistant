@@ -13,6 +13,8 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.util.regex.Pattern;
+
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 
@@ -39,6 +41,8 @@ import com.example.smartassistant.common.rag.advisor.AiChatService;
 public class OrderIntentService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderIntentService.class);
+    private static final Pattern ORDER_IDENTIFIER_PATTERN = Pattern.compile(
+            "(?i)ORD-[A-Z0-9][A-Z0-9_-]{2,63}");
 
     private final AiChatService aiChatService;
     private final ChatModel lightModel;
@@ -63,6 +67,13 @@ public class OrderIntentService {
             return IntentType.OTHER;
         }
 
+        IntentType deterministicIntent = detectByKeywords(message);
+        if (deterministicIntent != IntentType.OTHER) {
+            log.info("[OrderIntent] 关键词识别结果: message={}, intent={}",
+                    message, deterministicIntent);
+            return deterministicIntent;
+        }
+
         // P2 Prompt 外部化：prompts/order/intent-classifier.txt
         String system = promptManager.orderIntentClassifier();
 
@@ -76,6 +87,29 @@ public class OrderIntentService {
             log.warn("[OrderIntent] 识别失败，默认 OTHER: {}", e.getMessage());
             return IntentType.OTHER;
         }
+    }
+
+    private IntentType detectByKeywords(String message) {
+        if (ORDER_IDENTIFIER_PATTERN.matcher(message).find()) {
+            return IntentType.QUERY_ORDER;
+        }
+        String normalized = message.toLowerCase();
+        if (normalized.contains("退款") || normalized.contains("退货")
+                || normalized.contains("退钱")) {
+            return IntentType.REFUND;
+        }
+        if (normalized.contains("取消订单") || normalized.contains("撤销订单")) {
+            return IntentType.CANCEL;
+        }
+        if (normalized.contains("下单") || normalized.contains("创建订单")
+                || normalized.contains("购买")) {
+            return IntentType.CREATE_ORDER;
+        }
+        if (normalized.contains("订单") || normalized.contains("物流")
+                || normalized.contains("快递") || normalized.contains("运单")) {
+            return IntentType.QUERY_ORDER;
+        }
+        return IntentType.OTHER;
     }
 
     /**

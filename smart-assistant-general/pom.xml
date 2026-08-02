@@ -56,7 +56,7 @@
         <!-- Micrometer Tracing (分布式追踪) -->
         <dependency>
             <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
         </dependency><!-- ⭐ exp4j: 轻量级数学表达式求值库，替代手写计算器 -->
         <dependency>
             <groupId>net.objecthunter</groupId>

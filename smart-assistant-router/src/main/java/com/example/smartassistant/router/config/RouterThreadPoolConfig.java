@@ -75,4 +75,25 @@ public class RouterThreadPoolConfig {
         
         return executor;
     }
+
+    /**
+     * 路由完成后的缓存和经验写入执行器。
+     *
+     * <p>这些操作可能调用远程 Embedding 服务，不应阻塞用户响应；使用独立且有界的
+     * 线程池，避免占用 Agent 调用线程池。</p>
+     */
+    @Bean(name = "routerPostProcessingExecutor")
+    public Executor routerPostProcessingExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("router-post-process-");
+        executor.setKeepAliveSeconds(120);
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        log.info("[Router ThreadPool] 路由后处理线程池初始化完成: core=2, max=4, queue=100");
+        return executor;
+    }
 }

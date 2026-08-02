@@ -277,6 +277,16 @@ public class ChatConsumerService {
             if (lower.contains(kw)) return false;
         }
 
+        // 客服业务操作/查询是一次性事务，不代表长期偏好。这里必须在画像 LLM 之前短路，
+        // 否则本地模型繁忙时会让订单、物流、退款等核心链路被无关的画像提取阻塞。
+        String[] customerServiceKeywords = {
+                "订单", "物流", "快递", "运单", "退款", "退货", "售后", "取消订单",
+                "库存", "价格", "发票", "支付", "签收", "人工客服", "转人工"
+        };
+        for (String kw : customerServiceKeywords) {
+            if (lower.contains(kw)) return false;
+        }
+
         // 纯知识问答 - 不含个人偏好
         String[] knowledgeKeywords = { "什么是", "怎么", "如何", "为什么", "是什么", "解释", "帮我查", "帮我搜" };
         for (String kw : knowledgeKeywords) {

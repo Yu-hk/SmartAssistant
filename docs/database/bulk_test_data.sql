@@ -44,12 +44,12 @@ ON CONFLICT (product_code) DO NOTHING;
 -- ========================================
 -- 2. 新增用户数据（5个测试用户）
 -- ========================================
-INSERT INTO users (username, password, email, phone, created_at) VALUES
-('testuser2',  '$2a$10$dummyhash000000000000000000000000000000000000000000001', 'test2@example.com',  '13900139002', NOW() - INTERVAL '30 days'),
-('testuser3',  '$2a$10$dummyhash000000000000000000000000000000000000000000002', 'test3@example.com',  '13900139003', NOW() - INTERVAL '25 days'),
-('testuser4',  '$2a$10$dummyhash000000000000000000000000000000000000000000003', 'test4@example.com',  '13900139004', NOW() - INTERVAL '20 days'),
-('testuser5',  '$2a$10$dummyhash000000000000000000000000000000000000000000004', 'test5@example.com',  '13900139005', NOW() - INTERVAL '15 days'),
-('testuser6',  '$2a$10$dummyhash000000000000000000000000000000000000000000005', 'test6@example.com',  '13900139006', NOW() - INTERVAL '10 days')
+INSERT INTO users (username, password, email, created_at) VALUES
+('testuser2',  '$2a$10$dummyhash000000000000000000000000000000000000000000001', 'test2@example.com', NOW() - INTERVAL '30 days'),
+('testuser3',  '$2a$10$dummyhash000000000000000000000000000000000000000000002', 'test3@example.com', NOW() - INTERVAL '25 days'),
+('testuser4',  '$2a$10$dummyhash000000000000000000000000000000000000000000003', 'test4@example.com', NOW() - INTERVAL '20 days'),
+('testuser5',  '$2a$10$dummyhash000000000000000000000000000000000000000000004', 'test5@example.com', NOW() - INTERVAL '15 days'),
+('testuser6',  '$2a$10$dummyhash000000000000000000000000000000000000000000005', 'test6@example.com', NOW() - INTERVAL '10 days')
 ON CONFLICT (username) DO NOTHING;
 
 -- ========================================
@@ -124,6 +124,10 @@ SELECT
     created_at
 FROM orders
 WHERE order_id LIKE 'BULK-%' AND status = '退款中'
+  AND NOT EXISTS (
+      SELECT 1 FROM order_refunds existing
+      WHERE existing.order_id = orders.order_id AND existing.status = 'pending'
+  )
 ON CONFLICT DO NOTHING;
 
 -- ========================================
@@ -155,6 +159,12 @@ SELECT
     NOW() - INTERVAL '1 hour'
 FROM orders
 WHERE order_id LIKE 'BULK-%' AND status = '退款中'
+  AND NOT EXISTS (
+      SELECT 1 FROM approval_records existing
+      WHERE existing.order_id = orders.order_id
+        AND existing.action_type = 'refund'
+        AND existing.status = 'pending'
+  )
 ON CONFLICT DO NOTHING;
 
 -- ========================================

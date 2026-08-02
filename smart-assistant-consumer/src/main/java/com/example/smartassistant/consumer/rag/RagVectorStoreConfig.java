@@ -8,8 +8,10 @@
 package com.example.smartassistant.consumer.rag;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,6 +32,8 @@ public class RagVectorStoreConfig {
      * 使用 PostgreSQL + pgvector 扩展实现向量存储
      */
     @Bean
+    @ConditionalOnProperty(prefix = "app.rag.vector-store", name = "type",
+            havingValue = "pgvector", matchIfMissing = true)
     public PgVectorStore vectorStore(DataSource dataSource, EmbeddingModel embeddingModel) {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         
@@ -39,5 +43,16 @@ public class RagVectorStoreConfig {
                 .dimensions(1024)  // DashScope text-embedding-v4 输出 1024 维
                 .initializeSchema(true)  // 自动初始化表结构
                 .build();
+    }
+
+    /**
+     * 测试环境使用内存向量库，避免普通 Web 集成测试依赖外部 PostgreSQL。
+     * 真实 PGVector 行为由 PgVectorKnowledgeBaseIntegrationTest 单独验证。
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "app.rag.vector-store", name = "type", havingValue = "simple")
+    public SimpleVectorStore simpleVectorStore(EmbeddingModel embeddingModel) {
+        log.info("[RAG] 初始化测试用 SimpleVectorStore...");
+        return SimpleVectorStore.builder(embeddingModel).build();
     }
 }

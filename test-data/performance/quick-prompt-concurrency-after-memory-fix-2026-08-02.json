@@ -1,0 +1,322 @@
+{
+  "generated_at": "2026-08-02T12:40:05.097859+08:00",
+  "base_url": "http://123.56.6.102",
+  "summary": {
+    "concurrency": 20,
+    "attempted": 20,
+    "passed": 20,
+    "failed": 0,
+    "success_rate_percent": 100.0,
+    "elapsed_seconds": 1.786,
+    "throughput_rps": 11.2,
+    "latency_mean_ms": 1307.77,
+    "latency_p50_ms": 1411.77,
+    "latency_p95_ms": 1749.64,
+    "latency_max_ms": 1775.24,
+    "statuses": {
+      "200": 20
+    }
+  },
+  "results": [
+    {
+      "index": 0,
+      "prompt": "查询我的订单物流进度",
+      "status": 200,
+      "latency_ms": 726.8,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询订单状态和物流进度。请发送订单号或运单号，例如“ORD-2024001”。订单号通常可在“我的订单—订单详情”中找到。为保护隐私，请不要发送支付密码或验证码。"
+    },
+    {
+      "index": 1,
+      "prompt": "如何申请电子发票",
+      "status": 200,
+      "latency_ms": 726.44,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请电子发票通常可按以下步骤操作：\n1. 打开“我的订单”，进入需要开票的订单详情；\n2. 选择“申请发票”或“发票信息”；\n3. 填写个人或企业抬头、税号和接收邮箱后提交。\n是否支持开票及可开票金额以订单页面为准。如需我进一步核验，请提供订单号。"
+    },
+    {
+      "index": 2,
+      "prompt": "商品如何申请退货退款",
+      "status": 200,
+      "latency_ms": 677.0,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请退货退款通常可按以下步骤操作：\n1. 打开“我的订单”，选择对应订单；\n2. 点击“申请售后”，选择退货退款及原因；\n3. 按页面提示提交凭证并等待审核；\n4. 审核通过后按指定方式寄回商品。\n实际可退范围、时限和退款路径以该订单及商家政策为准。如需核验资格，请提供订单号。"
+    },
+    {
+      "index": 3,
+      "prompt": "咨询商品规格和库存",
+      "status": 200,
+      "latency_ms": 1726.54,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询商品规格、价格和库存。请告诉我商品名称或具体型号，例如“iPhone 15 Pro”。如果有商品编号，也可以直接发送商品编号。"
+    },
+    {
+      "index": 4,
+      "prompt": "查询我的订单物流进度",
+      "status": 200,
+      "latency_ms": 1121.64,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询订单状态和物流进度。请发送订单号或运单号，例如“ORD-2024001”。订单号通常可在“我的订单—订单详情”中找到。为保护隐私，请不要发送支付密码或验证码。"
+    },
+    {
+      "index": 5,
+      "prompt": "如何申请电子发票",
+      "status": 200,
+      "latency_ms": 1079.65,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请电子发票通常可按以下步骤操作：\n1. 打开“我的订单”，进入需要开票的订单详情；\n2. 选择“申请发票”或“发票信息”；\n3. 填写个人或企业抬头、税号和接收邮箱后提交。\n是否支持开票及可开票金额以订单页面为准。如需我进一步核验，请提供订单号。"
+    },
+    {
+      "index": 6,
+      "prompt": "商品如何申请退货退款",
+      "status": 200,
+      "latency_ms": 1688.64,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请退货退款通常可按以下步骤操作：\n1. 打开“我的订单”，选择对应订单；\n2. 点击“申请售后”，选择退货退款及原因；\n3. 按页面提示提交凭证并等待审核；\n4. 审核通过后按指定方式寄回商品。\n实际可退范围、时限和退款路径以该订单及商家政策为准。如需核验资格，请提供订单号。"
+    },
+    {
+      "index": 7,
+      "prompt": "咨询商品规格和库存",
+      "status": 200,
+      "latency_ms": 698.59,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询商品规格、价格和库存。请告诉我商品名称或具体型号，例如“iPhone 15 Pro”。如果有商品编号，也可以直接发送商品编号。"
+    },
+    {
+      "index": 8,
+      "prompt": "查询我的订单物流进度",
+      "status": 200,
+      "latency_ms": 1528.35,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询订单状态和物流进度。请发送订单号或运单号，例如“ORD-2024001”。订单号通常可在“我的订单—订单详情”中找到。为保护隐私，请不要发送支付密码或验证码。"
+    },
+    {
+      "index": 9,
+      "prompt": "如何申请电子发票",
+      "status": 200,
+      "latency_ms": 1476.84,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请电子发票通常可按以下步骤操作：\n1. 打开“我的订单”，进入需要开票的订单详情；\n2. 选择“申请发票”或“发票信息”；\n3. 填写个人或企业抬头、税号和接收邮箱后提交。\n是否支持开票及可开票金额以订单页面为准。如需我进一步核验，请提供订单号。"
+    },
+    {
+      "index": 10,
+      "prompt": "商品如何申请退货退款",
+      "status": 200,
+      "latency_ms": 1588.64,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请退货退款通常可按以下步骤操作：\n1. 打开“我的订单”，选择对应订单；\n2. 点击“申请售后”，选择退货退款及原因；\n3. 按页面提示提交凭证并等待审核；\n4. 审核通过后按指定方式寄回商品。\n实际可退范围、时限和退款路径以该订单及商家政策为准。如需核验资格，请提供订单号。"
+    },
+    {
+      "index": 11,
+      "prompt": "咨询商品规格和库存",
+      "status": 200,
+      "latency_ms": 1575.74,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询商品规格、价格和库存。请告诉我商品名称或具体型号，例如“iPhone 15 Pro”。如果有商品编号，也可以直接发送商品编号。"
+    },
+    {
+      "index": 12,
+      "prompt": "查询我的订单物流进度",
+      "status": 200,
+      "latency_ms": 1525.45,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询订单状态和物流进度。请发送订单号或运单号，例如“ORD-2024001”。订单号通常可在“我的订单—订单详情”中找到。为保护隐私，请不要发送支付密码或验证码。"
+    },
+    {
+      "index": 13,
+      "prompt": "如何申请电子发票",
+      "status": 200,
+      "latency_ms": 1219.86,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请电子发票通常可按以下步骤操作：\n1. 打开“我的订单”，进入需要开票的订单详情；\n2. 选择“申请发票”或“发票信息”；\n3. 填写个人或企业抬头、税号和接收邮箱后提交。\n是否支持开票及可开票金额以订单页面为准。如需我进一步核验，请提供订单号。"
+    },
+    {
+      "index": 14,
+      "prompt": "商品如何申请退货退款",
+      "status": 200,
+      "latency_ms": 1639.19,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请退货退款通常可按以下步骤操作：\n1. 打开“我的订单”，选择对应订单；\n2. 点击“申请售后”，选择退货退款及原因；\n3. 按页面提示提交凭证并等待审核；\n4. 审核通过后按指定方式寄回商品。\n实际可退范围、时限和退款路径以该订单及商家政策为准。如需核验资格，请提供订单号。"
+    },
+    {
+      "index": 15,
+      "prompt": "咨询商品规格和库存",
+      "status": 200,
+      "latency_ms": 1138.51,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询商品规格、价格和库存。请告诉我商品名称或具体型号，例如“iPhone 15 Pro”。如果有商品编号，也可以直接发送商品编号。"
+    },
+    {
+      "index": 16,
+      "prompt": "查询我的订单物流进度",
+      "status": 200,
+      "latency_ms": 1748.29,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询订单状态和物流进度。请发送订单号或运单号，例如“ORD-2024001”。订单号通常可在“我的订单—订单详情”中找到。为保护隐私，请不要发送支付密码或验证码。"
+    },
+    {
+      "index": 17,
+      "prompt": "如何申请电子发票",
+      "status": 200,
+      "latency_ms": 1147.24,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请电子发票通常可按以下步骤操作：\n1. 打开“我的订单”，进入需要开票的订单详情；\n2. 选择“申请发票”或“发票信息”；\n3. 填写个人或企业抬头、税号和接收邮箱后提交。\n是否支持开票及可开票金额以订单页面为准。如需我进一步核验，请提供订单号。"
+    },
+    {
+      "index": 18,
+      "prompt": "商品如何申请退货退款",
+      "status": 200,
+      "latency_ms": 1775.24,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "申请退货退款通常可按以下步骤操作：\n1. 打开“我的订单”，选择对应订单；\n2. 点击“申请售后”，选择退货退款及原因；\n3. 按页面提示提交凭证并等待审核；\n4. 审核通过后按指定方式寄回商品。\n实际可退范围、时限和退款路径以该订单及商家政策为准。如需核验资格，请提供订单号。"
+    },
+    {
+      "index": 19,
+      "prompt": "咨询商品规格和库存",
+      "status": 200,
+      "latency_ms": 1346.7,
+      "passed": true,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "answer": "可以为您查询商品规格、价格和库存。请告诉我商品名称或具体型号，例如“iPhone 15 Pro”。如果有商品编号，也可以直接发送商品编号。"
+    }
+  ]
+}

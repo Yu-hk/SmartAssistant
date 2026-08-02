@@ -34,6 +34,12 @@ public class RoutingCallLog {
     private Long id;
 
     /**
+     * 业务请求 ID，用于串联网关、Consumer、Router 和 Agent 日志
+     */
+    @TableField("request_id")
+    private String requestId;
+
+    /**
      * 会话 ID
      */
     @TableField("session_id")

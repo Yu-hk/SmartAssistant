@@ -40,9 +40,13 @@ docker-compose up -d
 # 2. 启动监控栈（可选）
 cd monitoring && docker-compose up -d
 
-# 3. 初始化数据库
-psql -h localhost -U postgres -d a2a_system -f docs/database/schema.sql
-psql -h localhost -U postgres -d a2a_system -f docs/database/seed_data.sql
+# 3. 初始化并校验数据库
+# 本机端口模式
+$env:POSTGRES_PASSWORD = '与 .env 一致的密码'
+.\scripts\prepare-data.ps1
+
+# 或：数据库仅在 Docker 网络内
+.\scripts\prepare-data.ps1 -Mode Docker -ContainerName postgres
 
 # 4. 配置环境变量（复制 .env.example 并填入真实值）
 cp .env.example .env
