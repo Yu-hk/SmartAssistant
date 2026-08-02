@@ -3,36 +3,36 @@
 @tailwind utilities;
 
 /* ===================================================
-   🌌 Nova Design System — 科技感主题
+   智服中心 Design System — 企业客服主题
    =================================================== */
 
 /* ===== 主题变量 ===== */
 :root {
-  /* ---- 灯光主题 (Light) ---- */
-  --nova-bg-page: #f0f2f5;
+  /* ---- 明亮主题 ---- */
+  --nova-bg-page: #f4f7fb;
   --nova-bg-container: #ffffff;
-  --nova-bg-glass: rgba(255, 255, 255, 0.6);
-  --nova-bg-glass-hover: rgba(255, 255, 255, 0.8);
+  --nova-bg-glass: rgba(255, 255, 255, 0.94);
+  --nova-bg-glass-hover: #f8fafc;
   --nova-bg-elevated: #ffffff;
-  --nova-bg-component: #f5f6fa;
-  --nova-bg-component-hover: #eef0f6;
+  --nova-bg-component: #f7f9fc;
+  --nova-bg-component-hover: #edf2f8;
 
-  --nova-text-primary: #0f172a;
-  --nova-text-secondary: #64748b;
-  --nova-text-tertiary: #94a3b8;
-  --nova-text-placeholder: #cbd5e1;
+  --nova-text-primary: #172033;
+  --nova-text-secondary: #5f6b7a;
+  --nova-text-tertiary: #8b96a7;
+  --nova-text-placeholder: #aeb7c4;
   --nova-text-anti: #ffffff;
 
-  --nova-border: rgba(0, 0, 0, 0.08);
-  --nova-border-light: rgba(0, 0, 0, 0.04);
+  --nova-border: #dfe5ec;
+  --nova-border-light: #edf1f5;
 
-  /* 品牌色 — 靛蓝渐变 */
-  --nova-accent: #4f46e5;
-  --nova-accent-hover: #4338ca;
-  --nova-accent-light: rgba(79, 70, 229, 0.1);
-  --nova-accent-glow: rgba(79, 70, 229, 0.2);
-  --nova-secondary: #06b6d4;
-  --nova-secondary-hover: #0891b2;
+  /* 品牌色 — 专业、可信的服务蓝 */
+  --nova-accent: #1769e0;
+  --nova-accent-hover: #0f57c4;
+  --nova-accent-light: rgba(23, 105, 224, 0.10);
+  --nova-accent-glow: rgba(23, 105, 224, 0.18);
+  --nova-secondary: #0f9f7f;
+  --nova-secondary-hover: #0b846a;
   --nova-warm: #f59e0b;
 
   /* 语义色 */
@@ -46,22 +46,22 @@
   --nova-info-bg: rgba(59, 130, 246, 0.1);
 
   /* 阴影 */
-  --nova-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --nova-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --nova-shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.1);
-  --nova-shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.12);
+  --nova-shadow-sm: 0 1px 2px rgba(23, 32, 51, 0.06), 0 1px 3px rgba(23, 32, 51, 0.04);
+  --nova-shadow-md: 0 5px 18px rgba(23, 32, 51, 0.08);
+  --nova-shadow-lg: 0 12px 32px rgba(23, 32, 51, 0.10);
+  --nova-shadow-xl: 0 20px 60px rgba(23, 32, 51, 0.14);
   --nova-shadow-glow: 0 0 24px var(--nova-accent-glow);
 }
 
-/* ---- 暗色主题 (Dark) — 核心科技感 ---- */
+/* ---- 暗色主题 ---- */
 .dark {
-  --nova-bg-page: #07070d;
-  --nova-bg-container: #0d0d17;
-  --nova-bg-glass: rgba(13, 13, 23, 0.65);
-  --nova-bg-glass-hover: rgba(13, 13, 23, 0.8);
-  --nova-bg-elevated: #14142a;
-  --nova-bg-component: #14142a;
-  --nova-bg-component-hover: #1e1e3a;
+  --nova-bg-page: #0c1424;
+  --nova-bg-container: #111c2e;
+  --nova-bg-glass: rgba(17, 28, 46, 0.96);
+  --nova-bg-glass-hover: #18253a;
+  --nova-bg-elevated: #18253a;
+  --nova-bg-component: #18253a;
+  --nova-bg-component-hover: #223149;
 
   --nova-text-primary: #f1f5f9;
   --nova-text-secondary: #94a3b8;
@@ -69,15 +69,15 @@
   --nova-text-placeholder: #475569;
   --nova-text-anti: #ffffff;
 
-  --nova-border: rgba(255, 255, 255, 0.06);
-  --nova-border-light: rgba(255, 255, 255, 0.03);
+  --nova-border: rgba(255, 255, 255, 0.10);
+  --nova-border-light: rgba(255, 255, 255, 0.06);
 
-  --nova-accent: #6366f1;
-  --nova-accent-hover: #818cf8;
-  --nova-accent-light: rgba(99, 102, 241, 0.12);
-  --nova-accent-glow: rgba(99, 102, 241, 0.25);
-  --nova-secondary: #06b6d4;
-  --nova-secondary-hover: #22d3ee;
+  --nova-accent: #5b9cff;
+  --nova-accent-hover: #80b2ff;
+  --nova-accent-light: rgba(91, 156, 255, 0.14);
+  --nova-accent-glow: rgba(91, 156, 255, 0.22);
+  --nova-secondary: #41c7a4;
+  --nova-secondary-hover: #68d7ba;
 
   --nova-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
   --nova-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
@@ -118,7 +118,7 @@ code, pre, .font-mono {
 }
 
 /* ===================================================
-   自定义滚动条 — 科技感细滚动
+   自定义滚动条
    =================================================== */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -138,27 +138,21 @@ code, pre, .font-mono {
 }
 
 /* ===================================================
-   玻璃拟态核心组件 (Glassmorphism)
+   基础界面组件
    =================================================== */
 @layer components {
   .glass {
     background: var(--nova-bg-glass);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--nova-border);
   }
 
   .glass-hover {
     background: var(--nova-bg-glass-hover);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
     border: 1px solid var(--nova-border);
   }
 
   .glass-card {
-    background: var(--nova-bg-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: var(--nova-bg-container);
     border: 1px solid var(--nova-border);
     box-shadow: var(--nova-shadow-md);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -166,13 +160,13 @@ code, pre, .font-mono {
 
   .glass-card:hover {
     box-shadow: var(--nova-shadow-lg);
-    border-color: var(--nova-accent-glow);
-    transform: translateY(-2px);
+    border-color: var(--nova-accent);
+    transform: translateY(-1px);
   }
 
-  /* 霓虹按钮 */
+  /* 主操作按钮 */
   .neon-btn {
-    background: linear-gradient(135deg, var(--nova-accent), var(--nova-secondary));
+    background: var(--nova-accent);
     color: white;
     border: none;
     padding: 8px 20px;
@@ -181,14 +175,14 @@ code, pre, .font-mono {
     font-weight: 600;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 0 20px var(--nova-accent-glow);
+    box-shadow: var(--nova-shadow-sm);
     position: relative;
     overflow: hidden;
   }
 
   .neon-btn:hover {
-    box-shadow: 0 0 40px var(--nova-accent-glow), 0 4px 16px rgba(0,0,0,0.2);
-    transform: translateY(-1px);
+    background: var(--nova-accent-hover);
+    box-shadow: var(--nova-shadow-md);
   }
 
   .neon-btn:active {
@@ -249,6 +243,530 @@ code, pre, .font-mono {
       linear-gradient(var(--nova-border) 1px, transparent 1px),
       linear-gradient(90deg, var(--nova-border) 1px, transparent 1px);
     background-size: 48px 48px;
+  }
+}
+
+/* 登录与认证 */
+.auth-checking {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--nova-text-secondary);
+  background: var(--nova-bg-page);
+  font-size: 14px;
+}
+
+.auth-checking__mark {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  color: #fff;
+  background: var(--nova-accent);
+  font-weight: 700;
+  box-shadow: var(--nova-shadow-sm);
+}
+
+.login-page {
+  width: 100vw;
+  min-height: 100vh;
+  padding: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(23, 105, 224, 0.10), transparent 30%),
+    radial-gradient(circle at 86% 82%, rgba(15, 159, 127, 0.08), transparent 28%),
+    var(--nova-bg-page);
+}
+
+.login-shell {
+  width: min(980px, 100%);
+  min-height: 610px;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  overflow: hidden;
+  border: 1px solid var(--nova-border);
+  border-radius: 24px;
+  background: var(--nova-bg-container);
+  box-shadow: var(--nova-shadow-xl);
+}
+
+.login-brand-panel {
+  padding: 52px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #fff;
+  background:
+    linear-gradient(150deg, rgba(255, 255, 255, 0.08), transparent 42%),
+    linear-gradient(150deg, #123f80 0%, #1769e0 56%, #157c78 130%);
+}
+
+.login-brand-mark {
+  width: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 15px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.login-eyebrow {
+  display: block;
+  margin-top: 44px;
+  color: rgba(255, 255, 255, 0.70);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.login-brand-panel h1 {
+  margin: 15px 0 20px;
+  font-size: clamp(34px, 4vw, 46px);
+  line-height: 1.18;
+  letter-spacing: -0.035em;
+}
+
+.login-brand-panel p {
+  max-width: 390px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 14px;
+  line-height: 1.85;
+}
+
+.login-trust-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+}
+
+.login-trust-list span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.login-form-panel {
+  padding: 64px 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.login-mobile-brand {
+  display: none;
+}
+
+.login-form-heading > span {
+  color: var(--nova-accent);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.login-form-heading h2 {
+  margin: 9px 0 8px;
+  color: var(--nova-text-primary);
+  font-size: 27px;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
+.login-form-heading p {
+  color: var(--nova-text-secondary);
+  font-size: 13px;
+}
+
+.login-form {
+  margin-top: 34px;
+}
+
+.login-form > label {
+  display: block;
+  margin: 18px 0 8px;
+  color: var(--nova-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.login-field {
+  min-height: 48px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--nova-border);
+  border-radius: 11px;
+  color: var(--nova-text-tertiary);
+  background: var(--nova-bg-container);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.login-field:focus-within {
+  border-color: var(--nova-accent);
+  box-shadow: 0 0 0 3px var(--nova-accent-light);
+}
+
+.login-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--nova-text-primary);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+}
+
+.login-field input::placeholder {
+  color: var(--nova-text-placeholder);
+}
+
+.login-password-toggle {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  color: var(--nova-text-tertiary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.login-password-toggle:hover {
+  color: var(--nova-accent);
+  background: var(--nova-accent-light);
+}
+
+.login-error {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 68, 68, 0.20);
+  border-radius: 9px;
+  color: var(--nova-error);
+  background: var(--nova-error-bg);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.login-submit {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 11px;
+  color: #fff;
+  background: var(--nova-accent);
+  box-shadow: var(--nova-shadow-sm);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.login-submit:not(:disabled):hover {
+  background: var(--nova-accent-hover);
+  box-shadow: var(--nova-shadow-md);
+  transform: translateY(-1px);
+}
+
+.login-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.login-help {
+  margin-top: 22px;
+  color: var(--nova-text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.sidebar-account {
+  margin-bottom: 10px;
+  padding: 4px 2px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.sidebar-account__avatar {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: var(--nova-accent);
+  background: var(--nova-accent-light);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sidebar-account strong,
+.sidebar-account small {
+  display: block;
+}
+
+.sidebar-account strong {
+  max-width: 190px;
+  overflow: hidden;
+  color: var(--nova-text-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-account small {
+  margin-top: 2px;
+  color: var(--nova-text-tertiary);
+  font-size: 10px;
+}
+
+.sidebar-icon-button {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--nova-border);
+  border-radius: 8px;
+  color: var(--nova-text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.sidebar-logout-button:hover {
+  border-color: rgba(239, 68, 68, 0.30);
+  color: var(--nova-error);
+  background: var(--nova-error-bg);
+}
+
+@media (max-width: 760px) {
+  .login-page {
+    padding: 18px;
+  }
+
+  .login-shell {
+    min-height: auto;
+    display: block;
+    border-radius: 18px;
+  }
+
+  .login-brand-panel {
+    display: none;
+  }
+
+  .login-form-panel {
+    padding: 38px 28px;
+  }
+
+  .login-mobile-brand {
+    margin-bottom: 34px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--nova-text-primary);
+  }
+
+  .login-mobile-brand .login-brand-mark {
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--nova-accent);
+  }
+}
+
+/* 客服首页 */
+.customer-hero-icon {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: var(--nova-accent);
+  box-shadow: 0 10px 24px var(--nova-accent-glow);
+}
+
+.customer-online-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 15px;
+  height: 15px;
+  border: 3px solid var(--nova-bg-page);
+  border-radius: 50%;
+  background: var(--nova-success);
+}
+
+.customer-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--nova-success-bg);
+  color: var(--nova-success);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.customer-status-pill > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.customer-service-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 84px;
+  padding: 16px;
+  border: 1px solid var(--nova-border);
+  border-radius: 14px;
+  color: var(--nova-text-primary);
+  background: var(--nova-bg-container);
+  box-shadow: var(--nova-shadow-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.customer-service-card:hover {
+  border-color: var(--nova-accent);
+  box-shadow: var(--nova-shadow-md);
+  transform: translateY(-1px);
+}
+
+.customer-service-card__icon,
+.customer-question__icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  color: var(--nova-accent);
+  background: var(--nova-accent-light);
+}
+
+.customer-service-card strong,
+.customer-service-card small {
+  display: block;
+}
+
+.customer-service-card strong {
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.customer-service-card small {
+  color: var(--nova-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.customer-card-arrow {
+  flex: 0 0 auto;
+  color: var(--nova-text-tertiary);
+  transition: transform 0.2s, color 0.2s;
+}
+
+.customer-service-card:hover .customer-card-arrow,
+.customer-question:hover .customer-card-arrow {
+  color: var(--nova-accent);
+  transform: translateX(2px);
+}
+
+.customer-trust-row {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--nova-border-light);
+  border-radius: 12px;
+  color: var(--nova-text-secondary);
+  background: var(--nova-bg-component);
+  font-size: 12px;
+}
+
+.customer-trust-row > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.customer-trust-row svg {
+  color: var(--nova-success);
+}
+
+.customer-question {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--nova-border);
+  border-radius: 11px;
+  color: var(--nova-text-primary);
+  background: var(--nova-bg-container);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.customer-question:hover {
+  border-color: var(--nova-accent);
+  background: var(--nova-accent-light);
+}
+
+.customer-question__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+@media (max-width: 720px) {
+  .customer-trust-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .customer-service-card {
+    min-height: 76px;
+    padding: 13px;
   }
 }
 
@@ -728,6 +1246,783 @@ t-chat-sender::part(send-btn):disabled,
   font-weight: 600;
   background: var(--td-brand-color-light);
   color: var(--td-brand-color);
+}
+
+/* ===================================================
+   订单选择卡片
+   =================================================== */
+.order-choice-panel {
+  width: min(100%, 620px);
+  padding: 14px;
+  border: 1px solid var(--nova-border);
+  border-radius: 14px;
+  background: var(--nova-bg-container);
+  box-shadow: var(--nova-shadow-sm);
+}
+
+.order-choice-panel__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--nova-text-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.order-choice-panel__title small {
+  color: var(--nova-text-tertiary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.order-choice-list {
+  display: grid;
+  gap: 8px;
+}
+
+.order-choice-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--nova-border);
+  border-radius: 11px;
+  background: var(--nova-bg-component);
+  color: var(--nova-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+
+.order-choice-card:not(:disabled):hover {
+  border-color: var(--nova-accent);
+  background: var(--nova-accent-light);
+  box-shadow: var(--nova-shadow-sm);
+  transform: translateY(-1px);
+}
+
+.order-choice-card:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.order-choice-card--selected,
+.order-choice-card--selected:disabled {
+  border-color: var(--nova-accent);
+  background: var(--nova-accent-light);
+  opacity: 1;
+}
+
+.order-choice-card__radio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border: 1.5px solid var(--nova-accent);
+  border-radius: 50%;
+  color: white;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.order-choice-card--selected .order-choice-card__radio {
+  background: var(--nova-accent);
+}
+
+.order-choice-card__content {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.order-choice-card__content strong {
+  overflow: hidden;
+  color: var(--nova-text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-choice-card__content > span,
+.order-choice-card__content small {
+  color: var(--nova-text-secondary);
+  font-size: 11px;
+}
+
+.order-choice-card__action {
+  color: var(--nova-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .order-choice-panel__title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .order-choice-card__action {
+    display: none;
+  }
+}
+
+/* ===================================================
+   详情后的建议操作
+   =================================================== */
+.follow-up-panel {
+  width: min(100%, 620px);
+  padding: 10px 12px 12px;
+  border-left: 3px solid var(--nova-accent);
+  border-radius: 0 12px 12px 0;
+  background: var(--nova-bg-component);
+}
+
+.follow-up-panel__label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--nova-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.follow-up-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.follow-up-chip {
+  padding: 7px 11px;
+  border: 1px solid var(--nova-border);
+  border-radius: 999px;
+  background: var(--nova-bg-container);
+  color: var(--nova-text-primary);
+  font-size: 12px;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, color 0.18s, transform 0.18s;
+}
+
+.follow-up-chip:not(:disabled):hover {
+  border-color: var(--nova-accent);
+  background: var(--nova-accent-light);
+  color: var(--nova-accent);
+  transform: translateY(-1px);
+}
+
+.follow-up-chip:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.follow-up-chip--selected,
+.follow-up-chip--selected:disabled {
+  border-color: var(--nova-accent);
+  background: var(--nova-accent);
+  color: white;
+  opacity: 1;
+}
+
+/* ===================================================
+   客服工作台精修 — 更清晰的信息层级与响应式体验
+   =================================================== */
+.customer-app-shell {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 78% -15%, var(--nova-accent-light), transparent 34%),
+    var(--nova-bg-page);
+}
+
+.customer-main {
+  background: linear-gradient(180deg, var(--nova-bg-container) 0, var(--nova-bg-page) 160px);
+}
+
+.customer-sidebar {
+  position: relative;
+  background: var(--nova-bg-container);
+}
+
+.customer-sidebar__close,
+.customer-mobile-menu,
+.customer-sidebar-backdrop {
+  display: none;
+}
+
+.customer-topbar {
+  position: relative;
+  z-index: 10;
+  height: 66px;
+  padding: 0 22px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 11px;
+  border-width: 0 0 1px;
+  box-shadow: 0 1px 8px rgba(23, 32, 51, 0.035);
+}
+
+.customer-topbar__avatar {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  color: #fff;
+  background: linear-gradient(145deg, var(--nova-accent), #1558b8);
+  box-shadow: 0 6px 16px var(--nova-accent-glow);
+}
+
+.customer-topbar__identity strong,
+.customer-topbar__identity span {
+  display: block;
+}
+
+.customer-topbar__identity strong {
+  color: var(--nova-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.customer-topbar__identity span {
+  margin-top: 3px;
+  color: var(--nova-text-secondary);
+  font-size: 10px;
+}
+
+.customer-topbar__identity i,
+.customer-message-agent i {
+  width: 6px;
+  height: 6px;
+  display: inline-block;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--nova-success);
+  box-shadow: 0 0 0 3px var(--nova-success-bg);
+}
+
+.customer-topbar__session {
+  max-width: 260px;
+  margin-left: 10px;
+  padding: 5px 11px;
+  overflow: hidden;
+  border: 1px solid var(--nova-border-light);
+  border-radius: 999px;
+  color: var(--nova-text-secondary);
+  background: var(--nova-bg-component);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customer-topbar__new {
+  min-height: 34px;
+  margin-left: auto;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--nova-border);
+  border-radius: 9px;
+  color: var(--nova-text-primary);
+  background: var(--nova-bg-container);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.18s, color 0.18s, background 0.18s;
+}
+
+.customer-topbar__new:hover {
+  border-color: var(--nova-accent);
+  color: var(--nova-accent);
+  background: var(--nova-accent-light);
+}
+
+.customer-chat-scroll {
+  padding: 26px clamp(18px, 3vw, 40px) 32px;
+  scroll-behavior: smooth;
+}
+
+.customer-welcome {
+  width: min(860px, 100%);
+  margin: 0 auto;
+  padding-top: 12px;
+}
+
+.customer-welcome__hero {
+  margin-bottom: 28px;
+  text-align: center;
+}
+
+.customer-welcome__hero h1 {
+  margin: 13px 0 8px;
+  color: var(--nova-text-primary);
+  font-size: clamp(25px, 3vw, 30px);
+  font-weight: 720;
+  letter-spacing: -0.025em;
+}
+
+.customer-welcome__hero > p {
+  max-width: 590px;
+  margin: 0 auto;
+  color: var(--nova-text-secondary);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.customer-service-metrics {
+  width: fit-content;
+  margin: 20px auto 0;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  border: 1px solid var(--nova-border-light);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--nova-bg-container) 88%, transparent);
+}
+
+.customer-service-metrics > span {
+  min-width: 92px;
+  display: grid;
+  gap: 2px;
+}
+
+.customer-service-metrics strong {
+  color: var(--nova-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.customer-service-metrics small {
+  color: var(--nova-text-tertiary);
+  font-size: 10px;
+}
+
+.customer-service-metrics > i {
+  width: 1px;
+  height: 25px;
+  background: var(--nova-border);
+}
+
+.customer-service-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.customer-service-card {
+  min-height: 118px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 11px;
+  border-radius: 15px;
+}
+
+.customer-service-card .customer-card-arrow {
+  position: absolute;
+  right: 14px;
+  top: 17px;
+}
+
+.customer-service-card {
+  position: relative;
+}
+
+.customer-service-card__icon {
+  width: 36px;
+  height: 36px;
+}
+
+.customer-trust-row {
+  justify-content: space-around;
+  gap: 12px;
+}
+
+.customer-quick-section {
+  margin-top: 25px;
+}
+
+.customer-section-heading {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.customer-section-heading strong,
+.customer-section-heading small {
+  display: block;
+}
+
+.customer-section-heading strong {
+  color: var(--nova-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.customer-section-heading small,
+.customer-section-heading__hint {
+  margin-top: 3px;
+  color: var(--nova-text-tertiary);
+  font-size: 10px;
+}
+
+.customer-section-heading__hint {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--nova-accent);
+  background: var(--nova-accent-light);
+}
+
+.customer-question-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.customer-question {
+  min-height: 54px;
+}
+
+.customer-question:last-child {
+  grid-column: 1 / -1;
+}
+
+.customer-conversation,
+.customer-message-list {
+  width: min(860px, 100%);
+  margin: 0 auto;
+}
+
+.customer-intent-row {
+  margin: 0 0 18px 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.customer-intent-row > span:first-child {
+  color: var(--nova-text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.customer-message-content {
+  max-width: min(82%, 700px);
+}
+
+.customer-message-agent {
+  margin-left: 4px;
+  color: var(--nova-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.customer-message-avatar {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  box-shadow: var(--nova-shadow-sm);
+}
+
+.customer-message-avatar--user {
+  color: #fff;
+  background: var(--nova-accent);
+}
+
+.customer-message-avatar--assistant {
+  border: 1px solid var(--nova-border);
+  color: var(--nova-accent);
+  background: var(--nova-bg-container);
+}
+
+.customer-assistant-bubble {
+  padding: 15px 18px;
+  border: 1px solid var(--nova-border-light);
+  border-radius: 4px 16px 16px 16px;
+  color: var(--nova-text-primary);
+  background: var(--nova-bg-container);
+  box-shadow: 0 3px 14px rgba(23, 32, 51, 0.05);
+}
+
+.customer-user-bubble {
+  padding: 11px 17px;
+  border-radius: 16px 16px 4px;
+  color: #fff;
+  background: linear-gradient(145deg, var(--nova-accent), var(--nova-accent-hover));
+  box-shadow: 0 5px 14px var(--nova-accent-glow);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.customer-composer {
+  position: relative;
+  z-index: 5;
+  padding: 12px clamp(16px, 3vw, 32px) 16px;
+  border-width: 1px 0 0;
+  box-shadow: 0 -8px 24px rgba(23, 32, 51, 0.035);
+}
+
+.customer-composer__box {
+  width: min(860px, 100%);
+  margin: 0 auto;
+  padding: 10px 12px 10px 16px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  border: 1px solid var(--nova-border);
+  border-radius: 14px;
+  background: var(--nova-bg-container);
+  box-shadow: var(--nova-shadow-sm);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.customer-composer__box--focused {
+  border-color: var(--nova-accent);
+  box-shadow: 0 0 0 3px var(--nova-accent-light), var(--nova-shadow-sm);
+}
+
+.customer-composer__notice {
+  width: min(860px, 100%);
+  margin: 7px auto 0;
+  color: var(--nova-text-tertiary);
+  font-size: 10px;
+  text-align: center;
+}
+
+.order-choice-panel {
+  width: min(100%, 680px);
+  padding: 15px;
+  border-color: var(--nova-border-light);
+  background: linear-gradient(180deg, var(--nova-bg-container), var(--nova-bg-component));
+  box-shadow: 0 4px 16px rgba(23, 32, 51, 0.05);
+}
+
+.order-choice-card {
+  padding: 12px 13px;
+  background: var(--nova-bg-container);
+}
+
+.order-choice-card__details {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.order-choice-card__details em {
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--nova-text-secondary);
+  background: var(--nova-bg-component);
+  font-style: normal;
+  font-size: 10px;
+}
+
+.follow-up-panel {
+  width: min(100%, 680px);
+  padding: 11px 13px 13px;
+  border: 1px solid var(--nova-border-light);
+  border-left: 3px solid var(--nova-accent);
+  border-radius: 4px 12px 12px 4px;
+  background: var(--nova-bg-container);
+  box-shadow: var(--nova-shadow-sm);
+}
+
+.follow-up-chip::after {
+  content: '›';
+  margin-left: 5px;
+  color: var(--nova-text-tertiary);
+}
+
+@media (max-width: 1080px) {
+  .customer-service-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .customer-service-card {
+    min-height: 82px;
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+@media (max-width: 860px) {
+  .customer-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 50 !important;
+    transform: translateX(-102%);
+    box-shadow: var(--nova-shadow-xl);
+    transition: transform 0.24s ease;
+  }
+
+  .customer-sidebar--open {
+    transform: translateX(0);
+  }
+
+  .customer-sidebar__close {
+    position: absolute;
+    z-index: 2;
+    top: 10px;
+    right: 10px;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 8px;
+    color: var(--nova-text-secondary);
+    background: var(--nova-bg-component);
+    font-size: 20px;
+    cursor: pointer;
+  }
+
+  .customer-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    border: 0;
+    background: rgba(15, 23, 42, 0.42);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+
+  .customer-sidebar-backdrop--visible {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .customer-mobile-menu {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--nova-border);
+    border-radius: 9px;
+    color: var(--nova-text-secondary);
+    background: var(--nova-bg-container);
+    cursor: pointer;
+  }
+}
+
+@media (max-width: 640px) {
+  .customer-topbar {
+    height: 60px;
+    padding: 0 12px;
+  }
+
+  .customer-topbar__avatar {
+    display: none;
+  }
+
+  .customer-topbar__session {
+    display: none;
+  }
+
+  .customer-topbar__new {
+    padding: 0 9px;
+  }
+
+  .customer-chat-scroll {
+    padding: 18px 12px 24px;
+  }
+
+  .customer-welcome {
+    padding-top: 2px;
+  }
+
+  .customer-hero-icon {
+    width: 54px;
+    height: 54px;
+    border-radius: 16px;
+  }
+
+  .customer-service-metrics {
+    width: 100%;
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .customer-service-metrics > span {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .customer-service-grid,
+  .customer-question-list {
+    grid-template-columns: 1fr;
+  }
+
+  .customer-question:last-child {
+    grid-column: auto;
+  }
+
+  .customer-trust-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .customer-section-heading__hint {
+    display: none;
+  }
+
+  .customer-intent-row {
+    margin-left: 42px;
+  }
+
+  .customer-message-list {
+    gap: 16px;
+  }
+
+  .customer-message-content {
+    max-width: calc(100% - 44px);
+  }
+
+  .customer-message-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+  }
+
+  .customer-assistant-bubble {
+    padding: 13px 14px;
+  }
+
+  .customer-composer {
+    padding: 9px 10px 11px;
+  }
+
+  .customer-composer__notice {
+    display: none;
+  }
 }
 
 /* ===================================================

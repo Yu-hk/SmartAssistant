@@ -13,6 +13,8 @@ import com.example.smartassistant.common.sse.SseEventBus;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;
+import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
+import com.example.smartassistant.consumer.service.session.CustomerSessionContextService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -50,16 +52,22 @@ public class StreamChatController {
     private final AgentStreamClient agentStreamClient;
     private final StringRedisTemplate redisTemplate;
     private final RequestQueueService requestQueueService;
+    private final RoutingCallLogService routingCallLogService;
+    private final CustomerSessionContextService sessionContextService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public StreamChatController(
             RouterClient routerClient,
             AgentStreamClient agentStreamClient,
             RequestQueueService requestQueueService,
+            RoutingCallLogService routingCallLogService,
+            CustomerSessionContextService sessionContextService,
             @Autowired(required = false) StringRedisTemplate redisTemplate) {
         this.routerClient = routerClient;
         this.agentStreamClient = agentStreamClient;
         this.requestQueueService = requestQueueService;
+        this.routingCallLogService = routingCallLogService;
+        this.sessionContextService = sessionContextService;
         this.redisTemplate = redisTemplate;
     }
 
@@ -76,10 +84,12 @@ public class StreamChatController {
         logger.info("[StreamChat] 流式请求: messageLength={}, requestId={}, priority={}",
                 message != null ? message.length() : 0, requestId, priority);
 
-        // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
-        String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
+        // sessionId 表示连续会话；decisionKey 必须表示单次请求。两者复用会导致多轮对话
+        // 共享 Redis 决策/通知键，从而读到上一轮结果或互相阻塞。
+        String decisionKey = resolveDecisionKey(requestId, sessionId);
+        long routingStartedAt = System.currentTimeMillis();
 
-        SseEventBus bus = createBus(response, requestId);
+        SseEventBus bus = createBus(response, decisionKey);
 
         // 断线续传
         if (requestId != null && lastEventId != null && !lastEventId.isBlank()) {
@@ -88,30 +98,71 @@ public class StreamChatController {
             } catch (NumberFormatException ignored) {}
         }
 
+        // 会话业务实体按“认证用户 + sessionId”隔离，仅为明确的订单追问补全上轮订单号。
+        String userId = resolveUserId();
+        String routedMessage = sessionContextService.enrichOrderReference(userId, sessionId, message);
+
         // 获取路由决策
-        Map<String, Object> decision = getRoutingDecision(requestId, sessionId, message, bus);
+        Map<String, Object> decision = getRoutingDecision(
+                decisionKey, sessionId, routedMessage, userId, bus);
         if (decision == null || !decision.containsKey("agentName")) {
+            routingCallLogService.saveLog(
+                    decisionKey, sessionId, message, null, "ROUTER",
+                    null, null, System.currentTimeMillis() - routingStartedAt,
+                    "FAILED", "路由决策获取失败或缺少 agentName");
             bus.sendError("路由决策获取失败，请稍后重试");
             return;
         }
 
         String agentName = (String) decision.get("agentName");
-        Double confidence = (Double) decision.getOrDefault("confidence", 0.0);
+        Double confidence = numberAsDouble(decision.get("confidence"));
+        String routeMethod = String.valueOf(decision.getOrDefault("routingMethod", "ROUTER"));
+        Object routedResultForAudit = decision.get("result");
+        routingCallLogService.saveLog(
+                decisionKey, sessionId, message, agentName, routeMethod,
+                confidence,
+                routedResultForAudit != null ? String.valueOf(routedResultForAudit) : null,
+                System.currentTimeMillis() - routingStartedAt,
+                "SUCCESS", null);
         logger.info("[StreamChat] 路由: agentName={}, confidence={}", agentName, confidence);
         // 对齐前端 useChat 期望的 init 事件（带 sessionId/intent），保证消息块正确挂载
         try {
             String initJson = objectMapper.writeValueAsString(Map.of(
                     "type", "init",
-                    "sessionId", decisionKey != null ? decisionKey : "",
+                    "sessionId", sessionId != null ? sessionId : "",
                     "intent", decision.getOrDefault("intentTag", "unknown")));
             bus.send(SseEvent.raw("init", initJson));
         } catch (Exception ignored) {
         }
         bus.sendRouted(agentName, confidence);
 
+        // Router 的 /route 接口会同步完成 Agent 调用，并把完整结果写入决策。
+        // 前端 EventSource 只传 sessionId 时，直接转为标准 text/done 事件。
+        Object routedResult = decision.get("result");
+        if (routedResult instanceof String result && !result.isBlank()) {
+            try {
+                sessionContextService.rememberConversationTurn(
+                        userId, sessionId, message, result);
+                sessionContextService.rememberOrderCandidates(userId, sessionId, result);
+                String textJson = objectMapper.writeValueAsString(Map.of(
+                        "type", "text",
+                        "content", result));
+                bus.send(SseEvent.raw("text", textJson));
+                bus.sendDone();
+                injectTokenUsageEvent(bus, decisionKey);
+                logger.info("[StreamChat] Router 完整结果已转发: requestId={}, resultLength={}",
+                        decisionKey, result.length());
+            } catch (Exception e) {
+                logger.error("[StreamChat] Router 结果转发失败: requestId={}, error={}",
+                        decisionKey, e.getMessage());
+                bus.sendError("Agent 结果转发失败");
+            }
+            return;
+        }
+
         // 多 Agent SSE 事件检查
-        if (requestId != null && redisTemplate != null) {
-            String eventsKey = "routing:sse:events:" + requestId;
+        if (decisionKey != null && redisTemplate != null) {
+            String eventsKey = "routing:sse:events:" + decisionKey;
             Long eventCount = redisTemplate.opsForList().size(eventsKey);
             if (eventCount != null && eventCount > 0) {
                 logger.info("[StreamChat] 多 Agent SSE: {} 条", eventCount);
@@ -133,11 +184,11 @@ public class StreamChatController {
 
         // 转发 Agent SSE
         String agentUrl = agentStreamClient.getStreamUrl(agentName)
-                + "?message=" + encodeUrl(message) + "&showThinking=" + showThinking;
+                + "?message=" + encodeUrl(routedMessage) + "&showThinking=" + showThinking;
         try {
             forwardAgentStream(bus, agentUrl);
             // ⭐ 流结束后发送 token 用量事件
-            injectTokenUsageEvent(bus, requestId);
+            injectTokenUsageEvent(bus, decisionKey);
         } finally {
             if (decisionKey != null && !decisionKey.isBlank()) {
                 requestQueueService.complete(decisionKey);
@@ -194,16 +245,12 @@ public class StreamChatController {
         return new SseEventBus(response, requestId, redisCache);
     }
 
-    private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message, SseEventBus bus) {
-        // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
-        String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
-        if (decisionKey == null || decisionKey.isBlank()) {
-            logger.warn("[StreamChat] 无决策键(requestId/sessionId 均空)，无法触发路由");
-            return null;
-        }
+    private Map<String, Object> getRoutingDecision(String decisionKey, String sessionId,
+                                                   String message, String userId,
+                                                   SseEventBus bus) {
         // ⚠️ 先触发路由决策写入 Redis（修复原"只等待、不触发"导致永久失败的问题）
         try {
-            routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey);
+            routerClient.triggerRoutingDecision(message, userId, sessionId, decisionKey);
         } catch (Exception e) {
             logger.warn("[StreamChat] 触发路由决策异常(将尝试等待已有决策): {}", e.getMessage());
         }
@@ -308,6 +355,18 @@ public class StreamChatController {
         if (str == null) return "";
         try { return java.net.URLEncoder.encode(str, StandardCharsets.UTF_8); }
         catch (Exception e) { return str; }
+    }
+
+    static String resolveDecisionKey(String requestId, String sessionId) {
+        if (requestId != null && !requestId.isBlank()) {
+            return requestId;
+        }
+        String prefix = sessionId != null && !sessionId.isBlank() ? sessionId : "sse";
+        return prefix + "-" + java.util.UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private static Double numberAsDouble(Object value) {
+        return value instanceof Number number ? number.doubleValue() : 0.0;
     }
 
     /** Redis ZSet 适配器 */

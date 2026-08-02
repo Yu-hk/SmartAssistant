@@ -473,6 +473,17 @@ public class SemanticRouteCacheService {
      */
     public void saveDecision(String requestId, String question, String agentName,
                            double confidence, Long userId, String intentTag, String sessionId) {
+        saveDecision(requestId, question, agentName, confidence, userId, intentTag, sessionId, true);
+    }
+
+    /**
+     * Saves a route decision and optionally creates the in-memory semantic vector.
+     * Mutable transactional routes should disable the vector because their data
+     * must not be reused across requests.
+     */
+    public void saveDecision(String requestId, String question, String agentName,
+                           double confidence, Long userId, String intentTag, String sessionId,
+                           boolean includeVectorCache) {
         if (!cacheEnabled || redisTemplate == null || question == null || agentName == null || intentTag == null) return;
 
         try {
@@ -496,7 +507,9 @@ public class SemanticRouteCacheService {
             saveKeywordHash(question, intentTag);
 
             // ⭐ 保存向量缓存（本地 BGE 嵌入，用于 T3 语义匹配）
-            saveVectorCache(question);
+            if (includeVectorCache) {
+                saveVectorCache(question);
+            }
 
             // ⭐ 记录用户意图分布（写入 Redis Hash: user:intent:{userId}）
             if (userId != null) {
@@ -948,6 +961,12 @@ public class SemanticRouteCacheService {
      */
     public void saveFullDecisionForConsumer(String requestId, String agentName,
                                            double confidence, String result, String intentTag) {
+        saveFullDecisionForConsumer(requestId, agentName, confidence, result, intentTag, "LLM_ROUTING");
+    }
+
+    public void saveFullDecisionForConsumer(String requestId, String agentName,
+                                           double confidence, String result, String intentTag,
+                                           String routingMethod) {
         if (requestId == null || requestId.isBlank() || redisTemplate == null) return;
         try {
             Map<String, Object> decision = new HashMap<>();
@@ -956,6 +975,7 @@ public class SemanticRouteCacheService {
             decision.put("confidence", confidence);
             decision.put("result", result);
             decision.put("intentTag", intentTag);  // ⭐ 新增：意图标签
+            decision.put("routingMethod", routingMethod);
             decision.put("timestamp", System.currentTimeMillis());
 
             String key = FULL_DECISION_KEY_PREFIX + requestId;  // 使用独立 key，不覆盖审计日志

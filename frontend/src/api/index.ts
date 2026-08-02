@@ -7,3 +7,4 @@
 export { apiClient, ApiError } from './client';
 export * as sessions from './sessions';
 export * as admin from './admin';
+export * as auth from './auth';

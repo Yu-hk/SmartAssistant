@@ -1,0 +1,225 @@
+{
+  "generated_at": "2026-08-01T12:59:25.206295+08:00",
+  "method": "closed-loop fixed concurrency",
+  "dataset": {
+    "users": 1000,
+    "sessions": 5000,
+    "products": 120,
+    "orders": 20000,
+    "routing_logs_before_test": 30000
+  },
+  "client": {
+    "python": "3.13.14",
+    "httpx": "0.28.1",
+    "logical_processors": 16
+  },
+  "settings": {
+    "scenarios": [
+      "order-direct",
+      "router-direct",
+      "gateway-router"
+    ],
+    "concurrency": [
+      10,
+      50,
+      100
+    ],
+    "duration_seconds": 12.0,
+    "warmup_seconds": 2.0,
+    "authenticated_users": 100
+  },
+  "results": [
+    {
+      "scenario": "order-direct",
+      "concurrency": 10,
+      "duration_seconds": 12.045,
+      "attempted": 1795,
+      "succeeded": 1795,
+      "failed": 0,
+      "achieved_qps": 149.02,
+      "success_qps": 149.02,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 16.38,
+      "latency_mean_ms": 66.82,
+      "latency_p50_ms": 58.22,
+      "latency_p95_ms": 119.37,
+      "latency_p99_ms": 198.77,
+      "latency_max_ms": 298.71,
+      "status_codes": {
+        "200": 1795
+      },
+      "error_samples": []
+    },
+    {
+      "scenario": "order-direct",
+      "concurrency": 50,
+      "duration_seconds": 12.534,
+      "attempted": 917,
+      "succeeded": 917,
+      "failed": 0,
+      "achieved_qps": 73.16,
+      "success_qps": 73.16,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 95.33,
+      "latency_mean_ms": 669.37,
+      "latency_p50_ms": 436.01,
+      "latency_p95_ms": 2063.72,
+      "latency_p99_ms": 3311.35,
+      "latency_max_ms": 4537.23,
+      "status_codes": {
+        "200": 917
+      },
+      "error_samples": []
+    },
+    {
+      "scenario": "order-direct",
+      "concurrency": 100,
+      "duration_seconds": 12.563,
+      "attempted": 1658,
+      "succeeded": 1658,
+      "failed": 0,
+      "achieved_qps": 131.98,
+      "success_qps": 131.98,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 79.92,
+      "latency_mean_ms": 739.56,
+      "latency_p50_ms": 524.13,
+      "latency_p95_ms": 2287.42,
+      "latency_p99_ms": 3347.12,
+      "latency_max_ms": 5012.78,
+      "status_codes": {
+        "200": 1658
+      },
+      "error_samples": []
+    },
+    {
+      "scenario": "router-direct",
+      "concurrency": 10,
+      "duration_seconds": 12.05,
+      "attempted": 1888,
+      "succeeded": 1888,
+      "failed": 0,
+      "achieved_qps": 156.68,
+      "success_qps": 156.68,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 15.51,
+      "latency_mean_ms": 63.62,
+      "latency_p50_ms": 60.97,
+      "latency_p95_ms": 85.45,
+      "latency_p99_ms": 106.19,
+      "latency_max_ms": 142.55,
+      "status_codes": {
+        "200": 1888
+      },
+      "error_samples": []
+    },
+    {
+      "scenario": "router-direct",
+      "concurrency": 50,
+      "duration_seconds": 12.316,
+      "attempted": 1094,
+      "succeeded": 1094,
+      "failed": 0,
+      "achieved_qps": 88.83,
+      "success_qps": 88.83,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 86.77,
+      "latency_mean_ms": 555.14,
+      "latency_p50_ms": 298.37,
+      "latency_p95_ms": 1885.29,
+      "latency_p99_ms": 3046.91,
+      "latency_max_ms": 4268.93,
+      "status_codes": {
+        "200": 1094
+      },
+      "error_samples": []
+    },
+    {
+      "scenario": "router-direct",
+      "concurrency": 100,
+      "duration_seconds": 12.714,
+      "attempted": 1458,
+      "succeeded": 1458,
+      "failed": 0,
+      "achieved_qps": 114.68,
+      "success_qps": 114.68,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 84.24,
+      "latency_mean_ms": 847.01,
+      "latency_p50_ms": 584.87,
+      "latency_p95_ms": 2412.76,
+      "latency_p99_ms": 3807.89,
+      "latency_max_ms": 5787.02,
+      "status_codes": {
+        "200": 1458
+      },
+      "error_samples": []
+    },
+    {
+      "scenario": "gateway-router",
+      "concurrency": 10,
+      "duration_seconds": 12.045,
+      "attempted": 2124,
+      "succeeded": 1280,
+      "failed": 844,
+      "achieved_qps": 176.34,
+      "success_qps": 106.27,
+      "error_rate_percent": 39.736,
+      "latency_min_ms": 34.92,
+      "latency_mean_ms": 65.28,
+      "latency_p50_ms": 62.16,
+      "latency_p95_ms": 82.62,
+      "latency_p99_ms": 125.37,
+      "latency_max_ms": 255.51,
+      "status_codes": {
+        "200": 1280,
+        "429": 844
+      },
+      "error_samples": [
+        "HTTP 429"
+      ]
+    },
+    {
+      "scenario": "gateway-router",
+      "concurrency": 50,
+      "duration_seconds": 12.415,
+      "attempted": 1002,
+      "succeeded": 1002,
+      "failed": 0,
+      "achieved_qps": 80.71,
+      "success_qps": 80.71,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 102.14,
+      "latency_mean_ms": 608.7,
+      "latency_p50_ms": 339.09,
+      "latency_p95_ms": 1939.82,
+      "latency_p99_ms": 3209.46,
+      "latency_max_ms": 5209.86,
+      "status_codes": {
+        "200": 1002
+      },
+      "error_samples": []
+    },
+    {
+      "scenario": "gateway-router",
+      "concurrency": 100,
+      "duration_seconds": 12.745,
+      "attempted": 1377,
+      "succeeded": 1377,
+      "failed": 0,
+      "achieved_qps": 108.04,
+      "success_qps": 108.04,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 89.92,
+      "latency_mean_ms": 898.27,
+      "latency_p50_ms": 589.82,
+      "latency_p95_ms": 2778.77,
+      "latency_p99_ms": 4044.7,
+      "latency_max_ms": 6401.26,
+      "status_codes": {
+        "200": 1377
+      },
+      "error_samples": []
+    }
+  ]
+}

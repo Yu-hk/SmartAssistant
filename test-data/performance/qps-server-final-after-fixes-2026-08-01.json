@@ -1,0 +1,114 @@
+{
+  "dataset": {
+    "orders": 20000,
+    "products": 120,
+    "sessions": 5000,
+    "users": 1000
+  },
+  "generated_at": "2026-08-01T20:45:17.736114+08:00",
+  "method": "closed-loop fixed concurrency with persistent HTTP/1.1 connections",
+  "results": [
+    {
+      "achieved_qps": 17.95,
+      "attempted": 185,
+      "concurrency": 20,
+      "duration_seconds": 10.308,
+      "error_rate_percent": 0.0,
+      "error_samples": [],
+      "failed": 0,
+      "latency_max_ms": 2325.39,
+      "latency_mean_ms": 1085.18,
+      "latency_min_ms": 293.53,
+      "latency_p50_ms": 1025.76,
+      "latency_p95_ms": 2165.63,
+      "latency_p99_ms": 2295.4,
+      "scenario": "gateway-router",
+      "status_codes": {
+        "200": 185
+      },
+      "succeeded": 185,
+      "success_qps": 17.95
+    },
+    {
+      "achieved_qps": 32.28,
+      "attempted": 343,
+      "concurrency": 40,
+      "duration_seconds": 10.625,
+      "error_rate_percent": 0.0,
+      "error_samples": [],
+      "failed": 0,
+      "latency_max_ms": 2458.87,
+      "latency_mean_ms": 1189.61,
+      "latency_min_ms": 523.95,
+      "latency_p50_ms": 1079.26,
+      "latency_p95_ms": 2084.41,
+      "latency_p99_ms": 2381.7,
+      "scenario": "gateway-router",
+      "status_codes": {
+        "200": 343
+      },
+      "succeeded": 343,
+      "success_qps": 32.28
+    },
+    {
+      "achieved_qps": 48.12,
+      "attempted": 504,
+      "concurrency": 60,
+      "duration_seconds": 10.475,
+      "error_rate_percent": 0.0,
+      "error_samples": [],
+      "failed": 0,
+      "latency_max_ms": 1902.56,
+      "latency_mean_ms": 1197.65,
+      "latency_min_ms": 433.47,
+      "latency_p50_ms": 1203.3,
+      "latency_p95_ms": 1702.27,
+      "latency_p99_ms": 1805.31,
+      "scenario": "gateway-router",
+      "status_codes": {
+        "200": 504
+      },
+      "succeeded": 504,
+      "success_qps": 48.12
+    },
+    {
+      "achieved_qps": 60.15,
+      "attempted": 649,
+      "concurrency": 100,
+      "duration_seconds": 10.791,
+      "error_rate_percent": 0.0,
+      "error_samples": [],
+      "failed": 0,
+      "latency_max_ms": 2795.12,
+      "latency_mean_ms": 1555.61,
+      "latency_min_ms": 287.86,
+      "latency_p50_ms": 1505.61,
+      "latency_p95_ms": 2249.17,
+      "latency_p99_ms": 2635.64,
+      "scenario": "gateway-router",
+      "status_codes": {
+        "200": 649
+      },
+      "succeeded": 649,
+      "success_qps": 60.15
+    }
+  ],
+  "server": {
+    "logical_processors": 4,
+    "python": "3.6.8"
+  },
+  "settings": {
+    "authenticated_users": 100,
+    "concurrency": [
+      20,
+      40,
+      60,
+      100
+    ],
+    "duration_seconds": 10.0,
+    "scenarios": [
+      "gateway-router"
+    ],
+    "warmup_seconds": 1.0
+  }
+}

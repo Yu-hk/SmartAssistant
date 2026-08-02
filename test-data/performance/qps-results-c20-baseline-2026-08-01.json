@@ -1,0 +1,72 @@
+{
+  "generated_at": "2026-08-01T13:04:22.960196+08:00",
+  "method": "closed-loop fixed concurrency",
+  "dataset": {
+    "users": 1000,
+    "sessions": 5000,
+    "products": 120,
+    "orders": 20000,
+    "routing_logs_before_test": 30000
+  },
+  "client": {
+    "python": "3.13.14",
+    "httpx": "0.28.1",
+    "logical_processors": 16
+  },
+  "settings": {
+    "scenarios": [
+      "order-direct",
+      "router-direct"
+    ],
+    "concurrency": [
+      20
+    ],
+    "duration_seconds": 15.0,
+    "warmup_seconds": 3.0,
+    "authenticated_users": 20
+  },
+  "results": [
+    {
+      "scenario": "order-direct",
+      "concurrency": 20,
+      "duration_seconds": 15.076,
+      "attempted": 4442,
+      "succeeded": 4442,
+      "failed": 0,
+      "achieved_qps": 294.64,
+      "success_qps": 294.64,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 9.62,
+      "latency_mean_ms": 67.6,
+      "latency_p50_ms": 57.79,
+      "latency_p95_ms": 128.41,
+      "latency_p99_ms": 201.36,
+      "latency_max_ms": 489.41,
+      "status_codes": {
+        "200": 4442
+      },
+      "error_samples": []
+    },
+    {
+      "scenario": "router-direct",
+      "concurrency": 20,
+      "duration_seconds": 15.066,
+      "attempted": 2944,
+      "succeeded": 2944,
+      "failed": 0,
+      "achieved_qps": 195.41,
+      "success_qps": 195.41,
+      "error_rate_percent": 0.0,
+      "latency_min_ms": 19.62,
+      "latency_mean_ms": 102.01,
+      "latency_p50_ms": 73.59,
+      "latency_p95_ms": 248.02,
+      "latency_p99_ms": 435.35,
+      "latency_max_ms": 779.1,
+      "status_codes": {
+        "200": 2944
+      },
+      "error_samples": []
+    }
+  ]
+}

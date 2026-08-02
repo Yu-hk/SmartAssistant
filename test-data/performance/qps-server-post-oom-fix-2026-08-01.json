@@ -1,0 +1,48 @@
+{
+  "dataset": {
+    "orders": 20000,
+    "products": 120,
+    "sessions": 5000,
+    "users": 1000
+  },
+  "generated_at": "2026-08-01T20:31:52.866144+08:00",
+  "method": "closed-loop fixed concurrency with persistent HTTP/1.1 connections",
+  "results": [
+    {
+      "achieved_qps": 30.38,
+      "attempted": 514,
+      "concurrency": 100,
+      "duration_seconds": 16.917,
+      "error_rate_percent": 0.0,
+      "error_samples": [],
+      "failed": 0,
+      "latency_max_ms": 5386.77,
+      "latency_mean_ms": 3042.3,
+      "latency_min_ms": 1557.85,
+      "latency_p50_ms": 2953.41,
+      "latency_p95_ms": 4661.48,
+      "latency_p99_ms": 5241.53,
+      "scenario": "gateway-router",
+      "status_codes": {
+        "200": 514
+      },
+      "succeeded": 514,
+      "success_qps": 30.38
+    }
+  ],
+  "server": {
+    "logical_processors": 4,
+    "python": "3.6.8"
+  },
+  "settings": {
+    "authenticated_users": 100,
+    "concurrency": [
+      100
+    ],
+    "duration_seconds": 15.0,
+    "scenarios": [
+      "gateway-router"
+    ],
+    "warmup_seconds": 2.0
+  }
+}

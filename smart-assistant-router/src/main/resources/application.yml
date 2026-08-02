@@ -136,6 +136,8 @@ nacos:
 
 # Router 配置
 router:
+  experience:
+    min-confidence: 0.65
   # ⭐ Agent 发现配置（消除硬编码）
   agent-discovery:
     enabled: true  # 是否启用自动发现
@@ -253,10 +255,10 @@ management:
   # 分布式追踪配置 (Jaeger - Zipkin 兼容模式)
   tracing:
     sampling:
-      probability: 0.3  # ⭐ 采样率 30%（开发环境已足够，生产环境可调整为 0.1）
-    zipkin:
-      tracing:
-        endpoint: http://localhost:9411/api/v2/spans  # ⭐ Jaeger 兼容 Zipkin 协议的端点
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:0.3}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
 
 # Logging 配置（输出到文件，供 Loki 收集）⭐
 logging:

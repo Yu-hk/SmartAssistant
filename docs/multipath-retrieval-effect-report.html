@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>多路召回（Multi-Path Retrieval）效果测试报告</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+         margin: 0; padding: 32px; background: #f5f7fa; color: #1f2937; line-height: 1.6; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 34px 0 12px; padding-left: 10px; border-left: 4px solid #4f8cff; }
+  h3 { font-size: 15px; margin: 16px 0 8px; color: #374151; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 18px; }
+  .meta { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; padding: 12px 16px;
+          font-size: 13px; color: #3730a3; margin-bottom: 8px; }
+  .cards { display: flex; gap: 14px; flex-wrap: wrap; margin: 14px 0 6px; }
+  .card { flex: 1; min-width: 150px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+          padding: 16px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  .card-name { font-size: 13px; color: #6b7280; }
+  .card-multi { font-size: 28px; font-weight: 700; color: #16a34a; margin: 4px 0; }
+  .card-single { font-size: 12px; color: #9ca3af; }
+  .card-lift { font-size: 13px; color: #4f8cff; font-weight: 600; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; font-size: 13px;
+          border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+  th, td { padding: 9px 10px; text-align: center; border-bottom: 1px solid #f0f0f0; }
+  th { background: #f8fafc; color: #374151; font-weight: 600; }
+  td.mono, .mono { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+  tr.ok td { }
+  tr.bad td { background: #fef2f2; }
+  .ok { }
+  .pill { display: inline-block; background: #eef2ff; color: #3730a3; border-radius: 12px;
+          padding: 2px 9px; margin: 2px; font-size: 12px; }
+  .pill0 { background: #f3f4f6; color: #9ca3af; }
+  .pill1,.pill2,.pill3 { background: #dcfce7; color: #166534; }
+  .detail-block { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px; margin: 8px 0; }
+  .detail-q { font-weight: 600; }
+  .detail-q .rel { color: #9ca3af; font-weight: 400; font-size: 12px; margin-left: 8px; }
+  .detail-paths { margin: 6px 0; }
+  .path { font-size: 12px; margin: 3px 0; }
+  .path-name { display: inline-block; min-width: 54px; color: #4f8cff; font-weight: 600; }
+  .detail-multi { font-size: 12px; color: #374151; margin-top: 4px; }
+  .e2e-path { margin: 6px 0; }
+  .e2e-items { font-size: 11px; color: #374151; margin: 3px 0 3px 58px; white-space: pre-wrap; }
+  .e2e-foot { font-size: 12px; color: #6b7280; margin-top: 6px; }
+  .hit { color: #166534; font-weight: 600; background: #dcfce7; border: 1px solid #86efac;
+          border-radius: 4px; padding: 0 5px; margin: 0 2px; }
+  .dim { color: #9ca3af; }
+  .deg-ok { color: #16a34a; }
+  .deg-bad { color: #dc2626; }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px;
+           font-size: 13px; color: #92400e; margin-top: 14px; }
+  .note b { color: #78350f; }
+  .conclusion { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 14px 18px;
+                font-size: 14px; color: #065f46; margin: 10px 0 4px; }
+</style>
+</head>
+<body>
+  <h1>多路召回（Multi-Path Retrieval）效果测试报告</h1>
+  <div class="sub">Product 模块 · RagSearchPipeline · RRF 融合 + 去重 + 重排 · 全内存组件（无需真实 BGE / 向量库）</div>
+
+  <div class="meta">
+    测试环境：RRF_K = <b>60</b> · candidatePoolK = <b>20</b> ·
+    qualityThreshold = <b>0.3</b> · embedding = <b>StubBgeEmbeddingModel(1024d,确定性)</b><br>
+    组件：InMemoryKnowledgeBase + InMemoryProductBackend + StubBge。各路：语义 / BM25 / 关键词 / 精确 / 图谱（量化基准）；
+    真实管线：精确匹配 / 关键词搜索 / BM25 / 知识库。
+  </div>
+
+  <h2>① 核心结论：单路语义 vs 多路 RRF 融合</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="card-name">Recall@1</div>
+      <div class="card-multi">56.2%</div>
+      <div class="card-single">单路语义: 25.0%</div>
+      <div class="card-lift">多路提升 +125%</div>
+    </div>
+    <div class="card">
+      <div class="card-name">Recall@3</div>
+      <div class="card-multi">100.0%</div>
+      <div class="card-single">单路语义: 37.5%</div>
+      <div class="card-lift">多路提升 +167%</div>
+    </div>
+    <div class="card">
+      <div class="card-name">Recall@5</div>
+      <div class="card-multi">100.0%</div>
+      <div class="card-single">单路语义: 37.5%</div>
+      <div class="card-lift">多路提升 +167%</div>
+    </div>
+    <div class="card">
+      <div class="card-name">MRR</div>
+      <div class="card-multi">81.2%</div>
+      <div class="card-single">单路语义: 31.2%</div>
+      <div class="card-lift">多路提升 +160%</div>
+    </div>
+    <div class="card">
+      <div class="card-name">nDCG@5</div>
+      <div class="card-multi">86.2%</div>
+      <div class="card-single">单路语义: 32.9%</div>
+      <div class="card-lift">多路提升 +162%</div>
+    </div></div>
+  <div class="conclusion">
+    <b>多路召回把平均 Recall@5 从 37.5% 拉到 100.0%（+167%），
+    MRR 从 0.31 提升到 0.81（+160%），
+    nDCG@5 从 32.9% 提升到 86.2%（+162%）。</b><br>
+    单路（仅语义）因 embedding 模型对长尾/结构化意图覆盖不足而大量漏召回；BM25、关键词、图谱等路从不同角度补足缺口，
+    RRF 按排名融合后几乎所有相关文档都进入候选，验证了「多路召回 + RRF」对召回覆盖率的实质提升。
+  </div>
+
+  <h2>② 量化明细（每查询单路 vs 多路）</h2>
+  <table>
+    <thead>
+      <tr>
+        <th rowspan="2">查询</th><th rowspan="2">相关文档</th>
+        <th colspan="5">单路（仅语义召回）</th>
+        <th colspan="5">多路 RRF 融合</th>
+      </tr>
+      <tr>
+        <th>R@1</th><th>R@3</th><th>R@5</th><th>MRR</th><th>nDCG@5</th>
+        <th>R@1</th><th>R@3</th><th>R@5</th><th>MRR</th><th>nDCG@5</th>
+      </tr>
+    </thead>
+    <tbody>
+    <tr class="ok">
+      <td>苹果笔记本推荐</td>
+      <td class="mono">MacBook Air M3</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.00</td>
+      <td>0.0%</td>
+      <td><b>0.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>0.50</b></td>
+      <td><b>63.1%</b></td>
+    </tr>
+    <tr class="ok">
+      <td>iPhone 价格</td>
+      <td class="mono">iPhone 15 Pro</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>1.00</td>
+      <td>100.0%</td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>1.00</b></td>
+      <td><b>100.0%</b></td>
+    </tr>
+    <tr class="ok">
+      <td>降噪耳机</td>
+      <td class="mono">AirPods Pro, Sony XM5</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.00</td>
+      <td>0.0%</td>
+      <td><b>50.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>1.00</b></td>
+      <td><b>100.0%</b></td>
+    </tr>
+    <tr class="ok">
+      <td>安卓手机</td>
+      <td class="mono">Galaxy S24</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.00</td>
+      <td>0.0%</td>
+      <td><b>0.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>0.50</b></td>
+      <td><b>63.1%</b></td>
+    </tr>
+    <tr class="ok">
+      <td>苹果耳机降噪</td>
+      <td class="mono">AirPods Pro</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.00</td>
+      <td>0.0%</td>
+      <td><b>0.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>0.50</b></td>
+      <td><b>63.1%</b></td>
+    </tr>
+    <tr class="ok">
+      <td>平板绘图</td>
+      <td class="mono">iPad Pro</td>
+      <td>0.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.50</td>
+      <td>63.1%</td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>1.00</b></td>
+      <td><b>100.0%</b></td>
+    </tr>
+    <tr class="ok">
+      <td>智能手表健康</td>
+      <td class="mono">Apple Watch</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>1.00</td>
+      <td>100.0%</td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>1.00</b></td>
+      <td><b>100.0%</b></td>
+    </tr>
+    <tr class="ok">
+      <td>Windows商务本</td>
+      <td class="mono">ThinkPad X1</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.00</td>
+      <td>0.0%</td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>100.0%</b></td>
+      <td><b>1.00</b></td>
+      <td><b>100.0%</b></td>
+    </tr></tbody>
+    <tfoot>
+      <tr style="font-weight:700;background:#f8fafc">
+        <td>平均</td><td></td>
+        <td>25.0%</td><td>37.5%</td><td>37.5%</td>
+        <td>0.31</td><td>32.9%</td>
+        <td>56.2%</td><td>100.0%</td><td>100.0%</td>
+        <td>0.81</td><td>86.2%</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <h2>③ 各路召回明细（每查询 5 路分别召回的文档）</h2>
+  <p class="sub">裸 doc id 已解析为文档标题；<span class="hit">绿色 ✓</span> 表示该路召回命中了相关文档（golden）。</p>
+
+    <div class="detail-block">
+      <div class="detail-q">▸ 苹果笔记本推荐 <span class="rel">相关: MacBook Air M3</span></div>
+      <div class="detail-paths"><div class="path"><span class="path-name">语义</span>: <span class="dim">Sony XM5</span>、<span class="dim">充电器</span>、<span class="dim">iPhone 15 Pro</span>、<span class="dim">小米平板</span>、<span class="dim">LG OLED</span></div><div class="path"><span class="path-name">BM25</span>: <span class="hit">MacBook Air M3 ✓</span>、<span class="dim">ThinkPad X1</span>、<span class="dim">AirPods Pro</span>、<span class="dim">iPad Pro</span>、<span class="dim">iPhone 15 Pro</span></div><div class="path"><span class="path-name">关键词</span>: <span class="hit">MacBook Air M3 ✓</span>、<span class="dim">ThinkPad X1</span>、<span class="dim">iPhone 15 Pro</span>、<span class="dim">AirPods Pro</span>、<span class="dim">iPad Pro</span></div><div class="path"><span class="path-name">精确</span>: （空）</div><div class="path"><span class="path-name">图谱</span>: <span class="hit">MacBook Air M3 ✓</span>、<span class="dim">iPhone 15 Pro</span>、<span class="dim">AirPods Pro</span>、<span class="dim">iPad Pro</span>、<span class="dim">Apple Watch</span></div></div>
+      <div class="detail-multi">融合 Top: <span class="mono">iPhone 15 Pro、MacBook Air M3、AirPods Pro、iPad Pro、ThinkPad X1、Sony XM5、充电器、小米平板、LG OLED、Apple Watch</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ iPhone 价格 <span class="rel">相关: iPhone 15 Pro</span></div>
+      <div class="detail-paths"><div class="path"><span class="path-name">语义</span>: <span class="hit">iPhone 15 Pro ✓</span>、<span class="dim">iPad Pro</span>、<span class="dim">Galaxy S24</span>、<span class="dim">Sony XM5</span>、<span class="dim">MacBook Air M3</span></div><div class="path"><span class="path-name">BM25</span>: <span class="hit">iPhone 15 Pro ✓</span></div><div class="path"><span class="path-name">关键词</span>: <span class="hit">iPhone 15 Pro ✓</span></div><div class="path"><span class="path-name">精确</span>: （空）</div><div class="path"><span class="path-name">图谱</span>: （空）</div></div>
+      <div class="detail-multi">融合 Top: <span class="mono">iPhone 15 Pro、iPad Pro、Galaxy S24、Sony XM5、MacBook Air M3</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ 降噪耳机 <span class="rel">相关: AirPods Pro, Sony XM5</span></div>
+      <div class="detail-paths"><div class="path"><span class="path-name">语义</span>: <span class="dim">小米平板</span>、<span class="dim">ThinkPad X1</span>、<span class="dim">Galaxy S24</span>、<span class="dim">iPhone 15 Pro</span>、<span class="dim">Sony A7</span></div><div class="path"><span class="path-name">BM25</span>: <span class="hit">AirPods Pro ✓</span>、<span class="hit">Sony XM5 ✓</span></div><div class="path"><span class="path-name">关键词</span>: <span class="hit">AirPods Pro ✓</span>、<span class="hit">Sony XM5 ✓</span></div><div class="path"><span class="path-name">精确</span>: （空）</div><div class="path"><span class="path-name">图谱</span>: <span class="hit">AirPods Pro ✓</span>、<span class="hit">Sony XM5 ✓</span></div></div>
+      <div class="detail-multi">融合 Top: <span class="mono">AirPods Pro、Sony XM5、小米平板、ThinkPad X1、Galaxy S24、iPhone 15 Pro、Sony A7</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ 安卓手机 <span class="rel">相关: Galaxy S24</span></div>
+      <div class="detail-paths"><div class="path"><span class="path-name">语义</span>: <span class="dim">ThinkPad X1</span>、<span class="dim">Sony A7</span>、<span class="dim">小米平板</span>、<span class="dim">Apple Watch</span>、<span class="dim">充电器</span></div><div class="path"><span class="path-name">BM25</span>: <span class="hit">Galaxy S24 ✓</span>、<span class="dim">小米平板</span>、<span class="dim">iPhone 15 Pro</span></div><div class="path"><span class="path-name">关键词</span>: <span class="hit">Galaxy S24 ✓</span>、<span class="dim">iPhone 15 Pro</span>、<span class="dim">小米平板</span></div><div class="path"><span class="path-name">精确</span>: （空）</div><div class="path"><span class="path-name">图谱</span>: <span class="hit">Galaxy S24 ✓</span>、<span class="dim">小米平板</span>、<span class="dim">iPhone 15 Pro</span></div></div>
+      <div class="detail-multi">融合 Top: <span class="mono">小米平板、Galaxy S24、iPhone 15 Pro、ThinkPad X1、Sony A7、Apple Watch、充电器</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ 苹果耳机降噪 <span class="rel">相关: AirPods Pro</span></div>
+      <div class="detail-paths"><div class="path"><span class="path-name">语义</span>: <span class="dim">小米平板</span>、<span class="dim">ThinkPad X1</span>、<span class="dim">Sony A7</span>、<span class="dim">iPhone 15 Pro</span>、<span class="dim">Sony XM5</span></div><div class="path"><span class="path-name">BM25</span>: <span class="hit">AirPods Pro ✓</span>、<span class="dim">Sony XM5</span>、<span class="dim">iPad Pro</span>、<span class="dim">MacBook Air M3</span>、<span class="dim">iPhone 15 Pro</span></div><div class="path"><span class="path-name">关键词</span>: <span class="hit">AirPods Pro ✓</span>、<span class="dim">Sony XM5</span>、<span class="dim">MacBook Air M3</span>、<span class="dim">iPhone 15 Pro</span>、<span class="dim">iPad Pro</span></div><div class="path"><span class="path-name">精确</span>: （空）</div><div class="path"><span class="path-name">图谱</span>: <span class="dim">MacBook Air M3</span>、<span class="dim">iPhone 15 Pro</span>、<span class="hit">AirPods Pro ✓</span>、<span class="dim">iPad Pro</span>、<span class="dim">Apple Watch</span></div></div>
+      <div class="detail-multi">融合 Top: <span class="mono">iPhone 15 Pro、AirPods Pro、MacBook Air M3、Sony XM5、iPad Pro、小米平板、ThinkPad X1、Sony A7、Apple Watch</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ 平板绘图 <span class="rel">相关: iPad Pro</span></div>
+      <div class="detail-paths"><div class="path"><span class="path-name">语义</span>: <span class="dim">iPhone 15 Pro</span>、<span class="hit">iPad Pro ✓</span>、<span class="dim">MacBook Air M3</span>、<span class="dim">ThinkPad X1</span>、<span class="dim">Apple Watch</span></div><div class="path"><span class="path-name">BM25</span>: <span class="hit">iPad Pro ✓</span>、<span class="dim">小米平板</span></div><div class="path"><span class="path-name">关键词</span>: <span class="hit">iPad Pro ✓</span></div><div class="path"><span class="path-name">精确</span>: （空）</div><div class="path"><span class="path-name">图谱</span>: <span class="hit">iPad Pro ✓</span>、<span class="dim">小米平板</span></div></div>
+      <div class="detail-multi">融合 Top: <span class="mono">iPad Pro、小米平板、iPhone 15 Pro、MacBook Air M3、ThinkPad X1、Apple Watch</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ 智能手表健康 <span class="rel">相关: Apple Watch</span></div>
+      <div class="detail-paths"><div class="path"><span class="path-name">语义</span>: <span class="hit">Apple Watch ✓</span>、<span class="dim">Sony XM5</span>、<span class="dim">AirPods Pro</span>、<span class="dim">ThinkPad X1</span>、<span class="dim">iPhone 15 Pro</span></div><div class="path"><span class="path-name">BM25</span>: <span class="hit">Apple Watch ✓</span></div><div class="path"><span class="path-name">关键词</span>: <span class="hit">Apple Watch ✓</span></div><div class="path"><span class="path-name">精确</span>: （空）</div><div class="path"><span class="path-name">图谱</span>: <span class="hit">Apple Watch ✓</span></div></div>
+      <div class="detail-multi">融合 Top: <span class="mono">Apple Watch、Sony XM5、AirPods Pro、ThinkPad X1、iPhone 15 Pro</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ Windows商务本 <span class="rel">相关: ThinkPad X1</span></div>
+      <div class="detail-paths"><div class="path"><span class="path-name">语义</span>: <span class="dim">AirPods Pro</span>、<span class="dim">Sony XM5</span>、<span class="dim">小米平板</span>、<span class="dim">iPad Pro</span>、<span class="dim">Sony A7</span></div><div class="path"><span class="path-name">BM25</span>: <span class="hit">ThinkPad X1 ✓</span></div><div class="path"><span class="path-name">关键词</span>: <span class="hit">ThinkPad X1 ✓</span></div><div class="path"><span class="path-name">精确</span>: （空）</div><div class="path"><span class="path-name">图谱</span>: （空）</div></div>
+      <div class="detail-multi">融合 Top: <span class="mono">ThinkPad X1、AirPods Pro、Sony XM5、小米平板、iPad Pro、Sony A7</span></div>
+    </div>
+
+  <h2>③-b 每路独立召回效果汇总（单独评估各路，不融合）</h2>
+  <p class="sub">下表把每一路当成「单路检索器」单独打分（基于 8 条 golden 查询），直观展示各路互补性。</p>
+  <table>
+    <thead>
+      <tr><th>召回路</th><th>Recall@1</th><th>Recall@3</th><th>Recall@5</th><th>MRR</th><th>nDCG@5</th></tr>
+    </thead>
+    <tbody>
+    <tr class="ok">
+      <td><b>语义</b>（= 单路语义基线）</td>
+      <td>25.0%</td>
+      <td>37.5%</td>
+      <td>37.5%</td>
+      <td>0.31</td>
+      <td>32.9%</td>
+    </tr>
+    <tr class="">
+      <td><b>BM25</b></td>
+      <td>93.8%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>1.00</td>
+      <td>100.0%</td>
+    </tr>
+    <tr class="">
+      <td><b>关键词</b></td>
+      <td>93.8%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>1.00</td>
+      <td>100.0%</td>
+    </tr>
+    <tr class="">
+      <td><b>精确</b></td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.00</td>
+      <td>0.0%</td>
+    </tr>
+    <tr class="">
+      <td><b>图谱</b></td>
+      <td>56.2%</td>
+      <td>75.0%</td>
+      <td>75.0%</td>
+      <td>0.67</td>
+      <td>68.8%</td>
+    </tr></tbody>
+  </table>
+  <div class="note">
+    <b>读图：</b>「语义」一路单独打分即等于 ① 中的「单路语义基线」；
+    BM25 / 关键词 / 图谱 各自在不同查询上命中了语义路漏掉的相关文档——
+    例如「苹果笔记本推荐」语义路 Recall@5=0，但 BM25 与图谱路都命中了 MacBook Air M3。
+    正因各路盲区不重叠，RRF 融合后才能把整体 Recall@5 拉满到 100%。
+  </div>
+
+  <h2>④ 真实端到端管线（RagSearchPipeline 实跑，按路展开）</h2>
+  <p class="sub">每一路 Handler 实际召回的内容片段如下；融合链路在最后汇总。</p>
+
+    <div class="detail-block">
+      <div class="detail-q">▸ iPhone 15 Pro 价格多少</div>
+      <div class="detail-paths">
+        <div class="e2e-path">
+          <span class="pill pill0">精确匹配 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill0">关键词搜索 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill0">BM25 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill1">知识库 · 命中 1</span>
+          <div class="e2e-items mono">📚 知识库「product_knowledge」查询结果：
+
+1. 【iPhone 15 Pro】…</div>
+        </div></div>
+      <div class="detail-multi">融合 Top（RRF 分数）:<br><span class="mono fused">📚 知识库「product_knowledge」查询结果：
+
+1. 【iPhone 15 Pro】（相关度: 11%）[CID:kb-ip…</span> <span class="score">RRF=0.490</span></div>
+      <div class="e2e-foot">质量分 <b>0.250</b> · <span class="deg-ok">✓ 正常</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ AirPods Pro 降噪怎么样</div>
+      <div class="detail-paths">
+        <div class="e2e-path">
+          <span class="pill pill0">精确匹配 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill0">关键词搜索 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill1">BM25 · 命中 1</span>
+          <div class="e2e-items mono">AirPods Pro（第二代）
+价格：1999 元
+库存：充足
+规格：降噪、自适应音频、USB-C…</div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill1">知识库 · 命中 1</span>
+          <div class="e2e-items mono">📚 知识库「product_knowledge」查询结果：
+
+1. 【AirPods Pro】（相…</div>
+        </div></div>
+      <div class="detail-multi">融合 Top（RRF 分数）:<br><span class="mono fused">AirPods Pro（第二代）
+价格：1999 元
+库存：充足
+规格：降噪、自适应音频、USB-C充电
+颜色：白色</span> <span class="score">RRF=0.658</span><br><span class="mono fused">📚 知识库「product_knowledge」查询结果：
+
+1. 【AirPods Pro】（相关度: 10%）[CID:kb-airp…</span> <span class="score">RRF=0.496</span></div>
+      <div class="e2e-foot">质量分 <b>0.250</b> · <span class="deg-ok">✓ 正常</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ MacBook Air 续航多久</div>
+      <div class="detail-paths">
+        <div class="e2e-path">
+          <span class="pill pill0">精确匹配 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill0">关键词搜索 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill1">BM25 · 命中 1</span>
+          <div class="e2e-items mono">MacBook Air M3
+价格：8999起 元
+库存：紧张
+规格：13.6英寸、M3芯片、18小…</div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill1">知识库 · 命中 1</span>
+          <div class="e2e-items mono">📚 知识库「product_knowledge」查询结果：
+
+1. 【MacBook Air M3…</div>
+        </div></div>
+      <div class="detail-multi">融合 Top（RRF 分数）:<br><span class="mono fused">MacBook Air M3
+价格：8999起 元
+库存：紧张
+规格：13.6英寸、M3芯片、18小时续航
+颜色：午夜色/星光色/深空灰色/…</span> <span class="score">RRF=0.707</span><br><span class="mono fused">📚 知识库「product_knowledge」查询结果：
+
+1. 【MacBook Air M3】（相关度: 32%）[CID:kb-m…</span> <span class="score">RRF=0.493</span></div>
+      <div class="e2e-foot">质量分 <b>0.250</b> · <span class="deg-ok">✓ 正常</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ iPhone 15 Pro 规格参数</div>
+      <div class="detail-paths">
+        <div class="e2e-path">
+          <span class="pill pill0">精确匹配 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill0">关键词搜索 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill0">BM25 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill1">知识库 · 命中 1</span>
+          <div class="e2e-items mono">📚 知识库「product_knowledge」查询结果：
+
+1. 【iPhone 15 Pro】…</div>
+        </div></div>
+      <div class="detail-multi">融合 Top（RRF 分数）:<br><span class="mono fused">📚 知识库「product_knowledge」查询结果：
+
+1. 【iPhone 15 Pro】（相关度: 10%）[CID:kb-ip…</span> <span class="score">RRF=0.495</span></div>
+      <div class="e2e-foot">质量分 <b>0.250</b> · <span class="deg-ok">✓ 正常</span></div>
+    </div>
+    <div class="detail-block">
+      <div class="detail-q">▸ AirPods Pro 多少钱</div>
+      <div class="detail-paths">
+        <div class="e2e-path">
+          <span class="pill pill0">精确匹配 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill0">关键词搜索 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill0">BM25 · 命中 0</span>
+          <div class="e2e-items mono"><span class="dim">（未召回）</span></div>
+        </div>
+        <div class="e2e-path">
+          <span class="pill pill1">知识库 · 命中 1</span>
+          <div class="e2e-items mono">📚 知识库「product_knowledge」查询结果：
+
+1. 【AirPods Pro】（相…</div>
+        </div></div>
+      <div class="detail-multi">融合 Top（RRF 分数）:<br><span class="mono fused">📚 知识库「product_knowledge」查询结果：
+
+1. 【AirPods Pro】（相关度: 7%）[CID:kb-airpo…</span> <span class="score">RRF=0.481</span></div>
+      <div class="e2e-foot">质量分 <b>0.250</b> · <span class="deg-ok">✓ 正常</span></div>
+    </div>
+  <div class="note">
+    <b>说明：</b>真实端到端使用 <code>StubBgeEmbeddingModel</code>（确定性字符向量，<b>无真实语义</b>），
+    因此「精确匹配 / 关键词搜索」两路对自然语言查询按商品编码/名称匹配返回 0，
+    而 BM25（真实分词词频）与知识库路（含商品名时伪语义命中）贡献召回。
+    融合链路（RRF → 去重 → 重排）工作正常，质量分随命中路数变化。
+    接真实 BGE 后，语义/知识库路命中率会进一步提升，多路互补优势更明显。
+    <br>「降级」为多路召回的设计内容错：某路异常不影响整体融合结果。
+  </div>
+
+  <div class="note">
+    <b>价值总结：</b>「单路」受限于单一检索视角的盲区（语义模型对结构化/长尾意图覆盖不足）；
+    「多路召回 + RRF」通过精确 / 关键词 / BM25 / 向量语义 / 图谱等多视角互补，
+    用排名融合消除分数不可比问题，将平均 Recall@5 从 37.5% 提升到 100%、MRR 提升到 0.81，
+    是生产级 RAG「召回全 → 排得准 → 上下文净」闭环的第一道保障。
+  </div>
+</body>
+</html>

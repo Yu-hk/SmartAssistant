@@ -5,6 +5,18 @@ import { ChatMessages } from '../components/ChatMessages';
 import { FaqSuggestions } from '../components/FaqSuggestions';
 import { IntentBadge } from '../components/IntentBadge';
 import { sessions as sessionApi } from '../api';
+import {
+  ArrowRight,
+  FileText,
+  Headphones,
+  PackageSearch,
+  ReceiptText,
+  RotateCcw,
+  ShieldCheck,
+  ShoppingBag,
+  Truck,
+  UserRound,
+} from 'lucide-react';
 
 interface CustomerChatPageProps {
   currentSession: Session | undefined;
@@ -21,13 +33,20 @@ interface CustomerChatPageProps {
   onPermissionDeny: () => void;
 }
 
-// 快捷问题 — 旅游主题
+// 客服高频问题
 const QUICK_QUESTIONS = [
-  { icon: '🗺️', text: '九寨沟有什么好玩的', gradient: 'from-blue-500 to-cyan-500' },
-  { icon: '🍜', text: '成都有什么美食推荐', gradient: 'from-orange-500 to-amber-500' },
-  { icon: '🏨', text: '推荐丽江的住宿', gradient: 'from-purple-500 to-pink-500' },
-  { icon: '🛤️', text: '大理三日游行程规划', gradient: 'from-green-500 to-emerald-500' },
-  { icon: '🌤️', text: '黄山最近天气适合去吗', gradient: 'from-rose-500 to-red-500' },
+  { icon: Truck, text: '查询我的订单物流进度' },
+  { icon: RotateCcw, text: '商品如何申请退货退款' },
+  { icon: ShoppingBag, text: '咨询商品规格和库存' },
+  { icon: ReceiptText, text: '如何申请电子发票' },
+  { icon: UserRound, text: '转接人工客服' },
+];
+
+const SERVICE_ITEMS = [
+  { icon: PackageSearch, title: '订单与物流', desc: '订单状态、配送进度、收货异常' },
+  { icon: RotateCcw, title: '退换与售后', desc: '退货退款、换货维修、售后进度' },
+  { icon: ShoppingBag, title: '商品咨询', desc: '规格参数、库存价格、使用说明' },
+  { icon: FileText, title: '账户与发票', desc: '账户服务、电子发票、支付问题' },
 ];
 
 export function CustomerChatPage({
@@ -77,175 +96,99 @@ export function CustomerChatPage({
   return (
     <>
       {/* 消息区域 */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin" style={{ padding: '20px 24px' }}>
+      <div className="customer-chat-scroll flex-1 overflow-y-auto scrollbar-thin">
         {!hasMessages ? (
           /* ===== 欢迎页 ===== */
-          <div style={{ maxWidth: '680px', margin: '0 auto', paddingTop: '20px' }}>
-            {/* 欢迎头部 — 科技感 */}
-            <div style={{ textAlign: 'center', marginBottom: '44px' }}>
-              {/* Logo 光效 */}
-              <div style={{
-                position: 'relative',
-                width: '80px', height: '80px',
-                margin: '0 auto 20px',
-              }}>
-                <div style={{
-                  width: '80px', height: '80px',
-                  borderRadius: '24px',
-                  background: 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '34px', fontWeight: 800, color: 'white',
-                  boxShadow: '0 0 40px var(--nova-accent-glow), 0 8px 32px rgba(0,0,0,0.2)',
-                  position: 'relative',
-                  zIndex: 1,
-                }}>
-                  N
-                </div>
-                {/* 装饰光环 */}
-                <div style={{
-                  position: 'absolute', inset: '-8px',
-                  borderRadius: '28px',
-                  border: '1px solid var(--nova-accent-glow)',
-                  opacity: 0.5,
-                  animation: 'breathe 3s ease-in-out infinite',
-                }} />
-                <div style={{
-                  position: 'absolute', inset: '-16px',
-                  borderRadius: '36px',
-                  border: '1px solid var(--nova-accent-glow)',
-                  opacity: 0.2,
-                }} />
+          <div className="customer-welcome">
+            {/* 欢迎头部 */}
+            <div className="customer-welcome__hero">
+              <div className="customer-hero-icon">
+                <Headphones size={30} strokeWidth={1.9} />
+                <span className="customer-online-dot" aria-label="客服在线" />
               </div>
-
-              <h2 style={{
-                fontSize: '24px', fontWeight: 700,
-                color: 'var(--nova-text-primary)',
-                margin: '0 0 6px',
-                letterSpacing: '0.02em',
-              }}>
-                Nova 旅行规划
-              </h2>
-              <p style={{
-                fontSize: '14px',
-                color: 'var(--nova-text-secondary)',
-                margin: 0,
-                lineHeight: 1.6,
-              }}>
-                AI 旅行规划助手 · 探索目的地、美食推荐、行程定制、天气查询
+              <div className="customer-status-pill">
+                <span /> 在线服务中 · 通常几秒内回复
+              </div>
+              <h1>您好，我是小智客服</h1>
+              <p>
+                有订单、物流或售后问题都可以直接告诉我。涉及具体订单时，我会先为您查询，再请您确认需要处理的内容。
               </p>
+              <div className="customer-service-metrics" aria-label="服务能力说明">
+                <span><strong>7×24</strong><small>全天候服务</small></span>
+                <i aria-hidden="true" />
+                <span><strong>隐私保护</strong><small>敏感信息脱敏</small></span>
+                <i aria-hidden="true" />
+                <span><strong>人工协同</strong><small>复杂问题可转接</small></span>
+              </div>
             </div>
 
-            {/* 服务能力卡片 — 玻璃拟态网格 */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: '1fr 1fr',
-              gap: '12px', marginBottom: '36px',
-            }}>
-              {[
-                { icon: '🗺️', title: '目的地探索', desc: '景点推荐、旅行攻略、当地文化', accent: '#6366f1' },
-                { icon: '🍜', title: '美食推荐', desc: '本地特色、餐厅推荐、小吃攻略', accent: '#f59e0b' },
-                { icon: '🏔️', title: '行程规划', desc: '多日行程、路线安排、时间管理', accent: '#10b981' },
-                { icon: '🌤️', title: '天气指南', desc: '实时天气、穿衣建议、最佳出行时间', accent: '#06b6d4' },
-              ].map((item, idx) => (
-                <div
+            {/* 服务能力卡片 */}
+            <div className="customer-service-grid">
+              {SERVICE_ITEMS.map((item, idx) => {
+                const ServiceIcon = item.icon;
+                return <button
                   key={item.title}
-                  className="glass-card animate-fade-in-up"
+                  className="customer-service-card animate-fade-in-up"
+                  onClick={() => handleSend(item.title)}
                   style={{
-                    padding: '18px',
-                    borderRadius: '14px',
                     animationDelay: `${idx * 0.08}s`,
                     animationFillMode: 'both',
                   }}
                 >
-                  {/* 顶部色条 */}
-                  <div style={{
-                    width: '32px', height: '3px',
-                    borderRadius: '2px',
-                    background: item.accent,
-                    marginBottom: '12px',
-                    boxShadow: `0 0 8px ${item.accent}60`,
-                  }} />
-                  <div style={{ fontSize: '26px', marginBottom: '8px' }}>{item.icon}</div>
-                  <div style={{
-                    fontSize: '14px', fontWeight: 600,
-                    color: 'var(--nova-text-primary)',
-                    marginBottom: '4px',
-                  }}>
-                    {item.title}
-                  </div>
-                  <div style={{
-                    fontSize: '12px',
-                    color: 'var(--nova-text-secondary)',
-                  }}>
-                    {item.desc}
-                  </div>
-                </div>
-              ))}
+                  <span className="customer-service-card__icon"><ServiceIcon size={20} /></span>
+                  <span style={{ flex: 1 }}>
+                    <strong>{item.title}</strong>
+                    <small>{item.desc}</small>
+                  </span>
+                  <ArrowRight size={16} className="customer-card-arrow" />
+                </button>;
+              })}
+            </div>
+
+            <div className="customer-trust-row">
+              <span><ShieldCheck size={14} /> 会话安全保护</span>
+              <span><Headphones size={14} /> 支持转接人工</span>
+              <span><Truck size={14} /> 订单进度实时查询</span>
             </div>
 
             {/* 快捷问题 */}
-            <div>
-              <div style={{
-                fontSize: '12px',
-                color: 'var(--nova-text-tertiary)',
-                marginBottom: '10px',
-                fontWeight: 500,
-                letterSpacing: '0.05em',
-                textTransform: 'uppercase',
-              }}>
-                ⚡ 热门旅行目的地快捷查询
+            <div className="customer-quick-section">
+              <div className="customer-section-heading">
+                <span>
+                  <strong>您可能想问</strong>
+                  <small>点击即可发起咨询</small>
+                </span>
+                <span className="customer-section-heading__hint">无需填写订单号</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {QUICK_QUESTIONS.map((q, idx) => (
-                  <button
+              <div className="customer-question-list">
+                {QUICK_QUESTIONS.map((q, idx) => {
+                  const QuestionIcon = q.icon;
+                  return <button
                     key={q.text}
                     onClick={() => handleSend(q.text)}
-                    className="glass-card animate-fade-in-up"
+                    className="customer-question animate-fade-in-up"
                     style={{
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                      padding: '12px 16px',
-                      borderRadius: '12px',
-                      border: '1px solid var(--nova-border)',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      fontSize: '14px',
-                      color: 'var(--nova-text-primary)',
-                      background: 'var(--nova-bg-glass)',
-                      animationDelay: `${0.3 + idx * 0.06}s`,
+                      animationDelay: `${0.25 + idx * 0.05}s`,
                       animationFillMode: 'both',
                     }}
                   >
-                    <span style={{
-                      fontSize: '20px', width: '32px', textAlign: 'center',
-                    }}>
-                      {q.icon}
+                    <span className="customer-question__icon">
+                      <QuestionIcon size={17} />
                     </span>
                     <span style={{ flex: 1 }}>{q.text}</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ color: 'var(--nova-text-tertiary)' }}>
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                      <polyline points="12 5 19 12 12 19" />
-                    </svg>
-                  </button>
-                ))}
+                    <ArrowRight size={15} className="customer-card-arrow" />
+                  </button>;
+                })}
               </div>
             </div>
           </div>
         ) : (
           /* ===== 对话区域 ===== */
-          <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+          <div className="customer-conversation">
             {/* 会话意图 */}
             {currentSession && currentSession.intent !== 'unknown' && (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: '8px',
-                marginBottom: '16px', padding: '0 4px',
-              }}>
-                <span style={{
-                  fontSize: '11px', color: 'var(--nova-text-tertiary)',
-                  fontWeight: 500, letterSpacing: '0.05em',
-                  textTransform: 'uppercase',
-                }}>
+              <div className="customer-intent-row">
+                <span>
                   本次咨询分类
                 </span>
                 <IntentBadge intent={currentSession.intent} size="sm" />
@@ -271,6 +214,9 @@ export function CustomerChatPage({
               onPermissionDeny={onPermissionDeny}
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
+              onOrderSelect={handleSend}
+              onFollowUpSelect={handleSend}
+              orderSelectionDisabled={isLoading || currentSession?.status === 'closed'}
             />
           </div>
         )}
@@ -291,7 +237,7 @@ export function CustomerChatPage({
 }
 
 // ===================================================
-// 输入框 — 霓虹科技风格
+// 客服消息输入框
 // ===================================================
 interface CustomerChatInputProps {
   inputValue: string;
@@ -323,22 +269,8 @@ function CustomerChatInput({ inputValue, isLoading, disabled, onSend, onStop, on
   }, [inputValue]);
 
   return (
-    <div className="glass" style={{
-      padding: '12px 24px 18px',
-      borderTop: '1px solid var(--nova-border)',
-      position: 'relative',
-      zIndex: 5,
-    }}>
-      <div style={{
-        maxWidth: '800px', margin: '0 auto',
-        display: 'flex', alignItems: 'flex-end', gap: '10px',
-        padding: '10px 14px',
-        borderRadius: '14px',
-        border: `1.5px solid ${isFocused ? 'var(--nova-accent)' : 'var(--nova-border)'}`,
-        background: 'var(--nova-bg-component)',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        boxShadow: isFocused ? '0 0 20px var(--nova-accent-glow)' : 'none',
-      }}>
+    <div className="customer-composer glass">
+      <div className={`customer-composer__box${isFocused ? ' customer-composer__box--focused' : ''}`}>
         <textarea
           ref={textareaRef}
           value={inputValue}
@@ -346,7 +278,7 @@ function CustomerChatInput({ inputValue, isLoading, disabled, onSend, onStop, on
           onKeyDown={handleKeyDown}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholder={disabled ? '本次行程咨询已结束，请开启新对话' : '输入目的地或旅行需求... (Enter 发送)'}
+          placeholder={disabled ? '本次咨询已结束，请开启新对话' : '请简要描述您遇到的问题…（Enter 发送）'}
           disabled={disabled || isLoading}
           rows={1}
           style={{
@@ -391,7 +323,7 @@ function CustomerChatInput({ inputValue, isLoading, disabled, onSend, onStop, on
               padding: '8px 18px', borderRadius: '10px',
               border: 'none',
               background: inputValue.trim() && !disabled
-                ? 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))'
+                ? 'var(--nova-accent)'
                 : 'var(--nova-bg-component-hover)',
               color: inputValue.trim() && !disabled ? '#fff' : 'var(--nova-text-tertiary)',
               fontSize: '13px',
@@ -399,17 +331,17 @@ function CustomerChatInput({ inputValue, isLoading, disabled, onSend, onStop, on
               fontWeight: 600, flexShrink: 0,
               transition: 'all 0.2s',
               display: 'flex', alignItems: 'center', gap: '6px',
-              boxShadow: inputValue.trim() && !disabled ? '0 0 16px var(--nova-accent-glow)' : 'none',
+              boxShadow: inputValue.trim() && !disabled ? 'var(--nova-shadow-sm)' : 'none',
             }}
             onMouseEnter={e => {
               if (inputValue.trim() && !disabled) {
-                (e.currentTarget as HTMLElement).style.boxShadow = '0 0 32px var(--nova-accent-glow)';
+                (e.currentTarget as HTMLElement).style.boxShadow = 'var(--nova-shadow-md)';
                 (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)';
               }
             }}
             onMouseLeave={e => {
               if (inputValue.trim() && !disabled) {
-                (e.currentTarget as HTMLElement).style.boxShadow = '0 0 16px var(--nova-accent-glow)';
+                (e.currentTarget as HTMLElement).style.boxShadow = 'var(--nova-shadow-sm)';
                 (e.currentTarget as HTMLElement).style.transform = 'none';
               }
             }}
@@ -422,15 +354,8 @@ function CustomerChatInput({ inputValue, isLoading, disabled, onSend, onStop, on
           </button>
         )}
       </div>
-      <div style={{
-        textAlign: 'center',
-        fontSize: '11px',
-        color: 'var(--nova-text-tertiary)',
-        marginTop: '8px',
-        maxWidth: '800px',
-        margin: '8px auto 0',
-      }}>
-        AI 旅行建议仅供参考，出行前请核实最新信息 · 祝您旅途愉快 🌍
+      <div className="customer-composer__notice">
+        智能客服提供的信息仅供参考，涉及账户与资金操作时请核对关键信息
       </div>
     </div>
   );

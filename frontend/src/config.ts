@@ -1,20 +1,20 @@
 /**
  * 应用配置文件
- * Nova 旅行规划 — AI 旅游助手
+ * 智服中心 — AI 智能客服
  */
 
 export const APP_CONFIG = {
   /** 应用名称 */
-  name: 'Nova 旅行规划',
+  name: '智服中心',
   
   /** 应用名称首字母（用于 Logo） */
-  nameInitial: 'N',
+  nameInitial: '智',
   
   /** 应用描述 */
-  description: 'AI 驱动的旅游规划平台',
+  description: 'AI 驱动的企业智能客服平台',
   
   /** 口号 */
-  tagline: 'AI 带你看世界，每一次旅行都值得被规划',
+  tagline: '及时响应，用心解决每一个问题',
   
   /** 版本号 */
   version: '2.0.0',

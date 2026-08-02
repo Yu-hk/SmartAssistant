@@ -217,10 +217,11 @@ public class MilvusKnowledgeBase implements KnowledgeBase {
                     .withExtraParam(INDEX_PARAM)
                     .build());
 
+            // 新建集合的 schema 由本类定义（含 parent_doc_id），直接置为支持
+            this.parentDocIdSupported = true;
             // 加载到内存
             client.loadCollection(LoadCollectionParam.newBuilder()
                     .withCollectionName(collectionName).build());
-            this.parentDocIdSupported = detectParentDocIdField();
 
             log.info("[MilvusKB:{}] Collection 索引创建完成", name);
         } catch (Exception e) {

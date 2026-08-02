@@ -56,19 +56,21 @@ public class RouteContextHelper {
         if (request.getUserId() != null) {
             context.put("userId", request.getUserId());
         }
-        loadConversationHistoryFromRedis(context, sessionId);
+        loadConversationHistoryFromRedis(context, request.getUserId(), sessionId);
         return context;
     }
 
     /**
      * 从 Redis 加载会话历史消息
      */
-    private void loadConversationHistoryFromRedis(Map<String, Object> context, String sessionId) {
-        if (redisTemplate == null || sessionId == null || sessionId.isBlank()) {
+    private void loadConversationHistoryFromRedis(Map<String, Object> context,
+                                                  Long userId, String sessionId) {
+        if (redisTemplate == null || userId == null || userId <= 0
+                || sessionId == null || sessionId.isBlank()) {
             return;
         }
         try {
-            String historyKey = "chat:history:" + sessionId;
+            String historyKey = "chat:history:" + userId + ":" + sessionId;
             Long size = redisTemplate.opsForList().size(historyKey);
             if (size == null || size == 0) {
                 log.debug("[Router] Redis 中无会话历史: sessionId={}", sessionId);

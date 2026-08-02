@@ -4,7 +4,7 @@ import java.time.LocalDateTime;
 
 /**
  * 经验向量实体 — 映射 experience_embeddings 表。
- * 用 pgvector 的 vector(1024) 列存储 BGE 嵌入向量，
+ * 用 pgvector 的 vector(512) 列存储当前共享嵌入服务输出的向量，
  * HNSW 索引支持 O(log n) 余弦相似度搜索。
  */
 public class ExperienceEmbeddingEntity {

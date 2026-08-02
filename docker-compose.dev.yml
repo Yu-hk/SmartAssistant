@@ -40,18 +40,20 @@ services:
 
   # === PostgreSQL 数据库 ===
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:0.8.0-pg16
     container_name: smart-postgres
     ports:
       - "5433:5432"
     environment:
-      POSTGRES_USER: ${PG_USER:-postgres}
-      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres123}
-      POSTGRES_DB: a2a_system
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_DB: ${POSTGRES_DB:-a2a_system}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./docs/database/init-entities.sql:/docker-entrypoint-initdb.d/01-init-entities.sql:ro
+      - ./docs/database/init-seed.sql:/docker-entrypoint-initdb.d/02-init-seed.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-a2a_system}"]
       interval: 10s
       timeout: 5s
       retries: 5

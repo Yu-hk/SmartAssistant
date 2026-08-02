@@ -64,6 +64,21 @@ class ChatConsumerServiceTest {
     }
 
     @Test
+    @DisplayName("偏好提取判断：客服事务查询应被排除")
+    void testIsPreferenceWorthyRequest_CustomerServiceTransaction() throws Exception {
+        java.lang.reflect.Method method = ChatConsumerService.class
+                .getDeclaredMethod("isPreferenceWorthyRequest", String.class);
+        method.setAccessible(true);
+
+        assertFalse((Boolean) method.invoke(chatConsumerService,
+                "查询订单 ORD-LOAD000001003 的状态和物流"));
+        assertFalse((Boolean) method.invoke(chatConsumerService,
+                "那它的快递单号是什么？"));
+        assertFalse((Boolean) method.invoke(chatConsumerService,
+                "我只想确认是否符合退款条件"));
+    }
+
+    @Test
     @DisplayName("偏好提取判断：偏好类查询应被保留")
     void testIsPreferenceWorthyRequest_Preference() throws Exception {
         java.lang.reflect.Method method = ChatConsumerService.class

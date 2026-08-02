@@ -797,7 +797,7 @@ function SessionsTab({ sessions, selectedSession, sessionMessages, filterIntent,
 // 📚 FAQ 管理 Tab
 // ===================================================
 function FaqTab({ faqs, faqEditItem, faqForm, onSetFaqForm, onEditFaq, onCancelEdit, onSaveFaq, onDeleteFaq }: any) {
-  const categoryLabels: Record<string, string> = { refund: '美食推荐', order: '目的地', tech: '行程规划', general: '出行指南' };
+  const categoryLabels: Record<string, string> = { refund: '售后退款', order: '订单物流', tech: '商品咨询', general: '综合服务' };
   const categoryColors: Record<string, string> = { refund: '#f59e0b', order: '#6366f1', tech: '#10b981', general: '#06b6d4' };
   const groupedFaqs = faqs.reduce((acc: any, faq: FaqItem) => {
     if (!acc[faq.category]) acc[faq.category] = [];
@@ -983,15 +983,15 @@ function FaqTab({ faqs, faqEditItem, faqForm, onSetFaqForm, onEditFaq, onCancelE
                 cursor: 'pointer', outline: 'none', boxSizing: 'border-box',
               }}
             >
-              <option value="refund">美食推荐</option>
-              <option value="order">目的地</option>
-              <option value="tech">行程规划</option>
-              <option value="general">出行指南</option>
+              <option value="refund">售后退款</option>
+              <option value="order">订单物流</option>
+              <option value="tech">商品咨询</option>
+              <option value="general">综合服务</option>
             </select>
           </div>
           {[
-            { key: 'question', label: '问题', placeholder: '常见旅游问题描述' },
-            { key: 'keywords', label: '关键词（逗号分隔）', placeholder: '川菜,火锅,成都美食' },
+            { key: 'question', label: '问题', placeholder: '常见客服问题描述' },
+            { key: 'keywords', label: '关键词（逗号分隔）', placeholder: '退款,物流,发票' },
           ].map(field => (
             <div key={field.key}>
               <label style={{

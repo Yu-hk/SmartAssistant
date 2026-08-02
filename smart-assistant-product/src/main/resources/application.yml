@@ -183,10 +183,10 @@ management:
   # 分布式追踪配置 (Jaeger - Zipkin 兼容模式)
   tracing:
     sampling:
-      probability: 0.3  # ⭐ 采样率 30%（开发环境已足够，生产环境可调整为 0.1）
-    zipkin:
-      tracing:
-        endpoint: http://localhost:9411/api/v2/spans  # ⭐ Jaeger 兼容 Zipkin 协议的端点
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:0.3}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
 
 # ⭐ BGE embedding 配置（1.2GB 模型从项目级共享目录加载）
 bge:

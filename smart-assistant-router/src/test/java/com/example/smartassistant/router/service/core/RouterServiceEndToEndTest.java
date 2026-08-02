@@ -151,20 +151,22 @@ class RouterServiceEndToEndTest {
         // ── RouteExecutionService：忠实复刻核心契约 ──
         //   callAgentAndFinalize：委派 agentCallerService.callAgent，空回复返回 null（与真实实现一致）
         when(routeExecutionService.callAgentAndFinalize(anyString(), anyString(), anyDouble(), anyString(),
-                any(RouteRequest.class), anyString(), any(EmotionCheckResult.class)))
+                anyString(), any(RouteRequest.class), anyString(), any(EmotionCheckResult.class)))
                 .thenAnswer(inv -> {
                     String agentName = inv.getArgument(0);
                     String agentQuestion = inv.getArgument(1);
                     double confidence = inv.getArgument(2);
                     String intentTag = inv.getArgument(3);
-                    RouteRequest req = inv.getArgument(4);
-                    EmotionCheckResult emo = inv.getArgument(6);
+                    String routingMethod = inv.getArgument(4);
+                    RouteRequest req = inv.getArgument(5);
+                    EmotionCheckResult emo = inv.getArgument(7);
                     String reply = agentCallerService.callAgent(agentName, agentQuestion, req.getUserId(), req.getRequestId());
                     if (reply == null || reply.isBlank()) {
                         return null;
                     }
                     RoutingResult r = RoutingResult.builder()
-                            .result(reply).agentName(agentName).confidence(confidence).intentTag(intentTag).build();
+                            .result(reply).agentName(agentName).confidence(confidence)
+                            .intentTag(intentTag).routingMethod(routingMethod).build();
                     return routeFinalizer.finalizeRouting(r, req, agentQuestion, emo);
                 });
         //   executeCollaborative：协作路径聚合结果（测试仅关心其返回非空 RoutingResult）
@@ -238,6 +240,7 @@ class RouterServiceEndToEndTest {
         assertTrue(result.getResult().contains("退款"));
         assertTrue(result.getConfidence() >= 0.9);
 
+        verify(experienceService, never()).match(anyString());
         verify(taskAnalysisService, never()).analyze(anyString(), anyList());
         verify(intentFusionService, never()).fuse(anyString(), anyList());
     }
@@ -321,7 +324,7 @@ class RouterServiceEndToEndTest {
         assertEquals("order", result.getAgentName());
         assertTrue(result.getResult().contains("已发货"));
 
-        verify(keywordFastRouteService, never()).match(anyString());
+        verify(keywordFastRouteService).match("查一下我的订单");
         verify(semanticCache, never()).getCachedDecision(anyString());
         verify(taskAnalysisService, never()).analyze(anyString(), anyList());
         verify(intentFusionService, never()).fuse(anyString(), anyList());

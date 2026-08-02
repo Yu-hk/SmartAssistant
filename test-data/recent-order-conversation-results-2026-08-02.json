@@ -1,0 +1,59 @@
+{
+  "generated_at": "2026-08-02T13:24:01.223912+08:00",
+  "summary": {
+    "passed": true,
+    "recent_list_passed": true,
+    "ordinal_follow_up_passed": true,
+    "cross_account_isolation_passed": true,
+    "selected_order_id": "ORD-LOAD000001001"
+  },
+  "user1_recent_list": {
+    "status": 200,
+    "latency_ms": 4154.3,
+    "events": [
+      "waiting",
+      "init",
+      "routed",
+      "text",
+      "done"
+    ],
+    "answer": "查到您最近的3笔订单：\n1. ORD-LOAD000001001｜食品 并发测试款 0048｜待付款｜2026-08-01 09:43\n2. ORD-LOAD000001002｜手机 并发测试款 0065｜待发货｜2026-08-01 09:42\n3. ORD-LOAD000001003｜平板电脑 并发测试款 0082｜已发货｜2026-08-01 09:41\n请告诉我需要查看哪一笔以及具体内容，例如“第1笔的物流进度”或直接回复订单号。我也可以继续查询订单状态、物流轨迹或售后资格。",
+    "order_ids": [
+      "ORD-LOAD000001001",
+      "ORD-LOAD000001002",
+      "ORD-LOAD000001003"
+    ]
+  },
+  "user2_recent_list": {
+    "status": 200,
+    "latency_ms": 569.93,
+    "events": [
+      "waiting",
+      "init",
+      "routed",
+      "text",
+      "done"
+    ],
+    "answer": "查到您最近的3笔订单：\n1. ORD-LOAD000002001｜图书 并发测试款 0079｜待付款｜2026-08-01 09:23\n2. ORD-LOAD000002002｜食品 并发测试款 0096｜待发货｜2026-08-01 09:22\n3. ORD-LOAD000002003｜手机 并发测试款 0113｜已发货｜2026-08-01 09:21\n请告诉我需要查看哪一笔以及具体内容，例如“第1笔的物流进度”或直接回复订单号。我也可以继续查询订单状态、物流轨迹或售后资格。",
+    "order_ids": [
+      "ORD-LOAD000002001",
+      "ORD-LOAD000002002",
+      "ORD-LOAD000002003"
+    ]
+  },
+  "user1_first_order_follow_up": {
+    "status": 200,
+    "latency_ms": 594.86,
+    "events": [
+      "waiting",
+      "init",
+      "routed",
+      "text",
+      "done"
+    ],
+    "answer": "【订单信息】📋 订单 ORD-LOAD000001001\n商品：食品 并发测试款 0048\n金额：¥6675.00\n状态：待付款\n商品类型：食品\n收货人：并发用户000001\n联系电话：130****0001\n收货地址：北京市海淀区****",
+    "order_ids": [
+      "ORD-LOAD000001001"
+    ]
+  }
+}

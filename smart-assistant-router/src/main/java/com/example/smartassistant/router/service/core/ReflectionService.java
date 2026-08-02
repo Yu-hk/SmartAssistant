@@ -21,8 +21,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -74,6 +76,11 @@ public class ReflectionService {
 
     // ==================== 意图→Agent 匹配规则 ====================
     private static final List<IntentAgentRule> INTENT_AGENT_RULES = List.of(
+            new IntentAgentRule("订单",    List.of("order_agent")),
+            new IntentAgentRule("物流",    List.of("order_agent")),
+            new IntentAgentRule("退款",    List.of("order_agent")),
+            new IntentAgentRule("取消",    List.of("order_agent")),
+            new IntentAgentRule("商品",    List.of("product_agent")),
             new IntentAgentRule("旅游",    List.of("travel", "order")),
             new IntentAgentRule("美食",    List.of("food", "product")),
             new IntentAgentRule("天气",    List.of("general")),
@@ -134,6 +141,15 @@ public class ReflectionService {
             return new ReflectionResult(false, 0.0, "result.isBlank()");
         }
 
+        // 权限拒绝和无证据拒答是安全边界的正确输出，不能因为缺少订单详情或带有警示符号
+        // 而重试到通用 Agent。后者既无法获得授权数据，也可能触发慢模型并扩大 IDOR 风险面。
+        if (isSafeDenial(result)) {
+            String reason = "安全拒答，无需 fallback Agent";
+            log.info("[Reflect] 安全拒答直接通过: agent={}, reason={}", agentName, reason);
+            saveReflectionLog(userId, question, agentName, 1.0, true, reason);
+            return new ReflectionResult(true, 1.0, reason);
+        }
+
         double score = 0.0;
         StringBuilder reasonBuilder = new StringBuilder();
 
@@ -152,10 +168,13 @@ public class ReflectionService {
         }
 
         // 维度3：关键词覆盖
-        double keywordScore = checkKeywordCoverage(question, result);
+        CoverageAssessment coverage = assessRequirementCoverage(question, result);
+        double keywordScore = coverage.score();
         score += keywordScore * KEYWORD_WEIGHT;
-        if (keywordScore < 0.5) {
-            reasonBuilder.append("关键词覆盖不足; ");
+        if (!coverage.missingRequirements().isEmpty()) {
+            reasonBuilder.append("关键要求未覆盖(")
+                    .append(String.join("、", coverage.missingRequirements()))
+                    .append("); ");
         }
 
         // 维度4：Agent 健康状态
@@ -172,7 +191,9 @@ public class ReflectionService {
             reasonBuilder.append("意图与 Agent 不匹配; ");
         }
 
-        boolean acceptable = score >= threshold;
+        boolean hasCriticalFailure = errorScore < 0.5
+                || !coverage.missingRequirements().isEmpty();
+        boolean acceptable = score >= threshold && !hasCriticalFailure;
         String reason = reasonBuilder.length() > 0
                 ? reasonBuilder.toString()
                 : "质量合格(score=" + String.format("%.2f", score) + ")";
@@ -298,6 +319,82 @@ public class ReflectionService {
         return 0.3;
     }
 
+    private boolean isSafeDenial(String result) {
+        return containsAny(result, List.of(
+                "无权查看", "无权访问", "没有权限", "权限不足",
+                "未找到该订单", "未找到订单", "没有查询到订单", "订单不存在",
+                "请核对订单号", "无法核验", "不会编造"));
+    }
+
+    /**
+     * 对可确定的用户要求做硬性覆盖检查，避免总分加权掩盖关键项缺失。
+     */
+    private CoverageAssessment assessRequirementCoverage(String question, String result) {
+        if (question == null || result == null) {
+            return new CoverageAssessment(0.5, List.of());
+        }
+
+        List<String> required = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        checkRequirement(question, result, required, missing, "订单状态",
+                List.of("当前状态", "订单状态", "状态"),
+                List.of("当前状态", "订单状态", "状态"));
+        checkRequirement(question, result, required, missing, "支付方式",
+                List.of("支付方式", "付款方式"),
+                List.of("支付方式", "付款方式"));
+        checkRequirement(question, result, required, missing, "物流公司",
+                List.of("物流公司", "快递公司", "承运公司"),
+                List.of("物流公司", "快递公司", "承运公司"));
+        checkRequirement(question, result, required, missing, "物流轨迹",
+                List.of("物流轨迹", "最新轨迹", "最新两条", "最新2条"),
+                List.of("物流轨迹", "最新轨迹", "条轨迹"));
+        checkRequirement(question, result, required, missing, "取消条件判断",
+                List.of("取消条件", "能否取消", "是否可以取消", "满足取消"),
+                List.of("取消条件", "可直接取消", "不满足直接取消", "满足直接取消"));
+
+        Matcher orderIdMatcher = Pattern.compile("ORD-[A-Za-z0-9_-]+").matcher(question);
+        while (orderIdMatcher.find()) {
+            String orderId = orderIdMatcher.group();
+            required.add("订单号");
+            if (!result.contains(orderId)) {
+                missing.add("订单号");
+            }
+        }
+
+        Matcher markerMatcher = Pattern
+                .compile("核验标记\\s*[:：]?\\s*([A-Za-z0-9][A-Za-z0-9_-]{2,64})")
+                .matcher(question);
+        if (markerMatcher.find()) {
+            required.add("核验标记");
+            if (!result.contains(markerMatcher.group(1))) {
+                missing.add("核验标记");
+            }
+        }
+
+        if (required.isEmpty()) {
+            return new CoverageAssessment(checkKeywordCoverage(question, result), List.of());
+        }
+        double ratio = (double) (required.size() - missing.size()) / required.size();
+        double score = ratio >= 0.8 ? 1.0 : ratio >= 0.5 ? 0.6 : 0.3;
+        return new CoverageAssessment(score, List.copyOf(missing));
+    }
+
+    private void checkRequirement(String question, String result,
+                                  List<String> required, List<String> missing,
+                                  String label, List<String> questionTerms,
+                                  List<String> resultTerms) {
+        if (containsAny(question, questionTerms)) {
+            required.add(label);
+            if (!containsAny(result, resultTerms)) {
+                missing.add(label);
+            }
+        }
+    }
+
+    private boolean containsAny(String text, List<String> terms) {
+        return terms.stream().anyMatch(text::contains);
+    }
+
     /**
      * 维度4：Agent 健康状态
      * - 健康（在发现列表中存在）：1.0 分
@@ -306,7 +403,11 @@ public class ReflectionService {
     private double checkAgentHealth(String agentName) {
         if (discoveryService == null) return 0.7;  // 无发现服务，给默认分
         try {
-            var agent = discoveryService.discoverAgent(agentName);
+            var agent = discoveryService.getCachedAgents().stream()
+                    .filter(candidate -> agentName.equals(candidate.getAgentName())
+                            || agentName.equals(candidate.getServiceName()))
+                    .findFirst()
+                    .orElse(null);
             return agent != null ? 1.0 : 0.5;
         } catch (Exception e) {
             log.warn("[Reflect] 健康检查失败: agent={}, error={}", agentName, e.getMessage());
@@ -466,6 +567,9 @@ public class ReflectionService {
         }
 
         return keywords;
+    }
+
+    private record CoverageAssessment(double score, List<String> missingRequirements) {
     }
 
     /**

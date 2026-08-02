@@ -60,8 +60,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./docs/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./docs/database/seed_data.sql:/docker-entrypoint-initdb.d/02-seed-data.sql
+      - ./docs/database/init-entities.sql:/docker-entrypoint-initdb.d/01-init-entities.sql:ro
+      - ./docs/database/init-seed.sql:/docker-entrypoint-initdb.d/02-init-seed.sql:ro
     command: >
       -c shared_preload_libraries=vector
       -c max_connections=200

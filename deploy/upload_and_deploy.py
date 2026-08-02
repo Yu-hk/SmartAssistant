@@ -11,11 +11,12 @@ import sys
 import time
 import traceback
 
-# Server config
-HOST = "123.56.6.102"
-PORT = 22
-USER = "root"
-PASSWORD = "Yu149286-"
+# Server config. Credentials must be supplied through the environment so they
+# are never committed to source control.
+HOST = os.environ.get("DEPLOY_SERVER_IP", "")
+PORT = int(os.environ.get("DEPLOY_SERVER_PORT", "22"))
+USER = os.environ.get("DEPLOY_SERVER_USER", "admin")
+PASSWORD = os.environ.get("DEPLOY_SERVER_PASSWORD", "")
 
 # Local files to upload
 LOCAL_FILES = {
@@ -168,7 +169,8 @@ def start_gateway(ssh):
         "-e SPRING_DATA_REDIS_HOST=smart-redis "
         "-e SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR=smart-nacos:8848 "
         "-e SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD=nacos123 "
-        "-e MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT=http://smart-zipkin:9411/api/v2/spans "
+        "-e MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://smart-zipkin:9411/api/v2/spans "
+        "-e MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0 "
         "--restart unless-stopped "
         "-v /opt/smart-assistant/jars:/app/jars:ro "
         "--memory 512m "
@@ -195,6 +197,10 @@ def check_logs(ssh, container_name, lines=30):
 
 def main():
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+    if not HOST or not PASSWORD:
+        print("[ERROR] DEPLOY_SERVER_IP and DEPLOY_SERVER_PASSWORD must be set.")
+        sys.exit(2)
     
     print("\n" + "=" * 60)
     print("SMARTASSISTANT - DEPLOYMENT SCRIPT")

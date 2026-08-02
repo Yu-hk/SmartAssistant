@@ -125,12 +125,13 @@ public class OrderAgentController {
 
             // Step 2: 上下文协调器 + RAG 预检索（含质量评估）
             String userId = request.get("userId");
+            Long authenticatedUserId = parseAuthenticatedUserId(userId);
             List<String> extras = new ArrayList<>();
 
             // ⭐ P1: 先取检索质量结果，决定是否"无证据拒答"
             long retrievalStart = System.currentTimeMillis();
             RetrievalQualityResult qr = (ragService != null)
-                    ? ragService.retrieveWithQualityResult(intent, question)
+                    ? ragService.retrieveWithQualityResult(intent, question, authenticatedUserId)
                     : RetrievalQualityResult.highQuality("", 1.0);
             long retrievalMs = System.currentTimeMillis() - retrievalStart;
 
@@ -151,6 +152,30 @@ public class OrderAgentController {
                 // ⭐ G4 运营指标：记录无证据拒答
                 opsMetrics.recordNoEvidenceAnswer("order", intent.getLabel());
                 return qr.getRejectionMessage();
+            }
+
+            // 查询类请求已有数据库/RAG 的高质量结构化证据时直接返回，
+            // 避免为了格式化答案再次触发本地大模型和工具循环。
+            if ((intent == IntentType.QUERY_ORDER || isReadOnlyRefundAssessment(intent, question))
+                    && qr.isHighQuality()) {
+                String evidenceResult = qr.getContent();
+                if (intent == IntentType.REFUND) {
+                    evidenceResult += "\n\n当前仅完成退款资格预检，尚未执行退款。如需继续，请明确确认提交退款申请。";
+                }
+                if (stageTraceRecorder != null) {
+                    stageTraceRecorder.getOrCreate(requestId, question, "order_agent")
+                            .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
+                                    Map.of("qualityScore", qr.getNormalizedScore(),
+                                            "highQuality", true)));
+                    stageTraceRecorder.recordStage(requestId, RagStage.GENERATION,
+                            StageSpan.STATUS_SKIPPED, 0,
+                            Map.of("reason", "structured-evidence-direct-response",
+                                    "outputLength", evidenceResult.length()));
+                    stageTraceRecorder.save(requestId);
+                }
+                log.info("[OrderAgent] 结构化证据直返: requestId={}, resultLength={}, retrievalMs={}",
+                        requestId, evidenceResult.length(), retrievalMs);
+                return evidenceResult;
             }
 
             // 有证据：注入上下文
@@ -215,5 +240,20 @@ public class OrderAgentController {
             log.error("[OrderAgent] 处理失败: {}", e.getMessage(), e);
             return "❌ 处理失败: " + e.getMessage();
         }
+    }
+
+    private Long parseAuthenticatedUserId(String userId) {
+        if (userId == null || userId.isBlank() || "anonymous".equalsIgnoreCase(userId)) return null;
+        try {
+            return Long.parseLong(userId);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private boolean isReadOnlyRefundAssessment(IntentType intent, String question) {
+        if (intent != IntentType.REFUND || question == null) return false;
+        return question.contains("是否") || question.contains("条件") || question.contains("资格")
+                || question.contains("判断") || question.contains("先不") || question.contains("不要直接");
     }
 }

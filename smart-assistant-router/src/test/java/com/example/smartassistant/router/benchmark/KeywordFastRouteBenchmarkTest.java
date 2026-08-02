@@ -200,7 +200,7 @@ class KeywordFastRouteBenchmarkTest {
     void testRefundRouteCorrectness() {
         var result = fastRouteService.match("我要退款，订单号 ORD-12345");
         assertNotNull(result);
-        assertEquals("order", result.getTargetAgent(),
+        assertEquals("order_agent", result.getTargetAgent(),
                 "退款查询应路由到 order agent");
         assertEquals("退款申请", result.getIntentTag(),
                 "退款查询的意图标签应为 [退款申请]");
@@ -213,7 +213,7 @@ class KeywordFastRouteBenchmarkTest {
     void testProductRouteCorrectness() {
         var result = fastRouteService.match("推荐一款性价比高的手机");
         assertNotNull(result);
-        assertEquals("product", result.getTargetAgent(),
+        assertEquals("product_agent", result.getTargetAgent(),
                 "商品查询应路由到 product agent");
         assertEquals("商品查询", result.getIntentTag());
     }
@@ -248,7 +248,7 @@ class KeywordFastRouteBenchmarkTest {
         // "退款"+订单号 → 同 Agent(order) 多关键词 → 应正常匹配
         var result = fastRouteService.match("我要退款，订单号 ORD-12345");
         assertNotNull(result, "同 Agent 多关键词不应拦截");
-        assertEquals("order", result.getTargetAgent());
+        assertEquals("order_agent", result.getTargetAgent());
     }
 
     @Test
@@ -256,11 +256,11 @@ class KeywordFastRouteBenchmarkTest {
     void testSingleIntentPassesThrough() {
         var result = fastRouteService.match("我想退款");
         assertNotNull(result, "单意图问题应正常命中");
-        assertEquals("order", result.getTargetAgent());
+        assertEquals("order_agent", result.getTargetAgent());
 
         result = fastRouteService.match("查一下我的订单");
         assertNotNull(result);
-        assertEquals("order", result.getTargetAgent());
+        assertEquals("order_agent", result.getTargetAgent());
 
         result = fastRouteService.match("你好");
         assertNotNull(result);

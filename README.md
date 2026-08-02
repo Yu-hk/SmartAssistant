@@ -59,16 +59,21 @@
 
 > 本文档较长，含大量阶段性改造记录。**新读者只需阅读本节 + [系统架构](#系统架构) + [快速开始](#快速开始)**；各功能模块实现细节见下方对应章节；历史迭代日志见 [docs/changelog.md](docs/changelog.md)。
 
+项目交付入口：[运行与演示手册](docs/PROJECT_RUNBOOK.md) · [数据准备指南](docs/database/README.md) · [生产部署](deploy/README.md)
+
 ### 5 分钟本地启动
 
 ```bash
 # 1. 启动基础设施（Redis / Nacos / PostgreSQL / Zipkin）
 docker compose -f docker-compose.dev.yml up -d redis nacos postgres zipkin
 
-# 2. 构建（使用兼容性脚本，规避 Windows 编码问题）
+# 2. 初始化并校验演示数据（首次建卷会自动执行；已有卷建议手动执行）
+# PowerShell: .\scripts\prepare-data.ps1
+
+# 3. 构建（使用兼容性脚本，规避 Windows 编码问题）
 bash mvn21.sh clean package -DskipTests
 
-# 3. 启动服务（推荐在 IDE 逐个启动；端口见下表）
+# 4. 启动服务（推荐在 IDE 逐个启动；端口见下表）
 #    最小可用组合：gateway(8081) + consumer(8082) + router(8083) + user(8086)
 ```
 
@@ -1811,12 +1816,12 @@ psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE a2a_system;"
 # 安装 pgvector 扩展
 psql -h 127.0.0.1 -U postgres -d a2a_system -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# 执行初始化脚本
-$env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -U postgres -d a2a_system -f "docs/database/schema.sql"
-$env:PGPASSWORD='postgres123'; & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -U postgres -d a2a_system -f "docs/database/seed_data.sql"
+# 执行幂等初始化和校验（默认连接 127.0.0.1:5433）
+$env:POSTGRES_PASSWORD='与 .env 一致的密码'
+.\scripts\prepare-data.ps1
 
 # ⚠️ chat_messages 相关表已废弃，由 data/users/{userId}/memories/ 替代
-# 如需删除旧表，执行：docs/database/cleanup_v20260508.sql
+# 历史 schema.sql / seed_data.sql 仅用于追溯，不再作为新环境入口
 ```
 
 ### 启用 pg_stat_statements（可选，SQL 性能监控）

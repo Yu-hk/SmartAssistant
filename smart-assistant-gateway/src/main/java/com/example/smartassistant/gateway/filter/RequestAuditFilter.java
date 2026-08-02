@@ -14,6 +14,7 @@ import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -34,16 +35,21 @@ public class RequestAuditFilter implements GlobalFilter, Ordered {
     private static final Logger log = LoggerFactory.getLogger(RequestAuditFilter.class);
 
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
+    private static final String REQUEST_ID_QUERY_PARAM = "requestId";
+    private static final int MAX_REQUEST_ID_LENGTH = 128;
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         long startTime = System.currentTimeMillis();
 
         // 注入或保留 RequestId
-        String existingId = exchange.getRequest().getHeaders().getFirst(REQUEST_ID_HEADER);
-        final String requestId = (existingId != null && !existingId.isBlank())
-                ? existingId
-                : UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        String headerId = exchange.getRequest().getHeaders().getFirst(REQUEST_ID_HEADER);
+        String queryId = exchange.getRequest().getQueryParams().getFirst(REQUEST_ID_QUERY_PARAM);
+        final String requestId = isValidRequestId(headerId)
+                ? headerId
+                : isValidRequestId(queryId)
+                        ? queryId
+                        : UUID.randomUUID().toString().replace("-", "").substring(0, 16);
 
         ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()
                 .header(REQUEST_ID_HEADER, requestId)
@@ -52,6 +58,7 @@ public class RequestAuditFilter implements GlobalFilter, Ordered {
         ServerWebExchange modifiedExchange = exchange.mutate()
                 .request(modifiedRequest)
                 .build();
+        modifiedExchange.getResponse().getHeaders().set(REQUEST_ID_HEADER, requestId);
 
         return chain.filter(modifiedExchange).then(Mono.fromRunnable(() -> {
             long elapsed = System.currentTimeMillis() - startTime;
@@ -75,5 +82,19 @@ public class RequestAuditFilter implements GlobalFilter, Ordered {
     @Override
     public int getOrder() {
         return -1; // 在 JWT 过滤器之前执行（JWT 的 Order 通常为 0 或更大）
+    }
+
+    private static boolean isValidRequestId(String value) {
+        if (!StringUtils.hasText(value) || value.length() > MAX_REQUEST_ID_LENGTH) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (!(Character.isLetterOrDigit(c)
+                    || c == '-' || c == '_' || c == '.' || c == ':')) {
+                return false;
+            }
+        }
+        return true;
     }
 }

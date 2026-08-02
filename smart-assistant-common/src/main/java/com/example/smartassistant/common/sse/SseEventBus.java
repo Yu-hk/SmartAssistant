@@ -52,7 +52,7 @@ public class SseEventBus {
     /** 心跳间隔（毫秒） */
     private static final long HEARTBEAT_INTERVAL_MS = 15_000;
     /** 闲置超时（毫秒）— 超过此时间无事件发送则自动关闭 */
-    private static final long IDLE_TIMEOUT_MS = 60_000;
+    private static final long IDLE_TIMEOUT_MS = 5 * 60_000;
 
     /** ⭐ 每个缓冲区的最大事件数上限 —— 超过后停止缓存（防 Redis 内存溢出） */
     private static final int MAX_EVENTS_PER_BUFFER = 10_000;
@@ -104,7 +104,7 @@ public class SseEventBus {
 
     /**
      * 启动心跳线程。
-     * 每 15s 发送一次 comment 行保持连接，超过 60s 无事件则自动关闭。
+     * 每 15s 发送一次 comment 行保持连接，超过 5 分钟无事件则自动关闭。
      */
     private void startHeartbeat() {
         ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, r -> {
@@ -115,7 +115,9 @@ public class SseEventBus {
         this.heartbeatScheduler = scheduler;
         heartbeatFuture = scheduler.scheduleAtFixedRate(() -> {
             try {
-                if (closed || response.isCommitted()) {
+                // SSE 初始化会立即 flush 响应头，因此 committed 是长连接的正常状态，
+                // 不能据此关闭连接；否则首个 15 秒心跳会截断仍在计算的响应。
+                if (closed) {
                     close();
                     return;
                 }

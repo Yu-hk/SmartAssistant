@@ -10,7 +10,7 @@
 - **构建**: Maven 多模块
 - **数据库**: PostgreSQL 16（主库）+ Milvus 2.4（向量库，Java SDK 2.5.5）+ Redis 7（缓存/会话）
 - **注册中心**: Nacos 2.3
-- **前端**: React 18 + Vite + MUI + Tailwind CSS
+- **前端**: React 18 + TypeScript + Vite + TDesign + Tailwind CSS
 - **CI/CD**: GitHub Actions（评测门禁 + 安全扫描）
 
 ## 2. 微服务清单
@@ -26,6 +26,9 @@
 | Embedding | 8091 | 向量嵌入服务 |
 | Recommend | 8088 | 推荐引擎 |
 | User | 8086 | 用户管理、画像 |
+| General | — | 通用对话 Agent（smart-assistant-general） |
+
+> 注：另有 `smart-assistant-common` 公共库模块（不单独部署）。Maven 共 11 个 module（10 个可部署服务 + common）。`a2a-consumer`/`food-service` 为独立/孵化模块，未纳入主 reactor。
 
 ## 3. 编码规范
 

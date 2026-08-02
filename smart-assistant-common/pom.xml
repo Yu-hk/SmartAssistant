@@ -139,20 +139,14 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- ⭐ OpenTelemetry Spring Boot Starter（Langfuse 追踪用，各模块从 common 继承） -->
-        <dependency>
-            <groupId>io.opentelemetry.instrumentation</groupId>
-            <artifactId>opentelemetry-spring-boot-starter</artifactId>
-        </dependency>
-        <!-- ⭐ Micrometer → OTel 桥接器 -->
+        <!-- Micrometer Tracing → Brave，并通过 Zipkin Reporter 上报到现有 Zipkin 服务 -->
         <dependency>
             <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
         </dependency>
-        <!-- ⭐ OTLP 导出器 -->
         <dependency>
-            <groupId>io.opentelemetry</groupId>
-            <artifactId>opentelemetry-exporter-otlp</artifactId>
+            <groupId>io.zipkin.reporter2</groupId>
+            <artifactId>zipkin-reporter-brave</artifactId>
         </dependency>
 
         <!-- ⭐ SpringDoc OpenAPI（各模块自动继承，API 文档 /swagger-ui.html） -->

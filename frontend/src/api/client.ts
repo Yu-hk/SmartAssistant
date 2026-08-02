@@ -3,6 +3,8 @@
  * 所有 API 调用统一经过此层，便于修改 base URL、错误处理、鉴权注入
  */
 
+import { clearAuthSession, readAccessToken } from '../authStorage';
+
 const BASE_URL = '/api';
 
 /** 请求头配置 */
@@ -18,16 +20,21 @@ async function request<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${BASE_URL}${endpoint}`;
+  const token = readAccessToken();
   const res = await fetch(url, {
     ...options,
     headers: {
       ...DEFAULT_HEADERS,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
 
   if (!res.ok) {
     const errorBody = await res.text().catch(() => '');
+    if (res.status === 401 && endpoint !== '/auth/login') {
+      clearAuthSession();
+    }
     throw new ApiError(res.status, `请求失败: ${res.statusText}`, errorBody);
   }
 
