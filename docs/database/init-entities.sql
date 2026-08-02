@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS users (
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) NOT NULL DEFAULT 'ROLE_USER';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
 -- ══════════════════════════════════════════════════════════════
 -- 2. 用户会话表 (UserSession.java)
@@ -43,8 +45,8 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     expires_at      TIMESTAMP,
     revoked_at      TIMESTAMP
 );
-CREATE INDEX idx_user_sessions_token ON user_sessions(token_id);
-CREATE INDEX idx_user_sessions_user ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(token_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
 
 -- ══════════════════════════════════════════════════════════════
 -- 3. 订单表 (OrderEntity.java)
@@ -69,9 +71,19 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_orders_order_id ON orders(order_id);
-CREATE INDEX idx_orders_user_id ON orders(user_id);
-CREATE INDEX idx_orders_status ON orders(status);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_type VARCHAR(50);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_date TIMESTAMP;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS contact_name VARCHAR(100);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(30);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_address TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS request_id VARCHAR(100);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
+CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_request_id
+    ON orders(request_id) WHERE request_id IS NOT NULL;
 
 -- ══════════════════════════════════════════════════════════════
 -- 4. 物流轨迹表 (OrderLogisticsEntity.java)
@@ -79,7 +91,7 @@ CREATE INDEX idx_orders_status ON orders(status);
 -- ══════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS order_logistics (
     id              BIGSERIAL PRIMARY KEY,
-    tracking_no     VARCHAR(100) NOT NULL,
+    tracking_no     VARCHAR(100) NOT NULL UNIQUE,
     order_id        VARCHAR(50) NOT NULL REFERENCES orders(order_id) ON DELETE CASCADE,
     carrier         VARCHAR(50),
     status          VARCHAR(20) DEFAULT 'pending',
@@ -87,8 +99,8 @@ CREATE TABLE IF NOT EXISTS order_logistics (
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_logistics_order ON order_logistics(order_id);
-CREATE INDEX idx_logistics_tracking ON order_logistics(tracking_no);
+CREATE INDEX IF NOT EXISTS idx_logistics_order ON order_logistics(order_id);
+CREATE INDEX IF NOT EXISTS idx_logistics_tracking ON order_logistics(tracking_no);
 
 -- ══════════════════════════════════════════════════════════════
 -- 5. 退款记录表 (OrderRefundEntity.java)
@@ -104,7 +116,7 @@ CREATE TABLE IF NOT EXISTS order_refunds (
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_refunds_order ON order_refunds(order_id);
+CREATE INDEX IF NOT EXISTS idx_refunds_order ON order_refunds(order_id);
 
 -- ══════════════════════════════════════════════════════════════
 -- 6. 审批记录表 (ApprovalRecordEntity.java)
@@ -124,8 +136,10 @@ CREATE TABLE IF NOT EXISTS approval_records (
     confirmed_at  TIMESTAMP,
     consumed_at   TIMESTAMP
 );
-CREATE INDEX idx_approval_order ON approval_records(order_id, action_type);
-CREATE INDEX idx_approval_status ON approval_records(status);
+ALTER TABLE approval_records ADD COLUMN IF NOT EXISTS operator VARCHAR(100);
+ALTER TABLE approval_records ADD COLUMN IF NOT EXISTS operator_ip VARCHAR(50);
+CREATE INDEX IF NOT EXISTS idx_approval_order ON approval_records(order_id, action_type);
+CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_records(status);
 
 -- ══════════════════════════════════════════════════════════════
 -- 7. 优惠券表 (CouponEntity.java)
@@ -144,8 +158,8 @@ CREATE TABLE IF NOT EXISTS user_coupons (
     created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_coupons_user ON user_coupons(user_id);
-CREATE INDEX idx_coupons_type ON user_coupons(coupon_type);
+CREATE INDEX IF NOT EXISTS idx_coupons_user ON user_coupons(user_id);
+CREATE INDEX IF NOT EXISTS idx_coupons_type ON user_coupons(coupon_type);
 
 -- ══════════════════════════════════════════════════════════════
 -- 8. 路由调用日志表 (RoutingCallLog.java)
@@ -153,6 +167,7 @@ CREATE INDEX idx_coupons_type ON user_coupons(coupon_type);
 -- ══════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS routing_call_log (
     id                     BIGSERIAL PRIMARY KEY,
+    request_id             VARCHAR(128),
     session_id             VARCHAR(100),
     user_input             TEXT,
     routed_agent           VARCHAR(100),
@@ -166,9 +181,12 @@ CREATE TABLE IF NOT EXISTS routing_call_log (
     error_message          TEXT,
     created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_routing_log_session ON routing_call_log(session_id);
-CREATE INDEX idx_routing_log_agent ON routing_call_log(routed_agent);
-CREATE INDEX idx_routing_log_created ON routing_call_log(created_at);
+ALTER TABLE routing_call_log ADD COLUMN IF NOT EXISTS request_id VARCHAR(128);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_routing_log_request
+    ON routing_call_log(request_id) WHERE request_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_routing_log_session ON routing_call_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_routing_log_agent ON routing_call_log(routed_agent);
+CREATE INDEX IF NOT EXISTS idx_routing_log_created ON routing_call_log(created_at);
 
 -- ══════════════════════════════════════════════════════════════
 -- 9. 反馈评价表 (无实体, 被 AdminService/HybridDataQueryService 引用)
@@ -182,11 +200,13 @@ CREATE TABLE IF NOT EXISTS conversation_feedback (
     feedback_text   TEXT,
     intent_tag      VARCHAR(50),
     agent_name      VARCHAR(100),
+    metadata        JSONB,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_feedback_user ON conversation_feedback(user_id);
-CREATE INDEX idx_feedback_session ON conversation_feedback(session_id);
-CREATE INDEX idx_feedback_rating ON conversation_feedback(rating);
+ALTER TABLE conversation_feedback ADD COLUMN IF NOT EXISTS metadata JSONB;
+CREATE INDEX IF NOT EXISTS idx_feedback_user ON conversation_feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_session ON conversation_feedback(session_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_rating ON conversation_feedback(rating);
 
 -- ══════════════════════════════════════════════════════════════
 -- 10. 商品表 (无实体, 被 TextToSqlTool 引用 / InMemoryProductBackend 提供数据)
@@ -199,7 +219,23 @@ CREATE TABLE IF NOT EXISTS products (
     price           DECIMAL(10,2) NOT NULL,
     stock           VARCHAR(20) NOT NULL DEFAULT '充足',
     spec            TEXT,
-    color           VARCHAR(200),
+    colors          VARCHAR(200),
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_products_code ON products(product_code);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS colors VARCHAR(200);
+CREATE INDEX IF NOT EXISTS idx_products_code ON products(product_code);
+
+-- ══════════════════════════════════════════════════════════════
+-- 11. Router 经验向量表
+-- ══════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS experience_embeddings (
+    exp_id          VARCHAR(64) PRIMARY KEY,
+    agent_name      VARCHAR(100) NOT NULL DEFAULT '',
+    intent_tag      TEXT DEFAULT '',
+    embedding       vector(512),
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_exp_emb_hnsw
+    ON experience_embeddings USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);

@@ -66,7 +66,7 @@ class OrderAgentControllerTest {
     @Test
     @DisplayName("无证据拒答：检索被拒时应短路返回拒答消息且不调用 LLM")
     void noEvidence_shouldRejectWithoutCallingAgent() {
-        when(ragService.retrieveWithQualityResult(any(), anyString()))
+        when(ragService.retrieveWithQualityResult(any(), anyString(), nullable(Long.class)))
                 .thenReturn(RetrievalQualityResult.noData("ORD-999"));
 
         String result = controller.processQuestion(
@@ -85,23 +85,20 @@ class OrderAgentControllerTest {
     }
 
     @Test
-    @DisplayName("正常路径：有证据时应注入上下文并调用 LLM，且记录 GENERATION(OK)")
-    void normalPath_shouldInjectContextAndCallAgent() {
-        when(ragService.retrieveWithQualityResult(any(), anyString()))
+    @DisplayName("高质量查询证据应直接返回且跳过 LLM")
+    void highQualityQuery_shouldReturnEvidenceDirectly() {
+        when(ragService.retrieveWithQualityResult(any(), anyString(), nullable(Long.class)))
                 .thenReturn(RetrievalQualityResult.highQuality("【订单信息】ORD-123 已发货", 0.9));
-        when(agent.execute(anyString())).thenReturn("已为您查询到订单状态");
 
         String result = controller.processQuestion(
                 Map.of("question", "查询订单 ORD-123", "requestId", "req-ok"));
 
-        assertNotNull(result);
-        verify(agent, times(1)).execute(argThat(msg -> msg.contains("系统已检索到以下信息")
-                && msg.contains("ORD-123")));
+        assertEquals("【订单信息】ORD-123 已发货", result);
+        verify(agent, never()).execute(anyString());
 
         var trace = recorder.findByRequestId("req-ok");
         assertNotNull(trace);
         assertFalse(trace.isRejected());
-        assertEquals("OK", trace.lastStageOf(RagStage.GENERATION).status());
-        assertTrue(trace.lastStageOf(RagStage.GENERATION).durationMs() >= 0);
+        assertEquals("SKIPPED", trace.lastStageOf(RagStage.GENERATION).status());
     }
 }

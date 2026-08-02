@@ -73,6 +73,7 @@ export interface Session {
   sdk_session_id?: string | null;
   intent: IntentType;
   status: SessionStatus;
+  timedOut?: boolean;
   satisfaction: number | null;
   satisfaction_comment: string | null;
   user_name: string;

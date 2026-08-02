@@ -85,7 +85,7 @@
         <!-- Micrometer Tracing (分布式追踪) -->
         <dependency>
             <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
         </dependency>        <!-- Lombok（编译期注解处理，由 maven-compiler-plugin annotationProcessorPaths 驱动） -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -154,6 +154,13 @@
                     <exclude>models/bge-large-zh-v1.5.onnx</exclude>
                     <exclude>models/bge-large-zh-v1.5/</exclude>
                 </excludes>
+            </resource>
+            <resource>
+                <directory>${maven.multiModuleProjectDirectory}/knowledge/real-sources</directory>
+                <targetPath>knowledge/real-sources</targetPath>
+                <includes>
+                    <include>*.md</include>
+                </includes>
             </resource>
         </resources>
         <plugins>

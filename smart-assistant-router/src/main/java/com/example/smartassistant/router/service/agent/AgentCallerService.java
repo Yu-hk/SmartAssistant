@@ -16,11 +16,16 @@ import com.example.smartassistant.router.model.RouteDecision;
 import com.example.smartassistant.router.service.extraction.KeywordExtractionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -31,6 +36,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 
 /**
  * Agent Caller Service - 调用 Provider Agent
@@ -61,12 +67,14 @@ public class AgentCallerService {
 
     /** ⭐ Agent 调用超时配置（与文章建议的"核心链路同步 3s 超时"一致） */
     private static final int AGENT_CONNECT_TIMEOUT_MS = 3000;   // 连接超时 3s
-    private static final int AGENT_READ_TIMEOUT_MS = 5000;      // 读取超时 5s
+    private static final int AGENT_READ_TIMEOUT_MS = 180000;   // 本地模型推理最长允许 3 分钟
 
     private final AgentDiscoveryService agentDiscoveryService;
     private final AgentVersionNegotiator versionNegotiator;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final Tracer tracer;
+    private final Propagator propagator;
     /**
      * ⭐ 结构化输出封装（对标 OrderIntentService.entity() 约定）。
      * 用于把 Agent 纯文本回复绑定为结构化 {@link ExtractedTitles}，
@@ -87,21 +95,55 @@ public class AgentCallerService {
     }
 
     /** 完整构造（Spring 注入用）：注入结构化抽取所需的 AiChatService 与轻量模型 */
-    @Autowired
     public AgentCallerService(AgentDiscoveryService agentDiscoveryService,
                              AgentVersionNegotiator versionNegotiator,
                              AiChatService aiChatService,
                              @Qualifier("lightChatModel") ChatModel lightModel) {
+        this(agentDiscoveryService, versionNegotiator, aiChatService, lightModel,
+                createStandaloneRestTemplate(), null, null);
+    }
+
+    /**
+     * Spring 运行时使用自动配置的构建器，以便 HTTP Agent 调用继承当前 trace 上下文。
+     */
+    @Autowired
+    public AgentCallerService(AgentDiscoveryService agentDiscoveryService,
+                             AgentVersionNegotiator versionNegotiator,
+                             AiChatService aiChatService,
+                             @Qualifier("lightChatModel") ChatModel lightModel,
+                             RestTemplateBuilder restTemplateBuilder,
+                             Tracer tracer,
+                             Propagator propagator) {
+        this(agentDiscoveryService, versionNegotiator, aiChatService, lightModel,
+                restTemplateBuilder
+                        .connectTimeout(Duration.ofMillis(AGENT_CONNECT_TIMEOUT_MS))
+                        .readTimeout(Duration.ofMillis(AGENT_READ_TIMEOUT_MS))
+                        .build(),
+                tracer, propagator);
+    }
+
+    private AgentCallerService(AgentDiscoveryService agentDiscoveryService,
+                              AgentVersionNegotiator versionNegotiator,
+                              AiChatService aiChatService,
+                              ChatModel lightModel,
+                              RestTemplate restTemplate,
+                              Tracer tracer,
+                              Propagator propagator) {
         this.agentDiscoveryService = agentDiscoveryService;
         this.versionNegotiator = versionNegotiator;
         this.aiChatService = aiChatService;
         this.lightModel = lightModel;
-        // ⭐ 配置 RestTemplate 超时：连接 3s、读取 5s，与文章建议一致
+        this.restTemplate = restTemplate;
+        this.objectMapper = new ObjectMapper();
+        this.tracer = tracer;
+        this.propagator = propagator;
+    }
+
+    private static RestTemplate createStandaloneRestTemplate() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(AGENT_CONNECT_TIMEOUT_MS);
         factory.setReadTimeout(AGENT_READ_TIMEOUT_MS);
-        this.restTemplate = new RestTemplate(factory);
-        this.objectMapper = new ObjectMapper();
+        return new RestTemplate(factory);
     }
 
     /**
@@ -283,6 +325,8 @@ public class AgentCallerService {
                     context.getLocation(), context.getIntent());
         }
 
+        Span agentCallSpan = null;
+        Tracer.SpanInScope agentCallScope = null;
         try {
             // ⭐ 特殊 Agent 名称：builtin_fallback 和 none 是内部兜底标记，不实际调用
             if ("builtin_fallback".equals(agentName) || "none".equals(agentName)) {
@@ -302,11 +346,24 @@ public class AgentCallerService {
 
             log.info("[AgentCaller] HTTP 直调 URL: {}", processUrl);
 
+            if (tracer != null) {
+                agentCallSpan = tracer.spanBuilder()
+                        .name("agent.call")
+                        .kind(Span.Kind.CLIENT)
+                        .remoteServiceName(agentName)
+                        .tag("agent.name", agentName)
+                        .start();
+                agentCallScope = tracer.withSpan(agentCallSpan);
+            }
+
             // 构建请求体 {question: "...", userId: "..."}
             Map<String, String> requestBody = new java.util.LinkedHashMap<>();
             requestBody.put("question", question);
             if (userId != null) {
                 requestBody.put("userId", String.valueOf(userId));
+            }
+            if (requestId != null && !requestId.isBlank()) {
+                requestBody.put("requestId", requestId);
             }
             String jsonBody = objectMapper.writeValueAsString(requestBody);
 
@@ -315,11 +372,25 @@ public class AgentCallerService {
             if (requestId != null && !requestId.isBlank()) {
                 headers.set("X-Request-Id", requestId);
             }
+            if (tracer != null && propagator != null && tracer.currentSpan() != null) {
+                TraceContext traceContext = tracer.currentSpan().context();
+                propagator.inject(traceContext, headers, HttpHeaders::set);
+
+                // Brave/Zipkin 兼容兜底：确保下游即使未启用 W3C 也能继承同一上下文。
+                String sampled = Boolean.FALSE.equals(traceContext.sampled()) ? "0" : "1";
+                headers.set("b3", traceContext.traceId() + "-" + traceContext.spanId() + "-" + sampled);
+                headers.set("X-B3-TraceId", traceContext.traceId());
+                headers.set("X-B3-SpanId", traceContext.spanId());
+                headers.set("X-B3-Sampled", sampled);
+            }
 
             HttpEntity<String> entity = new HttpEntity<>(jsonBody, headers);
 
             // 直接 HTTP POST 调用
             ResponseEntity<String> response = restTemplate.postForEntity(processUrl, entity, String.class);
+            if (agentCallSpan != null) {
+                agentCallSpan.tag("http.status_code", String.valueOf(response.getStatusCode().value()));
+            }
 
             String result = response.getBody();
             if (result == null || result.isBlank()) {
@@ -334,8 +405,18 @@ public class AgentCallerService {
             return result;
 
         } catch (Exception e) {
+            if (agentCallSpan != null) {
+                agentCallSpan.error(e);
+            }
             log.error("[AgentCaller] HTTP 直调失败: {}, 错误: {}", agentName, e.getMessage(), e);
             return "❌ 调用 Agent 失败: " + e.getMessage();
+        } finally {
+            if (agentCallScope != null) {
+                agentCallScope.close();
+            }
+            if (agentCallSpan != null) {
+                agentCallSpan.end();
+            }
         }
     }
 

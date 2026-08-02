@@ -44,6 +44,11 @@ public class RoutingResult {
     private String intentTag;
 
     /**
+     * 实际路由方式：KEYWORD_FAST_ROUTE / EXPERIENCE / SEMANTIC_CACHE / LLM_ROUTING。
+     */
+    private String routingMethod;
+
+    /**
      * 是否命中了语义缓存（直接从缓存返回，无 Agent 执行）
      */
     @Builder.Default

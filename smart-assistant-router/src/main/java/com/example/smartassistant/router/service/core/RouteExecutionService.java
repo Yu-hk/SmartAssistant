@@ -186,6 +186,7 @@ public class RouteExecutionService {
      */
     public RoutingResult callAgentAndFinalize(String agentName, String agentQuestion,
                                                double confidence, String intentTag,
+                                               String routingMethod,
                                                RouteRequest request, String rawQuestion,
                                                EmotionCheckResult emotion) {
         String agentReply = agentCallerService.callAgent(
@@ -198,6 +199,7 @@ public class RouteExecutionService {
                 .agentName(agentName)
                 .confidence(confidence)
                 .intentTag(intentTag)
+                .routingMethod(routingMethod)
                 .build();
         return routeFinalizer.finalizeRouting(result, request, rawQuestion, emotion);
     }

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "demo-order-logistics",
+    "prompt": "查询订单 ORD-1003 的状态和物流",
+    "expected_agents": ["order"],
+    "seed_entities": ["ORD-1003", "SF202607100001"],
+    "expected_keywords": ["已发货", "顺丰速运", "上海分拣中心"]
+  },
+  {
+    "id": "demo-refund",
+    "prompt": "订单 ORD-1005 为什么还在退款中？",
+    "expected_agents": ["order"],
+    "seed_entities": ["ORD-1005"],
+    "expected_keywords": ["退款中", "pending"]
+  },
+  {
+    "id": "demo-product",
+    "prompt": "MacBook Air M3 的价格、库存和颜色是什么？",
+    "expected_agents": ["product"],
+    "seed_entities": ["MACBOOK-AIR-M3"],
+    "expected_keywords": ["8999", "紧张", "午夜色"]
+  },
+  {
+    "id": "demo-multi-agent",
+    "prompt": "查 ORD-1003 的物流，再推荐一款耳机",
+    "expected_agents": ["order", "product"],
+    "seed_entities": ["ORD-1003", "AIRPODS-PRO"],
+    "expected_keywords": ["顺丰速运", "AirPods Pro"]
+  },
+  {
+    "id": "demo-approval",
+    "prompt": "取消订单 ORD-1002",
+    "expected_agents": ["order"],
+    "seed_entities": ["ORD-1002"],
+    "expected_keywords": ["确认", "审批"]
+  }
+]

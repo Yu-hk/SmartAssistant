@@ -71,6 +71,17 @@ public class OrderDataProviderImpl implements OrderDataProvider {
     }
 
     @Override
+    public List<OrderDTO> findRecentOrdersByUserId(Long userId, int limit) {
+        if (userId == null || userId <= 0 || limit <= 0) {
+            return List.of();
+        }
+        int safeLimit = Math.min(limit, 20);
+        return orderMapper.findRecentByUserId(userId, safeLimit).stream()
+                .map(this::toOrderDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public void insertOrder(OrderDTO order) {
         OrderEntity entity = toOrderEntity(order);
         orderMapper.insert(entity);

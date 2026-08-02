@@ -1,0 +1,102 @@
+{
+  "generated_at": "2026-08-02T21:05:58.338975+08:00",
+  "base_url": "http://123.56.6.102",
+  "summary": {
+    "passed": true,
+    "concurrency": 3,
+    "completed": 3,
+    "session_request_isolation_passed": true,
+    "recent_order_choices_available": true,
+    "detail_suggestions_available": true,
+    "elapsed_seconds": 0.845
+  },
+  "results": [
+    {
+      "index": 0,
+      "prompt": "查询我的订单物流进度",
+      "session_id": "MULTI-SESSION-1785675957085415100-0",
+      "request_id": "MULTI-SESSION-1785675957085415100-0-request",
+      "status": 200,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "returned_sessions": [
+        "MULTI-SESSION-1785675957085415100-0"
+      ],
+      "order_ids": [
+        "ORD-LOAD000001001",
+        "ORD-LOAD000001002",
+        "ORD-LOAD000001003"
+      ],
+      "answer_excerpt": "查到您最近的3笔订单：\n1. ORD-LOAD000001001｜食品 并发测试款 0048｜待付款｜2026-08-01 09:43\n2. ORD-LOAD000001002｜手机 并发测试款 0065｜待发货｜2026-08-01 09:42\n3. ORD-LOAD000001003｜平板电脑 并发测试款 0082｜已发货｜2026-08-01 09:41\n请选择下方要查看的订单，我会继续为您查询状态、物流或售后信息。",
+      "latency_ms": 844.72,
+      "passed": true
+    },
+    {
+      "index": 1,
+      "prompt": "如何申请电子发票",
+      "session_id": "MULTI-SESSION-1785675957085415100-1",
+      "request_id": "MULTI-SESSION-1785675957085415100-1-request",
+      "status": 200,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "returned_sessions": [
+        "MULTI-SESSION-1785675957085415100-1"
+      ],
+      "order_ids": [],
+      "answer_excerpt": "申请电子发票通常可按以下步骤操作：\n1. 打开“我的订单”，进入需要开票的订单详情；\n2. 选择“申请发票”或“发票信息”；\n3. 填写个人或企业抬头、税号和接收邮箱后提交。\n是否支持开票及可开票金额以订单页面为准。如需我进一步核验，请提供订单号。",
+      "latency_ms": 683.5,
+      "passed": true
+    },
+    {
+      "index": 2,
+      "prompt": "商品如何申请退货退款",
+      "session_id": "MULTI-SESSION-1785675957085415100-2",
+      "request_id": "MULTI-SESSION-1785675957085415100-2-request",
+      "status": 200,
+      "events": [
+        "waiting",
+        "init",
+        "routed",
+        "text",
+        "done"
+      ],
+      "returned_sessions": [
+        "MULTI-SESSION-1785675957085415100-2"
+      ],
+      "order_ids": [],
+      "answer_excerpt": "申请退货退款通常可按以下步骤操作：\n1. 打开“我的订单”，选择对应订单；\n2. 点击“申请售后”，选择退货退款及原因；\n3. 按页面提示提交凭证并等待审核；\n4. 审核通过后按指定方式寄回商品。\n实际可退范围、时限和退款路径以该订单及商家政策为准。如需核验资格，请提供订单号。",
+      "latency_ms": 798.03,
+      "passed": true
+    }
+  ],
+  "selected_order_detail": {
+    "selected_order_id": "ORD-LOAD000001001",
+    "status": 200,
+    "events": [
+      "waiting",
+      "init",
+      "routed",
+      "text",
+      "done"
+    ],
+    "order_ids": [
+      "ORD-LOAD000001001"
+    ],
+    "answer_excerpt": "我帮您看了一下，您选择的是“食品 并发测试款 0048”（订单号 ORD-LOAD000001001）。\n\n这笔订单当前状态是「待付款」，还没有进入发货流程，所以暂时不会有物流信息。完成付款后，商家才会安排发货并生成运单。\n\n订单金额为 ¥6675.00。如果您暂时不需要，也可以先了解取消订单的方式。",
+    "has_contextual_status": true,
+    "customer_service_style": true,
+    "omits_unrelated_fields": true,
+    "has_next_step": true,
+    "passed": true
+  }
+}

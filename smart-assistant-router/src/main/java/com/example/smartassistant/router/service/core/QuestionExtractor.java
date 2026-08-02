@@ -26,8 +26,9 @@ public final class QuestionExtractor {
 
     // ==================== 订单参数提取 ====================
 
-    /** 订单号正则：ORD-123, ORD_123, ORD123 */
-    private static final Pattern ORDER_ID_PATTERN = Pattern.compile("ORD[-_]?\\d+");
+    /** 订单号正则：支持数字、字母、下划线以及多段连字符。 */
+    private static final Pattern ORDER_ID_PATTERN = Pattern.compile(
+            "(?i)ORD-[A-Z0-9][A-Z0-9_-]{2,63}");
 
     /** 商品关键词指示词 */
     private static final String[] PRODUCT_INDICATORS = {"多少钱", "价格", "有货", "库存", "怎么样", "好不好"};
@@ -60,6 +61,10 @@ public final class QuestionExtractor {
         int currentQuestionIdx = question.indexOf(CURRENT_QUESTION_MARKER);
         if (currentQuestionIdx >= 0) {
             String after = question.substring(currentQuestionIdx + CURRENT_QUESTION_MARKER.length()).trim();
+            int nextSection = after.indexOf("\n【");
+            if (nextSection >= 0) {
+                after = after.substring(0, nextSection).trim();
+            }
             return after.replaceAll("^[\\s\\n\\r]+", "").trim();
         }
         return question.trim();
@@ -90,7 +95,7 @@ public final class QuestionExtractor {
     public static String extractOrderId(String question) {
         if (question == null) return "";
         var matcher = ORDER_ID_PATTERN.matcher(question);
-        return matcher.find() ? matcher.group() : question;
+        return matcher.find() ? matcher.group().toUpperCase(java.util.Locale.ROOT) : question;
     }
 
     /**

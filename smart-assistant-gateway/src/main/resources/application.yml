@@ -113,7 +113,7 @@ jwt:
 # 白名单配置 (无需认证的路径)
 gateway:
   security:
-    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/health,/actuator/info,/assistant/api/router/agents/**,/assistant/api/math/stream/**,/api/math/stream/**
+    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/health,/actuator/info,/assistant/api/router/agents/**
   
   # 限流配置
   rate-limit:
@@ -146,10 +146,10 @@ management:
   # 分布式追踪配置 (Jaeger - Zipkin 兼容模式)
   tracing:
     sampling:
-      probability: 0.3  # 采样率 30%
-    zipkin:
-      tracing:
-        endpoint: http://localhost:9411/api/v2/spans  # Jaeger 兼容 Zipkin 协议的端点
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:0.3}
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
 
 # Logging 配置
 logging:
