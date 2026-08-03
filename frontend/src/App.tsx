@@ -11,7 +11,7 @@ import { InsightPanel } from './components/InsightPanel';
 import { CustomerChatPage } from './pages/CustomerChatPage';
 import { AdminPage } from './pages/AdminPage';
 import { LoginPage } from './pages/LoginPage';
-import { clearAuth, getAuthUser } from './api/auth';
+import { clearAuth, getAuthToken, getAuthUser } from './api/auth';
 
 // ===================================================
 // 🌌 粒子背景系统 — Canvas 动态科技背景
@@ -133,7 +133,7 @@ function App() {
       <ParticleBackground />
       <Routes>
         <Route path="/login" element={
-          localStorage.getItem('smart-assistant-token')
+          getAuthToken()
             ? <Navigate to="/" replace />
             : <LoginPage />
         } />
@@ -146,7 +146,7 @@ function App() {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  return localStorage.getItem('smart-assistant-token')
+  return getAuthToken()
     ? <>{children}</>
     : <Navigate to="/login" replace />;
 }
@@ -162,7 +162,7 @@ function AppContent() {
     sessions, setSessions,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, deleteSession, createSession,
+    fetchSessions, deleteSession, createSession, closeSession, rateSession,
     updateSession,
   } = useSessions();
 
@@ -175,7 +175,7 @@ function AppContent() {
   } = useChat({
     currentSession,
     currentSessionId,
-    selectedModel: 'qwen2.5:7b',
+    selectedModel: 'deepseek-v4-flash',
     setSessions,
     setCurrentSessionId,
   });
@@ -194,13 +194,21 @@ function AppContent() {
 
   const handleNewChat = useCallback(() => {
     const sessionId = createSession();
+    setInputValue('');
     navigate(`/chat/${sessionId}`);
-  }, [createSession, navigate]);
+  }, [createSession, navigate, setInputValue]);
+
+  const handleSelectAgent = useCallback((agentName: string) => {
+    const sessionId = createSession(`与${agentName}的新对话`);
+    setInputValue(`${agentName}，请协助我处理：`);
+    navigate(`/chat/${sessionId}`);
+  }, [createSession, navigate, setInputValue]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId);
+    setInputValue('');
     navigate(`/chat/${sessionId}`);
-  }, [navigate, setCurrentSessionId]);
+  }, [navigate, setCurrentSessionId, setInputValue]);
 
   const handleDeleteSession = useCallback(async (sessionId: string) => {
     const navigateTo = await deleteSession(sessionId);
@@ -209,12 +217,13 @@ function AppContent() {
 
   const handleRateSession = useCallback((score: number) => {
     if (!currentSessionId) return;
-    updateSession(currentSessionId, {
-      satisfaction: score,
-      status: 'closed',
-    });
-    // 后续接入后端时，在这里提交 sessionId、score 和可选评价内容。
-  }, [currentSessionId, updateSession]);
+    void rateSession(currentSessionId, score, getAuthUser()?.userId);
+  }, [currentSessionId, rateSession]);
+
+  const handleCloseSession = useCallback(() => {
+    if (!currentSessionId || currentSession?.status === 'closed') return;
+    void closeSession(currentSessionId, getAuthUser()?.userId);
+  }, [closeSession, currentSession?.status, currentSessionId]);
 
   return (
     <div className="relative z-10" style={{
@@ -231,6 +240,7 @@ function AppContent() {
           onNewChat={handleNewChat}
           onSelectSession={handleSelectSession}
           onDeleteSession={handleDeleteSession}
+          onSelectAgent={handleSelectAgent}
           onOpenAdmin={() => navigate('/admin')}
           onToggleTheme={toggleTheme}
         />
@@ -318,13 +328,28 @@ function AppContent() {
                 </div>
               )}
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {currentSession && currentSession.status !== 'closed' && (
+                  <button
+                    type="button"
+                    onClick={handleCloseSession}
+                    style={{
+                      padding: '6px 10px', borderRadius: '8px',
+                      border: '1px solid var(--nova-border)',
+                      background: 'var(--nova-bg-component)',
+                      color: 'var(--nova-text-secondary)', cursor: 'pointer',
+                      fontSize: '12px',
+                    }}
+                  >
+                    结束对话
+                  </button>
+                )}
                 <span style={{ fontSize: '12px', color: 'var(--nova-text-secondary)' }}>
                   {getAuthUser()?.username || '用户'}
                 </span>
                 <button
                   onClick={() => {
                     clearAuth();
-                    navigate('/login', { replace: true });
+                    window.location.replace('/login');
                   }}
                   style={{
                     padding: '6px 10px', borderRadius: '8px',

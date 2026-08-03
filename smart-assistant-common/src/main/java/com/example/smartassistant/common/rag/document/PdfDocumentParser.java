@@ -30,6 +30,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import javax.imageio.ImageIO;
@@ -102,15 +103,18 @@ public class PdfDocumentParser implements DocumentParser {
 
         try (PDDocument document = Loader.loadPDF(path.toFile())) {
             int totalPages = document.getNumberOfPages();
+            Set<String> repeatedMarginLines = findRepeatedMarginLines(document);
             log.info("[PdfParser] 开始解析 PDF: file={}, pages={}", fileName, totalPages);
 
             for (int pageNum = 1; pageNum <= totalPages; pageNum++) {
                 PDPage page = document.getPage(pageNum - 1);
                 float pageWidth = (page.getMediaBox() != null) ? page.getMediaBox().getWidth() : 612f;
+                float pageHeight = (page.getMediaBox() != null) ? page.getMediaBox().getHeight() : 792f;
                 boolean pageHasImages = hasImages(page);
 
                 // 双栏/表格检测：收集每行文本块（含坐标）后，先抽取表格，再将非表格正文按栏重排。
-                TwoColumnPdfTextStripper stripper = new TwoColumnPdfTextStripper(pageWidth);
+                TwoColumnPdfTextStripper stripper = new TwoColumnPdfTextStripper(
+                        pageWidth, pageHeight, repeatedMarginLines);
                 stripper.setStartPage(pageNum);
                 stripper.setEndPage(pageNum);
                 stripper.setLineSeparator("\n");
@@ -134,6 +138,10 @@ public class PdfDocumentParser implements DocumentParser {
                     tableIdx++;
                     String tableDocId = fileName + "-p" + pageNum + "-table" + tableIdx;
                     String title = extractTitle(table.markdown(), fileName + " 表格" + tableIdx);
+                    Map<String, String> meta = new LinkedHashMap<>();
+                    meta.put("pdf.table", "1");
+                    meta.put("pdf.tableIndex", String.valueOf(tableIdx));
+                    addPageQualityMetadata(meta, pageResult, pageHasImages);
                     results.add(ParsedDocument.builder()
                             .docId(tableDocId)
                             .title("表格: " + title)
@@ -143,9 +151,7 @@ public class PdfDocumentParser implements DocumentParser {
                             .section("第" + pageNum + "页-表格" + tableIdx)
                             .contentType("pdf-table")
                             .contentHash(sha256(table.markdown()))
-                            .metadata(Map.of(
-                                    "pdf.table", "1",
-                                    "pdf.tableIndex", String.valueOf(tableIdx)))
+                            .metadata(meta)
                             .build());
                     pageExistingTexts.add(table.markdown());
                 }
@@ -165,6 +171,7 @@ public class PdfDocumentParser implements DocumentParser {
 
                         Map<String, String> meta = new LinkedHashMap<>();
                         meta.put("pdf.columns", String.valueOf(columnCount));
+                        addPageQualityMetadata(meta, pageResult, pageHasImages);
 
                         results.add(ParsedDocument.builder()
                                 .docId(fileName + "-p" + pageNum + "-s" + (paraIdx + 1))
@@ -192,7 +199,8 @@ public class PdfDocumentParser implements DocumentParser {
                     } else if (ocrStrategy.isAvailable() && !imageOcrEnabled) {
                         log.debug("[PdfParser] 第{}页内嵌图 OCR 已按 R5 开关关闭（captionExclusive）", pageNum);
                     } else {
-                        log.warn("[PdfParser] 第{}页含内嵌图片但 OCR 不可用(engine={})，图片内文字将缺失，请部署 Tesseract 或 Ollama",
+                        log.warn("[PdfParser] 第{}页含内嵌图片但 OCR 不可用(engine={})，"
+                                        + "已标记 IMAGE_TEXT_UNAVAILABLE；请配置 MinerU、Tesseract 或 OCR API",
                                 pageNum, ocrStrategy.engineName());
                     }
                     // 嵌入图语义说明（仅文本页的图表/截图；扫描件整页已走 OCR，不再 caption）：
@@ -210,6 +218,67 @@ public class PdfDocumentParser implements DocumentParser {
         }
 
         return results;
+    }
+
+    /**
+     * Detect repeated header/footer lines before parsing content. Only text physically located in the
+     * top/bottom page margins participates, and a line must occur on at least 60% of pages (minimum two).
+     * Page-number digits are normalized so "Page 1" and "Page 2" are treated as the same footer.
+     */
+    private static Set<String> findRepeatedMarginLines(PDDocument document) {
+        int totalPages = document.getNumberOfPages();
+        if (totalPages < 2) return Set.of();
+
+        Map<String, Integer> occurrences = new LinkedHashMap<>();
+        for (int pageNum = 1; pageNum <= totalPages; pageNum++) {
+            PDPage page = document.getPage(pageNum - 1);
+            float pageHeight = page.getMediaBox() != null ? page.getMediaBox().getHeight() : 792f;
+            try {
+                MarginLineStripper stripper = new MarginLineStripper(pageHeight);
+                stripper.setStartPage(pageNum);
+                stripper.setEndPage(pageNum);
+                stripper.getText(document);
+                for (String candidate : new HashSet<>(stripper.candidates())) {
+                    occurrences.merge(candidate, 1, Integer::sum);
+                }
+            } catch (IOException e) {
+                log.debug("[PdfParser] repeated margin detection failed: page={}, error={}",
+                        pageNum, e.getMessage());
+            }
+        }
+
+        int threshold = Math.max(2, (int) Math.ceil(totalPages * 0.6d));
+        Set<String> repeated = new HashSet<>();
+        occurrences.forEach((line, count) -> {
+            if (count >= threshold) repeated.add(line);
+        });
+        if (!repeated.isEmpty()) {
+            log.info("[PdfParser] repeated header/footer lines detected: count={}", repeated.size());
+        }
+        return repeated;
+    }
+
+    private void addPageQualityMetadata(Map<String, String> meta,
+                                        TwoColumnPdfTextStripper.PageParseResult pageResult,
+                                        boolean pageHasImages) {
+        if (pageResult.filteredMarginLines() > 0) {
+            meta.put("pdf.headerFooterFiltered", String.valueOf(pageResult.filteredMarginLines()));
+        }
+        if (!pageHasImages) return;
+
+        meta.put("pdf.image", "1");
+        boolean ocrAvailable = imageOcrEnabled && ocrStrategy != null && ocrStrategy.isAvailable();
+        boolean captionAvailable = captionEnabled && imageCaptionStrategy != null
+                && imageCaptionStrategy.isAvailable();
+        if (ocrAvailable) {
+            meta.put("pdf.imageTextStatus", "ocr-enabled");
+        } else if (captionAvailable) {
+            meta.put("pdf.imageTextStatus", "caption-only");
+        } else {
+            meta.put("pdf.imageTextStatus", "unavailable");
+            meta.put("pdf.parseComplete", "0");
+            meta.put("pdf.parseWarning", "IMAGE_TEXT_UNAVAILABLE");
+        }
     }
 
     /**
@@ -258,8 +327,9 @@ public class PdfDocumentParser implements DocumentParser {
         List<ParsedDocument> out = new ArrayList<>();
         if (!ocrStrategy.isAvailable()) {
             if (scanned) {
-                log.warn("[PdfParser] 第{}页疑似扫描件但 OCR 策略不可用(engine={})，该页文本将缺失",
-                        pageNum, ocrStrategy.engineName());
+                throw new DocumentParseException("PDF page " + pageNum
+                        + " is image-only but OCR is unavailable (engine="
+                        + ocrStrategy.engineName() + ")");
             }
             return out;
         }
@@ -294,6 +364,11 @@ public class PdfDocumentParser implements DocumentParser {
         } catch (Exception e) {
             log.warn("[PdfParser] OCR 提取异常: file={}, page={}, error={}",
                     fileName, pageNum, e.getMessage());
+        }
+        if (scanned && out.isEmpty()) {
+            throw new DocumentParseException("PDF page " + pageNum
+                    + " is image-only but OCR produced no text (engine="
+                    + ocrStrategy.engineName() + ")");
         }
         return out;
     }
@@ -439,6 +514,41 @@ public class PdfDocumentParser implements DocumentParser {
         return s.toLowerCase().replaceAll("[\\s\\p{P}]+", "");
     }
 
+    private static String normalizeMarginLine(String s) {
+        if (s == null) return "";
+        return s.strip().toLowerCase(Locale.ROOT)
+                .replaceAll("\\d+", "#")
+                .replaceAll("\\s+", " ");
+    }
+
+    private static boolean isInPageMargin(double y, float pageHeight) {
+        double margin = Math.max(54d, pageHeight * 0.10d);
+        return y <= margin || y >= pageHeight - margin;
+    }
+
+    /** Collects only positioned text from the physical top and bottom margins. */
+    private static class MarginLineStripper extends PDFTextStripper {
+        private final float pageHeight;
+        private final Set<String> candidates = new HashSet<>();
+
+        MarginLineStripper(float pageHeight) throws IOException {
+            this.pageHeight = pageHeight;
+            setSortByPosition(true);
+        }
+
+        @Override
+        protected void writeString(String text, List<TextPosition> positions) {
+            if (positions == null || positions.isEmpty()) return;
+            if (!isInPageMargin(positions.get(0).getY(), pageHeight)) return;
+            String normalized = normalizeMarginLine(text);
+            if (!normalized.isBlank()) candidates.add(normalized);
+        }
+
+        Set<String> candidates() {
+            return candidates;
+        }
+    }
+
     /**
      * 多栏 + 表格感知 PDF 文本提取器。
      * <p>
@@ -453,10 +563,15 @@ public class PdfDocumentParser implements DocumentParser {
 
         private final List<Cell> cells = new ArrayList<>();
         private final float pageWidth;
+        private final float pageHeight;
+        private final Set<String> repeatedMarginLines;
 
-        TwoColumnPdfTextStripper(float pageWidth) throws IOException {
+        TwoColumnPdfTextStripper(float pageWidth, float pageHeight,
+                                 Set<String> repeatedMarginLines) throws IOException {
             super();
             this.pageWidth = pageWidth;
+            this.pageHeight = pageHeight;
+            this.repeatedMarginLines = repeatedMarginLines != null ? repeatedMarginLines : Set.of();
             setSortByPosition(true);
         }
 
@@ -491,21 +606,34 @@ public class PdfDocumentParser implements DocumentParser {
             double rowTol = Math.max(10, medianFont * 1.8);
             double colTol = Math.max(15, medianFont * 1.5);
 
-            List<TableBlock> tables = detectTables(colTol, medianFont);
-            Set<Integer> tableCellIdx = new HashSet<>();
-            for (TableBlock t : tables) tableCellIdx.addAll(t.cellIndices());
+            Set<Integer> excluded = new HashSet<>();
+            for (Cell cell : cells) {
+                if (isInPageMargin(cell.y, pageHeight)
+                        && repeatedMarginLines.contains(normalizeMarginLine(cell.text))) {
+                    excluded.add(cell.index);
+                }
+            }
 
-            ProseResult prose = buildProse(tableCellIdx, colTol, rowTol);
-            return new PageParseResult(prose, tables);
+            List<TableBlock> tables = detectTables(colTol, medianFont, excluded);
+            for (TableBlock t : tables) excluded.addAll(t.cellIndices());
+
+            ProseResult prose = buildProse(excluded, colTol, rowTol);
+            int filteredMarginLines = (int) cells.stream()
+                    .filter(c -> isInPageMargin(c.y, pageHeight))
+                    .filter(c -> repeatedMarginLines.contains(normalizeMarginLine(c.text)))
+                    .count();
+            return new PageParseResult(prose, tables, filteredMarginLines);
         }
 
         /** 检测表格：按 y 聚类成行 → 寻找对齐的多列多行区域 → 列桶重构 Markdown（支持合并单元格） */
-        private List<TableBlock> detectTables(double colTol, double medianFont) {
+        private List<TableBlock> detectTables(double colTol, double medianFont, Set<Integer> excluded) {
             if (cells.size() < 4) return List.of();
 
             // 1) 按 y 升序排序（PDFBox getY() 自页面顶部向下递增，故升序即视觉自上而下列序），附带原始索引
             List<IndexedCell> sorted = new ArrayList<>();
-            for (Cell c : cells) sorted.add(new IndexedCell(c.index, c));
+            for (Cell c : cells) {
+                if (!excluded.contains(c.index)) sorted.add(new IndexedCell(c.index, c));
+            }
             sorted.sort(Comparator.comparingDouble(ic -> ic.cell.y));
 
             // 2) 聚合成行
@@ -758,9 +886,10 @@ public class PdfDocumentParser implements DocumentParser {
         }
 
         /** 单页解析结果 */
-        private record PageParseResult(ProseResult prose, List<TableBlock> tables) {
+        private record PageParseResult(ProseResult prose, List<TableBlock> tables,
+                                       int filteredMarginLines) {
             static final PageParseResult EMPTY =
-                    new PageParseResult(new ProseResult("", 1), List.of());
+                    new PageParseResult(new ProseResult("", 1), List.of(), 0);
             boolean isEmpty() { return prose.text().isBlank() && tables.isEmpty(); }
         }
 

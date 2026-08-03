@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ToolCall, PermissionRequest, Session, ContentBlock, IntentType, FaqItem } from '../types';
 import { sessions as sessionApi } from '../api';
-import { getAuthUser } from '../api/auth';
+import { getAuthToken } from '../api/auth';
 
 interface UseChatOptions {
   currentSession: Session | undefined;
@@ -24,8 +24,8 @@ export function useChat(options: UseChatOptions) {
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [queueEstimatedWait, setQueueEstimatedWait] = useState<number | null>(null);
 
-  // ⭐ 当前的 EventSource 引用（用于取消请求）
-  const eventSourceRef = useRef<EventSource | null>(null);
+  // ⭐ 当前流式请求的取消控制器（用于停止生成）
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(async (
     messageContent: string,
@@ -94,9 +94,9 @@ export function useChat(options: UseChatOptions) {
     setQueuePosition(null);
     setQueueEstimatedWait(null);
 
-    // ⭐ 使用 EventSource 实现 SSE 流式连接（支持自动重连 + Last-Event-ID）
+    // ⭐ 使用 fetch 读取 SSE，以便携带 Bearer Token
     try {
-      await streamWithEventSource(messageContent, sessionId!, selectedModel, tempAssistantMessageId);
+      await streamWithFetch(messageContent, sessionId!, selectedModel, tempAssistantMessageId);
     } catch (error) {
       console.error('Chat error:', error);
       setSessions(prev => prev.map(s => {
@@ -117,74 +117,59 @@ export function useChat(options: UseChatOptions) {
     }
   }, [currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId, isLoading]);
 
-  /**
-   * ⭐ 使用 EventSource 实现 SSE 流式连接。
-   * <p>
-   * 浏览器原生 EventSource API 支持：
-   * <ul>
-   *   <li>自动重连连接断开</li>
-   *   <li>自动发送 {@code Last-Event-ID} 请求头</li>
-   *   <li>服务端可从断点续传未送达事件</li>
-   * </ul>
-   * </p>
-   */
-  const streamWithEventSource = useCallback((
+  /** 使用 fetch 读取 SSE；原生 EventSource 无法附带 Authorization 请求头。 */
+  const streamWithFetch = useCallback(async (
     message: string,
     sessionId: string,
     model: string,
     assistantMessageId: string
   ): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      let fullContent = '';
-      let currentToolCalls: ToolCall[] = [];
-      let contentBlocks: ContentBlock[] = [];
-      let currentTextBlock = '';
-      let realSessionId: string = sessionId;
-      let realAssistantMessageId = assistantMessageId;
-      let isDone = false;
+    let fullContent = '';
+    let currentToolCalls: ToolCall[] = [];
+    let contentBlocks: ContentBlock[] = [];
+    let currentTextBlock = '';
+    let realSessionId: string = sessionId;
+    let realAssistantMessageId = assistantMessageId;
+    let isDone = false;
 
-      const updateAssistantMessage = (updater: (message: Message) => Message) => {
-        setSessions(prev => prev.map(current => {
-          if (current.id !== realSessionId && current.id !== sessionId) {
-            return current;
-          }
+    const updateAssistantMessage = (updater: (message: Message) => Message) => {
+      setSessions(prev => prev.map(current => {
+        if (current.id !== realSessionId && current.id !== sessionId) {
+          return current;
+        }
 
-          const exactMatch = current.messages.some(message =>
-            message.id === realAssistantMessageId || message.id === assistantMessageId
-          );
-          let fallbackMessageId: string | null = null;
-          if (!exactMatch) {
-            for (let index = current.messages.length - 1; index >= 0; index--) {
-              const candidate = current.messages[index];
-              if (candidate.role === 'assistant' && candidate.isStreaming) {
-                fallbackMessageId = candidate.id;
-                break;
-              }
+        const exactMatch = current.messages.some(message =>
+          message.id === realAssistantMessageId || message.id === assistantMessageId
+        );
+        let fallbackMessageId: string | null = null;
+        if (!exactMatch) {
+          for (let index = current.messages.length - 1; index >= 0; index--) {
+            const candidate = current.messages[index];
+            if (candidate.role === 'assistant' && candidate.isStreaming) {
+              fallbackMessageId = candidate.id;
+              break;
             }
           }
+        }
 
-          return {
-            ...current,
-            messages: current.messages.map(message => {
-              const isTarget = exactMatch
-                ? message.id === realAssistantMessageId || message.id === assistantMessageId
-                : message.id === fallbackMessageId;
-              return isTarget ? updater(message) : message;
-            }),
-          };
-        }));
-      };
+        return {
+          ...current,
+          messages: current.messages.map(message => {
+            const isTarget = exactMatch
+              ? message.id === realAssistantMessageId || message.id === assistantMessageId
+              : message.id === fallbackMessageId;
+            return isTarget ? updater(message) : message;
+          }),
+        };
+      }));
+    };
 
-      const authUserId = getAuthUser()?.userId;
-      const userIdParam = Number.isInteger(authUserId) && authUserId! > 0
-        ? `&userId=${encodeURIComponent(String(authUserId))}`
-        : '';
-      const url = `/api/math/stream/chat?message=${encodeURIComponent(message)}&sessionId=${encodeURIComponent(sessionId)}&model=${encodeURIComponent(model)}${userIdParam}`;
-      const es = new EventSource(url);
-      eventSourceRef.current = es; // ⭐ 保存引用，供 handleStop 关闭
+    const url = `/api/math/stream/chat?message=${encodeURIComponent(message)}&sessionId=${encodeURIComponent(sessionId)}&model=${encodeURIComponent(model)}`;
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
 
-      // ⭐ 通用事件处理：解析 data: JSON
-      const handleEvent = (event: MessageEvent) => {
+    // ⭐ 通用事件处理：解析 SSE 的 data JSON
+    const handleEvent = (event: { data: string; type: string }) => {
         try {
           const parsed = JSON.parse(event.data);
           const data = parsed?.data && typeof parsed.data === 'object'
@@ -284,9 +269,6 @@ export function useChat(options: UseChatOptions) {
           } else if (data.type === 'done') {
             isDone = true;
             updateAssistantMessage(current => ({ ...current, isStreaming: false }));
-            eventSourceRef.current = null; // 清除引用
-            es.close();
-            resolve();
 
           } else if (data.type === 'permission_request') {
             setPermissionRequest({
@@ -299,14 +281,19 @@ export function useChat(options: UseChatOptions) {
             });
 
           } else if (data.type === 'error') {
+            isDone = true;
             updateAssistantMessage(current => ({
               ...current,
               content: `⚠️ ${data.content || data.message}`,
               isStreaming: false,
             }));
-            es.close();
-            eventSourceRef.current = null; // 清除引用
-            resolve();
+          } else if (data.type === 'timeout') {
+            isDone = true;
+            updateAssistantMessage(current => ({
+              ...current,
+              content: `⚠️ ${data.content || '请求超时，请稍后重试'}`,
+              isStreaming: false,
+            }));
           }
 
           // ⭐ 排队事件
@@ -326,28 +313,75 @@ export function useChat(options: UseChatOptions) {
         } catch { /* ignore invalid JSON */ }
       };
 
-      // 监听所有 SSE 命名事件类型
-      const eventTypes = ['thinking', 'tool_call', 'tool_result', 'waiting', 'queued',
-        'queue_position', 'processing', 'response', 'done', 'error', 'init', 'text',
-        'tool', 'routed', 'timeout', 'transfer_to_human', 'permission_request'];
-      eventTypes.forEach(type => es.addEventListener(type, handleEvent));
-
-      // ⭐ 回退：监听未命名事件（EventSource 标准消息）
-      es.onmessage = handleEvent;
-
-      // 监听错误（含自动重连）
-      es.onerror = (error) => {
-        // EventSource 会自动重连，不要在 onerror 中直接 reject
-        // 但如果已经收到 done 事件后的错误，忽略
-        if (isDone) return;
-        // EventSource readyState:
-        // 0=CONNECTING, 1=OPEN, 2=CLOSED
-        if (es.readyState === EventSource.CLOSED && !isDone) {
-          console.error('EventSource closed unexpectedly');
-          reject(error);
+    const dispatchBlock = (block: string) => {
+      let eventType = 'message';
+      const dataLines: string[] = [];
+      block.split('\n').forEach(line => {
+        if (line.startsWith('event:')) {
+          eventType = line.slice(6).trim() || 'message';
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trimStart());
         }
-      };
-    });
+      });
+      if (dataLines.length > 0) {
+        handleEvent({ type: eventType, data: dataLines.join('\n') });
+      }
+    };
+
+    try {
+      const token = getAuthToken();
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`流式请求失败: HTTP ${response.status}`);
+      }
+      if (!response.body) {
+        throw new Error('浏览器未提供流式响应体');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (!isDone) {
+        const { done, value } = await reader.read();
+        buffer = (buffer + decoder.decode(value, { stream: !done })).replace(/\r\n/g, '\n');
+
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary >= 0) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          if (block.trim()) dispatchBlock(block);
+          if (isDone) break;
+          boundary = buffer.indexOf('\n\n');
+        }
+
+        if (done) {
+          if (buffer.trim()) dispatchBlock(buffer);
+          break;
+        }
+      }
+
+      if (isDone) {
+        await reader.cancel().catch(() => undefined);
+      } else {
+        throw new Error('流式连接在完成事件前关闭');
+      }
+    } catch (error) {
+      if (controller.signal.aborted) {
+        updateAssistantMessage(current => ({ ...current, isStreaming: false }));
+        return;
+      }
+      throw error;
+    } finally {
+      if (streamAbortRef.current === controller) streamAbortRef.current = null;
+    }
   }, [setSessions, setFaqSuggestions, setPermissionRequest, setQueuePosition, setQueueEstimatedWait]);
 
   // 权限处理
@@ -364,7 +398,7 @@ export function useChat(options: UseChatOptions) {
   }, [permissionRequest]);
 
   /**
-   * ⭐ 停止生成：关闭 EventSource 连接，真正取消后端请求。
+   * ⭐ 停止生成：中止 fetch 流式连接，真正取消后端请求。
    * <p>
    * 后端 Consumer 的 forwardSSE() 检测到客户端断开后：
    * 1. 释放 LLM 槽位 (slots.release())
@@ -373,15 +407,22 @@ export function useChat(options: UseChatOptions) {
    * </p>
    */
   const handleStop = useCallback(() => {
-    // 关闭 EventSource，触发后端断开检测
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+    // 中止 fetch，触发后端断开检测
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
     }
-    // 通知后端释放 LLM 槽位（冗余保障）
-    try {
-      navigator.sendBeacon('/api/math/stream/chat/cancel', JSON.stringify({ requestId: currentSessionId }));
-    } catch { /* ignore */ }
+    // 通知后端释放 LLM 槽位（冗余保障），并保持与主请求一致的鉴权方式
+    const token = getAuthToken();
+    void fetch('/api/math/stream/chat/cancel', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ requestId: currentSessionId }),
+      keepalive: true,
+    }).catch(() => undefined);
     setIsLoading(false);
   }, [currentSessionId]);
 

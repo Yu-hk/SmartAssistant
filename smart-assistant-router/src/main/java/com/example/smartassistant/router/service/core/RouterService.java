@@ -522,32 +522,52 @@ public class RouterService {
                 String intentTag = null;
                 double confidence = 0.7;
 
-                if (fusionResult != null && fusionResult.isValid()
-                        && !"LLM".equals(fusionResult.source())) {
-                    // 规则或小模型命中 → 跳过 LLM，使用融合结果
+                if (fusionResult != null && fusionResult.isValid()) {
+                    // IntentFusionService 已经完成规则/小模型/LLM 分析；这里必须复用结果，
+                    // 避免 LLM 路径再次调用 TaskAnalysisService，造成重复推理和超时叠加。
                     intentTag = fusionResult.intentTag();
                     confidence = fusionResult.confidence();
-                    log.info("[Router] ⚡ L3 融合命中: source={}, intent={}, conf={}, elapsed={}ms",
-                            fusionResult.source(), intentTag, confidence, fusionResult.elapsedMs());
+                    log.info("[Router] ⚡ L3 融合命中: source={}, intent={}, category={}, conf={}, elapsed={}ms",
+                            fusionResult.source(), intentTag, fusionResult.category(), confidence,
+                            fusionResult.elapsedMs());
 
-                    // 构造一个空的 TaskAnalysisResult（只设 intentTag，下游 Agent 可用）
+                    // 单领域意图无需再做一次 LLM 任务规划，直接交给对应 Agent。
+                    String category = fusionResult.category();
+                    String targetAgent = category == null ? null : switch (category.toUpperCase(Locale.ROOT)) {
+                        case "ORDER" -> "order";
+                        case "PRODUCT" -> "product";
+                        case "GENERAL" -> "general";
+                        default -> null;
+                    };
+                    if (targetAgent != null) {
+                        RoutingResult directResult = callAgentAndFinalize(
+                                targetAgent, enhancedQuestion, confidence, intentTag,
+                                request, question, emotion);
+                        if (directResult != null) {
+                            return directResult;
+                        }
+                        log.warn("[Router] 单 Agent 直达失败，降级到 General: target={}", targetAgent);
+                        RoutingResult generalResult = callAgentAndFinalize(
+                                "general", enhancedQuestion, 0.3, "GENERAL_FALLBACK",
+                                request, question, emotion);
+                        return generalResult != null ? generalResult : inlineFallback(enhancedQuestion, emotion);
+                    }
+
+                    // COMPLEX 等跨领域意图继续使用下方多 Agent 协作流程。
+                    log.info("[Router] 跨领域意图进入多 Agent 协作: category={}", category);
+
+                    // 构造最小任务分析结果供后续改写/记录使用，不再重复请求模型。
                     taskAnalysis = new TaskAnalysisResult();
                     taskAnalysis.setIntentCategory(intentTag);
                     taskAnalysis.setConfidence(confidence);
-
                 } else {
-                    // LLM 路径或融合降级
-                    if (fusionResult != null) {
-                        log.info("[Router] 🤖 L3 融合走 LLM 路径: source={}, elapsed={}ms",
-                                fusionResult.source(), fusionResult.elapsedMs());
-                    }
-                    taskAnalysis = taskAnalysisService.analyze(
-                            enhancedQuestion,
-                            conversationHistory != null ? conversationHistory : Collections.emptyList()
-                    );
-                    if (taskAnalysis != null && taskAnalysis.isMeaningful()) {
-                        intentTag = taskAnalysis.getIntentCategory();
-                    }
+                    // 融合服务内部已经尝试过任务分析；全部路径失败时直接降级，
+                    // 再次调用同一模型只会把一次 60s 超时放大为多次串行等待。
+                    log.warn("[Router] L3 融合未命中，直接降级到 General Agent");
+                    RoutingResult generalResult = callAgentAndFinalize(
+                            "general", enhancedQuestion, 0.3, "GENERAL_FALLBACK",
+                            request, question, emotion);
+                    return generalResult != null ? generalResult : inlineFallback(enhancedQuestion, emotion);
                 }
 
                 // ⭐ L5 意图漂移检测：多轮对话中检测用户意图是否漂移

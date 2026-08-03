@@ -267,7 +267,7 @@ export function ChatMessages({
 
             {message.role === 'assistant'
               && idx === lastAssistantIndex
-              && satisfaction != null && (
+              && sessionStatus === 'closed' && (
                 <div style={{
                   padding: '9px 12px',
                   borderRadius: '10px',
@@ -276,7 +276,9 @@ export function ChatMessages({
                   background: 'var(--nova-bg-component)',
                   fontSize: '12px',
                 }}>
-                  已评价 {satisfaction} 分 · 本次会话已结束
+                  {satisfaction != null
+                    ? `已评价 ${satisfaction} 分 · 本次会话已结束`
+                    : '本次会话已结束'}
                 </div>
               )}
             

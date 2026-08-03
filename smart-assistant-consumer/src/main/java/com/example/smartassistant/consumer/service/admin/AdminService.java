@@ -113,19 +113,40 @@ public class AdminService {
 
     public List<Map<String, Object>> getSessions() {
         try {
-            return jdbcTemplate.queryForList(
-                    "SELECT r.session_id as id, " +
-                    "LEFT(r.user_input, 100) as title, " +
-                    "r.routed_agent as intent, " +
-                    "r.created_at::text as created_at, " +
-                    "r.status, " +
-                    "COALESCE(f.rating, 0) as satisfaction, " +
-                    "COALESCE(f.feedback_text, '') as satisfaction_comment " +
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT r.session_id as id, r.user_input as title, " +
+                    "r.routed_agent as intent, r.created_at, r.status as route_status, " +
+                    "f.id as feedback_id, f.rating, f.feedback_text " +
                     "FROM routing_call_log r " +
-                    "LEFT JOIN conversation_feedback f ON r.session_id = f.session_id " +
+                    "LEFT JOIN conversation_feedback f ON f.id = (" +
+                    "  SELECT MAX(f2.id) FROM conversation_feedback f2 WHERE f2.session_id = r.session_id" +
+                    ") " +
                     "WHERE r.session_id IS NOT NULL " +
-                    "GROUP BY r.session_id, r.user_input, r.routed_agent, r.created_at, r.status, f.rating, f.feedback_text " +
-                    "ORDER BY r.created_at DESC LIMIT 200");
+                    "ORDER BY r.created_at DESC LIMIT 1000");
+
+            Map<String, Map<String, Object>> sessions = new LinkedHashMap<>();
+            for (Map<String, Object> row : rows) {
+                String sessionId = Objects.toString(row.get("id"), "");
+                if (sessionId.isBlank()) continue;
+                Map<String, Object> existing = sessions.get(sessionId);
+                if (existing != null) {
+                    existing.put("messageCount", ((Number) existing.get("messageCount")).intValue() + 2);
+                    continue;
+                }
+                Map<String, Object> session = new LinkedHashMap<>();
+                session.put("id", sessionId);
+                session.put("title", abbreviate(Objects.toString(row.get("title"), "历史会话"), 100));
+                session.put("model", "deepseek-v4-flash");
+                session.put("intent", mapAgentToIntent((String) row.get("intent")));
+                session.put("created_at", row.get("created_at"));
+                session.put("status", row.get("feedback_id") == null ? "active" : "closed");
+                session.put("satisfaction", row.get("rating"));
+                session.put("satisfaction_comment", Objects.toString(row.get("feedback_text"), ""));
+                session.put("messageCount", 2);
+                sessions.put(sessionId, session);
+                if (sessions.size() >= 200) break;
+            }
+            return new ArrayList<>(sessions.values());
         } catch (Exception e) {
             log.warn("[Admin] 会话列表查询失败: {}", e.getMessage());
             return List.of();
@@ -135,13 +156,49 @@ public class AdminService {
     public Map<String, Object> getSessionDetail(String sessionId) {
         try {
             List<Map<String, Object>> logs = jdbcTemplate.queryForList(
-                    "SELECT * FROM routing_call_log WHERE session_id = ? ORDER BY created_at",
+                    "SELECT id, session_id, user_input, routed_agent, response_summary, " +
+                    "status, error_message, created_at " +
+                    "FROM routing_call_log WHERE session_id = ? ORDER BY created_at",
                     sessionId);
             if (logs.isEmpty()) return Map.of("error", "会话不存在");
 
+            List<Map<String, Object>> feedback = jdbcTemplate.queryForList(
+                    "SELECT rating, feedback_text FROM conversation_feedback " +
+                    "WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 1", sessionId);
+            Map<String, Object> latestFeedback = feedback.isEmpty() ? Map.of() : feedback.get(0);
+            Map<String, Object> first = logs.get(0);
+
+            Map<String, Object> session = new LinkedHashMap<>();
+            session.put("id", sessionId);
+            session.put("title", abbreviate(Objects.toString(first.get("user_input"), "历史会话"), 100));
+            session.put("model", "deepseek-v4-flash");
+            session.put("intent", mapAgentToIntent((String) first.get("routed_agent")));
+            session.put("created_at", first.get("created_at"));
+            session.put("status", feedback.isEmpty() ? "active" : "closed");
+            session.put("satisfaction", latestFeedback.get("rating"));
+            session.put("satisfaction_comment", Objects.toString(latestFeedback.get("feedback_text"), ""));
+
+            List<Map<String, Object>> messages = new ArrayList<>();
+            for (Map<String, Object> logRow : logs) {
+                String logId = Objects.toString(logRow.get("id"), UUID.randomUUID().toString());
+                Object createdAt = logRow.get("created_at");
+                String userInput = Objects.toString(logRow.get("user_input"), "").trim();
+                if (!userInput.isEmpty()) {
+                    messages.add(message(logId + "-user", "user", userInput, createdAt, null));
+                }
+                String response = Objects.toString(logRow.get("response_summary"), "").trim();
+                if (response.isEmpty() && !"SUCCESS".equalsIgnoreCase(Objects.toString(logRow.get("status"), ""))) {
+                    response = "⚠️ " + Objects.toString(logRow.get("error_message"), "请求处理失败");
+                }
+                if (!response.isEmpty()) {
+                    messages.add(message(logId + "-assistant", "assistant", response, createdAt,
+                            Objects.toString(logRow.get("routed_agent"), null)));
+                }
+            }
+
             Map<String, Object> detail = new HashMap<>();
-            detail.put("sessionId", sessionId);
-            detail.put("messages", logs);
+            detail.put("session", session);
+            detail.put("messages", messages);
             return detail;
         } catch (Exception e) {
             log.warn("[Admin] 会话详情查询失败: {}", e.getMessage());
@@ -161,6 +218,56 @@ public class AdminService {
             log.warn("[Admin] 删除会话失败: {}", e.getMessage());
             return false;
         }
+    }
+
+    public boolean closeSession(String sessionId, Long userId) {
+        return saveFeedback(sessionId, userId, null, null);
+    }
+
+    public boolean submitSatisfaction(String sessionId, Long userId, int score, String comment) {
+        if (score < 1 || score > 5) throw new IllegalArgumentException("评分必须在 1-5 之间");
+        return saveFeedback(sessionId, userId, score, comment);
+    }
+
+    private boolean saveFeedback(String sessionId, Long userId, Integer score, String comment) {
+        try {
+            Long sessionCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM routing_call_log WHERE session_id = ?",
+                    Long.class, sessionId);
+            if (sessionCount == null || sessionCount == 0) return false;
+            long effectiveUserId = userId != null && userId > 0 ? userId : 1L;
+            int updated = jdbcTemplate.update(
+                    "UPDATE conversation_feedback SET user_id = ?, rating = ?, feedback_text = ? WHERE session_id = ?",
+                    effectiveUserId, score, comment, sessionId);
+            if (updated == 0) {
+                String agentName = jdbcTemplate.queryForObject(
+                        "SELECT routed_agent FROM routing_call_log WHERE session_id = ? " +
+                        "ORDER BY created_at DESC LIMIT 1", String.class, sessionId);
+                jdbcTemplate.update(
+                        "INSERT INTO conversation_feedback (session_id, user_id, rating, feedback_text, agent_name) " +
+                        "VALUES (?, ?, ?, ?, ?)",
+                        sessionId, effectiveUserId, score, comment, agentName);
+            }
+            return true;
+        } catch (Exception e) {
+            log.warn("[Admin] 结束/评价会话失败: sessionId={}, error={}", sessionId, e.getMessage());
+            return false;
+        }
+    }
+
+    private static Map<String, Object> message(
+            String id, String role, String content, Object createdAt, String agentName) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", id);
+        result.put("role", role);
+        result.put("content", content);
+        result.put("created_at", createdAt);
+        if (agentName != null && !agentName.isBlank()) result.put("agent_name", agentName);
+        return result;
+    }
+
+    private static String abbreviate(String value, int maxLength) {
+        return value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 
     // ==================== FAQ 管理 ====================

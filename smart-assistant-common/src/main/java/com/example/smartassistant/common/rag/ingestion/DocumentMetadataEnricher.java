@@ -86,7 +86,9 @@ public class DocumentMetadataEnricher {
                 .expireAt(validity[1] >= 0 ? validity[1] : parsed.getExpireAt())
                 .contentHash(parsed.getContentHash())
                 .category(category != null ? category : parsed.getCategory())
-                .keywords(parsed.getKeywords());
+                .keywords(parsed.getKeywords())
+                .metadata(parsed.getMetadata())
+                .imageBytes(parsed.getImageBytes());
         return builder.build();
     }
 

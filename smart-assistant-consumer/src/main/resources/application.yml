@@ -25,7 +25,7 @@ spring:
   application:
     name: consumer-service
 
-  # ⭐ 排除 DashScope 自动配置（Consumer 使用 Ollama，不依赖云端 API）
+  # 排除未使用的 DashScope 自动配置
   autoconfigure:
     exclude:
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
@@ -100,13 +100,16 @@ spring:
         id-type: auto
 
   ai:
-    # ⭐ Ollama 本地模型配置（本地推理主通道）
-    ollama:
-      base-url: http://localhost:11434
+    # DeepSeek 云端 API（所有聊天与辅助推理统一直连）
+    retry:
+      max-attempts: 1
+    deepseek:
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+      api-key: ${DEEPSEEK_API_KEY:}
       chat:
-        options:
-          model: qwen2.5:7b
-          temperature: 0.7
+        model: ${DEEPSEEK_CHAT_MODEL:deepseek-v4-flash}
+        temperature: 0.2
+        max-tokens: 2048
     
     # ⭐ MCP Server 配置（内嵌在 Consumer 中）
     mcp:
@@ -180,6 +183,12 @@ cache:
 router:
   service:
     url: http://localhost:8083       # Router Service 地址
+
+# 摘要、偏好提取等高频辅助任务复用同一个 API 模型
+consumer:
+  light-model:
+    name: ${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}
+    temperature: 0.1
 
 # ⭐ 线程池配置（消除硬编码）
 thread-pool:

@@ -14,15 +14,19 @@ MVN_HOME="C:/Users/14928/.m2/wrapper/dists/apache-maven-3.9.6/a53741d1"
 
 # 清除 SERVER__PORT 陷阱
 unset SERVER__PORT
-# 从 .env 加载环境变量（通过 DotenvEnvironmentPostProcessor，但 spring-boot:run 需要显式设置）
-export REDIS_PASSWORD=redis123
-export POSTGRES_PASSWORD=postgres123
-export NACOS_PASSWORD=nacos
-export NACOS_USERNAME=nacos
-export REDIS_HOST=localhost
-export REDIS_PORT=6379
-export SPRING_AI_DEEPSEEK_API_KEY=sk-dummy-for-compat
-export DEEPSEEK_API_KEY=sk-06a0e6f007614f8f90c4f2cc57401b46
+# 从本地 .env 加载密钥，禁止把真实 API Key 写入启动脚本。
+if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$PROJECT_DIR/.env"
+  set +a
+fi
+
+case "$MODULE" in
+  smart-assistant-consumer|smart-assistant-router|smart-assistant-order|smart-assistant-product|smart-assistant-general)
+    : "${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set in .env}"
+    ;;
+esac
 
 cd "$PROJECT_DIR/$MODULE"
 echo "Starting $MODULE on $(date)..." >> "$PROJECT_DIR/logs/startup.log"
