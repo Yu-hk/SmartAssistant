@@ -17,6 +17,12 @@
     <description>Smart Assistant 公共模块 - 包含中文分词器等通用工具</description>
 
     <dependencies>
+        <!-- 仅保留旧 Ollama 集成测试的编译支持；生产运行时不引入 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-ollama</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- Spring Boot Web（用于 @Value 注解） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -92,14 +98,6 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-client-chat</artifactId>
-        </dependency>
-
-        <!-- ⭐ Spring AI Ollama（G3 TierModelAutoConfiguration 引用 OllamaChatModel/OllamaChatOptions）
-             optional: 各服务按需显式声明，避免 common 的 pom 强依赖 ollama 运行时 -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-ollama</artifactId>
-            <optional>true</optional>
         </dependency>
 
         <!-- ⭐ T2c：MCP client SDK（方案 A，轻量、不引 WebFlux reactive 栈）

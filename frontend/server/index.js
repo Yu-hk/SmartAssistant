@@ -221,6 +221,17 @@ app.delete("/api/sessions/:sessionId", function (req, res) {
         res.status(500).json({ error: e === null || e === void 0 ? void 0 : e.message });
     }
 });
+app.post("/api/sessions/:sessionId/close", function (req, res) {
+    try {
+        var success = db.updateSession(req.params.sessionId, { status: 'closed' });
+        if (!success)
+            return res.status(404).json({ error: "会话不存在" });
+        res.json({ success: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: e === null || e === void 0 ? void 0 : e.message });
+    }
+});
 // ============= 满意度评分 API =============
 app.post("/api/sessions/:sessionId/satisfaction", function (req, res) {
     try {

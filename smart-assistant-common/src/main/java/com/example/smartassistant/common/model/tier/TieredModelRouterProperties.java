@@ -15,15 +15,15 @@ import java.util.Map;
 /**
  * G3 Tier 多模型路由配置属性，绑定前缀 {@code tier}。
  *
- * <p>每档可独立配置模型名与温度；本地环境可让三档指向同一 Ollama 实例的不同模型名，
+ * <p>每档可独立配置模型名与温度；各档复用同一个 DeepSeek API 客户端，
  * 云端环境可将 heavy 指向 DeepSeek/GPT 等强模型。{@code intent-overrides} 支持按意图强制升档。</p>
  */
 @ConfigurationProperties(prefix = "tier")
 public class TieredModelRouterProperties {
 
-    private TierConfig light = new TierConfig("qwen2.5:3b", 0.1);
-    private TierConfig standard = new TierConfig("deepseek-r1:7b", 0.3);
-    private TierConfig heavy = new TierConfig("deepseek-r1:7b", 0.2);
+    private TierConfig light = new TierConfig("deepseek-v4-flash", 0.1);
+    private TierConfig standard = new TierConfig("deepseek-v4-flash", 0.3);
+    private TierConfig heavy = new TierConfig("deepseek-v4-pro", 0.2);
 
     /** 意图 → 强制档位（如退款投诉类意图强制 HEAVY）。 */
     private Map<String, ModelTier> intentOverrides = new HashMap<>();

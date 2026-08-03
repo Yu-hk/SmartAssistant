@@ -5,10 +5,13 @@ import { Users, Activity, Wifi, Eye, EyeOff } from 'lucide-react';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
   const [mode, setMode] = useState<'login' | 'register'>('login');
 
   // 登录字段
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState(
+    () => localStorage.getItem('smart-assistant-remembered-username') || '',
+  );
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [remember, setRemember] = useState(true);
@@ -17,10 +20,11 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPwd2, setShowPwd2] = useState(false);
-  const [agreed, setAgreed] = useState(true);
+  const [agreed, setAgreed] = useState(false);
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [helpDialog, setHelpDialog] = useState<'forgot' | 'terms' | null>(null);
 
   const switchMode = (next: 'login' | 'register') => {
     setMode(next);
@@ -34,18 +38,45 @@ export function LoginPage() {
       setError('两次输入的密码不一致');
       return;
     }
+    if (mode === 'register' && !agreed) {
+      setError('请先阅读并同意服务协议与隐私政策');
+      return;
+    }
     setLoading(true);
     try {
       const user = mode === 'login'
         ? await login(username.trim(), password)
         : await register(username.trim(), password, email.trim());
-      saveAuth(user);
+      const shouldRemember = mode === 'register' || remember;
+      saveAuth(user, shouldRemember);
+      if (mode === 'login' && remember) {
+        localStorage.setItem('smart-assistant-remembered-username', username.trim());
+      } else {
+        localStorage.removeItem('smart-assistant-remembered-username');
+      }
       navigate('/', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败，请稍后重试');
     } finally {
       setLoading(false);
     }
+  };
+
+  const openPasswordRecovery = () => {
+    if (env.VITE_PASSWORD_RESET_URL) {
+      window.location.assign(env.VITE_PASSWORD_RESET_URL);
+      return;
+    }
+    setHelpDialog('forgot');
+  };
+
+  const beginSso = (provider: '企业微信' | '钉钉' | '飞书', url?: string) => {
+    setError('');
+    if (url) {
+      window.location.assign(url);
+      return;
+    }
+    setError(`${provider}登录尚未配置，请联系系统管理员`);
   };
 
   return (
@@ -169,7 +200,9 @@ export function LoginPage() {
                     />
                     记住我
                   </label>
-                  <a className="login-forgot" href="#">忘记密码？</a>
+                  <button type="button" className="login-forgot" onClick={openPasswordRecovery}>
+                    忘记密码？
+                  </button>
                 </div>
 
                 {error && <div className="login-error" role="alert">{error}</div>}
@@ -181,13 +214,16 @@ export function LoginPage() {
                 <div className="login-divider"><span>或</span></div>
 
                 <div className="login-channels">
-                  <button type="button" className="login-channel">
+                  <button type="button" className="login-channel"
+                    onClick={() => beginSso('企业微信', env.VITE_SSO_WECOM_URL)}>
                     <span className="lc-dot" style={{ background: '#2ecc71' }}></span>企业微信
                   </button>
-                  <button type="button" className="login-channel">
+                  <button type="button" className="login-channel"
+                    onClick={() => beginSso('钉钉', env.VITE_SSO_DINGTALK_URL)}>
                     <span className="lc-dot" style={{ background: '#3370ff' }}></span>钉钉
                   </button>
-                  <button type="button" className="login-channel">
+                  <button type="button" className="login-channel"
+                    onClick={() => beginSso('飞书', env.VITE_SSO_FEISHU_URL)}>
                     <span className="lc-dot" style={{ background: '#00d6b9' }}></span>飞书
                   </button>
                 </div>
@@ -268,12 +304,15 @@ export function LoginPage() {
                     checked={agreed}
                     onChange={e => setAgreed(e.target.checked)}
                   />
-                  我已阅读并同意 <a href="#">服务协议与隐私政策</a>
+                  我已阅读并同意{' '}
+                  <button type="button" className="login-inline-link" onClick={() => setHelpDialog('terms')}>
+                    服务协议与隐私政策
+                  </button>
                 </label>
 
                 {error && <div className="login-error" role="alert">{error}</div>}
 
-                <button className="login-submit" type="submit" disabled={loading}>
+                <button className="login-submit" type="submit" disabled={loading || !agreed}>
                   {loading ? '正在处理…' : '注 册'}
                 </button>
 
@@ -285,6 +324,42 @@ export function LoginPage() {
           </form>
         </div>
       </section>
+
+      {helpDialog && (
+        <div className="login-dialog-backdrop" role="presentation" onMouseDown={() => setHelpDialog(null)}>
+          <section
+            className="login-dialog glass-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="login-dialog-title"
+            onMouseDown={event => event.stopPropagation()}
+          >
+            <button type="button" className="login-dialog-close" aria-label="关闭" onClick={() => setHelpDialog(null)}>×</button>
+            {helpDialog === 'forgot' ? (
+              <>
+                <h3 id="login-dialog-title">找回登录密码</h3>
+                <p>当前环境尚未配置自助重置地址。请联系系统管理员核验账号并重置密码。</p>
+                <a className="login-dialog-action" href={`mailto:${env.VITE_SUPPORT_EMAIL || 'support@example.com'}?subject=SmartAssistant 密码重置申请`}>
+                  联系管理员
+                </a>
+              </>
+            ) : (
+              <>
+                <h3 id="login-dialog-title">服务协议与隐私政策</h3>
+                <div className="login-dialog-copy">
+                  <h4>服务协议</h4>
+                  <p>请合法使用本工作台，不得利用智能体能力从事违法、侵权或破坏系统安全的活动。涉及订单、金额和关键业务操作时，应由用户再次确认。</p>
+                  <h4>隐私政策</h4>
+                  <p>系统仅为提供登录、会话与业务协同功能处理必要的账号和会话数据。请勿在对话中提交密码、验证码等高度敏感信息。</p>
+                </div>
+                <button type="button" className="login-dialog-action" onClick={() => { setAgreed(true); setHelpDialog(null); }}>
+                  已阅读并同意
+                </button>
+              </>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 }

@@ -40,6 +40,21 @@ export async function deleteSession(sessionId: string): Promise<void> {
   return apiClient.del(`/sessions/${sessionId}`);
 }
 
+/** 主动结束会话（无需评分） */
+export async function closeSession(sessionId: string, userId?: number): Promise<void> {
+  return apiClient.post(`/sessions/${sessionId}/close`, { userId });
+}
+
+/** 提交满意度并结束会话 */
+export async function rateSession(
+  sessionId: string,
+  score: number,
+  userId?: number,
+  comment?: string,
+): Promise<void> {
+  return apiClient.post(`/sessions/${sessionId}/satisfaction`, { score, userId, comment });
+}
+
 /** 发送聊天消息 */
 export async function sendChatMessage(params: ChatRequest): Promise<ChatResponse> {
   return apiClient.post<ChatResponse>('/chat', params);

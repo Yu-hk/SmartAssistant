@@ -33,19 +33,30 @@ export const login = (username: string, password: string) =>
 export const register = (username: string, password: string, email: string) =>
   authenticate('/auth/register', { username, password, email: email || undefined });
 
-export function saveAuth(user: AuthUser) {
-  localStorage.setItem('smart-assistant-token', user.token);
-  localStorage.setItem('smart-assistant-user', JSON.stringify(user));
+const TOKEN_KEY = 'smart-assistant-token';
+const USER_KEY = 'smart-assistant-user';
+
+export function saveAuth(user: AuthUser, remember = true) {
+  clearAuth();
+  const storage = remember ? localStorage : sessionStorage;
+  storage.setItem(TOKEN_KEY, user.token);
+  storage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function clearAuth() {
-  localStorage.removeItem('smart-assistant-token');
-  localStorage.removeItem('smart-assistant-user');
+  [localStorage, sessionStorage].forEach(storage => {
+    storage.removeItem(TOKEN_KEY);
+    storage.removeItem(USER_KEY);
+  });
+}
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
 }
 
 export function getAuthUser(): AuthUser | null {
   try {
-    const raw = localStorage.getItem('smart-assistant-user');
+    const raw = localStorage.getItem(USER_KEY) || sessionStorage.getItem(USER_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;

@@ -79,6 +79,43 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("success", deleted));
     }
 
+    /**
+     * 主动结束会话（无需评分）。
+     * POST /api/sessions/{id}/close
+     */
+    @PostMapping("/sessions/{id}/close")
+    public ResponseEntity<?> closeSession(@PathVariable String id,
+                                          @RequestBody(required = false) Map<String, Object> body) {
+        Long userId = numberAsLong(body == null ? null : body.get("userId"));
+        boolean closed = adminService.closeSession(id, userId);
+        return closed
+                ? ResponseEntity.ok(Map.of("success", true))
+                : ResponseEntity.notFound().build();
+    }
+
+    /**
+     * 提交满意度并结束会话。
+     * POST /api/sessions/{id}/satisfaction
+     */
+    @PostMapping("/sessions/{id}/satisfaction")
+    public ResponseEntity<?> submitSatisfaction(@PathVariable String id,
+                                                 @RequestBody Map<String, Object> body) {
+        Object rawScore = body.get("score");
+        if (!(rawScore instanceof Number number) || number.intValue() < 1 || number.intValue() > 5) {
+            return ResponseEntity.badRequest().body(Map.of("error", "评分必须在 1-5 之间"));
+        }
+        Long userId = numberAsLong(body.get("userId"));
+        String comment = body.get("comment") == null ? null : String.valueOf(body.get("comment"));
+        boolean saved = adminService.submitSatisfaction(id, userId, number.intValue(), comment);
+        return saved
+                ? ResponseEntity.ok(Map.of("success", true, "message", "感谢您的评价！"))
+                : ResponseEntity.notFound().build();
+    }
+
+    private static Long numberAsLong(Object value) {
+        return value instanceof Number number ? number.longValue() : null;
+    }
+
     // ==================== FAQ 管理 ====================
 
     /**

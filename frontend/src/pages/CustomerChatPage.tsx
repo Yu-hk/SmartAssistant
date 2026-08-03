@@ -31,6 +31,13 @@ const QUICK_QUESTIONS = [
   { icon: '🧰', text: '展示当前可以调用的工具和服务', gradient: 'from-rose-500 to-red-500' },
 ];
 
+const CAPABILITIES = [
+  { icon: '📦', title: '订单服务', desc: '订单查询、物流跟踪、售后处理', accent: '#6366f1', prompt: '请帮我查询订单：' },
+  { icon: '🛍️', title: '商品助手', desc: '商品咨询、参数对比、个性推荐', accent: '#f59e0b', prompt: '请帮我推荐或对比商品：' },
+  { icon: '📚', title: '知识检索', desc: '资料召回、文档问答、内容总结', accent: '#10b981', prompt: '请从知识库中查找并总结：' },
+  { icon: '🧩', title: '智能体协同', desc: '意图识别、任务路由、工具调用', accent: '#06b6d4', prompt: '请分析并安排合适的智能体处理：' },
+];
+
 export function CustomerChatPage({
   currentSession,
   isLoading,
@@ -142,16 +149,15 @@ export function CustomerChatPage({
               display: 'grid', gridTemplateColumns: '1fr 1fr',
               gap: '12px', marginBottom: '36px',
             }}>
-              {[
-                { icon: '📦', title: '订单服务', desc: '订单查询、物流跟踪、售后处理', accent: '#6366f1' },
-                { icon: '🛍️', title: '商品助手', desc: '商品咨询、参数对比、个性推荐', accent: '#f59e0b' },
-                { icon: '📚', title: '知识检索', desc: '资料召回、文档问答、内容总结', accent: '#10b981' },
-                { icon: '🧩', title: '智能体协同', desc: '意图识别、任务路由、工具调用', accent: '#06b6d4' },
-              ].map((item, idx) => (
-                <div
+              {CAPABILITIES.map((item, idx) => (
+                <button
+                  type="button"
                   key={item.title}
                   className="glass-card animate-fade-in-up"
+                  onClick={() => onInputChange(item.prompt)}
+                  aria-label={`使用${item.title}`}
                   style={{
+                    width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
                     padding: '18px',
                     borderRadius: '14px',
                     animationDelay: `${idx * 0.08}s`,
@@ -180,7 +186,7 @@ export function CustomerChatPage({
                   }}>
                     {item.desc}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
 

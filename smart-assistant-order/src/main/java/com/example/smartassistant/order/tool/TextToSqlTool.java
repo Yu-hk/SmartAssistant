@@ -11,20 +11,15 @@ import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.sql.SqlSecurityValidator;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -37,22 +32,17 @@ import java.util.Map;
 public class TextToSqlTool {
 
     private static final Logger log = LoggerFactory.getLogger(TextToSqlTool.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
     private static final String SERVICE_NAME = "order";
 
     private final PromptManager promptManager;
     private final OrderDataProvider orderData;
-    private final String ollamaBaseUrl;
-    private final String ollamaModel;
+    private final ChatModel chatModel;
 
     public TextToSqlTool(OrderDataProvider orderData,
-                         @Value("${spring.ai.ollama.base-url}") String ollamaBaseUrl,
-                         @Value("${spring.ai.ollama.chat.options.model:deepseek-r1:7b}") String ollamaModel,
+                         @Qualifier("lightChatModel") ChatModel chatModel,
                          PromptManager promptManager) {
         this.orderData = orderData;
-        this.ollamaBaseUrl = ollamaBaseUrl;
-        this.ollamaModel = ollamaModel;
+        this.chatModel = chatModel;
         this.promptManager = promptManager;
     }
 
@@ -68,7 +58,7 @@ public class TextToSqlTool {
 
         String generatedSql;
         try {
-            generatedSql = callOllamaForSql(question);
+            generatedSql = callModelForSql(question);
         } catch (Exception e) {
             log.error("[TextToSqlTool] LLM 生成 SQL 失败: {}", e.getMessage());
             return "❌ SQL 生成失败：" + e.getMessage();
@@ -128,41 +118,15 @@ public class TextToSqlTool {
         }
     }
 
-    private String callOllamaForSql(String question) throws Exception {
-        URL url = URI.create(ollamaBaseUrl + "/api/generate").toURL();
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-        conn.setConnectTimeout(30000);
-        conn.setReadTimeout(60000);
-
-        String requestBody = OBJECT_MAPPER.writeValueAsString(Map.of(
-                "model", ollamaModel,
-                "prompt", promptManager.textToSql() + "\n\n表结构信息：\n"
-                        + "orders: order_id(VARCHAR), user_id(BIGINT), product_name(VARCHAR), amount(DECIMAL), status(VARCHAR), carrier(VARCHAR), tracking_no(VARCHAR), product_type(VARCHAR), delivered_date(TIMESTAMP), created_at(TIMESTAMP)\n"
-                        + "order_refunds: order_id(VARCHAR), reason(TEXT), amount(DECIMAL), status(VARCHAR), created_at(TIMESTAMP)\n"
-                        + "order_logistics: tracking_no(VARCHAR), order_id(VARCHAR), carrier(VARCHAR), status(VARCHAR), trajectory(JSONB), created_at(TIMESTAMP), updated_at(TIMESTAMP)\n"
-                        + "approval_records: order_id(VARCHAR), action_type(VARCHAR), reason(TEXT), status(VARCHAR), created_at(TIMESTAMP), confirmed_at(TIMESTAMP), consumed_at(TIMESTAMP)\n"
-                        + "products: product_code(VARCHAR), product_name(VARCHAR), price(DECIMAL), stock(VARCHAR), spec(TEXT), colors(VARCHAR), created_at(TIMESTAMP)\n\n用户问题：" + question,
-                "stream", false,
-                "options", Map.of("temperature", 0.1)
-        ));
-
-        try (OutputStream os = conn.getOutputStream()) {
-            byte[] input = requestBody.getBytes(StandardCharsets.UTF_8);
-            os.write(input, 0, input.length);
-        }
-
-        int responseCode = conn.getResponseCode();
-        if (responseCode != 200) {
-            String errorBody = new String(conn.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            throw new RuntimeException("Ollama API 返回错误: HTTP " + responseCode + ", " + errorBody);
-        }
-
-        String responseBody = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        JsonNode root = OBJECT_MAPPER.readTree(responseBody);
-        return root.has("response") ? root.get("response").asText() : "";
+    private String callModelForSql(String question) {
+        String prompt = promptManager.textToSql() + "\n\n表结构信息：\n"
+                + "orders: order_id(VARCHAR), user_id(BIGINT), product_name(VARCHAR), amount(DECIMAL), status(VARCHAR), carrier(VARCHAR), tracking_no(VARCHAR), product_type(VARCHAR), delivered_date(TIMESTAMP), created_at(TIMESTAMP)\n"
+                + "order_refunds: order_id(VARCHAR), reason(TEXT), amount(DECIMAL), status(VARCHAR), created_at(TIMESTAMP)\n"
+                + "order_logistics: tracking_no(VARCHAR), order_id(VARCHAR), carrier(VARCHAR), status(VARCHAR), trajectory(JSONB), created_at(TIMESTAMP), updated_at(TIMESTAMP)\n"
+                + "approval_records: order_id(VARCHAR), action_type(VARCHAR), reason(TEXT), status(VARCHAR), created_at(TIMESTAMP), confirmed_at(TIMESTAMP), consumed_at(TIMESTAMP)\n"
+                + "products: product_code(VARCHAR), product_name(VARCHAR), price(DECIMAL), stock(VARCHAR), spec(TEXT), colors(VARCHAR), created_at(TIMESTAMP)\n\n用户问题："
+                + question;
+        return chatModel.call(new Prompt(prompt)).getResult().getOutput().getText();
     }
 
     private String cleanGeneratedSql(String sql) {

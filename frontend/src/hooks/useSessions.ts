@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Session, Message, IntentType } from '../types';
 import { sessions as sessionApi } from '../api';
+import { ApiError } from '../api/client';
 
 export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -26,7 +27,7 @@ export function useSessions() {
           satisfaction_comment: s.satisfaction_comment ?? null,
           user_name: s.user_name || '访客',
           agent_name: s.agent_name || null,
-          messageCount: s.messageCount || 0,
+          messageCount: s.messageCount || s.message_count || 0,
           createdAt: new Date(s.created_at),
           messages: [],
         }));
@@ -101,19 +102,45 @@ export function useSessions() {
   const deleteSession = useCallback(async (sessionId: string): Promise<string | null> => {
     try {
       await sessionApi.deleteSession(sessionId);
-      let navigateTo: string | null = null;
-      setSessions(prev => {
-        const filtered = prev.filter(s => s.id !== sessionId);
-        return filtered;
-      });
-      const remaining = sessions.filter(s => s.id !== sessionId);
-      if (currentSessionId === sessionId) {
-        if (remaining.length > 0) { navigateTo = `/chat/${remaining[0].id}`; setCurrentSessionId(remaining[0].id); }
-        else { navigateTo = '/'; setCurrentSessionId(null); }
+    } catch (e) {
+      // 本地新建会话在首次发送前不会落库，后端 404 时仍应允许从列表移除。
+      if (!(e instanceof ApiError) || e.status !== 404) {
+        console.error(e);
+        return null;
       }
-      return navigateTo;
-    } catch (e) { console.error(e); return null; }
+    }
+
+    setSessions(prev => prev.filter(s => s.id !== sessionId));
+    const remaining = sessions.filter(s => s.id !== sessionId);
+    if (currentSessionId !== sessionId) return null;
+    if (remaining.length > 0) {
+      setCurrentSessionId(remaining[0].id);
+      return `/chat/${remaining[0].id}`;
+    }
+    setCurrentSessionId(null);
+    return '/';
   }, [sessions, currentSessionId]);
+
+  const closeSession = useCallback(async (sessionId: string, userId?: number) => {
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'closed' } : s));
+    try {
+      await sessionApi.closeSession(sessionId, userId);
+    } catch (e) {
+      // 本地会话可以正常结束；远端会话失败时保留前端终态并记录错误供排查。
+      if (!(e instanceof ApiError) || e.status !== 404) console.error(e);
+    }
+  }, []);
+
+  const rateSession = useCallback(async (sessionId: string, score: number, userId?: number) => {
+    setSessions(prev => prev.map(s => s.id === sessionId
+      ? { ...s, satisfaction: score, status: 'closed' }
+      : s));
+    try {
+      await sessionApi.rateSession(sessionId, score, userId);
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 404) console.error(e);
+    }
+  }, []);
 
   const updateSessionModel = useCallback((sessionId: string, modelId: string) => {
     setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, model: modelId } : s));
@@ -141,7 +168,7 @@ export function useSessions() {
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, loadSessionMessages, createSession,
-    deleteSession,
+    deleteSession, closeSession, rateSession,
     updateSessionModel, updateSession, updateSessionMessages,
   };
 }

@@ -8,6 +8,7 @@ interface CustomerSidebarProps {
   onNewChat: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
+  onSelectAgent: (name: string) => void;
   onOpenAdmin: () => void;
   onToggleTheme: () => void;
 }
@@ -38,7 +39,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function CustomerSidebar({
   sessions, currentSessionId, theme,
-  onNewChat, onSelectSession, onDeleteSession, onOpenAdmin, onToggleTheme,
+  onNewChat, onSelectSession, onDeleteSession, onSelectAgent, onOpenAdmin, onToggleTheme,
 }: CustomerSidebarProps) {
   return (
     <aside className="glass" style={{
@@ -122,13 +123,18 @@ export function CustomerSidebar({
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '6px' }}>
           {AGENT_TEAM.map(agent => (
-            <div
+            <button
+              type="button"
               key={agent.name}
               className="glass-hover"
+              onClick={() => onSelectAgent(agent.name)}
+              aria-label={`与${agent.name}开始对话`}
               style={{
+                width: '100%',
                 display: 'flex', alignItems: 'center', gap: '10px',
                 padding: '8px 10px', borderRadius: '10px',
-                border: '1px solid transparent', cursor: 'default',
+                border: '1px solid transparent', cursor: 'pointer',
+                background: 'transparent', fontFamily: 'inherit', textAlign: 'left',
               }}
             >
               {/* Agent 图标 */}
@@ -155,7 +161,7 @@ export function CustomerSidebar({
                 background: 'var(--nova-success)', flexShrink: 0,
                 boxShadow: '0 0 6px var(--nova-success)',
               }} />
-            </div>
+            </button>
           ))}
         </div>
 
@@ -349,6 +355,9 @@ function SessionItem({ session, isActive, onSelect, onDelete }: {
         </span>
         {showDel && (
           <button
+            type="button"
+            aria-label={`删除会话：${session.title}`}
+            title="删除会话"
             onClick={e => { e.stopPropagation(); onDelete(); }}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',

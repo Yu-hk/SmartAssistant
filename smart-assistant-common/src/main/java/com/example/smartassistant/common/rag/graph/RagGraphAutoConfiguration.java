@@ -41,7 +41,7 @@ public class RagGraphAutoConfiguration {
 
     @Autowired(required = false)
     public RagGraphAutoConfiguration(
-            @Qualifier("ollamaChatModel") ChatModel chatModel,
+            @Qualifier("deepSeekChatModel") ChatModel chatModel,
             AiChatService aiChatService) {
         this.chatModel = chatModel;
         this.aiChatService = aiChatService;
