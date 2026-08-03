@@ -13,8 +13,6 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.ollama.OllamaChatModel;
-import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -24,36 +22,36 @@ import reactor.core.publisher.Flux;
 /**
  * 轻量 LLM 推理通道配置（Order 模块）。
  * <p>
- * 基于 {@link OllamaChatModel} 委托模式实现。用于意图识别等辅助任务。
+ * 基于 {@link ChatModel} 委托模式实现。用于意图识别等辅助任务。
  */
 @Configuration
 public class LightChatModelConfig {
 
     private static final Logger log = LoggerFactory.getLogger(LightChatModelConfig.class);
 
-    @Bean
+    @Bean(defaultCandidate = false)
     @Qualifier("lightChatModel")
     public ChatModel lightChatModel(
-            OllamaChatModel ollamaChatModel,
-            @Value("${order.light-model.name:qwen2.5:3b}") String model,
+            @Qualifier("deepSeekChatModel") ChatModel apiChatModel,
+            @Value("${order.light-model.name:deepseek-v4-flash}") String model,
             @Value("${order.light-model.temperature:0.1}") double temperature) {
 
-        var lightOptions = OllamaOptions.builder()
+        var lightOptions = ChatOptions.builder()
                 .model(model)
                 .temperature(temperature)
                 .build();
 
         log.info("[LightChatModel] initialized via delegation: model={}, temperature={}",
                 model, temperature);
-        return new LightDelegatingChatModel(ollamaChatModel, lightOptions);
+        return new LightDelegatingChatModel(apiChatModel, lightOptions);
     }
 
     private static class LightDelegatingChatModel implements ChatModel {
 
-        private final OllamaChatModel delegate;
-        private final OllamaOptions lightOptions;
+        private final ChatModel delegate;
+        private final ChatOptions lightOptions;
 
-        LightDelegatingChatModel(OllamaChatModel delegate, OllamaOptions lightOptions) {
+        LightDelegatingChatModel(ChatModel delegate, ChatOptions lightOptions) {
             this.delegate = delegate;
             this.lightOptions = lightOptions;
         }

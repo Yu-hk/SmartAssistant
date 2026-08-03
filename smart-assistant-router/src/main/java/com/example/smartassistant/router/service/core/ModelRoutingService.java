@@ -18,9 +18,9 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
 /**
- * 模型推理服务 — 纯本地推理引擎
+ * 模型推理服务 — DeepSeek API 推理引擎
  * <p>
- * SmartAssistant 所有推理请求统一通过此服务调用本地 Ollama 模型。
+ * SmartAssistant 的路由推理请求统一通过此服务调用 DeepSeek API。
  * 使用 {@link AgentLLMGateway} 统一管理超时、重试、熔断。
  * </p>
  */
@@ -37,20 +37,25 @@ public class ModelRoutingService {
                                AiChatService aiChatService) {
         this.chatClient = aiChatService.applyAdvisors(chatClientBuilder).build();
         this.llmGateway = llmGateway;
-        log.info("[ModelRouting] 纯本地推理引擎初始化完成（Ollama + LLMGateway + 统一Advisor链）");
+        log.info("[ModelRouting] DeepSeek API 推理引擎初始化完成（LLMGateway + 统一Advisor链）");
     }
 
     /**
-     * 调用本地 Ollama 模型推理。
+     * 调用 DeepSeek API 模型推理。
      * <p>
-     * 使用 AgentLLMGateway 统一管理超时（30s）、重试（2次）、熔断。
+     * 使用 AgentLLMGateway 统一管理超时和熔断。路由只需要结构化分类结果，采用 60s 单次超时，
+     * 不叠加重试，避免一次请求被放大为数分钟等待。
      * </p>
      */
     @Retry(name = "modelRoutingRetry")
     public String call(String systemPrompt, String userMessage) {
-        LLMCallConfig config = systemPrompt != null && !systemPrompt.isBlank()
-                ? new LLMCallConfig(systemPrompt, 2048, java.time.Duration.ofSeconds(30), 2, 0.5, false)
-                : LLMCallConfig.simple();
+        LLMCallConfig config = new LLMCallConfig(
+                systemPrompt,
+                256,
+                java.time.Duration.ofSeconds(60),
+                0,
+                0.5,
+                false);
 
         LLMCallResult result = llmGateway.call(() -> {
                     var builder = chatClient.prompt().user(userMessage);
@@ -59,7 +64,7 @@ public class ModelRoutingService {
                     }
                     return builder.call().content();
                 },
-                "ollama-deepseek-r1:7b",
+                "deepseek-v4-flash",
                 config);
 
         if (result.success()) {
@@ -69,7 +74,7 @@ public class ModelRoutingService {
         }
 
         log.error("[ModelRouting] 推理失败: {}", result.errorMessage());
-        throw new RuntimeException("Ollama model call failed: " + result.errorMessage());
+        throw new RuntimeException("Model API call failed: " + result.errorMessage());
     }
 
     /**

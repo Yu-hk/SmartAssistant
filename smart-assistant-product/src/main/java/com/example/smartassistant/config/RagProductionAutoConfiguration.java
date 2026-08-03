@@ -8,6 +8,7 @@
 package com.example.smartassistant.config;
 
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
+import com.example.smartassistant.common.embedding.EmbeddingClient;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeBase;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
@@ -88,6 +89,7 @@ public class RagProductionAutoConfiguration {
     @ConditionalOnMissingBean
     public KnowledgeBase productKnowledgeBase(
             BgeEmbeddingModel embeddingModel,
+            ObjectProvider<EmbeddingClient> embeddingClientProvider,
             ChineseTokenizer tokenizer,
             ObjectProvider<JdbcTemplate> jdbcTemplateProvider,
             ObjectProvider<KnowledgeIndexMetaService> indexMetaProvider,
@@ -126,7 +128,15 @@ public class RagProductionAutoConfiguration {
         PgVectorKnowledgeBase pgPrimary = null;
         try {
             KnowledgeIndexMetaService indexMeta = indexMetaProvider.getIfAvailable();
-            pgPrimary = new PgVectorKnowledgeBase(kbName, embeddingModel, jdbc, tokenizer, indexMeta);
+            EmbeddingClient remoteEmbedding = embeddingClientProvider.getIfAvailable();
+            if (remoteEmbedding != null) {
+                pgPrimary = new PgVectorKnowledgeBase(kbName, remoteEmbedding, jdbc, tokenizer, indexMeta);
+                log.info("[RagProd] PG 主库使用远程 embedding-service（维度={}）",
+                        remoteEmbedding.dimensions());
+            } else {
+                pgPrimary = new PgVectorKnowledgeBase(kbName, embeddingModel, jdbc, tokenizer, indexMeta);
+                log.info("[RagProd] PG 主库使用进程内 BGE（维度={}）", embeddingModel.dimensions());
+            }
             if (props.getRag().getSeed().isMigrateToPgOnStartup()) {
                 seedToPg(pgPrimary);
             }

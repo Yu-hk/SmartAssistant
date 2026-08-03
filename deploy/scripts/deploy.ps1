@@ -137,8 +137,7 @@ echo "[远程] 服务状态："
 docker compose -f deploy/docker-compose.yml ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
 
 echo ""
-echo "Ollama 模型正在后台拉取，首次需要 5-10 分钟..."
-echo "查看进度: docker logs -f smart-ollama-setup"
+echo "聊天模型已配置为直连 DeepSeek API。"
 "@
 
 $sshResult = ssh -o StrictHostKeyChecking=no $ServerUser@$ServerIP "$remoteCmd" 2>&1
@@ -163,6 +162,5 @@ Write-Host " 健康检查：http://$ServerIP/healthz" -ForegroundColor White
 Write-Host "" -ForegroundColor White
 Write-Host " 常用命令：" -ForegroundColor Yellow
 Write-Host "  ssh $ServerUser@$ServerIP" -ForegroundColor White
-Write-Host "  docker logs -f smart-ollama-setup" -ForegroundColor White
 Write-Host "  docker compose -f deploy/docker-compose.yml logs -f" -ForegroundColor White
 Write-Host "============================================" -ForegroundColor Cyan

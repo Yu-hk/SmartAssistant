@@ -190,9 +190,10 @@ class PdfParserRouterTest {
         client.throwOnCall = true;
         PdfParserRouter router = routerWith(pdfSpy, client, props);
 
-        // 不应抛异常：MinerU 失败 → 回退 PDFBox
-        List<ParsedDocument> docs = router.parse(pdf.toString());
-        assertNotNull(docs);
+        // MinerU 失败后仍会尝试 PDFBox；但纯图片页没有 OCR 时必须显式失败，不能静默返回空内容。
+        DocumentParseException error = assertThrows(DocumentParseException.class,
+                () -> router.parse(pdf.toString()));
+        assertTrue(error.getMessage().contains("image-only"));
         Mockito.verify(pdfSpy, Mockito.times(1)).parse(Mockito.anyString());
         assertEquals(1, client.callCount);
     }

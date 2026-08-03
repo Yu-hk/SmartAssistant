@@ -119,54 +119,6 @@ services:
     restart: unless-stopped
 
   # ===========================
-  # Ollama — 本地 LLM 推理
-  # ===========================
-  ollama:
-    image: ollama/ollama:latest
-    container_name: smart-ollama
-    expose:
-      - "11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    networks:
-      - smart-network
-    restart: unless-stopped
-    # GPU 支持（如有 NVIDIA GPU，取消注释）
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-
-  # Ollama 模型初始化（容器启动后拉取模型）
-  ollama-setup:
-    image: ollama/ollama:latest
-    container_name: smart-ollama-setup
-    volumes:
-      - ollama-data:/root/.ollama
-    networks:
-      - smart-network
-    depends_on:
-      ollama:
-        condition: service_healthy
-    entrypoint: >
-      sh -c "
-      echo 'Pulling deepseek-r1:7b model...' &&
-      ollama pull deepseek-r1:7b &&
-      echo 'Model pull complete' &&
-      exit 0
-      "
-    restart: "no"
-
-  # ===========================
   # 后端微服务
   # ===========================
   gateway:
@@ -264,7 +216,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_CHAT_MODEL: ${DEEPSEEK_CHAT_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_LIGHT_MODEL: ${DEEPSEEK_LIGHT_MODEL:-deepseek-v4-flash}
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
@@ -273,7 +228,6 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
       # BGE 嵌入模型路径（容器内路径）
       BGE_MODEL_PATH: /app/models/bge-large-zh-v1.5.onnx
@@ -316,7 +270,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_CHAT_MODEL: ${DEEPSEEK_CHAT_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_LIGHT_MODEL: ${DEEPSEEK_LIGHT_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_REASONING_MODEL: ${DEEPSEEK_REASONING_MODEL:-deepseek-v4-pro}
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
@@ -325,7 +283,6 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
       - smart-network
@@ -363,7 +320,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_CHAT_MODEL: ${DEEPSEEK_CHAT_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_LIGHT_MODEL: ${DEEPSEEK_LIGHT_MODEL:-deepseek-v4-flash}
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
@@ -372,7 +332,6 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       APP_RAG_STORE_MODE: pg
       EMBEDDING_SERVICE_URL: http://embedding-service:8091
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
@@ -414,7 +373,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_CHAT_MODEL: ${DEEPSEEK_CHAT_MODEL:-deepseek-v4-flash}
+      EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      APP_RAG_STORE_MODE: pg
+      DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
+      DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
@@ -423,7 +389,6 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
       - smart-network
@@ -433,6 +398,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      embedding-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
@@ -459,12 +426,13 @@ services:
       PORT: 8087
       JWT_SECRET: ${JWT_SECRET}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY must be set}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_CHAT_MODEL: ${DEEPSEEK_CHAT_MODEL:-deepseek-v4-flash}
       # Docker 环境覆盖
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      SPRING_AI_OLLAMA_BASE_URL: http://smart-ollama:11434
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
       - smart-network
@@ -531,4 +499,3 @@ volumes:
   redis-data:
   nacos-data:
   postgres-data:
-  ollama-data:
