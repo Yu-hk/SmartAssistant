@@ -115,8 +115,17 @@ models/*.onnx.data
 # BGE model cache (downloaded at runtime, large binary files)
 models/cache/
 
-# User runtime data (conversation memories, auto-generated at runtime)
+# User runtime data (conversation memories/corrections, auto-generated at runtime)
+data/users/
+data/corrections/
 smart-assistant-consumer/data/
+
+# Frontend TypeScript build metadata and generated JavaScript/declarations
+frontend/server/*.js
+frontend/server/*.d.ts
+frontend/src/main.js
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 login_tmp.json
 nul
