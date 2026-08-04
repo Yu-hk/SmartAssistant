@@ -5,6 +5,7 @@
 # IDE
 .idea/
 .vscode/
+.codebuddy/
 *.iml
 *.ipr
 *.iws
@@ -16,6 +17,7 @@ dist/
 *.jar
 *.war
 *.class
+*.tsbuildinfo
 
 # Logs
 logs/
@@ -52,6 +54,10 @@ node_modules/
 # Maven custom config
 .m2_*.conf
 
+# Downloaded/extracted artifacts (not project source)
+.mvn_extracted/
+ai/onnxruntime/native/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
@@ -60,6 +66,7 @@ frontend/.vite/
 # Monitoring data
 monitoring/data/
 monitoring/logs/
+monitoring/*.db
 
 # Test coverage
 coverage/
@@ -95,6 +102,7 @@ models/bge-reranker-v2-m3/
 
 # ONNX external weight data files (very large, 2.2GB+)
 models/*.onnx.data
+**/models/*.onnx.data
 
 # Test model output
 **/models/*.onnx
@@ -110,7 +118,15 @@ models/cache/
 # User runtime data (conversation memories, auto-generated at runtime)
 smart-assistant-consumer/data/
 
-"*.json"  
 login_tmp.json
 nul
 smart-assitant-router/
+
+# One-off local maintenance and preview artifacts
+.cleanup_unused_imports.py
+.tool_registry_section.md
+login-preview.html
+redesign-preview.html
+e2e-test.json
+tool-call-record.json
+tool-deprecate.json
