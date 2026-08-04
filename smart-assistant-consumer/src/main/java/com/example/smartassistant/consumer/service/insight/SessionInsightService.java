@@ -253,6 +253,7 @@ public class SessionInsightService {
     /** 幂等迁移：为已存在的旧表补齐生命周期列（updated_at / closed_at / resolution） */
     private void ensureTicketSchema() {
         try {
+            jdbcTemplate.execute(CREATE_TICKET_SQL);
             jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP");
             jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP");
             jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS resolution TEXT");
