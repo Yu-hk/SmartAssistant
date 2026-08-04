@@ -22,12 +22,19 @@ public record IngestionResult(
         long elapsedMs,
         List<String> errors,
         String ingestBatchId,
-        boolean pendingApproval
+        boolean pendingApproval,
+        boolean skipped
 ) {
+
+    /** 向后兼容：5 参构造（非跳过结果） */
+    public IngestionResult(int docCount, long elapsedMs, List<String> errors,
+                           String ingestBatchId, boolean pendingApproval) {
+        this(docCount, elapsedMs, errors, ingestBatchId, pendingApproval, false);
+    }
 
     /** 向后兼容：3 参构造（无批次/待审信息） */
     public IngestionResult(int docCount, long elapsedMs, List<String> errors) {
-        this(docCount, elapsedMs, errors, "", false);
+        this(docCount, elapsedMs, errors, "", false, false);
     }
 
     /** 是否成功（无错误、文档数 > 0、且非待审批挂起） */
@@ -52,7 +59,7 @@ public record IngestionResult(
 
     /** 是否跳过（变更检测命中，文档未变更） */
     public boolean isSkipped() {
-        return docCount == 0 && errors.isEmpty() && elapsedMs > 0;
+        return skipped;
     }
 
     /** 空结果（解析为空） */
@@ -78,7 +85,7 @@ public record IngestionResult(
      * @param elapsedMs 检测耗时
      */
     public static IngestionResult skipped(String reason, int docCount, long elapsedMs) {
-        return new IngestionResult(docCount, elapsedMs, List.of("SKIPPED: " + reason));
+        return new IngestionResult(docCount, elapsedMs, Collections.emptyList(), "", false, true);
     }
 
     /**
@@ -89,13 +96,15 @@ public record IngestionResult(
      * @param ingestBatchId 摄入批次 ID（供审批 API 定位批次）
      */
     public static IngestionResult held(int docCount, long elapsedMs, String ingestBatchId) {
-        return new IngestionResult(docCount, elapsedMs, Collections.emptyList(), ingestBatchId, true);
+        return new IngestionResult(docCount, elapsedMs, Collections.emptyList(), ingestBatchId, true, false);
     }
 
     @Override
     public String toString() {
         if (isSkipped()) {
             return "IngestionResult{跳过, 耗时=" + elapsedMs + "ms}";
+        } else if (isHeld()) {
+            return "IngestionResult{待审批, docs=" + docCount + ", batch=" + ingestBatchId + "}";
         } else if (isSuccess()) {
             return "IngestionResult{成功, docs=" + docCount + ", 耗时=" + elapsedMs + "ms}";
         } else if (isPartial()) {

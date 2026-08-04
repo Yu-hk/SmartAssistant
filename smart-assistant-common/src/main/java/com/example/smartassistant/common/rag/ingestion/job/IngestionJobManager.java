@@ -107,6 +107,13 @@ public class IngestionJobManager implements DisposableBean {
             if (result.isFailed()) {
                 repo.update(jobId, j -> j.withStatus(IngestionJobStatus.FAILED)
                         .withErrorMessage(firstError(result)));
+            } else if (result.isHeld()) {
+                repo.update(jobId, j -> j.withStatus(IngestionJobStatus.PENDING_APPROVAL)
+                        .withDocCount(result.docCount())
+                        .withStageNote("待审批批次: " + result.ingestBatchId()));
+            } else if (result.isSkipped()) {
+                repo.update(jobId, j -> j.withStatus(IngestionJobStatus.SKIPPED)
+                        .withDocCount(result.docCount()));
             } else {
                 repo.update(jobId, j -> j.withStatus(IngestionJobStatus.INDEXED)
                         .withDocCount(result.docCount()));

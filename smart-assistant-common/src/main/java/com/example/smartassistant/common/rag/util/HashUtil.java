@@ -79,9 +79,20 @@ public final class HashUtil {
      */
     public static String sha256Hex(String text) {
         if (text == null || text.isBlank()) return "";
+        return sha256HexBytes(text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 直接计算原始字节的 SHA-256，适用于 PDF、DOCX 等二进制文件校验和。
+     *
+     * @param bytes 原始字节
+     * @return 64 字符小写十六进制哈希；输入为 {@code null} 时返回空字符串
+     */
+    public static String sha256HexBytes(byte[] bytes) {
+        if (bytes == null) return "";
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(text.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = md.digest(bytes);
             StringBuilder hex = new StringBuilder(64);
             for (byte b : hash) {
                 hex.append(String.format("%02x", b & 0xff));
