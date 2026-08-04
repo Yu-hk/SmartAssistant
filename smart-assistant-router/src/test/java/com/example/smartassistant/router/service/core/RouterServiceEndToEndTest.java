@@ -50,7 +50,7 @@ import static org.mockito.Mockito.*;
  * 🧪 P3 端到端集成测试
  * ════════════════════════════════════════════════════════════════
  * 测试 RouterService 从 RouteRequest → RoutingResult 的全链路：
- * 关键词快车道 / L3 融合 / LLM 路径 / 意图漂移 / 预算控制 / 经验匹配 / 缓存命中 / 降级兜底
+ * 关键词快车道 / L3 融合 / 融合降级 / 意图漂移 / 预算控制 / 经验匹配 / 缓存命中 / 降级兜底
  * ════════════════════════════════════════════════════════════════
  */
 @ExtendWith(MockitoExtension.class)
@@ -270,19 +270,17 @@ class RouterServiceEndToEndTest {
     }
 
     // ═══════════════════════════════════════════════════════
-    // 🧪 测试 3: LLM 路径 — 融合降级走 LLM
+    // 🧪 测试 3: 融合失败降级 — 不重复调用 LLM
     // ═══════════════════════════════════════════════════════
     @Test
-    @DisplayName("[LLM] 融合结果为 FALLBACK 时退化为 LLM 分析")
-    void testLLMPathWhenFusionMisses() {
+    @DisplayName("[降级] 融合结果为 FALLBACK 时直接使用 General Agent，不重复调用 LLM")
+    void testGeneralFallbackWithoutDuplicateLLMWhenFusionMisses() {
         when(experienceService.match(anyString())).thenReturn(null);
         when(keywordFastRouteService.match(anyString())).thenReturn(null);
 
         when(intentFusionService.fuse(anyString(), anyList()))
                 .thenReturn(IntentFusionResult.fallback(50));
 
-        when(taskAnalysisService.analyze(anyString(), anyList()))
-                .thenReturn(meaningfulResult("complex_query", 0.65));
         when(agentCallerService.callAgent(anyString(), anyString(), anyLong(), any()))
                 .thenReturn("复杂问题的回复");
 
@@ -290,8 +288,12 @@ class RouterServiceEndToEndTest {
                 .userId(1L).question("请分析最近的订单趋势").build());
 
         assertNotNull(result);
-        verify(intentFusionService).fuse(anyString(), anyList());
-        verify(taskAnalysisService).analyze(anyString(), anyList());
+        assertEquals("general", result.getAgentName());
+        assertEquals("复杂问题的回复", result.getResult());
+        verify(intentFusionService).fuse(eq("请分析最近的订单趋势"), anyList());
+        verify(taskAnalysisService, never()).analyze(anyString(), anyList());
+        verify(agentCallerService).callAgent(
+                eq("general"), eq("请分析最近的订单趋势"), eq(1L), isNull());
     }
 
     // ═══════════════════════════════════════════════════════
