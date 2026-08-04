@@ -210,7 +210,8 @@ public class AuthService {
                 refreshToken,
                 user.getId(),
                 user.getUsername(),
-                user.getEmail()
+                user.getEmail(),
+                role
         );
     }
 }

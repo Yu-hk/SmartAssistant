@@ -11,6 +11,7 @@ import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.response.ApiResponse;
 import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.consumer.model.ChatResponse;
+import com.example.smartassistant.consumer.security.AuthenticatedUser;
 import com.example.smartassistant.consumer.service.cache.AnswerCacheService;
 import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationService;
 import com.example.smartassistant.consumer.service.core.ChatConsumerService;
@@ -87,19 +88,13 @@ public class ChatController {
         
         // ⭐ 安全修复：完全信任 Gateway 传来的 X-User-Id Header
         // ⚠️ 不再使用请求体中的 userId，防止身份伪造攻击
-        // Gateway 在 JWT 验证通过后会将用户名放入 X-User-Id Header（类型为 String）
-        String userId;
-        if (userIdFromHeader != null && !userIdFromHeader.isBlank()) {
-            userId = userIdFromHeader;
-            log.debug("[Auth] ✅ 从 Gateway Header 获取 userId: {}", userId);
-        } else {
-            // 未认证用户使用默认值（白名单路径不会有此情况）
-            userId = "anonymous";
-            log.debug("[Auth] ⚠️ 无认证信息，使用匿名用户");
-        }
+        // Gateway 在 JWT 验证通过后会将数字用户 ID 放入 X-User-Id Header
+        AuthenticatedUser authenticatedUser =
+                AuthenticatedUser.require(userIdFromHeader, null, userRoleFromHeader);
+        String userId = String.valueOf(authenticatedUser.userId());
         
         // ⭐ 权限校验：数据统计/查询接口仅限管理员
-        String role = (userRoleFromHeader != null) ? userRoleFromHeader : "ROLE_USER";
+        String role = authenticatedUser.role();
         
         String sessionId = request.getOrDefault("sessionId", null);
         
@@ -116,7 +111,7 @@ public class ChatController {
         ToolLogContext.setRequestId(finalRequestId);
 
         // ⭐ 方案E: 异步预热用户画像缓存（仅对已认证用户）
-        if (!"anonymous".equals(userId) && !userIdFromHeader.isBlank()) {
+        if (!userId.isBlank()) {
             personalizationCacheService.preloadProfile(userId)
                 .subscribe(
                     v -> log.debug("[CachePreload] ✅ 预热完成: userId={}", userId),

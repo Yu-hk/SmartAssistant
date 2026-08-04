@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -137,12 +138,14 @@ public class ChatConsumerService {
         // Step 4: 记录调用日志
         long latencyMs = System.currentTimeMillis() - startTime;
         routingCallLogService.saveLog(
-                userId,
+                userIdLong,
+                threadId,
                 question,
-                "router_service",
+                routedAgent,
                 "ROUTER_SERVICE",
                 latencyMs,
-                "SUCCESS"
+                "SUCCESS",
+                response
         );
 
         log.info("[Consumer] 总耗时: {} ms, 响应长度: {} 字符", latencyMs, response.length());
@@ -209,12 +212,14 @@ public class ChatConsumerService {
         // Step 4: 记录调用日志
         long latencyMs = System.currentTimeMillis() - startTime;
         routingCallLogService.saveLog(
-                userId,
+                userIdLong,
+                sessionId != null && !sessionId.isBlank() ? sessionId : threadId,
                 question,
-                "router_service",
+                routedAgent,
                 "ROUTER_SERVICE",
                 latencyMs,
-                response.containsKey("error") ? "PARTIAL_SUCCESS" : "SUCCESS"
+                response.containsKey("error") ? "PARTIAL_SUCCESS" : "SUCCESS",
+                Objects.toString(response.get("result"), null)
         );
 
         log.info("[Consumer] 总耗时: {} ms, 响应包含 suggestions={}", latencyMs, response.containsKey("suggestions"));

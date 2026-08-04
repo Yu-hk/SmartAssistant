@@ -11,12 +11,16 @@ import com.example.smartassistant.gateway.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
+import reactor.core.publisher.Mono;
 
 import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * GlobalJwtAuthFilter 单元测试
@@ -126,5 +130,46 @@ class GlobalJwtAuthFilterTest {
     @Test
     void emptyWhiteListShouldNotMatchAnything() throws Exception {
         assertFalse(invokeIsWhiteListPath("/api/auth/login", List.of()));
+    }
+
+    @Test
+    void whiteListedRequestDropsClientSuppliedIdentityHeaders() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/public/test")
+                        .header("X-User-Id", "999")
+                        .header("X-User-Role", "ROLE_ADMIN")
+                        .build());
+
+        filter.filter(exchange, downstream -> {
+            assertNull(downstream.getRequest().getHeaders().getFirst("X-User-Id"));
+            assertNull(downstream.getRequest().getHeaders().getFirst("X-User-Role"));
+            return Mono.empty();
+        }).block();
+    }
+
+    @Test
+    void authenticatedRequestReplacesSpoofedIdentityWithJwtClaims() {
+        JwtUtil jwtUtil = mock(JwtUtil.class);
+        ReactiveStringRedisTemplate redisTemplate = mock(ReactiveStringRedisTemplate.class);
+        filter = new GlobalJwtAuthFilter(jwtUtil, redisTemplate, List.of());
+        when(jwtUtil.getTokenIdFromToken("valid-token")).thenReturn("token-id");
+        when(redisTemplate.hasKey("blacklist:token-id")).thenReturn(Mono.just(false));
+        when(jwtUtil.validateToken("valid-token")).thenReturn(true);
+        when(jwtUtil.getUserIdFromToken("valid-token")).thenReturn("42");
+        when(jwtUtil.getUsernameFromToken("valid-token")).thenReturn("alice");
+        when(jwtUtil.getRoleFromToken("valid-token")).thenReturn("ROLE_USER");
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/sessions")
+                        .header("Authorization", "Bearer valid-token")
+                        .header("X-User-Id", "999")
+                        .header("X-User-Role", "ROLE_ADMIN")
+                        .build());
+
+        filter.filter(exchange, downstream -> {
+            assertEquals(List.of("42"), downstream.getRequest().getHeaders().get("X-User-Id"));
+            assertEquals(List.of("alice"), downstream.getRequest().getHeaders().get("X-User-Username"));
+            assertEquals(List.of("ROLE_USER"), downstream.getRequest().getHeaders().get("X-User-Role"));
+            return Mono.empty();
+        }).block();
     }
 }

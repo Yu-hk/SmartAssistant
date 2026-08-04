@@ -12,7 +12,9 @@ import com.example.smartassistant.common.sse.SseEvent;
 import com.example.smartassistant.common.sse.SseEventBus;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
+import com.example.smartassistant.consumer.security.AuthenticatedUser;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;
+import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
 import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
@@ -52,6 +54,7 @@ public class StreamChatController {
     private final StringRedisTemplate redisTemplate;
     private final RequestQueueService requestQueueService;
     private final UserProfileService userProfileService;
+    private final RoutingCallLogService routingCallLogService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public StreamChatController(
@@ -59,11 +62,13 @@ public class StreamChatController {
             AgentStreamClient agentStreamClient,
             RequestQueueService requestQueueService,
             UserProfileService userProfileService,
+            RoutingCallLogService routingCallLogService,
             @Autowired(required = false) StringRedisTemplate redisTemplate) {
         this.routerClient = routerClient;
         this.agentStreamClient = agentStreamClient;
         this.requestQueueService = requestQueueService;
         this.userProfileService = userProfileService;
+        this.routingCallLogService = routingCallLogService;
         this.redisTemplate = redisTemplate;
     }
 
@@ -74,10 +79,11 @@ public class StreamChatController {
             @RequestParam(required = false) String sessionId,
             @RequestParam(required = false, defaultValue = "true") boolean showThinking,
             @RequestParam(required = false, defaultValue = "5") int priority,
-            @RequestParam(required = false) String userId,
+            @RequestHeader(name = "X-User-Id", required = false) String userIdHeader,
             @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId,
             HttpServletResponse response) {
 
+        long startTime = System.currentTimeMillis();
         logger.info("[StreamChat] 流式请求: messageLength={}, requestId={}, priority={}",
                 message != null ? message.length() : 0, requestId, priority);
 
@@ -94,7 +100,8 @@ public class StreamChatController {
         }
 
         // 获取路由决策
-        String effectiveUserId = resolveUserId(userId);
+        String effectiveUserId = String.valueOf(
+                AuthenticatedUser.require(userIdHeader, null, null).userId());
         updateUserProfile(effectiveUserId, message);
         Map<String, Object> decision = getRoutingDecision(
                 requestId, sessionId, message, effectiveUserId, bus);
@@ -123,6 +130,15 @@ public class StreamChatController {
         bus.sendRouted(agentName, confidence);
 
         Object routedResult = decision.get("result");
+        routingCallLogService.saveLog(
+                Long.parseLong(effectiveUserId),
+                sessionId != null && !sessionId.isBlank() ? sessionId : decisionKey,
+                message,
+                agentName,
+                "STREAM_ROUTER",
+                System.currentTimeMillis() - startTime,
+                decision.containsKey("error") ? "PARTIAL_SUCCESS" : "SUCCESS",
+                routedResult == null ? null : routedResult.toString());
         // /route is synchronous and may already contain the completed Agent result.
         // Prefer that result even when Redis advertises a stream URL: forwarding again
         // would execute the same request twice, and non-streaming endpoints can close
@@ -201,7 +217,10 @@ public class StreamChatController {
     }
 
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public void streamChatPost(@RequestBody Map<String, Object> request, HttpServletResponse response) {
+    public void streamChatPost(
+            @RequestHeader(name = "X-User-Id", required = false) String userIdHeader,
+            @RequestBody Map<String, Object> request,
+            HttpServletResponse response) {
         String message = (String) request.getOrDefault("message", request.get("question"));
         String requestId = (String) request.getOrDefault("requestId", null);
         String sessionId = (String) request.getOrDefault("sessionId", null);
@@ -209,8 +228,7 @@ public class StreamChatController {
                 ? (Boolean) request.get("showThinking") : true;
         int priority = request.containsKey("priority")
                 ? ((Number) request.get("priority")).intValue() : RequestQueueService.PRIORITY_NORMAL;
-        String userId = request.get("userId") != null ? request.get("userId").toString() : null;
-        streamChat(message, requestId, sessionId, showThinking, priority, userId, null, response);
+        streamChat(message, requestId, sessionId, showThinking, priority, userIdHeader, null, response);
     }
 
     @PostMapping("/chat/cancel")
@@ -280,31 +298,6 @@ public class StreamChatController {
         } catch (Exception e) {
             logger.error("[StreamChat] 获取决策失败: {}", e.getMessage());
             return null;
-        }
-    }
-
-    /**
-     * 解析用户 ID：从网关注入的 X-User-Id 取；SSE 走白名单(免鉴权)时为 anonymous。
-     */
-    private String resolveUserId(String requestedUserId) {
-        try {
-            var attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attrs != null) {
-                String uid = attrs.getRequest().getHeader("X-User-Id");
-                if (isPositiveUserId(uid)) return uid;
-            }
-        } catch (Exception ignored) {
-        }
-        if (isPositiveUserId(requestedUserId)) return requestedUserId;
-        return "anonymous";
-    }
-
-    private boolean isPositiveUserId(String userId) {
-        if (userId == null || userId.isBlank()) return false;
-        try {
-            return Long.parseLong(userId) > 0;
-        } catch (NumberFormatException ignored) {
-            return false;
         }
     }
 

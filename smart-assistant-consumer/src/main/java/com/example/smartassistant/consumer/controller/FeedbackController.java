@@ -8,6 +8,7 @@
 package com.example.smartassistant.consumer.controller;
 
 import com.example.smartassistant.common.feedback.UserFeedbackService;
+import com.example.smartassistant.consumer.security.AuthenticatedUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
@@ -22,7 +23,6 @@ import java.util.Map;
  * <p>请求体示例：</p>
  * <pre>
  * {
- *   "userId": "123",
  *   "sessionId": "session_abc",
  *   "question": "我的订单到哪了",
  *   "response": "您的订单已发货...",
@@ -44,8 +44,12 @@ public class FeedbackController {
     }
 
     @PostMapping
-    public String submitFeedback(@RequestBody Map<String, String> body) {
-        String userId = body.get("userId");
+    public String submitFeedback(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
+            @RequestBody Map<String, String> body) {
+        String userId = String.valueOf(
+                AuthenticatedUser.require(userIdHeader, null, roleHeader).userId());
         String sessionId = body.get("sessionId");
         String question = body.get("question");
         String response = body.get("response");

@@ -5,8 +5,8 @@ import { apiClient } from './client';
 import type { CustomerProfile, EmotionResult, KbHit, Ticket, TicketResult, TicketStatus } from '../types';
 
 /** 情绪分析：传入最新用户文本，返回情绪标签 / 分数 / 置信度 */
-export async function analyzeEmotion(text: string, userId?: number, triggerTopic?: string): Promise<EmotionResult> {
-  return apiClient.post<EmotionResult>('/insight/emotion', { text, userId, triggerTopic });
+export async function analyzeEmotion(text: string, triggerTopic?: string): Promise<EmotionResult> {
+  return apiClient.post<EmotionResult>('/insight/emotion', { text, triggerTopic });
 }
 
 /** 知识库检索：按查询文本或意图匹配，返回高匹配知识条目 */
@@ -56,10 +56,6 @@ export async function listTickets(params?: {
 }
 
 /** 客户 360° 画像：聚合偏好/事实/记忆/情绪 */
-export async function getProfile(userId?: number, userName?: string): Promise<CustomerProfile> {
-  const params = new URLSearchParams();
-  if (userId !== undefined) params.set('userId', String(userId));
-  if (userName) params.set('userName', userName);
-  const qs = params.toString();
-  return apiClient.get<CustomerProfile>(`/insight/profile${qs ? `?${qs}` : ''}`);
+export async function getProfile(): Promise<CustomerProfile> {
+  return apiClient.get<CustomerProfile>('/insight/profile');
 }
