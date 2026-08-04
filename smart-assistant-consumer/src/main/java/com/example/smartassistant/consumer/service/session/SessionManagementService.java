@@ -55,7 +55,7 @@ public class SessionManagementService {
      * @return 唯一的 threadId
      */
     public String getOrCreateThreadId(String userId) {
-        if (userId == null || userId.isEmpty()) {
+        if (isAnonymous(userId)) {
             // 匿名用户：每次生成新的 threadId
             String newThreadId = generateNewThreadId();
             log.debug("[Session] 匿名用户，生成新 threadId: {}", newThreadId);
@@ -100,7 +100,7 @@ public class SessionManagementService {
      * @return 新的 threadId
      */
     public String refreshSession(String userId) {
-        if (userId == null || userId.isEmpty()) {
+        if (isAnonymous(userId)) {
             return generateNewThreadId();
         }
 
@@ -199,5 +199,9 @@ public class SessionManagementService {
         long timestamp = System.currentTimeMillis();
         long random = (long)(Math.random() * 10000);
         return String.format("session_%d_%d", timestamp, random);
+    }
+
+    private boolean isAnonymous(String userId) {
+        return userId == null || userId.isBlank() || "anonymous".equalsIgnoreCase(userId);
     }
 }

@@ -34,6 +34,12 @@ public class RoutingCallLog {
     private Long id;
 
     /**
+     * Owner of this conversation event.
+     */
+    @TableField("user_id")
+    private Long userId;
+
+    /**
      * 会话 ID
      */
     @TableField("session_id")

@@ -139,7 +139,7 @@ function App() {
         } />
         <Route path="/" element={<ProtectedRoute><AppContent /></ProtectedRoute>} />
         <Route path="/chat/:sessionId" element={<ProtectedRoute><AppContent /></ProtectedRoute>} />
-        <Route path="/admin" element={<ProtectedRoute><AppContent /></ProtectedRoute>} />
+        <Route path="/admin" element={<AdminRoute><AppContent /></AdminRoute>} />
       </Routes>
     </>
   );
@@ -149,6 +149,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return getAuthToken()
     ? <>{children}</>
     : <Navigate to="/login" replace />;
+}
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  if (!getAuthToken()) return <Navigate to="/login" replace />;
+  return getAuthUser()?.role === 'ROLE_ADMIN'
+    ? <>{children}</>
+    : <Navigate to="/" replace />;
 }
 
 function AppContent() {
@@ -217,12 +224,12 @@ function AppContent() {
 
   const handleRateSession = useCallback((score: number) => {
     if (!currentSessionId) return;
-    void rateSession(currentSessionId, score, getAuthUser()?.userId);
+    void rateSession(currentSessionId, score);
   }, [currentSessionId, rateSession]);
 
   const handleCloseSession = useCallback(() => {
     if (!currentSessionId || currentSession?.status === 'closed') return;
-    void closeSession(currentSessionId, getAuthUser()?.userId);
+    void closeSession(currentSessionId);
   }, [closeSession, currentSession?.status, currentSessionId]);
 
   return (
@@ -241,7 +248,9 @@ function AppContent() {
           onSelectSession={handleSelectSession}
           onDeleteSession={handleDeleteSession}
           onSelectAgent={handleSelectAgent}
-          onOpenAdmin={() => navigate('/admin')}
+          onOpenAdmin={getAuthUser()?.role === 'ROLE_ADMIN'
+            ? () => navigate('/admin')
+            : undefined}
           onToggleTheme={toggleTheme}
         />
       )}

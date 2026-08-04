@@ -9,7 +9,7 @@ interface CustomerSidebarProps {
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onSelectAgent: (name: string) => void;
-  onOpenAdmin: () => void;
+  onOpenAdmin?: () => void;
   onToggleTheme: () => void;
 }
 
@@ -89,7 +89,7 @@ export function CustomerSidebar({
         </div>
 
         {/* 新建会话按钮 — 渐变实心 */}
-        <button
+        {onOpenAdmin && <button
           onClick={onNewChat}
           className="neon-btn"
           style={{
@@ -107,7 +107,7 @@ export function CustomerSidebar({
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           新建会话
-        </button>
+        </button>}
       </div>
 
       {/* 可滚动区域：智能体团队 + 我的会话 */}

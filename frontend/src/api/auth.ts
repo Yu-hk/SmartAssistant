@@ -7,6 +7,7 @@ export interface AuthUser {
   userId: number;
   username: string;
   email?: string;
+  role: 'ROLE_USER' | 'ROLE_ADMIN';
 }
 
 interface ApiEnvelope<T> {

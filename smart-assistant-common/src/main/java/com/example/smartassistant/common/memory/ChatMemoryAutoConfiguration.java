@@ -35,7 +35,7 @@ public class ChatMemoryAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(ChatMemoryAutoConfiguration.class);
 
-    @Bean
+    @Bean("smartAssistantChatMemory")
     @ConditionalOnMissingBean(ChatMemory.class)
     public ChatMemory chatMemory(
             @Autowired(required = false) StringRedisTemplate redisTemplate,

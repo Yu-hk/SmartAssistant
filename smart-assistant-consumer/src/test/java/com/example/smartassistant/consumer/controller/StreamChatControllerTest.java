@@ -3,6 +3,7 @@ package com.example.smartassistant.consumer.controller;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;
+import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
 import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 
 class StreamChatControllerTest {
 
@@ -26,8 +29,10 @@ class StreamChatControllerTest {
         AgentStreamClient agentStreamClient = mock(AgentStreamClient.class);
         RequestQueueService requestQueueService = mock(RequestQueueService.class);
         UserProfileService userProfileService = mock(UserProfileService.class);
+        RoutingCallLogService routingCallLogService = mock(RoutingCallLogService.class);
         StreamChatController controller = new StreamChatController(
-                routerClient, agentStreamClient, requestQueueService, userProfileService, null);
+                routerClient, agentStreamClient, requestQueueService, userProfileService,
+                routingCallLogService, null);
 
         String requestId = "req-order-1";
         String question = "Check the latest order logistics status";
@@ -61,5 +66,8 @@ class StreamChatControllerTest {
         verify(agentStreamClient, never()).isStreamingSupported("order_agent");
         verify(agentStreamClient, never()).getStreamUrl("order_agent");
         verify(userProfileService).captureLatentSignals(42L, question);
+        verify(routingCallLogService).saveLog(
+                eq(42L), eq(requestId), eq(question), eq("order_agent"), eq("STREAM_ROUTER"),
+                anyLong(), eq("SUCCESS"), eq(answer));
     }
 }

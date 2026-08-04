@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -139,20 +140,22 @@ class KnowledgeVersioningTest {
         assertFalse(upper.contains("DELETE"),
                 "非覆盖式治理：updateStatus 绝不应物理删除行");
         assertEquals("QUARANTINED", args.getValue()[0]);
-        assertEquals("doc-1", args.getValue()[1]);
+        assertEquals("pg", args.getValue()[1]);
+        assertEquals("doc-1", args.getValue()[2]);
     }
 
     @Test
     void pgVectorListIdsMatchesBaseAndVersioned() {
         PgVectorKnowledgeBase kb = new PgVectorKnowledgeBase("pg", embeddingModel, jdbcTemplate, null);
-        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(), any()))
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(), any(), any()))
                 .thenReturn(List.of("doc-1-v1", "doc-1-v2"));
 
         List<String> ids = kb.listIdsByBaseDocId("doc-1");
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        // query(String, RowMapper, Object, Object)
-        verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), any(), any());
+        // query(String, RowMapper, knowledgeBase, baseDocId, baseDocId)
+        verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class),
+                eq("pg"), eq("doc-1"), eq("doc-1"));
 
         String upper = sql.getValue().toUpperCase();
         assertTrue(upper.contains("ID = ? OR ID LIKE ? || '-%'"),

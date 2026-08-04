@@ -99,9 +99,9 @@ export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
     setTicketError(null);
 
     Promise.allSettled([
-      insightApi.analyzeEmotion(lastUserMessage, userId, intentLabel),
+      insightApi.analyzeEmotion(lastUserMessage, intentLabel),
       insightApi.searchKb(lastUserMessage, intent),
-      userId !== undefined ? insightApi.getProfile(userId, customerName) : Promise.resolve(null),
+      insightApi.getProfile(),
       insightApi.listTickets({ sessionId: session.id }),  // ⭐ P1-C 工单列表
     ]).then(([eRes, kRes, pRes, tRes]) => {
       if (cancelled) return;
@@ -114,15 +114,13 @@ export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
 
     // The first profile read can race with the streaming request that records
     // the latest user signals. Refresh once after that lightweight write.
-    if (userId !== undefined) {
-      profileRefreshTimer = setTimeout(() => {
-        insightApi.getProfile(userId, customerName).then((latestProfile) => {
-          if (!cancelled) setProfile(latestProfile);
-        }).catch(() => {
-          // Keep the first successful profile response when a refresh fails.
-        });
-      }, 1000);
-    }
+    profileRefreshTimer = setTimeout(() => {
+      insightApi.getProfile().then((latestProfile) => {
+        if (!cancelled) setProfile(latestProfile);
+      }).catch(() => {
+        // Keep the first successful profile response when a refresh fails.
+      });
+    }, 1000);
 
     return () => {
       cancelled = true;

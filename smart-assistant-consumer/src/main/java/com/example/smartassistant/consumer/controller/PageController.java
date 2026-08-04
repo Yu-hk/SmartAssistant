@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.consumer.security.AuthenticatedUser;
 import com.example.smartassistant.consumer.service.session.SessionManagementService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
@@ -35,8 +36,11 @@ public class PageController {
      */
     @PostMapping("/api/session/refresh")
     @ResponseBody
-    public ResponseEntity<Map<String, Object>> refreshSession(@RequestBody Map<String, String> request) {
-        String userId = request.get("userId");
+    public ResponseEntity<Map<String, Object>> refreshSession(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader) {
+        String userId = String.valueOf(
+                AuthenticatedUser.require(userIdHeader, null, roleHeader).userId());
         
         String newThreadId = sessionManagementService.refreshSession(userId);
         

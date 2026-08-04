@@ -111,30 +111,37 @@ public class AdminService {
 
     // ==================== 会话管理 ====================
 
-    public List<Map<String, Object>> getSessions() {
+    public List<Map<String, Object>> getSessions(Long userId, boolean admin) {
         try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            String sql =
                     "SELECT r.session_id as id, r.user_input as title, " +
-                    "r.routed_agent as intent, r.created_at, r.status as route_status, " +
+                    "r.user_id, r.routed_agent as intent, r.created_at, r.status as route_status, " +
                     "f.id as feedback_id, f.rating, f.feedback_text " +
                     "FROM routing_call_log r " +
                     "LEFT JOIN conversation_feedback f ON f.id = (" +
-                    "  SELECT MAX(f2.id) FROM conversation_feedback f2 WHERE f2.session_id = r.session_id" +
+                    "  SELECT MAX(f2.id) FROM conversation_feedback f2 " +
+                    "  WHERE f2.session_id = r.session_id AND f2.user_id = r.user_id" +
                     ") " +
                     "WHERE r.session_id IS NOT NULL " +
-                    "ORDER BY r.created_at DESC LIMIT 1000");
+                    (admin ? "" : "AND r.user_id = ? ") +
+                    "ORDER BY r.created_at DESC LIMIT 1000";
+            List<Map<String, Object>> rows = admin
+                    ? jdbcTemplate.queryForList(sql)
+                    : jdbcTemplate.queryForList(sql, userId);
 
             Map<String, Map<String, Object>> sessions = new LinkedHashMap<>();
             for (Map<String, Object> row : rows) {
                 String sessionId = Objects.toString(row.get("id"), "");
                 if (sessionId.isBlank()) continue;
-                Map<String, Object> existing = sessions.get(sessionId);
+                String sessionKey = Objects.toString(row.get("user_id"), "legacy") + ":" + sessionId;
+                Map<String, Object> existing = sessions.get(sessionKey);
                 if (existing != null) {
                     existing.put("messageCount", ((Number) existing.get("messageCount")).intValue() + 2);
                     continue;
                 }
                 Map<String, Object> session = new LinkedHashMap<>();
                 session.put("id", sessionId);
+                session.put("userId", row.get("user_id"));
                 session.put("title", abbreviate(Objects.toString(row.get("title"), "历史会话"), 100));
                 session.put("model", "deepseek-v4-flash");
                 session.put("intent", mapAgentToIntent((String) row.get("intent")));
@@ -143,7 +150,7 @@ public class AdminService {
                 session.put("satisfaction", row.get("rating"));
                 session.put("satisfaction_comment", Objects.toString(row.get("feedback_text"), ""));
                 session.put("messageCount", 2);
-                sessions.put(sessionId, session);
+                sessions.put(sessionKey, session);
                 if (sessions.size() >= 200) break;
             }
             return new ArrayList<>(sessions.values());
@@ -153,23 +160,34 @@ public class AdminService {
         }
     }
 
-    public Map<String, Object> getSessionDetail(String sessionId) {
+    public Map<String, Object> getSessionDetail(String sessionId, Long userId, boolean admin) {
         try {
-            List<Map<String, Object>> logs = jdbcTemplate.queryForList(
+            String logSql =
                     "SELECT id, session_id, user_input, routed_agent, response_summary, " +
-                    "status, error_message, created_at " +
-                    "FROM routing_call_log WHERE session_id = ? ORDER BY created_at",
-                    sessionId);
+                    "status, error_message, created_at, user_id " +
+                    "FROM routing_call_log WHERE session_id = ? " +
+                    (admin ? "" : "AND user_id = ? ") +
+                    "ORDER BY created_at";
+            List<Map<String, Object>> logs = admin
+                    ? jdbcTemplate.queryForList(logSql, sessionId)
+                    : jdbcTemplate.queryForList(logSql, sessionId, userId);
             if (logs.isEmpty()) return Map.of("error", "会话不存在");
 
-            List<Map<String, Object>> feedback = jdbcTemplate.queryForList(
-                    "SELECT rating, feedback_text FROM conversation_feedback " +
-                    "WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 1", sessionId);
+            Number ownerValue = (Number) logs.get(0).get("user_id");
+            Long ownerUserId = ownerValue == null ? null : ownerValue.longValue();
+
+            List<Map<String, Object>> feedback = ownerUserId == null
+                    ? List.of()
+                    : jdbcTemplate.queryForList(
+                            "SELECT rating, feedback_text FROM conversation_feedback " +
+                            "WHERE session_id = ? AND user_id = ? " +
+                            "ORDER BY created_at DESC, id DESC LIMIT 1", sessionId, ownerUserId);
             Map<String, Object> latestFeedback = feedback.isEmpty() ? Map.of() : feedback.get(0);
             Map<String, Object> first = logs.get(0);
 
             Map<String, Object> session = new LinkedHashMap<>();
             session.put("id", sessionId);
+            session.put("userId", ownerUserId);
             session.put("title", abbreviate(Objects.toString(first.get("user_input"), "历史会话"), 100));
             session.put("model", "deepseek-v4-flash");
             session.put("intent", mapAgentToIntent((String) first.get("routed_agent")));
@@ -206,12 +224,22 @@ public class AdminService {
         }
     }
 
-    public boolean deleteSession(String sessionId) {
+    public boolean deleteSession(String sessionId, Long userId, boolean admin) {
         try {
-            int deleted = jdbcTemplate.update(
-                    "DELETE FROM routing_call_log WHERE session_id = ?", sessionId);
-            jdbcTemplate.update(
-                    "DELETE FROM conversation_feedback WHERE session_id = ?", sessionId);
+            int deleted = admin
+                    ? jdbcTemplate.update("DELETE FROM routing_call_log WHERE session_id = ?", sessionId)
+                    : jdbcTemplate.update(
+                            "DELETE FROM routing_call_log WHERE session_id = ? AND user_id = ?",
+                            sessionId, userId);
+            if (deleted > 0) {
+                if (admin) {
+                    jdbcTemplate.update("DELETE FROM conversation_feedback WHERE session_id = ?", sessionId);
+                } else {
+                    jdbcTemplate.update(
+                            "DELETE FROM conversation_feedback WHERE session_id = ? AND user_id = ?",
+                            sessionId, userId);
+                }
+            }
             log.info("[Admin] 删除会话: sessionId={}, deleted={}", sessionId, deleted);
             return deleted > 0;
         } catch (Exception e) {
@@ -220,33 +248,39 @@ public class AdminService {
         }
     }
 
-    public boolean closeSession(String sessionId, Long userId) {
-        return saveFeedback(sessionId, userId, null, null);
+    public boolean closeSession(String sessionId, Long userId, boolean admin) {
+        return saveFeedback(sessionId, userId, admin, null, null);
     }
 
-    public boolean submitSatisfaction(String sessionId, Long userId, int score, String comment) {
+    public boolean submitSatisfaction(
+            String sessionId, Long userId, boolean admin, int score, String comment) {
         if (score < 1 || score > 5) throw new IllegalArgumentException("评分必须在 1-5 之间");
-        return saveFeedback(sessionId, userId, score, comment);
+        return saveFeedback(sessionId, userId, admin, score, comment);
     }
 
-    private boolean saveFeedback(String sessionId, Long userId, Integer score, String comment) {
+    private boolean saveFeedback(
+            String sessionId, Long actorUserId, boolean admin, Integer score, String comment) {
         try {
-            Long sessionCount = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM routing_call_log WHERE session_id = ?",
-                    Long.class, sessionId);
-            if (sessionCount == null || sessionCount == 0) return false;
-            long effectiveUserId = userId != null && userId > 0 ? userId : 1L;
+            String ownerSql = "SELECT user_id FROM routing_call_log WHERE session_id = ? " +
+                    (admin ? "" : "AND user_id = ? ") +
+                    "ORDER BY created_at DESC LIMIT 1";
+            List<Long> owners = admin
+                    ? jdbcTemplate.queryForList(ownerSql, Long.class, sessionId)
+                    : jdbcTemplate.queryForList(ownerSql, Long.class, sessionId, actorUserId);
+            if (owners.isEmpty() || owners.get(0) == null) return false;
+            long ownerUserId = owners.get(0);
             int updated = jdbcTemplate.update(
-                    "UPDATE conversation_feedback SET user_id = ?, rating = ?, feedback_text = ? WHERE session_id = ?",
-                    effectiveUserId, score, comment, sessionId);
+                    "UPDATE conversation_feedback SET rating = ?, feedback_text = ? " +
+                    "WHERE session_id = ? AND user_id = ?",
+                    score, comment, sessionId, ownerUserId);
             if (updated == 0) {
                 String agentName = jdbcTemplate.queryForObject(
-                        "SELECT routed_agent FROM routing_call_log WHERE session_id = ? " +
-                        "ORDER BY created_at DESC LIMIT 1", String.class, sessionId);
+                        "SELECT routed_agent FROM routing_call_log WHERE session_id = ? AND user_id = ? " +
+                        "ORDER BY created_at DESC LIMIT 1", String.class, sessionId, ownerUserId);
                 jdbcTemplate.update(
                         "INSERT INTO conversation_feedback (session_id, user_id, rating, feedback_text, agent_name) " +
                         "VALUES (?, ?, ?, ?, ?)",
-                        sessionId, effectiveUserId, score, comment, agentName);
+                        sessionId, ownerUserId, score, comment, agentName);
             }
             return true;
         } catch (Exception e) {
