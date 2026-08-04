@@ -47,7 +47,7 @@ spring:
         - id: consumer-service
           uri: lb://consumer-service
           predicates:
-            - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/session/**,/assistant/api/sessions/**,/assistant/api/feedback/**,/assistant/api/data/**,/assistant/api/analytics/**,/assistant/api/prompt-monitoring/**,/assistant/api/monitor/**,/assistant/api/faq/**,/assistant/api/check-login/**,/assistant/api/save-env-config/**,/assistant/api/permission-response/**,/assistant/api/admin/**
+            - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/session/**,/assistant/api/sessions/**,/assistant/api/feedback/**,/assistant/api/insight/**,/assistant/api/data/**,/assistant/api/analytics/**,/assistant/api/prompt-monitoring/**,/assistant/api/monitor/**,/assistant/api/faq/**,/assistant/api/check-login/**,/assistant/api/save-env-config/**,/assistant/api/permission-response/**,/assistant/api/admin/**
           filters:
             - StripPrefix=1  # 移除 /assistant，保留 /api/chat 或 /api/math → 匹配 Consumer 的 @RequestMapping("/api/math")
 
@@ -56,7 +56,7 @@ spring:
         - id: consumer-service-bare
           uri: lb://consumer-service
           predicates:
-            - Path=/api/math/**,/api/session/**,/api/feedback/**,/api/data/**,/api/analytics/**,/api/prompt-monitoring/**,/api/monitor/**,/api/sessions/**,/api/faq/**,/api/check-login/**,/api/save-env-config/**,/api/permission-response/**,/api/admin/**
+            - Path=/api/math/**,/api/session/**,/api/feedback/**,/api/insight/**,/api/data/**,/api/analytics/**,/api/prompt-monitoring/**,/api/monitor/**,/api/sessions/**,/api/faq/**,/api/check-login/**,/api/save-env-config/**,/api/permission-response/**,/api/admin/**
           # 不剥离前缀，保留 /api/... 原样转发给 Consumer（其 @RequestMapping 以 /api 开头）
         
         # Router Service 路由（内部服务）

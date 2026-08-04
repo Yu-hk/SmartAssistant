@@ -67,39 +67,43 @@ class SessionInsightServiceTest {
     @Test
     void ticketLifecycle_createUpdateCloseAndList() {
         SessionInsightService.TicketView created =
-                svc.createTicket("sess-1", "refund", "用户要求退款", "张三");
+                svc.createTicket(42L, "sess-1", "refund", "用户要求退款", "张三");
         assertNotNull(created.id());
         assertEquals("OPEN", created.status());
         assertNull(created.resolution());
         assertNull(created.closedAt());
 
         // 正常流转
-        assertEquals("IN_PROGRESS", svc.updateTicketStatus(created.id(), "IN_PROGRESS").status());
-        assertEquals("RESOLVED", svc.updateTicketStatus(created.id(), "RESOLVED").status());
+        assertEquals("IN_PROGRESS", svc.updateTicketStatus(created.id(), 42L, false, "IN_PROGRESS").status());
+        assertEquals("RESOLVED", svc.updateTicketStatus(created.id(), 42L, false, "RESOLVED").status());
 
         // 关闭（终态，附结论）
-        SessionInsightService.TicketView closed = svc.closeTicket(created.id(), "已原路退款");
+        SessionInsightService.TicketView closed = svc.closeTicket(created.id(), 42L, false, "已原路退款");
         assertEquals("CLOSED", closed.status());
         assertEquals("已原路退款", closed.resolution());
         assertNotNull(closed.closedAt());
 
         // 状态机守卫：CLOSED 只能经 closeTicket 进入
         assertThrows(IllegalArgumentException.class,
-                () -> svc.updateTicketStatus(created.id(), "CLOSED"));
+                () -> svc.updateTicketStatus(created.id(), 42L, false, "CLOSED"));
         // 非法状态
         assertThrows(IllegalArgumentException.class,
-                () -> svc.updateTicketStatus(created.id(), "FOO"));
+                () -> svc.updateTicketStatus(created.id(), 42L, false, "FOO"));
         // 空 ticketId
         assertThrows(IllegalArgumentException.class,
-                () -> svc.updateTicketStatus("", "OPEN"));
+                () -> svc.updateTicketStatus("", 42L, false, "OPEN"));
         // 不存在的工单
         assertThrows(RuntimeException.class,
-                () -> svc.updateTicketStatus("nope", "IN_PROGRESS"));
+                () -> svc.updateTicketStatus("nope", 42L, false, "IN_PROGRESS"));
+
+        assertThrows(RuntimeException.class,
+                () -> svc.updateTicketStatus(created.id(), 99L, false, "PENDING"));
 
         // 列表查询
-        List<SessionInsightService.TicketView> list = svc.listTickets("sess-1", null);
+        List<SessionInsightService.TicketView> list = svc.listTickets(42L, false, "sess-1", null);
         assertEquals(1, list.size());
         assertEquals(created.id(), list.get(0).id());
+        assertTrue(svc.listTickets(99L, false, "sess-1", null).isEmpty());
     }
 
     // ===================================================

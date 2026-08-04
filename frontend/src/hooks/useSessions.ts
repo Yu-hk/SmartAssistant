@@ -121,22 +121,22 @@ export function useSessions() {
     return '/';
   }, [sessions, currentSessionId]);
 
-  const closeSession = useCallback(async (sessionId: string, userId?: number) => {
+  const closeSession = useCallback(async (sessionId: string) => {
     setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'closed' } : s));
     try {
-      await sessionApi.closeSession(sessionId, userId);
+      await sessionApi.closeSession(sessionId);
     } catch (e) {
       // 本地会话可以正常结束；远端会话失败时保留前端终态并记录错误供排查。
       if (!(e instanceof ApiError) || e.status !== 404) console.error(e);
     }
   }, []);
 
-  const rateSession = useCallback(async (sessionId: string, score: number, userId?: number) => {
+  const rateSession = useCallback(async (sessionId: string, score: number) => {
     setSessions(prev => prev.map(s => s.id === sessionId
       ? { ...s, satisfaction: score, status: 'closed' }
       : s));
     try {
-      await sessionApi.rateSession(sessionId, score, userId);
+      await sessionApi.rateSession(sessionId, score);
     } catch (e) {
       if (!(e instanceof ApiError) || e.status !== 404) console.error(e);
     }

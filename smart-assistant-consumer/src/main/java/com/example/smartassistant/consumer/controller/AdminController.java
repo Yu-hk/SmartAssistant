@@ -8,12 +8,15 @@
 package com.example.smartassistant.consumer.controller;
 
 import com.example.smartassistant.common.db.PermissionBridgeService;
+import com.example.smartassistant.consumer.security.AuthenticatedUser;
 import com.example.smartassistant.consumer.service.admin.AdminService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
@@ -45,7 +48,10 @@ public class AdminController {
      * GET /api/stats → 前端 AdminPage.OverviewTab
      */
     @GetMapping("/stats")
-    public ResponseEntity<?> getStats() {
+    public ResponseEntity<?> getStats(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader) {
+        requireAdmin(userIdHeader, roleHeader);
         return ResponseEntity.ok(adminService.getStats());
     }
 
@@ -56,8 +62,11 @@ public class AdminController {
      * GET /api/sessions → 前端 SessionsTab
      */
     @GetMapping("/sessions")
-    public ResponseEntity<?> getSessions() {
-        return ResponseEntity.ok(adminService.getSessions());
+    public ResponseEntity<?> getSessions(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
+        return ResponseEntity.ok(adminService.getSessions(user.userId(), user.isAdmin()));
     }
 
     /**
@@ -65,8 +74,13 @@ public class AdminController {
      * GET /api/sessions/{id}
      */
     @GetMapping("/sessions/{id}")
-    public ResponseEntity<?> getSession(@PathVariable String id) {
-        return ResponseEntity.ok(adminService.getSessionDetail(id));
+    public ResponseEntity<?> getSession(
+            @PathVariable String id,
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
+        Map<String, Object> detail = adminService.getSessionDetail(id, user.userId(), user.isAdmin());
+        return detail.containsKey("error") ? ResponseEntity.notFound().build() : ResponseEntity.ok(detail);
     }
 
     /**
@@ -74,9 +88,13 @@ public class AdminController {
      * DELETE /api/sessions/{id}
      */
     @DeleteMapping("/sessions/{id}")
-    public ResponseEntity<?> deleteSession(@PathVariable String id) {
-        boolean deleted = adminService.deleteSession(id);
-        return ResponseEntity.ok(Map.of("success", deleted));
+    public ResponseEntity<?> deleteSession(
+            @PathVariable String id,
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
+        boolean deleted = adminService.deleteSession(id, user.userId(), user.isAdmin());
+        return deleted ? ResponseEntity.ok(Map.of("success", true)) : ResponseEntity.notFound().build();
     }
 
     /**
@@ -85,9 +103,10 @@ public class AdminController {
      */
     @PostMapping("/sessions/{id}/close")
     public ResponseEntity<?> closeSession(@PathVariable String id,
-                                          @RequestBody(required = false) Map<String, Object> body) {
-        Long userId = numberAsLong(body == null ? null : body.get("userId"));
-        boolean closed = adminService.closeSession(id, userId);
+                                          @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+                                          @RequestHeader(value = "X-User-Role", required = false) String roleHeader) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
+        boolean closed = adminService.closeSession(id, user.userId(), user.isAdmin());
         return closed
                 ? ResponseEntity.ok(Map.of("success", true))
                 : ResponseEntity.notFound().build();
@@ -99,21 +118,20 @@ public class AdminController {
      */
     @PostMapping("/sessions/{id}/satisfaction")
     public ResponseEntity<?> submitSatisfaction(@PathVariable String id,
+                                                 @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+                                                 @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
                                                  @RequestBody Map<String, Object> body) {
         Object rawScore = body.get("score");
         if (!(rawScore instanceof Number number) || number.intValue() < 1 || number.intValue() > 5) {
             return ResponseEntity.badRequest().body(Map.of("error", "评分必须在 1-5 之间"));
         }
-        Long userId = numberAsLong(body.get("userId"));
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
         String comment = body.get("comment") == null ? null : String.valueOf(body.get("comment"));
-        boolean saved = adminService.submitSatisfaction(id, userId, number.intValue(), comment);
+        boolean saved = adminService.submitSatisfaction(
+                id, user.userId(), user.isAdmin(), number.intValue(), comment);
         return saved
                 ? ResponseEntity.ok(Map.of("success", true, "message", "感谢您的评价！"))
                 : ResponseEntity.notFound().build();
-    }
-
-    private static Long numberAsLong(Object value) {
-        return value instanceof Number number ? number.longValue() : null;
     }
 
     // ==================== FAQ 管理 ====================
@@ -132,7 +150,11 @@ public class AdminController {
      * POST /api/faq
      */
     @PostMapping("/faq")
-    public ResponseEntity<?> createFaq(@RequestBody Map<String, String> body) {
+    public ResponseEntity<?> createFaq(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
+            @RequestBody Map<String, String> body) {
+        requireAdmin(userIdHeader, roleHeader);
         return ResponseEntity.ok(adminService.createFaq(body));
     }
 
@@ -141,7 +163,12 @@ public class AdminController {
      * PUT /api/faq/{id}
      */
     @PutMapping("/faq/{id}")
-    public ResponseEntity<?> updateFaq(@PathVariable String id, @RequestBody Map<String, String> body) {
+    public ResponseEntity<?> updateFaq(
+            @PathVariable String id,
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
+            @RequestBody Map<String, String> body) {
+        requireAdmin(userIdHeader, roleHeader);
         var result = adminService.updateFaq(id, body);
         if (result == null) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(result);
@@ -152,7 +179,11 @@ public class AdminController {
      * DELETE /api/faq/{id}
      */
     @DeleteMapping("/faq/{id}")
-    public ResponseEntity<?> deleteFaq(@PathVariable String id) {
+    public ResponseEntity<?> deleteFaq(
+            @PathVariable String id,
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader) {
+        requireAdmin(userIdHeader, roleHeader);
         boolean deleted = adminService.deleteFaq(id);
         return deleted ? ResponseEntity.ok(Map.of("success", true))
                 : ResponseEntity.notFound().build();
@@ -174,8 +205,16 @@ public class AdminController {
      * GET /api/check-login
      */
     @GetMapping("/check-login")
-    public ResponseEntity<?> checkLogin() {
-        return ResponseEntity.ok(Map.of("loggedIn", true));
+    public ResponseEntity<?> checkLogin(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Username", required = false) String usernameHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, usernameHeader, roleHeader);
+        return ResponseEntity.ok(Map.of(
+                "loggedIn", true,
+                "userId", user.userId(),
+                "username", user.username() == null ? "" : user.username(),
+                "role", user.role()));
     }
 
     /**
@@ -183,7 +222,11 @@ public class AdminController {
      * POST /api/save-env-config
      */
     @PostMapping("/save-env-config")
-    public ResponseEntity<?> saveEnvConfig(@RequestBody Map<String, Object> config) {
+    public ResponseEntity<?> saveEnvConfig(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
+            @RequestBody Map<String, Object> config) {
+        requireAdmin(userIdHeader, roleHeader);
         log.info("[Admin] 保存环境配置: keys={}", config.keySet());
         return ResponseEntity.ok(Map.of("success", true));
     }
@@ -221,7 +264,18 @@ public class AdminController {
      * GET /api/admin/costs
      */
     @GetMapping("/admin/costs")
-    public ResponseEntity<?> getCosts() {
+    public ResponseEntity<?> getCosts(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader) {
+        requireAdmin(userIdHeader, roleHeader);
         return ResponseEntity.ok(adminService.getCosts());
+    }
+
+    private static AuthenticatedUser requireAdmin(String userIdHeader, String roleHeader) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
+        if (!user.isAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Administrator role required");
+        }
+        return user;
     }
 }

@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.consumer.security.AuthenticatedUser;
 import com.example.smartassistant.consumer.service.insight.CustomerProfileVO;
 import com.example.smartassistant.consumer.service.insight.SessionInsightService;
 import org.slf4j.Logger;
@@ -15,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -53,13 +55,12 @@ public class InsightController {
      * POST /api/insight/emotion  Body: {"text": "...", "userId": 123}
      */
     @PostMapping("/emotion")
-    public ResponseEntity<Map<String, Object>> analyzeEmotion(@RequestBody(required = false) Map<String, Object> body) {
+    public ResponseEntity<Map<String, Object>> analyzeEmotion(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
+            @RequestBody(required = false) Map<String, Object> body) {
         String text = (body == null) ? "" : (String) body.getOrDefault("text", "");
-        // 可选 userId，传入后用于情绪历史追踪
-        Long userId = null;
-        if (body != null && body.get("userId") instanceof Number n) {
-            userId = n.longValue();
-        }
+        Long userId = AuthenticatedUser.require(userIdHeader, null, roleHeader).userId();
         String triggerTopic = (body == null) ? null : (String) body.get("triggerTopic");
         SessionInsightService.EmotionResult r = insightService.analyzeEmotion(text, userId, triggerTopic);
         return ResponseEntity.ok(Map.of(
@@ -75,8 +76,11 @@ public class InsightController {
      */
     @GetMapping("/kb-search")
     public ResponseEntity<Map<String, Object>> searchKb(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
             @RequestParam(value = "query", required = false) String query,
             @RequestParam(value = "intent", required = false) String intent) {
+        AuthenticatedUser.require(userIdHeader, null, roleHeader);
         List<SessionInsightService.KbHit> hits = insightService.searchKb(query, intent);
         return ResponseEntity.ok(Map.of("hits", hits, "count", hits.size()));
     }
@@ -86,13 +90,18 @@ public class InsightController {
      * POST /api/insight/ticket  Body: {"sessionId","intent","summary","customerName"}
      */
     @PostMapping("/ticket")
-    public ResponseEntity<Map<String, Object>> createTicket(@RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> createTicket(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
+            @RequestBody Map<String, String> body) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
         String sessionId = body.getOrDefault("sessionId", "");
         String intent = body.getOrDefault("intent", "unknown");
         String summary = body.getOrDefault("summary", "");
         String customerName = body.getOrDefault("customerName", "");
         try {
-            SessionInsightService.TicketView t = insightService.createTicket(sessionId, intent, summary, customerName);
+            SessionInsightService.TicketView t = insightService.createTicket(
+                    user.userId(), sessionId, intent, summary, customerName);
             return ResponseEntity.ok(Map.of("id", t.id(), "status", t.status()));
         } catch (Exception e) {
             log.warn("[Insight] 工单创建返回失败态: {}", e.getMessage());
@@ -105,11 +114,16 @@ public class InsightController {
      * POST /api/insight/ticket/status  Body: {"ticketId","status"}
      */
     @PostMapping("/ticket/status")
-    public ResponseEntity<Map<String, Object>> updateTicketStatus(@RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> updateTicketStatus(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
+            @RequestBody Map<String, String> body) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
         String ticketId = body.get("ticketId");
         String status = body.get("status");
         try {
-            SessionInsightService.TicketView t = insightService.updateTicketStatus(ticketId, status);
+            SessionInsightService.TicketView t = insightService.updateTicketStatus(
+                    ticketId, user.userId(), user.isAdmin(), status);
             return ResponseEntity.ok(Map.of("id", t.id(), "status", t.status(), "updatedAt", t.updatedAt()));
         } catch (Exception e) {
             log.warn("[Insight] 工单状态更新失败: {}", e.getMessage());
@@ -122,11 +136,16 @@ public class InsightController {
      * POST /api/insight/ticket/close  Body: {"ticketId","resolution"}
      */
     @PostMapping("/ticket/close")
-    public ResponseEntity<Map<String, Object>> closeTicket(@RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> closeTicket(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
+            @RequestBody Map<String, String> body) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
         String ticketId = body.get("ticketId");
         String resolution = body.getOrDefault("resolution", "");
         try {
-            SessionInsightService.TicketView t = insightService.closeTicket(ticketId, resolution);
+            SessionInsightService.TicketView t = insightService.closeTicket(
+                    ticketId, user.userId(), user.isAdmin(), resolution);
             return ResponseEntity.ok(Map.of("id", t.id(), "status", t.status(), "closedAt", t.closedAt()));
         } catch (Exception e) {
             log.warn("[Insight] 工单关闭失败: {}", e.getMessage());
@@ -140,9 +159,13 @@ public class InsightController {
      */
     @GetMapping("/tickets")
     public ResponseEntity<List<SessionInsightService.TicketView>> listTickets(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
             @RequestParam(value = "sessionId", required = false) String sessionId,
             @RequestParam(value = "customerName", required = false) String customerName) {
-        List<SessionInsightService.TicketView> tickets = insightService.listTickets(sessionId, customerName);
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, null, roleHeader);
+        List<SessionInsightService.TicketView> tickets = insightService.listTickets(
+                user.userId(), user.isAdmin(), sessionId, customerName);
         return ResponseEntity.ok(tickets);
     }
 
@@ -152,9 +175,15 @@ public class InsightController {
      */
     @GetMapping("/profile")
     public ResponseEntity<CustomerProfileVO> getProfile(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
+            @RequestHeader(value = "X-User-Username", required = false) String usernameHeader,
+            @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
             @RequestParam(value = "userId", required = false) Long userId,
             @RequestParam(value = "userName", required = false) String userName) {
-        CustomerProfileVO profile = insightService.getCustomerProfile(userId, userName);
+        AuthenticatedUser user = AuthenticatedUser.require(userIdHeader, usernameHeader, roleHeader);
+        Long targetUserId = user.isAdmin() && userId != null ? userId : user.userId();
+        String targetUserName = user.isAdmin() && userName != null ? userName : user.username();
+        CustomerProfileVO profile = insightService.getCustomerProfile(targetUserId, targetUserName);
         return ResponseEntity.ok(profile);
     }
 }

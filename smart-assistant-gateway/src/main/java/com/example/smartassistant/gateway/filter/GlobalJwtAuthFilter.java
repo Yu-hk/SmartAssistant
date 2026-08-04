@@ -33,6 +33,10 @@ import java.util.List;
 @Slf4j
 public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
 
+    static final String USER_ID_HEADER = "X-User-Id";
+    static final String USERNAME_HEADER = "X-User-Username";
+    static final String USER_ROLE_HEADER = "X-User-Role";
+
     private final JwtUtil jwtUtil;
     private final ReactiveStringRedisTemplate redisTemplate;
     private final List<String> whiteList;
@@ -46,13 +50,18 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        ServerHttpRequest request = exchange.getRequest();
+        ServerHttpRequest request = exchange.getRequest().mutate().headers(headers -> {
+            headers.remove(USER_ID_HEADER);
+            headers.remove(USERNAME_HEADER);
+            headers.remove(USER_ROLE_HEADER);
+        }).build();
+        ServerWebExchange sanitizedExchange = exchange.mutate().request(request).build();
         String path = request.getURI().getPath();
 
         // 检查是否在白名单中
         if (isWhiteListPath(path, whiteList)) {
             log.debug("[JWT] 路径 {} 在白名单中，跳过认证", path);
-            return chain.filter(exchange);
+            return chain.filter(sanitizedExchange);
         }
 
         // 检查是否有 Authorization 头
@@ -60,7 +69,7 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             log.warn("[JWT] 缺少有效的 Authorization 头: {}", authHeader);
-            return unauthorizedResponse(exchange, "Missing or invalid Authorization header");
+            return unauthorizedResponse(sanitizedExchange, "Missing or invalid Authorization header");
         }
 
         String token = authHeader.substring(7); // 移除 "Bearer " 前缀
@@ -72,34 +81,52 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
                 .flatMap(isBlacklisted -> {
                     if (Boolean.TRUE.equals(isBlacklisted)) {
                         log.warn("[JWT] Token 已在黑名单中");
-                        return unauthorizedResponse(exchange, "Token has been revoked");
+                        return unauthorizedResponse(sanitizedExchange, "Token has been revoked");
                     }
                     
                     // 2. 验证 Token
                     if (!jwtUtil.validateToken(token)) {
                         log.warn("[JWT] Token 验证失败");
-                        return unauthorizedResponse(exchange, "Invalid token");
+                        return unauthorizedResponse(sanitizedExchange, "Invalid token");
                     }
                     
                     // 3. 从 Token 中提取用户信息并传递给下游服务
                     String userId = jwtUtil.getUserIdFromToken(token);
                     String username = jwtUtil.getUsernameFromToken(token);
                     String role = jwtUtil.getRoleFromToken(token);
+
+                    if (!isPositiveUserId(userId)) {
+                        log.warn("[JWT] Token is missing a valid userId claim");
+                        return unauthorizedResponse(sanitizedExchange, "Invalid user identity");
+                    }
+                    String effectiveRole = role == null || role.isBlank() ? "ROLE_USER" : role;
                     
                     // 将用户信息添加到请求头中传递给下游服务
-                    ServerHttpRequest.Builder builder = request.mutate();
-                    builder.header("X-User-Id", userId);
-                    builder.header("X-User-Username", username);
-                    builder.header("X-User-Role", role);
+                    ServerHttpRequest.Builder builder = request.mutate().headers(headers -> {
+                        headers.set(USER_ID_HEADER, userId);
+                        if (username != null && !username.isBlank()) {
+                            headers.set(USERNAME_HEADER, username);
+                        }
+                        headers.set(USER_ROLE_HEADER, effectiveRole);
+                    });
                     
                     log.info("[JWT] 认证成功: 用户ID={}, 用户名={}, 角色={}", userId, username, role);
                     
-                    return chain.filter(exchange.mutate().request(builder.build()).build());
+                    return chain.filter(sanitizedExchange.mutate().request(builder.build()).build());
                 });
 
         } catch (Exception e) {
             log.error("[JWT] 认证过程异常: {}", e.getMessage(), e);
-            return unauthorizedResponse(exchange, "认证服务异常，请稍后重试");
+            return unauthorizedResponse(sanitizedExchange, "认证服务异常，请稍后重试");
+        }
+    }
+
+    private boolean isPositiveUserId(String userId) {
+        if (userId == null || userId.isBlank()) return false;
+        try {
+            return Long.parseLong(userId) > 0;
+        } catch (NumberFormatException exception) {
+            return false;
         }
     }
 

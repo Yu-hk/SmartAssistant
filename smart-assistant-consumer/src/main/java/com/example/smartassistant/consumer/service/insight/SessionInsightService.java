@@ -231,7 +231,7 @@ public class SessionInsightService {
      * closedAt / resolution 在工单关闭前为 null / 空串。
      */
     public record TicketView(
-            String id, String sessionId, String intent, String summary,
+            String id, Long userId, String sessionId, String intent, String summary,
             String customerName, String status,
             String createdAt, String updatedAt, String closedAt, String resolution
     ) {}
@@ -239,6 +239,7 @@ public class SessionInsightService {
     private static final String CREATE_TICKET_SQL =
             "CREATE TABLE IF NOT EXISTS insight_ticket (" +
             "id VARCHAR(64) PRIMARY KEY, " +
+            "user_id BIGINT, " +
             "session_id VARCHAR(64), " +
             "intent VARCHAR(32), " +
             "summary TEXT, " +
@@ -255,6 +256,10 @@ public class SessionInsightService {
             jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP");
             jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP");
             jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS resolution TEXT");
+            jdbcTemplate.execute("ALTER TABLE insight_ticket ADD COLUMN IF NOT EXISTS user_id BIGINT");
+            jdbcTemplate.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_insight_ticket_user_created " +
+                    "ON insight_ticket (user_id, created_at DESC)");
         } catch (Exception e) {
             log.warn("[Insight] 工单表迁移跳过: {}", e.getMessage());
         }
@@ -263,19 +268,20 @@ public class SessionInsightService {
     /**
      * 创建工单并持久化，返回完整工单视图。
      */
-    public TicketView createTicket(String sessionId, String intent, String summary, String customerName) {
+    public TicketView createTicket(
+            Long userId, String sessionId, String intent, String summary, String customerName) {
         try {
             jdbcTemplate.execute(CREATE_TICKET_SQL);
             ensureTicketSchema();
             String id = UUID.randomUUID().toString().replace("-", "");
             LocalDateTime now = LocalDateTime.now();
             jdbcTemplate.update(
-                    "INSERT INTO insight_ticket (id, session_id, intent, summary, customer_name, status, created_at, updated_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    id, sessionId, intent, summary, customerName, "OPEN", now, now
+                    "INSERT INTO insight_ticket (id, user_id, session_id, intent, summary, customer_name, status, created_at, updated_at) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    id, userId, sessionId, intent, summary, customerName, "OPEN", now, now
             );
             log.info("[Insight] 工单已创建: id={}, sessionId={}, intent={}", id, sessionId, intent);
-            return new TicketView(id, sessionId, intent, summary, customerName, "OPEN",
+            return new TicketView(id, userId, sessionId, intent, summary, customerName, "OPEN",
                     now.format(DT_FMT), now.format(DT_FMT), null, null);
         } catch (Exception e) {
             log.error("[Insight] 工单创建失败: {}", e.getMessage(), e);
@@ -287,7 +293,7 @@ public class SessionInsightService {
      * 推进工单状态（生命周期）。
      * 允许在合法状态集合内任意流转，但 CLOSED 视为终态，需通过 {@link #closeTicket} 进入。
      */
-    public TicketView updateTicketStatus(String ticketId, String status) {
+    public TicketView updateTicketStatus(String ticketId, Long userId, boolean admin, String status) {
         if (ticketId == null || ticketId.isBlank()) throw new IllegalArgumentException("ticketId 不能为空");
         String norm = (status == null) ? "" : status.trim().toUpperCase();
         if (!TICKET_STATUSES.contains(norm) || "CLOSED".equals(norm)) {
@@ -295,11 +301,15 @@ public class SessionInsightService {
         }
         try {
             ensureTicketSchema();
-            int n = jdbcTemplate.update(
-                    "UPDATE insight_ticket SET status = ?, updated_at = ? WHERE id = ?",
-                    norm, LocalDateTime.now(), ticketId);
+            int n = admin
+                    ? jdbcTemplate.update(
+                            "UPDATE insight_ticket SET status = ?, updated_at = ? WHERE id = ?",
+                            norm, LocalDateTime.now(), ticketId)
+                    : jdbcTemplate.update(
+                            "UPDATE insight_ticket SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                            norm, LocalDateTime.now(), ticketId, userId);
             if (n == 0) throw new RuntimeException("工单不存在: " + ticketId);
-            return getTicket(ticketId);
+            return getTicket(ticketId, userId, admin);
         } catch (RuntimeException re) {
             throw re;
         } catch (Exception e) {
@@ -310,16 +320,21 @@ public class SessionInsightService {
     /**
      * 关闭工单（终态）。可附带处理结论，记录 closed_at。
      */
-    public TicketView closeTicket(String ticketId, String resolution) {
+    public TicketView closeTicket(String ticketId, Long userId, boolean admin, String resolution) {
         if (ticketId == null || ticketId.isBlank()) throw new IllegalArgumentException("ticketId 不能为空");
         try {
             ensureTicketSchema();
             LocalDateTime now = LocalDateTime.now();
-            int n = jdbcTemplate.update(
-                    "UPDATE insight_ticket SET status = 'CLOSED', closed_at = ?, updated_at = ?, resolution = ? WHERE id = ?",
-                    now, now, resolution == null ? "" : resolution, ticketId);
+            int n = admin
+                    ? jdbcTemplate.update(
+                            "UPDATE insight_ticket SET status = 'CLOSED', closed_at = ?, updated_at = ?, resolution = ? WHERE id = ?",
+                            now, now, resolution == null ? "" : resolution, ticketId)
+                    : jdbcTemplate.update(
+                            "UPDATE insight_ticket SET status = 'CLOSED', closed_at = ?, updated_at = ?, resolution = ? " +
+                            "WHERE id = ? AND user_id = ?",
+                            now, now, resolution == null ? "" : resolution, ticketId, userId);
             if (n == 0) throw new RuntimeException("工单不存在: " + ticketId);
-            return getTicket(ticketId);
+            return getTicket(ticketId, userId, admin);
         } catch (RuntimeException re) {
             throw re;
         } catch (Exception e) {
@@ -331,12 +346,16 @@ public class SessionInsightService {
      * 按 sessionId 或 customerName 查询工单列表（前端面板展示）。
      * 两个参数均为可选，同时为空时返回最近 100 条。
      */
-    public List<TicketView> listTickets(String sessionId, String customerName) {
+    public List<TicketView> listTickets(
+            Long userId, boolean admin, String sessionId, String customerName) {
         try {
             ensureTicketSchema();
-            String sql = "SELECT id, session_id, intent, summary, customer_name, status, " +
+            String sql = "SELECT id, user_id, session_id, intent, summary, customer_name, status, " +
                     "created_at, updated_at, closed_at, resolution FROM insight_ticket WHERE 1=1";
             List<Object> args = new ArrayList<>();
+            if (!admin) {
+                sql += " AND user_id = ?"; args.add(userId);
+            }
             if (sessionId != null && !sessionId.isBlank()) {
                 sql += " AND session_id = ?"; args.add(sessionId);
             }
@@ -346,6 +365,7 @@ public class SessionInsightService {
             sql += " ORDER BY created_at DESC LIMIT 100";
             return jdbcTemplate.query(sql, (rs, rowNum) -> new TicketView(
                     rs.getString("id"),
+                    rs.getObject("user_id", Long.class),
                     rs.getString("session_id"),
                     rs.getString("intent"),
                     rs.getString("summary"),
@@ -363,14 +383,17 @@ public class SessionInsightService {
     }
 
     /** 单工单详情 */
-    public TicketView getTicket(String ticketId) {
+    public TicketView getTicket(String ticketId, Long userId, boolean admin) {
         try {
             ensureTicketSchema();
-            return jdbcTemplate.queryForObject(
-                    "SELECT id, session_id, intent, summary, customer_name, status, " +
-                    "created_at, updated_at, closed_at, resolution FROM insight_ticket WHERE id = ?",
+            String sql = "SELECT id, user_id, session_id, intent, summary, customer_name, status, " +
+                    "created_at, updated_at, closed_at, resolution FROM insight_ticket WHERE id = ? " +
+                    (admin ? "" : "AND user_id = ?");
+            Object[] args = admin ? new Object[]{ticketId} : new Object[]{ticketId, userId};
+            return jdbcTemplate.queryForObject(sql,
                     (rs, rowNum) -> new TicketView(
                             rs.getString("id"),
+                            rs.getObject("user_id", Long.class),
                             rs.getString("session_id"),
                             rs.getString("intent"),
                             rs.getString("summary"),
@@ -380,7 +403,7 @@ public class SessionInsightService {
                             formatTs(rs.getTimestamp("updated_at")),
                             formatTs(rs.getTimestamp("closed_at")),
                             rs.getString("resolution")
-                    ), ticketId);
+                    ), args);
         } catch (Exception e) {
             log.warn("[Insight] 工单查询失败: {}", e.getMessage());
             return null;

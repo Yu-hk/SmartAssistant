@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.consumer.security.AuthenticatedUser;
 import com.example.smartassistant.consumer.service.data.HybridDataQueryService;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
@@ -49,13 +50,15 @@ public class DataQueryController {
     @PostMapping("/query")
     @RateLimiter(name = "chatRateLimiter")
     public Mono<Map<String, Object>> query(
+            @RequestHeader(value = "X-User-Id", required = false) String userIdFromHeader,
             @RequestHeader(value = "X-User-Role", required = false) String userRoleFromHeader,
             @RequestBody Map<String, String> request) {
         long startTime = System.currentTimeMillis();
 
         // 1. 权限校验：数据查询仅限 ADMIN
-        String role = (userRoleFromHeader != null) ? userRoleFromHeader : "ROLE_USER";
-        if (!isAdmin(role)) {
+        AuthenticatedUser user = AuthenticatedUser.require(userIdFromHeader, null, userRoleFromHeader);
+        if (!user.isAdmin()) {
+            String role = user.role();
             log.warn("[DataQuery] ⛔ 拒绝非管理员数据查询请求: role={}", role);
             return Mono.just(buildForbiddenResponse());
         }
@@ -174,10 +177,6 @@ public class DataQueryController {
             log.warn("[DataQuery/LLM] LLM 判断失败: {}", e.getMessage());
         }
         return false;
-    }
-
-    private boolean isAdmin(String role) {
-        return "ROLE_ADMIN".equalsIgnoreCase(role);
     }
 
     private Map<String, Object> buildForbiddenResponse() {

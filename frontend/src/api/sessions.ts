@@ -4,13 +4,8 @@
 import { apiClient } from './client';
 import type { Session, FaqItem } from '../types';
 
-export interface CreateSessionParams {
-  userId: string;
-}
-
 export interface ChatRequest {
   message: string;
-  userId?: string;
   sessionId?: string | null;
   requestId?: string;
 }
@@ -41,18 +36,17 @@ export async function deleteSession(sessionId: string): Promise<void> {
 }
 
 /** 主动结束会话（无需评分） */
-export async function closeSession(sessionId: string, userId?: number): Promise<void> {
-  return apiClient.post(`/sessions/${sessionId}/close`, { userId });
+export async function closeSession(sessionId: string): Promise<void> {
+  return apiClient.post(`/sessions/${sessionId}/close`, {});
 }
 
 /** 提交满意度并结束会话 */
 export async function rateSession(
   sessionId: string,
   score: number,
-  userId?: number,
   comment?: string,
 ): Promise<void> {
-  return apiClient.post(`/sessions/${sessionId}/satisfaction`, { score, userId, comment });
+  return apiClient.post(`/sessions/${sessionId}/satisfaction`, { score, comment });
 }
 
 /** 发送聊天消息 */
