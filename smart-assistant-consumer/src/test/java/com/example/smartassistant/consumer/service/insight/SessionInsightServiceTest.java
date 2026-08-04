@@ -65,6 +65,17 @@ class SessionInsightServiceTest {
     // P1-C 工单生命周期
     // ===================================================
     @Test
+    void ticketListInitializesIdentitySchemaBeforeTheFirstTicket() {
+        assertTrue(svc.listTickets(42L, false, null, null).isEmpty());
+
+        Integer userIdColumns = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS " +
+                        "WHERE TABLE_NAME = 'INSIGHT_TICKET' AND COLUMN_NAME = 'USER_ID'",
+                Integer.class);
+        assertEquals(1, userIdColumns);
+    }
+
+    @Test
     void ticketLifecycle_createUpdateCloseAndList() {
         SessionInsightService.TicketView created =
                 svc.createTicket(42L, "sess-1", "refund", "用户要求退款", "张三");
