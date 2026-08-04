@@ -15,6 +15,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -32,6 +33,7 @@ import java.util.regex.Pattern;
  * <p>提取原则：只提取用户明确表达的偏好，跳过临时对话细节和一次性信息。</p>
  */
 @Component
+@ConditionalOnBean(name = "lightChatModel")
 public class MemoryExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(MemoryExtractor.class);
