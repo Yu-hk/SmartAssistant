@@ -11,6 +11,7 @@ package com.example.smartassistant.common.rag.ingestion.job;
  * 摄取任务状态机——对标生产级 RAG「异步可追踪数据链路」。
  *
  * <p>状态流转：{@code UPLOADED → PARSING → CHUNKING → EMBEDDING → INDEXED}；
+ * 未变化文档进入 {@code SKIPPED}，需人工审批的批次进入 {@code PENDING_APPROVAL}；
  * 任意阶段异常进入 {@code FAILED}；重试经 {@code RETRYING} 短暂态后回到执行链。</p>
  *
  * <p>进度百分比随状态单调递增，便于前端轮询展示；{@code FAILED}/{@code RETRYING}
@@ -23,6 +24,8 @@ public enum IngestionJobStatus {
     CHUNKING(45, "语义分块中"),
     EMBEDDING(80, "向量化与入库中"),
     INDEXED(100, "入库完成"),
+    SKIPPED(100, "内容未变化，已跳过"),
+    PENDING_APPROVAL(90, "已隔离入库，等待审批"),
     FAILED(0, "失败"),
     RETRYING(0, "重试中");
 
@@ -46,7 +49,7 @@ public enum IngestionJobStatus {
 
     /** 是否终态（成功或失败，不再变化） */
     public boolean isTerminal() {
-        return this == INDEXED || this == FAILED;
+        return this == INDEXED || this == SKIPPED || this == PENDING_APPROVAL || this == FAILED;
     }
 
     /** 是否失败终态 */

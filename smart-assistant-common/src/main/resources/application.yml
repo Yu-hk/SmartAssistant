@@ -37,12 +37,12 @@ otel:
 app:
   rag:
     mineru:
-      enabled: true                        # 总开关（部署环境已安装 magic-pdf 后启用）
-      route-on-images: true                # 含图片即路由 MinerU（OCR+版面+表格），让数字手册中的图片/表格经 MinerU 入索引
-      sidecar-command: ${MINERU_SIDECAR_CMD:C:/Users/14928/.workbuddy/binaries/python/envs/mineru/Scripts/python.exe C:/Users/14928/.workbuddy/binaries/python/envs/mineru/mineru_sidecar.py}
+      enabled: ${MINERU_ENABLED:false}      # 显式启用；未安装 sidecar 的环境安全使用 PDFBox
+      route-on-images: ${MINERU_ROUTE_ON_IMAGES:true} # 含图片即路由 MinerU（仅 enabled=true 时生效）
+      sidecar-command: ${MINERU_SIDECAR_CMD:python mineru_sidecar.py}
       warm-instances: 1                    # 进程池预热实例数（模型仅加载一次）
       timeout-ms: 600000                   # 单次解析超时（毫秒，65 页文档 MinerU 较慢）
       fallback-to-pdfbox: true             # MinerU 失败回退 PDFBox 全链路
       caption-exclusive: true              # R5 caption 独占：MinerU 活跃时禁用 PDFBox 图片 caption/OCR
-      images-temp-dir: ${MINERU_IMAGES_TMP:C:/tmp/mineru}       # MinerU 抽取图片临时目录（覆盖用 MINERU_IMAGES_TMP 环境变量）
+      images-temp-dir: ${MINERU_IMAGES_TMP:/tmp/mineru}         # MinerU 抽取图片临时目录
       enabled-image-vectorization: false   # 图片向量化（v1 仅存路径，不向量化）

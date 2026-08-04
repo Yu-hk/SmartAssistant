@@ -62,15 +62,23 @@ public class SemanticChunkStrategy implements ChunkStrategy {
     public List<Chunk> chunk(String text, int maxTokens, int overlap) {
         if (text == null || text.isBlank()) return List.of();
         if (maxTokens <= 0) maxTokens = ChunkStrategy.defaultMaxTokens();
+        if (overlap < 0) overlap = 0;
+        if (overlap >= maxTokens) overlap = Math.max(0, maxTokens - 1);
+
+        // 为重叠前缀预留容量，保证最终 prefix + text 仍不超过 maxTokens。
+        int payloadMaxTokens = Math.max(1, maxTokens - overlap);
 
         // Stage 1: 按语义边界切分为段落组
         List<String> sections = splitBySemanticBoundaries(text);
 
         // Stage 2: 将段落组合并为不超过 maxTokens 的 chunk
-        List<Chunk> result = mergeSections(sections, maxTokens);
+        List<Chunk> result = mergeSections(sections, payloadMaxTokens);
 
         // Stage 3: 对仍超长的段落进行递归分块 fallback
-        result = applyFallbackForOversized(result, maxTokens);
+        result = applyFallbackForOversized(result, payloadMaxTokens);
+
+        // Stage 4: 从上一块尾部提取 overlap token 作为当前块前缀。
+        result = applyOverlap(result, overlap, maxTokens);
 
         log.debug("[SemanticChunk] 分块完成: textLen={}, sections={}, chunks={}",
                 text.length(), sections.size(), result.size());
@@ -188,5 +196,44 @@ public class SemanticChunkStrategy implements ChunkStrategy {
             }
         }
         return result;
+    }
+
+    private List<Chunk> applyOverlap(List<Chunk> chunks, int overlap, int maxTokens) {
+        if (overlap <= 0 || chunks.size() <= 1) return chunks;
+
+        List<Chunk> result = new ArrayList<>(chunks.size());
+        result.add(chunks.get(0));
+        for (int i = 1; i < chunks.size(); i++) {
+            Chunk previous = result.get(i - 1);
+            String previousContent = previous.getPrefix() + previous.getText();
+            String prefix = suffixWithinTokenBudget(previousContent, overlap);
+            Chunk current = chunks.get(i);
+            int totalTokens = RecursiveChunkStrategy.estimateTokens(prefix + current.getText());
+            if (totalTokens > maxTokens) {
+                int available = Math.max(0,
+                        maxTokens - RecursiveChunkStrategy.estimateTokens(current.getText()));
+                prefix = suffixWithinTokenBudget(previousContent, available);
+                totalTokens = RecursiveChunkStrategy.estimateTokens(prefix + current.getText());
+            }
+            result.add(new Chunk(current.getText(), current.getIndex(), totalTokens, prefix));
+        }
+        return result;
+    }
+
+    /** 返回不超过 tokenBudget 的最长文本后缀。 */
+    private static String suffixWithinTokenBudget(String text, int tokenBudget) {
+        if (text == null || text.isEmpty() || tokenBudget <= 0) return "";
+        int low = 0;
+        int high = text.length();
+        while (low < high) {
+            int length = (low + high + 1) >>> 1;
+            String suffix = text.substring(text.length() - length);
+            if (RecursiveChunkStrategy.estimateTokens(suffix) <= tokenBudget) {
+                low = length;
+            } else {
+                high = length - 1;
+            }
+        }
+        return text.substring(text.length() - low);
     }
 }
