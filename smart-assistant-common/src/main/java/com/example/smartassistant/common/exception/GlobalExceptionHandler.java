@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -98,6 +99,25 @@ public class GlobalExceptionHandler {
                 ExceptionHandlerSupport.getTraceIdFromMdc());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                 ApiResponse.error(HttpStatus.UNAUTHORIZED.value(), "认证失败，请重新登录", error));
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatusException(
+            ResponseStatusException e, HttpServletRequest request) {
+        int status = e.getStatusCode().value();
+        String message = e.getReason() == null || e.getReason().isBlank()
+                ? e.getStatusCode().toString()
+                : e.getReason();
+        String suffix = status == HttpStatus.UNAUTHORIZED.value() || status == HttpStatus.FORBIDDEN.value()
+                ? "002"
+                : "099";
+
+        log.warn("[{}_{}] HTTP status exception | path={} | status={} | msg={}",
+                moduleName, suffix, request.getRequestURI(), status, message);
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                ExceptionHandlerSupport.formatModuleCode(moduleName, suffix), message, null,
+                ExceptionHandlerSupport.getTraceIdFromMdc());
+        return ResponseEntity.status(e.getStatusCode()).body(ApiResponse.error(status, message, error));
     }
 
     // ===================== ServiceException（业务异常，携带具体错误码）=====================
