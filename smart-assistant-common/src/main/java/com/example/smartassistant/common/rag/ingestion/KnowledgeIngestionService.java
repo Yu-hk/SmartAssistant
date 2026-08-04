@@ -26,7 +26,6 @@ import com.example.smartassistant.common.rag.util.HashUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -251,7 +250,7 @@ public class KnowledgeIngestionService {
         this.indexMetaService = indexMetaService;
     }
 
-    /** 设置审批门禁开关（P3-4，Q7 核心，默认开启） */
+    /** 设置审批门禁开关（P3-4，Q7 核心，默认关闭） */
     public void setRequireApproval(boolean requireApproval) {
         this.requireApproval = requireApproval;
     }
@@ -650,6 +649,7 @@ public class KnowledgeIngestionService {
             List<String> contents = entry.getValue().stream()
                     .map(ParsedDocument::getContent)
                     .filter(c -> c != null && !c.isBlank())
+                    .map(piiScrubber::scrub)
                     .toList();
             String newHash = HashUtil.aggregateHash(contents);
             hashCache.put(entry.getKey(), newHash);
@@ -713,7 +713,7 @@ public class KnowledgeIngestionService {
             Path p = Paths.get(filePath);
             if (Files.isRegularFile(p)) {
                 byte[] bytes = Files.readAllBytes(p);
-                return HashUtil.sha256Hex(new String(bytes, StandardCharsets.UTF_8));
+                return HashUtil.sha256HexBytes(bytes);
             }
         } catch (Exception ignored) {
             // 文件不可读，走降级路径

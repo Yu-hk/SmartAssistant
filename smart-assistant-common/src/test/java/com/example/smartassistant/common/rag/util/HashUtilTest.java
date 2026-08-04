@@ -101,6 +101,15 @@ class HashUtilTest {
         assertEquals("", HashUtil.sha256Hex(""));
     }
 
+    @Test
+    @DisplayName("sha256Hex 原始字节不经过 UTF-8 解码")
+    void sha256Hex_hashesRawBytes() {
+        byte[] binary = {(byte) 0xff, (byte) 0xfe, 0x00, 0x41};
+        assertEquals(
+                "6e153708ea1302ccc480999bda6939c7aef6dd60531b7acfff00e81bde4986ab",
+                HashUtil.sha256HexBytes(binary));
+    }
+
     // ==================== normalizeAndHash ====================
 
     @Test

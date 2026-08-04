@@ -31,7 +31,7 @@ public class ScheduledIngestionPoller {
     private static final Logger log = LoggerFactory.getLogger(ScheduledIngestionPoller.class);
 
     private static final List<String> SUPPORTED_EXT = List.of(
-            "pdf", "docx", "doc", "html", "htm", "md", "markdown", "txt");
+            "pdf", "docx", "html", "htm", "md", "markdown", "txt");
 
     private final IngestionJobManager manager;
     private final RagProductionProperties properties;

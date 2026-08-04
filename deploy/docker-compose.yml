@@ -334,6 +334,8 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       APP_RAG_STORE_MODE: pg
       EMBEDDING_SERVICE_URL: http://embedding-service:8091
+      MINERU_ENABLED: ${MINERU_ENABLED:-false}
+      MINERU_SIDECAR_CMD: ${MINERU_SIDECAR_CMD:-python mineru_sidecar.py}
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
     networks:
       - smart-network
@@ -378,6 +380,8 @@ services:
       DEEPSEEK_CHAT_MODEL: ${DEEPSEEK_CHAT_MODEL:-deepseek-v4-flash}
       EMBEDDING_SERVICE_URL: http://embedding-service:8091
       APP_RAG_STORE_MODE: pg
+      MINERU_ENABLED: ${MINERU_ENABLED:-false}
+      MINERU_SIDECAR_CMD: ${MINERU_SIDECAR_CMD:-python mineru_sidecar.py}
       DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
       DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}

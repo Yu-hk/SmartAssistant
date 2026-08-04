@@ -111,4 +111,35 @@ class IngestionJobManagerTest {
         mgr.awaitJob(j1.jobId(), Duration.ofSeconds(5));
         mgr.destroy();
     }
+
+    @Test
+    void unchangedDocumentEndsAsSkippedInsteadOfFailed() throws Exception {
+        when(ingestion.parseAndIngest(anyString(), anyString(), anyString(), any()))
+                .thenReturn(IngestionResult.skipped("全部未变更", 0, 0));
+
+        IngestionJobManager mgr = new IngestionJobManager(ingestion, new InMemoryIngestionJobRepository());
+        IngestionJob job = mgr.submit("/docs/unchanged.txt", "t1", "v1");
+
+        IngestionJob done = mgr.awaitJob(job.jobId(), Duration.ofSeconds(5));
+        assertEquals(IngestionJobStatus.SKIPPED, done.status());
+        assertEquals(100, done.progress());
+        assertTrue(done.errorMessage() == null || done.errorMessage().isBlank());
+        mgr.destroy();
+    }
+
+    @Test
+    void approvalGateEndsAsPendingApprovalInsteadOfIndexed() throws Exception {
+        when(ingestion.parseAndIngest(anyString(), anyString(), anyString(), any()))
+                .thenReturn(IngestionResult.held(2, 10, "batch-123"));
+
+        IngestionJobManager mgr = new IngestionJobManager(ingestion, new InMemoryIngestionJobRepository());
+        IngestionJob job = mgr.submit("/docs/new-policy.pdf", "t1", "v1");
+
+        IngestionJob done = mgr.awaitJob(job.jobId(), Duration.ofSeconds(5));
+        assertEquals(IngestionJobStatus.PENDING_APPROVAL, done.status());
+        assertEquals(90, done.progress());
+        assertEquals(2, done.docCount());
+        assertTrue(done.stageNote().contains("batch-123"));
+        mgr.destroy();
+    }
 }

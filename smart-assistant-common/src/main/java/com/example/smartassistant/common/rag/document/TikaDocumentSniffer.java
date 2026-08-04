@@ -28,7 +28,7 @@ public class TikaDocumentSniffer {
     private static final Map<String, String> MIME_TO_TYPE = Map.ofEntries(
             Map.entry("application/pdf", "pdf"),
             Map.entry("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"),
-            Map.entry("application/msword", "docx"),
+            Map.entry("application/msword", "doc"),
             Map.entry("text/html", "html"),
             Map.entry("text/markdown", "markdown"),
             Map.entry("text/x-markdown", "markdown"),

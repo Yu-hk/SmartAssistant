@@ -121,10 +121,17 @@ public class DocumentParseRouter {
         String fileName = path.getFileName().toString();
         String extension = getExtension(fileName);
 
+        if ("doc".equals(extension)) {
+            throw legacyDocNotSupported(fileName);
+        }
+
         DocumentParser parser = parsers.get(extension);
         if (parser == null) {
             // ⭐ REQ-1：扩展名未知时启动 Tika 内容嗅探兜底路由
             String sniffed = Optional.ofNullable(sniffer.sniff(Paths.get(filePath))).orElse(null);
+            if ("doc".equals(sniffed)) {
+                throw legacyDocNotSupported(fileName);
+            }
             if (sniffed != null) {
                 parser = parsers.get(sniffed);
                 if (parser != null) {
@@ -142,6 +149,10 @@ public class DocumentParseRouter {
         log.info("[DocRouter] 路由解析: file={}, extension=.{}, parser={}",
                 fileName, extension, parser.getClass().getSimpleName());
         return parser.parse(filePath);
+    }
+
+    private static DocumentParseException legacyDocNotSupported(String fileName) {
+        return new DocumentParseException("不支持旧版 .doc 文件，请先转换为 .docx: " + fileName);
     }
 
     /**

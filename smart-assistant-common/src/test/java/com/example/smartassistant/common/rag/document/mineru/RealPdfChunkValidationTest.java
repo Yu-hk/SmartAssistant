@@ -164,7 +164,7 @@ class RealPdfChunkValidationTest {
             out.println("sourcePdf=" + SOURCE_PDF);
             out.println("mineruCliJson=" + CLI_JSON);
             out.println("strategy=SemanticChunkStrategy (fallback=RecursiveChunkStrategy)");
-            out.println("configured maxTokens=1024, overlap=128 (注: SemanticChunkStrategy 实际未使用 overlap)");
+            out.println("configured maxTokens=1024, overlap=128");
             out.println();
 
             banner(out, "1) MinerU CLI 解析 (content_list.json)");
