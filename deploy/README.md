@@ -55,21 +55,10 @@ sudo apt-get install docker-compose-plugin
 
 ### 2. 本地构建产物
 
-在开发机（Windows PowerShell）执行：
+在项目根目录执行（需要 JDK 21、Node.js 20+）：
 
-```powershell
-# 方式一：一键构建
-.\deploy\build.ps1
-
-# 方式二：分步构建
-# 后端（需先设置 JAVA_HOME 为 JDK 21）
-set JAVA_HOME=D:\Program Files\Java\jdk-21.0.6+7
-.\mvnw.cmd clean package -DskipTests
-
-# 前端
-cd frontend
-npm run build
-cd ..
+```bash
+bash deploy/build.sh
 ```
 
 ### 3. 上传到服务器

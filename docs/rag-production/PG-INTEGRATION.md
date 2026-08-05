@@ -90,14 +90,6 @@ docker exec smart-postgres pg_isready -U postgres -d a2a_system
 
 ### 方式一：一键脚本（推荐）
 
-**PowerShell（Windows）：**
-```powershell
-# 默认不停止 postgres；如需验证后停止，加 -StopPostgres
-.\scripts\verify-pg-rag-integration.ps1
-# 或自定义 Maven / JDK 路径：
-.\scripts\verify-pg-rag-integration.ps1 -MavenExe "D:\maven\apache-maven-3.9.6\bin\mvn" -JavaHome "D:\Program Files\Java\jdk-21.0.6+7"
-```
-
 **Git Bash：**
 ```bash
 ./scripts/verify-pg-rag-integration.sh
@@ -178,7 +170,6 @@ docker compose -f docker-compose-infra.yml stop postgres
 ## 10. 交付文件清单
 
 - 新增：`smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/PgVectorKnowledgeBaseIntegrationTest.java`
-- 新增：`scripts/verify-pg-rag-integration.ps1`（Windows / PowerShell 一键验证）
 - 新增：`scripts/verify-pg-rag-integration.sh`（Git Bash 一键验证）
 - 新增：`docs/rag-production/PG-INTEGRATION.md`（本文件）
 - 修改：`smart-assistant-common/src/main/java/com/example/smartassistant/common/rag/ingestion/ReviewQueueService.java`（补齐自愈建表）
