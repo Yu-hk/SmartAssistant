@@ -34,7 +34,6 @@ monitoring/
 docker-compose.yml
 docker-compose-infra.yml
 docker-compose.deploy.yml
-Dockerfile.services
 
 # 系统文件
 *.log
