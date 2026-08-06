@@ -38,6 +38,13 @@ class AgentLoopDecisionTest {
     }
 
     @Test
+    void phaseGateCannotBeBypassedByLongAnswer() {
+        var c = ctx(1, true, "A".repeat(80),
+                LoopGuardService.GuardAction.CONTINUE, 0, 0);
+        assertEquals(LoopAction.ADVANCE_PHASE, AgentLoopDecision.decide(c, true, MAX_ITER));
+    }
+
+    @Test
     void pauseBlocked_highestAmongGuardActions() {
         var c = ctx(1, false, "", LoopGuardService.GuardAction.PAUSE_BLOCKED, 0, 0);
         assertEquals(LoopAction.PAUSE_BLOCKED, AgentLoopDecision.decide(c, false, MAX_ITER));

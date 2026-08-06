@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
  * 此处改为注入 common 中台的 {@link TieredModelRouter}，对外保留 {@code selectModel}/{@code getModelTierName}
  * 生态 API；真正的「平滑降级 + 档位选择」逻辑沉淀到 common 层，供所有服务复用。</p>
  *
- * <p>若 common 中台因无 {@code OllamaChatModel}（如纯 HTTP 转发环境）未装配
+ * <p>若 common 中台因无 {@code DeepSeekChatModel}（如纯 HTTP 转发环境）未装配
  * {@link TieredModelRouter}，本门面优雅降级为 {@code null}，调用方需判空。</p>
  */
 @Service
@@ -37,7 +37,7 @@ public class ModelRouterService {
     public ModelRouterService(TieredModelRouter tierRouter) {
         this.tierRouter = tierRouter;
         if (tierRouter == null) {
-            log.warn("[ModelRouter] common TieredModelRouter 未装配（无 OllamaChatModel？），本门面仅保留 API 壳。");
+            log.warn("[ModelRouter] common TieredModelRouter 未装配（无 DeepSeekChatModel？），本门面仅保留 API 壳。");
         }
     }
 

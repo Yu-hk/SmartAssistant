@@ -112,4 +112,16 @@ class GoldenSuiteEvalGateTrialTest {
         System.out.println("[TrialTest] placeholder → " + result.metrics());
         assertTrue(result.passed(), "离线占位模式（未注入运行器）门禁应放行（仅信息展示）");
     }
+
+    @Test
+    void enabledAgentGateWithoutExecutorMustFail() {
+        EvalGateConfig cfg = trialConfig();
+
+        EvalGate.GateResult result = new GoldenSuiteEvalGate().run(
+                "/eval-test-suite.json", cfg,
+                Paths.get("target/eval-reports-missing-executor"), null, false, null);
+
+        assertFalse(result.passed(), "启用 Agent 门禁后缺少执行器必须阻断，不能用占位结果放行");
+        assertTrue(result.violations().stream().anyMatch(v -> v.contains("TrialExecutor")));
+    }
 }

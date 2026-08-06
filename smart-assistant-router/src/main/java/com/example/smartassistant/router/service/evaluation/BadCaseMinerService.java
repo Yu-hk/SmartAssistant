@@ -184,6 +184,33 @@ public class BadCaseMinerService {
     }
 
     /**
+     * 记录最终回答被质量门禁拒绝的案例，进入与低置信度路由相同的人工复核队列。
+     */
+    public void recordQualityFailure(RoutingDecision decision, String qualityReason) {
+        if (!enabled || decision == null || decision.question() == null) return;
+        try {
+            BadCaseRecord record = BadCaseRecord.builder()
+                    .question(decision.question())
+                    .predictedIntent(decision.predictedIntent())
+                    .confidence(decision.confidence())
+                    .agentName(decision.agentName())
+                    .sessionId(decision.sessionId())
+                    .userId(decision.userId())
+                    .reason("质量门禁拒绝: " + (qualityReason != null ? qualityReason : "unknown"))
+                    .createdAt(LocalDateTime.now())
+                    .resolved(false)
+                    .build();
+            redisTemplate.opsForList().leftPush(BAD_CASE_KEY,
+                    objectMapper.writeValueAsString(record));
+            redisTemplate.opsForList().trim(BAD_CASE_KEY, 0, MAX_BAD_CASES - 1);
+            log.warn("[BadCase] 最终回答被质量门禁拒绝: question={}, agent={}, reason={}",
+                    truncate(decision.question(), 50), decision.agentName(), qualityReason);
+        } catch (Exception e) {
+            log.warn("[BadCase] 质量失败记录异常: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 获取最近的 Bad Case 列表（供管理端点调用）。
      */
     public List<BadCaseRecord> getRecent(int max) {

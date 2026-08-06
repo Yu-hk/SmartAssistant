@@ -70,15 +70,15 @@ public class McpToolRegistryAdapter {
      * 将单个 {@link ToolDefinition} 映射为 MCP {@link Tool}（仅发现元数据）。
      */
     public Tool toMcpTool(ToolDefinition def) {
-        Map<String, Object> inputSchema = parseInputSchema(def.getInputSchema());
+        McpSchema.JsonSchema inputSchema = parseInputSchema(def.getInputSchema());
 
-        ToolAnnotations annotations = ToolAnnotations.builder()
-                .title(firstNonBlank(def.getDescription(), def.getName()))
-                .readOnlyHint(def.isReadOnly())
-                .destructiveHint(def.getRiskLevel() == ToolRiskLevel.HIGH)
-                .idempotentHint(def.isReadOnly())
-                .openWorldHint(false)
-                .build();
+        ToolAnnotations annotations = new ToolAnnotations(
+                firstNonBlank(def.getDescription(), def.getName()),
+                def.isReadOnly(),
+                def.getRiskLevel() == ToolRiskLevel.HIGH,
+                def.isReadOnly(),
+                false,
+                false);
 
         return Tool.builder()
                 .name(def.getName())
@@ -109,7 +109,10 @@ public class McpToolRegistryAdapter {
      */
     public McpServerFeatures.SyncToolSpecification toDiscoveryToolSpecification(ToolDefinition def) {
         Tool tool = toMcpTool(def);
-        return new McpServerFeatures.SyncToolSpecification(tool, this::refusePassThroughCall);
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(tool)
+                .callHandler(this::refusePassThroughCall)
+                .build();
     }
 
     /**
@@ -122,7 +125,7 @@ public class McpToolRegistryAdapter {
                 .title("服务端能力检索工具")
                 .description("按功能性能力 / 关键词 / 分层 / 状态在服务端检索工具（等价于原 /api/tools/search）")
                 .inputSchema(buildSearchToolsInputSchema())
-                .annotations(ToolAnnotations.builder()
+                .annotations(new CompatibleToolAnnotationsBuilder()
                         .title("服务端能力检索工具")
                         .readOnlyHint(true)
                         .destructiveHint(false)
@@ -130,8 +133,10 @@ public class McpToolRegistryAdapter {
                         .openWorldHint(false)
                         .build())
                 .build();
-        return new McpServerFeatures.SyncToolSpecification(tool,
-                (exchange, request) -> handleSearchTools(registryService, request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(tool)
+                .callHandler((exchange, request) -> handleSearchTools(registryService, request))
+                .build();
     }
 
     // ==================== 内部：call 处理器 ====================
@@ -177,7 +182,7 @@ public class McpToolRegistryAdapter {
 
     // ==================== 内部：schema / meta 构造 ====================
 
-    private Map<String, Object> buildSearchToolsInputSchema() {
+    private McpSchema.JsonSchema buildSearchToolsInputSchema() {
         Map<String, Object> schema = new HashMap<>();
         schema.put("type", "object");
 
@@ -202,7 +207,7 @@ public class McpToolRegistryAdapter {
 
         schema.put("properties", properties);
         schema.put("required", new ArrayList<String>());
-        return schema;
+        return toJsonSchema(schema);
     }
 
     private Map<String, Object> buildMeta(ToolDefinition def) {
@@ -218,24 +223,43 @@ public class McpToolRegistryAdapter {
         return meta;
     }
 
-    private Map<String, Object> parseInputSchema(String inputSchemaJson) {
+    private McpSchema.JsonSchema parseInputSchema(String inputSchemaJson) {
         if (inputSchemaJson == null || inputSchemaJson.isBlank()) {
             // 中心 @Tool 工具本期无 inputSchema：给空对象 schema
             return emptyObjectSchema();
         }
         try {
-            return objectMapper.readValue(inputSchemaJson, new TypeReference<Map<String, Object>>() {});
+            Map<String, Object> schema = objectMapper.readValue(
+                    inputSchemaJson, new TypeReference<Map<String, Object>>() {});
+            return toJsonSchema(schema);
         } catch (Exception e) {
             log.warn("[McpToolRegistryAdapter] inputSchema 解析失败，回退空 schema: {}", e.getMessage());
             return emptyObjectSchema();
         }
     }
 
-    private Map<String, Object> emptyObjectSchema() {
+    private McpSchema.JsonSchema emptyObjectSchema() {
         Map<String, Object> empty = new HashMap<>();
         empty.put("type", "object");
         empty.put("properties", new HashMap<>());
-        return empty;
+        return toJsonSchema(empty);
+    }
+
+    @SuppressWarnings("unchecked")
+    private McpSchema.JsonSchema toJsonSchema(Map<String, Object> schema) {
+        String type = String.valueOf(schema.getOrDefault("type", "object"));
+        Map<String, Object> properties = schema.get("properties") instanceof Map<?, ?> map
+                ? (Map<String, Object>) map : Map.of();
+        List<String> required = schema.get("required") instanceof List<?> list
+                ? list.stream().map(String::valueOf).toList() : List.of();
+        Boolean additionalProperties = schema.get("additionalProperties") instanceof Boolean value
+                ? value : null;
+        Map<String, Object> defs = schema.get("$defs") instanceof Map<?, ?> map
+                ? (Map<String, Object>) map : null;
+        Map<String, Object> definitions = schema.get("definitions") instanceof Map<?, ?> map
+                ? (Map<String, Object>) map : null;
+        return new McpSchema.JsonSchema(
+                type, properties, required, additionalProperties, defs, definitions);
     }
 
     // ==================== 内部：参数类型转换 ====================
@@ -288,5 +312,43 @@ public class McpToolRegistryAdapter {
             }
         }
         return "";
+    }
+
+    private static final class CompatibleToolAnnotationsBuilder {
+        private String title;
+        private boolean readOnlyHint;
+        private boolean destructiveHint;
+        private boolean idempotentHint;
+        private boolean openWorldHint;
+
+        CompatibleToolAnnotationsBuilder title(String value) {
+            this.title = value;
+            return this;
+        }
+
+        CompatibleToolAnnotationsBuilder readOnlyHint(boolean value) {
+            this.readOnlyHint = value;
+            return this;
+        }
+
+        CompatibleToolAnnotationsBuilder destructiveHint(boolean value) {
+            this.destructiveHint = value;
+            return this;
+        }
+
+        CompatibleToolAnnotationsBuilder idempotentHint(boolean value) {
+            this.idempotentHint = value;
+            return this;
+        }
+
+        CompatibleToolAnnotationsBuilder openWorldHint(boolean value) {
+            this.openWorldHint = value;
+            return this;
+        }
+
+        ToolAnnotations build() {
+            return new ToolAnnotations(
+                    title, readOnlyHint, destructiveHint, idempotentHint, openWorldHint, false);
+        }
     }
 }

@@ -13,12 +13,13 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.ollama.OllamaChatModel;
-import org.springframework.ai.ollama.api.OllamaOptions;
+import org.springframework.ai.deepseek.DeepSeekChatModel;
+import org.springframework.ai.deepseek.DeepSeekChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Fallback;
 import reactor.core.publisher.Flux;
 
 /**
@@ -37,20 +38,21 @@ public class LightChatModelConfig {
     private static final Logger log = LoggerFactory.getLogger(LightChatModelConfig.class);
 
     @Bean
+    @Fallback
     @Qualifier("lightChatModel")
     public ChatModel lightChatModel(
-            OllamaChatModel ollamaChatModel,
-            @Value("${consumer.light-model.name:qwen2.5:3b}") String model,
+            DeepSeekChatModel deepSeekChatModel,
+            @Value("${consumer.light-model.name:${DEEPSEEK_LIGHT_MODEL:deepseek-chat}}") String model,
             @Value("${consumer.light-model.temperature:0.1}") double temperature) {
 
-        var lightOptions = OllamaOptions.builder()
+        var lightOptions = DeepSeekChatOptions.builder()
                 .model(model)
                 .temperature(temperature)
                 .build();
 
         log.info("[LightChatModel] initialized via delegation: model={}, temperature={}",
                 model, temperature);
-        return new LightDelegatingChatModel(ollamaChatModel, lightOptions);
+        return new LightDelegatingChatModel(deepSeekChatModel, lightOptions);
     }
 
     /**
@@ -59,10 +61,10 @@ public class LightChatModelConfig {
      */
     private static class LightDelegatingChatModel implements ChatModel {
 
-        private final OllamaChatModel delegate;
-        private final OllamaOptions lightOptions;
+        private final DeepSeekChatModel delegate;
+        private final DeepSeekChatOptions lightOptions;
 
-        LightDelegatingChatModel(OllamaChatModel delegate, OllamaOptions lightOptions) {
+        LightDelegatingChatModel(DeepSeekChatModel delegate, DeepSeekChatOptions lightOptions) {
             this.delegate = delegate;
             this.lightOptions = lightOptions;
         }

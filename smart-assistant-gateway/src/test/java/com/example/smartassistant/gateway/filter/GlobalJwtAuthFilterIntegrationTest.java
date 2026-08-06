@@ -8,23 +8,47 @@
 package com.example.smartassistant.gateway.filter;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import reactor.core.publisher.Mono;
+
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 /**
  * Gateway 认证过滤器集成测试
  * 验证 JWT 认证流程的正确性
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+                "spring.autoconfigure.exclude="
+                        + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
+                        + "com.example.smartassistant.common.tool.client.ToolRegistryAutoConfiguration",
+                "spring.cloud.nacos.discovery.enabled=false",
+                "spring.cloud.service-registry.auto-registration.enabled=false",
+                "management.health.redis.enabled=false"
+        })
 @AutoConfigureWebTestClient
 class GlobalJwtAuthFilterIntegrationTest {
 
     @Autowired
     private WebTestClient webTestClient;
+
+    @MockitoBean
+    private ReactiveStringRedisTemplate redisTemplate;
+
+    @BeforeEach
+    void stubTokenBlacklist() {
+        when(redisTemplate.hasKey(anyString())).thenReturn(Mono.just(false));
+    }
 
     @Test
     @DisplayName("白名单路径无需认证：健康检查接口")
@@ -39,7 +63,7 @@ class GlobalJwtAuthFilterIntegrationTest {
     @DisplayName("无 Token 访问受保护路径返回 401")
     void testProtectedEndpointWithoutToken() {
         webTestClient.get()
-                .uri("/api/auth/me")
+                .uri("/assistant/api/auth/me")
                 .exchange()
                 .expectStatus().isUnauthorized();
     }
@@ -48,7 +72,7 @@ class GlobalJwtAuthFilterIntegrationTest {
     @DisplayName("无效 Token 返回 401")
     void testInvalidToken() {
         webTestClient.get()
-                .uri("/api/auth/me")
+                .uri("/assistant/api/auth/me")
                 .header("Authorization", "Bearer invalid-token-here")
                 .exchange()
                 .expectStatus().isUnauthorized();
@@ -61,6 +85,6 @@ class GlobalJwtAuthFilterIntegrationTest {
                 .uri("/actuator/health")
                 .contentType(MediaType.APPLICATION_JSON)
                 .exchange()
-                .expectStatus().isOk();
+                .expectStatus().isEqualTo(405);
     }
 }

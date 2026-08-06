@@ -9,13 +9,21 @@ package com.example.smartassistant.consumer.service.recommendation;
 
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * LLM 智能偏好提取服务
@@ -35,6 +43,10 @@ public class LLMPreferenceExtractor {
     private final AiChatService aiChatService;
     private final ChatModel lightModel;
     private final ChineseTokenizer tokenizer;
+    private final ExecutorService extractionExecutor = Executors.newVirtualThreadPerTaskExecutor();
+
+    @Value("${preference.extraction.timeout-ms:8000}")
+    private long extractionTimeoutMs = 8000;
     
     public LLMPreferenceExtractor(AiChatService aiChatService,
                                   @Qualifier("lightChatModel") ChatModel lightModel,
@@ -55,26 +67,40 @@ public class LLMPreferenceExtractor {
             return ExtractedPreferences.empty();
         }
         
+        Future<ExtractedPreferences> extraction = extractionExecutor.submit(() -> extractWithLlm(question));
         try {
-            String prompt = buildExtractionPrompt(question);
-            
-            ExtractedPreferences prefs = aiChatService.buildChatClient(lightModel)
-                    .prompt()
-                    .user(prompt)
-                    .call()
-                    .entity(ExtractedPreferences.class);
-            
-            log.debug("[LLM提取] 结构化提取完成: {}", prefs);
-            if (prefs == null) {
-                return fallbackExtraction(question);
-            }
-            return prefs;
-            
-        } catch (Exception e) {
-            log.error("[LLM提取] 提取失败，降级到正则提取: {}", e.getMessage());
-            // 降级到基于规则的提取
+            ExtractedPreferences prefs = extraction.get(extractionTimeoutMs, TimeUnit.MILLISECONDS);
+            return prefs != null ? prefs : fallbackExtraction(question);
+        } catch (TimeoutException e) {
+            extraction.cancel(true);
+            log.warn("[LLM提取] 超过 {}ms，取消模型调用并降级到规则提取", extractionTimeoutMs);
+            return fallbackExtraction(question);
+        } catch (InterruptedException e) {
+            extraction.cancel(true);
+            Thread.currentThread().interrupt();
+            log.warn("[LLM提取] 调用被中断，降级到规则提取");
+            return fallbackExtraction(question);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            log.error("[LLM提取] 提取失败，降级到规则提取: {}", cause.getMessage());
             return fallbackExtraction(question);
         }
+    }
+
+    private ExtractedPreferences extractWithLlm(String question) {
+        String prompt = buildExtractionPrompt(question);
+        ExtractedPreferences prefs = aiChatService.buildChatClient(lightModel)
+                .prompt()
+                .user(prompt)
+                .call()
+                .entity(ExtractedPreferences.class);
+        log.debug("[LLM提取] 结构化提取完成: {}", prefs);
+        return prefs;
+    }
+
+    @PreDestroy
+    void shutdownExecutor() {
+        extractionExecutor.shutdownNow();
     }
     
     /**

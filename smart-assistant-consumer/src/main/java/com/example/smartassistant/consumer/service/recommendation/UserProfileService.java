@@ -15,8 +15,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -109,7 +109,6 @@ public class UserProfileService {
     /**
      * 从问题中提取偏好信息并更新用户画像
      */
-    @Transactional
     public void extractAndUpdatePreferences(Long userId, String question, String extractedLocation) {
         if (userId == null || question == null) return;
 
@@ -184,6 +183,14 @@ public class UserProfileService {
         } catch (Exception e) {
             log.warn("[UserProfile] 更新偏好失败: userId={}, error={}", userId, e.getMessage());
         }
+    }
+
+    /**
+     * 用户画像属于旁路增强，不能占用主对话链路的超时预算。
+     */
+    @Async("taskExecutor")
+    public void extractAndUpdatePreferencesAsync(Long userId, String question, String extractedLocation) {
+        extractAndUpdatePreferences(userId, question, extractedLocation);
     }
 
     // ==================== 读取 ====================

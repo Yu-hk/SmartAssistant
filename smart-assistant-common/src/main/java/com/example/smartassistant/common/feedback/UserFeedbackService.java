@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.feedback;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +21,9 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * 用户反馈服务 — 采集用户对 Agent 回复的满意度评价。
@@ -39,9 +43,14 @@ public class UserFeedbackService {
     private static final DateTimeFormatter TS_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final Path feedbackDir;
+    private final Path reviewQueueFile;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public UserFeedbackService(@Value("${app.data.dir:data/users}") String basePath) {
-        this.feedbackDir = Paths.get(basePath).getParent().resolve("feedback");
+        Path dataPath = Paths.get(basePath);
+        Path dataRoot = dataPath.getParent() != null ? dataPath.getParent() : Paths.get(".");
+        this.feedbackDir = dataRoot.resolve("feedback");
+        this.reviewQueueFile = feedbackDir.resolve("review-queue.jsonl");
     }
 
     /**
@@ -64,10 +73,31 @@ public class UserFeedbackService {
             Files.writeString(file, entry, StandardCharsets.UTF_8,
                     Files.exists(file) ? StandardOpenOption.APPEND : StandardOpenOption.CREATE);
 
+            // 点踩反馈进入结构化人工复核队列；复核后再晋升为 Golden Case，避免未经确认的数据污染评测集。
+            if ("dislike".equals(rating)) {
+                appendReviewCandidate(userId, sessionId, question, response, reason);
+            }
+
             log.info("[Feedback] 收到反馈: userId={}, rating={}", userId, rating);
         } catch (IOException e) {
             log.warn("[Feedback] 保存反馈失败: {}", e.getMessage());
         }
+    }
+
+    private void appendReviewCandidate(String userId, String sessionId, String question,
+                                       String response, String reason) throws IOException {
+        Map<String, Object> candidate = new LinkedHashMap<>();
+        candidate.put("id", UUID.randomUUID().toString());
+        candidate.put("createdAt", LocalDateTime.now().toString());
+        candidate.put("status", "PENDING_REVIEW");
+        candidate.put("userId", userId);
+        candidate.put("sessionId", sessionId);
+        candidate.put("question", question != null ? question : "");
+        candidate.put("response", response != null ? response : "");
+        candidate.put("reason", reason != null ? reason : "");
+        Files.writeString(reviewQueueFile,
+                objectMapper.writeValueAsString(candidate) + System.lineSeparator(),
+                StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }
 
     private static String buildEntry(String userId, String sessionId, String question,

@@ -1,5 +1,7 @@
 package com.example.smartassistant.router.service.fusion;
 
+import com.example.smartassistant.router.model.TaskAnalysisResult;
+
 /**
  * L3 意图融合结果。
  * <p>
@@ -30,8 +32,26 @@ public record IntentFusionResult(
         double classifierConf,
         String llmIntent,
         double llmConf,
-        long elapsedMs
+        long elapsedMs,
+        TaskAnalysisResult taskAnalysis
 ) {
+    /** Backward-compatible constructor for callers without structured LLM analysis. */
+    public IntentFusionResult(
+            String intentTag,
+            double confidence,
+            String category,
+            String source,
+            String ruleIntent,
+            double ruleConf,
+            String classifierIntent,
+            double classifierConf,
+            String llmIntent,
+            double llmConf,
+            long elapsedMs) {
+        this(intentTag, confidence, category, source, ruleIntent, ruleConf,
+                classifierIntent, classifierConf, llmIntent, llmConf, elapsedMs, null);
+    }
+
     /** 决策是否有效（置信度足够） */
     public boolean isValid() {
         return intentTag != null && confidence >= 0.3;
@@ -44,21 +64,27 @@ public record IntentFusionResult(
 
     public static IntentFusionResult ruleHit(String intent, double conf, String category, long elapsed) {
         return new IntentFusionResult(intent, conf, category, "RULE",
-                intent, conf, null, 0, null, 0, elapsed);
+                intent, conf, null, 0, null, 0, elapsed, null);
     }
 
     public static IntentFusionResult classifierHit(String intent, double conf, String category, long elapsed) {
         return new IntentFusionResult(intent, conf, category, "CLASSIFIER",
-                null, 0, intent, conf, null, 0, elapsed);
+                null, 0, intent, conf, null, 0, elapsed, null);
     }
 
     public static IntentFusionResult llmHit(String intent, double conf, String category, long elapsed) {
         return new IntentFusionResult(intent, conf, category, "LLM",
-                null, 0, null, 0, intent, conf, elapsed);
+                null, 0, null, 0, intent, conf, elapsed, null);
+    }
+
+    public static IntentFusionResult llmHit(String intent, double conf, String category,
+                                             long elapsed, TaskAnalysisResult taskAnalysis) {
+        return new IntentFusionResult(intent, conf, category, "LLM",
+                null, 0, null, 0, intent, conf, elapsed, taskAnalysis);
     }
 
     public static IntentFusionResult fallback(long elapsed) {
         return new IntentFusionResult(null, 0, null, "FALLBACK",
-                null, 0, null, 0, null, 0, elapsed);
+                null, 0, null, 0, null, 0, elapsed, null);
     }
 }

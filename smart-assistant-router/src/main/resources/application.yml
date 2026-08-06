@@ -21,7 +21,12 @@ spring:
         import-check:
           enabled: false
       discovery:
-        enabled: false  # ⭐ 禁用标准 Nacos 服务发现（使用 A2A 协议内置 Nacos）
+        server-addr: ${SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR:127.0.0.1:8848}
+        namespace: ""
+        group: DEFAULT_GROUP
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD}
+        enabled: true  # 网关 lb://router-service 依赖标准服务注册；A2A 发现仅负责 Agent 元数据
 
   # 数据源配置（PostgreSQL 统一数据库）
   datasource:
@@ -69,12 +74,12 @@ spring:
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAsyncToolCallingManagerAutoConfiguration
 
   ai:
-    # ⭐ Ollama 本地模型配置（本地推理主通道）
-    ollama:
-      base-url: http://localhost:11434
+    # 生产环境直接调用 DeepSeek API，不依赖本地 Ollama。
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY}
       chat:
         options:
-          model: qwen2.5:7b
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-chat}
           temperature: 0.1
 
     alibaba:
@@ -92,13 +97,13 @@ spring:
 # 本地环境三档可指向同一 Ollama 实例的不同模型名；云端 heavy 可指向 DeepSeek/GPT 等强模型
 tier:
   light:
-    model: qwen2.5:3b        # Tier1 轻量：本地小模型，低延迟低成本
+    model: ${DEEPSEEK_LIGHT_MODEL:deepseek-chat}
     temperature: 0.1
   standard:
-    model: deepseek-r1:7b    # Tier2 标准：本地主力，兼顾能力与成本
+    model: ${DEEPSEEK_STANDARD_MODEL:deepseek-chat}
     temperature: 0.3
   heavy:
-    model: deepseek-r1:7b    # Tier3 强模型：复杂推理（云端可换 DeepSeek/GPT）
+    model: ${DEEPSEEK_REASONING_MODEL:deepseek-reasoner}
     temperature: 0.2
   # 意图维度覆盖：命中这些意图标签时强制升档到指定 tier（绕过复杂度分类）
   intent-overrides:
@@ -226,6 +231,28 @@ router:
     enabled: true              # 是否启用反思器（灰度开关）
     threshold: 0.60            # 质量评分阈值（0.0~1.0，低于此值触发重试）
     max-retry: 1               # 最大重试次数（换 fallback Agent）
+    criteria-fail-open: false  # 验收 Judge 故障时不静默放行，由节点重试处理
+
+  # LLM-as-Judge 最终回答质量门禁
+  quality-evaluation:
+    enabled: true
+    threshold: 0.60
+    reflection-lower-bound: 0.50
+    reflection-upper-bound: 0.80
+    max-evaluation-length: 6000
+    fail-closed: true          # Judge 调用/解析失败时返回安全降级回复，不缓存、不提取经验
+    failure-message: "抱歉，我暂时无法可靠地回答这个问题。请补充更多信息或稍后重试。"
+
+  graph:
+    checkpoint-enabled: true
+    async-handoff-enabled: false
+    max-replans: 1             # 单次 Graph 执行的全局重规划预算
+    max-criteria-corrections: 1 # 非空结果验收失败时，仅定向修正一次
+
+  context:
+    history:
+      max-messages: 10
+      ttl-seconds: 3600
 
 # Actuator + Prometheus + Tracing 配置 ⭐
 management:

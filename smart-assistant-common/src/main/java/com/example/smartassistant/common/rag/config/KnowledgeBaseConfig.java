@@ -9,6 +9,7 @@ package com.example.smartassistant.common.rag.config;
 
 import com.example.smartassistant.common.embedding.BgeEmbeddingModel;
 import com.example.smartassistant.common.rag.BgeReranker;
+import com.example.smartassistant.common.rag.Bm25Scorer;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.common.rag.Reranker;
 import com.example.smartassistant.common.rag.retrieval.CrossDocumentConflictResolver;
@@ -16,10 +17,13 @@ import com.example.smartassistant.common.rag.trace.RetrievalTraceRepository;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
  * ⭐ 知识库 Spring Bean 配置 — 将 InMemoryKnowledgeBase 纳入 Spring 管理。
@@ -36,15 +40,40 @@ public class KnowledgeBaseConfig {
     @Value("${knowledge-base.name:default}")
     private String kbName;
 
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean(BgeEmbeddingModel.class)
+    public BgeEmbeddingModel bgeEmbeddingModel(
+            @Value("${BGE_MODEL_PATH:models/bge-small-zh-v1.5.onnx}") String modelPath,
+            @Value("${BGE_VOCAB_PATH:models/tokenizer.json}") String vocabPath) {
+        log.info("[KBConfig] 创建可降级 BGE 模型: modelPath={}", modelPath);
+        return new BgeEmbeddingModel(modelPath, vocabPath);
+    }
+
     @Bean
     public Reranker bgeReranker(BgeEmbeddingModel embeddingModel) {
         log.info("[KBConfig] 创建 BGE Reranker");
         return new BgeReranker(embeddingModel);
     }
 
+    @Bean("commonBm25Scorer")
+    @ConditionalOnMissingBean(Bm25Scorer.class)
+    public Bm25Scorer bm25Scorer(ChineseTokenizer tokenizer) {
+        log.info("[KBConfig] 创建 BM25 评分器");
+        return new Bm25Scorer(tokenizer);
+    }
+
     @Bean
-    public RetrievalTraceRepository retrievalTraceRepository(StringRedisTemplate redisTemplate) {
-        return new RetrievalTraceRepository(redisTemplate);
+    @ConditionalOnClass(name = "org.springframework.data.redis.core.StringRedisTemplate")
+    public RetrievalTraceRepository retrievalTraceRepository(ApplicationContext applicationContext)
+            throws ReflectiveOperationException {
+        Class<?> templateType = Class.forName(
+                "org.springframework.data.redis.core.StringRedisTemplate",
+                false,
+                applicationContext.getClassLoader());
+        Object redisTemplate = applicationContext.getBean(templateType);
+        return (RetrievalTraceRepository) RetrievalTraceRepository.class
+                .getConstructor(templateType)
+                .newInstance(redisTemplate);
     }
 
     @Bean
@@ -58,18 +87,21 @@ public class KnowledgeBaseConfig {
             BgeEmbeddingModel embeddingModel,
             ChineseTokenizer tokenizer,
             Reranker bgeReranker,
-            RetrievalTraceRepository traceRepository,
+            ObjectProvider<RetrievalTraceRepository> traceRepositoryProvider,
             CrossDocumentConflictResolver conflictResolver) {
         log.info("[KBConfig] 创建 InMemoryKnowledgeBase: name={}", kbName);
 
         InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(kbName, embeddingModel, tokenizer, bgeReranker);
 
         // ⭐ 自动接线：检索链路追溯 → Redis 存储
-        kb.setTraceConsumer(trace -> {
-            if (trace != null && trace.getRequestId() != null) {
-                traceRepository.save(trace);
-            }
-        });
+        RetrievalTraceRepository traceRepository = traceRepositoryProvider.getIfAvailable();
+        if (traceRepository != null) {
+            kb.setTraceConsumer(trace -> {
+                if (trace != null && trace.getRequestId() != null) {
+                    traceRepository.save(trace);
+                }
+            });
+        }
 
         // ⭐ 自动接线：检索侧跨文档冲突消解（Q6 第二层）
         kb.setConflictResolver(conflictResolver);

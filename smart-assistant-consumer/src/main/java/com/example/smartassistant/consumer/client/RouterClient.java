@@ -59,11 +59,13 @@ public class RouterClient {
     
     public RouterClient(
             @Autowired(required = false) StringRedisTemplate redisTemplate,
-            ObjectMapper objectMapper) {
-        // ⭐ 配置 RestTemplate 超时：连接 3s、读取 5s
+            ObjectMapper objectMapper,
+            @Value("${router.service.connect-timeout-ms:3000}") int connectTimeoutMs,
+            @Value("${router.service.read-timeout-ms:120000}") int readTimeoutMs) {
+        // Router 包含意图分析、Agent 调用与质量评估，读取超时必须覆盖完整链路。
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(3000);
-        factory.setReadTimeout(30000);  // ⚠️ 路由决策含 LLM 推理，5s 过短；放宽至 30s
+        factory.setConnectTimeout(connectTimeoutMs);
+        factory.setReadTimeout(readTimeoutMs);
         this.restTemplate = new RestTemplate(factory);
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
@@ -151,9 +153,10 @@ public class RouterClient {
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 Map<String, Object> responseBody = response.getBody();
+                Map<String, Object> payload = unwrapRouterResponse(responseBody);
                 log.info("[RouterClient] Router 调用成功(完整响应): resultLength={}",
-                        responseBody.containsKey("result") ? ((String) responseBody.get("result")).length() : 0);
-                return responseBody;
+                        payload.get("result") instanceof String result ? result.length() : 0);
+                return payload;
             }
 
             Map<String, Object> errorMap = new HashMap<>();
@@ -184,6 +187,29 @@ public class RouterClient {
      * @param timeoutMs  最大等待时间（毫秒）
      * @return 决策结果，如果超时返回 null
      */
+    /** Accept both the unified ApiResponse envelope and the legacy flat Router response. */
+    static Map<String, Object> unwrapRouterResponse(Map<String, Object> responseBody) {
+        if (responseBody == null) return new HashMap<>();
+        Object data = responseBody.get("data");
+        if (data instanceof Map<?, ?> dataMap) {
+            Map<String, Object> payload = new HashMap<>();
+            dataMap.forEach((key, value) -> payload.put(String.valueOf(key), value));
+            return payload;
+        }
+        return responseBody;
+    }
+
+    private Map<String, Object> callRouterRawFallback(String question, String userId, String sessionId,
+                                                       String requestId, String userProfile, String intentTag,
+                                                       Throwable t) {
+        log.warn("[RouterClient] Router circuit fallback: requestId={}, error={}",
+                requestId, t != null ? t.getMessage() : "unknown");
+        Map<String, Object> fallback = new HashMap<>();
+        fallback.put("result", "Router service is temporarily unavailable. Please retry later.");
+        fallback.put("error", t != null ? t.getMessage() : "router unavailable");
+        return fallback;
+    }
+
     public Map<String, Object> waitForDecisionFromRedis(String requestId, long timeoutMs) {
         if (redisTemplate == null) {
             log.debug("[RouterClient] Redis 未配置，跳过等待");

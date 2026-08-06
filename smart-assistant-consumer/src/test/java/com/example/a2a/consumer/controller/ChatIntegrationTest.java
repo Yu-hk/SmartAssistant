@@ -7,18 +7,31 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.consumer.service.cache.AnswerCacheService;
+import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationService;
+import com.example.smartassistant.consumer.service.core.ChatConsumerService;
+import com.example.smartassistant.consumer.service.session.ConversationDocumentService;
+import com.example.smartassistant.consumer.service.session.ConversationValueService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.when;
 
 /**
  * A2A Consumer 集成测试
@@ -27,12 +40,42 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 使用本地 Ollama 模型（qwen2.5:0.5b）替代云 API 进行测试。
  * </p>
  */
-@SpringBootTest
-@AutoConfigureMockMvc
+@ExtendWith(MockitoExtension.class)
 class ChatIntegrationTest {
 
-    @Autowired
     private MockMvc mockMvc;
+
+    @Mock
+    private ChatConsumerService chatService;
+    @Mock
+    private AnswerCacheService answerCacheService;
+    @Mock
+    private AnswerPersonalizationService personalizationCacheService;
+    @Mock
+    private ConversationValueService conversationValueService;
+    @Mock
+    private ConversationDocumentService conversationDocumentService;
+    @Mock
+    private StringRedisTemplate redisTemplate;
+
+    @BeforeEach
+    void stubRouterResponse() {
+        ChatController controller = new ChatController(
+                chatService,
+                answerCacheService,
+                personalizationCacheService,
+                conversationValueService,
+                conversationDocumentService,
+                redisTemplate);
+        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+        when(chatService.calculateWithSession(anyString(), anyString(), isNull(), anyString()))
+                .thenAnswer(invocation -> Map.of(
+                        "result", invocation.getArgument(1, String.class),
+                        "agentName", "test-agent",
+                        "intentTag", "test-intent",
+                        "fromCache", false,
+                        "toolInvoked", false));
+    }
 
     @Test
     @DisplayName("集成测试1: 河北美食推荐（单意图）")

@@ -28,6 +28,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
@@ -85,6 +86,7 @@ public class RagProductionAutoConfiguration {
      * 检索 API（{@code KnowledgeRetrievalService}）保持不变。</p>
      */
     @Bean
+    @Primary
     @ConditionalOnMissingBean
     public KnowledgeBase productKnowledgeBase(
             BgeEmbeddingModel embeddingModel,

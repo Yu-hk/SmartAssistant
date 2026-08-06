@@ -20,6 +20,13 @@ package com.example.smartassistant.router.model;
  */
 public class QualityEvaluationResult {
 
+    /** 评估执行状态，避免把“跳过”和“评估器故障”混为一谈。 */
+    public enum Status {
+        COMPLETED,
+        SKIPPED,
+        FAILED
+    }
+
     /** 相关性评分（0.0~1.0）：回复是否直接回答了用户问题 */
     private final double relevance;
 
@@ -41,9 +48,19 @@ public class QualityEvaluationResult {
     /** LLM 原始响应（调试用） */
     private final String rawResponse;
 
+    private final Status status;
+
     public QualityEvaluationResult(double relevance, double completeness,
                                    double hallucination, double helpfulness,
                                    double overall, String reason, String rawResponse) {
+        this(relevance, completeness, hallucination, helpfulness, overall,
+                reason, rawResponse, Status.COMPLETED);
+    }
+
+    private QualityEvaluationResult(double relevance, double completeness,
+                                    double hallucination, double helpfulness,
+                                    double overall, String reason, String rawResponse,
+                                    Status status) {
         this.relevance = clamp(relevance);
         this.completeness = clamp(completeness);
         this.hallucination = clamp(hallucination);
@@ -51,17 +68,25 @@ public class QualityEvaluationResult {
         this.overall = clamp(overall);
         this.reason = reason != null ? reason : "";
         this.rawResponse = rawResponse;
+        this.status = status;
     }
 
     /** 构造一个评估失败的默认结果（LLM 调用异常时使用） */
     public static QualityEvaluationResult failed(String errorMessage) {
         return new QualityEvaluationResult(0.0, 0.0, 0.0, 0.0, 0.0,
-                "Evaluation failed: " + errorMessage, null);
+                "Evaluation failed: " + errorMessage, null, Status.FAILED);
     }
 
     /** 构造一个评估跳过时的中性结果 */
     public static QualityEvaluationResult skipped() {
-        return new QualityEvaluationResult(0.0, 0.0, 1.0, 0.0, 0.7, "Skipped", null);
+        return new QualityEvaluationResult(0.0, 0.0, 1.0, 0.0, 0.7,
+                "Skipped", null, Status.SKIPPED);
+    }
+
+    /** 构造一个由确定性规则直接拒绝的结果。 */
+    public static QualityEvaluationResult rejected(String reason) {
+        return new QualityEvaluationResult(0.0, 0.0, 0.0, 0.0, 0.0,
+                reason, "RULE_REJECTED", Status.COMPLETED);
     }
 
     /** 是否通过质量评估 */
@@ -71,8 +96,12 @@ public class QualityEvaluationResult {
 
     /** LLM 调用是否成功完成 */
     public boolean isCompleted() {
-        return rawResponse != null && !rawResponse.isBlank();
+        return status == Status.COMPLETED;
     }
+
+    public boolean isSkipped() { return status == Status.SKIPPED; }
+
+    public boolean isFailed() { return status == Status.FAILED; }
 
     /** 是否检测到幻觉风险 */
     public boolean hasHallucinationRisk(double threshold) {
@@ -88,6 +117,7 @@ public class QualityEvaluationResult {
     public double getOverall() { return overall; }
     public String getReason() { return reason; }
     public String getRawResponse() { return rawResponse; }
+    public Status getStatus() { return status; }
 
     private static double clamp(double v) {
         return Math.max(0.0, Math.min(1.0, v));

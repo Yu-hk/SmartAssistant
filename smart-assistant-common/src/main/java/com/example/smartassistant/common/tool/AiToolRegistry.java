@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.tool;
 
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 
 import java.util.ArrayList;
@@ -31,11 +32,37 @@ public class AiToolRegistry {
         List<ToolCallback> callbacks = new ArrayList<>();
         if (toolBeans == null) return callbacks;
         for (Object bean : toolBeans) {
-            if (bean == null) continue;
-            callbacks.addAll(List.of(
-                    MethodToolCallbackProvider.builder().toolObjects(bean).build().getToolCallbacks()));
+            appendCallbacks(callbacks, bean);
         }
         return callbacks;
+    }
+
+    private void appendCallbacks(List<ToolCallback> callbacks, Object candidate) {
+        if (candidate == null) {
+            return;
+        }
+        if (candidate instanceof ToolCallback callback) {
+            callbacks.add(callback);
+            return;
+        }
+        if (candidate instanceof ToolCallbackProvider provider) {
+            callbacks.addAll(List.of(provider.getToolCallbacks()));
+            return;
+        }
+        if (candidate instanceof Object[] array) {
+            for (Object element : array) {
+                appendCallbacks(callbacks, element);
+            }
+            return;
+        }
+        if (candidate instanceof Iterable<?> iterable) {
+            for (Object element : iterable) {
+                appendCallbacks(callbacks, element);
+            }
+            return;
+        }
+        callbacks.addAll(List.of(
+                MethodToolCallbackProvider.builder().toolObjects(candidate).build().getToolCallbacks()));
     }
 
     /** 列表版重载 */

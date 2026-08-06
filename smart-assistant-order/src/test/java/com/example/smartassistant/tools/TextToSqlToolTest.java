@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -37,14 +38,14 @@ class TextToSqlToolTest {
     private OrderDataProvider orderData;
     @Mock
     private PromptManager promptManager;
+    @Mock
+    private ChatModel chatModel;
 
     private TextToSqlTool textToSqlTool;
 
     @BeforeEach
     void setUp() {
-        // Use an invalid URL to ensure Ollama calls fail fast for tests that go through textToSql
-        textToSqlTool = new TextToSqlTool(orderData, "http://127.0.0.1:1", "test-model",
-                promptManager);
+        textToSqlTool = new TextToSqlTool(orderData, chatModel, promptManager);
     }
 
     // ==================== cleanGeneratedSql (via ReflectionTestUtils) ====================
@@ -101,13 +102,14 @@ class TextToSqlToolTest {
     // ==================== textToSql error handling ====================
 
     @Test
-    @DisplayName("textToSql should return error when Ollama call fails due to invalid URL")
-    void should_returnOllamaError_when_ollamaUnavailable() {
-        // The URL is set to http://127.0.0.1:1 which will cause connection refused
+    @DisplayName("textToSql should return error when the configured model call fails")
+    void should_returnModelError_when_modelUnavailable() {
+        when(chatModel.call(org.mockito.ArgumentMatchers.anyString()))
+                .thenThrow(new IllegalStateException("Connection refused"));
         String result = textToSqlTool.textToSql("查询所有订单");
         assertTrue(result.contains("SQL 生成失败") || result.contains("Connection refused")
                         || result.contains("connect") || result.contains("refused"),
-                "Should return an error message when Ollama is unreachable");
+                "Should return an error message when the configured model is unreachable");
     }
 
     // ==================== SqlSecurityValidator validation ====================

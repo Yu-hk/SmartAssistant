@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.aop.Advisor;
 import org.springframework.aop.framework.AopInfrastructureBean;
 import org.springframework.aop.support.DefaultPointcutAdvisor;
+import org.springframework.aop.support.StaticMethodMatcherPointcut;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportAware;
@@ -35,6 +36,8 @@ import java.util.stream.Collectors;
 public class ServiceInterceptorAutoConfiguration implements ImportAware {
 
     private static final Logger log = LoggerFactory.getLogger(ServiceInterceptorAutoConfiguration.class);
+    private static final long DEFAULT_SLOW_THRESHOLD_MS = 1000L;
+    private static final String[] NO_BASE_PACKAGES = new String[0];
 
     private AnnotationAttributes annotationAttributes;
 
@@ -68,7 +71,9 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
     @Bean
     public PerformanceMonitorInterceptor performanceMonitorInterceptor(
             io.micrometer.core.instrument.MeterRegistry meterRegistry) {
-        long slowThreshold = annotationAttributes.getNumber("slowThresholdMs");
+        long slowThreshold = annotationAttributes == null
+                ? DEFAULT_SLOW_THRESHOLD_MS
+                : annotationAttributes.getNumber("slowThresholdMs");
         return new PerformanceMonitorInterceptor(slowThreshold, meterRegistry);
     }
 
@@ -89,7 +94,9 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
     @Bean
     public Advisor serviceInterceptorAdvisor(
             ServiceInterceptorChain interceptorChain) {
-        String[] basePackages = annotationAttributes.getStringArray("basePackages");
+        String[] basePackages = annotationAttributes == null
+                ? NO_BASE_PACKAGES
+                : annotationAttributes.getStringArray("basePackages");
 
         if (basePackages == null || basePackages.length == 0) {
             log.warn("[Interceptor] No basePackages configured, advisor will not match any methods");
@@ -100,9 +107,31 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
         ServiceInterceptorMethodInterceptor advice =
                 new ServiceInterceptorMethodInterceptor(interceptorChain, basePackages);
 
-        DefaultPointcutAdvisor advisor = new DefaultPointcutAdvisor(advice);
+        StaticMethodMatcherPointcut pointcut = new StaticMethodMatcherPointcut() {
+            @Override
+            public boolean matches(Method method, Class<?> targetClass) {
+                return method.getDeclaringClass() != Object.class;
+            }
+        };
+        pointcut.setClassFilter(targetClass ->
+                !AopInfrastructureBean.class.isAssignableFrom(targetClass)
+                        && matchesBasePackage(targetClass.getName(), basePackages));
+
+        DefaultPointcutAdvisor advisor = new DefaultPointcutAdvisor(pointcut, advice);
         advisor.setOrder(Ordered.LOWEST_PRECEDENCE - 100);
         return advisor;
+    }
+
+    private static boolean matchesBasePackage(String className, String[] basePackages) {
+        if (basePackages == null || basePackages.length == 0) {
+            return false;
+        }
+        for (String pkg : basePackages) {
+            if (pkg != null && !pkg.isEmpty() && className.startsWith(pkg)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -162,15 +191,7 @@ public class ServiceInterceptorAutoConfiguration implements ImportAware {
         }
 
         private boolean matchesBasePackage(String className) {
-            if (basePackages == null || basePackages.length == 0) {
-                return false;
-            }
-            for (String pkg : basePackages) {
-                if (pkg != null && !pkg.isEmpty() && className.startsWith(pkg)) {
-                    return true;
-                }
-            }
-            return false;
+            return ServiceInterceptorAutoConfiguration.matchesBasePackage(className, basePackages);
         }
 
         @Override
