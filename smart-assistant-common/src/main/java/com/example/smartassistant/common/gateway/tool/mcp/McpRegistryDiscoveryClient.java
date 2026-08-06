@@ -121,8 +121,7 @@ public class McpRegistryDiscoveryClient {
     ToolDefinition toToolDefinition(Tool tool) {
         String name = tool.name();
         String description = tool.description();
-        Map<String, Object> inputSchemaMap = tool.inputSchema();
-        String inputSchemaJson = toInputSchemaJson(inputSchemaMap);
+        String inputSchemaJson = toInputSchemaJson(tool.inputSchema());
         Boolean readOnlyHint = (tool.annotations() != null) ? tool.annotations().readOnlyHint() : null;
         Map<String, Object> meta = tool.meta();
         return buildDefinition(name, description, inputSchemaJson, readOnlyHint, meta);
@@ -171,8 +170,8 @@ public class McpRegistryDiscoveryClient {
         return idx > 0 ? name.substring(0, idx) : null;
     }
 
-    private String toInputSchemaJson(Map<String, Object> inputSchema) {
-        if (inputSchema == null || inputSchema.isEmpty()) {
+    private String toInputSchemaJson(Object inputSchema) {
+        if (inputSchema == null) {
             return null;
         }
         try {

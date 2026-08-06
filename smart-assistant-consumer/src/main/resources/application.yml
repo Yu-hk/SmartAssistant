@@ -100,13 +100,13 @@ spring:
         id-type: auto
 
   ai:
-    # ⭐ Ollama 本地模型配置（本地推理主通道）
-    ollama:
-      base-url: http://localhost:11434
+    # 轻量辅助任务直接调用 DeepSeek API。
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY}
       chat:
         options:
-          model: qwen2.5:7b
-          temperature: 0.7
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-chat}
+          temperature: 0.1
     
     # ⭐ MCP Server 配置（内嵌在 Consumer 中）
     mcp:
@@ -180,6 +180,13 @@ cache:
 router:
   service:
     url: http://localhost:8083       # Router Service 地址
+    connect-timeout-ms: 3000
+    read-timeout-ms: 120000          # 覆盖意图分析、Agent 调用和质量评估完整链路
+
+# 用户画像是旁路增强：模型提取超时后降级到规则，不占用主对话预算
+preference:
+  extraction:
+    timeout-ms: 8000
 
 # ⭐ 线程池配置（消除硬编码）
 thread-pool:

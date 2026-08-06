@@ -43,7 +43,8 @@ import java.util.Map;
  * 由 {@link AgentEvaluationResult.Builder#overridePassed(Boolean)} 注入门禁，复用既有 {@link EvalGate}
  * 的 {@code agent.passRate} 聚合与 {@code minAgentPassRate} 双重校验——<b>不改动 EvalGate</b>。
  *
- * <p>未注入运行器时（默认 CI 离线黄金集）Agent 用例仍生成「待执行」占位，仅作信息展示，行为向后兼容。</p>
+ * <p>未注入运行器时仅允许在 Agent Gate 关闭的观察模式生成「待执行」占位；
+ * Agent Gate 开启后缺少运行器会直接阻断，禁止静默放行。</p>
  *
  * <p>用法：</p>
  * <pre>{@code
@@ -85,8 +86,8 @@ public class GoldenSuiteEvalGate {
      *
      * <p>注入真实 {@link TrialRunner.TrialExecutor} 时，自动启用硬化默认配置：
      * 启用 Agent 门禁、Trial 次数=5、稳定通过率阈值 pass^k≥0.8、绝对通过率≥0.8，
-     * 不再要求调用方手工拼装 {@link EvalGateConfig}。未注入运行器时退化为离线占位（仅信息展示），
-     * 行为与 {@link #run(String, String, Path, Path, boolean)} 一致、向后兼容。</p>
+     * 不再要求调用方手工拼装 {@link EvalGateConfig}。该硬化入口要求注入运行器；
+     * 缺少运行器时门禁会失败。</p>
      *
      * @param suiteResource  黄金测试集 classpath 资源
      * @param reportDir      报告输出目录
@@ -175,6 +176,13 @@ public class GoldenSuiteEvalGate {
         // 3. 门禁判定（复用既有 EvalGate，Agent 通过率由 overridePassed 携带 pass^k 结论）
         EvalGate gate = new EvalGate();
         EvalGate.GateResult result = gate.evaluate(rag, agent, cfg, baseline);
+
+        // 启用了 Agent 硬门禁却没有执行器时必须失败，禁止静默退化为占位结果。
+        if (cfg.enableAgentGate && agentExecutor == null) {
+            List<String> violations = new ArrayList<>(result.violations());
+            violations.add("Agent 门禁已启用，但未提供 TrialExecutor；禁止使用占位结果放行");
+            result = new EvalGate.GateResult(false, violations, result.metrics());
+        }
 
         // 3.5 合规门禁并入（REQ-8）：compliance 全过才 passed，否则往 violations 追加说明
         if (cfg.enableComplianceGate && !compliance.isEmpty()) {
@@ -321,7 +329,7 @@ public class GoldenSuiteEvalGate {
         metrics.put("compliance.passRate", compliancePassRate);
 
         boolean passed = base.passed() && !block;
-        if (!passed) {
+        if (block) {
             log.error("[EvalGate] ❌ 合规回归门禁未通过（passRate={}）",
                     String.format("%.4f", compliancePassRate));
         } else {

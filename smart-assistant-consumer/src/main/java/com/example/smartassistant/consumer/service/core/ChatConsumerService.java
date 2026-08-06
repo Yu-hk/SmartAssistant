@@ -103,8 +103,8 @@ public class ChatConsumerService {
 
         // Step 1: 更新用户画像（仅对有偏好价值的请求）⭐
         if (userIdLong != null && isPreferenceWorthyRequest(question)) {
-            userProfileService.extractAndUpdatePreferences(userIdLong, question, null);
-            log.debug("[Consumer] 用户画像已更新: userId={}", userIdLong);
+            userProfileService.extractAndUpdatePreferencesAsync(userIdLong, question, null);
+            log.debug("[Consumer] 用户画像更新已提交到后台: userId={}", userIdLong);
         } else if (userIdLong != null) {
             log.debug("[Consumer] 跳过画像提取（无偏好价值）: userId={}, question={}", userIdLong, question);
         }
@@ -187,7 +187,7 @@ public class ChatConsumerService {
 
         // Step 1: 更新用户画像
         if (userIdLong != null && isPreferenceWorthyRequest(question)) {
-            userProfileService.extractAndUpdatePreferences(userIdLong, question, null);
+            userProfileService.extractAndUpdatePreferencesAsync(userIdLong, question, null);
         }
 
         // Step 2: 构建用户画像文本（独立字段，不塞入 question）

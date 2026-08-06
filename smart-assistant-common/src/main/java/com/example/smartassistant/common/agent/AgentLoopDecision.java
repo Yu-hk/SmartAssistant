@@ -9,8 +9,8 @@ package com.example.smartassistant.common.agent;
  *
  * <p>优先级链路（命中第一条即返回，不继续检查）：</p>
  * <pre>
- *  1. FINALIZE           → 无工具调用且内容足够 → 最终输出
- *  2. ADVANCE_PHASE      → 阶段完成且有后续阶段 → 推进
+ *  1. ADVANCE_PHASE      → 配置了阶段门禁时先执行代码验收
+ *  2. FINALIZE           → 无工具调用且内容足够 → 最终输出
  *  3. PAUSE_BLOCKED      → 循环守卫检测到阻塞  → 暂停
  *  4. PAUSE_INFRA        → 基础设施错误         → 暂停
  *  5. AWAIT_CONFIRMATION → 等待用户确认         → 暂停
@@ -70,13 +70,13 @@ public final class AgentLoopDecision {
      * @return 优先级最高的 {@link LoopAction}
      */
     public static LoopAction decide(DecisionContext ctx, boolean hasPhaseChecks, int maxIterations) {
-        // 1. FINALIZE — 无工具调用且回答内容充分
-        if (ctx.noToolCalls() && ctx.hasSufficientContent()) {
-            return LoopAction.FINALIZE;
-        }
-        // 2. ADVANCE_PHASE — 目前简化：有阶段配置且无工具调用
+        // 1. ADVANCE_PHASE — 有阶段配置时必须先让代码门禁验收，不能被长回答绕过。
         if (ctx.noToolCalls() && hasPhaseChecks) {
             return LoopAction.ADVANCE_PHASE;
+        }
+        // 2. FINALIZE — 无工具调用且回答内容充分
+        if (ctx.noToolCalls() && ctx.hasSufficientContent()) {
+            return LoopAction.FINALIZE;
         }
         // 3. PAUSE_BLOCKED
         if (ctx.guardAction() == LoopGuardService.GuardAction.PAUSE_BLOCKED) {

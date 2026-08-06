@@ -2,6 +2,7 @@ package com.example.smartassistant.common.error;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 /**
  * 错误恢复服务。
@@ -13,6 +14,7 @@ import org.slf4j.LoggerFactory;
  * @author Yu-hk
  * @since 2026-06-29
  */
+@Component
 public class ErrorRecoveryService {
 
     private static final Logger log = LoggerFactory.getLogger(ErrorRecoveryService.class);

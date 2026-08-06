@@ -133,6 +133,12 @@ public class SmartReActAgent {
     /** 当前阶段名称（可选，用于 Pre-AL Gate） */
     private String currentPhase;
 
+    /** Phase Gate 文件检查的工作区。 */
+    private String phaseWorkspace = System.getProperty("user.dir");
+
+    /** 已完成的结构化用户确认检查项 ID。 */
+    private java.util.List<String> phaseConfirmations = java.util.List.of();
+
     /** 反馈学习日志（可选，null 时跳过 per-round 结构化反馈记录） */
     private FeedbackLog feedbackLog;
 
@@ -480,9 +486,22 @@ public class SmartReActAgent {
      * @return this
      */
     public SmartReActAgent withPhaseGate(java.util.List<PhaseGate.Check> checks, String phase) {
+        return withPhaseGate(checks, phase, System.getProperty("user.dir"));
+    }
+
+    /** 配置带显式工作区的 Phase Gate。 */
+    public SmartReActAgent withPhaseGate(java.util.List<PhaseGate.Check> checks,
+                                         String phase, String workspace) {
         this.phaseGate = new PhaseGate();
         this.phaseChecks = checks;
         this.currentPhase = phase;
+        this.phaseWorkspace = workspace;
+        return this;
+    }
+
+    /** 注入已经由上层认证流程确认的 Phase Gate 检查项 ID。 */
+    public SmartReActAgent withPhaseConfirmations(java.util.List<String> confirmationIds) {
+        this.phaseConfirmations = confirmationIds != null ? java.util.List.copyOf(confirmationIds) : java.util.List.of();
         return this;
     }
 
@@ -534,6 +553,13 @@ public class SmartReActAgent {
 					toolGroupManager.getActiveGroupNames(), effectiveTools.size());
 		}
 
+        if (feedbackLog != null) {
+            String feedbackContext = feedbackLog.buildPromptContext(3);
+            if (!feedbackContext.isBlank()) {
+                enhancedPrompt = enhancedPrompt + "\n\n" + feedbackContext;
+            }
+        }
+
 		// ⭐ T2d：合并动态工具（去重，同名覆盖）
 		effectiveTools = mergeWithDynamicTools(effectiveTools);
 		if (!dynamicTools.isEmpty()) {
@@ -570,6 +596,7 @@ public class SmartReActAgent {
         int consecutiveParseFailures = 0;
         int noProgressCount = 0;
         String lastToolContextHash = null;
+        List<String> phaseToolCallLog = new ArrayList<>();
 
         while (iteration < profile.maxIterations()) {
             iteration++;
@@ -667,7 +694,7 @@ public class SmartReActAgent {
                     var spec = chatClient.prompt()
                             .messages(callMessages);
                     if (!effectiveTools.isEmpty()) {
-                        spec = spec.tools(effectiveTools.toArray(new ToolCallback[0]));
+                        spec = spec.toolCallbacks(effectiveTools);
                     }
                     response = spec.call().chatResponse();
                 } else {
@@ -740,6 +767,10 @@ public class SmartReActAgent {
                     log.warn("[SmartReActAgent] 🛑 循环守卫触发: action={}, reason={}",
                             guardResult.action(), guardResult.reason());
                     metrics.recordMaxIterationHit();
+                    if (feedbackLog != null) {
+                        feedbackLog.recordFailure(iteration, "循环守卫触发: " + guardResult.action(),
+                                guardResult.reason(), "根据暂停原因补充信息或修复基础设施后再执行");
+                    }
                     // 守卫暂停：返回包含暂停原因的友好消息
                     return switch (guardResult.action()) {
                         case PAUSE_BLOCKED -> "检测到 Agent 报告被阻塞，无法继续。请提供更多信息或重新描述需求。";
@@ -759,6 +790,9 @@ public class SmartReActAgent {
                 boolean hasProgress = answerText != null && answerText.length() > 50;
                 if (!hasProgress) {
                     noProgressCount++;
+                    if (feedbackLog != null) {
+                        feedbackLog.recordLowProgress(iteration, "补充可验证结果，或改用工具取得新信息");
+                    }
                 } else {
                     noProgressCount = 0;
                 }
@@ -772,6 +806,31 @@ public class SmartReActAgent {
                         profile.maxIterations());
 
                 switch (nextAction) {
+                    case ADVANCE_PHASE -> {
+                        PhaseGate.GateResult gateResult = phaseGate.verify(
+                                phaseChecks, phaseToolCallLog, phaseWorkspace, phaseConfirmations);
+                        if (gateResult.allPassed()) {
+                            log.info("[SmartReActAgent] 阶段门禁通过: phase={}, checks={}",
+                                    currentPhase, gateResult.results().size());
+                            if (feedbackLog != null) {
+                                feedbackLog.recordProgress(iteration, "high");
+                            }
+                            return answerText;
+                        }
+
+                        String failedChecks = gateResult.results().stream()
+                                .filter(check -> !check.passed())
+                                .map(check -> check.checkId() + ": " + check.reason())
+                                .collect(java.util.stream.Collectors.joining("；"));
+                        log.warn("[SmartReActAgent] 阶段门禁否决完成判定: phase={}, failed={}",
+                                currentPhase, failedChecks);
+                        if (feedbackLog != null) {
+                            feedbackLog.recordFailure(iteration, "阶段门禁未通过",
+                                    failedChecks, "完成未通过的验收项后再次提交结果");
+                        }
+                        messages.add(new UserMessage("阶段验收未通过，不能结束。请继续处理以下问题：" + failedChecks));
+                        continue;
+                    }
                     case FINALIZE -> {
                         log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
                                 iteration, elapsed, totalInputTokens, totalOutputTokens);
@@ -784,6 +843,10 @@ public class SmartReActAgent {
                     case STRATEGY_SWITCH -> {
                         log.warn("[SmartReActAgent] 连续 {} 轮无实质进展，提前终止", noProgressCount);
                         metrics.recordMaxIterationHit();
+                        if (feedbackLog != null) {
+                            feedbackLog.recordFailure(iteration, "连续无实质进展",
+                                    "不要重复相同推理或无效尝试", "切换工具、拆解任务或请求必要信息");
+                        }
                         return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_NO_INCREMENT,
                                 "连续" + noProgressCount + "轮无实质进展，已终止");
                     }
@@ -814,7 +877,7 @@ public class SmartReActAgent {
                                 "连续" + consecutiveParseFailures + "次LLM返回空，已暂停");
                     }
                     default -> {
-                        // CONTINUE / ADVANCE_PHASE / NO_INCREMENT（无工具调用时 NO_INCREMENT 无意义）
+                        // CONTINUE / NO_INCREMENT（无工具调用时 NO_INCREMENT 无意义）
                         // → 视作最终回答返回，与原“短回答直接返回”行为一致
                         log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
                                 iteration, elapsed, totalInputTokens, totalOutputTokens);
@@ -846,6 +909,12 @@ public class SmartReActAgent {
                     .map(tc -> tc.name() + "(" + Long.toHexString(AgentToolExecutor.argHash64(tc.arguments())) + ")")
                     .sorted()
                     .collect(java.util.stream.Collectors.joining(","));
+            String toolResponseSummary = toolResponses.toString();
+            String normalizedToolResponse = toolResponseSummary.toLowerCase(java.util.Locale.ROOT);
+            boolean toolCallSucceeded = !normalizedToolResponse.contains("error")
+                    && !normalizedToolResponse.contains("unknown_tool")
+                    && !toolResponseSummary.contains("失败");
+            phaseToolCallLog.add(currentHash + (toolCallSucceeded ? " 成功" : " 失败"));
             if (currentHash.equals(lastToolCallHash)) {
                 noIncrementCount++;
             } else {
@@ -879,6 +948,10 @@ public class SmartReActAgent {
                 log.warn("[SmartReActAgent] 连续 {} 次相同工具调用，强制停止", noIncrementCount);
                 recoveryService.logRecovery(AgentErrorCode.SYSTEM_NO_INCREMENT, RecoveryAction.RETRY_ALTERNATIVE,
                         "consecutive=" + noIncrementCount, iteration);
+                if (feedbackLog != null) {
+                    feedbackLog.recordFailure(iteration, "重复相同工具和参数",
+                            "不要原样重放已失败或无增量的工具调用", "修改参数、切换工具或请求新信息");
+                }
                 return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_NO_INCREMENT, null);
             }
             // 其余动作（CONTINUE 等）→ 继续循环

@@ -261,9 +261,20 @@ public class TaskAnalysisService {
      * @return 构建完成的 system prompt 文本
      */
     private String buildDynamicPrompt(String question, List<String> conversationHistory) {
-        // System Prompt 始终不变（意图定义 + 输出格式要求）
-        // 多轮上下文通过 User Message 注入，而非 System Prompt
-        return buildDynamicPrompt(question);
+        if (intentRetriever == null) {
+            return systemPrompt;
+        }
+        try {
+            List<IntentDef> relevant = intentRetriever.retrieve(question, 3);
+            String intentSection = intentRetriever.buildIntentSection(relevant);
+            if (intentSection == null) {
+                return systemPrompt;
+            }
+            return systemPrompt + "\n\n" + intentSection;
+        } catch (Exception e) {
+            log.warn("[TaskAnalysis] Dynamic intent retrieval failed, using base prompt: {}", e.getMessage());
+            return systemPrompt;
+        }
     }
 
     /**

@@ -399,9 +399,11 @@ public class IntentGraph {
      * </p>
      *
      * @param newNodes 要追加的节点列表
+     * @return 实际新增的节点数（重复 ID 不计入）
      */
-    public void addNodes(List<IntentNode> newNodes) {
-        if (newNodes == null || newNodes.isEmpty()) return;
+    public int addNodes(List<IntentNode> newNodes) {
+        if (newNodes == null || newNodes.isEmpty()) return 0;
+        int added = 0;
         for (IntentNode node : newNodes) {
             // 避免重复添加
             if (nodeMap.containsKey(node.getId())) {
@@ -409,6 +411,7 @@ public class IntentGraph {
                 continue;
             }
             nodeMap.put(node.getId(), node);
+            added++;
             adjacency.put(node.getId(), new ArrayList<>());
             conditionalDeps.put(node.getId(), new ArrayList<>());
 
@@ -436,6 +439,7 @@ public class IntentGraph {
                 }
             }
         }
+        return added;
     }
 
     /**

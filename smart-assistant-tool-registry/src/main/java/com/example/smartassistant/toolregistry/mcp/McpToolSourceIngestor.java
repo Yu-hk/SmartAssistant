@@ -124,10 +124,10 @@ public class McpToolSourceIngestor {
         // 这与 T2a 适配器「def.inputSchema 为 null 时回退空对象 schema」互逆；
         // 故仅含 type=object、无实际 properties 的 schema 视为「无入参」→ null。
         String inputSchemaJson = null;
-        Map<String, Object> inputSchema = backendTool.inputSchema();
-        if (inputSchema != null && !inputSchema.isEmpty()) {
-            Object props = inputSchema.get("properties");
-            boolean hasRealProps = props instanceof Map && !((Map<?, ?>) props).isEmpty();
+        McpSchema.JsonSchema inputSchema = backendTool.inputSchema();
+        if (inputSchema != null) {
+            Map<String, Object> props = inputSchema.properties();
+            boolean hasRealProps = props != null && !props.isEmpty();
             if (hasRealProps) {
                 try {
                     inputSchemaJson = objectMapper.writeValueAsString(inputSchema);

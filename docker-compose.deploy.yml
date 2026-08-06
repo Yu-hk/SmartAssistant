@@ -50,7 +50,8 @@ services:
   # ========== 后端服务 ==========
   gateway:
     build:
-      context: ./smart-assistant-gateway
+      context: .
+      dockerfile: deploy/Dockerfile
       args:
         SERVICE_NAME: smart-assistant-gateway
     ports:
@@ -72,7 +73,8 @@ services:
 
   user:
     build:
-      context: ./smart-assistant-user
+      context: .
+      dockerfile: deploy/Dockerfile
       args:
         SERVICE_NAME: smart-assistant-user
     ports:
@@ -99,7 +101,8 @@ services:
 
   consumer:
     build:
-      context: ./smart-assistant-consumer
+      context: .
+      dockerfile: deploy/Dockerfile
       args:
         SERVICE_NAME: smart-assistant-consumer
     ports:
@@ -111,7 +114,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NACOS_PASSWORD: ${NACOS_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      ROUTER_SERVICE_URL: http://router:8083
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
@@ -128,17 +133,20 @@ services:
 
   router:
     build:
-      context: ./smart-assistant-router
+      context: .
+      dockerfile: deploy/Dockerfile
       args:
         SERVICE_NAME: smart-assistant-router
     ports:
       - "8083:8083"
     environment:
       PORT: 8083
+      JWT_SECRET: ${JWT_SECRET}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NACOS_PASSWORD: ${NACOS_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
@@ -156,7 +164,8 @@ services:
 
   order:
     build:
-      context: ./smart-assistant-order
+      context: .
+      dockerfile: deploy/Dockerfile
       args:
         SERVICE_NAME: smart-assistant-order
     ports:
@@ -167,6 +176,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NACOS_PASSWORD: ${NACOS_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
@@ -184,7 +194,8 @@ services:
 
   product:
     build:
-      context: ./smart-assistant-product
+      context: .
+      dockerfile: deploy/Dockerfile
       args:
         SERVICE_NAME: smart-assistant-product
     ports:
@@ -195,6 +206,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       NACOS_PASSWORD: ${NACOS_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
@@ -212,7 +224,8 @@ services:
 
   general:
     build:
-      context: ./smart-assistant-general
+      context: .
+      dockerfile: deploy/Dockerfile
       args:
         SERVICE_NAME: smart-assistant-general
     ports:
@@ -221,14 +234,21 @@ services:
       PORT: 8087
       NACOS_PASSWORD: ${NACOS_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
     depends_on:
       nacos: { condition: service_healthy }
+      postgres: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
     restart: unless-stopped
 
 volumes:
   postgres-data:
+  redis-data:
+  nacos-data:

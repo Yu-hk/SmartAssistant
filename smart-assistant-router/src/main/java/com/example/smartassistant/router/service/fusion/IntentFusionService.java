@@ -161,7 +161,7 @@ public class IntentFusionService {
             return new IntentFusionResult(ruleIntent, ruleConf,
                     mapAgentToCategory(ruleResult.getTargetAgent()), "FUSION_RULE",
                     ruleIntent, ruleConf, classifierIntent, classifierConf,
-                    llmIntent, llmConf, elapsed);
+                    llmIntent, llmConf, elapsed, llmResult);
         }
 
         if (classifyResult != null && classifierConf >= 0.5) {
@@ -170,7 +170,7 @@ public class IntentFusionService {
             return new IntentFusionResult(classifierIntent, classifierConf,
                     classifyResult.category(), "FUSION_CLASSIFIER",
                     ruleIntent, ruleConf, classifierIntent, classifierConf,
-                    llmIntent, llmConf, elapsed);
+                    llmIntent, llmConf, elapsed, llmResult);
         }
 
         // LLM 兜底（置信度已含 Intent Prior Bias）
@@ -178,7 +178,7 @@ public class IntentFusionService {
         return new IntentFusionResult(llmIntent, llmConf,
                 llmIntent != null ? llmIntent.toLowerCase() : "unknown", "LLM",
                 ruleIntent, ruleConf, classifierIntent, classifierConf,
-                llmIntent, llmConf, elapsed);
+                llmIntent, llmConf, elapsed, llmResult);
     }
 
     /**

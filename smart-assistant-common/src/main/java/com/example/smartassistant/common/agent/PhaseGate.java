@@ -70,6 +70,14 @@ public class PhaseGate {
     public GateResult verify(List<Check> checks,
                              List<String> toolCallLog,
                              String workspace) {
+        return verify(checks, toolCallLog, workspace, List.of());
+    }
+
+    /** 执行门禁验收，并接收已结构化确认的检查项 ID。 */
+    public GateResult verify(List<Check> checks,
+                             List<String> toolCallLog,
+                             String workspace,
+                             List<String> confirmations) {
         if (checks == null || checks.isEmpty()) {
             return GateResult.passed(List.of());
         }
@@ -82,7 +90,7 @@ public class PhaseGate {
                 case Check.TYPE_FILE_EXISTS -> checkFileExists(check, workspace);
                 case Check.TYPE_FILE_GLOB_COUNT -> checkFileGlobCount(check, workspace);
                 case Check.TYPE_SCRIPT_CHECK -> checkScriptInLog(check, toolCallLog);
-                case Check.TYPE_USER_CONFIRMATION -> checkUserConfirmation(check, List.of());
+                case Check.TYPE_USER_CONFIRMATION -> checkUserConfirmation(check, confirmations);
                 default -> CheckResult.fail(check.id(), "未知验收类型: " + check.type());
             };
             results.add(r);
@@ -127,6 +135,7 @@ public class PhaseGate {
             long matched;
             try (var stream = Files.walk(base)) {
                 matched = stream.filter(Files::isRegularFile)
+                        .map(base::relativize)
                         .filter(matcher::matches)
                         .limit(minCount + 1)
                         .count();

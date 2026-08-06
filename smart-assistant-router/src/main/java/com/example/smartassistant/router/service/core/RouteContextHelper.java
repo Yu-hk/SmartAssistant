@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 路由上下文构建辅助服务。
@@ -35,12 +36,15 @@ public class RouteContextHelper {
 
     private final StringRedisTemplate redisTemplate;
     private final int maxHistoryMessages;
+    private final long historyTtlSeconds;
 
     public RouteContextHelper(
             @Autowired(required = false) StringRedisTemplate redisTemplate,
-            @Value("${router.context.history.max-messages:10}") int maxHistoryMessages) {
+            @Value("${router.context.history.max-messages:10}") int maxHistoryMessages,
+            @Value("${router.context.history.ttl-seconds:3600}") long historyTtlSeconds) {
         this.redisTemplate = redisTemplate;
         this.maxHistoryMessages = maxHistoryMessages;
+        this.historyTtlSeconds = historyTtlSeconds;
     }
 
     /**
@@ -74,8 +78,8 @@ public class RouteContextHelper {
                 log.debug("[Router] Redis 中无会话历史: sessionId={}", sessionId);
                 return;
             }
-            int start = 0;
-            int end = Math.min(maxHistoryMessages - 1, size.intValue() - 1);
+            int end = size.intValue() - 1;
+            int start = Math.max(0, size.intValue() - maxHistoryMessages);
             List<String> history = redisTemplate.opsForList().range(historyKey, start, end);
             if (history != null && !history.isEmpty()) {
                 context.put("conversationHistory", history);
@@ -85,6 +89,25 @@ public class RouteContextHelper {
         } catch (Exception e) {
             log.warn("[Router] 从 Redis 加载会话历史失败: sessionId={}, error={}",
                     sessionId, e.getMessage());
+        }
+    }
+
+    /** 将本轮用户问题和最终回答写入会话历史，供下一轮路由和指代消解使用。 */
+    public void appendConversation(String sessionId, String question, String answer) {
+        if (redisTemplate == null || sessionId == null || sessionId.isBlank()
+                || question == null || question.isBlank()) {
+            return;
+        }
+        try {
+            String historyKey = "chat:history:" + sessionId;
+            redisTemplate.opsForList().rightPush(historyKey, "用户：" + question);
+            if (answer != null && !answer.isBlank()) {
+                redisTemplate.opsForList().rightPush(historyKey, "助手：" + answer);
+            }
+            redisTemplate.opsForList().trim(historyKey, -maxHistoryMessages, -1);
+            redisTemplate.expire(historyKey, historyTtlSeconds, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("[Router] 写入会话历史失败: sessionId={}, error={}", sessionId, e.getMessage());
         }
     }
 }

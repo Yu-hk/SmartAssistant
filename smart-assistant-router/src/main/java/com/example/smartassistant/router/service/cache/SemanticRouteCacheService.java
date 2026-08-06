@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -51,6 +52,11 @@ public class SemanticRouteCacheService {
     private static final String FULL_DECISION_KEY_PREFIX = "a2a:route:full-decision:";  // ⭐ 供 Consumer 读取的完整决策（独立 key）
     private static final String GLOBAL_INTENT_COUNT_PREFIX = "intent:global:count:";  // ⭐ 全局意图计数（判断高频问题）
     private static final String ADMIN_OP_REDIS_KEY = "admin:tool:called:latest";
+    private static final Pattern NON_CACHEABLE_REPLY_PATTERN = Pattern.compile(
+            "服务异常|服务不可用|暂时无法|系统繁忙|基础设施(?:错误|故障)|" +
+            "(?:数据库|知识库).{0,12}(?:未找到|没有)|" +
+            "%[0-9A-Fa-f]{2}|ERROR|Exception",
+            Pattern.CASE_INSENSITIVE);
     /** 会话复述类提问的关键词——这类提问仅对当前会话有意义，不缓存回复 */
     private static final Set<String> META_QUESTION_KEYWORDS = Set.of(
             "刚刚", "刚才", "上一", "前一句", "之前",
@@ -287,6 +293,17 @@ public class SemanticRouteCacheService {
             if (replyJson != null) {
                 try {
                     CachedReply cachedReply = objectMapper.readValue(replyJson, CachedReply.class);
+                    if (isNonCacheableReply(cachedReply.reply)) {
+                        redisTemplate.delete(keywordReplyKey);
+                        log.warn("[SemanticCache] 删除污染的关键词回复缓存: key={}", keywordReplyKey);
+                        cachedReply = null;
+                    }
+                    if (cachedReply == null) {
+                        replyJson = null;
+                    }
+                    if (replyJson == null) {
+                        // 继续使用路由决策，但不返回污染回复。
+                    } else {
                     String intentTagKey = KEYWORD_KEY_PREFIX + keywordHash;
                     String intentTag = redisTemplate.opsForValue().get(intentTagKey);
                     if (intentTag != null) {
@@ -297,6 +314,7 @@ public class SemanticRouteCacheService {
                             log.info("[SemanticCache] ✅ 关键词+回复全缓存命中: intent={}, agent={}", intentTag, decision.agentName);
                             return decision;
                         }
+                    }
                     }
                 } catch (Exception e) {
                     log.warn("[SemanticCache] 关键词回复缓存解析失败: {}", e.getMessage());
@@ -415,17 +433,22 @@ public class SemanticRouteCacheService {
 
             if (replyJson != null) {
                 CachedReply cachedReply = objectMapper.readValue(replyJson, CachedReply.class);
-                decision.reply = cachedReply.reply;
-                decision.hitCount = cachedReply.hitCount + 1;
-                decision.firstCachedAt = cachedReply.firstCachedAt;
+                if (isNonCacheableReply(cachedReply.reply)) {
+                    redisTemplate.delete(replyKey);
+                    log.warn("[SemanticCache] 删除污染的意图回复缓存: key={}", replyKey);
+                } else {
+                    decision.reply = cachedReply.reply;
+                    decision.hitCount = cachedReply.hitCount + 1;
+                    decision.firstCachedAt = cachedReply.firstCachedAt;
 
-                cachedReply.hitCount = decision.hitCount;
-                long ttl = getTtlForReply(decision.agentName, decision.originalQuestion);
+                    cachedReply.hitCount = decision.hitCount;
+                    long ttl = getTtlForReply(decision.agentName, decision.originalQuestion);
 
-                if (decision.hitCount >= 3) {
-                    ttl = Math.max(ttl, 7200);
+                    if (decision.hitCount >= 3) {
+                        ttl = Math.max(ttl, 7200);
+                    }
+                    redisTemplate.opsForValue().set(replyKey, objectMapper.writeValueAsString(cachedReply), ttl, TimeUnit.SECONDS);
                 }
-                redisTemplate.opsForValue().set(replyKey, objectMapper.writeValueAsString(cachedReply), ttl, TimeUnit.SECONDS);
             }
 
             log.info("[SemanticCache] ✅ 语义缓存命中: intent={}, agent={}, hit={}, hasReply={}",
@@ -579,7 +602,8 @@ public class SemanticRouteCacheService {
     }
 
     private void saveKeywordReply(String question, String reply, String agentName, Long ttlOverride) {
-        if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank()) return;
+        if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank()
+                || isNonCacheableReply(reply)) return;
         try {
             List<String> keywords = extractKeywords(question);
             if (keywords.isEmpty()) return;
@@ -684,6 +708,11 @@ public class SemanticRouteCacheService {
     public void saveReply(String question, String reply, String agentName, String intentTag, Long ttlOverride, boolean adminOperation) {
         if (!cacheEnabled || redisTemplate == null || reply == null || reply.isBlank() || intentTag == null) return;
 
+        if (isNonCacheableReply(reply)) {
+            log.warn("[SemanticCache] 错误/降级回复跳过缓存: intent={}, agent={}", intentTag, agentName);
+            return;
+        }
+
         // ⭐ 回复缓存总开关（P3-B）：关闭后不缓存任何最终回复，避免跨请求复用可变答案
         if (!replyCacheEnabled) {
             log.debug("[SemanticCache] 回复缓存已通过开关关闭(reply-cache-enabled=false)，跳过回复缓存: intent={}", intentTag);
@@ -746,6 +775,10 @@ public class SemanticRouteCacheService {
         } catch (Exception e) {
             log.warn("[SemanticCache] 写入回复缓存失败: {}", e.getMessage());
         }
+    }
+
+    static boolean isNonCacheableReply(String reply) {
+        return reply == null || reply.isBlank() || NON_CACHEABLE_REPLY_PATTERN.matcher(reply).find();
     }
 
     /**
