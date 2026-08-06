@@ -67,6 +67,7 @@ public class RouterController {
         long startTime = System.currentTimeMillis();
 
         RoutingResult routingResult = routerService.route(request);
+        routerService.recordConversation(request, routingResult);
         long latency = System.currentTimeMillis() - startTime;
 
         RouteResponse response = RouteResponse.builder()

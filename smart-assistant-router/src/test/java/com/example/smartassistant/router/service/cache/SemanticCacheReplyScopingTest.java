@@ -181,4 +181,20 @@ class SemanticCacheReplyScopingTest {
 
         verify(valueOps, never()).set(startsWith("a2a:route:reply:"), anyString(), anyLong(), any());
     }
+
+    @Test
+    @DisplayName("数据库未命中和降级提示不得写入回复缓存")
+    void errorRepliesAreNotCached() {
+        MDC.put("tenantId", "T1");
+
+        cache.saveReply("办公笔记本推荐",
+                "抱歉，数据库中未找到与「办公笔记本推荐」相关的信息。",
+                "product_agent", "办公,笔记本");
+        cache.saveReply("继续介绍",
+                "抱歉，我暂时无法可靠地回答这个问题。",
+                "product_agent", "继续,介绍");
+
+        verify(valueOps, never()).set(startsWith("a2a:route:reply:"), anyString(), anyLong(), any());
+        verify(valueOps, never()).set(startsWith("a2a:route:keyword:reply:"), anyString(), anyLong(), any());
+    }
 }

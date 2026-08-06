@@ -13,19 +13,20 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.ollama.OllamaChatModel;
-import org.springframework.ai.ollama.api.OllamaOptions;
+import org.springframework.ai.deepseek.DeepSeekChatModel;
+import org.springframework.ai.deepseek.DeepSeekChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Fallback;
 import reactor.core.publisher.Flux;
 
 /**
  * 轻量 LLM 推理通道配置（Router 模块）。
  * <p>
- * 基于 {@link OllamaChatModel} 委托模式实现。用于关键词提取、任务分解、路由决策、
- * 结果合并等辅助任务。
+ * 基于 {@link DeepSeekChatModel} 委托模式实现，生产环境直接调用模型 API。
+ * 用于关键词提取、任务分解、路由决策、结果合并等辅助任务。
  */
 @Configuration
 public class LightChatModelConfig {
@@ -33,28 +34,29 @@ public class LightChatModelConfig {
     private static final Logger log = LoggerFactory.getLogger(LightChatModelConfig.class);
 
     @Bean
+    @Fallback
     @Qualifier("lightChatModel")
     public ChatModel lightChatModel(
-            OllamaChatModel ollamaChatModel,
-            @Value("${router.light-model.name:qwen2.5:3b}") String model,
+            DeepSeekChatModel deepSeekChatModel,
+            @Value("${router.light-model.name:${DEEPSEEK_LIGHT_MODEL:deepseek-chat}}") String model,
             @Value("${router.light-model.temperature:0.1}") double temperature) {
 
-        var lightOptions = OllamaOptions.builder()
+        var lightOptions = DeepSeekChatOptions.builder()
                 .model(model)
                 .temperature(temperature)
                 .build();
 
-        log.info("[LightChatModel] initialized via delegation: model={}, temperature={}",
+        log.info("[LightChatModel] initialized via DeepSeek API delegation: model={}, temperature={}",
                 model, temperature);
-        return new LightDelegatingChatModel(ollamaChatModel, lightOptions);
+        return new LightDelegatingChatModel(deepSeekChatModel, lightOptions);
     }
 
     private static class LightDelegatingChatModel implements ChatModel {
 
-        private final OllamaChatModel delegate;
-        private final OllamaOptions lightOptions;
+        private final DeepSeekChatModel delegate;
+        private final DeepSeekChatOptions lightOptions;
 
-        LightDelegatingChatModel(OllamaChatModel delegate, OllamaOptions lightOptions) {
+        LightDelegatingChatModel(DeepSeekChatModel delegate, DeepSeekChatOptions lightOptions) {
             this.delegate = delegate;
             this.lightOptions = lightOptions;
         }

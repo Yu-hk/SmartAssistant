@@ -1,6 +1,9 @@
 server:
   port: 8088
   shutdown: graceful
+tool-registry:
+  mcp:
+    exposure-enabled: true
 spring:
   lifecycle:
     timeout-per-shutdown-phase: "30s"

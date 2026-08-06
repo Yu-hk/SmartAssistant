@@ -3,6 +3,7 @@ package com.example.smartassistant.common.budget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -20,6 +21,7 @@ import java.time.format.DateTimeFormatter;
  * @since 2026-06-29
  */
 @Service
+@ConditionalOnClass(name = "org.springframework.data.redis.core.StringRedisTemplate")
 public class BudgetTracker {
 
     private static final Logger log = LoggerFactory.getLogger(BudgetTracker.class);

@@ -440,6 +440,7 @@ public class RouterService {
             }
 
             Long userId = request.getUserId();
+            String executionQuestion = enhancedQuestion;
 
             // Step 4: 单意图路由（语义缓存命中时直接返回缓存回复）
             RoutingResult result;
@@ -495,7 +496,21 @@ public class RouterService {
                 String intentTag = null;
                 double confidence = 0.7;
 
-                if (fusionResult != null && fusionResult.isValid()
+                TaskAnalysisResult fusedAnalysis = fusionResult != null
+                        ? fusionResult.taskAnalysis() : null;
+                if (fusedAnalysis != null && fusedAnalysis.isMeaningful()) {
+                    // IntentFusionService already paid for this structured model analysis.
+                    // Reuse it instead of issuing the same model request a second time.
+                    taskAnalysis = fusedAnalysis;
+                    intentTag = fusionResult.isValid()
+                            ? fusionResult.intentTag() : fusedAnalysis.getIntentCategory();
+                    confidence = fusionResult.isValid()
+                            ? fusionResult.confidence() : fusedAnalysis.getConfidence();
+                    taskAnalysis.setIntentCategory(intentTag);
+                    taskAnalysis.setConfidence(confidence);
+                    log.info("[Router] Reusing fusion task analysis: source={}, intent={}, conf={}, elapsed={}ms",
+                            fusionResult.source(), intentTag, confidence, fusionResult.elapsedMs());
+                } else if (fusionResult != null && fusionResult.isValid()
                         && !"LLM".equals(fusionResult.source())) {
                     // 规则或小模型命中 → 跳过 LLM，使用融合结果
                     intentTag = fusionResult.intentTag();
@@ -564,7 +579,7 @@ public class RouterService {
 
                 // ⭐ Step 3.6: 意图引导的查询改写
                 // 根据意图类型选择改写策略：多跳→分解、模糊→扩展、精确→保留
-                if (taskAnalysis.isMeaningful()) {
+                if (taskAnalysis != null && taskAnalysis.isMeaningful()) {
                     IntentGuidedQueryRewriter.RewriteResult rewriteResult =
                             queryRewriter.rewrite(enhancedQuestion, taskAnalysis);
                     if (!rewriteResult.rewrittenQuery().equals(enhancedQuestion)) {
@@ -592,8 +607,22 @@ public class RouterService {
                 // ⭐ 多 Agent 协作（所有提问均走规划→执行→合并）
                 // 简单问题 plan() 返回单个子任务，merge() 直接返回
                 // 复杂问题自动分解为多个子任务并行执行
-                log.info("[Router] 🤝 启动多 Agent 协作: question={}", QuestionExtractor.truncate(enhancedQuestion, 80));
-                result = executeCollaborative(enhancedQuestion, userId, request.getRequestId(), emotion);
+                executionQuestion = addConversationContextIfNeeded(
+                        enhancedQuestion, conversationHistory);
+                String singleIntentAgent = resolveSingleIntentAgent(taskAnalysis);
+                if (singleIntentAgent != null) {
+                    log.info("[Router] Single-intent fast path: intent={}, agent={}",
+                            taskAnalysis.getIntentCategory(), singleIntentAgent);
+                    RoutingResult directResult = callAgentAndFinalize(
+                            singleIntentAgent, executionQuestion, confidence, intentTag,
+                            request, executionQuestion, emotion);
+                    if (directResult != null) {
+                        return directResult;
+                    }
+                }
+                log.info("[Router] 🤝 启动多 Agent 协作: question={}",
+                        QuestionExtractor.truncate(executionQuestion, 120));
+                result = executeCollaborative(executionQuestion, userId, request.getRequestId(), emotion);
             }
 
             // ⭐ 生成意图标签（用于用户画像统计），设置到 result
@@ -601,7 +630,7 @@ public class RouterService {
             result.setIntentTag(intentTag);
 
             // ⭐⭐ 反思器 + 缓存写入 + 经验提取（公共后处理）
-            return finalizeRouting(result, request, QuestionExtractor.extractRawQuestion(question), emotion);
+                return finalizeRouting(result, request, executionQuestion, emotion);
 
         } catch (Exception e) {
             log.error("[Router] 路由失败: {}", e.getMessage(), e);
@@ -766,6 +795,43 @@ public class RouterService {
 
     private Map<String, Object> buildContext(RouteRequest request) {
         return routeContextHelper.buildContext(request);
+    }
+
+    /** 在 API 层统一完成后记录对话，覆盖快车道、缓存和协作等所有返回路径。 */
+    public void recordConversation(RouteRequest request, RoutingResult result) {
+        if (request == null || result == null) return;
+        routeContextHelper.appendConversation(
+                request.getSessionId(), request.getQuestion(), result.getResult());
+    }
+
+    /** 为“如果、它、继续”等上下文依赖型追问补充最近一轮用户问题。 */
+    static String addConversationContextIfNeeded(String question, List<String> history) {
+        if (question == null || history == null || history.isEmpty()) return question;
+        boolean contextDependent = question.matches(".*(如果|它|这个|那个|继续|还有|上面|前面|更看重|优先关注).*" );
+        if (!contextDependent) return question;
+        String lastUserQuestion = QuestionExtractor.extractLastUserQuestion(history);
+        if (lastUserQuestion == null || lastUserQuestion.isBlank()) return question;
+        return question + "\n\n[对话上下文]\n上一轮用户问题：" + lastUserQuestion
+                + "\n请延续上一轮讨论的对象回答当前问题，不要再次要求用户说明产品类型。";
+    }
+
+    /**
+     * Clear single-domain requests do not need a model planner, graph judge, or correction loop.
+     * Complex, multi-intent, and clarification-required requests keep the collaborative path.
+     */
+    static String resolveSingleIntentAgent(TaskAnalysisResult analysis) {
+        if (analysis == null || !analysis.isMeaningful()
+                || analysis.hasSubIntents() || analysis.isNeedsClarification()) {
+            return null;
+        }
+        String category = analysis.getIntentCategory();
+        if (category == null) return null;
+        return switch (category.trim().toUpperCase(Locale.ROOT)) {
+            case "ORDER" -> "order";
+            case "PRODUCT" -> "product";
+            case "GENERAL" -> "general";
+            default -> null;
+        };
     }
 
     private void loadConversationHistoryFromRedis(Map<String, Object> context, String sessionId) {

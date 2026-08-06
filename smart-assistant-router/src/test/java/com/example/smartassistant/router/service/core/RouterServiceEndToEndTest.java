@@ -485,4 +485,27 @@ class RouterServiceEndToEndTest {
         // 绝不应调用任何 Agent 工具，结果直接是求助引导
         verify(agentCallerService, never()).callAgent(any(), any(), any(), any());
     }
+    @Test
+    @DisplayName("[latency] Reuse fusion analysis and bypass single-node collaborative planning")
+    void reusesFusionAnalysisForSingleIntentFastPath() {
+        when(experienceService.match(anyString())).thenReturn(null);
+        when(keywordFastRouteService.match(anyString())).thenReturn(null);
+
+        TaskAnalysisResult analysis = meaningfulResult("PRODUCT", 0.88);
+        when(intentFusionService.fuse(eq("recommend a laptop"), anyList()))
+                .thenReturn(new IntentFusionResult(
+                        "PRODUCT", 0.88, "product", "LLM",
+                        null, 0, null, 0, "PRODUCT", 0.88, 1250, analysis));
+        when(agentCallerService.callAgent(eq("product"), anyString(), eq(1L), isNull()))
+                .thenReturn("Laptop recommendation");
+
+        RoutingResult result = routerService.route(RouteRequest.builder()
+                .userId(1L).question("recommend a laptop").build());
+
+        assertNotNull(result);
+        assertEquals("product", result.getAgentName());
+        verify(taskAnalysisService, never()).analyze(anyString(), anyList());
+        verify(routeExecutionService, never())
+                .executeCollaborative(anyString(), anyLong(), any(), any(EmotionCheckResult.class));
+    }
 }

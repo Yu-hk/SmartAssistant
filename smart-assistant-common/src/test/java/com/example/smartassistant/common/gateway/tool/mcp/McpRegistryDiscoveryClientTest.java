@@ -9,6 +9,7 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.ListToolsResult;
+import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,8 +51,10 @@ class McpRegistryDiscoveryClientTest {
         Tool tool = Tool.builder()
                 .name("consumer.executeQuery")
                 .description("查询消费者")
-                .inputSchema(Map.of("type", "object", "properties", Map.of("q", Map.of("type", "string"))))
-                .annotations(ToolAnnotations.builder().readOnlyHint(false).build())
+                .inputSchema(new McpSchema.JsonSchema(
+                        "object", Map.of("q", Map.of("type", "string")),
+                        List.of(), null, null, null))
+                .annotations(new ToolAnnotations(null, false, null, null, null, null))
                 .meta(Map.of(
                         "x-functional-capabilities", List.of("sql-query"),
                         "x-tool-tier", "SHARED",
@@ -77,7 +80,7 @@ class McpRegistryDiscoveryClientTest {
         Tool tool = Tool.builder()
                 .name("foo.bar")
                 .description("d")
-                .annotations(ToolAnnotations.builder().readOnlyHint(true).build())
+                .annotations(new ToolAnnotations(null, true, null, null, null, null))
                 .meta(Map.of("x-tool-tier", "SHARED"))
                 .build();
 
@@ -93,7 +96,7 @@ class McpRegistryDiscoveryClientTest {
         Tool t2 = Tool.builder().name("b.y").description("d")
                 .meta(Map.of("x-tags", List.of("B"), "x-tool-tier", "SHARED")).build();
         McpSyncClient mockClient = mock(McpSyncClient.class);
-        when(mockClient.listTools()).thenReturn(ListToolsResult.builder(List.of(t1, t2)).build());
+        when(mockClient.listTools()).thenReturn(new ListToolsResult(List.of(t1, t2), null));
         when(factory.createClient()).thenReturn(mockClient);
 
         List<ToolDefinition> defs = client.listTools(Set.of("A"));

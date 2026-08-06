@@ -64,12 +64,11 @@
             <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
         </dependency>
 
-        <!-- ⭐ MCP Server 的 JsonMapper 使用 Jackson 3 (tools.jackson)，
-             由 mcp-json-jackson3 统一提供并与 mcp-core 2.0.0 的版本对齐 -->
+        <!-- MCP SDK aligned with Spring AI 1.0.9 and Jackson 2. -->
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
-            <artifactId>mcp-json-jackson3</artifactId>
-            <version>2.0.0</version>
+            <artifactId>mcp-json-jackson2</artifactId>
+            <version>0.18.3</version>
         </dependency>
 
         <!-- Jackson (JSON serialization) -->

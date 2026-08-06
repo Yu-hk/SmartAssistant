@@ -5,6 +5,7 @@ import com.example.smartassistant.toolregistry.service.RegistryService;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -31,7 +32,7 @@ import java.util.List;
  * @see McpToolRegistryAdapter
  * @see RegistryService
  */
-@Configuration
+@Configuration("toolRegistryMcpServerConfig")
 public class McpServerConfig {
 
     private static final Logger log = LoggerFactory.getLogger(McpServerConfig.class);
@@ -48,6 +49,7 @@ public class McpServerConfig {
      * @return 工具规格列表
      */
     @Bean
+    @ConditionalOnProperty(name = "tool-registry.mcp.exposure-enabled", havingValue = "true")
     public List<McpServerFeatures.SyncToolSpecification> registryToolSpecifications(
             RegistryService registryService, McpToolRegistryAdapter adapter) {
         List<McpServerFeatures.SyncToolSpecification> specs = new ArrayList<>();

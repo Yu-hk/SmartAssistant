@@ -60,7 +60,7 @@ public class QualityEvaluationService {
             + "评估助手对用户问题的回复质量，从四个维度评分（0.0~1.0）：\n"
             + "1. relevance（相关性）：回复是否直接回答了用户的问题\n"
             + "2. completeness（完整性）：回复是否覆盖了问题的所有方面\n"
-            + "3. hallucination（幻觉检测）：回复中是否存在未经验证的声称或捏造信息\n"
+            + "3. hallucination（事实可靠性）：1.0 表示没有幻觉且事实可靠，0.0 表示存在明显捏造；分数越高越好\n"
             + "4. helpfulness（实用性）：回复是否清晰、可操作、友好\n\n"
             + "输出格式：仅输出一个合法的 JSON 对象，不要其他文字。\n"
             + "{\n"
@@ -117,8 +117,15 @@ public class QualityEvaluationService {
             return QualityEvaluationResult.skipped();
         }
 
-        // 仅在边界区间触发 LLM 评估
-        if (reflectScore < reflectionLowerBound || reflectScore > reflectionUpperBound) {
+        // 明显低于下限时由确定性规则直接拒绝；不能伪装成“跳过”。
+        if (reflectScore < reflectionLowerBound) {
+            log.warn("[QualityEval] 反思器评分 {} 低于下限 {}，直接判定不通过",
+                    String.format("%.2f", reflectScore), String.format("%.2f", reflectionLowerBound));
+            return QualityEvaluationResult.rejected("Reflection score below lower bound");
+        }
+
+        // 明显高于上限时跳过 LLM，避免不必要的模型调用。
+        if (reflectScore > reflectionUpperBound) {
             log.debug("[QualityEval] 反思器评分 {:.2f} 不在边界区间 [{:.2f}~{:.2f}]，跳过 LLM 评估",
                     reflectScore, reflectionLowerBound, reflectionUpperBound);
             return QualityEvaluationResult.skipped();
@@ -147,6 +154,12 @@ public class QualityEvaluationService {
 
             QualityEvaluationResult result = parseResponse(rawResponse);
             long elapsed = System.currentTimeMillis() - start;
+
+            if (result.isFailed()) {
+                log.warn("[QualityEval] 评估响应无效: reason={}, cost={}ms",
+                        result.getReason(), elapsed);
+                return result;
+            }
 
             log.info("[QualityEval] ✅ 评估完成: overall={}, hallucination={}, reason=\"{}\", cost={}ms",
                     String.format("%.2f", result.getOverall()),

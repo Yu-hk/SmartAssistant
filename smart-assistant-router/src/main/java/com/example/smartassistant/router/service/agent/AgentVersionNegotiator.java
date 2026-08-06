@@ -47,8 +47,7 @@ public class AgentVersionNegotiator {
         
         // 获取所有同名 Agent 实例
         List<DiscoveredAgent> agents = agentDiscoveryService.getCachedAgents().stream()
-            .filter(agent -> agent.getServiceName().equals(agentName) || 
-                           agent.getAgentName().equals(agentName))
+            .filter(agent -> agentDiscoveryService.matchesAgentName(agent, agentName))
             .collect(Collectors.toList());
         
         if (agents.isEmpty()) {

@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -53,6 +54,16 @@ public class RouteFinalizer {
     private final ExperienceService experienceService;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+
+    @Value("${router.quality-evaluation.threshold:0.6}")
+    private double qualityThreshold;
+
+    /** Judge 故障时默认阻止未经验证的回答继续返回和进入缓存。 */
+    @Value("${router.quality-evaluation.fail-closed:true}")
+    private boolean qualityFailClosed;
+
+    @Value("${router.quality-evaluation.failure-message:抱歉，我暂时无法可靠地回答这个问题。请补充更多信息或稍后重试。}")
+    private String qualityFailureMessage;
 
     @Autowired(required = false)
     private AgentEventBus agentEventBus;
@@ -107,8 +118,10 @@ public class RouteFinalizer {
      * 反思器质量评分 → LLM质量评估 → 语义缓存写入 → 经验提取 → 事件发布 → Bad Case 挖掘。
      */
     public RoutingResult finalizeRouting(RoutingResult result, RouteRequest request,
-                                          String rawQuestion, EmotionCheckResult emotion) {
+                                          String executionQuestion, EmotionCheckResult emotion) {
         String question = request.getQuestion();
+        String evaluationQuestion = executionQuestion != null && !executionQuestion.isBlank()
+                ? executionQuestion : question;
         String intentTag = result.getIntentTag();
         if (intentTag == null || intentTag.isBlank()) {
             intentTag = semanticCache.generateIntentTag(question);
@@ -133,35 +146,45 @@ public class RouteFinalizer {
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
                 && !Boolean.TRUE.equals(result.getFromCache())) {
             ReflectionResult reflection = reflectionService.evaluate(
-                    question, result.getResult(), result.getAgentName(), intentTag, request.getUserId());
+                    evaluationQuestion, result.getResult(), result.getAgentName(), intentTag, request.getUserId());
             reflectScore = reflection.getScore();
             if (!reflection.isAcceptable()) {
                 log.warn("[Router] 🪞 反思不通过: score={}, agent={}, reason={}",
                         String.format("%.2f", reflection.getScore()),
                         result.getAgentName(), reflection.getReason());
                 String retryResult = reflectionService.retry(
-                        question, result.getResult(), result.getAgentName(),
+                        evaluationQuestion, result.getResult(), result.getAgentName(),
                         intentTag, request.getUserId(), request.getRequestId());
                 if (retryResult != null && !retryResult.equals(result.getResult())) {
                     result.setResult(retryResult);
                     log.info("[Router] 🪞 反思重试成功，已替换低质量回复");
                 }
+
+                // 重试可能替换回答，后续 Judge 必须使用最终回答的最新分数。
+                ReflectionResult finalReflection = reflectionService.evaluate(
+                        evaluationQuestion, result.getResult(), result.getAgentName(), intentTag, request.getUserId());
+                reflectScore = finalReflection.getScore();
             }
         }
 
         // ⭐⭐ LLM-as-Judge 质量评估
         boolean qualityPassed = true;
+        String qualityFailureReason = null;
         if (result.getResult() != null && !result.getResult().isBlank()
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
                 && !Boolean.TRUE.equals(result.getFromCache())) {
             QualityEvaluationResult quality = qualityEvaluationService.evaluate(
-                    question, result.getResult(), reflectScore);
-            if (quality.isCompleted() && !quality.isPassing(0.6)) {
+                    evaluationQuestion, result.getResult(), reflectScore);
+            if ((quality.isCompleted() && !quality.isPassing(qualityThreshold))
+                    || (quality.isFailed() && qualityFailClosed)) {
                 qualityPassed = false;
-                log.warn("[Router] 🔍 质量评估不通过: overall={}, hallucination={}, reason={}",
+                log.warn("[Router] 🔍 质量评估未放行: status={}, overall={}, hallucination={}, reason={}",
+                        quality.getStatus(),
                         String.format("%.2f", quality.getOverall()),
                         String.format("%.2f", quality.getHallucination()),
                         quality.getReason());
+                qualityFailureReason = quality.getStatus() + ": " + quality.getReason();
+                result.setResult(qualityFailureMessage);
             }
         }
 
@@ -173,7 +196,7 @@ public class RouteFinalizer {
         if (agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
             semanticCache.saveDecision(requestId, question, agentName,
                     result.getConfidence(), request.getUserId(), intentTag, request.getSessionId());
-            semanticCache.saveExactMatch(rawQuestion != null ? rawQuestion : question, intentTag);
+            semanticCache.saveExactMatch(question, intentTag);
 
             if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
                 if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")
@@ -183,7 +206,7 @@ public class RouteFinalizer {
                 }
             }
 
-            if (!Boolean.TRUE.equals(result.getFromCache())) {
+            if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
                 experienceService.extractCommonExperience(question, agentName, intentTag);
                 extractToolExperienceIfApplicable(reply, agentName, intentTag, question);
             }
@@ -218,6 +241,9 @@ public class RouteFinalizer {
                     request.getSessionId(), request.getUserId());
             badCaseMinerService.record(badCaseDecision);
             badCaseMinerService.recordCorrection(badCaseDecision);
+            if (!qualityPassed) {
+                badCaseMinerService.recordQualityFailure(badCaseDecision, qualityFailureReason);
+            }
         }
 
         // ⭐ Agent 反馈模式监控

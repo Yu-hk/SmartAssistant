@@ -71,4 +71,40 @@ class PgVectorKnowledgeBaseDefectTest {
         assertEquals(0.0, PgVectorKnowledgeBase.realCosineScore(1.0), 1e-9);
         assertEquals(-1.0, PgVectorKnowledgeBase.realCosineScore(2.0), 1e-9);
     }
+
+    @Test
+    void upsertParameterCountMatchesSqlWhenEmbeddingFallsBackToNull() {
+        when(bge.dimensions()).thenReturn(384);
+        when(bge.embedding(anyString())).thenReturn(null);
+        PgVectorKnowledgeBase kb = new PgVectorKnowledgeBase("kb", bge, jdbc, null, null);
+
+        kb.addDocument(document("no-vector"));
+
+        assertLastUpdateHasMatchingParameterCount(20);
+    }
+
+    @Test
+    void upsertParameterCountMatchesSqlWhenEmbeddingIsPresent() {
+        when(bge.dimensions()).thenReturn(2);
+        when(bge.embedding(anyString())).thenReturn(new float[]{0.1f, 0.2f});
+        PgVectorKnowledgeBase kb = new PgVectorKnowledgeBase("kb", bge, jdbc, null, null);
+
+        kb.addDocument(document("with-vector"));
+
+        assertLastUpdateHasMatchingParameterCount(21);
+    }
+
+    private KnowledgeDocument document(String id) {
+        return new KnowledgeDocument(id, "title", "content", "category", "keyword", -1, -1);
+    }
+
+    private void assertLastUpdateHasMatchingParameterCount(int expected) {
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> parametersCaptor = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(sqlCaptor.capture(), parametersCaptor.capture());
+
+        long placeholders = sqlCaptor.getValue().chars().filter(ch -> ch == '?').count();
+        assertEquals(expected, placeholders);
+        assertEquals(expected, parametersCaptor.getValue().length);
+    }
 }

@@ -102,6 +102,13 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- DeepSeek API model used by the production tier router. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-deepseek</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- ⭐ T2c：MCP client SDK（方案 A，轻量、不引 WebFlux reactive 栈）
              mcp 聚合包 -> mcp-core(2.0.0，仅 reactor-core 轻量依赖 + jakarta.servlet-api[provided])
              + mcp-json-jackson3(2.0.0，Jackson 3 JsonMapper)。手动 McpClient.sync(transport) 构造，
@@ -109,12 +116,12 @@
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
             <artifactId>mcp</artifactId>
-            <version>2.0.0</version>
+            <version>0.18.3</version>
         </dependency>
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
-            <artifactId>mcp-json-jackson3</artifactId>
-            <version>2.0.0</version>
+            <artifactId>mcp-json-jackson2</artifactId>
+            <version>0.18.3</version>
         </dependency>
 
         <!-- ⭐ Spring AI Tool（ToolCallback / MethodToolCallbackProvider — 由 spring-ai-model 传递引入）

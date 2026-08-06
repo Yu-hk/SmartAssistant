@@ -174,6 +174,31 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         float[] vec = embeddingModel.embedding(doc.toEmbedText());
         String vecStr = vec != null ? arrayToPgVector(vec) : null;
 
+        List<Object> parameters = new ArrayList<>(21);
+        parameters.add(doc.getId());
+        parameters.add(doc.getTitle());
+        parameters.add(doc.getContent());
+        parameters.add(doc.getCategory());
+        parameters.add(doc.getKeywords());
+        parameters.add(doc.getEffectiveAt());
+        parameters.add(doc.getExpireAt());
+        parameters.add(doc.getTenantId());
+        parameters.add(doc.getVersion());
+        parameters.add(doc.getSourceUrl());
+        parameters.add(doc.getChunkIndex());
+        parameters.add(doc.getAuthorityLevel().getRank());
+        parameters.add(doc.getDocumentStatus().name());
+        parameters.add(doc.getSecurityLevel());
+        parameters.add(doc.getParentDocId());
+        parameters.add(doc.getSourceType());
+        parameters.add(doc.getRawChecksum());
+        parameters.add(doc.getIngestBatchId());
+        parameters.add(doc.getIndexVersion());
+        if (vecStr != null) {
+            parameters.add(vecStr);
+        }
+        parameters.add(System.currentTimeMillis());
+
         jdbcTemplate.update(
                 "INSERT INTO " + TABLE + " (id, title, content, category, keywords, "
                         + "effective_at, expire_at, tenant_id, version, source_url, chunk_index, "
@@ -198,16 +223,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                         + "raw_checksum=EXCLUDED.raw_checksum, ingest_batch_id=EXCLUDED.ingest_batch_id, "
                         + "index_version=EXCLUDED.index_version, "
                         + "embedding=" + (vecStr != null ? "EXCLUDED.embedding" : "NULL"),
-                doc.getId(), doc.getTitle(), doc.getContent(),
-                doc.getCategory(), doc.getKeywords(),
-                doc.getEffectiveAt(), doc.getExpireAt(),
-                doc.getTenantId(), doc.getVersion(),
-                doc.getSourceUrl(), doc.getChunkIndex(),
-                doc.getAuthorityLevel().getRank(), doc.getDocumentStatus().name(),
-                doc.getSecurityLevel(),
-                doc.getParentDocId(), doc.getSourceType(), doc.getRawChecksum(),
-                doc.getIngestBatchId(), doc.getIndexVersion(),
-                vecStr, System.currentTimeMillis());
+                parameters.toArray());
     }
 
     @Override

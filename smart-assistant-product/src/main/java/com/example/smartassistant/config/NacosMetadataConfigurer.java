@@ -16,6 +16,7 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.Yaml;
 
@@ -39,6 +40,7 @@ import java.util.concurrent.Executor;
  *     capabilities: cuisine_query,restaurant_recommendation
  */
 @Component
+@ConditionalOnBean({NacosConfigManager.class, NacosServiceRegistry.class, NacosRegistration.class})
 public class NacosMetadataConfigurer {
 
     private static final Logger log = LoggerFactory.getLogger(NacosMetadataConfigurer.class);

@@ -28,7 +28,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
@@ -61,7 +63,7 @@ public class AgentCallerService {
 
     /** ⭐ Agent 调用超时配置（与文章建议的"核心链路同步 3s 超时"一致） */
     private static final int AGENT_CONNECT_TIMEOUT_MS = 3000;   // 连接超时 3s
-    private static final int AGENT_READ_TIMEOUT_MS = 5000;      // 读取超时 5s
+    private static final int AGENT_READ_TIMEOUT_MS = 30000;     // Agent inference may legitimately exceed 5s
 
     private final AgentDiscoveryService agentDiscoveryService;
     private final AgentVersionNegotiator versionNegotiator;
@@ -298,15 +300,19 @@ public class AgentCallerService {
 
             // 从 Nacos 返回的 /a2a 路径转换为自定义 HTTP 端点
             String baseUrl = agentUrl.replaceAll("/a2a$", "");
-            String processUrl = baseUrl + "/api/order/agent/process";
+            String canonicalName = AgentDiscoveryService.canonicalAgentName(agentName);
+            URI processUri = buildProcessUri(baseUrl, canonicalName, question);
 
-            log.info("[AgentCaller] HTTP 直调 URL: {}", processUrl);
+            log.info("[AgentCaller] HTTP 直调 URL: {}", processUri);
 
             // 构建请求体 {question: "...", userId: "..."}
             Map<String, String> requestBody = new java.util.LinkedHashMap<>();
             requestBody.put("question", question);
             if (userId != null) {
                 requestBody.put("userId", String.valueOf(userId));
+            }
+            if (requestId != null && !requestId.isBlank()) {
+                requestBody.put("requestId", requestId);
             }
             String jsonBody = objectMapper.writeValueAsString(requestBody);
 
@@ -319,7 +325,8 @@ public class AgentCallerService {
             HttpEntity<String> entity = new HttpEntity<>(jsonBody, headers);
 
             // 直接 HTTP POST 调用
-            ResponseEntity<String> response = restTemplate.postForEntity(processUrl, entity, String.class);
+            // 使用 URI 重载，避免 RestTemplate 再次编码已编码的 query 参数（%E6 → %25E6）。
+            ResponseEntity<String> response = restTemplate.postForEntity(processUri, entity, String.class);
 
             String result = response.getBody();
             if (result == null || result.isBlank()) {
@@ -337,6 +344,18 @@ public class AgentCallerService {
             log.error("[AgentCaller] HTTP 直调失败: {}, 错误: {}", agentName, e.getMessage(), e);
             return "❌ 调用 Agent 失败: " + e.getMessage();
         }
+    }
+
+    static URI buildProcessUri(String baseUrl, String canonicalName, String question) {
+        return switch (canonicalName) {
+            case "product" -> UriComponentsBuilder.fromHttpUrl(baseUrl + "/product/stream/chat/sync")
+                    .queryParam("message", question)
+                    .build()
+                    .encode()
+                    .toUri();
+            case "general" -> URI.create(baseUrl + "/api/general/agent/process");
+            default -> URI.create(baseUrl + "/api/order/agent/process");
+        };
     }
 
     // ==================== 私有方法 ====================
@@ -365,8 +384,7 @@ public class AgentCallerService {
             log.warn("[AgentCaller] 版本协商无兼容 Agent: {}, 回退到直接匹配", agentName);
             List<DiscoveredAgent> agents = agentDiscoveryService.discoverAllAgents();
             for (DiscoveredAgent agent : agents) {
-                if (agent.getAgentName().equals(agentName) ||
-                    agent.getServiceName().equals(agentName)) {
+                if (agentDiscoveryService.matchesAgentName(agent, agentName)) {
                     log.info("[AgentCaller] 找到 Agent (回退): {}, URL: {}", agentName, agent.getUrl());
                     return agent.getUrl();
                 }

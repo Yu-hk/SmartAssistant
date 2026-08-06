@@ -82,7 +82,14 @@ class McpToolSourceIngestorTest {
                 .name(name)
                 .description("backend " + name);
         if (inputSchema != null) {
-            b.inputSchema(inputSchema);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> properties = inputSchema.get("properties") instanceof Map<?, ?> map
+                    ? (Map<String, Object>) map : Map.of();
+            List<String> required = inputSchema.get("required") instanceof List<?> list
+                    ? list.stream().map(String::valueOf).toList() : List.of();
+            b.inputSchema(new McpSchema.JsonSchema(
+                    String.valueOf(inputSchema.getOrDefault("type", "object")),
+                    properties, required, null, null, null));
         }
         return b.build();
     }

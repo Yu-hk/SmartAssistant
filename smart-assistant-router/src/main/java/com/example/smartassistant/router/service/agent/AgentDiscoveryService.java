@@ -247,6 +247,7 @@ public class AgentDiscoveryService {
                 String prefix = serviceName.contains("-") ? serviceName.substring(0, serviceName.indexOf('-')) : serviceName;
                 String ssePath = "/" + prefix + "/stream/chat";
                 urlMap.put(agentName, host + ssePath);
+                urlMap.put(canonicalAgentName(agentName), host + ssePath);
             }
             if (urlMap.isEmpty()) {
                 redisTemplate.delete(SSE_URLS_REDIS_KEY);
@@ -429,6 +430,40 @@ public class AgentDiscoveryService {
         return agentCache.values();
     }
 
+    /** Normalize routing aliases and Nacos names to one domain name. */
+    public static String canonicalAgentName(String name) {
+        if (name == null) return "";
+        String normalized = name.trim().toLowerCase(Locale.ROOT).replace('_', '-');
+        if (normalized.startsWith("general")) return "general";
+        if (normalized.startsWith("product")) return "product";
+        if (normalized.startsWith("order")) return "order";
+        for (String suffix : List.of("-agent-service", "-service", "-agent", "-chat")) {
+            if (normalized.endsWith(suffix)) {
+                return normalized.substring(0, normalized.length() - suffix.length());
+            }
+        }
+        return normalized;
+    }
+
+    public boolean matchesAgentName(DiscoveredAgent agent, String requestedName) {
+        if (agent == null) return false;
+        String requested = canonicalAgentName(requestedName);
+        return requested.equals(canonicalAgentName(agent.getAgentName()))
+                || requested.equals(canonicalAgentName(agent.getServiceName()));
+    }
+
+    /** Resolve an alias from cache, refreshing discovery once on a cache miss. */
+    public DiscoveredAgent resolveAgent(String requestedName) {
+        Optional<DiscoveredAgent> cached = agentCache.values().stream()
+                .filter(agent -> matchesAgentName(agent, requestedName))
+                .findFirst();
+        if (cached.isPresent()) return cached.get();
+        return discoverAllAgents().stream()
+                .filter(agent -> matchesAgentName(agent, requestedName))
+                .findFirst()
+                .orElse(null);
+    }
+
     /**
      * ⭐ 获取 Agent 声明的回复缓存 TTL（秒）
      * <p>
@@ -441,7 +476,7 @@ public class AgentDiscoveryService {
     public Long getAgentTtl(String agentName) {
         if (agentName == null) return null;
         for (DiscoveredAgent agent : agentCache.values()) {
-            if (agent.getAgentName() != null && agent.getAgentName().equals(agentName)) {
+            if (matchesAgentName(agent, agentName)) {
                 AgentMetadata meta = agent.getMetadata();
                 if (meta != null) {
                     return meta.getCacheTtlSeconds();
@@ -461,7 +496,7 @@ public class AgentDiscoveryService {
     public boolean isAlwaysCacheReply(String agentName) {
         if (agentName == null) return false;
         for (DiscoveredAgent agent : agentCache.values()) {
-            if (agent.getAgentName() != null && agent.getAgentName().equals(agentName)) {
+            if (matchesAgentName(agent, agentName)) {
                 AgentMetadata meta = agent.getMetadata();
                 if (meta != null && meta.getAlwaysCacheReply() != null) {
                     return meta.getAlwaysCacheReply();

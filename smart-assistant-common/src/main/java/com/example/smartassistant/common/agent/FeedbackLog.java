@@ -52,7 +52,7 @@ public class FeedbackLog {
             boolean shouldRecord) {
 
         public static FeedbackEntry success(int iteration, String progress) {
-            return new FeedbackEntry(iteration, "", "", "", progress, false);
+            return new FeedbackEntry(iteration, "", "", "", progress, true);
         }
 
         public static FeedbackEntry failure(int iteration, String mistakePattern,
@@ -110,11 +110,34 @@ public class FeedbackLog {
 
     public List<FeedbackEntry> getRecentFailures(int count) {
         synchronized (entries) {
-            return entries.stream()
+            List<FeedbackEntry> failures = entries.stream()
                     .filter(e -> e.shouldRecord())
-                    .skip(Math.max(0, entries.size() - count))
+                    .filter(e -> e.mistakePattern() != null && !e.mistakePattern().isBlank())
+                    .toList();
+            return failures.stream()
+                    .skip(Math.max(0, failures.size() - Math.max(0, count)))
                     .toList();
         }
+    }
+
+    /**
+     * 构建可安全注入下一次执行的简短反馈上下文，只包含失败模式和改进策略。
+     */
+    public String buildPromptContext(int count) {
+        List<FeedbackEntry> recent = getRecentFailures(count);
+        if (recent.isEmpty()) return "";
+        StringBuilder out = new StringBuilder("【近期执行反馈，请避免重复】\n");
+        for (FeedbackEntry entry : recent) {
+            out.append("- 问题：").append(entry.mistakePattern());
+            if (entry.avoidNextTime() != null && !entry.avoidNextTime().isBlank()) {
+                out.append("；避免：").append(entry.avoidNextTime());
+            }
+            if (entry.suggestedNextStrategy() != null && !entry.suggestedNextStrategy().isBlank()) {
+                out.append("；建议：").append(entry.suggestedNextStrategy());
+            }
+            out.append('\n');
+        }
+        return out.toString().trim();
     }
 
     public List<String> getTopMistakePatterns(int topN) {

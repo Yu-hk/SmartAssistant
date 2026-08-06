@@ -89,7 +89,7 @@ nacos:
       api-key: ${DEEPSEEK_API_KEY:}
       chat:
         options:
-          model: deepseek-v4-flash
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-chat}
           temperature: 0.5
           max-tokens: 4096
 

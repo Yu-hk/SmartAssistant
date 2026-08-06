@@ -10,6 +10,7 @@ package com.example.smartassistant.common.idempotent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -29,6 +30,7 @@ import java.time.format.DateTimeFormatter;
  * <p>Redis Value 格式：{@code status|resultJson|timestamp}</p>
  */
 @Service
+@ConditionalOnClass(name = "org.springframework.data.redis.core.StringRedisTemplate")
 public class TaskLogService {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskLogService.class);

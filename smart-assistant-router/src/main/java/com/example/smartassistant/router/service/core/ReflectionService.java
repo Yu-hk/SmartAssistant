@@ -69,17 +69,29 @@ public class ReflectionService {
     // ==================== 错误标记正则 ====================
     private static final Pattern ERROR_PATTERN = Pattern.compile(
             "[❌❎⚠️❗❕][\\s]*[A-Za-z]|" +
-            "服务异常|服务不可用|暂时无法|系统繁忙|ERROR|error|Exception|exception"
+            "服务异常|服务不可用|暂时无法|系统繁忙|" +
+            "基础设施(?:错误|故障)|" +
+            "(?:数据库|知识库).{0,12}(?:未找到|没有)|" +
+            "%[0-9A-Fa-f]{2}|ERROR|error|Exception|exception"
     );
 
     // ==================== 意图→Agent 匹配规则 ====================
     private static final List<IntentAgentRule> INTENT_AGENT_RULES = List.of(
-            new IntentAgentRule("旅游",    List.of("travel", "order")),
-            new IntentAgentRule("美食",    List.of("food", "product")),
+            new IntentAgentRule("旅游",    List.of("travel")),
+            new IntentAgentRule("travel", List.of("travel")),
+            new IntentAgentRule("美食",    List.of("food")),
+            new IntentAgentRule("food",   List.of("food")),
+            new IntentAgentRule("订单",    List.of("order")),
+            new IntentAgentRule("order",  List.of("order")),
+            new IntentAgentRule("商品",    List.of("product")),
+            new IntentAgentRule("库存",    List.of("product")),
+            new IntentAgentRule("product", List.of("product")),
             new IntentAgentRule("天气",    List.of("general")),
+            new IntentAgentRule("weather", List.of("general")),
             new IntentAgentRule("图片",    List.of("general")),
             new IntentAgentRule("计算",    List.of("general")),
-            new IntentAgentRule("新闻",    List.of("general"))
+            new IntentAgentRule("新闻",    List.of("general")),
+            new IntentAgentRule("general", List.of("general"))
     );
 
     // ==================== 依赖 ====================
@@ -96,6 +108,10 @@ public class ReflectionService {
 
     @Value("${router.reflection.max-retry:1}")
     private int maxRetry;
+
+    /** 验收 Judge 故障时是否放行；默认关闭，避免把未验证产物当作成功。 */
+    @Value("${router.reflection.criteria-fail-open:false}")
+    private boolean criteriaFailOpen;
 
     public ReflectionService(AgentCallerService agentCallerService,
                              @Autowired(required = false) AgentDiscoveryService discoveryService,
@@ -172,7 +188,8 @@ public class ReflectionService {
             reasonBuilder.append("意图与 Agent 不匹配; ");
         }
 
-        boolean acceptable = score >= threshold;
+        // 错误提示即使复述了大量问题关键词，也不能靠其他维度加分越过阈值。
+        boolean acceptable = errorScore >= 0.5 && score >= threshold;
         String reason = reasonBuilder.length() > 0
                 ? reasonBuilder.toString()
                 : "质量合格(score=" + String.format("%.2f", score) + ")";
@@ -187,7 +204,7 @@ public class ReflectionService {
     }
 
     /**
-     * 重试：当质量不通过时，换一个 Agent 重新调用（最多 1 次）。
+     * 重试：当质量不通过时，换一个 Agent 重新调用，次数由 max-retry 配置控制。
      *
      * @param question       用户原始问题
      * @param originalResult 原始（低质量）回复
@@ -200,7 +217,7 @@ public class ReflectionService {
     public String retry(String question, String originalResult,
                         String originalAgent, String intentTag,
                         Long userId, String requestId) {
-        if (!reflectionEnabled) {
+        if (!reflectionEnabled || maxRetry <= 0) {
             return originalResult;
         }
 
@@ -211,28 +228,39 @@ public class ReflectionService {
             return originalResult;
         }
 
-        log.info("[Reflect] 质量不通过，重试: originalAgent={}, fallbackAgent={}",
-                originalAgent, fallbackAgent);
+        for (int attempt = 1; attempt <= maxRetry; attempt++) {
+            log.info("[Reflect] 质量不通过，直调模型重试 {}/{}: originalAgent={}, fallbackAgent={}",
+                    attempt, maxRetry, originalAgent, fallbackAgent);
+            try {
+                String retryPrompt = String.format("""
+                        你是系统的通用质量兜底助手。专业 Agent 未能给出有效答案，请直接回答用户问题。
 
-        try {
-            String retryResult = agentCallerService.callAgent(fallbackAgent, question, userId);
-            if (retryResult != null && !retryResult.isBlank()
-                    && !retryResult.startsWith("❌") && !retryResult.startsWith("⚠️")) {
-                // 对重试结果再评估一次
-                ReflectionResult recheck = evaluate(question, retryResult,
-                        fallbackAgent, intentTag, userId);
-                if (recheck.isAcceptable()) {
-                    log.info("[Reflect] 重试成功: agent={}, newScore={}",
-                            fallbackAgent, String.format("%.2f", recheck.getScore()));
-                    return retryResult;
-                } else {
-                    log.warn("[Reflect] 重试结果仍不通过: score={}, 使用原结果",
-                            String.format("%.2f", recheck.getScore()));
+                        用户问题：
+                        %s
+
+                        要求：
+                        - 给出具体、完整、可执行的回答
+                        - 不调用外部工具，不提及内部 Agent、数据库、知识库或基础设施
+                        - 对不确定或因平台而异的信息明确说明适用边界，不要编造
+                        - 只输出最终答案
+                        """, question);
+                String retryResult = fallbackChatClient.prompt().user(retryPrompt).call().content();
+                if (retryResult != null && !retryResult.isBlank()
+                        && !retryResult.startsWith("❌") && !retryResult.startsWith("⚠️")) {
+                    ReflectionResult recheck = evaluate(question, retryResult,
+                            fallbackAgent, intentTag, userId);
+                    if (recheck.isAcceptable()) {
+                        log.info("[Reflect] 重试成功: attempt={}, agent={}, newScore={}",
+                                attempt, fallbackAgent, String.format("%.2f", recheck.getScore()));
+                        return retryResult;
+                    }
+                    log.warn("[Reflect] 第 {} 次重试结果仍不通过: score={}",
+                            attempt, String.format("%.2f", recheck.getScore()));
                 }
+            } catch (Exception e) {
+                log.warn("[Reflect] 第 {} 次重试调用失败: agent={}, error={}",
+                        attempt, fallbackAgent, e.getMessage());
             }
-        } catch (Exception e) {
-            log.warn("[Reflect] 重试调用失败: agent={}, error={}",
-                    fallbackAgent, e.getMessage());
         }
 
         // 重试失败，返回原结果
@@ -306,7 +334,7 @@ public class ReflectionService {
     private double checkAgentHealth(String agentName) {
         if (discoveryService == null) return 0.7;  // 无发现服务，给默认分
         try {
-            var agent = discoveryService.discoverAgent(agentName);
+            var agent = discoveryService.resolveAgent(agentName);
             return agent != null ? 1.0 : 0.5;
         } catch (Exception e) {
             log.warn("[Reflect] 健康检查失败: agent={}, error={}", agentName, e.getMessage());
@@ -386,8 +414,8 @@ public class ReflectionService {
 
             String llmResponse = fallbackChatClient.prompt().user(prompt).call().content();
             if (llmResponse == null || llmResponse.isBlank()) {
-                log.warn("[Reflect] LLM 验收检查返回空，默认通过");
-                return ErrorType.NONE;
+                log.warn("[Reflect] LLM 验收检查返回空，failOpen={}", criteriaFailOpen);
+                return criteriaFailOpen ? ErrorType.NONE : ErrorType.RETRYABLE_FAILED;
             }
 
             boolean passed = llmResponse.toUpperCase().contains("PASS") && !llmResponse.toUpperCase().contains("FAIL");
@@ -402,7 +430,7 @@ public class ReflectionService {
         } catch (Exception e) {
             log.warn("[Reflect] 验收检查异常: criteria={}, error={}",
                     truncate(successCriteria, 80), e.getMessage());
-            return ErrorType.NONE;  // 检查失败默认放行，避免误杀
+            return criteriaFailOpen ? ErrorType.NONE : ErrorType.RETRYABLE_FAILED;
         }
     }
 
@@ -420,18 +448,8 @@ public class ReflectionService {
      * 选择 fallback Agent（排除当前 Agent）
      */
     private String selectFallbackAgent(String originalAgent, String intentTag) {
-        // 根据意图选择 fallback
-        if (intentTag != null) {
-            for (IntentAgentRule rule : INTENT_AGENT_RULES) {
-                if (intentTag.contains(rule.intentKeyword)) {
-                    return rule.matchedAgents.stream()
-                            .filter(a -> !a.equals(originalAgent))
-                            .findFirst()
-                            .orElse("general");
-                }
-            }
-        }
-        // 默认 fallback
+        // 专业 Agent 失败后统一回退到通用 Agent，避免含多个领域词的意图标签
+        // （例如“商品退货退款”）把 order 错误地回退到 product。
         return "general".equals(originalAgent) ? null : "general";
     }
 

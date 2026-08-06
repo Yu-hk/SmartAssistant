@@ -12,6 +12,8 @@ import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 import java.util.concurrent.TimeUnit;
 
@@ -34,6 +36,7 @@ import java.util.concurrent.TimeUnit;
  * {@link #OpsMetrics(MeterRegistry)} 重载，可注入隔离注册表以满足测试隔离。全局注册表在非生产/
  * 无注册表环境下为 no-op，调用安全。
  */
+@Component
 public class OpsMetrics {
 
     private static final String AGENT_UNKNOWN = "unknown";
@@ -47,6 +50,7 @@ public class OpsMetrics {
     }
 
     /** 可测试构造：注入隔离的 {@link MeterRegistry}，避免全局注册表跨测试类污染。 */
+    @Autowired
     public OpsMetrics(MeterRegistry registry) {
         this.registry = registry;
     }

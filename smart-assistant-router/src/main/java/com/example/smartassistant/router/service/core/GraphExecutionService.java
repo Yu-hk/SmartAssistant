@@ -80,6 +80,14 @@ public class GraphExecutionService {
     @Value("${router.graph.checkpoint-enabled:true}")
     private boolean checkpointEnabled;
 
+    /** 单次 Graph 执行允许的全局重规划预算。 */
+    @Value("${router.graph.max-replans:3}")
+    private int maxReplans;
+
+    /** 验收未通过时，最多让原 Agent 按验收标准定向修正一次。 */
+    @Value("${router.graph.max-criteria-corrections:1}")
+    private int maxCriteriaCorrections;
+
     /** ⭐ 单 Graph 执行期间每个 Agent 的连续失败计数（节点级熔断） */
     private static final int NODE_LEVEL_BREAKER_THRESHOLD = 2; // 连续失败2次后熔断该 Agent
 
@@ -156,6 +164,7 @@ public class GraphExecutionService {
         int staleRounds = 0;
         int graphIterationCount = 0;
         int maxGraphIterations = graph.getMaxGraphIterations();
+        int totalReplans = 0;
 
         // ========== Checkpoint 恢复 ==========
         String checkpointId = requestId != null ? requestId : eventsKey;
@@ -289,7 +298,10 @@ public class GraphExecutionService {
             previousCompleted = currentCompleted;
 
             // ⭐ 重规划检测：本轮执行完毕后，检查是否有 NEED_REPLAN 节点
-            int replanCount = triggerReplanIfNeeded(wg[0], completedMap, allResults);
+            int remainingReplans = Math.max(0, maxReplans - totalReplans);
+            int replanCount = triggerReplanIfNeeded(
+                    wg[0], completedMap, allResults, remainingReplans);
+            totalReplans += replanCount;
             if (replanCount > 0) {
                 // 恢复计数，因为新增了节点需要继续执行
                 staleRounds = 0;
@@ -675,6 +687,7 @@ public class GraphExecutionService {
 
         int maxRetries = 3;
         long baseDelayMs = 1000;
+        int criteriaCorrections = 0;
 
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
@@ -687,14 +700,47 @@ public class GraphExecutionService {
                     ErrorType criteriaResult = reflectionService.checkCriteria(
                             resultText, node.getSuccessCriteria());
                     if (criteriaResult == ErrorType.NEED_REPLAN) {
-                        log.warn("[GraphExecutor] 验收不通过: node={}|{}, criteria={}",
-                                node.getId(), node.getTargetAgent(), node.getSuccessCriteria());
-                        storeNodeProgressEvent(eventsKey, "node_replan",
-                                "节点[" + node.getDescription() + "]验收不通过，需重规划", targetAgent);
                         opsMetrics.recordErrorType(targetAgent, ErrorType.NEED_REPLAN.name());
+                        if (criteriaCorrections < maxCriteriaCorrections) {
+                            criteriaCorrections++;
+                            log.warn("[GraphExecutor] 验收不通过，定向修正: node={}|{}, correction={}/{}, criteria={}",
+                                    node.getId(), node.getTargetAgent(), criteriaCorrections,
+                                    maxCriteriaCorrections, node.getSuccessCriteria());
+                            storeNodeProgressEvent(eventsKey, "node_correcting",
+                                    "节点[" + node.getDescription() + "]验收不通过，正在定向修正", targetAgent);
+                            enrichedDesc = buildCriteriaCorrectionPrompt(
+                                    node.getDescription(), node.getSuccessCriteria(), resultText);
+                            continue;
+                        }
+
+                        // Agent 已给出非空产物时，不再调用 Planner 扩张整张图。保留最后一次
+                        // 修正结果并标记完成，让最终质量门禁继续判断，避免反思链路反复重规划超时。
+                        log.warn("[GraphExecutor] 定向修正后仍未通过验收，保留可用结果降级返回: node={}|{}",
+                                node.getId(), node.getTargetAgent());
+                        breakerFailureCounts.put(targetAgent, 0);
+                        degradationService.recordCall(true);
+                        if (requestId != null && targetAgent != null) {
+                            heartbeatService.markCompleted(requestId, targetAgent);
+                        }
+                        storeNodeProgressEvent(eventsKey, "node_quality_degraded",
+                                "节点[" + node.getDescription() + "]未完全满足验收标准，已返回最佳可用结果", targetAgent);
+                        return new SubTaskResult(node.getId(), node.getDescription(),
+                                node.getTargetAgent(), resultText, true,
+                                agentResult.getRealTitles(), agentResult.getTagsByTitle());
+                    }
+                    if (criteriaResult == ErrorType.RETRYABLE_FAILED) {
+                        if (attempt < maxRetries) {
+                            long delay = backoffDelay(baseDelayMs, attempt);
+                            log.warn("[GraphExecutor] 验收服务暂不可用，重试节点: {}|{}, attempt={}/{}, delay={}ms",
+                                    node.getId(), node.getTargetAgent(), attempt + 1, maxRetries, delay);
+                            backoffSleep(delay);
+                            continue;
+                        }
+                        log.warn("[GraphExecutor] 验收服务连续不可用，节点判定失败: {}|{}",
+                                node.getId(), node.getTargetAgent());
                         return new SubTaskResult(node.getId(), node.getDescription(),
                                 node.getTargetAgent(), resultText, false,
-                                ErrorType.NEED_REPLAN);
+                                ErrorType.FATAL_FAILED);
                     }
                     log.info("[GraphExecutor] 节点成功: {}|{}, resultLen={}",
                             node.getId(), node.getTargetAgent(), resultText.length());
@@ -838,16 +884,25 @@ public class GraphExecutionService {
      */
     private int triggerReplanIfNeeded(IntentGraph graph,
                                        ConcurrentHashMap<String, SubTaskResult> completedMap,
-                                       List<SubTaskResult> allResults) {
+                                       List<SubTaskResult> allResults,
+                                       int remainingBudget) {
         // 找出 NEED_REPLAN 的节点（本轮刚完成的）
         List<SubTaskResult> needReplan = allResults.stream()
                 .filter(r -> r.needsReplan() && completedMap.containsKey(r.getTaskId()))
                 .collect(Collectors.toList());
 
         if (needReplan.isEmpty()) return 0;
+        if (remainingBudget <= 0) {
+            log.warn("[GraphExecutor] 已耗尽全局重规划预算，不再重规划 {} 个失败节点", needReplan.size());
+            return 0;
+        }
 
         int count = 0;
         for (SubTaskResult failedResult : needReplan) {
+            if (count >= remainingBudget) {
+                log.warn("[GraphExecutor] 本轮达到剩余重规划预算 {}，停止继续重规划", remainingBudget);
+                break;
+            }
             log.info("[GraphExecutor] 🔄 触发重规划: node={}, agent={}, criteria={}",
                     failedResult.getTaskId(), failedResult.getAgentName(),
                     truncate(failedResult.getDescription(), 80));
@@ -856,14 +911,19 @@ public class GraphExecutionService {
                     graph, failedResult, allResults);
 
             if (newNodes != null && !newNodes.isEmpty()) {
-                // 从已完成中移除旧节点（它失败了，需要新节点替代）
-                completedMap.remove(failedResult.getTaskId());
-
                 // 追加新节点到图
-                graph.addNodes(newNodes);
-                log.info("[GraphExecutor] 重规划完成: 新增 {} 个节点 (原node={})",
-                        newNodes.size(), failedResult.getTaskId());
-                count++;
+                int added = graph.addNodes(newNodes);
+                if (added > 0) {
+                    // 原节点保留为已完成，避免下一轮重复执行；同时把这次失败标为已处理，
+                    // 防止后续轮次对同一结果再次触发重规划。
+                    failedResult.setErrorType(ErrorType.FATAL_FAILED);
+                    log.info("[GraphExecutor] 重规划完成: 实际新增 {} 个节点 (原node={})",
+                            added, failedResult.getTaskId());
+                    count++;
+                } else {
+                    log.warn("[GraphExecutor] 重规划未新增节点（ID 均已存在），保留原结果: node={}",
+                            failedResult.getTaskId());
+                }
             } else {
                 log.warn("[GraphExecutor] 重规划失败，保留原结果: node={}", failedResult.getTaskId());
             }
@@ -891,6 +951,13 @@ public class GraphExecutionService {
             }
         }
 
+        String successCriteria = graph.getAllNodes().stream()
+                .filter(node -> node.getId().equals(failedResult.getTaskId()))
+                .map(IntentNode::getSuccessCriteria)
+                .filter(criteria -> criteria != null && !criteria.isBlank())
+                .findFirst()
+                .orElse("（未提供）");
+
         String replanPrompt = String.format("""
                 原始问题：%s
 
@@ -910,8 +977,7 @@ public class GraphExecutionService {
                 """,
                 graph.getQuestion(),
                 completedContext.length() > 0 ? completedContext.toString() : "（无）",
-                failedResult.getTaskId(), failedResult.getDescription(),
-                failedResult.getDescription() != null ? failedResult.getDescription() : "");
+                failedResult.getTaskId(), failedResult.getDescription(), successCriteria);
 
         try {
             IntentGraph replanGraph = taskPlannerService.replan(replanPrompt);
@@ -924,6 +990,25 @@ public class GraphExecutionService {
         }
 
         return List.of();
+    }
+
+    /** 构造一次有边界的定向纠正请求，避免验收失败后重新扩张整张任务图。 */
+    private static String buildCriteriaCorrectionPrompt(String description,
+                                                        String successCriteria,
+                                                        String previousResult) {
+        return String.format("""
+                %s
+
+                上一次回答未完全满足验收标准，请直接修正回答。
+                验收标准：%s
+                上一次回答：
+                %s
+
+                只返回修正后的最终答案，不要解释修正过程；无法获得的信息请明确说明，不要编造。
+                """,
+                description != null ? description : "",
+                successCriteria != null ? successCriteria : "（未提供）",
+                truncate(previousResult, 1200));
     }
 
     // ========================================================================

@@ -37,7 +37,7 @@ public class ModelRoutingService {
                                AiChatService aiChatService) {
         this.chatClient = aiChatService.applyAdvisors(chatClientBuilder).build();
         this.llmGateway = llmGateway;
-        log.info("[ModelRouting] 纯本地推理引擎初始化完成（Ollama + LLMGateway + 统一Advisor链）");
+        log.info("[ModelRouting] DeepSeek API + LLMGateway + Advisor 链初始化完成");
     }
 
     /**
@@ -59,7 +59,7 @@ public class ModelRoutingService {
                     }
                     return builder.call().content();
                 },
-                "ollama-deepseek-r1:7b",
+                "deepseek-chat",
                 config);
 
         if (result.success()) {
@@ -69,7 +69,7 @@ public class ModelRoutingService {
         }
 
         log.error("[ModelRouting] 推理失败: {}", result.errorMessage());
-        throw new RuntimeException("Ollama model call failed: " + result.errorMessage());
+        throw new RuntimeException("DeepSeek model API call failed: " + result.errorMessage());
     }
 
     /**

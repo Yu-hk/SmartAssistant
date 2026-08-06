@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +25,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  * @since 2026-06-29
  */
 @Service
+@ConditionalOnClass(name = "org.springframework.data.redis.core.StringRedisTemplate")
 public class AgentEventBus {
 
     private static final Logger log = LoggerFactory.getLogger(AgentEventBus.class);
