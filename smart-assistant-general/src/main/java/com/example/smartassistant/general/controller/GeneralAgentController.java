@@ -1,6 +1,7 @@
 package com.example.smartassistant.general.controller;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.intent.WeatherQuerySupport;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,6 +26,9 @@ public class GeneralAgentController {
         String question = request.get("question");
         if (question == null || question.isBlank()) {
             return "Question must not be blank";
+        }
+        if (WeatherQuerySupport.requiresCityClarification(question)) {
+            return WeatherQuerySupport.CITY_CLARIFICATION;
         }
         return generalChatAgent.execute(question);
     }

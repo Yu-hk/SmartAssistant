@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { Session, Message, IntentType } from '../types';
 import { sessions as sessionApi } from '../api';
+import { ApiError } from '../api/client';
 
 export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -25,13 +27,43 @@ export function useSessions() {
           satisfaction_comment: s.satisfaction_comment ?? null,
           user_name: s.user_name || '访客',
           agent_name: s.agent_name || null,
-          messageCount: s.messageCount || 0,
+          messageCount: s.messageCount || s.message_count || 0,
           createdAt: new Date(s.created_at),
           messages: [],
         }));
-        setSessions(loaded);
+        setSessions(prev => {
+          const remoteIds = new Set(loaded.map(session => session.id));
+          const localOnly = prev.filter(session => !remoteIds.has(session.id));
+          const mergedRemote = loaded.map(remote => {
+            const local = prev.find(session => session.id === remote.id);
+            return local?.messages.length
+              ? { ...remote, messages: local.messages }
+              : remote;
+          });
+          return [...localOnly, ...mergedRemote];
+        });
       }
     } catch (e) { console.error('fetchSessions error:', e); }
+  }, []);
+
+  const createSession = useCallback((title = '新对话'): string => {
+    const sessionId = uuidv4();
+    const session: Session = {
+      id: sessionId,
+      title,
+      model: 'claude-sonnet-4',
+      intent: 'unknown',
+      status: 'active',
+      satisfaction: null,
+      satisfaction_comment: null,
+      user_name: '用户',
+      agent_name: null,
+      createdAt: new Date(),
+      messages: [],
+    };
+    setSessions(prev => [session, ...prev]);
+    setCurrentSessionId(sessionId);
+    return sessionId;
   }, []);
 
   const loadSessionMessages = useCallback(async (sessionId: string) => {
@@ -70,19 +102,45 @@ export function useSessions() {
   const deleteSession = useCallback(async (sessionId: string): Promise<string | null> => {
     try {
       await sessionApi.deleteSession(sessionId);
-      let navigateTo: string | null = null;
-      setSessions(prev => {
-        const filtered = prev.filter(s => s.id !== sessionId);
-        return filtered;
-      });
-      const remaining = sessions.filter(s => s.id !== sessionId);
-      if (currentSessionId === sessionId) {
-        if (remaining.length > 0) { navigateTo = `/chat/${remaining[0].id}`; setCurrentSessionId(remaining[0].id); }
-        else { navigateTo = '/'; setCurrentSessionId(null); }
+    } catch (e) {
+      // 本地新建会话在首次发送前不会落库，后端 404 时仍应允许从列表移除。
+      if (!(e instanceof ApiError) || e.status !== 404) {
+        console.error(e);
+        return null;
       }
-      return navigateTo;
-    } catch (e) { console.error(e); return null; }
+    }
+
+    setSessions(prev => prev.filter(s => s.id !== sessionId));
+    const remaining = sessions.filter(s => s.id !== sessionId);
+    if (currentSessionId !== sessionId) return null;
+    if (remaining.length > 0) {
+      setCurrentSessionId(remaining[0].id);
+      return `/chat/${remaining[0].id}`;
+    }
+    setCurrentSessionId(null);
+    return '/';
   }, [sessions, currentSessionId]);
+
+  const closeSession = useCallback(async (sessionId: string) => {
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'closed' } : s));
+    try {
+      await sessionApi.closeSession(sessionId);
+    } catch (e) {
+      // 本地会话可以正常结束；远端会话失败时保留前端终态并记录错误供排查。
+      if (!(e instanceof ApiError) || e.status !== 404) console.error(e);
+    }
+  }, []);
+
+  const rateSession = useCallback(async (sessionId: string, score: number) => {
+    setSessions(prev => prev.map(s => s.id === sessionId
+      ? { ...s, satisfaction: score, status: 'closed' }
+      : s));
+    try {
+      await sessionApi.rateSession(sessionId, score);
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 404) console.error(e);
+    }
+  }, []);
 
   const updateSessionModel = useCallback((sessionId: string, modelId: string) => {
     setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, model: modelId } : s));
@@ -109,8 +167,8 @@ export function useSessions() {
     sessions, setSessions,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, loadSessionMessages,
-    deleteSession,
+    fetchSessions, loadSessionMessages, createSession,
+    deleteSession, closeSession, rateSession,
     updateSessionModel, updateSession, updateSessionMessages,
   };
 }
