@@ -18,7 +18,10 @@ import org.springframework.context.annotation.ComponentScan;
 @Slf4j
 @SpringBootApplication
 @EnableDiscoveryClient
-@ComponentScan("com.example.smartassistant.common")
+@ComponentScan({
+        "com.example.smartassistant.user",
+        "com.example.smartassistant.common"
+})
 @MapperScan("com.example.smartassistant.user.mapper")
 public class UserServiceApplication {
 
