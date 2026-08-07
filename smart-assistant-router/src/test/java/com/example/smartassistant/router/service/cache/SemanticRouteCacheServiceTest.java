@@ -16,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
@@ -36,6 +37,7 @@ class SemanticRouteCacheServiceTest {
     @Mock private ChineseTokenizer tokenizer;
     @Mock private AgentDiscoveryService agentDiscoveryService;
     @Mock private ValueOperations<String, String> valueOps;
+    @Mock private ListOperations<String, String> listOps;
     private TfEmbeddingService tfEmbedding;
     private VectorCacheStore vectorCache;
     private BgeOnnxEmbeddingService bgeEmbedding;
@@ -74,6 +76,19 @@ class SemanticRouteCacheServiceTest {
         verify(valueOps).set(startsWith("a2a:route:keyword:"), eq("天气查询"), anyLong(), eq(TimeUnit.SECONDS));
         verify(valueOps).set(startsWith("a2a:route:exact:"), eq("天气查询"), anyLong(), eq(TimeUnit.SECONDS));
         verify(valueOps).set(startsWith("a2a:route:semantic:"), anyString(), anyLong(), eq(TimeUnit.SECONDS));
+    }
+
+    @Test
+    @DisplayName("完整决策写入后通知等待中的 Consumer")
+    void saveFullDecisionNotifiesConsumer() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(redisTemplate.opsForList()).thenReturn(listOps);
+
+        cacheService.saveFullDecisionForConsumer("req-1", "general", 0.95, "reply", "greeting");
+
+        verify(valueOps).set(eq("a2a:route:full-decision:req-1"), anyString(), eq(120L), eq(TimeUnit.SECONDS));
+        verify(listOps).rightPush("a2a:route:full-decision:notify:req-1", "req-1");
+        verify(redisTemplate).expire("a2a:route:full-decision:notify:req-1", 120L, TimeUnit.SECONDS);
     }
 
     @Test

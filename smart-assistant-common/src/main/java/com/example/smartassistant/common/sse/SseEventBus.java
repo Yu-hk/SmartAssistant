@@ -111,7 +111,7 @@ public class SseEventBus {
         });
         heartbeatFuture = scheduler.scheduleAtFixedRate(() -> {
             try {
-                if (closed || response.isCommitted()) {
+                if (closed) {
                     close();
                     return;
                 }
@@ -151,7 +151,9 @@ public class SseEventBus {
      * 发送一个 SSE 事件。
      */
     public synchronized void send(SseEvent event) {
-        if (closed || response.isCommitted()) return;
+        // SSE 响应在首次 flush 后必然处于 committed 状态，但输出流仍应持续写入。
+        // 不能把 isCommitted() 当成连接已关闭，否则所有事件都会被静默丢弃。
+        if (closed) return;
         try {
             String idLine = "id: " + seqNo + "\n";
             response.getOutputStream().write(idLine.getBytes(StandardCharsets.UTF_8));

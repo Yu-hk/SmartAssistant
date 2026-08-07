@@ -994,7 +994,10 @@ public class SemanticRouteCacheService {
             String key = FULL_DECISION_KEY_PREFIX + requestId;  // 使用独立 key，不覆盖审计日志
             String json = objectMapper.writeValueAsString(decision);
             redisTemplate.opsForValue().set(key, json, 120, TimeUnit.SECONDS);
-            log.debug("[SemanticCache] 完整决策已写入 Redis(供Consumer读取): requestId={}, agent={}, intent={}",
+            String notifyKey = FULL_DECISION_KEY_PREFIX + "notify:" + requestId;
+            redisTemplate.opsForList().rightPush(notifyKey, requestId);
+            redisTemplate.expire(notifyKey, 120, TimeUnit.SECONDS);
+            log.debug("[SemanticCache] 完整决策已写入 Redis 并通知 Consumer: requestId={}, agent={}, intent={}",
                     requestId, agentName, intentTag);
         } catch (Exception e) {
             log.warn("[SemanticCache] 写入完整决策失败: {}", e.getMessage());

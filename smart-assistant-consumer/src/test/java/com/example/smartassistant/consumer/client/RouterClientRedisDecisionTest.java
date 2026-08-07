@@ -1,0 +1,65 @@
+package com.example.smartassistant.consumer.client;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.ListOperations;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class RouterClientRedisDecisionTest {
+
+    @Mock private StringRedisTemplate redisTemplate;
+    @Mock private ListOperations<String, String> listOperations;
+    @Mock private ValueOperations<String, String> valueOperations;
+
+    private RouterClient routerClient;
+
+    @BeforeEach
+    void setUp() {
+        when(redisTemplate.opsForList()).thenReturn(listOperations);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        routerClient = new RouterClient(redisTemplate, new ObjectMapper(), 3000, 120000);
+    }
+
+    @Test
+    void readsDecisionAfterNotificationWithoutBlockingRedisCommand() {
+        String requestId = "req-1";
+        String notifyKey = "a2a:route:full-decision:notify:" + requestId;
+        String decisionKey = "a2a:route:full-decision:" + requestId;
+        when(listOperations.leftPop(notifyKey)).thenReturn(requestId);
+        when(valueOperations.get(decisionKey))
+                .thenReturn("{\"agentName\":\"general\",\"confidence\":0.95,\"intentTag\":\"greeting\"}");
+
+        Map<String, Object> decision = routerClient.waitForDecisionFromRedis(requestId, 1000);
+
+        assertNotNull(decision);
+        assertEquals("general", decision.get("agentName"));
+        verify(redisTemplate).delete(decisionKey);
+        verify(redisTemplate).delete(notifyKey);
+    }
+
+    @Test
+    void readsAlreadyAvailableDecisionEvenWhenNotificationIsMissing() {
+        String requestId = "req-2";
+        String decisionKey = "a2a:route:full-decision:" + requestId;
+        when(valueOperations.get(decisionKey))
+                .thenReturn("{\"agentName\":\"product\",\"confidence\":0.88}");
+
+        Map<String, Object> decision = routerClient.waitForDecisionFromRedis(requestId, 1000);
+
+        assertNotNull(decision);
+        assertEquals("product", decision.get("agentName"));
+    }
+}
