@@ -1,6 +1,6 @@
 import { Loading } from 'tdesign-react';
 import { ChatMarkdown } from '@tdesign-react/chat';
-import { Message, Model, PermissionRequest, ContentBlock } from '../types';
+import { Message, Model, PermissionRequest, ContentBlock, SessionStatus } from '../types';
 import { ToolCallsCollapse } from './ToolCallsCollapse';
 import { InlinePermissionCard } from './InlinePermissionCard';
 
@@ -13,6 +13,10 @@ interface ChatMessagesProps {
   onPermissionDeny?: () => void;
   queuePosition?: number | null;
   queueEstimatedWait?: number | null;
+  sessionStatus?: SessionStatus;
+  satisfaction?: number | null;
+  onRateSession?: (score: number) => void;
+  agentName?: string;
 }
 
 export function ChatMessages({ 
@@ -23,8 +27,27 @@ export function ChatMessages({
   onPermissionAllow,
   onPermissionDeny,
   queuePosition,
-  queueEstimatedWait
+  queueEstimatedWait,
+  sessionStatus,
+  satisfaction,
+  onRateSession,
+  agentName,
 }: ChatMessagesProps) {
+  const satisfactionOptions = [
+    { score: 1, emoji: '😞', label: '很不满意' },
+    { score: 2, emoji: '😕', label: '不满意' },
+    { score: 3, emoji: '😐', label: '一般' },
+    { score: 4, emoji: '😊', label: '满意' },
+    { score: 5, emoji: '🤩', label: '非常满意' },
+  ];
+  let lastAssistantIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index].role === 'assistant') {
+      lastAssistantIndex = index;
+      break;
+    }
+  }
+
   const formatModelName = (modelId: string) => {
     const model = models.find(m => m.modelId === modelId);
     const name = model?.name || modelId;
@@ -147,15 +170,24 @@ export function ChatMessages({
           </div>
 
           <div className={`flex flex-col gap-2 ${message.role === 'user' ? 'items-end' : ''}`} style={{ maxWidth: '80%' }}>
-            {/* 模型标签 */}
-            {message.role === 'assistant' && message.model && (
+            {/* 智能体归属标签（优先展示归属智能体，否则回退模型名） */}
+            {message.role === 'assistant' && (agentName || message.model) && (
               <span style={{
                 fontSize: '11px',
                 color: 'var(--nova-text-tertiary)',
                 fontWeight: 500,
                 marginLeft: '4px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
               }}>
-                {formatModelName(message.model)}
+                <span style={{
+                  width: '6px', height: '6px', borderRadius: '50%',
+                  background: 'var(--nova-accent)',
+                  display: 'inline-block',
+                  boxShadow: '0 0 6px var(--nova-accent)',
+                }} />
+                {agentName || formatModelName(message.model!)}
               </span>
             )}
             
@@ -181,6 +213,74 @@ export function ChatMessages({
             
             {/* 助手消息 */}
             {message.role === 'assistant' && renderAssistantContent(message)}
+
+              {message.role === 'assistant'
+                && idx === lastAssistantIndex
+                && !message.isStreaming
+                && Boolean(message.content || message.contentBlocks?.length)
+                && !message.content.trimStart().startsWith('⚠️')
+                && sessionStatus === 'active'
+                && satisfaction == null
+                && onRateSession && (
+                <div
+                  className="animate-fade-in-up"
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    borderRadius: '12px',
+                    border: '1px solid var(--nova-border)',
+                    background: 'var(--nova-bg-component)',
+                  }}
+                >
+                  <div style={{
+                    fontSize: '12px',
+                    color: 'var(--nova-text-secondary)',
+                    marginBottom: '10px',
+                  }}>
+                    本次回复对你有帮助吗？评价后将结束本次会话
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {satisfactionOptions.map(option => (
+                      <button
+                        key={option.score}
+                        type="button"
+                        title={`${option.score} 分 · ${option.label}`}
+                        aria-label={`${option.score} 分 · ${option.label}`}
+                        onClick={() => onRateSession(option.score)}
+                        style={{
+                          width: '42px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          border: '1px solid var(--nova-border)',
+                          background: 'var(--nova-bg-glass)',
+                          cursor: 'pointer',
+                          fontSize: '19px',
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        {option.emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            {message.role === 'assistant'
+              && idx === lastAssistantIndex
+              && sessionStatus === 'closed' && (
+                <div style={{
+                  padding: '9px 12px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--nova-border)',
+                  color: 'var(--nova-text-secondary)',
+                  background: 'var(--nova-bg-component)',
+                  fontSize: '12px',
+                }}>
+                  {satisfaction != null
+                    ? `已评价 ${satisfaction} 分 · 本次会话已结束`
+                    : '本次会话已结束'}
+                </div>
+              )}
             
             {/* 思考中 / 排队中 */}
             {message.role === 'assistant' && message.isStreaming && 
