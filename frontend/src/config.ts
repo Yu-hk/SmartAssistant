@@ -1,20 +1,20 @@
 /**
  * 应用配置文件
- * Nova 旅行规划 — AI 旅游助手
+ * SmartAssistant — 多智能体业务助手
  */
 
 export const APP_CONFIG = {
   /** 应用名称 */
-  name: 'Nova 旅行规划',
+  name: 'SmartAssistant',
   
   /** 应用名称首字母（用于 Logo） */
-  nameInitial: 'N',
+  nameInitial: 'S',
   
   /** 应用描述 */
-  description: 'AI 驱动的旅游规划平台',
+  description: '面向真实业务场景的多智能体协同平台',
   
   /** 口号 */
-  tagline: 'AI 带你看世界，每一次旅行都值得被规划',
+  tagline: '理解需求、智能路由、调用工具、协同完成任务',
   
   /** 版本号 */
   version: '2.0.0',
