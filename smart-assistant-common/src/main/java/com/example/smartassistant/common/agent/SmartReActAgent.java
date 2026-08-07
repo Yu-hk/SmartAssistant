@@ -567,6 +567,11 @@ public class SmartReActAgent {
 					effectiveTools.size() - dynamicTools.size(), dynamicTools.size(), effectiveTools.size());
 		}
 
+        // Tool descriptions must reflect the callbacks actually exposed for this execution.
+        // This also makes the discover_tools guidance conditional on the feature callback
+        // really being present instead of relying on stale static prompt text.
+        enhancedPrompt = ToolPromptFormatter.appendRuntimeTools(enhancedPrompt, effectiveTools);
+
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(enhancedPrompt));
         messages.add(new UserMessage(userMessage));

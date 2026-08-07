@@ -18,10 +18,15 @@ async function request<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${BASE_URL}${endpoint}`;
+  const token = localStorage.getItem('smart-assistant-token')
+    || sessionStorage.getItem('smart-assistant-token');
   const res = await fetch(url, {
     ...options,
     headers: {
       ...DEFAULT_HEADERS,
+      ...(token
+        ? { Authorization: `Bearer ${token}` }
+        : {}),
       ...options.headers,
     },
   });

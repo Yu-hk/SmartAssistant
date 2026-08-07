@@ -25,6 +25,7 @@ import {
   Zap
 } from 'lucide-react';
 import { ToolCall } from '../types';
+import { getToolCapabilityLabel } from '../utils/toolDisplay';
 
 interface ToolCallsCollapseProps {
   toolCalls: ToolCall[];
@@ -44,7 +45,7 @@ const getToolIcon = (toolName: string) => {
     return { icon: Terminal, color: 'var(--td-text-color-secondary)' };
   }
   // Web 搜索
-  if (name === 'websearch') {
+  if (name === 'websearch' || name === 'searchweb' || name.includes('web_search')) {
     return { icon: Search, color: '#1890ff' };
   }
   // Web 抓取
@@ -94,7 +95,7 @@ const getToolType = (toolName: string): string => {
   
   if (name === 'skill') return 'skill';
   if (name === 'bash') return 'bash';
-  if (name === 'websearch') return 'websearch';
+  if (name === 'websearch' || name === 'searchweb' || name.includes('web_search')) return 'websearch';
   if (name === 'webfetch') return 'webfetch';
   if (name === 'write') return 'write';
   if (name === 'read' || name === 'readfile') return 'read';
@@ -136,14 +137,16 @@ export function ToolCallsCollapse({ toolCalls, isStreaming = false }: ToolCallsC
   
   // 汇总工具类型（去重）
   const toolSummary = useMemo(() => {
-    const typeMap = new Map<string, { icon: any; color: string; count: number }>();
+    const typeMap = new Map<string, { icon: any; color: string; count: number; label: string }>();
     toolCalls.forEach(tool => {
       const type = getToolType(tool.name);
       const { icon, color } = getToolIcon(tool.name);
-      if (typeMap.has(type)) {
-        typeMap.get(type)!.count++;
+      const label = getToolCapabilityLabel(tool.name);
+      const summaryKey = `${type}:${label}`;
+      if (typeMap.has(summaryKey)) {
+        typeMap.get(summaryKey)!.count++;
       } else {
-        typeMap.set(type, { icon, color, count: 1 });
+        typeMap.set(summaryKey, { icon, color, count: 1, label });
       }
     });
     return Array.from(typeMap.entries()).map(([type, info]) => ({
@@ -578,7 +581,7 @@ export function ToolCallsCollapse({ toolCalls, isStreaming = false }: ToolCallsC
             className="flex-1 text-sm font-medium truncate"
             style={{ color: 'var(--td-text-color-primary)' }}
           >
-            {tool.name}
+            {getToolCapabilityLabel(tool.name)}
           </span>
           <span
             className="text-xs"
@@ -658,12 +661,12 @@ export function ToolCallsCollapse({ toolCalls, isStreaming = false }: ToolCallsC
       
       {/* 右侧：工具图标汇总 */}
       <div className="flex items-center gap-1">
-        {toolSummary.map(({ type, icon: Icon, color, count }) => (
+        {toolSummary.map(({ type, icon: Icon, color, count, label }) => (
           <div 
             key={type} 
             className="flex items-center gap-0.5 px-1.5 py-0.5 rounded"
             style={{ backgroundColor: 'var(--td-bg-color-secondarycontainer)' }}
-            title={`${type} x${count}`}
+            title={`${label} x${count}`}
           >
             <Icon size={12} style={{ color }} />
             {count > 1 && (

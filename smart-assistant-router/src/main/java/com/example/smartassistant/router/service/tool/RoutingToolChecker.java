@@ -1,11 +1,8 @@
 package com.example.smartassistant.router.service.tool;
 
-import com.example.smartassistant.common.error.ErrorRecoveryService;
-import com.example.smartassistant.common.gateway.tool.ToolDefinition;
-import com.example.smartassistant.common.gateway.tool.ToolGateway;
-import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.example.smartassistant.router.model.AgentMetadata;
+import com.example.smartassistant.router.model.DiscoveredAgent;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -13,8 +10,8 @@ import java.util.*;
 /**
  * 路由级工具健康检查服务。
  * <p>
- * 在 Router 决定路由到某个 Agent 之前，检查该 Agent 需要的工具是否就绪。
- * 如果关键工具熔断或未注册，提前降级，避免浪费 LLM 调用。
+ * 在 Router 决定路由到某个 Agent 之前，读取服务发现中的真实实例状态与
+ * Agent 自声明能力清单，避免用 Router 进程内的工具注册表推断远端能力。
  * </p>
  *
  * @author Yu-hk
@@ -23,33 +20,10 @@ import java.util.*;
 @Service
 public class RoutingToolChecker {
 
-    private static final Logger log = LoggerFactory.getLogger(RoutingToolChecker.class);
+    private final AgentDiscoveryService agentDiscoveryService;
 
-    private final ToolRegistry toolRegistry;
-    private final ToolGateway toolGateway;
-    private final ErrorRecoveryService errorRecoveryService;
-
-    // Agent → 关键工具名称映射（硬编码，后续可配置化）
-    private static final Map<String, List<String>> AGENT_CRITICAL_TOOLS = new LinkedHashMap<>();
-
-    static {
-        AGENT_CRITICAL_TOOLS.put("order", List.of(
-                "queryOrder", "createOrder", "cancelOrder", "applyRefund", "payOrder"
-        ));
-        AGENT_CRITICAL_TOOLS.put("product", List.of(
-                "queryProductInfo", "checkStock", "getPrice"
-        ));
-        AGENT_CRITICAL_TOOLS.put("general", List.of(
-                "calculate", "getHotNews", "searchWeb", "executeScript", "queryWeather"
-        ));
-    }
-
-    public RoutingToolChecker(ToolRegistry toolRegistry,
-                              ToolGateway toolGateway,
-                              ErrorRecoveryService errorRecoveryService) {
-        this.toolRegistry = toolRegistry;
-        this.toolGateway = toolGateway;
-        this.errorRecoveryService = errorRecoveryService;
+    public RoutingToolChecker(AgentDiscoveryService agentDiscoveryService) {
+        this.agentDiscoveryService = agentDiscoveryService;
     }
 
     /**
@@ -59,37 +33,28 @@ public class RoutingToolChecker {
      * @return 检查结果
      */
     public ToolHealthResult checkAgentHealth(String agentName) {
-        if (agentName == null) {
+        if (agentName == null || agentName.startsWith("builtin")) {
             return ToolHealthResult.healthy("builtin", "无 Agent 依赖的内置处理");
         }
 
-        List<String> criticalTools = AGENT_CRITICAL_TOOLS.get(agentName);
-        if (criticalTools == null || criticalTools.isEmpty()) {
-            return ToolHealthResult.healthy(agentName, "无关键工具依赖");
+        DiscoveredAgent agent = agentDiscoveryService.resolveAgent(agentName);
+        if (agent == null) {
+            return ToolHealthResult.unhealthy(agentName,
+                    "未发现 Agent 实例，无法读取实际能力清单", List.of("agent_not_discovered"));
+        }
+        if (!Boolean.TRUE.equals(agent.getHealthy())) {
+            return ToolHealthResult.unhealthy(agentName,
+                    "Agent 实例当前不健康", List.of("agent_unhealthy"));
         }
 
-        List<String> unhealthy = new ArrayList<>();
-        List<String> healthy = new ArrayList<>();
-
-        for (String toolName : criticalTools) {
-            ToolDefinition def = toolRegistry.get(toolName);
-            if (def == null) {
-                unhealthy.add(toolName + "(未注册)");
-                continue;
-            }
-            // 检查注册状态
-            healthy.add(toolName);
+        List<String> capabilities = getCapabilities(agent);
+        if (capabilities.isEmpty()) {
+            return ToolHealthResult.unhealthy(agentName,
+                    "Agent 未声明实际能力清单", List.of("capabilities_not_declared"));
         }
 
-        if (unhealthy.isEmpty()) {
-            return ToolHealthResult.healthy(agentName,
-                    String.format("关键工具全部就绪: %s", String.join(", ", healthy)));
-        }
-
-        log.warn("[ToolCheck] Agent={} 存在不健康工具: {}", agentName, unhealthy);
-        return ToolHealthResult.unhealthy(agentName,
-                String.format("以下工具不可用: %s", String.join(", ", unhealthy)),
-                unhealthy);
+        return ToolHealthResult.healthy(agentName,
+                "Agent 实际能力已就绪: " + String.join(", ", capabilities));
     }
 
     /**
@@ -128,12 +93,18 @@ public class RoutingToolChecker {
      */
     public Map<String, Object> getAllAgentsHealth() {
         Map<String, Object> result = new LinkedHashMap<>();
-        for (String agentName : AGENT_CRITICAL_TOOLS.keySet()) {
+        Set<String> agentNames = new LinkedHashSet<>();
+        for (DiscoveredAgent agent : agentDiscoveryService.getCachedAgents()) {
+            String agentName = agent.getAgentName() != null ? agent.getAgentName() : agent.getServiceName();
+            if (agentName != null && !agentName.isBlank()) agentNames.add(agentName);
+        }
+        for (String agentName : agentNames) {
             ToolHealthResult health = checkAgentHealth(agentName);
+            DiscoveredAgent agent = agentDiscoveryService.resolveAgent(agentName);
             Map<String, Object> agentInfo = new LinkedHashMap<>();
             agentInfo.put("healthy", health.isHealthy());
             agentInfo.put("message", health.getMessage());
-            agentInfo.put("registeredTools", AGENT_CRITICAL_TOOLS.get(agentName));
+            agentInfo.put("capabilities", getCapabilities(agent));
             result.put(agentName, agentInfo);
         }
         // 总览
@@ -141,10 +112,21 @@ public class RoutingToolChecker {
                 .filter(m -> (boolean) ((Map) m).get("healthy"))
                 .count();
         result.put("_summary", Map.of(
-                "totalAgents", AGENT_CRITICAL_TOOLS.size(),
+                "totalAgents", agentNames.size(),
                 "healthyAgents", healthyCount,
-                "allHealthy", healthyCount == AGENT_CRITICAL_TOOLS.size()
+                "allHealthy", !agentNames.isEmpty() && healthyCount == agentNames.size()
         ));
         return result;
+    }
+
+    private static List<String> getCapabilities(DiscoveredAgent agent) {
+        if (agent == null) return List.of();
+        AgentMetadata metadata = agent.getMetadata();
+        if (metadata == null) return List.of();
+        return Arrays.stream(metadata.getCapabilitiesArray())
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList();
     }
 }

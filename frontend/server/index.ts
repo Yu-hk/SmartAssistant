@@ -189,6 +189,16 @@ app.delete("/api/sessions/:sessionId", (req, res) => {
   }
 });
 
+app.post("/api/sessions/:sessionId/close", (req, res) => {
+  try {
+    const success = db.updateSession(req.params.sessionId, { status: 'closed' });
+    if (!success) return res.status(404).json({ error: "会话不存在" });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message });
+  }
+});
+
 // ============= 满意度评分 API =============
 
 app.post("/api/sessions/:sessionId/satisfaction", (req, res) => {
