@@ -30,8 +30,7 @@ import static org.mockito.Mockito.when;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "spring.autoconfigure.exclude="
-                        + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
-                        + "com.example.smartassistant.common.tool.client.ToolRegistryAutoConfiguration",
+                        + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
                 "spring.cloud.nacos.discovery.enabled=false",
                 "spring.cloud.service-registry.auto-registration.enabled=false",
                 "management.health.redis.enabled=false"
@@ -64,6 +63,15 @@ class GlobalJwtAuthFilterIntegrationTest {
     void testProtectedEndpointWithoutToken() {
         webTestClient.get()
                 .uri("/assistant/api/auth/me")
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    @DisplayName("流式对话接口必须携带 Token")
+    void testStreamingChatEndpointWithoutToken() {
+        webTestClient.get()
+                .uri("/assistant/api/math/stream/chat?message=hello&sessionId=test-session")
                 .exchange()
                 .expectStatus().isUnauthorized();
     }

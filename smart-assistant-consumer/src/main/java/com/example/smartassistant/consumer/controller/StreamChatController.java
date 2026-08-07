@@ -109,6 +109,29 @@ public class StreamChatController {
         }
         bus.sendRouted(agentName, confidence);
 
+        // Router 的 /api/router/route 已经完成 Agent 调用并返回最终结果。
+        // 直接发送该结果，避免再次调用不存在或不兼容的 Agent SSE 端点。
+        Object routedResult = decision.get("result");
+        if (routedResult instanceof String result && !result.isBlank()) {
+            try {
+                bus.sendProcessing();
+                String responseJson = objectMapper.writeValueAsString(Map.of(
+                        "type", "response",
+                        "content", result,
+                        "agentName", agentName,
+                        "sessionId", decisionKey != null ? decisionKey : ""));
+                bus.send(SseEvent.raw("response", responseJson));
+                injectTokenUsageEvent(bus, requestId);
+                bus.sendDone();
+            } catch (Exception e) {
+                logger.error("[StreamChat] 路由结果序列化失败: {}", e.getMessage());
+                bus.sendError("响应生成失败，请稍后重试");
+            } finally {
+                bus.close();
+            }
+            return;
+        }
+
         // 多 Agent SSE 事件检查
         if (requestId != null && redisTemplate != null) {
             String eventsKey = "routing:sse:events:" + requestId;
