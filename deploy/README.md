@@ -125,15 +125,44 @@ curl http://localhost:80/api/auth/health
 curl http://localhost:80/
 ```
 
-### 7. 配置域名 + HTTPS（可选）
+### 7. 配置域名 + HTTPS
 
 ```bash
-# 使用 certbot 获取 SSL 证书
-sudo apt-get install certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
+# 1. 在 DNS 控制台添加记录
+#    @   A   123.56.6.102
+#    www A   123.56.6.102
+
+# 2. DNS 生效后，用容器化 Certbot 和当前 HTTP 站点申请证书
+sudo install -d -m 0755 /opt/smart-assistant/letsencrypt
+docker run --rm \
+  -v /opt/smart-assistant/frontend/dist:/var/www/certbot \
+  -v /opt/smart-assistant/letsencrypt:/etc/letsencrypt \
+  docker.io/certbot/certbot:latest certonly --webroot \
+  -w /var/www/certbot --register-unsafely-without-email --agree-tos \
+  -d xiaoyuai.cloud -d www.xiaoyuai.cloud
+
+# 3. 将证书部署到 Nginx 的只读挂载目录
+sudo install -d -m 0755 /opt/smart-assistant/deploy/nginx/ssl
+sudo install -m 0644 /opt/smart-assistant/letsencrypt/live/xiaoyuai.cloud/fullchain.pem \
+  /opt/smart-assistant/deploy/nginx/ssl/fullchain.pem
+sudo install -m 0600 /opt/smart-assistant/letsencrypt/live/xiaoyuai.cloud/privkey.pem \
+  /opt/smart-assistant/deploy/nginx/ssl/privkey.pem
+
+# 4. 校验配置并重新创建 Nginx，使 443 端口映射生效
+docker compose --env-file .env run --rm --no-deps nginx nginx -t
+docker compose --env-file .env up -d --force-recreate nginx
+
+# 5. 安装每日证书续期检查（续期成功后自动校验并热重载 Nginx）
+chmod 0755 /opt/smart-assistant/deploy/renew-cert.sh
+sudo install -m 0644 deploy/systemd/smart-assistant-cert-renew.service \
+  /etc/systemd/system/smart-assistant-cert-renew.service
+sudo install -m 0644 deploy/systemd/smart-assistant-cert-renew.timer \
+  /etc/systemd/system/smart-assistant-cert-renew.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now smart-assistant-cert-renew.timer
 ```
 
-配置完成后，取消 `deploy/nginx/default.conf` 中 HTTPS 部分的注释。
+`deploy/nginx/default.conf` 已固定使用 `xiaoyuai.cloud`，并将 HTTP、`www` 和直接 IP 访问统一重定向到 `https://xiaoyuai.cloud`。`deploy/renew-cert.sh` 负责续期、复制证书并热重载 Nginx。
 
 ---
 

@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -39,12 +40,12 @@ public class MemoryExtractor {
             "(?:```json|```)\\s*\\n?([\\s\\S]*?)\\n?\\s*```", Pattern.CASE_INSENSITIVE);
     private static final Pattern BRACE_JSON = Pattern.compile("\\{.*}", Pattern.DOTALL);
 
-    private final ChatModel chatModel;
+    private final ObjectProvider<ChatModel> chatModelProvider;
     private final AgentMemoryService memoryService;
     private final ObjectMapper objectMapper;
 
-    public MemoryExtractor(ChatModel chatModel, AgentMemoryService memoryService) {
-        this.chatModel = chatModel;
+    public MemoryExtractor(ObjectProvider<ChatModel> chatModelProvider, AgentMemoryService memoryService) {
+        this.chatModelProvider = chatModelProvider;
         this.memoryService = memoryService;
         this.objectMapper = new ObjectMapper();
     }
@@ -59,6 +60,12 @@ public class MemoryExtractor {
      */
     public void extractFromConversation(String agent, String userId, String question, String response) {
         if (agent == null || userId == null || question == null || response == null) return;
+
+        ChatModel chatModel = chatModelProvider.getIfAvailable();
+        if (chatModel == null) {
+            log.debug("[MemoryExtractor] ChatModel 未配置，跳过后台偏好提取");
+            return;
+        }
 
         String prompt = buildExtractionPrompt(agent, question, response);
 
