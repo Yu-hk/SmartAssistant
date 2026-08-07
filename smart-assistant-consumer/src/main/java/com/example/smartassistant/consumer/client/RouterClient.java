@@ -25,7 +25,6 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -224,48 +223,44 @@ public class RouterClient {
         String decisionKey = ROUTING_DECISION_KEY_PREFIX + requestId;
         String notifyKey = ROUTING_DECISION_KEY_PREFIX + "notify:" + requestId;
         long startTime = System.currentTimeMillis();
+        long deadline = startTime + Math.max(timeoutMs, 0L);
 
-        try {
-            // ⭐ 第一步：使用 BLPOP 阻塞等待通知
-            String notifyResult = redisTemplate.opsForList().leftPop(
-                    notifyKey, Duration.ofMillis(timeoutMs));
-
-            if (notifyResult != null) {
-                log.info("[RouterClient] BLPOP 收到决策通知: requestId={}, waitTime={}ms",
-                        requestId, System.currentTimeMillis() - startTime);
-
-                // 读取实际决策数据
+        // 避免长时间 BLPOP：Redis 客户端命令超时通常短于业务等待时间，
+        // 会在 Router 完成模型调用前抛出 command timed out，导致 SSE 返回空响应。
+        // 使用短轮询后，单次 Redis 命令不会跨越客户端超时。
+        do {
+            try {
+                String notifyResult = redisTemplate.opsForList().leftPop(notifyKey);
                 String value = redisTemplate.opsForValue().get(decisionKey);
                 if (value != null) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> decision = objectMapper.readValue(value, Map.class);
-                    // 清理已使用的 key
+                    log.info("[RouterClient] Redis 决策已就绪: requestId={}, agentName={}, notified={}, waitTime={}ms",
+                            requestId, decision.get("agentName"), notifyResult != null,
+                            System.currentTimeMillis() - startTime);
                     redisTemplate.delete(decisionKey);
                     redisTemplate.delete(notifyKey);
                     return decision;
                 }
+            } catch (Exception e) {
+                log.warn("[RouterClient] Redis 决策读取异常，将继续重试: requestId={}, error={}",
+                        requestId, e.getMessage());
             }
 
-            // ⭐ 第二步：BLPOP 超时，回退到一次轮询检查（兼容旧版）
-            log.debug("[RouterClient] BLPOP 超时，回退到轮询: requestId={}", requestId);
-            String value = redisTemplate.opsForValue().get(decisionKey);
-            if (value != null) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> decision = objectMapper.readValue(value, Map.class);
-                log.info("[RouterClient] 回退轮询到决策: requestId={}, agentName={}, waitTime={}ms",
-                        requestId, decision.get("agentName"), System.currentTimeMillis() - startTime);
-                redisTemplate.delete(decisionKey);
-                return decision;
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) break;
+            try {
+                Thread.sleep(Math.min(100L, remaining));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("[RouterClient] Redis 等待决策被中断: requestId={}", requestId);
+                return null;
             }
+        } while (System.currentTimeMillis() <= deadline);
 
-            log.warn("[RouterClient] Redis 等待决策超时: requestId={}, timeout={}ms",
-                    requestId, timeoutMs);
-            return null;
-
-        } catch (Exception e) {
-            log.warn("[RouterClient] Redis 等待决策异常: requestId={}, error={}", requestId, e.getMessage());
-            return null;
-        }
+        log.warn("[RouterClient] Redis 等待决策超时: requestId={}, timeout={}ms",
+                requestId, timeoutMs);
+        return null;
     }
 
     /**

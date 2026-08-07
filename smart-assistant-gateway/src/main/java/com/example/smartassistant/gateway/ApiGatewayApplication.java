@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.gateway;
 
+import com.example.smartassistant.common.tool.client.ToolRegistryAutoConfiguration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -17,7 +18,7 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  * 统一入口、认证、限流、路由
  */
 @Slf4j
-@SpringBootApplication
+@SpringBootApplication(exclude = ToolRegistryAutoConfiguration.class)
 @EnableDiscoveryClient
 public class ApiGatewayApplication {
 
