@@ -126,6 +126,9 @@ public class RouteFinalizer {
         String intentTag = result.getIntentTag();
         DomainQualityResult domainQuality = result.getDomainQuality() != null
                 ? result.getDomainQuality() : DomainQualityResult.unknown();
+        boolean clarification = Boolean.TRUE.equals(result.getClarification())
+                || ClarificationReplyDetector.isRequiredParameterClarification(result.getResult());
+        result.setClarification(clarification);
         if (intentTag == null || intentTag.isBlank()) {
             intentTag = semanticCache.generateIntentTag(question);
             result.setIntentTag(intentTag);
@@ -147,6 +150,7 @@ public class RouteFinalizer {
         double reflectScore = 0.7;
         if (result.getResult() != null && !result.getResult().isBlank()
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
+                && !clarification
                 && !Boolean.TRUE.equals(result.getFromCache())
                 && (domainQuality.isUnknown() || domainQuality.isWarn())) {
             ReflectionResult reflection = reflectionService.evaluate(
@@ -172,15 +176,16 @@ public class RouteFinalizer {
         }
 
         // ⭐⭐ LLM-as-Judge 质量评估
-        boolean qualityPassed = !domainQuality.isFail();
-        String qualityFailureReason = domainQuality.isFail()
+        boolean qualityPassed = clarification || !domainQuality.isFail();
+        String qualityFailureReason = !clarification && domainQuality.isFail()
                 ? "DOMAIN_FAIL: " + domainQuality.reasonCodesHeaderValue() : null;
-        if (domainQuality.isFail()) {
+        if (!clarification && domainQuality.isFail()) {
             log.warn("[Router] Domain quality rejected response: agent={}, reasons={}",
                     result.getAgentName(), domainQuality.getReasonCodes());
         }
 
-        boolean requiresGlobalJudge = domainQuality.isUnknown() || domainQuality.isWarn();
+        boolean requiresGlobalJudge = !clarification
+                && (domainQuality.isUnknown() || domainQuality.isWarn());
         if (requiresGlobalJudge && result.getResult() != null && !result.getResult().isBlank()
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
                 && !Boolean.TRUE.equals(result.getFromCache())) {
@@ -205,7 +210,7 @@ public class RouteFinalizer {
         String requestId = request.getRequestId();
         String reply = result.getResult();
 
-        if (agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
+        if (!clarification && agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
             semanticCache.saveDecision(requestId, question, agentName,
                     result.getConfidence(), request.getUserId(), intentTag, request.getSessionId());
             semanticCache.saveExactMatch(question, intentTag);
@@ -246,7 +251,7 @@ public class RouteFinalizer {
         }
 
         // P1 ⭐ Bad Case 自动挖掘
-        if (badCaseMinerService != null) {
+        if (!clarification && badCaseMinerService != null) {
             var badCaseDecision = new BadCaseMinerService.RoutingDecision(
                     request.getQuestion(), result.getIntentTag(),
                     result.getConfidence(), result.getAgentName(),

@@ -159,4 +159,26 @@ class RouteFinalizerTest {
         verify(badCaseMinerService).recordQualityFailure(any(),
                 org.mockito.ArgumentMatchers.contains("ORDER_STATUS_MISMATCH"));
     }
+
+    @Test
+    void requiredParameterClarificationSkipsQualityAndFailureCaches() {
+        RoutingResult routing = RoutingResult.builder()
+                .result("请告诉我想查询哪个城市的天气，例如“北京天气”。")
+                .agentName("general")
+                .intentTag("weather_query")
+                .confidence(1.0)
+                .build();
+
+        RoutingResult finalized = finalizer.finalizeRouting(
+                routing, request(), "查询天气", null);
+
+        assertEquals("请告诉我想查询哪个城市的天气，例如“北京天气”。", finalized.getResult());
+        assertEquals(true, finalized.getClarification());
+        verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
+        verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
+        verify(semanticCache, never()).saveDecision(anyString(), anyString(), anyString(),
+                anyDouble(), anyLong(), anyString(), anyString());
+        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(badCaseMinerService, never()).recordQualityFailure(any(), anyString());
+    }
 }

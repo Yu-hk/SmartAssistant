@@ -9,6 +9,7 @@ import {
   DeleteIcon
 } from 'tdesign-icons-react';
 import { PermissionRequest } from '../types';
+import { getToolCapabilityLabel } from '../utils/toolDisplay';
 
 interface PermissionDialogProps {
   visible: boolean;
@@ -34,7 +35,7 @@ const getToolConfig = (toolName: string) => {
   return TOOL_CONFIG[toolName] || { 
     icon: <Code1Icon />, 
     color: '#666666', 
-    label: toolName 
+    label: getToolCapabilityLabel(toolName)
   };
 };
 
@@ -117,9 +118,6 @@ export function PermissionDialog({ visible, request, onAllow, onDeny }: Permissi
             icon={toolConfig.icon as React.ReactElement}
           >
             {toolConfig.label}
-          </Tag>
-          <Tag variant="outline" size="small">
-            {request.toolName}
           </Tag>
         </div>
         
