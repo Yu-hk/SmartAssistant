@@ -80,7 +80,7 @@ class PgVectorKnowledgeBaseDefectTest {
 
         kb.addDocument(document("no-vector"));
 
-        assertLastUpdateHasMatchingParameterCount(20);
+        assertLastUpdateHasMatchingParameterCount(21);
     }
 
     @Test
@@ -91,7 +91,7 @@ class PgVectorKnowledgeBaseDefectTest {
 
         kb.addDocument(document("with-vector"));
 
-        assertLastUpdateHasMatchingParameterCount(21);
+        assertLastUpdateHasMatchingParameterCount(22);
     }
 
     private KnowledgeDocument document(String id) {
