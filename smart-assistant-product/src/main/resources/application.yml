@@ -101,6 +101,14 @@ nacos:
     password: ${POSTGRES_PASSWORD}  # ⚠️ 必须设置 POSTGRES_PASSWORD 环境变量
     driver-class-name: org.postgresql.Driver
 
+# Product catalog and RAG persistence use the same production database.
+# Keep this at the root: RagProductionAutoConfiguration binds datasource.*.
+datasource:
+  url: ${DATASOURCE_URL:jdbc:postgresql://localhost:5433/a2a_system}
+  username: ${DATASOURCE_USERNAME:postgres}
+  password: ${POSTGRES_PASSWORD:}
+  driver-class-name: org.postgresql.Driver
+
   ai:
     # ⭐ DeepSeek 云端推理（主推理通道）
     deepseek:

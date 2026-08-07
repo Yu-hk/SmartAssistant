@@ -1,5 +1,7 @@
 package com.example.smartassistant.router.model;
 
+import com.example.smartassistant.common.quality.DomainQualityResult;
+
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +23,7 @@ public class SubTaskResult {
     private boolean success;
     private List<String> realTitles;
     private Map<String, String> tagsByTitle;
+    private DomainQualityResult domainQuality = DomainQualityResult.unknown();
     /** ⭐ Handoff 交接命令：执行完毕后如果需显式移交其他 Agent，非空表示有交接请求 */
     private HandoffCommand handoffCommand;
 
@@ -126,6 +129,10 @@ public class SubTaskResult {
     public void setRealTitles(List<String> realTitles) { this.realTitles = realTitles != null ? realTitles : List.of(); }
     public Map<String, String> getTagsByTitle() { return tagsByTitle; }
     public void setTagsByTitle(Map<String, String> tagsByTitle) { this.tagsByTitle = tagsByTitle != null ? tagsByTitle : Map.of(); }
+    public DomainQualityResult getDomainQuality() { return domainQuality; }
+    public void setDomainQuality(DomainQualityResult domainQuality) {
+        this.domainQuality = domainQuality != null ? domainQuality : DomainQualityResult.unknown();
+    }
 
     public HandoffCommand getHandoffCommand() { return handoffCommand; }
     public void setHandoffCommand(HandoffCommand handoffCommand) { this.handoffCommand = handoffCommand; }

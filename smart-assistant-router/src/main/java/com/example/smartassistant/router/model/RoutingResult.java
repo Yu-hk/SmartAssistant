@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.model;
 
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.service.guardrail.EmotionLevel;
 
 import lombok.AllArgsConstructor;
@@ -42,6 +43,10 @@ public class RoutingResult {
      * 意图标签（用于用户画像意图分布统计）
      */
     private String intentTag;
+
+    /** Domain-owned factual/business quality decision propagated by Product/Order. */
+    @Builder.Default
+    private DomainQualityResult domainQuality = DomainQualityResult.unknown();
 
     /**
      * 是否命中了语义缓存（直接从缓存返回，无 Agent 执行）
