@@ -179,7 +179,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 ? null : embeddingModel.embedding(doc.toEmbedText());
         String vecStr = vec != null ? arrayToPgVector(vec) : null;
 
-        List<Object> parameters = new ArrayList<>(21);
+        List<Object> parameters = new ArrayList<>(22);
         parameters.add(doc.getId());
         parameters.add(doc.getTitle());
         parameters.add(doc.getContent());
@@ -199,6 +199,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         parameters.add(doc.getRawChecksum());
         parameters.add(doc.getIngestBatchId());
         parameters.add(doc.getIndexVersion());
+        parameters.add(doc.getChunkRole().name());
         if (vecStr != null) {
             parameters.add(vecStr);
         }
