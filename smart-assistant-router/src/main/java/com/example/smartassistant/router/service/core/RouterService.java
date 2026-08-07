@@ -13,6 +13,7 @@ import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.GoalContinuityArbiter;
 import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.error.AgentErrorCode;
+import com.example.smartassistant.common.intent.WeatherQuerySupport;
 import com.example.smartassistant.common.model.tier.TieredModelRouter;
 import com.example.smartassistant.common.model.tier.TierSelection;
 import com.example.smartassistant.router.service.context.IntentDriftDetector;
@@ -269,6 +270,19 @@ public class RouterService {
                             .confidence(0.2)
                             .build();
                 }
+            }
+
+            // Required parameters are collected before experience/cache short-circuits so a
+            // stale route or reply can never turn "查询天气" into an invalid tool invocation.
+            if (WeatherQuerySupport.requiresCityClarification(question)) {
+                RoutingResult clarification = RoutingResult.builder()
+                        .result(WeatherQuerySupport.CITY_CLARIFICATION)
+                        .agentName("general")
+                        .confidence(1.0)
+                        .intentTag("weather_query")
+                        .clarification(true)
+                        .build();
+                return finalizeRouting(clarification, request, question, emotion);
             }
 
             // Step 0: 经验匹配（护栏触发 + skipShortCircuit 跳过短路）
@@ -580,6 +594,21 @@ public class RouterService {
                     storeTaskAnalysisToRedis(request.getRequestId(), taskAnalysis);
                 }
 
+                if (taskAnalysis != null && taskAnalysis.isNeedsClarification()
+                        && taskAnalysis.getClarificationQuestions() != null
+                        && !taskAnalysis.getClarificationQuestions().isEmpty()) {
+                    String clarificationReply = String.join("\n", taskAnalysis.getClarificationQuestions());
+                    String clarificationAgent = resolveAgentForCategory(taskAnalysis.getIntentCategory());
+                    RoutingResult clarification = RoutingResult.builder()
+                            .result(clarificationReply)
+                            .agentName(clarificationAgent != null ? clarificationAgent : "builtin_clarification")
+                            .confidence(taskAnalysis.getConfidence())
+                            .intentTag(intentTag)
+                            .clarification(true)
+                            .build();
+                    return finalizeRouting(clarification, request, enhancedQuestion, emotion);
+                }
+
                 // ⭐ Step 3.6: 意图引导的查询改写
                 // 根据意图类型选择改写策略：多跳→分解、模糊→扩展、精确→保留
                 if (taskAnalysis != null && taskAnalysis.isMeaningful()) {
@@ -827,7 +856,10 @@ public class RouterService {
                 || analysis.hasSubIntents() || analysis.isNeedsClarification()) {
             return null;
         }
-        String category = analysis.getIntentCategory();
+        return resolveAgentForCategory(analysis.getIntentCategory());
+    }
+
+    private static String resolveAgentForCategory(String category) {
         if (category == null) return null;
         return switch (category.trim().toUpperCase(Locale.ROOT)) {
             case "ORDER" -> "order";

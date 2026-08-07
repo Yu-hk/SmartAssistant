@@ -9,6 +9,7 @@ import {
   DeleteIcon
 } from 'tdesign-icons-react';
 import { PermissionRequest } from '../types';
+import { getToolCapabilityLabel } from '../utils/toolDisplay';
 
 interface InlinePermissionCardProps {
   request: PermissionRequest;
@@ -35,7 +36,7 @@ const getToolConfig = (toolName: string) => {
   return TOOL_CONFIG[toolName] || { 
     icon: <Code1Icon />, 
     color: '#666666', 
-    label: toolName 
+    label: getToolCapabilityLabel(toolName)
   };
 };
 
