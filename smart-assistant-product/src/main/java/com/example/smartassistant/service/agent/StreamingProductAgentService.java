@@ -8,6 +8,8 @@
 package com.example.smartassistant.service.agent;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.quality.DomainAgentResponse;
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.rag.eval.FaithfulnessGuard;
@@ -15,6 +17,7 @@ import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageSpan;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.search.ProductRagService;
+import com.example.smartassistant.service.quality.ProductDomainQualityValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -39,6 +42,7 @@ public class StreamingProductAgentService {
 
     private final SmartReActAgent productAgent;
     private final ProductRagService productRagService;
+    private final ProductDomainQualityValidator domainQualityValidator;
 
     /** ⭐ P1 全阶段 trace 记录器（可选，null 时跳过 trace） */
     @Autowired(required = false)
@@ -60,10 +64,18 @@ public class StreamingProductAgentService {
         this.faithfulnessGuard = faithfulnessGuard;
     }
 
+    public StreamingProductAgentService(SmartReActAgent productAgent,
+                                        ProductRagService productRagService) {
+        this(productAgent, productRagService, new ProductDomainQualityValidator());
+    }
+
+    @Autowired
     public StreamingProductAgentService(@Qualifier("productAgent") SmartReActAgent productAgent,
-                                        @Autowired(required = false) ProductRagService productRagService) {
+                                        @Autowired(required = false) ProductRagService productRagService,
+                                        ProductDomainQualityValidator domainQualityValidator) {
         this.productAgent = productAgent;
         this.productRagService = productRagService;
+        this.domainQualityValidator = domainQualityValidator;
     }
 
     /**
@@ -81,6 +93,11 @@ public class StreamingProductAgentService {
      * @return Agent 回复或结构化拒答消息
      */
     public String execute(String userMessage, String requestId) {
+        return executeWithQuality(userMessage, requestId).answer();
+    }
+
+    /** Executes product consultation and exposes the domain quality decision to HTTP callers. */
+    public DomainAgentResponse executeWithQuality(String userMessage, String requestId) {
         String rid = (requestId != null && !requestId.isBlank()) ? requestId : ("prod-" + System.nanoTime());
         // ⭐ G4 运营指标：记录一次商品域应答（无答案率分母）
         opsMetrics.recordAnswer("product", "product");
@@ -90,10 +107,12 @@ public class StreamingProductAgentService {
             // ⭐ P1: RAG 检索质量评估（决定拒答 or 注入上下文）
             // P5-A: ragContext 提升到外层作用域，供 GENERATION 后的 Faithfulness 校验使用
             String ragContext = null;
+            RetrievalQualityResult retrieval = null;
             if (productRagService != null) {
                 try {
                     long retrievalStart = System.currentTimeMillis();
                     RetrievalQualityResult qr = productRagService.retrieveWithQualityResult(userMessage);
+                    retrieval = qr;
                     long retrievalMs = System.currentTimeMillis() - retrievalStart;
 
                     if (qr.isRejected()) {
@@ -112,7 +131,8 @@ public class StreamingProductAgentService {
                         }
                         log.info("[StreamingProductAgent] ⛔ 无证据拒答: code={}, requestId={}",
                                 qr.getRejectionCode(), rid);
-                        return qr.getRejectionMessage();
+                        return DomainAgentResponse.of(qr.getRejectionMessage(),
+                                domainQualityValidator.evaluate(qr.getRejectionMessage(), qr, null));
                     }
 
                     // 有证据：记录 RETRIEVAL 阶段；高质量时把知识注入上下文
@@ -137,17 +157,18 @@ public class StreamingProductAgentService {
             // ⭐ GENERATION 阶段
             long genStart = System.currentTimeMillis();
             String result = null;
+            FaithfulnessGuard.FaithfulnessVerdict faithfulness = null;
             String genStatus = StageSpan.STATUS_OK;
             try {
                 result = productAgent.execute(userMessage);
                 // ⭐ P5-A 生产 Faithfulness 校验（文章Q⑩校验层）：
                 // 回答关键断言未被检索上下文支撑时，非阻断地追加免责声明 + 埋点（log）
                 if (ragContext != null && !ragContext.isBlank()) {
-                    FaithfulnessGuard.FaithfulnessVerdict fg = faithfulnessGuard.check(result, ragContext);
-                    if (fg.hallucination()) {
-                        result = result + "\n\n" + fg.message();
+                    faithfulness = faithfulnessGuard.check(result, ragContext);
+                    if (faithfulness.hallucination()) {
+                        result = result + "\n\n" + faithfulness.message();
                         log.warn("[StreamingProductAgent] ⚠️ Faithfulness 风险: score={}, claims={}",
-                                String.format("%.2f", fg.score()), fg.claims().size());
+                                String.format("%.2f", faithfulness.score()), faithfulness.claims().size());
                     }
                 }
             } catch (Exception e) {
@@ -163,12 +184,18 @@ public class StreamingProductAgentService {
             }
 
             if (result != null) {
-                return result;
+                DomainQualityResult quality = domainQualityValidator.evaluate(result, retrieval, faithfulness);
+                if (quality.isFail()) {
+                    result = "抱歉，暂时无法生成可靠的商品答复，请稍后重试。";
+                }
+                return DomainAgentResponse.of(result, quality);
             }
-            return "Agent 返回为空";
+            return DomainAgentResponse.of("Agent 返回为空",
+                    DomainQualityResult.fail("EMPTY_PRODUCT_ANSWER"));
         } catch (Exception e) {
             log.error("[StreamingProductAgent] 执行异常: {}", e.getMessage(), e);
-            return "处理失败: " + e.getMessage();
+            return DomainAgentResponse.of("处理失败: " + e.getMessage(),
+                    DomainQualityResult.fail("PRODUCT_EXECUTION_ERROR"));
         }
     }
 }

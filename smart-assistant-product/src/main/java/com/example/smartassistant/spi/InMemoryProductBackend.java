@@ -15,6 +15,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -47,10 +48,14 @@ public class InMemoryProductBackend implements ProductBackend {
     }
 
     private Map<String, String> findProduct(String productCode) {
-        Map<String, String> p = PRODUCTS.get(productCode);
+        String normalized = normalize(productCode);
+        Map<String, String> p = PRODUCTS.get(normalized);
         if (p == null) {
             for (var entry : PRODUCTS.entrySet()) {
-                if (entry.getValue().get("name").contains(productCode) || productCode.contains(entry.getKey())) {
+                String name = normalize(entry.getValue().get("name"));
+                String code = normalize(entry.getKey());
+                if (name.contains(normalized) || normalized.contains(name)
+                        || code.contains(normalized) || normalized.contains(code)) {
                     return entry.getValue();
                 }
             }
@@ -95,14 +100,22 @@ public class InMemoryProductBackend implements ProductBackend {
     @Override
     public String searchProduct(String keyword) {
         log.info("[MockProduct] 搜索: {}", keyword);
+        String normalized = normalize(keyword);
         StringBuilder sb = new StringBuilder();
         for (var entry : PRODUCTS.entrySet()) {
             Map<String, String> p = entry.getValue();
-            if (p.get("name").contains(keyword) || keyword.contains(entry.getKey())) {
+            String name = normalize(p.get("name"));
+            String code = normalize(entry.getKey());
+            if (name.contains(normalized) || normalized.contains(name)
+                    || code.contains(normalized) || normalized.contains(code)) {
                 sb.append("· ").append(p.get("name")).append(" — ¥").append(p.get("price")).append("\n");
             }
         }
         if (sb.isEmpty()) return "未找到匹配的商品";
         return "搜索结果：\n" + sb.toString().trim();
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
     }
 }

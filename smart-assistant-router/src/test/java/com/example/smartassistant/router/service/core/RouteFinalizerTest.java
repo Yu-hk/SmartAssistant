@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.observability.OpsMetrics;
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.QualityEvaluationResult;
 import com.example.smartassistant.router.model.ReflectionResult;
 import com.example.smartassistant.router.model.RouteRequest;
@@ -128,5 +129,34 @@ class RouteFinalizerTest {
         verify(qualityEvaluationService).evaluate(
                 "办公笔记本电脑选购重点指标", "办公笔记本优先关注处理器、内存、硬盘和续航。", 0.9);
         verify(semanticCache).saveExactMatch("查询订单状态", "order_query");
+    }
+
+    @Test
+    void domainPassSkipsDuplicateReflectionAndJudge() {
+        RoutingResult routing = result("订单 ORD-1001 已发货，预计明天送达。");
+        routing.setDomainQuality(DomainQualityResult.pass(0.92, "ORDER_FACTS_VERIFIED"));
+
+        finalizer.finalizeRouting(routing, request(), "查询 ORD-1001 的状态", null);
+
+        verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
+        verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
+        verify(semanticCache).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+    }
+
+    @Test
+    void domainFailPreservesSafeFallbackAndBlocksLearning() {
+        RoutingResult routing = result("暂时无法核实该订单状态，请稍后重试。");
+        routing.setDomainQuality(DomainQualityResult.fail("ORDER_STATUS_MISMATCH"));
+
+        RoutingResult finalized = finalizer.finalizeRouting(
+                routing, request(), "查询 ORD-1001 的状态", null);
+
+        assertEquals("暂时无法核实该订单状态，请稍后重试。", finalized.getResult());
+        verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
+        verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
+        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
+        verify(badCaseMinerService).recordQualityFailure(any(),
+                org.mockito.ArgumentMatchers.contains("ORDER_STATUS_MISMATCH"));
     }
 }

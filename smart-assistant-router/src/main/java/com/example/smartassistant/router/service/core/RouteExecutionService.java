@@ -10,6 +10,7 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.model.tier.TieredModelRouter;
 import com.example.smartassistant.common.model.tier.TierSelection;
 import com.example.smartassistant.common.prompt.PromptManager;
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.experience.ExperienceService;
@@ -169,6 +170,11 @@ public class RouteExecutionService {
                 .map(SubTaskResult::getAgentName)
                 .filter(Objects::nonNull)
                 .findFirst().orElse("none");
+        DomainQualityResult domainQuality = results.stream()
+                .map(SubTaskResult::getDomainQuality)
+                .filter(Objects::nonNull)
+                .reduce(DomainQualityResult::worst)
+                .orElse(DomainQualityResult.unknown());
 
         if (graph.getNodeCount() >= 2) {
             experienceService.extractReactExperience(question,
@@ -178,7 +184,8 @@ public class RouteExecutionService {
         }
 
         return routeFinalizer.applyEmotion(RoutingResult.builder()
-                .result(merged).agentName(firstAgent).confidence(0.8).build(), emotion);
+                .result(merged).agentName(firstAgent).confidence(0.8)
+                .domainQuality(domainQuality).build(), emotion);
     }
 
     /**
@@ -188,8 +195,9 @@ public class RouteExecutionService {
                                                double confidence, String intentTag,
                                                RouteRequest request, String rawQuestion,
                                                EmotionCheckResult emotion) {
-        String agentReply = agentCallerService.callAgent(
+        var agentResult = agentCallerService.callAgentDetailed(
                 agentName, agentQuestion, request.getUserId(), request.getRequestId());
+        String agentReply = agentResult.getResponse();
         if (agentReply == null || agentReply.isBlank()) {
             return null;
         }
@@ -198,6 +206,7 @@ public class RouteExecutionService {
                 .agentName(agentName)
                 .confidence(confidence)
                 .intentTag(intentTag)
+                .domainQuality(agentResult.getDomainQuality())
                 .build();
         return routeFinalizer.finalizeRouting(result, request, rawQuestion, emotion);
     }

@@ -12,6 +12,7 @@ import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.observability.OpsMetrics;
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.evaluation.BadCaseMinerService;
@@ -123,6 +124,8 @@ public class RouteFinalizer {
         String evaluationQuestion = executionQuestion != null && !executionQuestion.isBlank()
                 ? executionQuestion : question;
         String intentTag = result.getIntentTag();
+        DomainQualityResult domainQuality = result.getDomainQuality() != null
+                ? result.getDomainQuality() : DomainQualityResult.unknown();
         if (intentTag == null || intentTag.isBlank()) {
             intentTag = semanticCache.generateIntentTag(question);
             result.setIntentTag(intentTag);
@@ -144,7 +147,8 @@ public class RouteFinalizer {
         double reflectScore = 0.7;
         if (result.getResult() != null && !result.getResult().isBlank()
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
-                && !Boolean.TRUE.equals(result.getFromCache())) {
+                && !Boolean.TRUE.equals(result.getFromCache())
+                && (domainQuality.isUnknown() || domainQuality.isWarn())) {
             ReflectionResult reflection = reflectionService.evaluate(
                     evaluationQuestion, result.getResult(), result.getAgentName(), intentTag, request.getUserId());
             reflectScore = reflection.getScore();
@@ -168,13 +172,21 @@ public class RouteFinalizer {
         }
 
         // ⭐⭐ LLM-as-Judge 质量评估
-        boolean qualityPassed = true;
-        String qualityFailureReason = null;
-        if (result.getResult() != null && !result.getResult().isBlank()
+        boolean qualityPassed = !domainQuality.isFail();
+        String qualityFailureReason = domainQuality.isFail()
+                ? "DOMAIN_FAIL: " + domainQuality.reasonCodesHeaderValue() : null;
+        if (domainQuality.isFail()) {
+            log.warn("[Router] Domain quality rejected response: agent={}, reasons={}",
+                    result.getAgentName(), domainQuality.getReasonCodes());
+        }
+
+        boolean requiresGlobalJudge = domainQuality.isUnknown() || domainQuality.isWarn();
+        if (requiresGlobalJudge && result.getResult() != null && !result.getResult().isBlank()
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
                 && !Boolean.TRUE.equals(result.getFromCache())) {
+            double judgeTriggerScore = domainQuality.isWarn() ? 0.7 : reflectScore;
             QualityEvaluationResult quality = qualityEvaluationService.evaluate(
-                    evaluationQuestion, result.getResult(), reflectScore);
+                    evaluationQuestion, result.getResult(), judgeTriggerScore);
             if ((quality.isCompleted() && !quality.isPassing(qualityThreshold))
                     || (quality.isFailed() && qualityFailClosed)) {
                 qualityPassed = false;
