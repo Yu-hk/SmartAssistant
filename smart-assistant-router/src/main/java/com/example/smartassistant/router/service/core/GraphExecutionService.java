@@ -572,10 +572,12 @@ public class GraphExecutionService {
                 // ⭐ 成功：重置连续失败计数 + 记录降级统计
                 breakerFailureCounts.put(targetAgent, 0);
                 degradationService.recordCall(true);
-                return new SubTaskResult(handoffTaskId,
+                SubTaskResult handoffResult = new SubTaskResult(handoffTaskId,
                         "Handoff: " + targetAgent, targetAgent,
                         resultText, true,
                         agentResult.getRealTitles(), agentResult.getTagsByTitle());
+                handoffResult.setDomainQuality(agentResult.getDomainQuality());
+                return handoffResult;
             }
 
             // 结果为空：递增失败计数 + 记录降级统计
@@ -724,9 +726,11 @@ public class GraphExecutionService {
                         }
                         storeNodeProgressEvent(eventsKey, "node_quality_degraded",
                                 "节点[" + node.getDescription() + "]未完全满足验收标准，已返回最佳可用结果", targetAgent);
-                        return new SubTaskResult(node.getId(), node.getDescription(),
+                        SubTaskResult degradedResult = new SubTaskResult(node.getId(), node.getDescription(),
                                 node.getTargetAgent(), resultText, true,
                                 agentResult.getRealTitles(), agentResult.getTagsByTitle());
+                        degradedResult.setDomainQuality(agentResult.getDomainQuality());
+                        return degradedResult;
                     }
                     if (criteriaResult == ErrorType.RETRYABLE_FAILED) {
                         if (attempt < maxRetries) {
@@ -752,9 +756,11 @@ public class GraphExecutionService {
                     }
                     storeNodeProgressEvent(eventsKey, "node_completed",
                             truncate("节点[" + node.getDescription() + "]执行成功: " + resultText, 200), targetAgent);
-                    return new SubTaskResult(node.getId(), node.getDescription(),
+                    SubTaskResult completedResult = new SubTaskResult(node.getId(), node.getDescription(),
                             node.getTargetAgent(), resultText, true,
                             agentResult.getRealTitles(), agentResult.getTagsByTitle());
+                    completedResult.setDomainQuality(agentResult.getDomainQuality());
+                    return completedResult;
                 }
 
                 // 结果为空 → 可重试

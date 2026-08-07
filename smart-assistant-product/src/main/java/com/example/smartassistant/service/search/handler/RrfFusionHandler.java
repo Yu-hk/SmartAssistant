@@ -85,12 +85,15 @@ public class RrfFusionHandler implements RagSearchHandler {
         context.setFusedResults(fused);
 
         // 质量评估
-        double rrfMax = pathResults.size() / (double)(RRF_K + 1);
+        int activePaths = (int) pathResults.values().stream().filter(p -> !p.isEmpty()).count();
+        // Normalize against paths that actually returned evidence. Counting empty
+        // paths in the theoretical maximum makes a strong exact match look weak
+        // merely because unrelated retrievers returned nothing.
+        double rrfMax = activePaths / (double)(RRF_K + 1);
         double topRrf = fused.get(0).getRrfScore();
         double qualityScore = Math.min(1.0, topRrf / rrfMax);
         context.setQualityScore(qualityScore);
 
-        int activePaths = (int) pathResults.values().stream().filter(p -> !p.isEmpty()).count();
         log.info("[RagHandler] RRF 融合完成: activePaths={}, fused={}, qualityScore={}",
                 activePaths, fused.size(), String.format("%.4f", qualityScore));
     }

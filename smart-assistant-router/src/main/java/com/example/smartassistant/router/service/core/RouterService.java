@@ -470,9 +470,12 @@ public class RouterService {
                         return inlineFallback(enhancedQuestion, emotion);
                     }
                     if (cached.agentName != null) {
-                        String agentReply = agentCallerService.callAgent(cached.agentName, enhancedQuestion, userId, request.getRequestId());
+                        var agentResult = agentCallerService.callAgentDetailed(
+                                cached.agentName, enhancedQuestion, userId, request.getRequestId());
+                        String agentReply = agentResult.getResponse();
                         if (agentReply != null) {
                             result.setResult(agentReply);
+                            result.setDomainQuality(agentResult.getDomainQuality());
                         }
                     }
                 }

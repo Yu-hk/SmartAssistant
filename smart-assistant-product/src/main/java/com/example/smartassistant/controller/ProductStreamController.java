@@ -7,9 +7,12 @@
 
 package com.example.smartassistant.controller;
 
+import com.example.smartassistant.common.quality.DomainAgentResponse;
+import com.example.smartassistant.common.quality.DomainQualityHeaders;
 import com.example.smartassistant.service.agent.StreamingProductAgentService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
@@ -94,9 +97,16 @@ public class ProductStreamController {
      * 简单的非流式对话（兼容旧接口）
      */
     @PostMapping("/chat/sync")
-    public String chatSync(@RequestParam String message) {
+    public ResponseEntity<String> chatSync(
+            @RequestParam String message,
+            @RequestHeader(value = "X-Request-Id", required = false) String requestId) {
         log.info("[ProductStream] 同步对话: {}", message);
-        return streamingAgentService.execute(message);
+        DomainAgentResponse response = streamingAgentService.executeWithQuality(message, requestId);
+        return ResponseEntity.ok()
+                .header(DomainQualityHeaders.STATUS, response.quality().getStatus().name())
+                .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().getScore()))
+                .header(DomainQualityHeaders.REASON_CODES, response.quality().reasonCodesHeaderValue())
+                .body(response.answer());
     }
 
     /**

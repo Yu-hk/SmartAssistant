@@ -62,6 +62,9 @@ public class OrderAgentConfig {
     @Value("${spring.application.name}")
     private String agentName;
 
+    @Value("${order.agent.extended-tools-enabled:false}")
+    private boolean extendedToolsEnabled;
+
 	@Value("classpath:prompts/order-system-prompt.txt")
 	private Resource systemPromptResource;
 
@@ -88,14 +91,22 @@ public class OrderAgentConfig {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
-		// 从本模块 @Component 工具 Bean 直接扫描加载
-		ToolCallback[] moduleToolCallbacks = MethodToolCallbackProvider.builder()
-				.toolObjects(orderTools, orderMemoryTool, orderAnalyticsTool, orderKnowledgeTool, textToSqlTool, couponTools)
+		// 核心订单工具始终加载。扩展工具默认关闭，避免每轮请求携带过大的工具 Schema；
+		// 需要分析、记忆、知识库、Text-to-SQL、优惠券时可通过配置显式开启。
+		ToolCallback[] coreToolCallbacks = MethodToolCallbackProvider.builder()
+				.toolObjects(orderTools)
 				.build()
 				.getToolCallbacks();
-		List<ToolCallback> toolList = new ArrayList<>(Arrays.asList(moduleToolCallbacks));
+		List<ToolCallback> toolList = new ArrayList<>(Arrays.asList(coreToolCallbacks));
+		if (extendedToolsEnabled) {
+			ToolCallback[] extendedToolCallbacks = MethodToolCallbackProvider.builder()
+					.toolObjects(orderMemoryTool, orderAnalyticsTool, orderKnowledgeTool, textToSqlTool, couponTools)
+					.build()
+					.getToolCallbacks();
+			toolList.addAll(Arrays.asList(extendedToolCallbacks));
+		}
 
-		log.info("[OrderAgent] 加载 {} 个本模块工具", toolList.size());
+		log.info("[OrderAgent] 加载 {} 个本模块工具 (extended={})", toolList.size(), extendedToolsEnabled);
 
 		// ⭐ T2d：注入 discover_tools 元工具 + 绑定注册器
 		List<ToolCallback> effectiveToolList = DiscoverToolsHelper.injectDiscoverTools(toolList, discoverToolsTool);

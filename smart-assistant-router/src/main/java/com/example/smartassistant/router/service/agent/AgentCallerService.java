@@ -8,6 +8,8 @@
 package com.example.smartassistant.router.service.agent;
 
 import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.common.quality.DomainQualityHeaders;
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.scheduler.AgentSchedulerService;
 import com.example.smartassistant.common.scheduler.AgentTask;
 import com.example.smartassistant.common.scheduler.AgentTaskFactory;
@@ -130,11 +132,16 @@ public class AgentCallerService {
     }
 
     public String callAgent(String agentName, String question, Long userId) {
-        return callAgentWithContext(agentName, question, userId, null, null);
+        return callAgentDetailed(agentName, question, userId, null).getResponse();
     }
 
     public String callAgent(String agentName, String question, Long userId, String requestId) {
-        return callAgentWithContext(agentName, question, userId, null, requestId);
+        return callAgentDetailed(agentName, question, userId, requestId).getResponse();
+    }
+
+    /** Calls an Agent without discarding its domain quality headers. */
+    public AgentCallResult callAgentDetailed(String agentName, String question, Long userId, String requestId) {
+        return callAgentWithContextDetailed(agentName, question, userId, null, requestId);
     }
 
     public AgentCallResult callAgentAndExtractTitles(String agentName, String question, Long userId) {
@@ -153,7 +160,9 @@ public class AgentCallerService {
         log.info("[AgentCaller] callAgentAndExtractTitles: agent={}, userId={}, questionLength={}, requestId={}",
                 agentName, userId, question != null ? question.length() : 0, requestId);
 
-        String result = callAgentWithContext(agentName, question, userId, null, requestId);
+        AgentCallResult detailed = callAgentWithContextDetailed(
+                agentName, question, userId, null, requestId);
+        String result = detailed.getResponse();
 
         // ⭐ 检查 Agent 调用是否返回错误（callAgentWithContext 内部 catch 了异常并转为错误字符串）
         if (result != null && (result.startsWith("❌") || result.startsWith("⚠️"))) {
@@ -163,7 +172,8 @@ public class AgentCallerService {
         // ⭐ 结构化抽取标题/标签（对标 OrderIntentService.entity() 约定），
         // 替代原先 realTitles 恒为空的 no-op 实现。
         ExtractedTitles extracted = extractTitles(result);
-        return new AgentCallResult(result, extracted.titles(), extracted.tagsByTitle());
+        return new AgentCallResult(result, extracted.titles(), extracted.tagsByTitle(),
+                detailed.getDomainQuality());
     }
 
     /**
@@ -277,6 +287,12 @@ public class AgentCallerService {
      */
     public String callAgentWithContext(String agentName, String question, Long userId,
                                        RouteDecision.ExtractedContext context, String requestId) {
+        return callAgentWithContextDetailed(agentName, question, userId, context, requestId).getResponse();
+    }
+
+    /** HTTP Agent call retaining the domain quality decision carried in response headers. */
+    public AgentCallResult callAgentWithContextDetailed(String agentName, String question, Long userId,
+                                                        RouteDecision.ExtractedContext context, String requestId) {
         log.info("[AgentCaller] HTTP 直调 Agent: {}, userId={}, questionLength={}, requestId={}",
                 agentName, userId, question != null ? question.length() : 0, requestId);
 
@@ -289,13 +305,13 @@ public class AgentCallerService {
             // ⭐ 特殊 Agent 名称：builtin_fallback 和 none 是内部兜底标记，不实际调用
             if ("builtin_fallback".equals(agentName) || "none".equals(agentName)) {
                 log.warn("[AgentCaller] 特殊 Agent 名称 '{}'，跳过 HTTP 调用", agentName);
-                return "";
+                return new AgentCallResult("");
             }
 
             String agentUrl = findAgentUrl(agentName);
             if (agentUrl == null) {
                 log.error("[AgentCaller] 未找到 Agent: {}", agentName);
-                return "❌ 未找到目标 Agent: " + agentName;
+                return new AgentCallResult("❌ 未找到目标 Agent: " + agentName);
             }
 
             // 从 Nacos 返回的 /a2a 路径转换为自定义 HTTP 端点
@@ -331,18 +347,22 @@ public class AgentCallerService {
             String result = response.getBody();
             if (result == null || result.isBlank()) {
                 log.warn("[AgentCaller] Agent 返回空结果: {}", agentName);
-                return "⚠️ Agent 返回空结果";
+                return new AgentCallResult("⚠️ Agent 返回空结果");
             }
 
             result = cleanThinkingContent(result);
+            DomainQualityResult domainQuality = DomainQualityResult.fromHeaders(
+                    response.getHeaders().getFirst(DomainQualityHeaders.STATUS),
+                    response.getHeaders().getFirst(DomainQualityHeaders.SCORE),
+                    response.getHeaders().getFirst(DomainQualityHeaders.REASON_CODES));
 
-            log.info("[AgentCaller] HTTP 直调成功: agent={}, status={}, resultLength={}",
-                    agentName, response.getStatusCode(), result.length());
-            return result;
+            log.info("[AgentCaller] HTTP 直调成功: agent={}, status={}, resultLength={}, domainQuality={}",
+                    agentName, response.getStatusCode(), result.length(), domainQuality.getStatus());
+            return new AgentCallResult(result, List.of(), Map.of(), domainQuality);
 
         } catch (Exception e) {
             log.error("[AgentCaller] HTTP 直调失败: {}, 错误: {}", agentName, e.getMessage(), e);
-            return "❌ 调用 Agent 失败: " + e.getMessage();
+            return new AgentCallResult("❌ 调用 Agent 失败: " + e.getMessage());
         }
     }
 

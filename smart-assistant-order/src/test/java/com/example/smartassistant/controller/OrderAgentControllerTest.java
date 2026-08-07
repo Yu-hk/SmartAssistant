@@ -10,6 +10,7 @@ package com.example.smartassistant.controller;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.memory.ContextOrchestrator;
 import com.example.smartassistant.common.memory.MemoryExtractor;
+import com.example.smartassistant.common.quality.DomainQualityHeaders;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
@@ -19,6 +20,7 @@ import com.example.smartassistant.service.core.OrderRagService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.ResponseEntity;
 
 import java.util.List;
 import java.util.Map;
@@ -69,11 +71,15 @@ class OrderAgentControllerTest {
         when(ragService.retrieveWithQualityResult(any(), anyString()))
                 .thenReturn(RetrievalQualityResult.noData("ORD-999"));
 
-        String result = controller.processQuestion(
+        ResponseEntity<String> response = controller.processQuestionHttp(
                 Map.of("question", "查询订单 ORD-999 的状态", "requestId", "req-reject"));
+        String result = response.getBody();
 
         assertNotNull(result);
         assertTrue(result.contains("ORD-999"), "应返回结构化拒答消息");
+        assertEquals("PASS", response.getHeaders().getFirst(DomainQualityHeaders.STATUS));
+        assertEquals("SAFE_NO_EVIDENCE_RESPONSE",
+                response.getHeaders().getFirst(DomainQualityHeaders.REASON_CODES));
         verify(agent, never()).execute(anyString());
 
         // trace 应记录 REJECTION + GENERATION(SKIPPED)

@@ -10,6 +10,9 @@ package com.example.smartassistant.controller;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.memory.ContextOrchestrator;
 import com.example.smartassistant.common.memory.MemoryExtractor;
+import com.example.smartassistant.common.quality.DomainAgentResponse;
+import com.example.smartassistant.common.quality.DomainQualityHeaders;
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageSpan;
@@ -19,9 +22,11 @@ import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
 import com.example.smartassistant.service.core.OrderRagService;
+import com.example.smartassistant.service.quality.OrderDomainQualityValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -57,6 +62,7 @@ public class OrderAgentController {
     private final MemoryExtractor memoryExtractor;
     /** 上下文协调器：统一调度四层记忆预算 */
     private final ContextOrchestrator orchestrator;
+    private final OrderDomainQualityValidator domainQualityValidator;
 
     /** ⭐ P1 全阶段 trace 记录器（可选，null 时跳过 trace） */
     @Autowired(required = false)
@@ -83,11 +89,23 @@ public class OrderAgentController {
                                 OrderRagService ragService,
                                 MemoryExtractor memoryExtractor,
                                 ContextOrchestrator orchestrator) {
+        this(orderAgent, intentService, ragService, memoryExtractor, orchestrator,
+                new OrderDomainQualityValidator());
+    }
+
+    @Autowired
+    public OrderAgentController(SmartReActAgent orderAgent,
+                                OrderIntentService intentService,
+                                OrderRagService ragService,
+                                MemoryExtractor memoryExtractor,
+                                ContextOrchestrator orchestrator,
+                                OrderDomainQualityValidator domainQualityValidator) {
         this.orderAgent = orderAgent;
         this.intentService = intentService;
         this.ragService = ragService;
         this.memoryExtractor = memoryExtractor;
         this.orchestrator = orchestrator;
+        this.domainQualityValidator = domainQualityValidator;
     }
 
     /**
@@ -106,10 +124,26 @@ public class OrderAgentController {
      * @return Agent 执行结果
      */
     @PostMapping("/process")
-    public String processQuestion(@RequestBody Map<String, String> request) {
+    public ResponseEntity<String> processQuestionHttp(@RequestBody Map<String, String> request) {
+        DomainAgentResponse response = processQuestionWithQuality(request);
+        return ResponseEntity.ok()
+                .header(DomainQualityHeaders.STATUS, response.quality().getStatus().name())
+                .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().getScore()))
+                .header(DomainQualityHeaders.REASON_CODES, response.quality().reasonCodesHeaderValue())
+                .body(response.answer());
+    }
+
+    /** Backward-compatible entry point used by local callers and unit tests. */
+    public String processQuestion(Map<String, String> request) {
+        return processQuestionWithQuality(request).answer();
+    }
+
+    /** Executes the order Agent and returns its domain-owned quality decision. */
+    public DomainAgentResponse processQuestionWithQuality(Map<String, String> request) {
         String question = request.get("question");
         if (question == null || question.isBlank()) {
-            return "❌ 问题不能为空";
+            return DomainAgentResponse.of("❌ 问题不能为空",
+                    DomainQualityResult.fail("EMPTY_ORDER_QUESTION"));
         }
 
         long startTime = System.currentTimeMillis();
@@ -150,7 +184,9 @@ public class OrderAgentController {
                         intent.getLabel(), qr.getRejectionCode(), requestId);
                 // ⭐ G4 运营指标：记录无证据拒答
                 opsMetrics.recordNoEvidenceAnswer("order", intent.getLabel());
-                return qr.getRejectionMessage();
+                return DomainAgentResponse.of(qr.getRejectionMessage(),
+                        domainQualityValidator.evaluate(
+                                question, qr.getRejectionMessage(), intent, userId, qr, null));
             }
 
             // 有证据：注入上下文
@@ -169,17 +205,17 @@ public class OrderAgentController {
             log.info("[OrderAgent] 意图识别: {}, userId={}, 记忆注入={}", intent.getLabel(), userId, userId != null);
             long genStart = System.currentTimeMillis();
             String result = null;
+            FaithfulnessGuard.FaithfulnessVerdict faithfulness = null;
             String genStatus = StageSpan.STATUS_OK;
             try {
                 result = orderAgent.execute(enhancedQuestion);
                 // ⭐ P5-A 生产 Faithfulness 校验（文章Q⑩校验层）：
                 // 回答关键断言未被检索上下文支撑时，非阻断地追加免责声明 + 埋点（log）
                 if (qr != null && qr.getContent() != null && !qr.getContent().isBlank()) {
-                    FaithfulnessGuard.FaithfulnessVerdict fg = faithfulnessGuard.check(result, qr.getContent());
-                    if (fg.hallucination()) {
-                        result = result + "\n\n" + fg.message();
+                    faithfulness = faithfulnessGuard.check(result, qr.getContent());
+                    if (faithfulness.hallucination()) {
                         log.warn("[OrderAgent] ⚠️ Faithfulness 风险: score={}, claims={}",
-                                String.format("%.2f", fg.score()), fg.claims().size());
+                                String.format("%.2f", faithfulness.score()), faithfulness.claims().size());
                     }
                 }
             } catch (Exception e) {
@@ -201,19 +237,26 @@ public class OrderAgentController {
             log.info("[OrderAgent] 处理完成: intent={},耗时={}ms,结果长度={}",
                     intent.getLabel(), elapsed, result != null ? result.length() : 0);
 
-            // ⭐ Step 5: 后台自动提取偏好（不阻塞响应）
+            DomainQualityResult quality = domainQualityValidator.evaluate(
+                    question, result, intent, userId, qr, faithfulness);
+            if (quality.isFail()) {
+                result = "抱歉，订单信息校验未通过，请重新提供订单号或稍后重试。";
+            }
+
+            // Only persist an answer after the domain validator has accepted or safely downgraded it.
             if (result != null && userId != null && !userId.isBlank() && !"null".equals(userId)) {
                 final String finalQuestion = question;
                 final String finalResult = result;
                 CompletableFuture.runAsync(() ->
                     memoryExtractor.extractFromConversation("order", userId, finalQuestion, finalResult));
             }
-
-            return result != null ? result : "⚠️ Agent 返回空结果";
+            return DomainAgentResponse.of(
+                    result != null ? result : "⚠️ Agent 返回空结果", quality);
 
         } catch (Exception e) {
             log.error("[OrderAgent] 处理失败: {}", e.getMessage(), e);
-            return "❌ 处理失败: " + e.getMessage();
+            return DomainAgentResponse.of("❌ 处理失败: " + e.getMessage(),
+                    DomainQualityResult.fail("ORDER_EXECUTION_ERROR"));
         }
     }
 }

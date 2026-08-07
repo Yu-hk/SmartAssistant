@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -118,10 +119,11 @@ public class DiscoverToolsTool {
             发现并动态加载工具。当需要预载集之外的能力时调用此工具。
             入参: capabilityQuery(能力名,必填), keywords(可选关键词), matchMode(OR/AND,默认OR), limit(默认20)
             返回: 匹配的工具列表和已注入的工具名。不要臆造不存在的工具名。""")
-    public String discoverTools(String capabilityQuery,
-                                String[] keywords,
-                                String matchMode,
-                                int limit) {
+    public String discoverTools(
+            @ToolParam(description = "能力名或关键词", required = true) String capabilityQuery,
+            @ToolParam(description = "辅助关键词", required = false) String[] keywords,
+            @ToolParam(description = "匹配模式 OR/AND，默认 OR", required = false) String matchMode,
+            @ToolParam(description = "返回上限，默认 20", required = false) int limit) {
         long startTime = System.currentTimeMillis();
         String clarification = "";
         String effectiveMatchMode = (matchMode != null && !matchMode.isBlank()) ? matchMode.toUpperCase() : "OR";
