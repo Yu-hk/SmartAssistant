@@ -119,6 +119,9 @@ public class KnowledgeDocument {
 
     // ==================== 生产化摄入字段（RAG 生产化改造，仅增不删）====================
 
+    /** 🟡 Parent-Child Chunking：块角色（PARENT 父块不嵌入 / CHILD 子块检索 / STANDALONE 独立块），默认 STANDALONE */
+    private final ChunkRole chunkRole;
+
     /** 🟡 来源类型（PDF / WORD / HTML / MARKDOWN / TXT / IMAGE），由解析路由结果映射 */
     private final String sourceType;
 
@@ -209,8 +212,44 @@ public class KnowledgeDocument {
         this(id, title, content, category, keywords, effectiveAt, expireAt,
                 tenantId, version, sourceUrl, chunkIndex, parentDocId,
                 AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE, null,
-                Set.of(), Set.of(), 0,
+                Set.of(), Set.of(), 0, ChunkRole.STANDALONE,
                 sourceType, "", "");
+    }
+
+    /**
+     * ⭐ 含 chunkRole 的构造器（Parent-Child 双粒度分块：父块 PARENT / 子块 CHILD）。
+     * <p>委托最全构造器，治理字段取默认值，chunkRole 显式传入以区分父块（不嵌入）与子块（检索）。</p>
+     */
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId, ChunkRole chunkRole, String sourceType) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, parentDocId,
+                AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE, null,
+                Set.of(), Set.of(), 0,
+                chunkRole, sourceType, "", "");
+    }
+
+    /**
+     * ⭐ 含 chunkRole 的"治理 + 索引版本 + 摄入"全参构造器（Parent-Child 双写经摄入重映射时保留块角色）。
+     * <p>摄入管线的版本化重映射 / PII 脱敏会重建 KnowledgeDocument，必须显式透传 {@code chunkRole}，
+     * 否则父块会被误判为 STANDALONE 而错误嵌入、参与向量检索。</p>
+     */
+    public KnowledgeDocument(String id, String title, String content,
+                             String category, String keywords,
+                             long effectiveAt, long expireAt,
+                             String tenantId, String version,
+                             String sourceUrl, int chunkIndex,
+                             String parentDocId,
+                             AuthorityLevel authorityLevel, DocumentStatus documentStatus,
+                             String indexVersion, ChunkRole chunkRole, String sourceType) {
+        this(id, title, content, category, keywords, effectiveAt, expireAt,
+                tenantId, version, sourceUrl, chunkIndex, parentDocId,
+                authorityLevel, documentStatus, indexVersion,
+                Set.of(), Set.of(), 0, chunkRole, sourceType, "", "");
     }
 
     /**
@@ -228,7 +267,7 @@ public class KnowledgeDocument {
         this(id, title, content, category, keywords, effectiveAt, expireAt,
                 tenantId, version, sourceUrl, chunkIndex, parentDocId,
                 authorityLevel, documentStatus, indexVersion,
-                Set.of(), Set.of(), 0,
+                Set.of(), Set.of(), 0, ChunkRole.STANDALONE,
                 sourceType, "", "");
     }
 
@@ -257,7 +296,7 @@ public class KnowledgeDocument {
         this(id, title, content, category, keywords, effectiveAt, expireAt,
                 tenantId, version, sourceUrl, chunkIndex, parentDocId,
                 authorityLevel, documentStatus, indexVersion,
-                authorizedRoles, authorizedUsers, securityLevel,
+                authorizedRoles, authorizedUsers, securityLevel, ChunkRole.STANDALONE,
                 "", "", "");
     }
 
@@ -288,6 +327,7 @@ public class KnowledgeDocument {
                              Set<String> authorizedRoles,
                              Set<String> authorizedUsers,
                              int securityLevel,
+                             ChunkRole chunkRole,
                              String sourceType, String rawChecksum, String ingestBatchId) {
         this.id = id;
         this.title = title;
@@ -312,6 +352,7 @@ public class KnowledgeDocument {
                 ? Collections.unmodifiableSet(new LinkedHashSet<>(authorizedUsers))
                 : Set.of();
         this.securityLevel = securityLevel;
+        this.chunkRole = chunkRole != null ? chunkRole : ChunkRole.STANDALONE;
         this.sourceType = sourceType != null ? sourceType : "";
         this.rawChecksum = rawChecksum != null ? rawChecksum : "";
         this.ingestBatchId = ingestBatchId != null ? ingestBatchId : "";
@@ -359,6 +400,9 @@ public class KnowledgeDocument {
     public int getSecurityLevel() { return securityLevel; }
 
     // ==================== 生产化摄入字段 Getters（RAG 生产化改造，仅增不删）====================
+
+    /** Parent-Child 块角色（PARENT 父块 / CHILD 子块 / STANDALONE 独立块） */
+    public ChunkRole getChunkRole() { return chunkRole; }
 
     /** 来源类型（PDF / WORD / HTML / MARKDOWN / TXT / IMAGE） */
     public String getSourceType() { return sourceType; }
