@@ -60,6 +60,10 @@ public class RoutingResult {
     @Builder.Default
     private Boolean adminOperation = false;
 
+    /** Valid intermediate response asking the user for required parameters. */
+    @Builder.Default
+    private Boolean clarification = false;
+
     /**
      * 情绪等级（NONE 表示未检测到情绪风险）
      */

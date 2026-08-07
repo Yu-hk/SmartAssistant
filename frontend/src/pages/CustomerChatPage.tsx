@@ -19,15 +19,23 @@ interface CustomerChatPageProps {
   onInputChange: (value: string) => void;
   onPermissionAllow: () => void;
   onPermissionDeny: () => void;
+  onRateSession: (score: number) => void;
 }
 
-// 快捷问题 — 旅游主题
+// 快捷问题 — 当前业务能力
 const QUICK_QUESTIONS = [
-  { icon: '🗺️', text: '九寨沟有什么好玩的', gradient: 'from-blue-500 to-cyan-500' },
-  { icon: '🍜', text: '成都有什么美食推荐', gradient: 'from-orange-500 to-amber-500' },
-  { icon: '🏨', text: '推荐丽江的住宿', gradient: 'from-purple-500 to-pink-500' },
-  { icon: '🛤️', text: '大理三日游行程规划', gradient: 'from-green-500 to-emerald-500' },
-  { icon: '🌤️', text: '黄山最近天气适合去吗', gradient: 'from-rose-500 to-red-500' },
+  { icon: '📦', text: '帮我查询最近一笔订单的物流状态', gradient: 'from-blue-500 to-cyan-500' },
+  { icon: '🛍️', text: '对比两款商品并给出购买建议', gradient: 'from-orange-500 to-amber-500' },
+  { icon: '📚', text: '从知识库中查找相关资料并总结', gradient: 'from-purple-500 to-pink-500' },
+  { icon: '🧭', text: '分析这个问题应该交给哪个智能体处理', gradient: 'from-green-500 to-emerald-500' },
+  { icon: '🧰', text: '展示当前可以调用的工具和服务', gradient: 'from-rose-500 to-red-500' },
+];
+
+const CAPABILITIES = [
+  { icon: '📦', title: '订单服务', desc: '订单查询、物流跟踪、售后处理', accent: '#6366f1', prompt: '请帮我查询订单：' },
+  { icon: '🛍️', title: '商品助手', desc: '商品咨询、参数对比、个性推荐', accent: '#f59e0b', prompt: '请帮我推荐或对比商品：' },
+  { icon: '📚', title: '知识检索', desc: '资料召回、文档问答、内容总结', accent: '#10b981', prompt: '请从知识库中查找并总结：' },
+  { icon: '🧩', title: '智能体协同', desc: '意图识别、任务路由、工具调用', accent: '#06b6d4', prompt: '请分析并安排合适的智能体处理：' },
 ];
 
 export function CustomerChatPage({
@@ -43,6 +51,7 @@ export function CustomerChatPage({
   onInputChange,
   onPermissionAllow,
   onPermissionDeny,
+  onRateSession,
 }: CustomerChatPageProps) {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -99,7 +108,7 @@ export function CustomerChatPage({
                   position: 'relative',
                   zIndex: 1,
                 }}>
-                  N
+                  S
                 </div>
                 {/* 装饰光环 */}
                 <div style={{
@@ -123,7 +132,7 @@ export function CustomerChatPage({
                 margin: '0 0 6px',
                 letterSpacing: '0.02em',
               }}>
-                Nova 旅行规划
+                SmartAssistant
               </h2>
               <p style={{
                 fontSize: '14px',
@@ -131,7 +140,7 @@ export function CustomerChatPage({
                 margin: 0,
                 lineHeight: 1.6,
               }}>
-                AI 旅行规划助手 · 探索目的地、美食推荐、行程定制、天气查询
+                多智能体业务助手 · 理解需求、智能路由、调用工具并协同完成任务
               </p>
             </div>
 
@@ -140,16 +149,15 @@ export function CustomerChatPage({
               display: 'grid', gridTemplateColumns: '1fr 1fr',
               gap: '12px', marginBottom: '36px',
             }}>
-              {[
-                { icon: '🗺️', title: '目的地探索', desc: '景点推荐、旅行攻略、当地文化', accent: '#6366f1' },
-                { icon: '🍜', title: '美食推荐', desc: '本地特色、餐厅推荐、小吃攻略', accent: '#f59e0b' },
-                { icon: '🏔️', title: '行程规划', desc: '多日行程、路线安排、时间管理', accent: '#10b981' },
-                { icon: '🌤️', title: '天气指南', desc: '实时天气、穿衣建议、最佳出行时间', accent: '#06b6d4' },
-              ].map((item, idx) => (
-                <div
+              {CAPABILITIES.map((item, idx) => (
+                <button
+                  type="button"
                   key={item.title}
                   className="glass-card animate-fade-in-up"
+                  onClick={() => onInputChange(item.prompt)}
+                  aria-label={`使用${item.title}`}
                   style={{
+                    width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
                     padding: '18px',
                     borderRadius: '14px',
                     animationDelay: `${idx * 0.08}s`,
@@ -178,7 +186,7 @@ export function CustomerChatPage({
                   }}>
                     {item.desc}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
 
@@ -192,7 +200,7 @@ export function CustomerChatPage({
                 letterSpacing: '0.05em',
                 textTransform: 'uppercase',
               }}>
-                ⚡ 热门旅行目的地快捷查询
+                ⚡ 常用业务任务
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {QUICK_QUESTIONS.map((q, idx) => (
@@ -271,6 +279,10 @@ export function CustomerChatPage({
               onPermissionDeny={onPermissionDeny}
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
+              sessionStatus={currentSession?.status}
+              satisfaction={currentSession?.satisfaction}
+              onRateSession={onRateSession}
+              agentName={currentSession?.agent_name ?? undefined}
             />
           </div>
         )}
@@ -346,7 +358,7 @@ function CustomerChatInput({ inputValue, isLoading, disabled, onSend, onStop, on
           onKeyDown={handleKeyDown}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholder={disabled ? '本次行程咨询已结束，请开启新对话' : '输入目的地或旅行需求... (Enter 发送)'}
+          placeholder={disabled ? '本次会话已结束，请开启新对话' : '输入你的问题或业务需求...（Enter 发送）'}
           disabled={disabled || isLoading}
           rows={1}
           style={{
@@ -430,7 +442,7 @@ function CustomerChatInput({ inputValue, isLoading, disabled, onSend, onStop, on
         maxWidth: '800px',
         margin: '8px auto 0',
       }}>
-        AI 旅行建议仅供参考，出行前请核实最新信息 · 祝您旅途愉快 🌍
+        AI 生成内容可能存在偏差，涉及订单、金额和关键业务操作时请再次确认
       </div>
     </div>
   );
