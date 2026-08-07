@@ -345,6 +345,81 @@ class PgVectorKnowledgeBaseIntegrationTest {
         assertEquals(ReviewItem.STATUS_REVIEW, loaded.getStatus());
     }
 
+    // ==================== (g) Parent-Child 检索回链 ====================
+
+    @Test
+    void parentChild_searchReturnsParentContent_afterChildHit() {
+        PgVectorKnowledgeBase kb = new PgVectorKnowledgeBase(
+                "kb-pc", stub, jdbcTemplate, null, null);
+
+        // 父块（整接口，不嵌入）+ 两个子块（检索用，关联同一父块）
+        KnowledgeDocument parent = new KnowledgeDocument(
+                "api-login-parent-0", "登录接口",
+                "登录接口定义：POST /login，入参 username/password，返回 token。",
+                "api", "登录,认证", -1, -1,
+                "", "v1", "", 0, "",
+                AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE, "v1",
+                ChunkRole.PARENT, "MARKDOWN");
+        KnowledgeDocument child1 = new KnowledgeDocument(
+                "api-login-parent-0-child-0", "登录接口",
+                "登录接口入参：username 用户名，password 密码。",
+                "api", "登录,认证", -1, -1,
+                "", "v1", "", 0, "api-login-parent-0",
+                AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE, "v1",
+                ChunkRole.CHILD, "MARKDOWN");
+        KnowledgeDocument child2 = new KnowledgeDocument(
+                "api-login-parent-0-child-1", "登录接口",
+                "登录接口返回：成功返回 JWT token，失败返回 401。",
+                "api", "登录,认证", -1, -1,
+                "", "v1", "", 0, "api-login-parent-0",
+                AuthorityLevel.L2_INTERNAL, DocumentStatus.ACTIVE, "v1",
+                ChunkRole.CHILD, "MARKDOWN");
+
+        kb.addDocument(parent);
+        kb.addDocument(child1);
+        kb.addDocument(child2);
+
+        // (g1) 父块入库后 embedding 应为 NULL（不嵌入，省算力且避免 dist=NaN）
+        Integer parentVecNull = jdbcTemplate.queryForObject(
+                "SELECT (embedding IS NULL)::int FROM knowledge_docs WHERE id='api-login-parent-0'",
+                Integer.class);
+        assertEquals(1, parentVecNull, "父块入库后 embedding 应为 NULL（不嵌入）");
+
+        // (g2) 普通 search 不应返回父块（embedding IS NOT NULL 过滤）
+        List<KnowledgeHit> plain = kb.search(child1.toEmbedText(), 10);
+        List<String> plainIds = plain.stream()
+                .map(h -> h.getDocument().getId()).collect(Collectors.toList());
+        assertFalse(plainIds.contains("api-login-parent-0"),
+                "普通 search 应排除父块（embedding=NULL）");
+        assertTrue(plainIds.contains("api-login-parent-0-child-0"),
+                "普通 search 应返回命中的子块");
+
+        // (g3) searchWithParentExpansion：命中子块 → 回链父块整内容
+        List<KnowledgeHit> expanded = kb.searchWithParentExpansion(child1.toEmbedText(), 10);
+        List<String> expandedIds = expanded.stream()
+                .map(h -> h.getDocument().getId()).collect(Collectors.toList());
+        assertTrue(expandedIds.contains("api-login-parent-0"),
+                "searchWithParentExpansion 应回链父块整内容（api-login-parent-0）");
+
+        KnowledgeHit parentHit = expanded.stream()
+                .filter(h -> h.getDocument().getId().equals("api-login-parent-0"))
+                .findFirst().orElse(null);
+        assertNotNull(parentHit, "应能取到回链父块");
+        String pc = parentHit.getDocument().getContent();
+        assertTrue(pc.contains("POST /login") && pc.contains("token"),
+                "回链父块应携带整接口上下文（定义+入参+返回），而非仅子节片段");
+
+        // (g4) chunk_role 持久化正确
+        String role = jdbcTemplate.queryForObject(
+                "SELECT chunk_role FROM knowledge_docs WHERE id='api-login-parent-0'", String.class);
+        assertEquals("PARENT", role, "chunk_role 应持久化为 PARENT");
+
+        // (g5) 同一父块的多个子块回链只产生一个父块（去重）
+        assertEquals(1, expandedIds.stream()
+                        .filter(id -> id.equals("api-login-parent-0")).count(),
+                "同一父块的多个子块命中应只回链一次父块（去重）");
+    }
+
     // ==================== 辅助 ====================
 
     /** 复刻 KnowledgeDocument.toEmbedText()，用于构造与文档完全一致的查询向量 */
