@@ -46,7 +46,7 @@ public class SecurityConfig {
     private List<String> allowedMethods;
     
     @Value("${cors.allowed-headers:Content-Type,Authorization,X-Requested-With,Accept,Origin}")
-    private String allowedHeaders;
+    private List<String> allowedHeaders;
     
     @Value("${cors.allow-credentials:true}")
     private boolean allowCredentials;
@@ -110,7 +110,7 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(allowedMethods);
-        configuration.setAllowedHeaders(List.of(allowedHeaders));
+        configuration.setAllowedHeaders(allowedHeaders);
         configuration.setAllowCredentials(allowCredentials);
         
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

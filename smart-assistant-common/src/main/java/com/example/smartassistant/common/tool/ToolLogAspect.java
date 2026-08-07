@@ -16,6 +16,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,6 +38,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Aspect
 @Component
+@ConditionalOnClass(name = "org.aspectj.lang.ProceedingJoinPoint")
 public class ToolLogAspect {
 
     private static final Logger log = LoggerFactory.getLogger(ToolLogAspect.class);
