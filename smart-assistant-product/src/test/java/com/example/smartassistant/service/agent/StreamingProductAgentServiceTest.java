@@ -12,6 +12,9 @@ import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.search.ProductRagService;
+import com.example.smartassistant.service.core.ProductDiscoveryService;
+import com.example.smartassistant.service.quality.ProductDomainQualityValidator;
+import com.example.smartassistant.spi.InMemoryProductBackend;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,6 +61,22 @@ class StreamingProductAgentServiceTest {
         assertTrue(trace.isRejected());
         assertNotNull(trace.lastStageOf(RagStage.REJECTION));
         assertEquals("SKIPPED", trace.lastStageOf(RagStage.GENERATION).status());
+    }
+
+    @Test
+    @DisplayName("热门商品：应查询真实商品目录，不经过 RAG 拒答或 LLM")
+    void popularProducts_shouldUseDeterministicDiscovery() {
+        StreamingProductAgentService discoveryService = new StreamingProductAgentService(
+                agent, ragService, new ProductDomainQualityValidator(),
+                new ProductDiscoveryService(new InMemoryProductBackend()));
+
+        String result = discoveryService.execute("现在有什么热门商品", "req-p-popular");
+
+        assertTrue(result.contains("当前推荐商品"));
+        assertTrue(result.contains("AirPods Pro"));
+        assertFalse(result.contains("数据库中未找到"));
+        verifyNoInteractions(ragService);
+        verify(agent, never()).execute(anyString());
     }
 
     @Test

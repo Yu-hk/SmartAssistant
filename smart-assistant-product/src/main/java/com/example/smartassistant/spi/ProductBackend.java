@@ -7,6 +7,9 @@
 
 package com.example.smartassistant.spi;
 
+import java.math.BigDecimal;
+import java.util.List;
+
 /**
  * ⭐ 商品数据后端 SPI。
  * <p>
@@ -36,4 +39,23 @@ public interface ProductBackend {
 
     /** 搜索商品（按关键词模糊匹配） */
     String searchProduct(String keyword);
+
+    /**
+     * 返回可用于商品发现/推荐的目录摘要。
+     *
+     * <p>实现可以按销量、浏览热度或其他可靠业务信号排序；当没有热度信号时，
+     * 应返回稳定的可售商品顺序，并将 {@link ProductSummary#popularity()} 置为 0。</p>
+     */
+    default List<ProductSummary> listPopularProducts(int limit) {
+        return List.of();
+    }
+
+    record ProductSummary(
+            String code,
+            String name,
+            BigDecimal price,
+            String stock,
+            String spec,
+            long popularity
+    ) {}
 }

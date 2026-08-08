@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Session, INTENT_LABELS, IntentType, KbHit, EmotionResult, CustomerProfile,
+  Session, INTENT_LABELS, IntentType, KbHit, EmotionResult, CustomerProfile, normalizeIntentType,
   Ticket, TicketStatus, TICKET_STATUS_META,
 } from '../types';
 import { insight as insightApi } from '../api';
@@ -35,6 +35,10 @@ const CHAIN_BY_INTENT: Record<IntentType, ChainStep[]> = {
     { name: '技术支持', desc: '异常处理', color: '#F59E0B' },
     { name: '知识管家', desc: '政策说明', color: '#38BDF8' },
   ],
+  product: [
+    { name: '商品助手', desc: '需求分析', color: '#F59E0B' },
+    { name: '商品服务', desc: '目录与推荐', color: '#38BDF8' },
+  ],
   tech: [
     { name: '技术支持', desc: '问题诊断', color: '#F59E0B' },
     { name: '知识管家', desc: '知识检索', color: '#38BDF8' },
@@ -55,6 +59,7 @@ const CHAIN_BY_INTENT: Record<IntentType, ChainStep[]> = {
 const TODO_BY_INTENT: Record<IntentType, TodoItem[]> = {
   refund: [{ id: 'refund', label: '生成退款工单', type: 'refund' }],
   order: [{ id: 'order', label: '生成订单核查工单', type: 'order' }],
+  product: [],
   tech: [{ id: 'tech', label: '生成技术支持工单', type: 'tech' }],
   general: [],
   unknown: [],
@@ -62,14 +67,7 @@ const TODO_BY_INTENT: Record<IntentType, TodoItem[]> = {
 
 export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
   const customerName = userName || session?.user_name || '访客用户';
-  // The router can return operational tags such as `system_capabilities`.
-  // They are useful server-side, but are not customer-facing intent buckets.
-  // Keep the insight panel on its safe fallback path for an unknown tag rather
-  // than indexing CHAIN_BY_INTENT/TODO_BY_INTENT with an undefined key.
-  const requestedIntent = session?.intent;
-  const intent: IntentType = requestedIntent && requestedIntent in CHAIN_BY_INTENT
-    ? requestedIntent as IntentType
-    : 'unknown';
+  const intent: IntentType = normalizeIntentType(session?.intent);
   const intentLabel = intent !== 'unknown'
     ? INTENT_LABELS[intent]
     : '待识别';
@@ -131,13 +129,10 @@ export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
   const chain = CHAIN_BY_INTENT[intent];
   const todos = TODO_BY_INTENT[intent];
 
-  const emotionLabel = emotion?.label ?? '平静 · 略急';
-  const emotionScore = emotion?.score ?? 62;
-  const emotionConfidence = emotion?.confidence ?? 92;
-  const kbList = kbHits && kbHits.length > 0
-    ? kbHits
-    : [{ title: '退款政策 · 7天无理由', match: 96, source: '知识库' } as KbHit,
-       { title: '订单物流时效说明', match: 91, source: '知识库' } as KbHit];
+  const emotionLabel = emotion?.label ?? '待分析';
+  const emotionScore = emotion?.score ?? 0;
+  const emotionConfidence = emotion?.confidence;
+  const kbList = kbHits ?? [];
 
   const handleCreateTicket = async (todo: TodoItem) => {
     if (!session?.id) return;
@@ -333,7 +328,7 @@ export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
               <Row label="意图识别" value={intentLabel} valueColor="var(--nova-text-primary)" />
             </div>
             <div style={{ marginTop: '10px' }}>
-              <Row label="置信度" value={`${emotionConfidence}%`} valueColor="var(--nova-secondary)" />
+              <Row label="置信度" value={emotionConfidence == null ? '--' : `${emotionConfidence}%`} valueColor="var(--nova-secondary)" />
             </div>
           </>
         )}
@@ -358,9 +353,13 @@ export function InsightPanel({ session, userName, userId }: InsightPanelProps) {
             <SkeletonLine />
           </>
         ) : (
-          kbList.map((hit, i) => (
+          kbList.length > 0 ? kbList.map((hit, i) => (
             <KbItem key={`${hit.title}-${i}`} text={hit.title} match={`${hit.match}%`} />
-          ))
+          )) : (
+            <div style={{ fontSize: '12px', color: 'var(--nova-text-tertiary)' }}>
+              暂无相关知识库命中
+            </div>
+          )
         )}
       </InsightCard>
 

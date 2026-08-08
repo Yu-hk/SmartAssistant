@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.RowMapper;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -48,6 +49,53 @@ class JdbcProductBackendTest {
 
         assertThat(backend.queryProductInfo("MACBOOK-AIR-M3"))
                 .contains("MacBook Air M3");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listsPopularProductsFromOrderSignals() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ResultSet row = productRow();
+        when(row.getLong("popularity")).thenReturn(7L);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    RowMapper<Object> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(row, 0));
+                });
+
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc, new InMemoryProductBackend());
+
+        assertThat(backend.listPopularProducts(5))
+                .singleElement()
+                .satisfies(product -> {
+                    assertThat(product.name()).isEqualTo("MacBook Air M3");
+                    assertThat(product.popularity()).isEqualTo(7L);
+                });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listsLiveCatalogWhenOrderSignalsAreUnavailable() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ResultSet row = productRow();
+        AtomicInteger calls = new AtomicInteger();
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    if (calls.getAndIncrement() == 0) {
+                        throw new IllegalStateException("orders table unavailable");
+                    }
+                    RowMapper<Object> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(row, 0));
+                });
+
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc, new InMemoryProductBackend());
+
+        assertThat(backend.listPopularProducts(5))
+                .singleElement()
+                .satisfies(product -> {
+                    assertThat(product.name()).isEqualTo("MacBook Air M3");
+                    assertThat(product.popularity()).isZero();
+                });
     }
 
     private static ResultSet productRow() throws Exception {
