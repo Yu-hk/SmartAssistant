@@ -11,6 +11,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.argThat;
 
 class GeneralAgentControllerWeatherRegressionTest {
 
@@ -35,5 +36,24 @@ class GeneralAgentControllerWeatherRegressionTest {
 
         assertEquals("北京当前晴，温度 28°C", response);
         verify(agent).execute("北京天气");
+    }
+
+    @Test
+    void weatherQueryUsesAuthorizedDeviceLocationWithoutAskingForCity() {
+        SmartReActAgent agent = mock(SmartReActAgent.class);
+        when(agent.execute(argThat(question -> question.contains("39.904200,116.407400"))))
+                .thenReturn("当前位置晴，温度 28°C");
+        GeneralAgentController controller = new GeneralAgentController(agent);
+
+        String response = controller.process(Map.of(
+                "question", "查询天气",
+                "deviceLocation", Map.of(
+                        "latitude", 39.9042,
+                        "longitude", 116.4074,
+                        "accuracyMeters", 1000,
+                        "capturedAt", System.currentTimeMillis())));
+
+        assertEquals("当前位置晴，温度 28°C", response);
+        verify(agent).execute(argThat(question -> question.contains("不要在回答中暴露精确坐标")));
     }
 }

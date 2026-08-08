@@ -8,6 +8,7 @@
 package com.example.smartassistant.consumer.controller;
 
 import com.example.smartassistant.common.audit.TokenUsageCache;
+import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.common.sse.SseEvent;
 import com.example.smartassistant.common.sse.SseEventBus;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
@@ -73,6 +74,20 @@ public class StreamChatController {
             @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId,
             HttpServletResponse response) {
 
+        streamChatInternal(message, requestId, sessionId, showThinking, priority,
+                lastEventId, null, response);
+    }
+
+    private void streamChatInternal(
+            String message,
+            String requestId,
+            String sessionId,
+            boolean showThinking,
+            int priority,
+            String lastEventId,
+            DeviceLocation deviceLocation,
+            HttpServletResponse response) {
+
         logger.info("[StreamChat] 流式请求: messageLength={}, requestId={}, priority={}",
                 message != null ? message.length() : 0, requestId, priority);
 
@@ -89,7 +104,8 @@ public class StreamChatController {
         }
 
         // 获取路由决策
-        Map<String, Object> decision = getRoutingDecision(requestId, sessionId, message, bus);
+        Map<String, Object> decision = getRoutingDecision(
+                requestId, sessionId, message, deviceLocation, bus);
         if (decision == null || !decision.containsKey("agentName")) {
             bus.sendError("路由决策获取失败，请稍后重试");
             return;
@@ -197,7 +213,13 @@ public class StreamChatController {
                 ? (Boolean) request.get("showThinking") : true;
         int priority = request.containsKey("priority")
                 ? ((Number) request.get("priority")).intValue() : RequestQueueService.PRIORITY_NORMAL;
-        streamChat(message, requestId, sessionId, showThinking, priority, null, response);
+        DeviceLocation deviceLocation = DeviceLocation.from(request.get("deviceLocation"));
+        if (deviceLocation != null && !deviceLocation.isUsable()) {
+            logger.info("[StreamChat] 忽略无效、过期或精度不足的设备位置");
+            deviceLocation = null;
+        }
+        streamChatInternal(message, requestId, sessionId, showThinking, priority,
+                null, deviceLocation, response);
     }
 
     @PostMapping("/chat/cancel")
@@ -217,7 +239,8 @@ public class StreamChatController {
         return new SseEventBus(response, requestId, redisCache);
     }
 
-    private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message, SseEventBus bus) {
+    private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message,
+                                                   DeviceLocation deviceLocation, SseEventBus bus) {
         // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
         if (decisionKey == null || decisionKey.isBlank()) {
@@ -226,7 +249,7 @@ public class StreamChatController {
         }
         // ⚠️ 先触发路由决策写入 Redis（修复原"只等待、不触发"导致永久失败的问题）
         try {
-            routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey);
+            routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey, deviceLocation);
         } catch (Exception e) {
             logger.warn("[StreamChat] 触发路由决策异常(将尝试等待已有决策): {}", e.getMessage());
         }

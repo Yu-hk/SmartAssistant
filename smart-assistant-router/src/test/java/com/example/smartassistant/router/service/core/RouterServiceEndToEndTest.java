@@ -2,6 +2,7 @@ package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.budget.BudgetConfig;
 import com.example.smartassistant.common.budget.BudgetTracker;
+import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.router.model.ReflectionResult;
 import com.example.smartassistant.router.model.QualityEvaluationResult;
@@ -9,6 +10,7 @@ import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.router.model.TaskAnalysisResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.AgentCallResult;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.context.IntentDriftDetector;
@@ -424,6 +426,30 @@ class RouterServiceEndToEndTest {
 
         RoutingResult r3 = routerService.route(RouteRequest.builder().userId(1L).question("北京天气").build());
         assertTrue(r3.getFromCache());
+    }
+
+    @Test
+    @DisplayName("[天气定位] 缺少城市但有有效设备位置时直接调用通用 Agent")
+    void weatherWithoutCityUsesAuthorizedDeviceLocation() {
+        DeviceLocation location = new DeviceLocation(
+                39.9042, 116.4074, 1000d, System.currentTimeMillis());
+        when(agentCallerService.callAgentDetailed(
+                eq("general"), eq("查询天气"), eq(1L), eq("weather-location-1"), same(location)))
+                .thenReturn(new AgentCallResult("当前位置晴，温度 28°C"));
+
+        RoutingResult result = routerService.route(RouteRequest.builder()
+                .userId(1L)
+                .question("查询天气")
+                .requestId("weather-location-1")
+                .deviceLocation(location)
+                .build());
+
+        assertEquals("general", result.getAgentName());
+        assertEquals("weather_query", result.getIntentTag());
+        assertEquals("当前位置晴，温度 28°C", result.getResult());
+        verify(agentCallerService).callAgentDetailed(
+                eq("general"), eq("查询天气"), eq(1L), eq("weather-location-1"), same(location));
+        verify(semanticCache, never()).getCachedDecision("查询天气");
     }
 
     // ═══════════════════════════════════════════════════════
