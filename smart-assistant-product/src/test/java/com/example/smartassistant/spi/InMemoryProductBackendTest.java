@@ -21,4 +21,14 @@ class InMemoryProductBackendTest {
                 .contains("MacBook Air M3")
                 .doesNotContain("未找到");
     }
+
+    @Test
+    void listsStableAvailableProductsForDiscovery() {
+        assertThat(backend.listPopularProducts(2))
+                .hasSize(2)
+                .allSatisfy(product -> {
+                    assertThat(product.code()).isNotBlank();
+                    assertThat(product.name()).isNotBlank();
+                });
+    }
 }

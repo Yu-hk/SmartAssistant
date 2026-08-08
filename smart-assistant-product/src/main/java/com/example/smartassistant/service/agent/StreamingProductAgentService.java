@@ -17,6 +17,7 @@ import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageSpan;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.search.ProductRagService;
+import com.example.smartassistant.service.core.ProductDiscoveryService;
 import com.example.smartassistant.service.quality.ProductDomainQualityValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +44,7 @@ public class StreamingProductAgentService {
     private final SmartReActAgent productAgent;
     private final ProductRagService productRagService;
     private final ProductDomainQualityValidator domainQualityValidator;
+    private final ProductDiscoveryService productDiscoveryService;
 
     /** ⭐ P1 全阶段 trace 记录器（可选，null 时跳过 trace） */
     @Autowired(required = false)
@@ -66,16 +68,18 @@ public class StreamingProductAgentService {
 
     public StreamingProductAgentService(SmartReActAgent productAgent,
                                         ProductRagService productRagService) {
-        this(productAgent, productRagService, new ProductDomainQualityValidator());
+        this(productAgent, productRagService, new ProductDomainQualityValidator(), null);
     }
 
     @Autowired
     public StreamingProductAgentService(@Qualifier("productAgent") SmartReActAgent productAgent,
                                         @Autowired(required = false) ProductRagService productRagService,
-                                        ProductDomainQualityValidator domainQualityValidator) {
+                                        ProductDomainQualityValidator domainQualityValidator,
+                                        @Autowired(required = false) ProductDiscoveryService productDiscoveryService) {
         this.productAgent = productAgent;
         this.productRagService = productRagService;
         this.domainQualityValidator = domainQualityValidator;
+        this.productDiscoveryService = productDiscoveryService;
     }
 
     /**
@@ -103,6 +107,29 @@ public class StreamingProductAgentService {
         opsMetrics.recordAnswer("product", "product");
         try {
             log.info("[StreamingProductAgent] 执行推理: {}, requestId={}", userMessage, rid);
+
+            // Generic catalog/popularity questions are deterministic data queries, not RAG questions.
+            // Handle them before RAG so an empty semantic retrieval cannot reject a valid discovery request.
+            if (productDiscoveryService != null && productDiscoveryService.supports(userMessage)) {
+                long discoveryStart = System.currentTimeMillis();
+                ProductDiscoveryService.DiscoveryResult discovery =
+                        productDiscoveryService.discover(userMessage, null);
+                long discoveryMs = System.currentTimeMillis() - discoveryStart;
+                if (stageTraceRecorder != null) {
+                    stageTraceRecorder.getOrCreate(rid, userMessage, "product_agent")
+                            .addStage(StageSpan.of(RagStage.RETRIEVAL, discoveryMs, StageSpan.STATUS_OK,
+                                    Map.of("mode", "product-discovery",
+                                            "productCount", discovery.productCount(),
+                                            "popularityBased", discovery.popularityBased())));
+                    stageTraceRecorder.recordStage(rid, RagStage.GENERATION, StageSpan.STATUS_SKIPPED, 0,
+                            Map.of("reason", "deterministic-product-discovery"));
+                    stageTraceRecorder.save(rid);
+                }
+                DomainQualityResult quality = discovery.productCount() > 0
+                        ? DomainQualityResult.pass(1.0, "PRODUCT_DISCOVERY_DATA")
+                        : DomainQualityResult.warn(0.5, "EMPTY_PRODUCT_CATALOG");
+                return DomainAgentResponse.of(discovery.answer(), quality);
+            }
 
             // ⭐ P1: RAG 检索质量评估（决定拒答 or 注入上下文）
             // P5-A: ragContext 提升到外层作用域，供 GENERATION 后的 Faithfulness 校验使用

@@ -8,6 +8,7 @@
 package com.example.smartassistant.product.tool;
 
 import com.example.smartassistant.common.tool.spi.ProductDataProvider;
+import com.example.smartassistant.service.core.ProductDiscoveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
@@ -24,9 +25,12 @@ public class ProductTools {
     private static final Logger log = LoggerFactory.getLogger(ProductTools.class);
 
     private final ProductDataProvider productData;
+    private final ProductDiscoveryService productDiscoveryService;
 
-    public ProductTools(ProductDataProvider productData) {
+    public ProductTools(ProductDataProvider productData,
+                        ProductDiscoveryService productDiscoveryService) {
         this.productData = productData;
+        this.productDiscoveryService = productDiscoveryService;
         log.info("[ProductTool] 初始化完成, provider={}", productData.getClass().getSimpleName());
     }
 
@@ -50,5 +54,12 @@ public class ProductTools {
             @ToolParam(description = "商品编码，如 IPHONE-15-PRO", required = true) String productCode) {
         log.info("[ProductTool] 查价格: {}", productCode);
         return productData.getPrice(productCode.trim().toUpperCase());
+    }
+
+    @Tool(description = "查询当前热门商品、推荐商品或商品列表；没有销量数据时会明确返回当前可售商品")
+    public String listRecommendedProducts(
+            @ToolParam(description = "最多返回多少件商品，默认 5，最大 10", required = false) Integer limit) {
+        log.info("[ProductTool] 查询推荐商品: limit={}", limit);
+        return productDiscoveryService.discover("热门商品", limit).answer();
     }
 }
