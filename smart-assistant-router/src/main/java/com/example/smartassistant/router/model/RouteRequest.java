@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.router.model;
 
+import com.example.smartassistant.common.location.DeviceLocation;
+
 /**
  * 路由请求（显式 getter/setter，避免 Lombok Maven 编译依赖问题）。
  */
@@ -27,14 +29,23 @@ public class RouteRequest {
     /** 请求 ID（用于 Redis 存储） */
     private String requestId;
 
+    /** 用户主动授权的短期设备位置，仅用于当前请求。 */
+    private DeviceLocation deviceLocation;
+
     public RouteRequest() {}
 
     public RouteRequest(Long userId, String question, String sessionId, Boolean enableRag, String requestId) {
+        this(userId, question, sessionId, enableRag, requestId, null);
+    }
+
+    public RouteRequest(Long userId, String question, String sessionId, Boolean enableRag, String requestId,
+                        DeviceLocation deviceLocation) {
         this.userId = userId;
         this.question = question;
         this.sessionId = sessionId;
         this.enableRag = enableRag;
         this.requestId = requestId;
+        this.deviceLocation = deviceLocation;
     }
 
     public Long getUserId() { return userId; }
@@ -47,6 +58,11 @@ public class RouteRequest {
     public void setEnableRag(Boolean enableRag) { this.enableRag = enableRag; }
     public String getRequestId() { return requestId; }
     public void setRequestId(String requestId) { this.requestId = requestId; }
+    public DeviceLocation getDeviceLocation() { return deviceLocation; }
+    public void setDeviceLocation(DeviceLocation deviceLocation) { this.deviceLocation = deviceLocation; }
+    public boolean hasUsableDeviceLocation() {
+        return deviceLocation != null && deviceLocation.isUsable();
+    }
 
     public static RouteRequestBuilder builder() { return new RouteRequestBuilder(); }
 
@@ -56,6 +72,7 @@ public class RouteRequest {
         private String sessionId;
         private Boolean enableRag = false;
         private String requestId;
+        private DeviceLocation deviceLocation;
 
         RouteRequestBuilder() {}
 
@@ -64,9 +81,10 @@ public class RouteRequest {
         public RouteRequestBuilder sessionId(String sessionId) { this.sessionId = sessionId; return this; }
         public RouteRequestBuilder enableRag(Boolean enableRag) { this.enableRag = enableRag; return this; }
         public RouteRequestBuilder requestId(String requestId) { this.requestId = requestId; return this; }
+        public RouteRequestBuilder deviceLocation(DeviceLocation deviceLocation) { this.deviceLocation = deviceLocation; return this; }
 
         public RouteRequest build() {
-            return new RouteRequest(userId, question, sessionId, enableRag, requestId);
+            return new RouteRequest(userId, question, sessionId, enableRag, requestId, deviceLocation);
         }
     }
 }
