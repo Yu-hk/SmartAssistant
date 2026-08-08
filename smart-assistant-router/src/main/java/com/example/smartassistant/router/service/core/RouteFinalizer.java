@@ -11,6 +11,7 @@ import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.budget.BudgetTracker;
+import com.example.smartassistant.common.intent.WeatherQuerySupport;
 import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.*;
@@ -128,6 +129,8 @@ public class RouteFinalizer {
                 ? result.getDomainQuality() : DomainQualityResult.unknown();
         boolean clarification = Boolean.TRUE.equals(result.getClarification())
                 || ClarificationReplyDetector.isRequiredParameterClarification(result.getResult());
+        boolean locationSensitiveWeather = request.hasUsableDeviceLocation()
+                && WeatherQuerySupport.isWeatherLookup(question);
         result.setClarification(clarification);
         if (intentTag == null || intentTag.isBlank()) {
             intentTag = semanticCache.generateIntentTag(question);
@@ -210,7 +213,8 @@ public class RouteFinalizer {
         String requestId = request.getRequestId();
         String reply = result.getResult();
 
-        if (!clarification && agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
+        if (!clarification && !locationSensitiveWeather
+                && agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
             semanticCache.saveDecision(requestId, question, agentName,
                     result.getConfidence(), request.getUserId(), intentTag, request.getSessionId());
             semanticCache.saveExactMatch(question, intentTag);

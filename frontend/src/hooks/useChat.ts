@@ -3,6 +3,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { Message, ToolCall, PermissionRequest, Session, ContentBlock, IntentType, FaqItem } from '../types';
 import { sessions as sessionApi } from '../api';
 import { getAuthToken } from '../api/auth';
+import {
+  DeviceLocationContext,
+  getCurrentDeviceLocation,
+  needsDeviceLocation,
+} from '../utils/deviceLocation';
+
+const LOCATION_ENABLED_KEY = 'smart-assistant-location-weather-enabled';
+export type LocationStatus = 'off' | 'ready' | 'denied' | 'unavailable';
 
 interface UseChatOptions {
   currentSession: Session | undefined;
@@ -23,6 +31,12 @@ export function useChat(options: UseChatOptions) {
   // ⭐ 排队状态
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [queueEstimatedWait, setQueueEstimatedWait] = useState<number | null>(null);
+  const [locationEnabled, setLocationEnabledState] = useState(
+    () => localStorage.getItem(LOCATION_ENABLED_KEY) === 'true',
+  );
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>(
+    () => localStorage.getItem(LOCATION_ENABLED_KEY) === 'true' ? 'ready' : 'off',
+  );
 
   // ⭐ 当前流式请求的取消控制器（用于停止生成）
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -96,7 +110,20 @@ export function useChat(options: UseChatOptions) {
 
     // ⭐ 使用 fetch 读取 SSE，以便携带 Bearer Token
     try {
-      await streamWithFetch(messageContent, sessionId!, selectedModel, tempAssistantMessageId);
+      let deviceLocation: DeviceLocationContext | undefined;
+      if (locationEnabled && needsDeviceLocation(messageContent)) {
+        try {
+          deviceLocation = await getCurrentDeviceLocation();
+          setLocationStatus('ready');
+        } catch (error) {
+          const positionError = error as Partial<GeolocationPositionError> | null;
+          const permissionDenied = positionError?.code === 1;
+          setLocationStatus(permissionDenied ? 'denied' : 'unavailable');
+        }
+      }
+      await streamWithFetch(
+        messageContent, sessionId!, selectedModel, tempAssistantMessageId, deviceLocation,
+      );
     } catch (error) {
       console.error('Chat error:', error);
       setSessions(prev => prev.map(s => {
@@ -115,14 +142,15 @@ export function useChat(options: UseChatOptions) {
     } finally {
       setIsLoading(false);
     }
-  }, [currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId, isLoading]);
+  }, [currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId, isLoading, locationEnabled]);
 
   /** 使用 fetch 读取 SSE；原生 EventSource 无法附带 Authorization 请求头。 */
   const streamWithFetch = useCallback(async (
     message: string,
     sessionId: string,
     model: string,
-    assistantMessageId: string
+    assistantMessageId: string,
+    deviceLocation?: DeviceLocationContext,
   ): Promise<void> => {
     let fullContent = '';
     let currentToolCalls: ToolCall[] = [];
@@ -164,7 +192,7 @@ export function useChat(options: UseChatOptions) {
       }));
     };
 
-    const url = `/api/math/stream/chat?message=${encodeURIComponent(message)}&sessionId=${encodeURIComponent(sessionId)}&model=${encodeURIComponent(model)}`;
+    const url = '/api/math/stream/chat';
     const controller = new AbortController();
     streamAbortRef.current = controller;
 
@@ -331,11 +359,18 @@ export function useChat(options: UseChatOptions) {
     try {
       const token = getAuthToken();
       const response = await fetch(url, {
-        method: 'GET',
+        method: 'POST',
         headers: {
           Accept: 'text/event-stream',
+          'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        body: JSON.stringify({
+          message,
+          sessionId,
+          model,
+          ...(deviceLocation ? { deviceLocation } : {}),
+        }),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -397,6 +432,12 @@ export function useChat(options: UseChatOptions) {
     setPermissionRequest(null);
   }, [permissionRequest]);
 
+  const setLocationEnabled = useCallback((enabled: boolean) => {
+    setLocationEnabledState(enabled);
+    localStorage.setItem(LOCATION_ENABLED_KEY, String(enabled));
+    setLocationStatus(enabled ? 'ready' : 'off');
+  }, []);
+
   /**
    * ⭐ 停止生成：中止 fetch 流式连接，真正取消后端请求。
    * <p>
@@ -434,6 +475,9 @@ export function useChat(options: UseChatOptions) {
     faqSuggestions,
     queuePosition,
     queueEstimatedWait,
+    locationEnabled,
+    locationStatus,
+    setLocationEnabled,
     sendMessage,
     handleStop,
     handlePermissionAllow,

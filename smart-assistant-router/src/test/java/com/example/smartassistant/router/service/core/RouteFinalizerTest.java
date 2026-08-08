@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.observability.OpsMetrics;
+import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.QualityEvaluationResult;
 import com.example.smartassistant.router.model.ReflectionResult;
@@ -180,5 +181,32 @@ class RouteFinalizerTest {
                 anyDouble(), anyLong(), anyString(), anyString());
         verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(badCaseMinerService, never()).recordQualityFailure(any(), anyString());
+    }
+
+    @Test
+    void deviceLocationWeatherIsNeverStoredInSemanticCacheOrExperience() {
+        RouteRequest locationRequest = RouteRequest.builder()
+                .userId(7L)
+                .question("查询天气")
+                .sessionId("s-weather")
+                .requestId("r-weather")
+                .deviceLocation(new DeviceLocation(
+                        39.9042, 116.4074, 1000d, System.currentTimeMillis()))
+                .build();
+        RoutingResult routing = RoutingResult.builder()
+                .result("当前位置晴朗，温度 28°C，未来三天以晴天为主。")
+                .agentName("general")
+                .intentTag("weather_query")
+                .confidence(1.0)
+                .domainQuality(DomainQualityResult.pass(0.95, "WEATHER_DATA_VERIFIED"))
+                .build();
+
+        finalizer.finalizeRouting(routing, locationRequest, "查询天气", null);
+
+        verify(semanticCache, never()).saveDecision(anyString(), anyString(), anyString(),
+                anyDouble(), anyLong(), anyString(), anyString());
+        verify(semanticCache, never()).saveExactMatch(anyString(), anyString());
+        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
     }
 }
