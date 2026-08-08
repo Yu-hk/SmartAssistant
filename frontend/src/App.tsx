@@ -179,6 +179,7 @@ function AppContent() {
     sendMessage, handleStop,
     handlePermissionAllow, handlePermissionDeny,
     queuePosition, queueEstimatedWait,
+    locationEnabled, locationStatus, setLocationEnabled,
   } = useChat({
     currentSession,
     currentSessionId,
@@ -382,12 +383,15 @@ function AppContent() {
               faqSuggestions={faqSuggestions}
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
+              locationEnabled={locationEnabled}
+              locationStatus={locationStatus}
               onSendMessage={sendMessage}
               onStop={handleStop}
               onInputChange={setInputValue}
               onPermissionAllow={handlePermissionAllow}
               onPermissionDeny={handlePermissionDeny}
               onRateSession={handleRateSession}
+              onLocationEnabledChange={setLocationEnabled}
             />
           </>
         )}

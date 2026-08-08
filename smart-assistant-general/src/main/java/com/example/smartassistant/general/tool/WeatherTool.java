@@ -24,6 +24,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 
 /**
  * Weather query tool — queries real-time weather and forecasts for a city.
@@ -32,6 +33,8 @@ import java.nio.charset.StandardCharsets;
 public class WeatherTool {
 
     private static final Logger log = LoggerFactory.getLogger(WeatherTool.class);
+    private static final Pattern COORDINATES = Pattern.compile(
+            "^-?\\d{1,2}(?:\\.\\d+)?,\\s*-?\\d{1,3}(?:\\.\\d+)?$");
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
@@ -40,14 +43,16 @@ public class WeatherTool {
         this.objectMapper = new ObjectMapper();
     }
 
-    @Tool(description = "查询指定城市的实时天气和未来天气预报，包括温度、天气状况、风速等。城市可以是中文或英文名称，如'北京'、'上海'、'London'。")
+    @Tool(description = "查询指定地点的实时天气和未来天气预报，包括温度、天气状况、风速等。地点可以是中文或英文城市名，也可以是用户已授权的纬度,经度坐标。")
     public String queryWeather(
-            @ToolParam(description = "城市名称，如'北京'、'London'", required = true) String city) {
-        log.info("[WeatherTool] 查询天气: {}", city);
+            @ToolParam(description = "城市名称或纬度,经度坐标，如'北京'、'London'、'39.9042,116.4074'", required = true) String city) {
+        if (city == null || city.isBlank()) {
+            return ToolResult.error(AgentErrorCode.WEATHER_NO_DATA, "请提供要查询的城市或位置。");
+        }
+        boolean coordinateQuery = COORDINATES.matcher(city.trim()).matches();
+        log.info("[WeatherTool] 查询天气: locationType={}", coordinateQuery ? "coordinates" : "city");
         try {
-            String encoded = URLEncoder.encode(city, StandardCharsets.UTF_8);
-            String url = "https://wttr.in/" + encoded + "?format=j1";
-            var req = HttpRequest.newBuilder(URI.create(url)).GET()
+            var req = HttpRequest.newBuilder(buildWeatherUri(city)).GET()
                     .timeout(java.time.Duration.ofSeconds(10))
                     .header("User-Agent", "curl")
                     .build();
@@ -70,6 +75,7 @@ public class WeatherTool {
             String windSpeed = current.get("windspeedKmph").asText();
             String windDir = current.get("winddir16Point").asText();
             String visibility = current.get("visibility").asText();
+            String displayLocation = coordinateQuery ? nearestAreaName(root) : city;
 
             StringBuilder forecast = new StringBuilder();
             JsonNode forecasts = root.get("weather");
@@ -87,12 +93,28 @@ public class WeatherTool {
 
             return String.format(
                 "📍 %s 当前天气\n🌡️ 温度：%s°C（体感 %s°C）\n☁️ 天气：%s\n💧 湿度：%s%%\n💨 风速：%s %s\n👁️ 能见度：%s km\n\n📅 未来三天预报：%s",
-                city, temp, feelsLike, desc, humidity, windSpeed, windDir, visibility, forecast.toString()
+                displayLocation, temp, feelsLike, desc, humidity, windSpeed, windDir, visibility, forecast.toString()
             );
 
         } catch (Exception e) {
             log.warn("[WeatherTool] 查询失败: {}", e.getMessage());
             return ToolResult.error(AgentErrorCode.SERVICE_WEATHER_UNAVAILABLE, "天气服务暂时不可用", "请稍后重试");
         }
+    }
+
+    static URI buildWeatherUri(String location) {
+        String encoded = URLEncoder.encode(location.trim(), StandardCharsets.UTF_8);
+        return URI.create("https://wttr.in/" + encoded + "?format=j1");
+    }
+
+    private static String nearestAreaName(JsonNode root) {
+        String area = root.at("/nearest_area/0/areaName/0/value").asText("");
+        String region = root.at("/nearest_area/0/region/0/value").asText("");
+        if (!area.isBlank() && !region.isBlank() && !area.equalsIgnoreCase(region)) {
+            return region + " " + area;
+        }
+        if (!area.isBlank()) return area;
+        if (!region.isBlank()) return region;
+        return "当前位置";
     }
 }

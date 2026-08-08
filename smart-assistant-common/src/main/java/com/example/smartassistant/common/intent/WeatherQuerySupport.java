@@ -1,5 +1,7 @@
 package com.example.smartassistant.common.intent;
 
+import com.example.smartassistant.common.location.DeviceLocation;
+
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -39,6 +41,25 @@ public final class WeatherQuerySupport {
 
     public static boolean requiresCityClarification(String question) {
         return isWeatherLookup(question) && extractCity(question) == null;
+    }
+
+    /** A valid, user-authorized device location satisfies the weather location requirement. */
+    public static boolean requiresCityClarification(String question, DeviceLocation deviceLocation) {
+        return requiresCityClarification(question)
+                && (deviceLocation == null || !deviceLocation.isUsable());
+    }
+
+    /**
+     * Adds coordinates only at the Agent boundary. The original user question remains unchanged
+     * for conversation history, routing logs, and cache keys.
+     */
+    public static String withDeviceLocation(String question, DeviceLocation deviceLocation) {
+        if (deviceLocation == null || !deviceLocation.isUsable()) {
+            return question;
+        }
+        return question + "\n\n[用户已授权的本次设备位置]\n"
+                + "请使用坐标 " + deviceLocation.coordinateQuery()
+                + " 查询天气；不要要求用户再次提供城市，也不要在回答中暴露精确坐标。";
     }
 
     public static String extractCity(String question) {

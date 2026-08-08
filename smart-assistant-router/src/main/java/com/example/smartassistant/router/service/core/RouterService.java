@@ -274,7 +274,7 @@ public class RouterService {
 
             // Required parameters are collected before experience/cache short-circuits so a
             // stale route or reply can never turn "查询天气" into an invalid tool invocation.
-            if (WeatherQuerySupport.requiresCityClarification(question)) {
+            if (WeatherQuerySupport.requiresCityClarification(question, request.getDeviceLocation())) {
                 RoutingResult clarification = RoutingResult.builder()
                         .result(WeatherQuerySupport.CITY_CLARIFICATION)
                         .agentName("general")
@@ -283,6 +283,26 @@ public class RouterService {
                         .clarification(true)
                         .build();
                 return finalizeRouting(clarification, request, question, emotion);
+            }
+
+            // A missing city can be satisfied by a fresh, user-authorized device location.
+            // Route this deterministic case directly so coordinates never enter semantic routing,
+            // experience matching, or cache lookup.
+            if (WeatherQuerySupport.requiresCityClarification(question)
+                    && request.hasUsableDeviceLocation()) {
+                var agentResult = agentCallerService.callAgentDetailed(
+                        "general", question, request.getUserId(), request.getRequestId(),
+                        request.getDeviceLocation());
+                RoutingResult weatherResult = RoutingResult.builder()
+                        .result(agentResult.getResponse())
+                        .agentName("general")
+                        .confidence(1.0)
+                        .intentTag("weather_query")
+                        .domainQuality(agentResult.getDomainQuality())
+                        .build();
+                String evaluationQuestion = question
+                        + "\n[本次请求已提供有效的设备位置作为天气查询地点。]";
+                return finalizeRouting(weatherResult, request, evaluationQuestion, emotion);
             }
 
             // Step 0: 经验匹配（护栏触发 + skipShortCircuit 跳过短路）
