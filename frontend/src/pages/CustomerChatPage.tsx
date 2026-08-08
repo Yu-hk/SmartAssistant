@@ -14,12 +14,15 @@ interface CustomerChatPageProps {
   faqSuggestions: FaqItem[];
   queuePosition: number | null;
   queueEstimatedWait: number | null;
+  locationEnabled: boolean;
+  locationStatus: 'off' | 'ready' | 'denied' | 'unavailable';
   onSendMessage: (message: string, sessionIdOverride?: string, onNavigate?: (path: string) => void) => void;
   onStop: () => void;
   onInputChange: (value: string) => void;
   onPermissionAllow: () => void;
   onPermissionDeny: () => void;
   onRateSession: (score: number) => void;
+  onLocationEnabledChange: (enabled: boolean) => void;
 }
 
 // 快捷问题 — 当前业务能力
@@ -46,12 +49,15 @@ export function CustomerChatPage({
   faqSuggestions,
   queuePosition,
   queueEstimatedWait,
+  locationEnabled,
+  locationStatus,
   onSendMessage,
   onStop,
   onInputChange,
   onPermissionAllow,
   onPermissionDeny,
   onRateSession,
+  onLocationEnabledChange,
 }: CustomerChatPageProps) {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -293,9 +299,12 @@ export function CustomerChatPage({
         inputValue={inputValue}
         isLoading={isLoading}
         disabled={currentSession?.status === 'closed'}
+        locationEnabled={locationEnabled}
+        locationStatus={locationStatus}
         onSend={handleSend}
         onStop={onStop}
         onChange={onInputChange}
+        onLocationEnabledChange={onLocationEnabledChange}
       />
 
     </>
@@ -309,12 +318,25 @@ interface CustomerChatInputProps {
   inputValue: string;
   isLoading: boolean;
   disabled?: boolean;
+  locationEnabled: boolean;
+  locationStatus: 'off' | 'ready' | 'denied' | 'unavailable';
   onSend: (msg: string) => void;
   onStop: () => void;
   onChange: (val: string) => void;
+  onLocationEnabledChange: (enabled: boolean) => void;
 }
 
-function CustomerChatInput({ inputValue, isLoading, disabled, onSend, onStop, onChange }: CustomerChatInputProps) {
+function CustomerChatInput({
+  inputValue,
+  isLoading,
+  disabled,
+  locationEnabled,
+  locationStatus,
+  onSend,
+  onStop,
+  onChange,
+  onLocationEnabledChange,
+}: CustomerChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
 
@@ -435,14 +457,41 @@ function CustomerChatInput({ inputValue, isLoading, disabled, onSend, onStop, on
         )}
       </div>
       <div style={{
-        textAlign: 'center',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px',
         fontSize: '11px',
         color: 'var(--nova-text-tertiary)',
         marginTop: '8px',
         maxWidth: '800px',
         margin: '8px auto 0',
       }}>
-        AI 生成内容可能存在偏差，涉及订单、金额和关键业务操作时请再次确认
+        <button
+          type="button"
+          onClick={() => onLocationEnabledChange(!locationEnabled)}
+          title="开启后，仅在天气问题缺少地点时请求浏览器定位授权；定位不会保存到会话记录"
+          aria-pressed={locationEnabled}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '5px',
+            padding: '4px 8px', borderRadius: '8px', cursor: 'pointer',
+            border: `1px solid ${locationEnabled ? 'var(--nova-accent)' : 'var(--nova-border)'}`,
+            background: locationEnabled ? 'var(--nova-accent-glow)' : 'transparent',
+            color: locationEnabled ? 'var(--nova-accent)' : 'var(--nova-text-tertiary)',
+            fontSize: '11px', flexShrink: 0,
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
+            <circle cx="12" cy="10" r="2.5" />
+          </svg>
+          定位天气：{locationEnabled ? '已开启' : '未开启'}
+          {locationStatus === 'denied' && '（已拒绝）'}
+          {locationStatus === 'unavailable' && '（不可用）'}
+        </button>
+        <span style={{ textAlign: 'right' }}>
+          AI 生成内容可能存在偏差，涉及订单、金额和关键业务操作时请再次确认
+        </span>
       </div>
     </div>
   );
