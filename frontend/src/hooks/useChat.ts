@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Message, ToolCall, PermissionRequest, Session, ContentBlock, IntentType, FaqItem } from '../types';
+import { Message, ToolCall, PermissionRequest, Session, ContentBlock, FaqItem, normalizeIntentType } from '../types';
 import { sessions as sessionApi } from '../api';
 import { getAuthToken } from '../api/auth';
 import {
@@ -207,10 +207,11 @@ export function useChat(options: UseChatOptions) {
           if (data.type === 'init') {
             realSessionId = data.sessionId || sessionId;
             realAssistantMessageId = data.assistantMessageId || assistantMessageId;
-            if (data.intent && data.intent !== 'unknown') {
+            const normalizedIntent = normalizeIntentType(data.intent);
+            if (normalizedIntent !== 'unknown') {
               setSessions(prev => prev.map(s =>
                 s.id === realSessionId || s.id === sessionId
-                  ? { ...s, intent: data.intent as IntentType }
+                  ? { ...s, intent: normalizedIntent }
                   : s
               ));
             }

@@ -16,6 +16,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.Locale;
+import java.util.List;
+import java.math.BigDecimal;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -113,6 +115,39 @@ public class InMemoryProductBackend implements ProductBackend {
         }
         if (sb.isEmpty()) return "未找到匹配的商品";
         return "搜索结果：\n" + sb.toString().trim();
+    }
+
+    @Override
+    public List<ProductSummary> listPopularProducts(int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 20));
+        return PRODUCTS.entrySet().stream()
+                .map(entry -> {
+                    Map<String, String> product = entry.getValue();
+                    String rawPrice = product.getOrDefault("price", "0").replace("起", "");
+                    BigDecimal price;
+                    try {
+                        price = new BigDecimal(rawPrice);
+                    } catch (NumberFormatException ignored) {
+                        price = null;
+                    }
+                    return new ProductSummary(
+                            entry.getKey(), product.get("name"), price,
+                            product.get("stock"), product.get("spec"), 0L);
+                })
+                .sorted((left, right) -> {
+                    int stockComparison = Integer.compare(stockRank(left.stock()), stockRank(right.stock()));
+                    return stockComparison != 0
+                            ? stockComparison
+                            : left.code().compareTo(right.code());
+                })
+                .limit(safeLimit)
+                .toList();
+    }
+
+    private static int stockRank(String stock) {
+        if ("充足".equals(stock)) return 0;
+        if ("紧张".equals(stock)) return 1;
+        return 2;
     }
 
     private static String normalize(String value) {

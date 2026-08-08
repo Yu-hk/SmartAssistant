@@ -138,6 +138,54 @@ public class JdbcProductBackend implements ProductBackend {
         return result.toString().trim();
     }
 
+    @Override
+    public List<ProductSummary> listPopularProducts(int limit) {
+        if (jdbcTemplate == null) {
+            return fallback.listPopularProducts(limit);
+        }
+        int safeLimit = Math.max(1, Math.min(limit, SEARCH_LIMIT));
+        try {
+            return jdbcTemplate.query("""
+                    SELECT p.product_code, p.product_name, p.price, p.stock, p.spec,
+                           COUNT(o.order_id) AS popularity
+                      FROM products p
+                      LEFT JOIN orders o
+                        ON UPPER(o.product_name) = UPPER(p.product_name)
+                     GROUP BY p.product_code, p.product_name, p.price, p.stock, p.spec
+                     ORDER BY COUNT(o.order_id) DESC,
+                              CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
+                              p.product_code
+                     LIMIT ?
+                    """, (rs, rowNum) -> new ProductSummary(
+                    rs.getString("product_code"),
+                    rs.getString("product_name"),
+                    rs.getBigDecimal("price"),
+                    rs.getString("stock"),
+                    rs.getString("spec"),
+                    rs.getLong("popularity")), safeLimit);
+        } catch (RuntimeException e) {
+            log.warn("[JdbcProduct] 热度统计查询失败，尝试读取实时商品目录: {}", e.getMessage());
+            return listCatalogProducts(safeLimit);
+        }
+    }
+
+    private List<ProductSummary> listCatalogProducts(int limit) {
+        try {
+            return jdbcTemplate.query(SELECT_COLUMNS + """
+                            ORDER BY CASE stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
+                                     product_code
+                            LIMIT ?
+                            """, this::mapProduct, limit).stream()
+                    .map(product -> new ProductSummary(
+                            product.code(), product.name(), product.price(), product.stock(),
+                            product.spec(), 0))
+                    .toList();
+        } catch (RuntimeException e) {
+            log.warn("[JdbcProduct] 实时商品目录查询失败，降级到内存目录: {}", e.getMessage());
+            return fallback.listPopularProducts(limit);
+        }
+    }
+
     private ProductRecord findProduct(String productCodeOrName) {
         if (jdbcTemplate == null) {
             return null;

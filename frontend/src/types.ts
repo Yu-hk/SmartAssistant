@@ -4,12 +4,13 @@
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
 
-export type IntentType = 'refund' | 'order' | 'tech' | 'general' | 'unknown';
+export type IntentType = 'refund' | 'order' | 'product' | 'tech' | 'general' | 'unknown';
 export type SessionStatus = 'active' | 'human_transfer' | 'closed';
 
 export const INTENT_LABELS: Record<IntentType, string> = {
   refund: '退款/退货',
   order: '订单查询',
+  product: '商品咨询',
   tech: '技术支持',
   general: '通用咨询',
   unknown: '未识别',
@@ -18,10 +19,26 @@ export const INTENT_LABELS: Record<IntentType, string> = {
 export const INTENT_COLORS: Record<IntentType, string> = {
   refund: '#e34d59',
   order: '#0052d9',
+  product: '#f59e0b',
   tech: '#ed7b2f',
   general: '#00a870',
   unknown: '#8a8a8a',
 };
+
+/** Normalize Router intent tags (including Chinese operational tags) for customer-facing UI. */
+export function normalizeIntentType(value: unknown): IntentType {
+  if (typeof value !== 'string') return 'unknown';
+  const intent = value.trim().toLowerCase().replace(/\s+/g, '');
+  if (!intent || intent === 'unknown') return 'unknown';
+  if (intent.includes('退款') || intent.includes('退货') || intent.includes('refund')) return 'refund';
+  if (intent.includes('订单') || intent.includes('物流') || intent.includes('order')) return 'order';
+  if (intent.includes('商品') || intent.includes('产品') || intent.includes('product')) return 'product';
+  if (intent.includes('技术') || intent.includes('故障') || intent.includes('tech')) return 'tech';
+  if (intent.includes('general') || intent.includes('通用') || intent.includes('问候')
+      || intent.includes('天气') || intent.includes('新闻') || intent.includes('计算')
+      || intent.includes('system_capabilities')) return 'general';
+  return 'unknown';
+}
 
 export interface Model {
   modelId: string;

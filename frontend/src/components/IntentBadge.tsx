@@ -1,5 +1,5 @@
 import React from 'react';
-import { IntentType, INTENT_LABELS, INTENT_COLORS } from '../types';
+import { IntentType, INTENT_LABELS, INTENT_COLORS, normalizeIntentType } from '../types';
 
 interface IntentBadgeProps {
   intent: IntentType;
@@ -7,14 +7,16 @@ interface IntentBadgeProps {
 }
 
 export function IntentBadge({ intent, size = 'md' }: IntentBadgeProps) {
-  if (intent === 'unknown') return null;
+  const normalizedIntent = normalizeIntentType(intent);
+  if (normalizedIntent === 'unknown') return null;
 
-  const color = INTENT_COLORS[intent];
-  const label = INTENT_LABELS[intent];
+  const color = INTENT_COLORS[normalizedIntent];
+  const label = INTENT_LABELS[normalizedIntent];
 
   const iconMap: Record<IntentType, string> = {
     refund: '💰',
     order: '📦',
+    product: '🛍️',
     tech: '🔧',
     general: '💬',
     unknown: '❓',
@@ -41,7 +43,7 @@ export function IntentBadge({ intent, size = 'md' }: IntentBadgeProps) {
         boxShadow: `0 0 12px ${color}20`,
       }}
     >
-      <span style={{ fontSize: size === 'sm' ? '10px' : '12px' }}>{iconMap[intent]}</span>
+      <span style={{ fontSize: size === 'sm' ? '10px' : '12px' }}>{iconMap[normalizedIntent]}</span>
       {label}
     </span>
   );
