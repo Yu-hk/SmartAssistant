@@ -391,6 +391,51 @@ CREATE TABLE public.conversation_feedback (
 
 
 --
+-- Name: conversation_session_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.conversation_session_state (
+    user_id bigint NOT NULL,
+    session_id character varying(100) NOT NULL,
+    status character varying(20) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    closed_at timestamp without time zone,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    PRIMARY KEY (user_id, session_id)
+);
+
+CREATE INDEX idx_conversation_session_state_status
+    ON public.conversation_session_state USING btree (status, updated_at);
+
+
+--
+-- Name: admin_faq; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.admin_faq (
+    id bigint NOT NULL,
+    category character varying(50) DEFAULT 'general'::character varying NOT NULL,
+    question character varying(500) NOT NULL UNIQUE,
+    answer text NOT NULL,
+    keywords character varying(1000),
+    source_name character varying(255),
+    source_type character varying(32) DEFAULT 'manual'::character varying NOT NULL,
+    hit_count bigint DEFAULT 0 NOT NULL,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE SEQUENCE public.admin_faq_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.admin_faq_id_seq OWNED BY public.admin_faq.id;
+ALTER TABLE ONLY public.admin_faq ALTER COLUMN id SET DEFAULT nextval('public.admin_faq_id_seq'::regclass);
+
+
+--
 -- Name: conversation_feedback_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -465,6 +510,10 @@ CREATE TABLE public.routing_call_log (
     llm_received_question text,
     response_summary text,
     latency_ms bigint,
+    prompt_tokens bigint,
+    completion_tokens bigint,
+    total_tokens bigint,
+    tool_calls text,
     status character varying(20) DEFAULT 'SUCCESS'::character varying,
     error_message text,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
@@ -539,6 +588,33 @@ COMMENT ON COLUMN public.routing_call_log.response_summary IS '响应摘要（�
 --
 
 COMMENT ON COLUMN public.routing_call_log.latency_ms IS '耗时（毫秒）';
+
+
+--
+-- Name: COLUMN routing_call_log.prompt_tokens; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.routing_call_log.prompt_tokens IS 'Provider-reported input tokens; NULL means not captured';
+
+
+--
+-- Name: COLUMN routing_call_log.completion_tokens; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.routing_call_log.completion_tokens IS 'Provider-reported output tokens; NULL means not captured';
+
+
+--
+-- Name: COLUMN routing_call_log.total_tokens; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.routing_call_log.total_tokens IS 'Provider-reported total tokens; NULL means not captured, 0 is measured zero';
+
+--
+-- Name: COLUMN routing_call_log.tool_calls; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.routing_call_log.tool_calls IS 'Argument-free tool telemetry JSON; NULL means not captured';
 
 
 --

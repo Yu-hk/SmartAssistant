@@ -7,23 +7,14 @@
 
 package com.example.smartassistant.common.audit;
 
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * {@link TokenUsageCache} 单元测试。
- * <p>
- * 验证零装配 Token 用量缓存的 record/consume 合约。
- * </p>
- */
-@DisplayName("TokenUsageCache 单元测试")
 class TokenUsageCacheTest {
 
     @Test
-    @DisplayName("record 后 consume 返回正确的 TokenUsage")
-    void recordThenConsume_returnsCorrect() {
+    void recordThenConsumeReturnsAggregate() {
         TokenUsageCache.record("req-001", 10, 20, 30);
 
         var usage = TokenUsageCache.consume("req-001");
@@ -31,46 +22,86 @@ class TokenUsageCacheTest {
         assertAll(
                 () -> assertEquals(10, usage.promptTokens()),
                 () -> assertEquals(20, usage.completionTokens()),
-                () -> assertEquals(30, usage.totalTokens())
-        );
+                () -> assertEquals(30, usage.totalTokens()));
     }
 
     @Test
-    @DisplayName("consume 后缓存被清除（幂等删除）")
-    void consume_removesFromCache() {
+    void consumeRemovesValue() {
         TokenUsageCache.record("req-002", 5, 15, 20);
         assertNotNull(TokenUsageCache.consume("req-002"));
-        assertNull(TokenUsageCache.consume("req-002"), "二次 consume 应返回 null");
+        assertNull(TokenUsageCache.consume("req-002"));
     }
 
     @Test
-    @DisplayName("未 record → consume 返回 null")
-    void consumeUnrecorded_returnsNull() {
-        assertNull(TokenUsageCache.consume("nonexistent"));
-    }
-
-    @Test
-    @DisplayName("record 不存在的 requestId → 静默忽略")
-    void recordNullRequestId_ignored() {
-        assertDoesNotThrow(() -> TokenUsageCache.record(null, 0, 0, 0));
-        assertDoesNotThrow(() -> TokenUsageCache.record(" ", 0, 0, 0));
-    }
-
-    @Test
-    @DisplayName("相同 requestId 多次 record → 保留最后一次")
-    void recordMultiple_overwrites() {
-        TokenUsageCache.record("req-003", 1, 1, 2);
-        TokenUsageCache.record("req-003", 10, 20, 30);
+    void distinctCallsAccumulate() {
+        TokenUsageCache.record("req-003", "call-1", 1, 1, 2);
+        TokenUsageCache.record("req-003", "call-2", 10, 20, 30);
 
         var usage = TokenUsageCache.consume("req-003");
         assertNotNull(usage);
-        assertEquals(30, usage.totalTokens(), "应保留最后一次记录的 totalTokens");
+        assertAll(
+                () -> assertEquals(11, usage.promptTokens()),
+                () -> assertEquals(21, usage.completionTokens()),
+                () -> assertEquals(32, usage.totalTokens()));
     }
 
     @Test
-    @DisplayName("consume null/空白 requestId → 返回 null")
-    void consumeInvalidKey_returnsNull() {
+    void duplicateCallIdIsIdempotentAndSnapshotDoesNotConsume() {
+        TokenUsageCache.record("req-004", "call-1", 4, 6, 10);
+        TokenUsageCache.record("req-004", "call-1", 4, 6, 10);
+
+        assertEquals(10, TokenUsageCache.snapshot("req-004").totalTokens());
+        assertEquals(10, TokenUsageCache.consume("req-004").totalTokens());
+        assertNull(TokenUsageCache.snapshot("req-004"));
+    }
+
+    @Test
+    void partialComponentsNeverBecomeDeceptivelyComplete() {
+        TokenUsageCache.recordPartial("req-005", "call-1", 10L, 2L, 12L);
+        TokenUsageCache.recordPartial("req-005", "call-2", null, null, 7L);
+
+        var usage = TokenUsageCache.consume("req-005");
+        assertNull(usage.promptTokens());
+        assertNull(usage.completionTokens());
+        assertEquals(19, usage.totalTokens());
+    }
+
+    @Test
+    void derivesTotalOnlyWhenBothComponentsAreKnown() {
+        TokenUsageCache.recordPartial("req-006", "complete", 9L, 4L, null);
+        TokenUsageCache.recordPartial("req-007", "partial", 9L, null, null);
+
+        assertEquals(13, TokenUsageCache.consume("req-006").totalTokens());
+        assertNull(TokenUsageCache.consume("req-007"));
+    }
+
+    @Test
+    void invalidOrAnonymousTraceKeysAreIgnored() {
+        assertDoesNotThrow(() -> TokenUsageCache.record(null, 0, 0, 0));
+        assertDoesNotThrow(() -> TokenUsageCache.record(" ", 0, 0, 0));
+        assertDoesNotThrow(() -> TokenUsageCache.record("-", 1, 2, 3));
         assertNull(TokenUsageCache.consume(null));
         assertNull(TokenUsageCache.consume(""));
+        assertNull(TokenUsageCache.consume("-"));
+        assertNull(TokenUsageCache.consume("missing"));
+    }
+
+    @Test
+    void staleUnconsumedRequestsAreEvicted() {
+        TokenUsageCache.record("req-stale", 3, 2, 5);
+
+        TokenUsageCache.cleanupExpired(Long.MAX_VALUE);
+
+        assertNull(TokenUsageCache.consume("req-stale"));
+    }
+
+    @Test
+    void incompleteDownstreamInvalidatesOtherwiseMeasuredAggregate() {
+        TokenUsageCache.record("req-incomplete", "router-call", 7, 3, 10);
+
+        TokenUsageCache.markIncomplete("req-incomplete");
+        TokenUsageCache.record("req-incomplete", "later-call", 5, 2, 7);
+
+        assertNull(TokenUsageCache.consume("req-incomplete"));
     }
 }

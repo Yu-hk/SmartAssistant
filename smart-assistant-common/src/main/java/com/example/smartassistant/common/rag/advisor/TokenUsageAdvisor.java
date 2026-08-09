@@ -25,7 +25,10 @@ import org.springframework.core.Ordered;
 import reactor.core.publisher.Flux;
 
 import java.time.Instant;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 /**
  * Token 用量监测 Advisor — 真实采集 LLM 调用的 token 用量、模型与耗时，
@@ -72,10 +75,16 @@ public class TokenUsageAdvisor implements CallAdvisor, StreamAdvisor, Ordered {
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
         long start = System.currentTimeMillis();
         String tid = traceId();
+        String callId = UUID.randomUUID().toString();
         ChatClientResponse response = chain.nextCall(request);
         long latency = System.currentTimeMillis() - start;
         ChatResponseMetadata meta = (response.chatResponse() != null) ? response.chatResponse().getMetadata() : null;
-        publishAudit(request, meta, latency, tid, "SUCCESS");
+        try {
+            publishAudit(request, meta, latency, tid, callId, "SUCCESS");
+        } catch (RuntimeException ex) {
+            // Observability must never turn an otherwise successful model response into a user-facing failure.
+            log.warn("[TokenUsage][requestId={}] 用量采集失败，已跳过: {}", tid, ex.getMessage());
+        }
         log.debug("[TokenUsage][requestId={}] 调用完成 耗时={}ms", tid, latency);
         return response;
     }
@@ -84,45 +93,106 @@ public class TokenUsageAdvisor implements CallAdvisor, StreamAdvisor, Ordered {
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
         long start = System.currentTimeMillis();
         String tid = traceId();
-        AtomicReference<ChatResponseMetadata> lastMeta = new AtomicReference<>();
+        String callId = UUID.randomUUID().toString();
+        AtomicReference<ChatResponseMetadata> lastUsageMeta = new AtomicReference<>();
+        AtomicBoolean published = new AtomicBoolean();
         return chain.nextStream(request)
                 .doOnNext(r -> {
                     if (r.chatResponse() != null) {
-                        lastMeta.set(r.chatResponse().getMetadata());
+                        ChatResponseMetadata metadata = r.chatResponse().getMetadata();
+                        if (measuredUsage(metadata) != null) {
+                            lastUsageMeta.set(metadata);
+                        }
                     }
                 })
-                .doOnComplete(() -> publishAudit(request, lastMeta.get(),
-                        System.currentTimeMillis() - start, tid, "SUCCESS"))
-                .doOnError((Throwable ex) -> publishAudit(request, lastMeta.get(),
-                        System.currentTimeMillis() - start, tid, "ERROR"));
+                .doOnComplete(() -> publishOnce(published, request, lastUsageMeta.get(),
+                        start, tid, callId, "SUCCESS"))
+                .doOnError((Throwable ex) -> publishOnce(published, request, lastUsageMeta.get(),
+                        start, tid, callId, "ERROR"))
+                .doFinally(signal -> {
+                    if (signal == reactor.core.publisher.SignalType.CANCEL) {
+                        publishOnce(published, request, lastUsageMeta.get(),
+                                start, tid, callId, "CANCELLED");
+                    }
+                });
+    }
+
+    private void publishOnce(AtomicBoolean published, ChatClientRequest request,
+                             ChatResponseMetadata meta, long start, String tid,
+                             String callId, String resultType) {
+        if (published.compareAndSet(false, true)) {
+            try {
+                publishAudit(request, meta, System.currentTimeMillis() - start, tid, callId, resultType);
+            } catch (RuntimeException ex) {
+                log.warn("[TokenUsage][requestId={}] 流式用量采集失败，已跳过: {}", tid, ex.getMessage());
+            }
+        }
     }
 
     /** 抽取用量并发布审计事件（eventPublisher 为 null 时跳过） */
     private void publishAudit(ChatClientRequest request, ChatResponseMetadata meta,
-                              long latency, String tid, String resultType) {
-        if (eventPublisher == null) return;
+                              long latency, String tid, String callId, String resultType) {
 
-        int promptTokens = 0;
-        int completionTokens = 0;
-        int totalTokens = 0;
+        MeasuredUsage measured = measuredUsage(meta);
+        int promptTokens = measured != null && measured.promptTokens() != null
+                ? measured.promptTokens() : 0;
+        int completionTokens = measured != null && measured.completionTokens() != null
+                ? measured.completionTokens() : 0;
+        int totalTokens = measured != null ? clampToInt(measured.totalTokens()) : 0;
         String model = "-";
         if (meta != null) {
-            Usage usage = meta.getUsage();
-            if (usage != null) {
-                if (usage.getPromptTokens() != null) promptTokens = usage.getPromptTokens();
-                if (usage.getCompletionTokens() != null) completionTokens = usage.getCompletionTokens();
-                if (usage.getTotalTokens() != null) totalTokens = usage.getTotalTokens();
-            }
             if (meta.getModel() != null) model = meta.getModel();
         }
         String provider = resolveProvider(model);
         String digest = truncate(request.prompt() != null ? request.prompt().getContents() : "", 200);
-        eventPublisher.publishEvent(new AiAuditEvent(
-                tid, tenantId(), provider, model,
-                promptTokens, completionTokens, totalTokens,
-                latency, resultType, false, digest, Instant.now()));
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new AiAuditEvent(
+                    tid, tenantId(), provider, model,
+                    promptTokens, completionTokens, totalTokens,
+                    latency, resultType, false, digest, Instant.now()));
+        }
         // ⭐ 写入 TokenUsageCache，供 SSE 事件回传消费
-        TokenUsageCache.record(tid, promptTokens, completionTokens, totalTokens);
+        if (measured != null) {
+            TokenUsageCache.recordPartial(tid, callId,
+                    measured.promptTokens() != null ? measured.promptTokens().longValue() : null,
+                    measured.completionTokens() != null ? measured.completionTokens().longValue() : null,
+                    measured.totalTokens());
+        }
+    }
+
+    private static MeasuredUsage measuredUsage(ChatResponseMetadata meta) {
+        if (meta == null) return null;
+        Usage usage = meta.getUsage();
+        if (usage == null) return null;
+        Integer prompt = nonNegative(safeUsageValue(usage::getPromptTokens));
+        Integer completion = nonNegative(safeUsageValue(usage::getCompletionTokens));
+        // Some providers inherit Usage#getTotalTokens(), whose default implementation unboxes
+        // nullable components. Broken or partial metadata must remain unknown, not fail the request.
+        Integer reportedTotal = nonNegative(safeUsageValue(usage::getTotalTokens));
+        Long total = reportedTotal != null ? reportedTotal.longValue() : null;
+        if (total == null && prompt != null && completion != null) {
+            total = (long) prompt + completion;
+        }
+        return total != null ? new MeasuredUsage(prompt, completion, total) : null;
+    }
+
+    private static Integer nonNegative(Integer value) {
+        return value != null && value >= 0 ? value : null;
+    }
+
+    private static Integer safeUsageValue(Supplier<Integer> getter) {
+        try {
+            return getter.get();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private static int clampToInt(long value) {
+        return value > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) Math.max(value, 0);
+    }
+
+    private record MeasuredUsage(Integer promptTokens, Integer completionTokens, long totalTokens) {
     }
 
     /** 由模型名推断供应商（仅用于审计归类，不做路由） */

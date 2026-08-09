@@ -7,10 +7,13 @@
 
 package com.example.smartassistant.router.model;
 
+import com.example.smartassistant.common.audit.ToolUsageCache;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 /**
  * 路由响应
@@ -56,4 +59,20 @@ public class RouteResponse {
      */
     @Builder.Default
     private Boolean fromCache = false;
+
+    /** Whether the response is collecting a required parameter instead of completing the request. */
+    @Builder.Default
+    private Boolean clarification = false;
+
+    /** Measured token usage for the complete Router/Agent request chain. */
+    private Long promptTokens;
+
+    private Long completionTokens;
+
+    private Long totalTokens;
+
+    /** Complete, argument-free tool telemetry for this request chain. */
+    private Boolean toolUsageComplete;
+
+    private List<ToolUsageCache.ToolCall> toolCalls;
 }

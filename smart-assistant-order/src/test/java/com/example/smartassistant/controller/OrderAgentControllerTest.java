@@ -110,4 +110,26 @@ class OrderAgentControllerTest {
         assertEquals("OK", trace.lastStageOf(RagStage.GENERATION).status());
         assertTrue(trace.lastStageOf(RagStage.GENERATION).durationMs() >= 0);
     }
+
+    @Test
+    @DisplayName("退款政策：直接返回公共知识，不进入需要确认的订单操作循环")
+    void refundPolicy_shouldReturnKnowledgeWithoutCallingAgent() {
+        RetrievalQualityResult policy = RetrievalQualityResult.highQuality(
+                "【退款与退货政策】\n商品签收后7天内，商品完好且附件齐全可申请退货。", 0.95);
+        when(intentService.detect(anyString())).thenReturn(IntentType.REFUND_POLICY);
+        when(ragService.retrieveWithQualityResult(eq(IntentType.REFUND_POLICY), anyString()))
+                .thenReturn(policy);
+        when(ragService.buildRefundPolicyAnswer(policy))
+                .thenReturn("根据当前退货退款政策：\n商品签收后7天内，商品完好且附件齐全可申请退货。");
+
+        String result = controller.processQuestion(Map.of(
+                "question", "商品退货退款需要满足哪些条件？",
+                "requestId", "req-refund-policy"));
+
+        assertTrue(result.contains("7天内"));
+        assertTrue(result.contains("商品完好"));
+        verify(agent, never()).execute(anyString());
+        assertEquals("SKIPPED", recorder.findByRequestId("req-refund-policy")
+                .lastStageOf(RagStage.GENERATION).status());
+    }
 }

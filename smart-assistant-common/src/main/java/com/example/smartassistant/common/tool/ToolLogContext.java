@@ -34,6 +34,10 @@ public final class ToolLogContext {
 
     private static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();
 
+    /** Prevents the aspect and AgentToolExecutor from auditing one call twice. */
+    private static final ThreadLocal<Integer> EXECUTOR_MANAGED_DEPTH =
+            ThreadLocal.withInitial(() -> 0);
+
     private ToolLogContext() {}
 
     /**
@@ -54,7 +58,27 @@ public final class ToolLogContext {
         if (id == null) {
             id = MDC.get(MDC_KEY);
         }
+        if (id == null) {
+            id = MDC.get("requestId");
+        }
         return id;
+    }
+
+    public static void enterExecutorManagedCall() {
+        EXECUTOR_MANAGED_DEPTH.set(EXECUTOR_MANAGED_DEPTH.get() + 1);
+    }
+
+    public static void exitExecutorManagedCall() {
+        int remaining = EXECUTOR_MANAGED_DEPTH.get() - 1;
+        if (remaining <= 0) {
+            EXECUTOR_MANAGED_DEPTH.remove();
+        } else {
+            EXECUTOR_MANAGED_DEPTH.set(remaining);
+        }
+    }
+
+    public static boolean isExecutorManagedCall() {
+        return EXECUTOR_MANAGED_DEPTH.get() > 0;
     }
 
     /**
@@ -62,6 +86,7 @@ public final class ToolLogContext {
      */
     public static void clear() {
         REQUEST_ID.remove();
+        EXECUTOR_MANAGED_DEPTH.remove();
         MDC.remove(MDC_KEY);
     }
 }
