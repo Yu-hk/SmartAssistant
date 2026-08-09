@@ -62,7 +62,12 @@ public class JwtUtil {
     public boolean validateToken(String token) {
         try {
             Claims claims = parseToken(token);
-            return !claims.getExpiration().before(new Date());
+            return !claims.getExpiration().before(new Date())
+                    && "access".equals(claims.get("tokenType", String.class))
+                    && claims.get("userId", Long.class) != null
+                    && claims.get("username", String.class) != null
+                    && claims.get("role", String.class) != null
+                    && claims.get("jti", String.class) != null;
         } catch (Exception e) {
             log.debug("[JWT] Token 验证失败: {}", e.getMessage());
             return false;

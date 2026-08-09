@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Message, ToolCall, PermissionRequest, Session, ContentBlock, FaqItem, normalizeIntentType } from '../types';
 import { sessions as sessionApi } from '../api';
-import { getAuthToken } from '../api/auth';
+import { authenticatedFetch } from '../api/client';
 import {
   DeviceLocationContext,
   getCurrentDeviceLocation,
@@ -358,13 +358,11 @@ export function useChat(options: UseChatOptions) {
     };
 
     try {
-      const token = getAuthToken();
-      const response = await fetch(url, {
+      const response = await authenticatedFetch(url, {
         method: 'POST',
         headers: {
           Accept: 'text/event-stream',
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           message,
@@ -455,12 +453,10 @@ export function useChat(options: UseChatOptions) {
       streamAbortRef.current = null;
     }
     // 通知后端释放 LLM 槽位（冗余保障），并保持与主请求一致的鉴权方式
-    const token = getAuthToken();
-    void fetch('/api/math/stream/chat/cancel', {
+    void authenticatedFetch('/api/math/stream/chat/cancel', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ requestId: currentSessionId }),
       keepalive: true,

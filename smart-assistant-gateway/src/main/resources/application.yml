@@ -42,6 +42,13 @@ spring:
             - Path=/assistant/api/auth/**,/assistant/api/user/**
           filters:
             - StripPrefix=1  # 移除 /assistant，保留 /api/auth 或 /api/user
+
+        # User Service bare routes used by the frontend /api proxy.
+        # Keep the /api prefix because downstream controllers are mapped under /api.
+        - id: user-service-bare
+          uri: lb://user-service
+          predicates:
+            - Path=/api/auth/**,/api/user/**
         
         # Consumer Service 路由（聊天业务，/assistant 前缀）
         - id: consumer-service
@@ -113,7 +120,7 @@ jwt:
 # 白名单配置 (无需认证的路径)
 gateway:
   security:
-    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/health,/actuator/info,/assistant/api/router/agents/**
+    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/api/auth/login,/api/auth/register,/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/health,/actuator/info,/assistant/api/router/agents/**
   
   # 限流配置
   rate-limit:

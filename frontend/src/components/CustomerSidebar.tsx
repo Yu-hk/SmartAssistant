@@ -11,6 +11,8 @@ interface CustomerSidebarProps {
   onSelectAgent: (name: string) => void;
   onOpenAdmin?: () => void;
   onToggleTheme: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 /**
@@ -40,10 +42,10 @@ const STATUS_LABELS: Record<string, string> = {
 export function CustomerSidebar({
   sessions, currentSessionId, theme,
   onNewChat, onSelectSession, onDeleteSession, onSelectAgent, onOpenAdmin, onToggleTheme,
+  isOpen = false, onClose,
 }: CustomerSidebarProps) {
   return (
-    <aside className="glass" style={{
-      width: '264px',
+    <aside className={`customer-sidebar glass ${isOpen ? 'is-open' : ''}`} style={{
       flexShrink: 0,
       display: 'flex',
       flexDirection: 'column',
@@ -86,10 +88,18 @@ export function CustomerSidebar({
               多智能体客服工作台
             </div>
           </div>
+          <button
+            type="button"
+            className="sidebar-close-button"
+            aria-label="关闭侧边栏"
+            onClick={onClose}
+          >
+            ×
+          </button>
         </div>
 
         {/* 新建会话按钮 — 渐变实心 */}
-        {onOpenAdmin && <button
+        <button
           onClick={onNewChat}
           className="neon-btn"
           style={{
@@ -107,7 +117,7 @@ export function CustomerSidebar({
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           新建会话
-        </button>}
+        </button>
       </div>
 
       {/* 可滚动区域：智能体团队 + 我的会话 */}
@@ -119,7 +129,7 @@ export function CustomerSidebar({
           letterSpacing: '0.08em', textTransform: 'uppercase',
           padding: '4px 6px 8px',
         }}>
-          智能体团队
+          服务能力入口
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '6px' }}>
           {AGENT_TEAM.map(agent => (
@@ -155,12 +165,12 @@ export function CustomerSidebar({
               }}>
                 {agent.name}
               </span>
-              {/* 在线状态点 */}
               <span style={{
-                width: '8px', height: '8px', borderRadius: '50%',
-                background: 'var(--nova-success)', flexShrink: 0,
-                boxShadow: '0 0 6px var(--nova-success)',
-              }} />
+                padding: '2px 6px', borderRadius: '999px',
+                background: 'var(--nova-bg-component)',
+                color: 'var(--nova-text-tertiary)',
+                fontSize: '9px', flexShrink: 0,
+              }}>入口</span>
             </button>
           ))}
         </div>
@@ -217,7 +227,7 @@ export function CustomerSidebar({
         borderTop: '1px solid var(--nova-border)',
         display: 'flex', gap: '8px',
       }}>
-        <button
+        {onOpenAdmin && <button
           onClick={onOpenAdmin}
           className="glass-hover"
           style={{
@@ -246,13 +256,13 @@ export function CustomerSidebar({
             <rect x="14" y="14" width="7" height="7" />
           </svg>
           管理后台
-        </button>
+        </button>}
         <button
           onClick={onToggleTheme}
           title={theme === 'light' ? '切换深色模式' : '切换浅色模式'}
           className="glass-hover"
           style={{
-            width: '36px', height: '36px', borderRadius: '8px',
+            width: onOpenAdmin ? '36px' : '100%', height: '36px', borderRadius: '8px',
             border: '1px solid var(--nova-border)',
             background: 'transparent', cursor: 'pointer', fontSize: '16px',
             display: 'flex', alignItems: 'center', justifyContent: 'center',

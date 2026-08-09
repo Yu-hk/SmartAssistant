@@ -34,6 +34,7 @@ public class SessionService {
     
     private static final Logger log = LoggerFactory.getLogger(SessionService.class);
     private static final String SESSION_KEY_PREFIX = "session:";
+    private static final String REFRESH_BLACKLIST_KEY_PREFIX = "refresh-blacklist:";
     
     @Value("${session.enabled:true}")
     private boolean sessionEnabled;
@@ -227,6 +228,54 @@ public class SessionService {
         } catch (Exception e) {
             log.error("[Session] 撤销会话失败: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * Revokes an access token for both the user service session layer and the
+     * gateway. Both services use the same Redis blacklist key contract.
+     */
+    public void revokeAccessToken(String tokenId, Duration blacklistTtl) {
+        validateTokenId(tokenId);
+        redisTemplate.opsForValue().set(
+                "blacklist:" + tokenId,
+                "revoked",
+                normalizeBlacklistTtl(blacklistTtl));
+        revokeSession(tokenId);
+    }
+
+    /**
+     * Atomically consumes a refresh token. A false result means the jti has
+     * already been consumed or revoked.
+     */
+    public boolean consumeRefreshToken(String tokenId, Duration blacklistTtl) {
+        validateTokenId(tokenId);
+        Boolean inserted = redisTemplate.opsForValue().setIfAbsent(
+                REFRESH_BLACKLIST_KEY_PREFIX + tokenId,
+                "revoked",
+                normalizeBlacklistTtl(blacklistTtl));
+        return Boolean.TRUE.equals(inserted);
+    }
+
+    /** Idempotently revokes a refresh token during logout. */
+    public void blacklistRefreshToken(String tokenId, Duration blacklistTtl) {
+        validateTokenId(tokenId);
+        redisTemplate.opsForValue().set(
+                REFRESH_BLACKLIST_KEY_PREFIX + tokenId,
+                "revoked",
+                normalizeBlacklistTtl(blacklistTtl));
+    }
+
+    private void validateTokenId(String tokenId) {
+        if (tokenId == null || tokenId.isBlank()) {
+            throw new IllegalArgumentException("tokenId must not be blank");
+        }
+    }
+
+    private Duration normalizeBlacklistTtl(Duration blacklistTtl) {
+        if (blacklistTtl == null || blacklistTtl.isZero() || blacklistTtl.isNegative()) {
+            return Duration.ofSeconds(1);
+        }
+        return blacklistTtl;
     }
     
     /**
