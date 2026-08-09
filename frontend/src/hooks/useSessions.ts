@@ -96,7 +96,13 @@ export function useSessions() {
           return s;
         }));
       }
-    } catch (e) { console.error('loadSessionMessages error:', e); }
+    } catch (e) {
+      // A newly-created browser session is local until its first request is
+      // persisted, so a detail lookup can legitimately return 404.
+      if (!(e instanceof ApiError) || e.status !== 404) {
+        console.error('loadSessionMessages error:', e);
+      }
+    }
   }, []);
 
   const deleteSession = useCallback(async (sessionId: string): Promise<string | null> => {

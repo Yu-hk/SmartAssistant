@@ -56,8 +56,10 @@ public class AdminController {
      * GET /api/sessions → 前端 SessionsTab
      */
     @GetMapping("/sessions")
-    public ResponseEntity<?> getSessions() {
-        return ResponseEntity.ok(adminService.getSessions());
+    public ResponseEntity<?> getSessions(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Role") String role) {
+        return ResponseEntity.ok(adminService.getSessions(userId, isAdmin(role)));
     }
 
     /**
@@ -65,8 +67,13 @@ public class AdminController {
      * GET /api/sessions/{id}
      */
     @GetMapping("/sessions/{id}")
-    public ResponseEntity<?> getSession(@PathVariable String id) {
-        return ResponseEntity.ok(adminService.getSessionDetail(id));
+    public ResponseEntity<?> getSession(
+            @PathVariable String id,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Role") String role) {
+        return adminService.getSessionDetail(id, userId, isAdmin(role))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /**
@@ -74,9 +81,14 @@ public class AdminController {
      * DELETE /api/sessions/{id}
      */
     @DeleteMapping("/sessions/{id}")
-    public ResponseEntity<?> deleteSession(@PathVariable String id) {
-        boolean deleted = adminService.deleteSession(id);
-        return ResponseEntity.ok(Map.of("success", deleted));
+    public ResponseEntity<?> deleteSession(
+            @PathVariable String id,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Role") String role) {
+        boolean deleted = adminService.deleteSession(id, userId, isAdmin(role));
+        return deleted
+                ? ResponseEntity.ok(Map.of("success", true))
+                : ResponseEntity.notFound().build();
     }
 
     // ==================== FAQ 管理 ====================
@@ -186,5 +198,9 @@ public class AdminController {
     @GetMapping("/admin/costs")
     public ResponseEntity<?> getCosts() {
         return ResponseEntity.ok(adminService.getCosts());
+    }
+
+    private boolean isAdmin(String role) {
+        return "ROLE_ADMIN".equals(role);
     }
 }

@@ -21,8 +21,8 @@ export interface ChatResponse {
 
 /** 获取所有会话列表 */
 export async function fetchSessions(): Promise<Session[]> {
-  const resp = await apiClient.get<{ sessions: Session[] }>('/sessions');
-  return resp.sessions;
+  const resp = await apiClient.get<Session[] | { sessions: Session[] }>('/sessions');
+  return Array.isArray(resp) ? resp : (resp.sessions ?? []);
 }
 
 /** 获取单个会话详情（含消息） */
