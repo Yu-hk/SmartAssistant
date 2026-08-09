@@ -23,6 +23,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * SSE 事件总线——发送和缓存 SSE 事件。
@@ -38,6 +40,9 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SseEventBus {
 
     private static final Logger log = LoggerFactory.getLogger(SseEventBus.class);
+
+    private static final Pattern JSON_EVENT_TYPE = Pattern.compile(
+            "\\\"type\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
 
     /** ⭐ SSE 事件缓冲计数器——每缓存一条代理流事件 +1，用于观测断线续传缓冲负载 */
     private static final Counter SSE_BUFFER_COUNTER = Counter.builder("a2a_sse_events_buffered_total")
@@ -220,7 +225,22 @@ public class SseEventBus {
     /**
      * 代理转发外部 SSE 流，注入事件 ID 并缓存。
      */
-    public void forwardStream(HttpURLConnection connection) {
+    public boolean forwardStream(HttpURLConnection connection) {
+        return forwardStream(connection, false).success();
+    }
+
+    /**
+     * Forwards an upstream stream while retaining ownership of terminal
+     * events. Upstream {@code token_usage} and {@code done} events are
+     * consumed so the caller can emit one combined usage event followed by
+     * exactly one terminal event.
+     */
+    public ForwardResult forwardStreamCapturingUsage(HttpURLConnection connection) {
+        return forwardStream(connection, true);
+    }
+
+    private ForwardResult forwardStream(HttpURLConnection connection, boolean captureTerminalEvents) {
+        TokenUsageAccumulator usage = new TokenUsageAccumulator();
         try (InputStream is = connection.getInputStream();
              BufferedReader reader = new BufferedReader(
                      new InputStreamReader(is, StandardCharsets.UTF_8))) {
@@ -233,16 +253,7 @@ public class SseEventBus {
                 if (line.isEmpty()) {
                     if (hasData && currentEvent.length() > 0) {
                         // 解析为 SseEvent 并发送
-                        SseEvent event = SseEvent.create();
-                        String data = null;
-                        String eventType = null;
-                        for (String l : currentEvent.toString().split("\n")) {
-                            if (l.startsWith("data:")) data = l.substring(5).trim();
-                            else if (l.startsWith("event:")) eventType = l.substring(6).trim();
-                        }
-                        if (eventType != null) event.event(eventType);
-                        if (data != null) event.data(data);
-                        send(event);
+                        forwardEvent(currentEvent, captureTerminalEvents, usage);
                     }
                     currentEvent = new StringBuilder();
                     hasData = false;
@@ -251,12 +262,115 @@ public class SseEventBus {
                     if (line.startsWith("data:")) hasData = true;
                 }
             }
+            if (hasData && currentEvent.length() > 0) {
+                forwardEvent(currentEvent, captureTerminalEvents, usage);
+            }
+            return usage.result(true);
         } catch (Exception e) {
             log.warn("[SseEventBus] 代理流异常: {}", e.getMessage());
+            return usage.result(false);
         }
     }
 
     // ==================== 缓存管理 ====================
+
+    private void forwardEvent(StringBuilder rawEvent, boolean captureTerminalEvents,
+                              TokenUsageAccumulator usage) {
+        SseEvent event = SseEvent.create();
+        String data = null;
+        String eventType = null;
+        for (String line : rawEvent.toString().split("\n")) {
+            if (line.startsWith("data:")) data = line.substring(5).trim();
+            else if (line.startsWith("event:")) eventType = line.substring(6).trim();
+        }
+        if (eventType == null && data != null) {
+            Matcher matcher = JSON_EVENT_TYPE.matcher(data);
+            if (matcher.find()) eventType = matcher.group(1);
+        }
+        if (captureTerminalEvents && "token_usage".equals(eventType)) {
+            usage.add(data);
+            return;
+        }
+        if (captureTerminalEvents && "done".equals(eventType)) {
+            return;
+        }
+        if ("error".equals(eventType) || "timeout".equals(eventType)) {
+            usage.markUpstreamFailure();
+        }
+        if (eventType != null) event.event(eventType);
+        if (data != null) event.data(data);
+        send(event);
+    }
+
+    /** Result of forwarding a stream while capturing its usage metadata. */
+    public record ForwardResult(boolean success, Long promptTokens,
+                                Long completionTokens, Long totalTokens) {
+        public boolean tracked() {
+            return totalTokens != null;
+        }
+    }
+
+    private static final class TokenUsageAccumulator {
+        private Long promptTokens;
+        private Long completionTokens;
+        private Long totalTokens;
+        private boolean initialized;
+        private boolean upstreamFailed;
+
+        void add(String json) {
+            if (json == null || json.isBlank()) return;
+            Long prompt = jsonLong(json, "promptTokens", "prompt_tokens", "inputTokens", "input_tokens");
+            Long completion = jsonLong(json, "completionTokens", "completion_tokens",
+                    "outputTokens", "output_tokens");
+            Long total = jsonLong(json, "totalTokens", "total_tokens");
+            if (total == null && prompt != null && completion != null) {
+                total = addSaturated(prompt, completion);
+            }
+            if (total == null) return;
+            if (!initialized) {
+                promptTokens = prompt;
+                completionTokens = completion;
+                totalTokens = total;
+                initialized = true;
+                return;
+            }
+            promptTokens = addComplete(promptTokens, prompt);
+            completionTokens = addComplete(completionTokens, completion);
+            totalTokens = addSaturated(totalTokens, total);
+        }
+
+        ForwardResult result(boolean success) {
+            return new ForwardResult(success && !upstreamFailed,
+                    promptTokens, completionTokens, totalTokens);
+        }
+
+        void markUpstreamFailure() {
+            upstreamFailed = true;
+        }
+
+        private static Long jsonLong(String json, String... names) {
+            for (String name : names) {
+                Pattern field = Pattern.compile("\\\"" + Pattern.quote(name)
+                        + "\\\"\\s*:\\s*(\\d+)");
+                Matcher matcher = field.matcher(json);
+                if (!matcher.find()) continue;
+                try {
+                    return Long.parseLong(matcher.group(1));
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        private static Long addComplete(Long left, Long right) {
+            return left != null && right != null ? addSaturated(left, right) : null;
+        }
+
+        private static long addSaturated(long left, long right) {
+            return right > 0 && left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
+        }
+    }
 
     private void cacheEvent(SseEvent event) {
         if (redisKey == null || redisCache == null) return;

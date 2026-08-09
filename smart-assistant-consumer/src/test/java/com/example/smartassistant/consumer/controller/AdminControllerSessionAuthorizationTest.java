@@ -1,8 +1,5 @@
 /*
  * Copyright (c) 2025-2026 SmartAssistant Project. All rights reserved.
- *
- * Licensed under the MIT License. See LICENSE file in the project root for
- * full license information.
  */
 
 package com.example.smartassistant.consumer.controller;
@@ -16,10 +13,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AdminControllerSessionAuthorizationTest {
@@ -35,33 +35,104 @@ class AdminControllerSessionAuthorizationTest {
     }
 
     @Test
-    void sessionListShouldUseGatewayIdentityAndFailClosedForNonAdminRole() {
-        when(adminService.getSessions(7L, false)).thenReturn(List.of());
+    void everyAdminRouteFailsClosedUnlessRoleIsExact() {
+        assertEquals(HttpStatus.FORBIDDEN, controller.getAdminStats(null).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN,
+                controller.getAdminSessions("role_admin", null, null, null, null, 0, 20)
+                        .getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN,
+                controller.getAdminFaqs("ROLE_USER").getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN,
+                controller.importAdminFaqs(
+                        "ROLE_USER",
+                        new AdminController.FaqImportRequest(
+                                "knowledge.json", "json", false,
+                                List.of(Map.of("question", "Q", "answer", "A"))))
+                        .getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN,
+                controller.getCosts("role_admin").getStatusCode());
 
-        assertEquals(HttpStatus.OK,
-                controller.getSessions(7L, "role_admin").getStatusCode());
-
-        verify(adminService).getSessions(7L, false);
+        verifyNoInteractions(adminService);
     }
 
     @Test
-    void exactAdminRoleShouldRequestFullSessionAccess() {
-        when(adminService.getSessions(1L, true)).thenReturn(List.of());
+    void exactAdminRoleCanUseGlobalPagedSessionContract() {
+        AdminService.SessionPage page = new AdminService.SessionPage(List.of(), 0, 0, 20);
+        when(adminService.searchAdminSessions("weather", 7L, "SUCCESS", "weather", 0, 20))
+                .thenReturn(page);
 
         assertEquals(HttpStatus.OK,
-                controller.getSessions(1L, "ROLE_ADMIN").getStatusCode());
-
-        verify(adminService).getSessions(1L, true);
+                controller.getAdminSessions(
+                        "ROLE_ADMIN", "weather", 7L, "SUCCESS", "weather", 0, 20)
+                        .getStatusCode());
     }
 
     @Test
-    void inaccessibleSessionDetailAndDeleteShouldReturnNotFound() {
-        when(adminService.getSessionDetail("session-b", 7L, false)).thenReturn(Optional.empty());
-        when(adminService.deleteSession("session-b", 7L, false)).thenReturn(false);
+    void ordinarySessionsRemainUserScopedEvenForAnAdministrator() {
+        when(adminService.getSessions(7L)).thenReturn(List.of());
+
+        assertEquals(HttpStatus.OK,
+                controller.getSessions(7L, "ROLE_ADMIN").getStatusCode());
+
+        verify(adminService).getSessions(7L);
+    }
+
+    @Test
+    void adminDetailUsesCompoundSessionIdentity() {
+        when(adminService.getAdminSessionDetail("shared-session", 7L))
+                .thenReturn(Optional.empty());
 
         assertEquals(HttpStatus.NOT_FOUND,
-                controller.getSession("session-b", 7L, "ROLE_USER").getStatusCode());
-        assertEquals(HttpStatus.NOT_FOUND,
-                controller.deleteSession("session-b", 7L, "ROLE_USER").getStatusCode());
+                controller.getAdminSession("shared-session", "ROLE_ADMIN", 7L).getStatusCode());
+
+        verify(adminService).getAdminSessionDetail("shared-session", 7L);
+    }
+
+    @Test
+    void satisfactionAcceptsExistingScorePayload() {
+        AdminService.SatisfactionResult saved =
+                new AdminService.SatisfactionResult("session-a", 5, "helpful");
+        when(adminService.saveSatisfaction("session-a", 7L, 5, "helpful"))
+                .thenReturn(Optional.of(saved));
+
+        assertEquals(HttpStatus.OK,
+                controller.saveSatisfaction(
+                        "session-a", 7L, Map.of("score", 5, "comment", "helpful"))
+                        .getStatusCode());
+
+        verify(adminService).saveSatisfaction("session-a", 7L, 5, "helpful");
+    }
+
+    @Test
+    void satisfactionRejectsInvalidRatingBeforeWriting() {
+        assertEquals(HttpStatus.BAD_REQUEST,
+                controller.saveSatisfaction("session-a", 7L, Map.of("score", "five"))
+                        .getStatusCode());
+        verifyNoInteractions(adminService);
+    }
+
+    @Test
+    void authenticatedCustomerFaqHitDoesNotRequireAdministratorRole() {
+        when(adminService.hitFaq("17")).thenReturn(true);
+
+        assertEquals(HttpStatus.OK, controller.hitFaq("17", 7L).getStatusCode());
+
+        verify(adminService).hitFaq("17");
+    }
+
+    @Test
+    void exactAdminRoleCanImportExternalKnowledge() {
+        AdminController.FaqImportRequest request = new AdminController.FaqImportRequest(
+                "knowledge.json", "json", true,
+                List.of(Map.of("question", "Q", "answer", "A")));
+        AdminService.FaqImportResult result = new AdminService.FaqImportResult(1, 1, 0, 0);
+        when(adminService.importFaqs(
+                request.sourceName(), request.sourceType(), request.overwrite(), request.items()))
+                .thenReturn(result);
+
+        assertEquals(HttpStatus.OK,
+                controller.importAdminFaqs("ROLE_ADMIN", request).getStatusCode());
+        verify(adminService).importFaqs(
+                request.sourceName(), request.sourceType(), request.overwrite(), request.items());
     }
 }

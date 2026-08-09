@@ -12,6 +12,9 @@ import com.example.smartassistant.consumer.service.infrastructure.DataMaskingSer
 import com.example.smartassistant.common.sentiment.SentimentAnalysisService;
 import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
+import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
+import com.example.smartassistant.consumer.service.infrastructure.ToolUsageExtractor;
+import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.memory.EntityProfileService;
 import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import com.example.smartassistant.consumer.service.session.SessionManagementService;
@@ -20,6 +23,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -94,7 +99,8 @@ public class ChatConsumerService {
         Long userIdLong = parseUserId(userId);
         
         // Step 0.5: 启动分布式追踪 ⭐
-        String traceReqId = UUID.randomUUID().toString();
+        String traceReqId = requestId != null && !requestId.isBlank()
+                ? requestId : UUID.randomUUID().toString();
         String threadId = sessionManagementService.getOrCreateThreadId(userId != null ? userId : "anonymous");
         tracingService.startTrace(traceReqId, threadId);
         tracingService.injectToLog("收到请求: userId=" + maskingService.maskUsername(userId != null ? userId : "anonymous"));
@@ -117,10 +123,13 @@ public class ChatConsumerService {
         
         // Step 3: 转发纯文本 question + 独立 userProfile 给 Router Service
         log.info("[Consumer] 转发请求到 Router Service (纯文本question), questionLength={}", question.length());
-        Map<String, Object> routeResponse = routerClient.callRouterRaw(question, userId, null, requestId, userProfileText, null);
+        Map<String, Object> routeResponse = routerClient.callRouterRaw(
+                question, userId, null, traceReqId, userProfileText, null);
         String response = (String) routeResponse.getOrDefault("result", "");
         String routedAgent = (String) routeResponse.getOrDefault("agentName", null);
         String intentTag = (String) routeResponse.get("intentTag");  // ⭐ 读取意图标签
+        TokenUsageExtractor.TokenUsage tokenUsage = TokenUsageExtractor.extract(routeResponse);
+        ToolUsageCache.ToolUsage toolUsage = ToolUsageExtractor.extract(routeResponse);
 
         // Step 3.5: 实体画像提取（异步，不阻塞主流程）
         if (userIdLong != null) {
@@ -140,10 +149,16 @@ public class ChatConsumerService {
                 userIdLong,
                 threadId,
                 question,
-                "router_service",
+                effectiveAgent(routedAgent, intentTag),
                 "ROUTER_SERVICE",
                 latencyMs,
-                "SUCCESS"
+                responseStatus(routeResponse),
+                response,
+                tokenUsage.promptTokens(),
+                tokenUsage.completionTokens(),
+                tokenUsage.totalTokens(),
+                question,
+                toolUsage
         );
 
         log.info("[Consumer] 总耗时: {} ms, 响应长度: {} 字符", latencyMs, response.length());
@@ -156,9 +171,13 @@ public class ChatConsumerService {
 
     public Map<String, Object> calculateWithSession(String userId, String question, String sessionId, String requestIdParam) {
         long startTime = System.currentTimeMillis();
+        String originalQuestion = question;
 
         Long userIdLong = parseUserId(userId);
-        String traceReqId = UUID.randomUUID().toString();
+        String traceReqId = requestIdParam != null && !requestIdParam.isBlank()
+                ? requestIdParam : UUID.randomUUID().toString();
+        String effectiveSessionId = sessionId != null && !sessionId.isBlank()
+                ? sessionId : traceReqId;
         String threadId = sessionManagementService.getOrCreateThreadId(userId != null ? userId : "anonymous");
         tracingService.startTrace(traceReqId, threadId);
         tracingService.injectToLog("收到请求(含session): userId=" + maskingService.maskUsername(userId != null ? userId : "anonymous"));
@@ -166,15 +185,30 @@ public class ChatConsumerService {
         log.info("[Consumer] 收到请求(含session): userId={}, sessionId={}, question={}", userId, sessionId, question);
 
         // ⭐ Step 0.5: 情感分析 — 检测用户情绪并影响回复策略
-        var sentimentResult = sentimentAnalysisService.analyze(question, sessionId);
+        var sentimentResult = sentimentAnalysisService.analyze(question, effectiveSessionId);
         if (sentimentResult.needHandoff()) {
             log.warn("[Consumer] 检测到负面情绪，建议转人工: userId={}, level={}, sentiment={}",
                     userId, sentimentResult.level(), sentimentResult.name());
             // 返回转人工响应，不再继续路由
             Map<String, Object> handoffResponse = new java.util.HashMap<>();
-            handoffResponse.put("result", sentimentAnalysisService.getHandoffResponse(sentimentResult.level()));
+            String handoffMessage = sentimentAnalysisService.getHandoffResponse(sentimentResult.level());
+            handoffResponse.put("result", handoffMessage);
             handoffResponse.put("agentName", "human_service");
             handoffResponse.put("sentiment", sentimentResult.level());
+            handoffResponse.put("sessionId", effectiveSessionId);
+            routingCallLogService.saveLog(
+                    userIdLong,
+                    effectiveSessionId,
+                    originalQuestion,
+                    "human_service",
+                    "SENTIMENT_HANDOFF",
+                    System.currentTimeMillis() - startTime,
+                    "SUCCESS",
+                    handoffMessage,
+                    0L, 0L, 0L,
+                    originalQuestion,
+                    new ToolUsageCache.ToolUsage(true, List.of()));
+            tracingService.endTrace();
             return handoffResponse;
         }
         if (sentimentResult.level() >= 3 || sentimentResult.escalated()) {
@@ -198,10 +232,17 @@ public class ChatConsumerService {
 
         // Step 3: 转发纯文本 question + 独立 userProfile 给 Router Service（传递 sessionId）
         log.info("[Consumer] 转发请求到 Router Service(含session), questionLength={}", question.length());
-        Map<String, Object> response = routerClient.callRouterRaw(question, userId, sessionId, requestIdParam, userProfileText, null);
+        Map<String, Object> response = new java.util.HashMap<>(routerClient.callRouterRaw(
+                question, userId, effectiveSessionId, traceReqId, userProfileText, null));
         
         // Step 3.5: 更新意图分布
         String routedAgent = (String) response.get("agentName");
+        String intentTag = (String) response.get("intentTag");
+        TokenUsageExtractor.TokenUsage tokenUsage = TokenUsageExtractor.extract(response);
+        ToolUsageCache.ToolUsage toolUsage = ToolUsageExtractor.extract(response);
+        tokenUsage.copyTo(response);
+        ToolUsageExtractor.copyTo(toolUsage, response);
+        response.put("sessionId", effectiveSessionId);
         if (userIdLong != null && routedAgent != null && !routedAgent.isBlank() && !"none".equals(routedAgent)) {
             userProfileService.updateIntentDistribution(userIdLong, routedAgent);
         }
@@ -210,12 +251,18 @@ public class ChatConsumerService {
         long latencyMs = System.currentTimeMillis() - startTime;
         routingCallLogService.saveLog(
                 userIdLong,
-                sessionId,
-                question,
-                "router_service",
+                effectiveSessionId,
+                originalQuestion,
+                effectiveAgent(routedAgent, intentTag),
                 "ROUTER_SERVICE",
                 latencyMs,
-                response.containsKey("error") ? "PARTIAL_SUCCESS" : "SUCCESS"
+                responseStatus(response),
+                Objects.toString(response.get("result"), ""),
+                tokenUsage.promptTokens(),
+                tokenUsage.completionTokens(),
+                tokenUsage.totalTokens(),
+                question,
+                toolUsage
         );
 
         log.info("[Consumer] 总耗时: {} ms, 响应包含 suggestions={}", latencyMs, response.containsKey("suggestions"));
@@ -247,6 +294,37 @@ public class ChatConsumerService {
             log.debug("[Consumer] userId '{}' 不是数字，尝试使用 username", userId);
             return null;
         }
+    }
+
+    private String effectiveAgent(String routedAgent, String intentTag) {
+        if (routedAgent != null && !routedAgent.isBlank() && !"none".equalsIgnoreCase(routedAgent)) {
+            return routedAgent;
+        }
+        if (intentTag != null && !intentTag.isBlank()) {
+            return intentTag;
+        }
+        return "unknown";
+    }
+
+    private boolean hasMeaningfulError(Map<String, Object> response) {
+        if (response == null) {
+            return true;
+        }
+        Object error = response.get("error");
+        if (error != null && !Objects.toString(error, "").isBlank()) {
+            return true;
+        }
+        return Boolean.FALSE.equals(response.get("success"));
+    }
+
+    private String responseStatus(Map<String, Object> response) {
+        if (hasMeaningfulError(response)) {
+            return "FAILED";
+        }
+        if (Boolean.TRUE.equals(response.get("clarification"))) {
+            return "PARTIAL_SUCCESS";
+        }
+        return "SUCCESS";
     }
 
     /**

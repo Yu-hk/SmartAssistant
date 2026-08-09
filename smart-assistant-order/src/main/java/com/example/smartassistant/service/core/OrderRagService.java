@@ -8,13 +8,20 @@
 package com.example.smartassistant.service.core;
 
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
+import com.example.smartassistant.common.rag.KnowledgeDocument;
+import com.example.smartassistant.common.rag.KnowledgeRetrievalService;
+import com.example.smartassistant.common.rag.KnowledgeSeedData;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
 import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+
+import java.util.stream.Collectors;
 
 /**
  * ⭐ 订单 RAG 检索服务。
@@ -33,9 +40,18 @@ public class OrderRagService {
     private static final Logger log = LoggerFactory.getLogger(OrderRagService.class);
 
     private final OrderDataProvider orderData;
+    private final KnowledgeRetrievalService knowledgeRetrievalService;
 
     public OrderRagService(OrderDataProvider orderData) {
+        this(orderData, null);
+    }
+
+    @Autowired
+    public OrderRagService(
+            OrderDataProvider orderData,
+            @Qualifier("orderKnowledgeRetrievalService") KnowledgeRetrievalService knowledgeRetrievalService) {
         this.orderData = orderData;
+        this.knowledgeRetrievalService = knowledgeRetrievalService;
     }
 
     /**
@@ -63,6 +79,7 @@ public class OrderRagService {
 
         return switch (intent) {
             case QUERY_ORDER -> retrieveForQualityResult(message, "订单");
+            case REFUND_POLICY -> retrieveRefundPolicy(message);
             case REFUND -> retrieveForQualityResult(message, "退款");
             case CREATE_ORDER -> RetrievalQualityResult.highQuality(
                     "【下单引导】请让用户提供以下信息：\n• 商品名称\n• 购买数量\n• 收货人姓名、电话、地址\n• 支付方式\n确认信息后调用 createOrder 创建订单。",
@@ -71,6 +88,59 @@ public class OrderRagService {
             default -> RetrievalQualityResult.insufficientEvidence("", 0.0,
                     "无法识别该消息的订单意图类型。");
         };
+    }
+
+    /**
+     * 退款政策属于公共知识，不要求用户先提供订单号。
+     * 优先查询运行时订单知识库；检索设施不可用时回退到同一份官方种子文档，
+     * 避免把基础政策咨询错误地降级成订单参数澄清。
+     */
+    private RetrievalQualityResult retrieveRefundPolicy(String message) {
+        String content = null;
+        if (knowledgeRetrievalService != null) {
+            try {
+                content = knowledgeRetrievalService.search(KnowledgeSeedData.ORDER_KB, message, 3);
+                if (content != null && (content.startsWith("INSUFFICIENT_EVIDENCE")
+                        || content.contains("不存在"))) {
+                    content = null;
+                }
+            } catch (Exception e) {
+                log.warn("[OrderRAG] 退款政策知识库检索失败，使用官方种子文档: {}", e.getMessage());
+            }
+        }
+
+        if (content == null || content.isBlank()) {
+            content = KnowledgeSeedData.orderDocuments().stream()
+                    .filter(document -> "退款政策".equals(document.getCategory()))
+                    .map(OrderRagService::formatKnowledgeDocument)
+                    .collect(Collectors.joining("\n\n"));
+        }
+
+        if (content.isBlank()) {
+            return RetrievalQualityResult.insufficientEvidence(
+                    "", 0.0, "当前退款政策知识暂不可用，请稍后重试。");
+        }
+        return RetrievalQualityResult.highQuality("【退款与退货政策】\n" + content, 0.95);
+    }
+
+    private static String formatKnowledgeDocument(KnowledgeDocument document) {
+        return "【" + document.getTitle() + "】\n" + document.getContent();
+    }
+
+    /**
+     * Public policy questions are read-only knowledge lookups. Return the retrieved source text
+     * directly instead of asking the ReAct loop to decide whether an order action needs approval.
+     */
+    public String buildRefundPolicyAnswer(RetrievalQualityResult result) {
+        if (result == null || result.isRejected()
+                || result.getContent() == null || result.getContent().isBlank()) {
+            return "当前退货退款政策暂不可用，请稍后重试。";
+        }
+        String content = result.getContent().trim();
+        if (content.startsWith("【退款与退货政策】")) {
+            content = content.substring("【退款与退货政策】".length()).stripLeading();
+        }
+        return "根据当前退货退款政策：\n" + content;
     }
 
     /**

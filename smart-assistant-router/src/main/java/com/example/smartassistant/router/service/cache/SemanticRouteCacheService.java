@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.router.service.cache;
 
+import com.example.smartassistant.common.audit.TokenUsageCache;
+import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.cache.CacheVersionManager;
 import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.rag.AclContext;
@@ -981,6 +983,20 @@ public class SemanticRouteCacheService {
      */
     public void saveFullDecisionForConsumer(String requestId, String agentName,
                                            double confidence, String result, String intentTag) {
+        saveFullDecisionForConsumer(requestId, agentName, confidence, result, intentTag, null);
+    }
+
+    public void saveFullDecisionForConsumer(String requestId, String agentName,
+                                           double confidence, String result, String intentTag,
+                                           TokenUsageCache.TokenUsage tokenUsage) {
+        saveFullDecisionForConsumer(requestId, agentName, confidence, result, intentTag,
+                tokenUsage, null);
+    }
+
+    public void saveFullDecisionForConsumer(String requestId, String agentName,
+                                           double confidence, String result, String intentTag,
+                                           TokenUsageCache.TokenUsage tokenUsage,
+                                           ToolUsageCache.ToolUsage toolUsage) {
         if (requestId == null || requestId.isBlank() || redisTemplate == null) return;
         try {
             Map<String, Object> decision = new HashMap<>();
@@ -990,6 +1006,21 @@ public class SemanticRouteCacheService {
             decision.put("result", result);
             decision.put("intentTag", intentTag);  // ⭐ 新增：意图标签
             decision.put("timestamp", System.currentTimeMillis());
+            if (tokenUsage != null) {
+                if (tokenUsage.promptTokens() != null) {
+                    decision.put("promptTokens", tokenUsage.promptTokens());
+                }
+                if (tokenUsage.completionTokens() != null) {
+                    decision.put("completionTokens", tokenUsage.completionTokens());
+                }
+                if (tokenUsage.totalTokens() != null) {
+                    decision.put("totalTokens", tokenUsage.totalTokens());
+                }
+            }
+            if (toolUsage != null) {
+                decision.put("toolUsageComplete", toolUsage.complete());
+                decision.put("toolCalls", toolUsage.calls());
+            }
 
             String key = FULL_DECISION_KEY_PREFIX + requestId;  // 使用独立 key，不覆盖审计日志
             String json = objectMapper.writeValueAsString(decision);

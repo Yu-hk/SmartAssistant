@@ -68,7 +68,12 @@ export function LoginPage() {
         localStorage.removeItem('smart-assistant-remembered-username');
       }
       const requestedPath = (location.state as { from?: string } | null)?.from;
-      navigate(requestedPath || '/', { replace: true });
+      const isAdmin = user.role === 'ROLE_ADMIN';
+      const permittedRequestedPath = requestedPath
+        && (isAdmin ? requestedPath.startsWith('/admin') : !requestedPath.startsWith('/admin'))
+        ? requestedPath
+        : undefined;
+      navigate(permittedRequestedPath || (isAdmin ? '/admin/overview' : '/'), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败，请稍后重试');
     } finally {
@@ -107,7 +112,7 @@ export function LoginPage() {
         <div className="login-kicker">MULTI-AGENT CUSTOMER SERVICE</div>
         <h1>让每个客户问题，<br />都有 <span className="accent">智能体接力</span> 解决</h1>
         <p>
-          售前、订单、技术支持、投诉处理多智能体协同作业，实时洞察客户情绪与意图，
+          售前、订单、技术支持、投诉处理多智能体协同作业，按业务意图精准路由，
           全渠道接入，让服务又快又准。
         </p>
 
@@ -122,8 +127,8 @@ export function LoginPage() {
           <div className="login-value">
             <div className="lv-icon lv2"><Activity size={18} /></div>
             <div>
-              <div className="lv-t">实时会话洞察</div>
-              <div className="lv-d">客户画像、情绪、意图与知识命中一目了然</div>
+              <div className="lv-t">全链路服务追踪</div>
+              <div className="lv-d">处理状态、服务能力与知识命中清晰可见</div>
             </div>
           </div>
           <div className="login-value">

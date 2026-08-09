@@ -7,7 +7,6 @@
 
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.response.ApiResponse;
 import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.consumer.model.ChatResponse;
@@ -16,6 +15,7 @@ import com.example.smartassistant.consumer.service.cache.AnswerPersonalizationSe
 import com.example.smartassistant.consumer.service.core.ChatConsumerService;
 import com.example.smartassistant.consumer.service.session.ConversationDocumentService;
 import com.example.smartassistant.consumer.service.session.ConversationValueService;
+import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -148,6 +148,8 @@ public class ChatController {
                         map.put("fromCache", fromCache);
                         map.put("intentTag", intentTag);  // ⭐ 透传 intentTag
                         map.put("toolInvoked", toolInvoked);  // ⭐ 透传工具调用信号
+                        map.put("sessionId", routerMap.get("sessionId"));
+                        TokenUsageExtractor.extract(routerMap).copyTo(map);
                         return map;
                     });
         } else {
@@ -167,6 +169,8 @@ public class ChatController {
                         map.put("fromCache", fromCache);
                         map.put("intentTag", intentTag);
                         map.put("toolInvoked", toolInvoked);
+                        map.put("sessionId", routerMap.get("sessionId"));
+                        TokenUsageExtractor.extract(routerMap).copyTo(map);
                         return map;
                     });
         }
@@ -229,12 +233,12 @@ public class ChatController {
                         suggestions.size(),
                         endTime - startTime);
 
-                // 8. 构建响应（含 Token 用量，从 TokenUsageCache 提取）
-                TokenUsageCache.TokenUsage tokenUsage = TokenUsageCache.consume(finalRequestId);
+                // 8. 构建响应（Token 用量由 Router 跨 JVM 显式回传）
+                TokenUsageExtractor.TokenUsage tokenUsage = TokenUsageExtractor.extract(routerResponse);
                 ChatResponse chatResp = ChatResponse.builder()
                         .reply(cleanReply)
                         .suggestions(suggestions)
-                        .sessionId(sessionId)
+                        .sessionId(Objects.toString(routerResponse.get("sessionId"), sessionId))
                         .agentName((String) routerResponse.get("agentName"))
                         .intentTag((String) routerResponse.get("intentTag"))
                         .fromCache((Boolean) routerResponse.getOrDefault("fromCache", false))

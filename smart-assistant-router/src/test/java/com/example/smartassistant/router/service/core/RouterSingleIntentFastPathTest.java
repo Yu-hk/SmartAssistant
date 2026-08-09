@@ -16,6 +16,8 @@ class RouterSingleIntentFastPathTest {
         assertEquals("order", RouterService.resolveSingleIntentAgent(analysis("ORDER")));
         assertEquals("product", RouterService.resolveSingleIntentAgent(analysis("PRODUCT")));
         assertEquals("general", RouterService.resolveSingleIntentAgent(analysis("GENERAL")));
+        assertEquals("order", RouterService.resolveSingleIntentAgent(analysis("退款与售后政策")));
+        assertEquals("order", RouterService.resolveSingleIntentAgent(analysis("REFUND_POLICY")));
     }
 
     @Test

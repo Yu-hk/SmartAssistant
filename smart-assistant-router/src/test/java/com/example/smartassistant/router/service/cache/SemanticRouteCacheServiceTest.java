@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.router.service.cache;
 
+import com.example.smartassistant.common.audit.TokenUsageCache;
+import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import org.junit.jupiter.api.BeforeEach;
@@ -84,9 +86,18 @@ class SemanticRouteCacheServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         when(redisTemplate.opsForList()).thenReturn(listOps);
 
-        cacheService.saveFullDecisionForConsumer("req-1", "general", 0.95, "reply", "greeting");
+        cacheService.saveFullDecisionForConsumer("req-1", "general", 0.95, "reply", "greeting",
+                new TokenUsageCache.TokenUsage(20L, 8L, 28L),
+                new ToolUsageCache.ToolUsage(true, java.util.List.of(
+                        new ToolUsageCache.ToolCall("queryWeather", "SUCCESS", 15))));
 
-        verify(valueOps).set(eq("a2a:route:full-decision:req-1"), anyString(), eq(120L), eq(TimeUnit.SECONDS));
+        var json = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(valueOps).set(eq("a2a:route:full-decision:req-1"), json.capture(), eq(120L), eq(TimeUnit.SECONDS));
+        assertTrue(json.getValue().contains("\"promptTokens\":20"));
+        assertTrue(json.getValue().contains("\"completionTokens\":8"));
+        assertTrue(json.getValue().contains("\"totalTokens\":28"));
+        assertTrue(json.getValue().contains("\"toolUsageComplete\":true"));
+        assertTrue(json.getValue().contains("\"name\":\"queryWeather\""));
         verify(listOps).rightPush("a2a:route:full-decision:notify:req-1", "req-1");
         verify(redisTemplate).expire("a2a:route:full-decision:notify:req-1", 120L, TimeUnit.SECONDS);
     }
