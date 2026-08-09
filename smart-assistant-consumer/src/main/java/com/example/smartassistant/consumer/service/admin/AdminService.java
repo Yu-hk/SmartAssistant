@@ -111,9 +111,14 @@ public class AdminService {
 
     // ==================== 会话管理 ====================
 
-    public List<Map<String, Object>> getSessions() {
+    public List<Map<String, Object>> getSessions(Long userId, boolean admin) {
+        if (!admin && userId == null) {
+            return List.of();
+        }
         try {
-            return jdbcTemplate.queryForList(
+            String ownershipFilter = admin ? "" : "AND r.user_id = ? ";
+            String feedbackOwnership = admin ? "" : " AND f.user_id = r.user_id";
+            String sql =
                     "SELECT r.session_id as id, " +
                     "LEFT(r.user_input, 100) as title, " +
                     "r.routed_agent as intent, " +
@@ -122,39 +127,63 @@ public class AdminService {
                     "COALESCE(f.rating, 0) as satisfaction, " +
                     "COALESCE(f.feedback_text, '') as satisfaction_comment " +
                     "FROM routing_call_log r " +
-                    "LEFT JOIN conversation_feedback f ON r.session_id = f.session_id " +
+                    "LEFT JOIN conversation_feedback f ON r.session_id = f.session_id" + feedbackOwnership + " " +
                     "WHERE r.session_id IS NOT NULL " +
+                    ownershipFilter +
                     "GROUP BY r.session_id, r.user_input, r.routed_agent, r.created_at, r.status, f.rating, f.feedback_text " +
-                    "ORDER BY r.created_at DESC LIMIT 200");
+                    "ORDER BY r.created_at DESC LIMIT 200";
+            return admin
+                    ? jdbcTemplate.queryForList(sql)
+                    : jdbcTemplate.queryForList(sql, userId);
         } catch (Exception e) {
             log.warn("[Admin] 会话列表查询失败: {}", e.getMessage());
             return List.of();
         }
     }
 
-    public Map<String, Object> getSessionDetail(String sessionId) {
+    public Optional<Map<String, Object>> getSessionDetail(String sessionId, Long userId, boolean admin) {
+        if (!admin && userId == null) {
+            return Optional.empty();
+        }
         try {
-            List<Map<String, Object>> logs = jdbcTemplate.queryForList(
-                    "SELECT * FROM routing_call_log WHERE session_id = ? ORDER BY created_at",
-                    sessionId);
-            if (logs.isEmpty()) return Map.of("error", "会话不存在");
+            String sql = admin
+                    ? "SELECT * FROM routing_call_log WHERE session_id = ? ORDER BY created_at"
+                    : "SELECT * FROM routing_call_log WHERE session_id = ? AND user_id = ? ORDER BY created_at";
+            List<Map<String, Object>> logs = admin
+                    ? jdbcTemplate.queryForList(sql, sessionId)
+                    : jdbcTemplate.queryForList(sql, sessionId, userId);
+            if (logs.isEmpty()) return Optional.empty();
 
             Map<String, Object> detail = new HashMap<>();
             detail.put("sessionId", sessionId);
             detail.put("messages", logs);
-            return detail;
+            return Optional.of(detail);
         } catch (Exception e) {
             log.warn("[Admin] 会话详情查询失败: {}", e.getMessage());
-            return Map.of("error", e.getMessage());
+            return Optional.empty();
         }
     }
 
-    public boolean deleteSession(String sessionId) {
+    public boolean deleteSession(String sessionId, Long userId, boolean admin) {
+        if (!admin && userId == null) {
+            return false;
+        }
         try {
-            int deleted = jdbcTemplate.update(
-                    "DELETE FROM routing_call_log WHERE session_id = ?", sessionId);
-            jdbcTemplate.update(
-                    "DELETE FROM conversation_feedback WHERE session_id = ?", sessionId);
+            int deleted = admin
+                    ? jdbcTemplate.update("DELETE FROM routing_call_log WHERE session_id = ?", sessionId)
+                    : jdbcTemplate.update(
+                            "DELETE FROM routing_call_log WHERE session_id = ? AND user_id = ?",
+                            sessionId, userId);
+            if (deleted > 0) {
+                if (admin) {
+                    jdbcTemplate.update(
+                            "DELETE FROM conversation_feedback WHERE session_id = ?", sessionId);
+                } else {
+                    jdbcTemplate.update(
+                            "DELETE FROM conversation_feedback WHERE session_id = ? AND user_id = ?",
+                            sessionId, userId);
+                }
+            }
             log.info("[Admin] 删除会话: sessionId={}, deleted={}", sessionId, deleted);
             return deleted > 0;
         } catch (Exception e) {

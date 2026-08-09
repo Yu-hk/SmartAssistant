@@ -40,6 +40,13 @@ public class RoutingCallLog {
     private String sessionId;
 
     /**
+     * Authenticated user that owns this conversation log. Null is reserved for
+     * legacy/system rows and must never be exposed to ordinary users.
+     */
+    @TableField("user_id")
+    private Long userId;
+
+    /**
      * 用户原始输入
      */
     @TableField("user_input")
