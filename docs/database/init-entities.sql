@@ -154,6 +154,7 @@ CREATE INDEX idx_coupons_type ON user_coupons(coupon_type);
 CREATE TABLE IF NOT EXISTS routing_call_log (
     id                     BIGSERIAL PRIMARY KEY,
     session_id             VARCHAR(100),
+    user_id                BIGINT,
     user_input             TEXT,
     routed_agent           VARCHAR(100),
     route_method           VARCHAR(50),       -- keyword_match / semantic / llm_fallback
@@ -167,6 +168,8 @@ CREATE TABLE IF NOT EXISTS routing_call_log (
     created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_routing_log_session ON routing_call_log(session_id);
+CREATE INDEX idx_routing_log_user_created ON routing_call_log(user_id, created_at DESC);
+CREATE INDEX idx_routing_log_user_session ON routing_call_log(user_id, session_id);
 CREATE INDEX idx_routing_log_agent ON routing_call_log(routed_agent);
 CREATE INDEX idx_routing_log_created ON routing_call_log(created_at);
 
