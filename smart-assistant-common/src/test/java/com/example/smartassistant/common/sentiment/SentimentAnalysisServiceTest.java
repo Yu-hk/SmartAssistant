@@ -17,6 +17,7 @@ class SentimentAnalysisServiceTest {
     void analyze_thanks_shouldBePositive() {
         var result = service.analyze("谢谢");
         assertEquals(1, result.level(), "谢谢应为正面(level=1)");
+        assertEquals(95, result.confidence(), "关键词命中应返回高置信度");
         assertFalse(result.needHandoff(), "正面情绪不需要转人工");
     }
 
@@ -57,6 +58,7 @@ class SentimentAnalysisServiceTest {
     void analyze_empty_shouldBeNeutral() {
         var result = service.analyze("");
         assertEquals(2, result.level(), "空输入默认中性");
+        assertEquals(0, result.confidence(), "空输入不应伪造分析置信度");
     }
 
     @Test
@@ -71,6 +73,14 @@ class SentimentAnalysisServiceTest {
     void getTonePrefix_level5_shouldReturnHandoff() {
         String prefix = service.getTonePrefix(5);
         assertTrue(prefix.contains("转接"), "level=5 应包含转接人工");
+    }
+
+    @Test
+    @DisplayName("转人工回复不重复提示")
+    void getHandoffResponse_level5_shouldNotDuplicateHandoffText() {
+        String response = service.getHandoffResponse(5);
+        assertEquals("非常抱歉给您带来不好的体验。正在为您转接人工客服，请稍候。", response);
+        assertEquals(response.indexOf("转接人工客服"), response.lastIndexOf("转接人工客服"));
     }
 
     @Test
