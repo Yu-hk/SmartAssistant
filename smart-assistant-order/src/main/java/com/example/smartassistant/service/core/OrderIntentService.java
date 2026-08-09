@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 
+import java.util.List;
+
 /**
  * ⭐ 订单意图识别服务。
  * <p>
@@ -23,6 +25,7 @@ import com.example.smartassistant.common.rag.advisor.AiChatService;
  * <ul>
  *   <li>{@link IntentType#CREATE_ORDER} — 下单</li>
  *   <li>{@link IntentType#QUERY_ORDER} — 查询订单</li>
+ *   <li>{@link IntentType#REFUND_POLICY} — 退款/退货政策咨询</li>
  *   <li>{@link IntentType#REFUND} — 退款</li>
  *   <li>{@link IntentType#CANCEL} — 取消</li>
  *   <li>{@link IntentType#OTHER} — 其他</li>
@@ -63,6 +66,13 @@ public class OrderIntentService {
             return IntentType.OTHER;
         }
 
+        // 退款政策/条件咨询不依赖具体订单。先用确定性规则识别，避免 LLM 将
+        // “商品退货退款需要满足哪些条件”误判成需要订单号的退款操作。
+        if (isRefundPolicyQuestion(message)) {
+            log.info("[OrderIntent] 确定性识别退款政策咨询: message={}", message);
+            return IntentType.REFUND_POLICY;
+        }
+
         // P2 Prompt 外部化：prompts/order/intent-classifier.txt
         String system = promptManager.orderIntentClassifier();
 
@@ -86,6 +96,29 @@ public class OrderIntentService {
     public record IntentResult(IntentType intent) {
     }
 
+    static boolean isRefundPolicyQuestion(String message) {
+        if (message == null || message.isBlank()) return false;
+
+        boolean refundTopic = containsAny(message, List.of("退款", "退货", "退钱"));
+        if (!refundTopic) return false;
+
+        // 明确针对本人订单发起操作或查询处理进度，仍需走 REFUND 并收集订单号。
+        boolean actionOrStatus = containsAny(message, List.of(
+                "我要退款", "我想退款", "帮我退款", "给我退款", "办理退款", "发起退款",
+                "我要退货", "我想退货", "帮我退货", "给我退货", "办理退货", "发起退货",
+                "我的退款", "退款进度", "退款状态", "退款到哪", "退货进度", "退货状态"));
+        if (actionOrStatus) return false;
+
+        return containsAny(message, List.of(
+                "条件", "政策", "规则", "流程", "要求", "材料", "资格", "时效", "期限",
+                "多久到账", "多久", "多长时间", "怎么", "如何", "能不能", "是否可以",
+                "需要满足", "需要哪些", "需要什么", "几天"));
+    }
+
+    private static boolean containsAny(String value, List<String> markers) {
+        return markers.stream().anyMatch(value::contains);
+    }
+
 
     /**
      * 订单意图枚举。
@@ -93,6 +126,7 @@ public class OrderIntentService {
     public enum IntentType {
         CREATE_ORDER("下单"),
         QUERY_ORDER("查询订单"),
+        REFUND_POLICY("退款政策"),
         REFUND("退款"),
         CANCEL("取消"),
         OTHER("其他");

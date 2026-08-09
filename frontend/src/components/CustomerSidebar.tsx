@@ -9,7 +9,6 @@ interface CustomerSidebarProps {
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onSelectAgent: (name: string) => void;
-  onOpenAdmin?: () => void;
   onToggleTheme: () => void;
   isOpen?: boolean;
   onClose?: () => void;
@@ -41,7 +40,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function CustomerSidebar({
   sessions, currentSessionId, theme,
-  onNewChat, onSelectSession, onDeleteSession, onSelectAgent, onOpenAdmin, onToggleTheme,
+  onNewChat, onSelectSession, onDeleteSession, onSelectAgent, onToggleTheme,
   isOpen = false, onClose,
 }: CustomerSidebarProps) {
   return (
@@ -227,42 +226,12 @@ export function CustomerSidebar({
         borderTop: '1px solid var(--nova-border)',
         display: 'flex', gap: '8px',
       }}>
-        {onOpenAdmin && <button
-          onClick={onOpenAdmin}
-          className="glass-hover"
-          style={{
-            flex: 1, padding: '8px 12px', borderRadius: '8px',
-            border: '1px solid var(--nova-border)',
-            background: 'transparent',
-            color: 'var(--nova-text-secondary)',
-            fontSize: '12px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-            transition: 'all 0.2s',
-          }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLElement).style.color = 'var(--nova-accent)';
-            (e.currentTarget as HTMLElement).style.borderColor = 'var(--nova-accent-glow)';
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLElement).style.color = 'var(--nova-text-secondary)';
-            (e.currentTarget as HTMLElement).style.borderColor = 'var(--nova-border)';
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="7" height="7" />
-            <rect x="14" y="3" width="7" height="7" />
-            <rect x="3" y="14" width="7" height="7" />
-            <rect x="14" y="14" width="7" height="7" />
-          </svg>
-          管理后台
-        </button>}
         <button
           onClick={onToggleTheme}
           title={theme === 'light' ? '切换深色模式' : '切换浅色模式'}
           className="glass-hover"
           style={{
-            width: onOpenAdmin ? '36px' : '100%', height: '36px', borderRadius: '8px',
+            width: '100%', height: '36px', borderRadius: '8px',
             border: '1px solid var(--nova-border)',
             background: 'transparent', cursor: 'pointer', fontSize: '16px',
             display: 'flex', alignItems: 'center', justifyContent: 'center',

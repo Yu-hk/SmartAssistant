@@ -20,7 +20,7 @@ class GeneralAgentControllerWeatherRegressionTest {
         SmartReActAgent agent = mock(SmartReActAgent.class);
         GeneralAgentController controller = new GeneralAgentController(agent);
 
-        String response = controller.process(Map.of("question", "查询天气"));
+        String response = controller.process(Map.of("question", "查询天气"), null).getBody();
 
         assertTrue(response.contains("哪个城市"));
         verify(agent, never()).execute("查询天气");
@@ -32,7 +32,7 @@ class GeneralAgentControllerWeatherRegressionTest {
         when(agent.execute("北京天气")).thenReturn("北京当前晴，温度 28°C");
         GeneralAgentController controller = new GeneralAgentController(agent);
 
-        String response = controller.process(Map.of("question", "北京天气"));
+        String response = controller.process(Map.of("question", "北京天气"), null).getBody();
 
         assertEquals("北京当前晴，温度 28°C", response);
         verify(agent).execute("北京天气");
@@ -51,7 +51,7 @@ class GeneralAgentControllerWeatherRegressionTest {
                         "latitude", 39.9042,
                         "longitude", 116.4074,
                         "accuracyMeters", 1000,
-                        "capturedAt", System.currentTimeMillis())));
+                        "capturedAt", System.currentTimeMillis())), null).getBody();
 
         assertEquals("当前位置晴，温度 28°C", response);
         verify(agent).execute(argThat(question -> question.contains("不要在回答中暴露精确坐标")));

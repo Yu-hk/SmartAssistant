@@ -7,9 +7,8 @@ import { useSessions } from './hooks/useSessions';
 import { useChat } from './hooks/useChat';
 
 import { CustomerSidebar } from './components/CustomerSidebar';
-import { InsightPanel } from './components/InsightPanel';
 import { CustomerChatPage } from './pages/CustomerChatPage';
-import { AdminPage } from './pages/AdminPage';
+import { AdminApp } from './admin/AdminApp';
 import { LoginPage } from './pages/LoginPage';
 import {
   clearAuth,
@@ -135,18 +134,21 @@ function ParticleBackground() {
 // 主应用
 // ===================================================
 function App() {
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith('/admin');
+  const authenticatedLanding = getAuthUser()?.role === 'ROLE_ADMIN' ? '/admin/overview' : '/';
   return (
     <>
-      <ParticleBackground />
+      {!isAdminRoute && <ParticleBackground />}
       <Routes>
         <Route path="/login" element={
           getAuthToken()
-            ? <Navigate to="/" replace />
+            ? <Navigate to={authenticatedLanding} replace />
             : <LoginPage />
         } />
-        <Route path="/" element={<AuthRoute><AppContent /></AuthRoute>} />
-        <Route path="/chat/:sessionId" element={<AuthRoute><AppContent /></AuthRoute>} />
-        <Route path="/admin" element={<AuthRoute requireAdmin><AppContent /></AuthRoute>} />
+        <Route path="/" element={<AuthRoute audience="customer"><CustomerApp /></AuthRoute>} />
+        <Route path="/chat/:sessionId" element={<AuthRoute audience="customer"><CustomerApp /></AuthRoute>} />
+        <Route path="/admin/*" element={<AuthRoute audience="admin"><AdminApp /></AuthRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>
@@ -155,13 +157,15 @@ function App() {
 
 function AuthRoute({
   children,
-  requireAdmin = false,
+  audience,
 }: {
   children: React.ReactNode;
-  requireAdmin?: boolean;
+  audience: 'customer' | 'admin';
 }) {
   const location = useLocation();
-  const [state, setState] = useState<'checking' | 'ready' | 'unauthenticated' | 'forbidden'>('checking');
+  const [state, setState] = useState<
+    'checking' | 'ready' | 'unauthenticated' | 'wrongAudience' | 'verificationFailed'
+  >('checking');
 
   useEffect(() => {
     let active = true;
@@ -173,19 +177,21 @@ function AuthRoute({
     getCurrentUser()
       .then(profile => {
         if (!active) return;
-        setState(requireAdmin && profile.role !== 'ROLE_ADMIN' ? 'forbidden' : 'ready');
+        const isAdmin = profile.role === 'ROLE_ADMIN';
+        setState((audience === 'admin') === isAdmin ? 'ready' : 'wrongAudience');
       })
       .catch(() => {
         if (!active) return;
         const cached = getAuthUser();
         if (!getAuthToken()) setState('unauthenticated');
         // 管理路由必须服务端校验成功，不能信任可被本地修改的角色缓存。
-        else if (requireAdmin) setState('forbidden');
-        else setState('ready');
+        else if (audience === 'admin') setState('verificationFailed');
+        // 管理员缓存也不能回落到普通工作台；普通用户在 /me 短暂失败时仍可继续使用。
+        else setState(cached?.role === 'ROLE_ADMIN' ? 'verificationFailed' : 'ready');
       });
 
     return () => { active = false; };
-  }, [requireAdmin]);
+  }, [audience]);
 
   if (state === 'checking') {
     return (
@@ -198,15 +204,29 @@ function AuthRoute({
   if (state === 'unauthenticated') {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
-  if (state === 'forbidden') return <Navigate to="/" replace />;
+  if (state === 'wrongAudience') {
+    return <Navigate to={audience === 'admin' ? '/' : '/admin/overview'} replace />;
+  }
+  if (state === 'verificationFailed') {
+    return (
+      <div className="auth-loading" role="alert">
+        <span>暂时无法验证账号权限，请稍后刷新页面或重新登录。</span>
+        <button
+          type="button"
+          className="header-text-button"
+          onClick={() => { clearAuth(); window.location.replace('/login'); }}
+        >
+          重新登录
+        </button>
+      </div>
+    );
+  }
   return <>{children}</>;
 }
 
-function AppContent() {
+function CustomerApp() {
   const navigate = useNavigate();
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
-  const location = useLocation();
-  const isAdmin = location.pathname === '/admin';
   const authUser = getAuthUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -216,7 +236,6 @@ function AppContent() {
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, deleteSession, createSession, closeSession, rateSession,
-    updateSession,
   } = useSessions();
 
   const {
@@ -236,12 +255,11 @@ function AppContent() {
 
   // URL 同步
   useEffect(() => {
-    if (isAdmin) return;
     const routeSessionId = urlSessionId || null;
     setCurrentSessionId(previous =>
       previous === routeSessionId ? previous : routeSessionId
     );
-  }, [urlSessionId, isAdmin, setCurrentSessionId]);
+  }, [urlSessionId, setCurrentSessionId]);
 
   // 初始加载
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
@@ -284,25 +302,20 @@ function AppContent() {
 
   return (
     <div className="workbench-shell relative z-10">
-      {!isAdmin && (
-        <CustomerSidebar
-          sessions={sessions}
-          currentSessionId={currentSessionId}
-          theme={theme}
-          onNewChat={handleNewChat}
-          onSelectSession={handleSelectSession}
-          onDeleteSession={handleDeleteSession}
-          onSelectAgent={handleSelectAgent}
-          onOpenAdmin={getAuthUser()?.role === 'ROLE_ADMIN'
-            ? () => navigate('/admin')
-            : undefined}
-          onToggleTheme={toggleTheme}
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-        />
-      )}
+      <CustomerSidebar
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        theme={theme}
+        onNewChat={handleNewChat}
+        onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
+        onSelectAgent={handleSelectAgent}
+        onToggleTheme={toggleTheme}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
-      {!isAdmin && sidebarOpen && (
+      {sidebarOpen && (
         <button
           type="button"
           className="sidebar-backdrop"
@@ -312,10 +325,7 @@ function AppContent() {
       )}
 
       <main className="workbench-main flex-1 flex flex-col min-w-0 relative">
-        {isAdmin ? (
-          <AdminPage onBack={() => navigate('/')} />
-        ) : (
-          <>
+        <>
             <header className="workbench-header glass">
               <button
                 type="button"
@@ -388,18 +398,9 @@ function AppContent() {
               onLocationEnabledChange={setLocationEnabled}
               userName={authUser?.username}
             />
-          </>
-        )}
+        </>
       </main>
 
-      {/* 右栏 — 实时会话洞察 */}
-      {!isAdmin && currentSession && currentSession.messages.length > 0 && (
-        <InsightPanel
-          session={currentSession}
-          userName={authUser?.username}
-          userId={authUser?.userId}
-        />
-      )}
     </div>
   );
 }

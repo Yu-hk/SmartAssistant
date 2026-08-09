@@ -7,6 +7,10 @@
 
 package com.example.smartassistant.router.service.agent;
 
+import com.example.smartassistant.common.audit.TokenUsageCache;
+import com.example.smartassistant.common.audit.TokenUsageHeaders;
+import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.common.audit.ToolUsageHeaders;
 import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.quality.DomainQualityHeaders;
@@ -360,6 +364,8 @@ public class AgentCallerService {
             // 直接 HTTP POST 调用
             // 使用 URI 重载，避免 RestTemplate 再次编码已编码的 query 参数（%E6 → %25E6）。
             ResponseEntity<String> response = restTemplate.postForEntity(processUri, entity, String.class);
+            recordDownstreamTokenUsage(requestId, response.getHeaders());
+            recordDownstreamToolUsage(requestId, response.getHeaders());
 
             String result = response.getBody();
             if (result == null || result.isBlank()) {
@@ -378,8 +384,45 @@ public class AgentCallerService {
             return new AgentCallResult(result, List.of(), Map.of(), domainQuality);
 
         } catch (Exception e) {
+            TokenUsageCache.markIncomplete(requestId);
+            ToolUsageCache.markIncomplete(requestId);
             log.error("[AgentCaller] HTTP 直调失败: {}, 错误: {}", agentName, e.getMessage(), e);
             return new AgentCallResult("❌ 调用 Agent 失败: " + e.getMessage());
+        }
+    }
+
+    static void recordDownstreamTokenUsage(String requestId, HttpHeaders headers) {
+        Long prompt = parseTokenHeader(headers.getFirst(TokenUsageHeaders.PROMPT_TOKENS));
+        Long completion = parseTokenHeader(headers.getFirst(TokenUsageHeaders.COMPLETION_TOKENS));
+        Long total = parseTokenHeader(headers.getFirst(TokenUsageHeaders.TOTAL_TOKENS));
+        if (total == null && prompt != null && completion != null) {
+            total = prompt > Long.MAX_VALUE - completion ? Long.MAX_VALUE : prompt + completion;
+        }
+        if (total == null) {
+            TokenUsageCache.markIncomplete(requestId);
+            return;
+        }
+        TokenUsageCache.recordPartial(requestId, java.util.UUID.randomUUID().toString(),
+                prompt, completion, total);
+    }
+
+    static void recordDownstreamToolUsage(String requestId, HttpHeaders headers) {
+        ToolUsageCache.ToolUsage usage = ToolUsageHeaders.decode(
+                headers.getFirst(ToolUsageHeaders.TOOL_USAGE));
+        if (usage == null) {
+            ToolUsageCache.markIncomplete(requestId);
+            return;
+        }
+        ToolUsageCache.merge(requestId, usage);
+    }
+
+    private static Long parseTokenHeader(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            long parsed = Long.parseLong(value);
+            return parsed >= 0 ? parsed : null;
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 

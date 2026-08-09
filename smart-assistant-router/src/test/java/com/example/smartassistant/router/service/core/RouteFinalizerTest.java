@@ -184,6 +184,24 @@ class RouteFinalizerTest {
     }
 
     @Test
+    void missingOrderIdClarificationIsNotCachedOrRejectedByQuality() {
+        RoutingResult routing = result(
+                "抱歉，暂时无法回答您的问题。 请提供订单号（格式：ORD-xxx）以便查询退款信息。");
+        routing.setDomainQuality(DomainQualityResult.pass(1.0, "SAFE_NO_EVIDENCE_RESPONSE"));
+
+        RoutingResult finalized = finalizer.finalizeRouting(
+                routing, request(), "查询退款进度", null);
+
+        assertEquals(true, finalized.getClarification());
+        verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
+        verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
+        verify(semanticCache, never()).saveDecision(anyString(), anyString(), anyString(),
+                anyDouble(), anyLong(), anyString(), anyString());
+        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(badCaseMinerService, never()).recordQualityFailure(any(), anyString());
+    }
+
+    @Test
     void deviceLocationWeatherIsNeverStoredInSemanticCacheOrExperience() {
         RouteRequest locationRequest = RouteRequest.builder()
                 .userId(7L)

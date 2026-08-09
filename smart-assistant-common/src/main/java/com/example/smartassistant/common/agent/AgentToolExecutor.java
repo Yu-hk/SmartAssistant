@@ -1,5 +1,6 @@
 package com.example.smartassistant.common.agent;
 
+import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.AgentException;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
@@ -8,6 +9,7 @@ import com.example.smartassistant.common.gateway.tool.meta.GapClarificationServi
 import com.example.smartassistant.common.gateway.tool.meta.ToolGapEvent;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.observability.OpsMetrics;
+import com.example.smartassistant.common.tool.ToolLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -95,8 +97,10 @@ public class AgentToolExecutor {
             List<AssistantMessage.ToolCall> toolCalls,
             Map<String, ToolCallback> toolMap) {
 
+        String requestId = ToolLogContext.getRequestId();
+
         if (!parallelExecution || toolCalls.size() <= 1) {
-            return executeSequential(toolCalls, toolMap);
+            return executeSequential(toolCalls, toolMap, requestId);
         }
 
         log.info("[AgentToolExecutor] 并行执行 {} 个工具 (最大并发 {})", toolCalls.size(), profile.maxConcurrency());
@@ -107,7 +111,7 @@ public class AgentToolExecutor {
                 try {
                     toolConcurrencyLimiter.acquire();
                     try {
-                        return executeWithRetry(tc, toolMap);
+                        return executeWithRetry(tc, toolMap, requestId);
                     } finally {
                         toolConcurrencyLimiter.release();
                     }
@@ -141,7 +145,7 @@ public class AgentToolExecutor {
             }
         } catch (Exception e) {
             log.error("[AgentToolExecutor] 并行执行异常: {}", e.getMessage());
-            return executeSequential(toolCalls, toolMap);
+            return executeSequential(toolCalls, toolMap, requestId);
         }
 
         return results;
@@ -151,11 +155,12 @@ public class AgentToolExecutor {
 
     private List<ToolResponseMessage.ToolResponse> executeSequential(
             List<AssistantMessage.ToolCall> toolCalls,
-            Map<String, ToolCallback> toolMap) {
+            Map<String, ToolCallback> toolMap,
+            String requestId) {
 
         List<ToolResponseMessage.ToolResponse> results = new ArrayList<>();
         for (var tc : toolCalls) {
-            results.add(executeWithRetry(tc, toolMap));
+            results.add(executeWithRetry(tc, toolMap, requestId));
         }
         return results;
     }
@@ -166,6 +171,22 @@ public class AgentToolExecutor {
      * 执行单个工具调用并自动重试（基于 ErrorRecoveryService 表驱动决策）。
      */
     private ToolResponseMessage.ToolResponse executeWithRetry(
+            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap, String requestId) {
+        long startedAt = System.currentTimeMillis();
+        ToolResponseMessage.ToolResponse response;
+        ToolLogContext.enterExecutorManagedCall();
+        try {
+            response = executeWithRetryInternal(tc, toolMap);
+        } finally {
+            ToolLogContext.exitExecutorManagedCall();
+        }
+        boolean success = response != null && extractErrorCode(response.responseData()) == null;
+        ToolUsageCache.record(requestId, tc.name(), success,
+                System.currentTimeMillis() - startedAt);
+        return response;
+    }
+
+    private ToolResponseMessage.ToolResponse executeWithRetryInternal(
             AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap) {
 
         ToolCallback callback = toolMap.get(tc.name());

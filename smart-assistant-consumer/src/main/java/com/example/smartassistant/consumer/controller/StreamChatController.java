@@ -7,13 +7,16 @@
 
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.common.sse.SseEvent;
 import com.example.smartassistant.common.sse.SseEventBus;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;
+import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
+import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
+import com.example.smartassistant.consumer.service.infrastructure.ToolUsageExtractor;
+import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -51,16 +54,19 @@ public class StreamChatController {
     private final AgentStreamClient agentStreamClient;
     private final StringRedisTemplate redisTemplate;
     private final RequestQueueService requestQueueService;
+    private final RoutingCallLogService routingCallLogService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public StreamChatController(
             RouterClient routerClient,
             AgentStreamClient agentStreamClient,
             RequestQueueService requestQueueService,
+            RoutingCallLogService routingCallLogService,
             @Autowired(required = false) StringRedisTemplate redisTemplate) {
         this.routerClient = routerClient;
         this.agentStreamClient = agentStreamClient;
         this.requestQueueService = requestQueueService;
+        this.routingCallLogService = routingCallLogService;
         this.redisTemplate = redisTemplate;
     }
 
@@ -88,6 +94,8 @@ public class StreamChatController {
             DeviceLocation deviceLocation,
             HttpServletResponse response) {
 
+        long startedAt = System.currentTimeMillis();
+
         logger.info("[StreamChat] 流式请求: messageLength={}, requestId={}, priority={}",
                 message != null ? message.length() : 0, requestId, priority);
 
@@ -107,11 +115,15 @@ public class StreamChatController {
         Map<String, Object> decision = getRoutingDecision(
                 requestId, sessionId, message, deviceLocation, bus);
         if (decision == null || !decision.containsKey("agentName")) {
+            persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                    message, "unknown", null, startedAt, "FAILED");
             bus.sendError("路由决策获取失败，请稍后重试");
             return;
         }
 
         String agentName = (String) decision.get("agentName");
+        TokenUsageExtractor.TokenUsage tokenUsage = TokenUsageExtractor.extract(decision);
+        ToolUsageCache.ToolUsage toolUsage = ToolUsageExtractor.extract(decision);
         Double confidence = (Double) decision.getOrDefault("confidence", 0.0);
         logger.info("[StreamChat] 路由: agentName={}, confidence={}", agentName, confidence);
         // 对齐前端 useChat 期望的 init 事件（带 sessionId/intent），保证消息块正确挂载
@@ -137,9 +149,13 @@ public class StreamChatController {
                         "agentName", agentName,
                         "sessionId", decisionKey != null ? decisionKey : ""));
                 bus.send(SseEvent.raw("response", responseJson));
-                injectTokenUsageEvent(bus, requestId);
+                injectTokenUsageEvent(bus, tokenUsage);
                 bus.sendDone();
+                persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                        message, agentName, result, startedAt, "SUCCESS", tokenUsage, toolUsage);
             } catch (Exception e) {
+                persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                        message, agentName, null, startedAt, "FAILED");
                 logger.error("[StreamChat] 路由结果序列化失败: {}", e.getMessage());
                 bus.sendError("响应生成失败，请稍后重试");
             } finally {
@@ -154,49 +170,65 @@ public class StreamChatController {
             Long eventCount = redisTemplate.opsForList().size(eventsKey);
             if (eventCount != null && eventCount > 0) {
                 logger.info("[StreamChat] 多 Agent SSE: {} 条", eventCount);
-                forwardRedisEvents(bus, eventsKey);
+                boolean forwarded = forwardRedisEvents(bus, eventsKey);
+                injectTokenUsageEvent(bus, tokenUsage);
+                bus.sendDone();
+                persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                        message, agentName, null, startedAt, forwarded ? "SUCCESS" : "FAILED",
+                        tokenUsage, toolUsage);
                 return;
             }
         }
 
         // 流式支持检查
         if (!agentStreamClient.isStreamingSupported(agentName)) {
+            persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                    message, agentName, null, startedAt, "FAILED");
             bus.sendError("Agent 不支持流式响应");
             return;
         }
 
         // 排队
         if (decisionKey != null && !decisionKey.isBlank()) {
-            if (!handleQueue(decisionKey, priority, bus)) return;
+            if (!handleQueue(decisionKey, priority, bus)) {
+                persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                        message, agentName, null, startedAt, "FAILED");
+                return;
+            }
         }
 
         // 转发 Agent SSE
         String agentUrl = agentStreamClient.getStreamUrl(agentName)
                 + "?message=" + encodeUrl(message) + "&showThinking=" + showThinking;
         try {
-            forwardAgentStream(bus, agentUrl);
-            // ⭐ 流结束后发送 token 用量事件
-            injectTokenUsageEvent(bus, requestId);
+            SseEventBus.ForwardResult forwardResult = forwardAgentStream(bus, agentUrl, decisionKey);
+            TokenUsageExtractor.TokenUsage combinedUsage = TokenUsageExtractor.merge(
+                    tokenUsage,
+                    new TokenUsageExtractor.TokenUsage(
+                            forwardResult.promptTokens(),
+                            forwardResult.completionTokens(),
+                            forwardResult.totalTokens()));
+            injectTokenUsageEvent(bus, combinedUsage);
+            bus.sendDone();
+            persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                    message, agentName, null, startedAt,
+                    forwardResult.success() ? "SUCCESS" : "FAILED", combinedUsage, toolUsage);
         } finally {
             if (decisionKey != null && !decisionKey.isBlank()) {
                 requestQueueService.complete(decisionKey);
             }
+            bus.close();
         }
     }
 
-    /**
-     * ⭐ 从 {@link TokenUsageCache} 提取 token 用量并以 SSE 事件发送。
-     */
-    private void injectTokenUsageEvent(SseEventBus bus, String requestId) {
-        var tokenUsage = TokenUsageCache.consume(requestId);
-        if (tokenUsage == null) return;
+    /** Emits the Router-provided token snapshot without consuming local state. */
+    private void injectTokenUsageEvent(SseEventBus bus, TokenUsageExtractor.TokenUsage tokenUsage) {
+        if (tokenUsage == null || !tokenUsage.tracked()) return;
         try {
-            String json = objectMapper.writeValueAsString(Map.of(
-                    "type", "token_usage",
-                    "promptTokens", tokenUsage.promptTokens(),
-                    "completionTokens", tokenUsage.completionTokens(),
-                    "totalTokens", tokenUsage.totalTokens()
-            ));
+            Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("type", "token_usage");
+            tokenUsage.copyTo(payload);
+            String json = objectMapper.writeValueAsString(payload);
             bus.send(SseEvent.raw("token_usage", json));
             log.info("[StreamChat] Token 用量已回传: {}", json);
         } catch (Exception e) {
@@ -300,13 +332,17 @@ public class StreamChatController {
         }
     }
 
-    private void forwardAgentStream(SseEventBus bus, String agentUrl) {
+    private SseEventBus.ForwardResult forwardAgentStream(
+            SseEventBus bus, String agentUrl, String requestId) {
         try {
             URI uri = new URI(agentUrl);
             HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
             conn.setRequestMethod("GET");
             conn.setRequestProperty("Accept", "text/event-stream");
             conn.setRequestProperty("Cache-Control", "no-cache");
+            if (requestId != null && !requestId.isBlank()) {
+                conn.setRequestProperty("X-Request-Id", requestId);
+            }
             conn.setConnectTimeout(30000);
             conn.setReadTimeout(3600000);
 
@@ -321,23 +357,79 @@ public class StreamChatController {
                 logger.warn("[StreamChat] 设置 Authorization 失败: {}", e.getMessage());
             }
             conn.connect();
-            bus.forwardStream(conn);
+            return bus.forwardStreamCapturingUsage(conn);
         } catch (Exception e) {
             logger.error("[StreamChat] 转发失败: {}", e.getMessage());
             bus.sendError(e.getMessage());
+            return new SseEventBus.ForwardResult(false, null, null, null);
         }
     }
 
-    private void forwardRedisEvents(SseEventBus bus, String eventsKey) {
+    private void persistStreamLog(String rawUserId, String sessionId, String message,
+                                  String agentName, String responseSummary,
+                                  long startedAt, String status) {
+        persistStreamLog(rawUserId, sessionId, message, agentName, responseSummary,
+                startedAt, status, TokenUsageExtractor.TokenUsage.unknown());
+    }
+
+    private void persistStreamLog(String rawUserId, String sessionId, String message,
+                                  String agentName, String responseSummary,
+                                  long startedAt, String status,
+                                  TokenUsageExtractor.TokenUsage tokenUsage) {
+        persistStreamLog(rawUserId, sessionId, message, agentName, responseSummary,
+                startedAt, status, tokenUsage, null);
+    }
+
+    private void persistStreamLog(String rawUserId, String sessionId, String message,
+                                  String agentName, String responseSummary,
+                                  long startedAt, String status,
+                                  TokenUsageExtractor.TokenUsage tokenUsage,
+                                  ToolUsageCache.ToolUsage toolUsage) {
+        Long userId = null;
+        try {
+            if (rawUserId != null && !rawUserId.isBlank()
+                    && !"anonymous".equalsIgnoreCase(rawUserId)) {
+                userId = Long.valueOf(rawUserId);
+            }
+        } catch (NumberFormatException ignored) {
+        }
+        routingCallLogService.saveLog(
+                userId,
+                sessionId,
+                message,
+                agentName == null || agentName.isBlank() ? "unknown" : agentName,
+                "STREAM_ROUTER_SERVICE",
+                System.currentTimeMillis() - startedAt,
+                status,
+                responseSummary,
+                tokenUsage.promptTokens(),
+                tokenUsage.completionTokens(),
+                tokenUsage.totalTokens(),
+                message,
+                toolUsage);
+    }
+
+    private String effectiveSessionId(String requestedSessionId, String decisionKey) {
+        return requestedSessionId != null && !requestedSessionId.isBlank()
+                ? requestedSessionId : decisionKey;
+    }
+
+    private boolean forwardRedisEvents(SseEventBus bus, String eventsKey) {
         try {
             while (true) {
                 String json = redisTemplate.opsForList().leftPop(eventsKey);
                 if (json == null) break;
-                bus.send(SseEvent.raw(extractType(json), json));
+                String type = extractType(json);
+                // The Consumer owns the terminal event so token_usage is always
+                // emitted before exactly one done event.
+                if (!"done".equals(type)) {
+                    bus.send(SseEvent.raw(type, json));
+                }
             }
-            bus.sendDone();
+            return true;
         } catch (Exception e) {
             logger.error("[StreamChat] Redis 事件转发失败: {}", e.getMessage());
+            return false;
         }
     }
 

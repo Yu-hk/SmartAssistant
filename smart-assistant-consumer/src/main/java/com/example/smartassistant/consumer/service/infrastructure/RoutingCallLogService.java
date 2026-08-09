@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.consumer.service.infrastructure;
 
+import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.common.audit.ToolUsageHeaders;
 import com.example.smartassistant.consumer.entity.RoutingCallLog;
 import com.example.smartassistant.consumer.mapper.RoutingCallLogMapper;
 import org.slf4j.Logger;
@@ -35,6 +37,43 @@ public class RoutingCallLogService {
     @Async("asyncRouteExecutor")
     public void saveLog(Long userId, String sessionId, String userInput, String routedAgent,
                        String routeMethod, Long latencyMs, String status) {
+        saveLog(userId, sessionId, userInput, routedAgent, routeMethod,
+                latencyMs, status, null);
+    }
+
+    /**
+     * Persist a completed chat turn, including the actual routed capability and
+     * a bounded response body used by session detail views.
+     */
+    @Async("asyncRouteExecutor")
+    public void saveLog(Long userId, String sessionId, String userInput, String routedAgent,
+                        String routeMethod, Long latencyMs, String status,
+                        String responseSummary) {
+        saveLog(userId, sessionId, userInput, routedAgent, routeMethod, latencyMs,
+                status, responseSummary, null, null, null);
+    }
+
+    /**
+     * Persist a completed turn with nullable provider-reported token usage.
+     * Null represents unknown/uncollected telemetry; measured zero is retained.
+     */
+    @Async("asyncRouteExecutor")
+    public void saveLog(Long userId, String sessionId, String userInput, String routedAgent,
+                        String routeMethod, Long latencyMs, String status,
+                        String responseSummary, Long promptTokens,
+                        Long completionTokens, Long totalTokens) {
+        saveLog(userId, sessionId, userInput, routedAgent, routeMethod, latencyMs,
+                status, responseSummary, promptTokens, completionTokens, totalTokens,
+                null, null);
+    }
+
+    /** Persist the effective prompt and argument-free tool invocation telemetry. */
+    @Async("asyncRouteExecutor")
+    public void saveLog(Long userId, String sessionId, String userInput, String routedAgent,
+                        String routeMethod, Long latencyMs, String status,
+                        String responseSummary, Long promptTokens,
+                        Long completionTokens, Long totalTokens,
+                        String effectivePrompt, ToolUsageCache.ToolUsage toolUsage) {
         try {
             RoutingCallLog callLog = new RoutingCallLog();
             callLog.setUserId(userId);
@@ -44,6 +83,12 @@ public class RoutingCallLogService {
             callLog.setRouteMethod(routeMethod);
             callLog.setLatencyMs(latencyMs);
             callLog.setStatus(status);
+            callLog.setResponseSummary(truncate(responseSummary, 500));
+            callLog.setPromptTokens(nonNegative(promptTokens));
+            callLog.setCompletionTokens(nonNegative(completionTokens));
+            callLog.setTotalTokens(nonNegative(totalTokens));
+            callLog.setLlmReceivedQuestion(PromptAuditSanitizer.sanitize(effectivePrompt));
+            callLog.setToolCalls(ToolUsageHeaders.encode(toolUsage));
             
             callLogMapper.insert(callLog);
             log.debug("[RoutingCallLog] 日志保存成功: userId={}, sessionId={}, agent={}",
@@ -57,5 +102,16 @@ public class RoutingCallLogService {
                 log.error("[RoutingCallLog] 日志保存失败: {}", e.getMessage());
             }
         }
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
+    }
+
+    private Long nonNegative(Long value) {
+        return value != null && value >= 0 ? value : null;
     }
 }

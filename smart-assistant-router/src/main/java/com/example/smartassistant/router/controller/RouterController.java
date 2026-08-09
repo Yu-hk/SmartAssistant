@@ -2,6 +2,8 @@ package com.example.smartassistant.router.controller;
 
 import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.AgentExecutionState;
+import com.example.smartassistant.common.audit.TokenUsageCache;
+import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.response.ApiResponse;
 import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.router.model.RouteRequest;
@@ -59,6 +61,7 @@ public class RouterController {
         String threadId = extractThreadId(request.getQuestion());
 
         tracingService.startTrace(requestId, threadId);
+        ToolUsageCache.start(requestId);
         tracingService.injectToLog("收到路由请求: userId=" + request.getUserId());
 
         log.info("[Router API] 收到路由请求: userId={}, question={}, requestId={}",
@@ -68,6 +71,8 @@ public class RouterController {
 
         RoutingResult routingResult = routerService.route(request);
         routerService.recordConversation(request, routingResult);
+        TokenUsageCache.TokenUsage tokenUsage = TokenUsageCache.consume(requestId);
+        ToolUsageCache.ToolUsage toolUsage = ToolUsageCache.consume(requestId);
         long latency = System.currentTimeMillis() - startTime;
 
         RouteResponse response = RouteResponse.builder()
@@ -77,6 +82,12 @@ public class RouterController {
                 .routingMethod("LLM_ROUTING")
                 .intentTag(routingResult.getIntentTag())
                 .fromCache(routingResult.getFromCache() != null && routingResult.getFromCache())
+                .clarification(Boolean.TRUE.equals(routingResult.getClarification()))
+                .promptTokens(tokenUsage != null ? tokenUsage.promptTokens() : null)
+                .completionTokens(tokenUsage != null ? tokenUsage.completionTokens() : null)
+                .totalTokens(tokenUsage != null ? tokenUsage.totalTokens() : null)
+                .toolUsageComplete(toolUsage != null ? toolUsage.complete() : null)
+                .toolCalls(toolUsage != null ? toolUsage.calls() : null)
                 .build();
 
         log.info("[Router API] 路由完成: latency={}ms, resultLength={}, agent={}",
@@ -205,6 +216,7 @@ public class RouterController {
                 .result(routingResult.getResult())
                 .confidence(routingResult.getConfidence() != null ? routingResult.getConfidence() : 0.9)
                 .routingMethod("LLM_ROUTING")
+                .clarification(Boolean.TRUE.equals(routingResult.getClarification()))
                 .build();
 
         log.info("[Router Test API] 测试路由完成: latency={}ms, resultLength={}",
