@@ -881,12 +881,34 @@ public class RouterService {
 
     private static String resolveAgentForCategory(String category) {
         if (category == null) return null;
-        return switch (category.trim().toUpperCase(Locale.ROOT)) {
+        String normalized = category.trim().toUpperCase(Locale.ROOT);
+        String exact = switch (normalized) {
             case "ORDER" -> "order";
             case "PRODUCT" -> "product";
             case "GENERAL" -> "general";
             default -> null;
         };
+        if (exact != null) return exact;
+
+        // Rule/fusion routes may use localized business labels instead of the three canonical
+        // enum names. Normalize clear single-domain labels so they do not fall through to the
+        // expensive collaborative planner (which can outlive the SSE idle timeout).
+        if (normalized.contains("ORDER") || normalized.contains("REFUND")
+                || normalized.contains("LOGISTICS") || normalized.contains("AFTER_SALES")
+                || category.contains("订单") || category.contains("退款")
+                || category.contains("退货") || category.contains("物流")
+                || category.contains("售后")) {
+            return "order";
+        }
+        if (normalized.contains("PRODUCT") || category.contains("商品")
+                || category.contains("产品") || category.contains("推荐")) {
+            return "product";
+        }
+        if (normalized.contains("GENERAL") || category.contains("通用")
+                || category.contains("天气") || category.contains("搜索")) {
+            return "general";
+        }
+        return null;
     }
 
     private void loadConversationHistoryFromRedis(Map<String, Object> context, String sessionId) {

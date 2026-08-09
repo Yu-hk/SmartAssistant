@@ -94,6 +94,22 @@ public class RoutingCallLog {
     @TableField("latency_ms")
     private Long latencyMs;
 
+    /** Provider-reported input tokens. Null means telemetry was not captured. */
+    @TableField("prompt_tokens")
+    private Long promptTokens;
+
+    /** Provider-reported output tokens. Null means telemetry was not captured. */
+    @TableField("completion_tokens")
+    private Long completionTokens;
+
+    /** Provider-reported total tokens. Zero is a valid measured value. */
+    @TableField("total_tokens")
+    private Long totalTokens;
+
+    /** JSON tool telemetry wrapper; null denotes historical/uncollected data. */
+    @TableField("tool_calls")
+    private String toolCalls;
+
     /**
      * 状态: SUCCESS / FAILED / TIMEOUT
      */

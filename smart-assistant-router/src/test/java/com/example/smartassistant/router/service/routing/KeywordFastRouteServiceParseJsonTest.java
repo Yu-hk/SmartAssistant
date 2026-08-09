@@ -82,4 +82,25 @@ class KeywordFastRouteServiceParseJsonTest {
     void nonArrayReturnsEmpty() {
         assertTrue(service.parseJsonRules("{\"foo\":\"bar\"}").isEmpty());
     }
+
+    @Test
+    @DisplayName("商品退货条件应视为售后政策咨询而不是商品+退款多意图")
+    void refundPolicyWithGenericProductNounRoutesToOrder() {
+        service.init();
+
+        KeywordFastRouteService.MatchResult result =
+                service.match("商品退货退款需要满足哪些条件？");
+
+        assertNotNull(result);
+        assertEquals("order", result.getTargetAgent());
+        assertEquals("退款与售后政策", result.getIntentTag());
+    }
+
+    @Test
+    @DisplayName("退款与具体商品推荐同时出现时仍按多意图处理")
+    void refundAndSpecificProductRecommendationKeepsMultiIntent() {
+        service.init();
+
+        assertEquals(null, service.match("帮我退款并推荐一款有货的耳机"));
+    }
 }

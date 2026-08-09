@@ -86,6 +86,17 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
                     String userId = jwtUtil.getUserIdFromToken(token);
                     String username = jwtUtil.getUsernameFromToken(token);
                     String role = jwtUtil.getRoleFromToken(token);
+
+                    // Administration routes are authorized centrally at the
+                    // trust boundary. Downstream controllers repeat this exact
+                    // role check as defense in depth, but a non-admin request
+                    // must never be forwarded to a management service.
+                    if (isAdminOnlyPath(path) && !"ROLE_ADMIN".equals(role)) {
+                        log.warn("[JWT] Rejected non-admin request to management path: path={}, role={}",
+                                path, role);
+                        return forbiddenResponse(exchange,
+                                "Administrator privileges are required");
+                    }
                     
                     // 将用户信息添加到请求头中传递给下游服务
                     ServerHttpRequest authenticatedRequest = request.mutate()
@@ -142,6 +153,34 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
         }
         return false;
     }
+
+    /**
+     * New administration APIs plus the compatibility management aliases that
+     * remain temporarily available to the previous frontend.
+     */
+    private boolean isAdminOnlyPath(String path) {
+        // Authenticated customer traffic may report that a suggested FAQ was
+        // opened. Only this counter endpoint is shared; FAQ CRUD stays admin-only.
+        if (path.matches("^/(?:assistant/)?api/faq/[^/]+/hit$")) {
+            return false;
+        }
+        return path.equals("/api/admin")
+                || path.startsWith("/api/admin/")
+                || path.equals("/assistant/api/admin")
+                || path.startsWith("/assistant/api/admin/")
+                || path.equals("/api/stats")
+                || path.equals("/api/faq")
+                || path.startsWith("/api/faq/")
+                || path.equals("/api/check-login")
+                || path.equals("/api/save-env-config")
+                || path.equals("/api/analytics")
+                || path.startsWith("/api/analytics/")
+                || path.equals("/api/prompt-monitoring")
+                || path.startsWith("/api/prompt-monitoring/")
+                || path.equals("/api/monitor")
+                || path.startsWith("/api/monitor/")
+                || path.equals("/api/math/cache/stats");
+    }
     
     /**
      * 返回 401 未授权响应
@@ -158,6 +197,17 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
         response.getHeaders().add(HttpHeaders.CONTENT_TYPE, "application/json");
         response.getHeaders().setContentLength(bytes.length);
         
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
+    }
+
+    private Mono<Void> forbiddenResponse(ServerWebExchange exchange, String message) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(HttpStatus.FORBIDDEN);
+        String body = String.format("{\"error\":\"Forbidden\",\"message\":\"%s\"}",
+                message.replace("\"", "\\\"").replace("\n", "\\n"));
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        response.getHeaders().set(HttpHeaders.CONTENT_TYPE, "application/json");
+        response.getHeaders().setContentLength(bytes.length);
         return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
     }
 

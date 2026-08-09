@@ -7,6 +7,10 @@
 
 package com.example.smartassistant.controller;
 
+import com.example.smartassistant.common.audit.TokenUsageCache;
+import com.example.smartassistant.common.audit.TokenUsageHeaders;
+import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.common.audit.ToolUsageHeaders;
 import com.example.smartassistant.common.quality.DomainAgentResponse;
 import com.example.smartassistant.common.quality.DomainQualityHeaders;
 import com.example.smartassistant.service.agent.StreamingProductAgentService;
@@ -53,7 +57,8 @@ public class ProductStreamController {
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<org.springframework.http.codec.ServerSentEvent<String>> streamChat(
             @RequestParam String message,
-            @RequestParam(required = false, defaultValue = "true") boolean showThinking) {
+            @RequestParam(required = false, defaultValue = "true") boolean showThinking,
+            @RequestHeader(value = "X-Request-Id", required = false) String requestId) {
 
         log.info("[ProductStream] 开始流式对话: message={}, showThinking={}", message, showThinking);
 
@@ -77,6 +82,8 @@ public class ProductStreamController {
 
                 // 5. 发送最终回复
                 sink.next(createSSEEvent("response", 0, result));
+                var usageEvent = createTokenUsageEvent(requestId);
+                if (usageEvent != null) sink.next(usageEvent);
 
                 // 6. 发送完成信号
                 sink.next(createSSEEvent("done", 0, null));
@@ -85,6 +92,8 @@ public class ProductStreamController {
                 log.info("[ProductStream] 流式对话完成");
 
             } catch (Exception e) {
+                var usageEvent = createTokenUsageEvent(requestId);
+                if (usageEvent != null) sink.next(usageEvent);
                 log.error("[ProductStream] 流式对话异常: {}", e.getMessage(), e);
                 sink.next(createSSEEvent("error", 0, "处理失败: " + e.getMessage()));
                 sink.next(createSSEEvent("done", 0, null));
@@ -101,12 +110,27 @@ public class ProductStreamController {
             @RequestParam String message,
             @RequestHeader(value = "X-Request-Id", required = false) String requestId) {
         log.info("[ProductStream] 同步对话: {}", message);
+        ToolUsageCache.start(requestId);
         DomainAgentResponse response = streamingAgentService.executeWithQuality(message, requestId);
-        return ResponseEntity.ok()
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(DomainQualityHeaders.STATUS, response.quality().getStatus().name())
                 .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().getScore()))
-                .header(DomainQualityHeaders.REASON_CODES, response.quality().reasonCodesHeaderValue())
-                .body(response.answer());
+                .header(DomainQualityHeaders.REASON_CODES, response.quality().reasonCodesHeaderValue());
+        TokenUsageCache.TokenUsage usage = TokenUsageCache.consume(requestId);
+        if (usage != null) {
+            if (usage.promptTokens() != null) {
+                builder.header(TokenUsageHeaders.PROMPT_TOKENS, String.valueOf(usage.promptTokens()));
+            }
+            if (usage.completionTokens() != null) {
+                builder.header(TokenUsageHeaders.COMPLETION_TOKENS, String.valueOf(usage.completionTokens()));
+            }
+            if (usage.totalTokens() != null) {
+                builder.header(TokenUsageHeaders.TOTAL_TOKENS, String.valueOf(usage.totalTokens()));
+            }
+        }
+        String toolUsage = ToolUsageHeaders.encode(ToolUsageCache.consume(requestId));
+        if (toolUsage != null) builder.header(ToolUsageHeaders.TOOL_USAGE, toolUsage);
+        return builder.body(response.answer());
     }
 
     /**
@@ -148,6 +172,24 @@ public class ProductStreamController {
     /**
      * 转义 JSON 特殊字符
      */
+    private org.springframework.http.codec.ServerSentEvent<String> createTokenUsageEvent(String requestId) {
+        TokenUsageCache.TokenUsage usage = TokenUsageCache.consume(requestId);
+        if (usage == null || usage.totalTokens() == null) return null;
+
+        StringBuilder json = new StringBuilder("{\"type\":\"token_usage\"");
+        if (usage.promptTokens() != null) {
+            json.append(",\"promptTokens\":").append(usage.promptTokens());
+        }
+        if (usage.completionTokens() != null) {
+            json.append(",\"completionTokens\":").append(usage.completionTokens());
+        }
+        json.append(",\"totalTokens\":").append(usage.totalTokens()).append('}');
+        return org.springframework.http.codec.ServerSentEvent.<String>builder()
+                .event("token_usage")
+                .data(json.toString())
+                .build();
+    }
+
     private String escapeJson(String str) {
         if (str == null) return "";
         return str

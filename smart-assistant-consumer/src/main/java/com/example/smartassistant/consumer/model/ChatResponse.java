@@ -50,9 +50,9 @@ public class ChatResponse {
     private Long durationMs;
 
     /** ⭐ LLM 调用 token 用量（prompt tokens） */
-    private Integer promptTokens;
+    private Long promptTokens;
     /** ⭐ LLM 调用 token 用量（completion tokens） */
-    private Integer completionTokens;
+    private Long completionTokens;
     /** ⭐ LLM 调用 token 用量（total tokens） */
-    private Integer totalTokens;
+    private Long totalTokens;
 }

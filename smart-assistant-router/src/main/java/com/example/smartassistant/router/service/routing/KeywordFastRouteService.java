@@ -211,6 +211,10 @@ public class KeywordFastRouteService {
                     //    同 Agent 下多关键词（如"退款+订单号"）不视为多意图
                     KeywordRule second = activeRules.get(i);
                     if (!second.getTargetAgent().equals(activeRules.get(firstIndex).getTargetAgent())) {
+                        if (isGenericProductNounOverlap(
+                                activeRules.get(firstIndex), second, normalized)) {
+                            continue;
+                        }
                         log.info("[KeywordFastRoute] ⚠️ 多意图问题跳过快车道: "
                                         + "first={}(agent={}), second={}(agent={}), question={}",
                                 activeRules.get(firstIndex).getName(),
@@ -229,6 +233,24 @@ public class KeywordFastRouteService {
                     firstMatch.intentTag, truncate(question, 50));
         }
         return firstMatch;
+    }
+
+    /**
+     * “商品退货条件”中的“商品”只是退款对象，不代表额外的商品查询意图。
+     * 只有同时出现价格、库存、推荐等具体商品诉求时，才保留跨 Agent 多意图判断。
+     */
+    private boolean isGenericProductNounOverlap(
+            KeywordRule first, KeywordRule second, String normalizedQuestion) {
+        boolean orderThenProduct = "order".equalsIgnoreCase(first.getTargetAgent())
+                && "product".equalsIgnoreCase(second.getTargetAgent());
+        if (!orderThenProduct) return false;
+
+        return !containsAny(normalizedQuestion,
+                List.of("价格", "多少钱", "库存", "有货", "有没有", "推荐", "详情", "参数", "规格", "型号"));
+    }
+
+    private static boolean containsAny(String value, List<String> markers) {
+        return markers.stream().anyMatch(value::contains);
     }
 
     /**
@@ -356,18 +378,32 @@ public class KeywordFastRouteService {
     private void loadDefaultRules() {
         log.info("[KeywordFastRoute] 加载内置默认关键词规则");
 
-        // 规则 1：退款（Order 模块）
+        // 规则 1：退款/退货政策咨询（Order 模块，不需要具体订单号）
+        KeywordRule refundPolicyRule = new KeywordRule();
+        refundPolicyRule.setName("refund_policy_fast_route");
+        refundPolicyRule.setTargetAgent("order");
+        refundPolicyRule.setIntentTag("退款与售后政策");
+        refundPolicyRule.setRegex(
+                "(?:(?:退款|退货).{0,16}(?:条件|政策|规则|流程|要求|材料|资格|时效|期限|多久|怎么|如何|是否|能否)"
+                        + "|(?:条件|政策|规则|流程|要求|材料|资格|时效|期限).{0,16}(?:退款|退货))");
+        refundPolicyRule.setConfidence(0.98);
+        refundPolicyRule.setPriority(9);
+        activeRules.add(refundPolicyRule);
+
+        // 规则 2：执行退款或查询退款进度（Order 模块）
         KeywordRule refundRule = new KeywordRule();
         refundRule.setName("refund_fast_route");
         refundRule.setTargetAgent("order");
         refundRule.setIntentTag("退款申请");
         refundRule.setAnyContain(Arrays.asList("退款", "退货", "退钱", "不要了", "不想要了"));
-        refundRule.setExclude(Arrays.asList("怎么退款", "如何退款", "退款流程", "退款政策"));  // 咨询类排除
+        refundRule.setExclude(Arrays.asList(
+                "怎么退款", "如何退款", "退款流程", "退款政策", "退款条件",
+                "退货条件", "退货政策", "需要满足", "哪些条件"));  // 咨询类排除
         refundRule.setConfidence(0.95);
         refundRule.setPriority(10);
         activeRules.add(refundRule);
 
-        // 规则 2：查订单（Order 模块）
+        // 规则 3：查订单（Order 模块）
         KeywordRule queryOrderRule = new KeywordRule();
         queryOrderRule.setName("query_order_fast_route");
         queryOrderRule.setTargetAgent("order");
@@ -377,7 +413,7 @@ public class KeywordFastRouteService {
         queryOrderRule.setPriority(10);
         activeRules.add(queryOrderRule);
 
-        // 规则 3：取消订单（Order 模块）
+        // 规则 4：取消订单（Order 模块）
         KeywordRule cancelRule = new KeywordRule();
         cancelRule.setName("cancel_order_fast_route");
         cancelRule.setTargetAgent("order");
@@ -388,7 +424,7 @@ public class KeywordFastRouteService {
         cancelRule.setPriority(10);
         activeRules.add(cancelRule);
 
-        // 规则 4：商品查询（Product 模块）
+        // 规则 5：商品查询（Product 模块）
         KeywordRule productRule = new KeywordRule();
         productRule.setName("product_query_fast_route");
         productRule.setTargetAgent("product");
@@ -398,7 +434,7 @@ public class KeywordFastRouteService {
         productRule.setPriority(20);
         activeRules.add(productRule);
 
-        // 规则 5：问候（General 模块）
+        // 规则 6：问候（General 模块）
         KeywordRule greetingRule = new KeywordRule();
         greetingRule.setName("greeting_fast_route");
         greetingRule.setTargetAgent("general");

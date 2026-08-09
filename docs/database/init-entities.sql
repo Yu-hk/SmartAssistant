@@ -163,6 +163,10 @@ CREATE TABLE IF NOT EXISTS routing_call_log (
     llm_received_question  TEXT,
     response_summary       VARCHAR(500),
     latency_ms             BIGINT,
+    prompt_tokens          BIGINT,            -- NULL = usage telemetry not captured
+    completion_tokens      BIGINT,            -- measured zero remains 0
+    total_tokens           BIGINT,
+    tool_calls             TEXT,              -- JSON telemetry; NULL = not captured
     status                 VARCHAR(20) DEFAULT 'SUCCESS',  -- SUCCESS / FAILED / TIMEOUT
     error_message          TEXT,
     created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -190,6 +194,33 @@ CREATE TABLE IF NOT EXISTS conversation_feedback (
 CREATE INDEX idx_feedback_user ON conversation_feedback(user_id);
 CREATE INDEX idx_feedback_session ON conversation_feedback(session_id);
 CREATE INDEX idx_feedback_rating ON conversation_feedback(rating);
+
+-- Conversation-level state is separate from routing_call_log.status, which
+-- describes a single model/tool invocation rather than the whole conversation.
+CREATE TABLE IF NOT EXISTS conversation_session_state (
+    user_id      BIGINT NOT NULL,
+    session_id   VARCHAR(100) NOT NULL,
+    status       VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    closed_at    TIMESTAMP NULL,
+    updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_conversation_session_state_status
+    ON conversation_session_state(status, updated_at);
+
+-- Persistent FAQ / knowledge entries used by the administration console.
+CREATE TABLE IF NOT EXISTS admin_faq (
+    id           BIGSERIAL PRIMARY KEY,
+    category     VARCHAR(50) NOT NULL DEFAULT 'general',
+    question     VARCHAR(500) NOT NULL UNIQUE,
+    answer       TEXT NOT NULL,
+    keywords     VARCHAR(1000),
+    source_name  VARCHAR(255),
+    source_type  VARCHAR(32) NOT NULL DEFAULT 'manual',
+    hit_count    BIGINT NOT NULL DEFAULT 0,
+    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 -- ══════════════════════════════════════════════════════════════
 -- 10. 商品表 (无实体, 被 TextToSqlTool 引用 / InMemoryProductBackend 提供数据)
