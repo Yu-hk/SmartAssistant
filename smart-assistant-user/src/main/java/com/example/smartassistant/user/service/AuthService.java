@@ -7,35 +7,39 @@
 
 package com.example.smartassistant.user.service;
 
+import com.example.smartassistant.common.exception.ServiceException;
 import com.example.smartassistant.user.mapper.UserMapper;
 import com.example.smartassistant.user.model.User;
 import com.example.smartassistant.user.model.dto.AuthResponse;
+import com.example.smartassistant.user.model.dto.CurrentUserResponse;
 import com.example.smartassistant.user.model.dto.LoginRequest;
 import com.example.smartassistant.user.model.dto.RegisterRequest;
+import io.jsonwebtoken.JwtException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 认证服务
- */
+/** Authentication, token rotation and logout orchestration. */
 @Service
 public class AuthService {
-    
+
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
-    
+    private static final String DEFAULT_ROLE = "ROLE_USER";
+
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final SessionService sessionService;
-    
+
     public AuthService(
             UserMapper userMapper,
             PasswordEncoder passwordEncoder,
@@ -48,169 +52,229 @@ public class AuthService {
         this.authenticationManager = authenticationManager;
         this.sessionService = sessionService;
     }
-    
-    /**
-     * 用户注册
-     */
+
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        // 检查用户名是否已存在
+        return register(request, "127.0.0.1", "Unknown");
+    }
+
+    @Transactional
+    public AuthResponse register(RegisterRequest request, String ipAddress, String userAgent) {
         if (userMapper.existsByUsername(request.getUsername())) {
-            throw new RuntimeException("用户名已存在");
+            throw duplicateUsername();
         }
-        
-        // 创建新用户
+
         User user = new User();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(request.getEmail());
-        user.setRole("ROLE_USER");  // ⭐ 默认角色：普通用户
-        
-        userMapper.insert(user);
-        
-        log.info("用户注册成功: {}", request.getUsername());
-        
-        // 生成 Token
-        return generateAuthResponse(user);
-    }
-    
-    /**
-     * 用户登录
-     */
-    public AuthResponse login(LoginRequest request, String ipAddress, String userAgent) {
-        // 认证用户
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getUsername(),
-                        request.getPassword()
-                )
-        );
-        
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-        
-        // 查找用户
-        User user = userMapper.findByUsername(request.getUsername());
-        if (user == null) {
-            throw new RuntimeException("用户不存在");
+        user.setRole(DEFAULT_ROLE);
+
+        try {
+            userMapper.insert(user);
+        } catch (DataIntegrityViolationException exception) {
+            throw duplicateUsername();
         }
-        
-        log.info("用户登录成功: {}", request.getUsername());
-        
-        // 生成 Token
+
         AuthResponse response = generateAuthResponse(user);
-        
-        // 创建会话（JWT + Redis）
-        String tokenId = jwtService.extractTokenId(response.getToken());
-        sessionService.createSession(user.getId(), tokenId, ipAddress, userAgent);
-        
+        createAccessSession(user, response, ipAddress, userAgent);
+        log.info("User registered successfully: username={}", request.getUsername());
         return response;
     }
-    
-    /**
-     * 刷新 Token
-     */
-    public AuthResponse refreshToken(String refreshToken) {
-        String username = jwtService.extractUsername(refreshToken);
-        
-        if (username == null) {
-            throw new RuntimeException("无效的 Refresh Token");
+
+    public AuthResponse login(LoginRequest request, String ipAddress, String userAgent) {
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+        } catch (AuthenticationException exception) {
+            throw ServiceException.unauthorized("用户名或密码错误");
         }
-        
-        User user = userMapper.findByUsername(username);
+
+        User user = userMapper.findByUsername(request.getUsername());
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw ServiceException.unauthorized("用户名或密码错误");
         }
-        
-        // 验证 Refresh Token
-        if (!jwtService.validateToken(refreshToken, username)) {
-            throw new RuntimeException("Refresh Token 已过期");
-        }
-        
-        return generateAuthResponse(user);
+
+        AuthResponse response = generateAuthResponse(user);
+        createAccessSession(user, response, ipAddress, userAgent);
+        log.info("User logged in successfully: username={}", request.getUsername());
+        return response;
     }
-    
-    /**
-     * 获取当前用户信息（通过 SecurityContext）
-     */
-    public User getCurrentUser() {
+
+    public AuthResponse refreshToken(String refreshToken) {
+        return refreshToken(refreshToken, "127.0.0.1", "Unknown");
+    }
+
+    public AuthResponse refreshToken(String refreshToken, String ipAddress, String userAgent) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw invalidRefreshToken();
+        }
+
+        try {
+            String username = jwtService.extractUsername(refreshToken);
+            if (!jwtService.validateRefreshToken(refreshToken, username)) {
+                throw invalidRefreshToken();
+            }
+
+            String refreshTokenId = jwtService.extractTokenId(refreshToken);
+            if (refreshTokenId == null
+                    || refreshTokenId.isBlank()
+                    || !sessionService.consumeRefreshToken(
+                            refreshTokenId,
+                            jwtService.getRefreshBlacklistTtl())) {
+                throw invalidRefreshToken();
+            }
+
+            User user = userMapper.findByUsername(username);
+            if (user == null) {
+                throw invalidRefreshToken();
+            }
+
+            AuthResponse response = generateAuthResponse(user);
+            createAccessSession(user, response, ipAddress, userAgent);
+            return response;
+        } catch (ServiceException exception) {
+            throw exception;
+        } catch (JwtException | IllegalArgumentException exception) {
+            throw invalidRefreshToken();
+        }
+    }
+
+    public CurrentUserResponse getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated()) {
-            throw new RuntimeException("未登录");
+            throw ServiceException.unauthorized("未登录");
         }
-        
-        String username = authentication.getName();
-        User user = userMapper.findByUsername(username);
+
+        User user = userMapper.findByUsername(authentication.getName());
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw ServiceException.unauthorized("登录用户不存在");
         }
-        return user;
+        return toCurrentUserResponse(user);
     }
 
-    /**
-     * 通过 Token 获取当前用户信息（用于 /me 接口）
-     */
-    public User getCurrentUser(String token) {
+    public CurrentUserResponse getCurrentUser(String token) {
         if (token == null || token.isBlank()) {
-            throw new RuntimeException("未登录");
+            throw ServiceException.unauthorized("未登录");
         }
 
-        // 从 Token 中提取用户 ID
-        Long userId = jwtService.extractUserId(token);
-        log.info("[AuthService] /me 接口: 提取的 userId={}, username={}", userId, jwtService.extractUsername(token));
-        if (userId == null) {
-            throw new RuntimeException("Token无效");
-        }
-
-        // 验证 Token 是否过期
-        if (!jwtService.validateToken(token, jwtService.extractUsername(token))) {
-            throw new RuntimeException("Token已过期");
-        }
-
-        User user = userMapper.selectById(userId);
-        log.info("[AuthService] /me 接口: 查询到的 user id={}, username={}", user != null ? user.getId() : null, user != null ? user.getUsername() : null);
-        if (user == null) {
-            throw new RuntimeException("用户不存在");
-        }
-        return user;
-    }
-    
-    /**
-     * 用户登出
-     */
-    public void logout(String token) {
-        if (token != null && !token.isBlank()) {
-            try {
-                String tokenId = jwtService.extractTokenId(token);
-                sessionService.revokeSession(tokenId);
-                log.info("用户登出成功");
-            } catch (Exception e) {
-                log.error("登出失败: {}", e.getMessage());
+        try {
+            String username = jwtService.extractUsername(token);
+            if (!jwtService.validateAccessToken(token, username)) {
+                throw ServiceException.unauthorized("访问令牌无效或已过期");
             }
+
+            String tokenId = jwtService.extractTokenId(token);
+            if (tokenId == null || tokenId.isBlank() || !sessionService.validateSession(tokenId)) {
+                throw ServiceException.unauthorized("登录会话已失效");
+            }
+
+            Long userId = jwtService.extractUserId(token);
+            User user = userId == null ? null : userMapper.selectById(userId);
+            if (user == null) {
+                throw ServiceException.unauthorized("登录用户不存在");
+            }
+            return toCurrentUserResponse(user);
+        } catch (ServiceException exception) {
+            throw exception;
+        } catch (JwtException | IllegalArgumentException exception) {
+            throw ServiceException.unauthorized("访问令牌无效或已过期");
         }
     }
-    
-    /**
-     * 获取用户的活跃会话列表
-     */
+
+    public void logout(String token) {
+        logout(token, null);
+    }
+
+    public void logout(String token, String refreshToken) {
+        if (token == null || token.isBlank()) {
+            throw ServiceException.unauthorized("未登录");
+        }
+
+        try {
+            String username = jwtService.extractUsername(token);
+            if (!jwtService.validateAccessToken(token, username)) {
+                throw ServiceException.unauthorized("访问令牌无效或已过期");
+            }
+
+            String tokenId = jwtService.extractTokenId(token);
+            if (tokenId == null || tokenId.isBlank()) {
+                throw ServiceException.unauthorized("访问令牌无效");
+            }
+
+            String refreshTokenId = null;
+            if (refreshToken != null && !refreshToken.isBlank()) {
+                String refreshUsername = jwtService.extractUsername(refreshToken);
+                if (!username.equals(refreshUsername)
+                        || !jwtService.validateRefreshToken(refreshToken, refreshUsername)) {
+                    throw invalidRefreshToken();
+                }
+                refreshTokenId = jwtService.extractTokenId(refreshToken);
+                if (refreshTokenId == null || refreshTokenId.isBlank()) {
+                    throw invalidRefreshToken();
+                }
+            }
+
+            if (refreshTokenId != null) {
+                sessionService.blacklistRefreshToken(
+                        refreshTokenId,
+                        jwtService.getRefreshBlacklistTtl());
+            }
+            sessionService.revokeAccessToken(tokenId, jwtService.getRemainingValidity(token));
+            SecurityContextHolder.clearContext();
+            log.info("User logged out successfully: username={}", username);
+        } catch (ServiceException exception) {
+            throw exception;
+        } catch (JwtException | IllegalArgumentException exception) {
+            throw ServiceException.unauthorized("访问令牌无效或已过期");
+        }
+    }
+
     public java.util.List<java.util.Map<String, Object>> getActiveSessions(Long userId) {
         return sessionService.getActiveSessions(userId);
     }
-    
-    /**
-     * 生成认证响应
-     */
+
     private AuthResponse generateAuthResponse(User user) {
-        // ⭐ 携带角色信息生成 Token；role 为 null 时兜底为 ROLE_USER（兼容旧数据）
-        String role = (user.getRole() != null) ? user.getRole() : "ROLE_USER";
+        String role = normalizeRole(user.getRole());
         String accessToken = jwtService.generateToken(user.getId(), user.getUsername(), role);
         String refreshToken = jwtService.generateRefreshToken(user.getUsername());
-        
+
         return new AuthResponse(
                 accessToken,
                 refreshToken,
                 user.getId(),
                 user.getUsername(),
-                user.getEmail()
-        );
+                user.getEmail(),
+                role);
+    }
+
+    private void createAccessSession(
+            User user,
+            AuthResponse response,
+            String ipAddress,
+            String userAgent) {
+        String tokenId = jwtService.extractTokenId(response.getToken());
+        sessionService.createSession(user.getId(), tokenId, ipAddress, userAgent);
+    }
+
+    private CurrentUserResponse toCurrentUserResponse(User user) {
+        return new CurrentUserResponse(
+                user.getId(),
+                user.getUsername(),
+                user.getEmail(),
+                normalizeRole(user.getRole()));
+    }
+
+    private String normalizeRole(String role) {
+        return role == null || role.isBlank() ? DEFAULT_ROLE : role;
+    }
+
+    private ServiceException duplicateUsername() {
+        return new ServiceException(409, "USERNAME_CONFLICT", "用户名已存在");
+    }
+
+    private ServiceException invalidRefreshToken() {
+        return new ServiceException(401, "INVALID_REFRESH_TOKEN", "刷新令牌无效或已过期");
     }
 }

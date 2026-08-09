@@ -5,6 +5,16 @@ import { ChatMessages } from '../components/ChatMessages';
 import { FaqSuggestions } from '../components/FaqSuggestions';
 import { IntentBadge } from '../components/IntentBadge';
 import { sessions as sessionApi } from '../api';
+import {
+  ArrowRight,
+  BookOpenText,
+  CloudSun,
+  Compass,
+  PackageSearch,
+  ShoppingBag,
+  Sparkles,
+  Workflow,
+} from 'lucide-react';
 
 interface CustomerChatPageProps {
   currentSession: Session | undefined;
@@ -23,23 +33,30 @@ interface CustomerChatPageProps {
   onPermissionDeny: () => void;
   onRateSession: (score: number) => void;
   onLocationEnabledChange: (enabled: boolean) => void;
+  userName?: string;
 }
 
-// 快捷问题 — 当前业务能力
 const QUICK_QUESTIONS = [
-  { icon: '📦', text: '帮我查询最近一笔订单的物流状态', gradient: 'from-blue-500 to-cyan-500' },
-  { icon: '🛍️', text: '对比两款商品并给出购买建议', gradient: 'from-orange-500 to-amber-500' },
-  { icon: '📚', text: '从知识库中查找相关资料并总结', gradient: 'from-purple-500 to-pink-500' },
-  { icon: '🧭', text: '分析这个问题应该交给哪个智能体处理', gradient: 'from-green-500 to-emerald-500' },
-  { icon: '🧰', text: '展示当前可以调用的工具和服务', gradient: 'from-rose-500 to-red-500' },
+  { icon: CloudSun, text: '查询我所在城市的天气' },
+  { icon: PackageSearch, text: '帮我追踪最近一笔订单' },
+  { icon: ShoppingBag, text: '推荐现在的热门商品' },
+  { icon: BookOpenText, text: '从知识库查资料并总结' },
 ];
 
 const CAPABILITIES = [
-  { icon: '📦', title: '订单服务', desc: '订单查询、物流跟踪、售后处理', accent: '#6366f1', prompt: '请帮我查询订单：' },
-  { icon: '🛍️', title: '商品助手', desc: '商品咨询、参数对比、个性推荐', accent: '#f59e0b', prompt: '请帮我推荐或对比商品：' },
-  { icon: '📚', title: '知识检索', desc: '资料召回、文档问答、内容总结', accent: '#10b981', prompt: '请从知识库中查找并总结：' },
-  { icon: '🧩', title: '智能体协同', desc: '意图识别、任务路由、工具调用', accent: '#06b6d4', prompt: '请分析并安排合适的智能体处理：' },
+  { icon: PackageSearch, title: '订单服务', desc: '查订单、跟物流、处理售后', tone: 'indigo', prompt: '请帮我查询订单：' },
+  { icon: ShoppingBag, title: '商品助手', desc: '商品咨询、参数对比与推荐', tone: 'amber', prompt: '请帮我推荐或对比商品：' },
+  { icon: BookOpenText, title: '知识检索', desc: '检索资料、文档问答与总结', tone: 'emerald', prompt: '请从知识库中查找并总结：' },
+  { icon: Workflow, title: '任务协同', desc: '识别意图并路由合适能力', tone: 'cyan', prompt: '请分析并安排合适的智能体处理：' },
 ];
+
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 6) return '夜深了';
+  if (hour < 12) return '上午好';
+  if (hour < 18) return '下午好';
+  return '晚上好';
+}
 
 export function CustomerChatPage({
   currentSession,
@@ -58,6 +75,7 @@ export function CustomerChatPage({
   onPermissionDeny,
   onRateSession,
   onLocationEnabledChange,
+  userName,
 }: CustomerChatPageProps) {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -88,164 +106,77 @@ export function CustomerChatPage({
   }, [onSendMessage]);
 
   const hasMessages = currentSession && currentSession.messages.length > 0;
+  const isClosed = currentSession?.status === 'closed';
 
   return (
     <>
       {/* 消息区域 */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin" style={{ padding: '20px 24px' }}>
+      <div className={`chat-content flex-1 overflow-y-auto scrollbar-thin ${!hasMessages ? 'is-home' : ''}`}>
         {!hasMessages ? (
-          /* ===== 欢迎页 ===== */
-          <div style={{ maxWidth: '680px', margin: '0 auto', paddingTop: '20px' }}>
-            {/* 欢迎头部 — 科技感 */}
-            <div style={{ textAlign: 'center', marginBottom: '44px' }}>
-              {/* Logo 光效 */}
-              <div style={{
-                position: 'relative',
-                width: '80px', height: '80px',
-                margin: '0 auto 20px',
-              }}>
-                <div style={{
-                  width: '80px', height: '80px',
-                  borderRadius: '24px',
-                  background: 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '34px', fontWeight: 800, color: 'white',
-                  boxShadow: '0 0 40px var(--nova-accent-glow), 0 8px 32px rgba(0,0,0,0.2)',
-                  position: 'relative',
-                  zIndex: 1,
-                }}>
-                  S
-                </div>
-                {/* 装饰光环 */}
-                <div style={{
-                  position: 'absolute', inset: '-8px',
-                  borderRadius: '28px',
-                  border: '1px solid var(--nova-accent-glow)',
-                  opacity: 0.5,
-                  animation: 'breathe 3s ease-in-out infinite',
-                }} />
-                <div style={{
-                  position: 'absolute', inset: '-16px',
-                  borderRadius: '36px',
-                  border: '1px solid var(--nova-accent-glow)',
-                  opacity: 0.2,
-                }} />
-              </div>
-
-              <h2 style={{
-                fontSize: '24px', fontWeight: 700,
-                color: 'var(--nova-text-primary)',
-                margin: '0 0 6px',
-                letterSpacing: '0.02em',
-              }}>
-                SmartAssistant
-              </h2>
-              <p style={{
-                fontSize: '14px',
-                color: 'var(--nova-text-secondary)',
-                margin: 0,
-                lineHeight: 1.6,
-              }}>
-                多智能体业务助手 · 理解需求、智能路由、调用工具并协同完成任务
-              </p>
+          <section className="assistant-home" aria-labelledby="home-title">
+            <div className="home-hero">
+              <div className="home-eyebrow"><Sparkles size={15} /> 智能业务工作台</div>
+              <h1 id="home-title">{getGreeting()}{userName ? `，${userName}` : ''}</h1>
+              <p>{isClosed
+                ? '该会话已结束，请从左侧新建会话后继续。'
+                : '直接描述要处理的事情，我会识别需求、选择能力并完成后续步骤。'}</p>
             </div>
 
-            {/* 服务能力卡片 — 玻璃拟态网格 */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: '1fr 1fr',
-              gap: '12px', marginBottom: '36px',
-            }}>
-              {CAPABILITIES.map((item, idx) => (
-                <button
-                  type="button"
-                  key={item.title}
-                  className="glass-card animate-fade-in-up"
-                  onClick={() => onInputChange(item.prompt)}
-                  aria-label={`使用${item.title}`}
-                  style={{
-                    width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
-                    padding: '18px',
-                    borderRadius: '14px',
-                    animationDelay: `${idx * 0.08}s`,
-                    animationFillMode: 'both',
-                  }}
-                >
-                  {/* 顶部色条 */}
-                  <div style={{
-                    width: '32px', height: '3px',
-                    borderRadius: '2px',
-                    background: item.accent,
-                    marginBottom: '12px',
-                    boxShadow: `0 0 8px ${item.accent}60`,
-                  }} />
-                  <div style={{ fontSize: '26px', marginBottom: '8px' }}>{item.icon}</div>
-                  <div style={{
-                    fontSize: '14px', fontWeight: 600,
-                    color: 'var(--nova-text-primary)',
-                    marginBottom: '4px',
-                  }}>
-                    {item.title}
-                  </div>
-                  <div style={{
-                    fontSize: '12px',
-                    color: 'var(--nova-text-secondary)',
-                  }}>
-                    {item.desc}
-                  </div>
-                </button>
-              ))}
-            </div>
+            <CustomerChatInput
+              variant="home"
+              inputValue={inputValue}
+              isLoading={isLoading}
+              disabled={isClosed}
+              locationEnabled={locationEnabled}
+              locationStatus={locationStatus}
+              onSend={handleSend}
+              onStop={onStop}
+              onChange={onInputChange}
+              onLocationEnabledChange={onLocationEnabledChange}
+            />
 
-            {/* 快捷问题 */}
-            <div>
-              <div style={{
-                fontSize: '12px',
-                color: 'var(--nova-text-tertiary)',
-                marginBottom: '10px',
-                fontWeight: 500,
-                letterSpacing: '0.05em',
-                textTransform: 'uppercase',
-              }}>
-                ⚡ 常用业务任务
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {QUICK_QUESTIONS.map((q, idx) => (
+            <div className="home-section-heading">
+              <span>选择服务能力</span>
+              <small>也可以直接在上方输入问题</small>
+            </div>
+            <div className="home-capability-grid">
+              {CAPABILITIES.map((item, idx) => {
+                const Icon = item.icon;
+                return (
                   <button
-                    key={q.text}
-                    onClick={() => handleSend(q.text)}
-                    className="glass-card animate-fade-in-up"
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                      padding: '12px 16px',
-                      borderRadius: '12px',
-                      border: '1px solid var(--nova-border)',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      fontSize: '14px',
-                      color: 'var(--nova-text-primary)',
-                      background: 'var(--nova-bg-glass)',
-                      animationDelay: `${0.3 + idx * 0.06}s`,
-                      animationFillMode: 'both',
-                    }}
+                    type="button"
+                    key={item.title}
+                    className={`home-capability-card tone-${item.tone} animate-fade-in-up`}
+                    onClick={() => onInputChange(item.prompt)}
+                    disabled={isClosed}
+                    aria-label={`使用${item.title}`}
+                    style={{ animationDelay: `${idx * 0.06}s` }}
                   >
-                    <span style={{
-                      fontSize: '20px', width: '32px', textAlign: 'center',
-                    }}>
-                      {q.icon}
+                    <span className="home-capability-icon"><Icon size={21} /></span>
+                    <span className="home-capability-copy">
+                      <strong>{item.title}</strong>
+                      <small>{item.desc}</small>
                     </span>
-                    <span style={{ flex: 1 }}>{q.text}</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ color: 'var(--nova-text-tertiary)' }}>
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                      <polyline points="12 5 19 12 12 19" />
-                    </svg>
+                    <ArrowRight className="home-card-arrow" size={16} />
                   </button>
-                ))}
+                );
+              })}
+            </div>
+
+            <div className="home-quick-row">
+              <span className="home-quick-label"><Compass size={14} /> 快速开始</span>
+              <div className="home-quick-actions">
+                {QUICK_QUESTIONS.map(q => {
+                  const Icon = q.icon;
+                  return (
+                    <button type="button" key={q.text} disabled={isClosed} onClick={() => handleSend(q.text)}>
+                      <Icon size={14} /> {q.text}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          </div>
+          </section>
         ) : (
           /* ===== 对话区域 ===== */
           <div style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -294,18 +225,19 @@ export function CustomerChatPage({
         )}
       </div>
 
-      {/* 输入框 */}
-      <CustomerChatInput
-        inputValue={inputValue}
-        isLoading={isLoading}
-        disabled={currentSession?.status === 'closed'}
-        locationEnabled={locationEnabled}
-        locationStatus={locationStatus}
-        onSend={handleSend}
-        onStop={onStop}
-        onChange={onInputChange}
-        onLocationEnabledChange={onLocationEnabledChange}
-      />
+      {hasMessages && (
+        <CustomerChatInput
+          inputValue={inputValue}
+          isLoading={isLoading}
+          disabled={currentSession?.status === 'closed'}
+          locationEnabled={locationEnabled}
+          locationStatus={locationStatus}
+          onSend={handleSend}
+          onStop={onStop}
+          onChange={onInputChange}
+          onLocationEnabledChange={onLocationEnabledChange}
+        />
+      )}
 
     </>
   );
@@ -315,6 +247,7 @@ export function CustomerChatPage({
 // 输入框 — 霓虹科技风格
 // ===================================================
 interface CustomerChatInputProps {
+  variant?: 'home' | 'docked';
   inputValue: string;
   isLoading: boolean;
   disabled?: boolean;
@@ -327,6 +260,7 @@ interface CustomerChatInputProps {
 }
 
 function CustomerChatInput({
+  variant = 'docked',
   inputValue,
   isLoading,
   disabled,
@@ -357,22 +291,8 @@ function CustomerChatInput({
   }, [inputValue]);
 
   return (
-    <div className="glass" style={{
-      padding: '12px 24px 18px',
-      borderTop: '1px solid var(--nova-border)',
-      position: 'relative',
-      zIndex: 5,
-    }}>
-      <div style={{
-        maxWidth: '800px', margin: '0 auto',
-        display: 'flex', alignItems: 'flex-end', gap: '10px',
-        padding: '10px 14px',
-        borderRadius: '14px',
-        border: `1.5px solid ${isFocused ? 'var(--nova-accent)' : 'var(--nova-border)'}`,
-        background: 'var(--nova-bg-component)',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        boxShadow: isFocused ? '0 0 20px var(--nova-accent-glow)' : 'none',
-      }}>
+    <div className={`chat-composer-shell ${variant === 'home' ? 'is-home' : 'glass is-docked'}`}>
+      <div className={`chat-composer ${isFocused ? 'is-focused' : ''}`}>
         <textarea
           ref={textareaRef}
           value={inputValue}
@@ -383,34 +303,13 @@ function CustomerChatInput({
           placeholder={disabled ? '本次会话已结束，请开启新对话' : '输入你的问题或业务需求...（Enter 发送）'}
           disabled={disabled || isLoading}
           rows={1}
-          style={{
-            flex: 1, border: 'none', background: 'transparent',
-            fontSize: '14px', resize: 'none', outline: 'none',
-            color: 'var(--nova-text-primary)', fontFamily: 'inherit',
-            lineHeight: '1.5', maxHeight: '120px', overflowY: 'auto',
-            opacity: disabled ? 0.4 : 1,
-          }}
+          autoFocus={variant === 'home'}
+          className="chat-composer-input"
         />
         {isLoading ? (
           <button
             onClick={onStop}
-            style={{
-              padding: '8px 16px', borderRadius: '10px',
-              border: 'none',
-              background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-              color: '#fff',
-              fontSize: '13px', cursor: 'pointer',
-              fontWeight: 600, flexShrink: 0,
-              display: 'flex', alignItems: 'center', gap: '6px',
-              boxShadow: '0 0 12px rgba(239, 68, 68, 0.3)',
-              transition: 'all 0.2s',
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 24px rgba(239, 68, 68, 0.5)';
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.boxShadow = '0 0 12px rgba(239, 68, 68, 0.3)';
-            }}
+            className="chat-composer-action is-stop"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -421,32 +320,7 @@ function CustomerChatInput({
           <button
             onClick={() => inputValue.trim() && !disabled && onSend(inputValue)}
             disabled={!inputValue.trim() || disabled}
-            style={{
-              padding: '8px 18px', borderRadius: '10px',
-              border: 'none',
-              background: inputValue.trim() && !disabled
-                ? 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))'
-                : 'var(--nova-bg-component-hover)',
-              color: inputValue.trim() && !disabled ? '#fff' : 'var(--nova-text-tertiary)',
-              fontSize: '13px',
-              cursor: inputValue.trim() && !disabled ? 'pointer' : 'not-allowed',
-              fontWeight: 600, flexShrink: 0,
-              transition: 'all 0.2s',
-              display: 'flex', alignItems: 'center', gap: '6px',
-              boxShadow: inputValue.trim() && !disabled ? '0 0 16px var(--nova-accent-glow)' : 'none',
-            }}
-            onMouseEnter={e => {
-              if (inputValue.trim() && !disabled) {
-                (e.currentTarget as HTMLElement).style.boxShadow = '0 0 32px var(--nova-accent-glow)';
-                (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)';
-              }
-            }}
-            onMouseLeave={e => {
-              if (inputValue.trim() && !disabled) {
-                (e.currentTarget as HTMLElement).style.boxShadow = '0 0 16px var(--nova-accent-glow)';
-                (e.currentTarget as HTMLElement).style.transform = 'none';
-              }
-            }}
+            className="chat-composer-action is-send"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="22" y1="2" x2="11" y2="13" />
@@ -456,30 +330,13 @@ function CustomerChatInput({
           </button>
         )}
       </div>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '12px',
-        fontSize: '11px',
-        color: 'var(--nova-text-tertiary)',
-        marginTop: '8px',
-        maxWidth: '800px',
-        margin: '8px auto 0',
-      }}>
+      <div className="chat-composer-meta">
         <button
           type="button"
           onClick={() => onLocationEnabledChange(!locationEnabled)}
           title="开启后，仅在天气问题缺少地点时请求浏览器定位授权；定位不会保存到会话记录"
           aria-pressed={locationEnabled}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: '5px',
-            padding: '4px 8px', borderRadius: '8px', cursor: 'pointer',
-            border: `1px solid ${locationEnabled ? 'var(--nova-accent)' : 'var(--nova-border)'}`,
-            background: locationEnabled ? 'var(--nova-accent-glow)' : 'transparent',
-            color: locationEnabled ? 'var(--nova-accent)' : 'var(--nova-text-tertiary)',
-            fontSize: '11px', flexShrink: 0,
-          }}
+          className={`composer-location ${locationEnabled ? 'is-enabled' : ''}`}
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
@@ -489,7 +346,7 @@ function CustomerChatInput({
           {locationStatus === 'denied' && '（已拒绝）'}
           {locationStatus === 'unavailable' && '（不可用）'}
         </button>
-        <span style={{ textAlign: 'right' }}>
+        <span className="composer-disclaimer">
           AI 生成内容可能存在偏差，涉及订单、金额和关键业务操作时请再次确认
         </span>
       </div>

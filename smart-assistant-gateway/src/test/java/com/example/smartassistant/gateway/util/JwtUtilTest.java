@@ -47,6 +47,7 @@ class JwtUtilTest {
                 .claim("userId", userId)
                 .claim("username", username)
                 .claim("role", role)
+                .claim("tokenType", "access")
                 .id(jti)
                 .issuedAt(new Date())
                 .expiration(expiration)
@@ -73,6 +74,21 @@ class JwtUtilTest {
     @Test
     void malformedTokenShouldFail() {
         assertFalse(jwtUtil.validateToken("invalid-token-string"));
+    }
+
+    @Test
+    void refreshTokenShouldNotPassAccessTokenValidation() {
+        SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+        String token = Jwts.builder()
+                .subject("admin")
+                .claim("tokenType", "refresh")
+                .id(UUID.randomUUID().toString())
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 3600000))
+                .signWith(key)
+                .compact();
+
+        assertFalse(jwtUtil.validateToken(token));
     }
 
     @Test
