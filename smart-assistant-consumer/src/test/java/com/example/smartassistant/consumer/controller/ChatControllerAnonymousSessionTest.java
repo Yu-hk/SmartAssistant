@@ -84,4 +84,31 @@ class ChatControllerAnonymousSessionTest {
 
         verifyNoInteractions(conversationValueService, conversationDocumentService, redisTemplate);
     }
+
+    @Test
+    void generatedSessionIdFromServiceIsReturnedWhenClientOmitsSession() throws Exception {
+        when(chatService.calculateWithSession(
+                org.mockito.ArgumentMatchers.eq("anonymous"),
+                org.mockito.ArgumentMatchers.eq("hello"),
+                org.mockito.ArgumentMatchers.isNull(),
+                anyString()))
+                .thenReturn(Map.of(
+                        "result", "hi",
+                        "agentName", "general_service",
+                        "sessionId", "generated-session",
+                        "fromCache", false,
+                        "toolInvoked", false));
+
+        MvcResult result = mockMvc.perform(post("/api/math/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"message":"hello"}
+                                """))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.sessionId").value("generated-session"));
+    }
 }

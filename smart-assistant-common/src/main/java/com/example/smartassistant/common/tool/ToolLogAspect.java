@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.common.tool;
 
+import com.example.smartassistant.common.audit.ToolUsageCache;
+
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -95,6 +97,7 @@ public class ToolLogAspect {
 
             // 记录工具执行耗时
             recordToolLatency(methodName, duration);
+            recordAuditTelemetry(requestId, methodName, true, duration);
 
             return result;
         } catch (Throwable ex) {
@@ -109,6 +112,7 @@ public class ToolLogAspect {
             // 记录工具错误
             recordToolError(methodName);
             recordToolLatency(methodName, duration);
+            recordAuditTelemetry(requestId, methodName, false, duration);
 
             // ⭐ 按错误类型分类记录
             String errorType = classifyToolError(ex);
@@ -118,6 +122,13 @@ public class ToolLogAspect {
     }
 
     // ==================== Micrometer 指标 ====================
+
+    private void recordAuditTelemetry(String requestId, String methodName,
+                                      boolean success, long duration) {
+        if (!ToolLogContext.isExecutorManagedCall()) {
+            ToolUsageCache.record(requestId, methodName, success, duration);
+        }
+    }
 
     private void recordToolCall(String toolName) {
         if (meterRegistry == null) return;

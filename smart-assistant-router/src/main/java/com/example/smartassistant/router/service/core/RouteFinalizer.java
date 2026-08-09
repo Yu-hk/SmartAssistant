@@ -10,6 +10,8 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.FeedbackLog;
+import com.example.smartassistant.common.audit.TokenUsageCache;
+import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.intent.WeatherQuerySupport;
 import com.example.smartassistant.common.observability.OpsMetrics;
@@ -250,7 +252,8 @@ public class RouteFinalizer {
         // ⭐ 完整决策写入 Redis
         if (requestId != null && !requestId.isBlank() && agentName != null) {
             semanticCache.saveFullDecisionForConsumer(requestId, agentName,
-                    result.getConfidence(), reply, intentTag);
+                    result.getConfidence(), reply, intentTag, TokenUsageCache.snapshot(requestId),
+                    ToolUsageCache.snapshot(requestId));
             appendTaskAnalysisToFullDecision(requestId);
         }
 
