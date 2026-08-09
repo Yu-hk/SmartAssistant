@@ -52,9 +52,17 @@ export interface FaqItem {
   question: string;
   answer: string;
   keywords: string;
-  hit_count: number;
-  created_at: string;
-  updated_at: string;
+  sourceName?: string;
+  sourceType?: string;
+  hitCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  /** Legacy customer API fields kept for backwards compatibility. */
+  hit_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  source_name?: string;
+  source_type?: string;
 }
 
 export interface ToolCall {
@@ -99,104 +107,95 @@ export interface Session {
   messages: Message[];
 }
 
-export interface SatisfactionStats {
-  total: number;
-  rated: number;
-  avg_score: number | null;
-  score_1: number;
-  score_2: number;
-  score_3: number;
-  score_4: number;
-  score_5: number;
-}
-
-export interface IntentStats {
-  intent: IntentType;
+export interface AdminStatusBreakdown {
+  status: string;
   count: number;
-  transfer_count: number;
 }
 
-export interface DailyStats {
+export interface AdminIntentBreakdown {
+  intent: string;
+  count: number;
+}
+
+export interface AdminDailyStats {
   date: string;
-  session_count: number;
-  avg_satisfaction: number | null;
+  sessionCount: number;
+  avgSatisfaction: number | null;
 }
 
 export interface AdminStats {
-  satisfaction: SatisfactionStats;
-  intents: IntentStats[];
-  daily: DailyStats[];
-  transferRate: number;
+  totalSessions: number;
+  totalUsers: number;
+  totalTokens: number | null;
+  avgTokensPerSession: number | null;
+  tokenTrackedSessions: number | null;
+  tokenTrackedTurns: number | null;
+  totalTurns: number | null;
+  tokenCoverageRate: number | null;
+  ratedSessions: number;
+  averageSatisfaction: number | null;
+  successRate: number;
+  handoffRate: number;
+  avgLatencyMs: number;
+  p95LatencyMs: number;
+  statusBreakdown: AdminStatusBreakdown[];
+  intentBreakdown: AdminIntentBreakdown[];
+  daily: AdminDailyStats[];
 }
 
-// 实时会话洞察相关类型
-export interface KbHit {
+export interface AdminSessionSummary {
+  sessionId: string;
+  userId: number | null;
+  username: string;
   title: string;
-  match: number;
-  source?: string;
-}
-
-export interface EmotionResult {
-  label: string;
-  score: number;
-  confidence: number;
-}
-
-export interface TicketResult {
-  id: string;
-  status: string;
-  error?: string;
-}
-
-/** ⭐ P1-C 工单生命周期状态 */
-export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'PENDING' | 'RESOLVED' | 'CLOSED';
-
-/** ⭐ P1-C 工单面板展示模型（与后端 TicketView 对齐） */
-export interface Ticket {
-  id: string;
-  sessionId: string | null;
+  agentName: string | null;
   intent: string | null;
-  summary: string | null;
-  customerName: string | null;
-  status: TicketStatus;
-  createdAt: string | null;
-  updatedAt: string | null;
-  closedAt: string | null;
-  resolution: string | null;
+  status: string;
+  satisfaction: number | null;
+  satisfactionComment: string | null;
+  messageCount: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  tokenTrackedTurns: number | null;
+  totalTurns: number | null;
+  tokenUsageComplete: boolean | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-/** 工单状态中文标签与配色（前端展示用） */
-export const TICKET_STATUS_META: Record<TicketStatus, { label: string; color: string; bg: string }> = {
-  OPEN: { label: '待处理', color: '#f59e0b', bg: 'rgba(245,158,11,0.14)' },
-  IN_PROGRESS: { label: '处理中', color: '#3b82f6', bg: 'rgba(59,130,246,0.14)' },
-  PENDING: { label: '挂起', color: '#a78bfa', bg: 'rgba(167,139,250,0.14)' },
-  RESOLVED: { label: '已解决', color: '#14b8a6', bg: 'rgba(20,184,166,0.14)' },
-  CLOSED: { label: '已关闭', color: '#94a3b8', bg: 'rgba(148,163,184,0.14)' },
-};
+export interface AdminSessionMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system' | string;
+  content: string;
+  createdAt: string;
+  agentName: string | null;
+  status: string | null;
+  latencyMs: number | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  promptSnapshot: string | null;
+  toolUsageComplete: boolean | null;
+  toolCalls: AdminToolCall[];
+}
 
-// 客户 360° 画像 (P0 新增)
-export interface CustomerProfile {
-  userName: string;
-  totalQueries: number;
-  intentDistribution: Record<string, number>;
-  entityFacts: Record<string, string>;
-  foodPreferences: string[];
-  travelPreferences: string[];
-  budgetRange: string;
-  dietaryRestrictions: string[];
-  preferenceWeights: Record<string, number>;
-  escalationCount: number;
-  complaintCount: number;
-  // ⭐ P2-A 持久化情绪聚合
-  lastEmotionLabel?: string | null;
-  lastEmotionScore?: number;
-  negativeTouchCount?: number;
-  positiveTouchCount?: number;
-  emotionAvgScore?: number | null;
-  agentMemorySummaries: string[];
-  emotionHistory: Array<{ timestamp: string; score: number; label: string; triggerTopic: string }>;
-  // ⭐ P2-C 隐藏关键信息（潜在需求/隐性信号）
-  keyInsights?: string[];
+export interface AdminToolCall {
+  name: string;
+  status: string;
+  durationMs: number;
+}
+
+export interface AdminSessionDetail {
+  session: AdminSessionSummary;
+  messages: AdminSessionMessage[];
+}
+
+export interface AdminSessionPage {
+  items: AdminSessionSummary[];
+  total: number;
+  page: number;
+  size: number;
 }
 
 export type Theme = 'light' | 'dark';

@@ -193,4 +193,88 @@ class GlobalJwtAuthFilterTest {
         assertFalse(forwarded.containsKey("X-User-Debug"));
         verifyNoInteractions(jwtUtil, redisTemplate);
     }
+
+    @Test
+    void authenticatedOrdinaryUserCannotReachAdminApi() {
+        stubAuthenticatedToken("ROLE_USER");
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/admin/sessions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-token")
+                        .build());
+
+        filter.filter(exchange, chain).block();
+
+        assertEquals(403, exchange.getResponse().getStatusCode().value());
+        verifyNoInteractions(chain);
+    }
+
+    @Test
+    void roleMatchingIsExactForAdminApi() {
+        stubAuthenticatedToken("role_admin");
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/admin/stats")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-token")
+                        .build());
+
+        filter.filter(exchange, chain).block();
+
+        assertEquals(403, exchange.getResponse().getStatusCode().value());
+        verifyNoInteractions(chain);
+    }
+
+    @Test
+    void exactAdministratorRoleCanReachAdminApi() {
+        stubAuthenticatedToken("ROLE_ADMIN");
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        when(chain.filter(any(ServerWebExchange.class))).thenReturn(Mono.empty());
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/admin/stats")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-token")
+                        .build());
+
+        filter.filter(exchange, chain).block();
+
+        verify(chain).filter(any(ServerWebExchange.class));
+    }
+
+    @Test
+    void legacyManagementAliasIsProtectedToo() {
+        stubAuthenticatedToken("ROLE_USER");
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/stats")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-token")
+                        .build());
+
+        filter.filter(exchange, chain).block();
+
+        assertEquals(403, exchange.getResponse().getStatusCode().value());
+        verifyNoInteractions(chain);
+    }
+
+    @Test
+    void authenticatedCustomerCanRecordFaqHitButCannotManageFaqs() {
+        stubAuthenticatedToken("ROLE_USER");
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        when(chain.filter(any(ServerWebExchange.class))).thenReturn(Mono.empty());
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/faq/17/hit")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-token")
+                        .build());
+
+        filter.filter(exchange, chain).block();
+
+        verify(chain).filter(any(ServerWebExchange.class));
+    }
+
+    private void stubAuthenticatedToken(String role) {
+        when(jwtUtil.getTokenIdFromToken("valid-token")).thenReturn("token-id");
+        when(redisTemplate.hasKey("blacklist:token-id")).thenReturn(Mono.just(false));
+        when(jwtUtil.validateToken("valid-token")).thenReturn(true);
+        when(jwtUtil.getUserIdFromToken("valid-token")).thenReturn("42");
+        when(jwtUtil.getUsernameFromToken("valid-token")).thenReturn("alice");
+        when(jwtUtil.getRoleFromToken("valid-token")).thenReturn(role);
+    }
 }

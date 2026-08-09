@@ -1,10 +1,12 @@
 package com.example.smartassistant.common.agent;
 
+import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.common.error.RecoveryAction;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.observability.OpsMetrics;
+import com.example.smartassistant.common.tool.ToolLogContext;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -115,6 +117,26 @@ class AgentToolExecutorTest {
         when(tool.call("{}")).thenReturn("{\"ok\":true}");
         var res = serialExecutor().execute(List.of(call("echo", "{}")), Map.of("echo", tool));
         assertEquals("{\"ok\":true}", res.get(0).responseData());
+    }
+
+    @Test
+    @DisplayName("成功工具调用写入当前 requestId 的安全审计快照")
+    void execute_successTool_recordsAuditTelemetry() {
+        ToolCallback tool = mock(ToolCallback.class);
+        when(tool.call("{}")).thenReturn("{\"ok\":true}");
+        ToolLogContext.setRequestId("tool-audit-request");
+        try {
+            serialExecutor().execute(List.of(call("queryWeather", "{}")),
+                    Map.of("queryWeather", tool));
+        } finally {
+            ToolLogContext.clear();
+        }
+
+        ToolUsageCache.ToolUsage usage = ToolUsageCache.consume("tool-audit-request");
+        assertNotNull(usage);
+        assertTrue(usage.complete());
+        assertEquals("queryWeather", usage.calls().getFirst().name());
+        assertEquals("SUCCESS", usage.calls().getFirst().status());
     }
 
     @Test

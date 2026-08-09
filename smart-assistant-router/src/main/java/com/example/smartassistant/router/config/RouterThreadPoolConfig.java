@@ -9,6 +9,7 @@ package com.example.smartassistant.router.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -55,6 +56,23 @@ public class RouterThreadPoolConfig {
         
         // 线程名称前缀
         executor.setThreadNamePrefix("router-parallel-agent-");
+
+        // Preserve requestId/traceId so parallel Router LLM calls are included
+        // in the same per-conversation token aggregate.
+        executor.setTaskDecorator(task -> {
+            var submittingContext = MDC.getCopyOfContextMap();
+            return () -> {
+                var previousContext = MDC.getCopyOfContextMap();
+                try {
+                    if (submittingContext == null) MDC.clear();
+                    else MDC.setContextMap(submittingContext);
+                    task.run();
+                } finally {
+                    if (previousContext == null) MDC.clear();
+                    else MDC.setContextMap(previousContext);
+                }
+            };
+        });
         
         // 空闲线程存活时间（秒）
         executor.setKeepAliveSeconds(120);

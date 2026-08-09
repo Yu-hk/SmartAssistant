@@ -8,6 +8,10 @@
 package com.example.smartassistant.controller;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.audit.TokenUsageCache;
+import com.example.smartassistant.common.audit.TokenUsageHeaders;
+import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.common.audit.ToolUsageHeaders;
 import com.example.smartassistant.common.memory.ContextOrchestrator;
 import com.example.smartassistant.common.memory.MemoryExtractor;
 import com.example.smartassistant.common.quality.DomainAgentResponse;
@@ -125,12 +129,28 @@ public class OrderAgentController {
      */
     @PostMapping("/process")
     public ResponseEntity<String> processQuestionHttp(@RequestBody Map<String, String> request) {
+        String requestId = request.get("requestId");
+        ToolUsageCache.start(requestId);
         DomainAgentResponse response = processQuestionWithQuality(request);
-        return ResponseEntity.ok()
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(DomainQualityHeaders.STATUS, response.quality().getStatus().name())
                 .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().getScore()))
-                .header(DomainQualityHeaders.REASON_CODES, response.quality().reasonCodesHeaderValue())
-                .body(response.answer());
+                .header(DomainQualityHeaders.REASON_CODES, response.quality().reasonCodesHeaderValue());
+        TokenUsageCache.TokenUsage usage = TokenUsageCache.consume(requestId);
+        if (usage != null) {
+            if (usage.promptTokens() != null) {
+                builder.header(TokenUsageHeaders.PROMPT_TOKENS, String.valueOf(usage.promptTokens()));
+            }
+            if (usage.completionTokens() != null) {
+                builder.header(TokenUsageHeaders.COMPLETION_TOKENS, String.valueOf(usage.completionTokens()));
+            }
+            if (usage.totalTokens() != null) {
+                builder.header(TokenUsageHeaders.TOTAL_TOKENS, String.valueOf(usage.totalTokens()));
+            }
+        }
+        String toolUsage = ToolUsageHeaders.encode(ToolUsageCache.consume(requestId));
+        if (toolUsage != null) builder.header(ToolUsageHeaders.TOOL_USAGE, toolUsage);
+        return builder.body(response.answer());
     }
 
     /** Backward-compatible entry point used by local callers and unit tests. */
@@ -187,6 +207,32 @@ public class OrderAgentController {
                 return DomainAgentResponse.of(qr.getRejectionMessage(),
                         domainQualityValidator.evaluate(
                                 question, qr.getRejectionMessage(), intent, userId, qr, null));
+            }
+
+            // Public refund/return policy is a read-only knowledge answer. Short-circuit the
+            // action-oriented ReAct loop so words such as "请选择退款原因" in policy documents
+            // cannot be mistaken for a pending order-operation confirmation.
+            if (intent == IntentType.REFUND_POLICY) {
+                String result = ragService.buildRefundPolicyAnswer(qr);
+                if (stageTraceRecorder != null) {
+                    stageTraceRecorder.getOrCreate(requestId, question, "order_agent")
+                            .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
+                                    Map.of("qualityScore", qr.getNormalizedScore(),
+                                            "highQuality", qr.isHighQuality())));
+                    stageTraceRecorder.recordStage(requestId, RagStage.GENERATION,
+                            StageSpan.STATUS_SKIPPED, 0, Map.of("reason", "public-policy-answer"));
+                    stageTraceRecorder.save(requestId);
+                }
+                DomainQualityResult quality = domainQualityValidator.evaluate(
+                        question, result, intent, userId, qr, null);
+                if (result != null && userId != null && !userId.isBlank() && !"null".equals(userId)) {
+                    final String finalResult = result;
+                    CompletableFuture.runAsync(() ->
+                            memoryExtractor.extractFromConversation("order", userId, question, finalResult));
+                }
+                log.info("[OrderAgent] 公共退款政策已直接返回: requestId={}, quality={}",
+                        requestId, quality.getStatus());
+                return DomainAgentResponse.of(result, quality);
             }
 
             // 有证据：注入上下文

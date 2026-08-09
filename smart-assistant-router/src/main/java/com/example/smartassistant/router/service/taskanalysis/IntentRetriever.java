@@ -44,9 +44,9 @@ public class IntentRetriever {
     /** 所有预定义的意图定义 */
     private static final List<IntentDef> ALL_INTENTS = List.of(
             new IntentDef("ORDER", "订单/物流/退款",
-                    "用户查询订单状态、物流信息、退款进度、退货处理、快递签收等与订单售后相关的问题",
-                    List.of("订单", "物流", "退款", "退货", "快递", "签收", "售后", "发票"),
-                    "示例: '我的订单到哪了', '帮我查退款进度', '怎么申请退货'",
+                    "用户查询订单状态、物流信息、退款进度，或咨询退款退货条件、政策、流程等订单售后问题",
+                    List.of("订单", "物流", "退款", "退货", "退款条件", "退货政策", "快递", "签收", "售后", "发票"),
+                    "示例: '我的订单到哪了', '帮我查退款进度', '商品退货退款需要满足哪些条件'",
                     "相关工具: query_order, pay_order, cancel_order, queryUserCoupons"),
 
             new IntentDef("PRODUCT", "商品查询/库存/价格",
@@ -91,7 +91,9 @@ public class IntentRetriever {
                 intentEmbeddings = new HashMap<>();
                 for (int i = 0; i < ALL_INTENTS.size(); i++) {
                     String embedText = toEmbedText(ALL_INTENTS.get(i));
-                    intentEmbeddings.put(i, embeddingService.embed(embedText));
+                    float[] vector = embeddingService.embed(embedText);
+                    requireUsableVector(vector, "意图 " + ALL_INTENTS.get(i).id());
+                    intentEmbeddings.put(i, vector);
                 }
                 log.info("[IntentRetriever] 意图 BGE 向量就绪: {} 个", ALL_INTENTS.size());
             } catch (Exception e) {
@@ -127,11 +129,13 @@ public class IntentRetriever {
     private List<IntentDef> retrieveByVector(String question, int topK) {
         try {
             float[] queryVec = embeddingService.embed(question);
+            requireUsableVector(queryVec, "用户问题");
 
             // 计算得分：cosine + 关键词命中加权
             List<ScoredIntent> scored = new ArrayList<>();
             for (int i = 0; i < ALL_INTENTS.size(); i++) {
                 float[] intentVec = intentEmbeddings.get(i);
+                requireSameDimension(queryVec, intentVec, ALL_INTENTS.get(i).id());
                 double cosineSim = cosineSimilarity(queryVec, intentVec);
                 double keywordScore = keywordHitRate(question, ALL_INTENTS.get(i).keywords());
                 double total = cosineSim + KEYWORD_WEIGHT * keywordScore;
@@ -211,6 +215,7 @@ public class IntentRetriever {
 
     /** 余弦相似度（384 维归一化向量） */
     private static double cosineSimilarity(float[] a, float[] b) {
+        requireSameDimension(a, b, "cosine");
         double dot = 0, na = 0, nb = 0;
         for (int i = 0; i < a.length; i++) {
             dot += a[i] * b[i];
@@ -219,6 +224,21 @@ public class IntentRetriever {
         }
         double norm = Math.sqrt(na) * Math.sqrt(nb);
         return norm == 0 ? 0 : dot / norm;
+    }
+
+    private static void requireUsableVector(float[] vector, String label) {
+        if (vector == null || vector.length == 0) {
+            throw new IllegalStateException(label + "的嵌入向量为空");
+        }
+    }
+
+    private static void requireSameDimension(float[] left, float[] right, String label) {
+        requireUsableVector(left, label + " query");
+        requireUsableVector(right, label + " intent");
+        if (left.length != right.length) {
+            throw new IllegalStateException(label + "的嵌入维度不一致: "
+                    + left.length + " != " + right.length);
+        }
     }
 
     /** 带分值的意图包装 */
