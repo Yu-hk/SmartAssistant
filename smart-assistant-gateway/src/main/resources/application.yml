@@ -47,16 +47,16 @@ spring:
         - id: consumer-service
           uri: lb://consumer-service
           predicates:
-            - Path=/assistant/api/chat/**,/assistant/api/math/**
+            - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/insight/**
           filters:
             - StripPrefix=1  # 移除 /assistant，保留 /api/chat 或 /api/math → 匹配 Consumer 的 @RequestMapping("/api/math")
 
         # ⚠️ Consumer 裸前缀路由（前端 dev 代理 /api → 网关 8081，保留 /api 前缀直转 consumer）
-        # 覆盖 consumer 暴露的全部 /api 子路径（math/session/feedback/data/analytics/prompt-monitoring/monitor/admin）
+        # 覆盖 consumer 暴露的全部 /api 子路径（math/insight/session/feedback/data/analytics/prompt-monitoring/monitor/admin）
         - id: consumer-service-bare
           uri: lb://consumer-service
           predicates:
-            - Path=/api/math/**,/api/session/**,/api/feedback/**,/api/data/**,/api/analytics/**,/api/prompt-monitoring/**,/api/monitor/**,/api/sessions/**,/api/faq/**,/api/check-login/**,/api/save-env-config/**,/api/permission-response/**,/api/admin/**
+            - Path=/api/math/**,/api/insight/**,/api/session/**,/api/feedback/**,/api/data/**,/api/analytics/**,/api/prompt-monitoring/**,/api/monitor/**,/api/sessions/**,/api/faq/**,/api/check-login/**,/api/save-env-config/**,/api/permission-response/**,/api/admin/**
           # 不剥离前缀，保留 /api/... 原样转发给 Consumer（其 @RequestMapping 以 /api 开头）
         
         # Router Service 路由（内部服务）

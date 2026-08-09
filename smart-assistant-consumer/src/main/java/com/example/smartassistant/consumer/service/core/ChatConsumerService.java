@@ -171,8 +171,7 @@ public class ChatConsumerService {
                     userId, sentimentResult.level(), sentimentResult.name());
             // 返回转人工响应，不再继续路由
             Map<String, Object> handoffResponse = new java.util.HashMap<>();
-            handoffResponse.put("result", sentimentAnalysisService.getTonePrefix(sentimentResult.level())
-                    + "正在为您转接人工客服，请稍候。");
+            handoffResponse.put("result", sentimentAnalysisService.getHandoffResponse(sentimentResult.level()));
             handoffResponse.put("agentName", "human_service");
             handoffResponse.put("sentiment", sentimentResult.level());
             return handoffResponse;
