@@ -7,13 +7,25 @@
 
 package com.example.smartassistant.consumer.service.core;
 
+import com.example.smartassistant.common.memory.EntityProfileService;
+import com.example.smartassistant.common.sentiment.SentimentAnalysisService;
+import com.example.smartassistant.common.tracing.DistributedTracingService;
+import com.example.smartassistant.consumer.client.RouterClient;
+import com.example.smartassistant.consumer.service.infrastructure.DataMaskingService;
+import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
+import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
+import com.example.smartassistant.consumer.service.session.SessionManagementService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * ChatConsumerService 单元测试
@@ -21,6 +33,23 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @ExtendWith(MockitoExtension.class)
 class ChatConsumerServiceTest {
+
+    @Mock
+    private SessionManagementService sessionManagementService;
+    @Mock
+    private UserProfileService userProfileService;
+    @Mock
+    private RouterClient routerClient;
+    @Mock
+    private RoutingCallLogService routingCallLogService;
+    @Mock
+    private DistributedTracingService tracingService;
+    @Mock
+    private DataMaskingService maskingService;
+    @Mock
+    private EntityProfileService entityProfileService;
+    @Mock
+    private SentimentAnalysisService sentimentAnalysisService;
 
     @InjectMocks
     private ChatConsumerService chatConsumerService;
@@ -84,5 +113,38 @@ class ChatConsumerServiceTest {
 
         assertFalse((Boolean) method.invoke(chatConsumerService, new Object[]{null}));
         assertFalse((Boolean) method.invoke(chatConsumerService, ""));
+    }
+
+    @Test
+    void calculateShouldPersistAuthenticatedUserAndManagedThreadSeparately() {
+        when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
+        when(routerClient.callRouterRaw(
+                "北京天气", "42", null, "request-1", null, null))
+                .thenReturn(Map.of("result", "晴", "agentName", "none"));
+
+        assertEquals("晴", chatConsumerService.calculate("42", "北京天气", "request-1"));
+
+        verify(routingCallLogService).saveLog(
+                eq(42L), eq("thread-42"), eq("北京天气"), eq("router_service"),
+                eq("ROUTER_SERVICE"), anyLong(), eq("SUCCESS"));
+    }
+
+    @Test
+    void calculateWithSessionShouldPersistAuthenticatedUserAndExplicitSessionSeparately() {
+        when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
+        when(sentimentAnalysisService.analyze("北京天气", "session-a"))
+                .thenReturn(new SentimentAnalysisService.SentimentResult(
+                        2, "中性", "正常回复", false, false, 100));
+        when(routerClient.callRouterRaw(
+                "北京天气", "42", "session-a", "request-2", null, null))
+                .thenReturn(Map.of("result", "晴", "agentName", "none"));
+
+        assertEquals("晴", chatConsumerService
+                .calculateWithSession("42", "北京天气", "session-a", "request-2")
+                .get("result"));
+
+        verify(routingCallLogService).saveLog(
+                eq(42L), eq("session-a"), eq("北京天气"), eq("router_service"),
+                eq("ROUTER_SERVICE"), anyLong(), eq("SUCCESS"));
     }
 }

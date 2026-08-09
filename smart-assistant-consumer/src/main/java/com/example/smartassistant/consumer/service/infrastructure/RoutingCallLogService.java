@@ -33,10 +33,11 @@ public class RoutingCallLogService {
      * 异步保存路由调用日志
      */
     @Async("asyncRouteExecutor")
-    public void saveLog(String sessionId, String userInput, String routedAgent, 
+    public void saveLog(Long userId, String sessionId, String userInput, String routedAgent,
                        String routeMethod, Long latencyMs, String status) {
         try {
             RoutingCallLog callLog = new RoutingCallLog();
+            callLog.setUserId(userId);
             callLog.setSessionId(sessionId);
             callLog.setUserInput(userInput);
             callLog.setRoutedAgent(routedAgent);
@@ -45,7 +46,8 @@ public class RoutingCallLogService {
             callLog.setStatus(status);
             
             callLogMapper.insert(callLog);
-            log.debug("[RoutingCallLog] 日志保存成功: sessionId={}, agent={}", sessionId, routedAgent);
+            log.debug("[RoutingCallLog] 日志保存成功: userId={}, sessionId={}, agent={}",
+                    userId, sessionId, routedAgent);
         } catch (Exception e) {
             // ⭐ 优雅降级: 如果表不存在或数据库错误,只记录警告,不影响主流程
             String errorMsg = e.getMessage();
