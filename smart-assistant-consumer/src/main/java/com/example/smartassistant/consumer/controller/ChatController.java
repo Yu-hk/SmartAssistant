@@ -183,7 +183,8 @@ public class ChatController {
                 String cleanReply = removeStarSuggestions(reply);
 
                 // ⭐ 7. 对话价值评估：判断是否沉淀为用户个人文档（异步，不阻塞）
-                if (sessionId != null) {
+                Long conversationUserId = parseNumericUserId(userId);
+                if (sessionId != null && conversationUserId != null) {
                     String agentName = (String) routerResponse.get("agentName");
                     Boolean fromCache = (Boolean) routerResponse.getOrDefault("fromCache", false);
                     // ⭐ 从透传的 intentTag 读取
@@ -201,7 +202,7 @@ public class ChatController {
 
                     ConversationValueService.ConversationValueContext ctx =
                             new ConversationValueService.ConversationValueContext(
-                                    Long.valueOf(userId),
+                                    conversationUserId,
                                     sessionId,
                                     message + "\n" + cleanReply,
                                     agentName,
@@ -218,6 +219,8 @@ public class ChatController {
                     } catch (Exception e) {
                         log.warn("[ChatController] ⚠️ 对话价值评估失败: {}", e.getMessage());
                     }
+                } else if (sessionId != null) {
+                    log.debug("[ChatController] 跳过匿名或非数字用户的会话沉淀: userId={}", userId);
                 }
 
                 long endTime = System.currentTimeMillis();
@@ -312,6 +315,17 @@ public class ChatController {
      */
     private boolean isAdmin(String role) {
         return "ROLE_ADMIN".equalsIgnoreCase(role);
+    }
+
+    private Long parseNumericUserId(String userId) {
+        if (userId == null || userId.isBlank() || "anonymous".equalsIgnoreCase(userId)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(userId);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     /**

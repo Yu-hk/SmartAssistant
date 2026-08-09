@@ -130,11 +130,12 @@ public class SentimentAnalysisService {
      */
     public SentimentResult analyze(String userInput, String sessionId) {
         if (userInput == null || userInput.isBlank()) {
-            return new SentimentResult(2, "中性", "正常回复", false, false);
+            return new SentimentResult(2, "中性", "正常回复", false, false, 0);
         }
 
         // Step 1: 关键词快速匹配
         int level = keywordMatch(userInput);
+        int confidence = level > 0 ? 95 : 0;
 
         // Step 2: 关键词未命中或结果模糊时，用 BGE 语义分析
         // BGE 能处理"语义相似但字面不同"的表达，例如"效率低下"→负面
@@ -143,6 +144,7 @@ public class SentimentAnalysisService {
             if (bgeLevel > 0) {
                 log.debug("[Sentiment] BGE 语义匹配: level={}", bgeLevel);
                 level = bgeLevel;
+                confidence = 85;
             }
         }
 
@@ -150,13 +152,19 @@ public class SentimentAnalysisService {
         if (level == 0 && llmAnalyzer != null) {
             try {
                 level = llmAnalyzer.apply(userInput);
+                if (level >= 1 && level <= 5) {
+                    confidence = 80;
+                }
             } catch (Exception e) {
                 log.warn("[Sentiment] LLM 分析失败，使用关键词结果: {}", e.getMessage());
             }
         }
 
         // 未识别到任何情绪 → 默认为中性
-        if (level < 1 || level > 5) level = 2;
+        if (level < 1 || level > 5) {
+            level = 2;
+            confidence = 50;
+        }
 
         // Step 3: 情绪追踪
         boolean escalated = false;
@@ -167,7 +175,7 @@ public class SentimentAnalysisService {
         SentimentLevel sl = getByLevel(level);
         boolean needHandoff = level >= 4;
 
-        return new SentimentResult(level, sl.name, sl.responseStrategy, needHandoff, escalated);
+        return new SentimentResult(level, sl.name, sl.responseStrategy, needHandoff, escalated, confidence);
     }
 
     /**
@@ -225,6 +233,16 @@ public class SentimentAnalysisService {
         };
     }
 
+    /**
+     * 构建需要转人工时的完整回复，确保转接提示只出现一次。
+     */
+    public String getHandoffResponse(int level) {
+        if (level >= 5) {
+            return "非常抱歉给您带来不好的体验。正在为您转接人工客服，请稍候。";
+        }
+        return getTonePrefix(level) + "正在为您转接人工客服，请稍候。";
+    }
+
     private SentimentLevel getByLevel(int level) {
         for (SentimentLevel sl : SENTIMENT_LEVELS) {
             if (sl.level == level) return sl;
@@ -243,8 +261,16 @@ public class SentimentAnalysisService {
             /** 是否需转人工（等级≥4） */
             boolean needHandoff,
             /** 是否触发情绪升级预警 */
-            boolean escalated
-    ) {}
+            boolean escalated,
+            /** 分析置信度（0~100） */
+            int confidence
+    ) {
+        /** 保留原有构造签名，避免已有调用方因新增置信度字段而失效。 */
+        public SentimentResult(int level, String name, String responseStrategy,
+                               boolean needHandoff, boolean escalated) {
+            this(level, name, responseStrategy, needHandoff, escalated, 0);
+        }
+    }
 
     /** 情感等级定义 */
     private record SentimentLevel(int level, String name, String responseStrategy, List<String> keywords) {}
