@@ -34,6 +34,7 @@ class JwtServiceTest {
         String token = jwtService.generateToken(1L, "testuser");
         assertNotNull(token);
         assertTrue(jwtService.validateToken(token, "testuser"));
+        assertEquals("access", jwtService.extractTokenType(token));
     }
 
     @Test
@@ -69,7 +70,17 @@ class JwtServiceTest {
     void generateRefreshToken() {
         String refreshToken = jwtService.generateRefreshToken("testuser");
         assertNotNull(refreshToken);
-        assertTrue(jwtService.validateToken(refreshToken, "testuser"));
+        assertEquals("refresh", jwtService.extractTokenType(refreshToken));
+        assertTrue(jwtService.validateRefreshToken(refreshToken, "testuser"));
+        assertFalse(jwtService.validateAccessToken(refreshToken, "testuser"));
+        assertNotNull(jwtService.extractTokenId(refreshToken));
+        assertEquals(86400000L, jwtService.getRefreshBlacklistTtl().toMillis());
+    }
+
+    @Test
+    void accessTokenShouldNotPassRefreshValidation() {
+        String accessToken = jwtService.generateToken(1L, "testuser");
+        assertFalse(jwtService.validateRefreshToken(accessToken, "testuser"));
     }
 
     @Test

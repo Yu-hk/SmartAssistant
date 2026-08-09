@@ -11,7 +11,14 @@ import { InsightPanel } from './components/InsightPanel';
 import { CustomerChatPage } from './pages/CustomerChatPage';
 import { AdminPage } from './pages/AdminPage';
 import { LoginPage } from './pages/LoginPage';
-import { clearAuth, getAuthToken, getAuthUser } from './api/auth';
+import {
+  clearAuth,
+  getAuthToken,
+  getAuthUser,
+  getCurrentUser,
+  logout,
+} from './api/auth';
+import { LogOut, Menu, MessageSquareText, ShieldCheck, UserRound } from 'lucide-react';
 
 // ===================================================
 // 🌌 粒子背景系统 — Canvas 动态科技背景
@@ -137,25 +144,62 @@ function App() {
             ? <Navigate to="/" replace />
             : <LoginPage />
         } />
-        <Route path="/" element={<ProtectedRoute><AppContent /></ProtectedRoute>} />
-        <Route path="/chat/:sessionId" element={<ProtectedRoute><AppContent /></ProtectedRoute>} />
-        <Route path="/admin" element={<AdminRoute><AppContent /></AdminRoute>} />
+        <Route path="/" element={<AuthRoute><AppContent /></AuthRoute>} />
+        <Route path="/chat/:sessionId" element={<AuthRoute><AppContent /></AuthRoute>} />
+        <Route path="/admin" element={<AuthRoute requireAdmin><AppContent /></AuthRoute>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>
   );
 }
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  return getAuthToken()
-    ? <>{children}</>
-    : <Navigate to="/login" replace />;
-}
+function AuthRoute({
+  children,
+  requireAdmin = false,
+}: {
+  children: React.ReactNode;
+  requireAdmin?: boolean;
+}) {
+  const location = useLocation();
+  const [state, setState] = useState<'checking' | 'ready' | 'unauthenticated' | 'forbidden'>('checking');
 
-function AdminRoute({ children }: { children: React.ReactNode }) {
-  if (!getAuthToken()) return <Navigate to="/login" replace />;
-  return getAuthUser()?.role === 'ROLE_ADMIN'
-    ? <>{children}</>
-    : <Navigate to="/" replace />;
+  useEffect(() => {
+    let active = true;
+    if (!getAuthToken()) {
+      setState('unauthenticated');
+      return () => { active = false; };
+    }
+
+    getCurrentUser()
+      .then(profile => {
+        if (!active) return;
+        setState(requireAdmin && profile.role !== 'ROLE_ADMIN' ? 'forbidden' : 'ready');
+      })
+      .catch(() => {
+        if (!active) return;
+        const cached = getAuthUser();
+        if (!getAuthToken()) setState('unauthenticated');
+        // 管理路由必须服务端校验成功，不能信任可被本地修改的角色缓存。
+        else if (requireAdmin) setState('forbidden');
+        else setState('ready');
+      });
+
+    return () => { active = false; };
+  }, [requireAdmin]);
+
+  if (state === 'checking') {
+    return (
+      <div className="auth-loading" role="status" aria-live="polite">
+        <span className="auth-loading-mark">智</span>
+        <span>正在验证登录状态…</span>
+      </div>
+    );
+  }
+  if (state === 'unauthenticated') {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  if (state === 'forbidden') return <Navigate to="/" replace />;
+  return <>{children}</>;
 }
 
 function AppContent() {
@@ -163,6 +207,8 @@ function AppContent() {
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
   const location = useLocation();
   const isAdmin = location.pathname === '/admin';
+  const authUser = getAuthUser();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const { theme, toggleTheme } = useTheme();
   const {
@@ -203,18 +249,21 @@ function AppContent() {
   const handleNewChat = useCallback(() => {
     const sessionId = createSession();
     setInputValue('');
+    setSidebarOpen(false);
     navigate(`/chat/${sessionId}`);
   }, [createSession, navigate, setInputValue]);
 
   const handleSelectAgent = useCallback((agentName: string) => {
     const sessionId = createSession(`与${agentName}的新对话`);
     setInputValue(`${agentName}，请协助我处理：`);
+    setSidebarOpen(false);
     navigate(`/chat/${sessionId}`);
   }, [createSession, navigate, setInputValue]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId);
     setInputValue('');
+    setSidebarOpen(false);
     navigate(`/chat/${sessionId}`);
   }, [navigate, setCurrentSessionId, setInputValue]);
 
@@ -234,12 +283,7 @@ function AppContent() {
   }, [closeSession, currentSession?.status, currentSessionId]);
 
   return (
-    <div className="relative z-10" style={{
-      display: 'flex',
-      height: '100vh',
-      width: '100vw',
-      overflow: 'hidden',
-    }}>
+    <div className="workbench-shell relative z-10">
       {!isAdmin && (
         <CustomerSidebar
           sessions={sessions}
@@ -253,126 +297,76 @@ function AppContent() {
             ? () => navigate('/admin')
             : undefined}
           onToggleTheme={toggleTheme}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
         />
       )}
 
-      <main className="flex-1 flex flex-col min-w-0 relative">
+      {!isAdmin && sidebarOpen && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          aria-label="关闭侧边栏"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <main className="workbench-main flex-1 flex flex-col min-w-0 relative">
         {isAdmin ? (
           <AdminPage onBack={() => navigate('/')} />
         ) : (
           <>
-            {/* 顶部栏 — 玻璃效果 */}
-            <div className="glass" style={{
-              display: 'flex',
-              alignItems: 'center',
-              padding: '0 20px',
-              height: '60px',
-              borderBottom: '1px solid var(--nova-border)',
-              flexShrink: 0,
-              gap: '12px',
-              zIndex: 10,
-            }}>
-              {/* 品牌标识 */}
-              <div style={{
-                width: '32px', height: '32px', borderRadius: '10px',
-                background: 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '14px', fontWeight: 800, color: 'white',
-                flexShrink: 0,
-                boxShadow: '0 0 16px var(--nova-accent-glow)',
-              }}>
-                  智
+            <header className="workbench-header glass">
+              <button
+                type="button"
+                className="header-icon-button mobile-menu-button"
+                aria-label="打开侧边栏"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <Menu size={19} />
+              </button>
+              <div className="header-context-icon"><MessageSquareText size={18} /></div>
+              <div className="header-context">
+                <strong>{currentSession ? currentSession.title : '智能业务工作台'}</strong>
+                <span>{currentSession ? '当前会话' : '新建任务并交给合适的能力处理'}</span>
               </div>
-              <div>
-                <div style={{
-                  fontSize: '15px', fontWeight: 700,
-                  color: 'var(--nova-text-primary)', lineHeight: 1.2,
-                  letterSpacing: '0.02em',
-                }}>
-                  智服 SmartAssistant
-                </div>
-                <div style={{
-                  fontSize: '11px', color: 'var(--nova-secondary)',
-                  display: 'flex', alignItems: 'center', gap: '5px',
-                }}>
-                  <span style={{
-                    width: '6px', height: '6px', borderRadius: '50%',
-                    background: 'var(--nova-secondary)', display: 'inline-block',
-                    boxShadow: '0 0 8px var(--nova-secondary)',
-                  }}></span>
-                  多智能体客服工作台
-                </div>
-              </div>
-
-              {/* 协同状态药丸 */}
-              <div style={{
-                marginLeft: '8px',
-                display: 'flex', alignItems: 'center', gap: '6px',
-                padding: '5px 12px', borderRadius: '100px',
-                background: 'var(--nova-secondary-light, rgba(6,182,212,0.12))',
-                fontSize: '12px', color: 'var(--nova-secondary)',
-              }}>
-                <span style={{
-                  width: '7px', height: '7px', borderRadius: '50%',
-                  background: 'var(--nova-secondary)',
-                  boxShadow: '0 0 8px var(--nova-secondary)',
-                  animation: 'breathe 3s ease-in-out infinite',
-                }}></span>
-                智能体协同处理中
-              </div>
-              {currentSession && (
-                <div style={{
-                  marginLeft: '12px',
-                  padding: '4px 12px',
-                  borderRadius: '100px',
-                  background: 'var(--nova-accent-light)',
-                  fontSize: '12px',
-                  color: 'var(--nova-accent)',
-                  fontWeight: 500,
-                  maxWidth: '240px',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {currentSession.title.slice(0, 24)}
-                </div>
-              )}
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div className="header-capability"><ShieldCheck size={14} /> 多智能体协同</div>
+              <div className="header-actions">
                 {currentSession && currentSession.status !== 'closed' && (
                   <button
                     type="button"
                     onClick={handleCloseSession}
-                    style={{
-                      padding: '6px 10px', borderRadius: '8px',
-                      border: '1px solid var(--nova-border)',
-                      background: 'var(--nova-bg-component)',
-                      color: 'var(--nova-text-secondary)', cursor: 'pointer',
-                      fontSize: '12px',
-                    }}
+                    className="header-text-button"
                   >
                     结束对话
                   </button>
                 )}
-                <span style={{ fontSize: '12px', color: 'var(--nova-text-secondary)' }}>
-                  {getAuthUser()?.username || '用户'}
-                </span>
+                <div className="header-user">
+                  <span className="header-avatar"><UserRound size={15} /></span>
+                  <span>
+                    <strong>{authUser?.username || '用户'}</strong>
+                    <small>{authUser?.role === 'ROLE_ADMIN' ? '管理员' : '普通用户'}</small>
+                  </span>
+                </div>
                 <button
-                  onClick={() => {
-                    clearAuth();
-                    window.location.replace('/login');
-                  }}
-                  style={{
-                    padding: '6px 10px', borderRadius: '8px',
-                    border: '1px solid var(--nova-border)',
-                    background: 'var(--nova-bg-component)',
-                    color: 'var(--nova-text-secondary)', cursor: 'pointer',
-                    fontSize: '12px',
+                  type="button"
+                  className="header-icon-button"
+                  title="退出登录"
+                  aria-label="退出登录"
+                  onClick={async () => {
+                    try {
+                      await logout();
+                    } catch {
+                      clearAuth();
+                    } finally {
+                      window.location.replace('/login');
+                    }
                   }}
                 >
-                  退出登录
+                  <LogOut size={17} />
                 </button>
               </div>
-            </div>
+            </header>
 
             {/* 聊天区域 */}
             <CustomerChatPage
@@ -392,17 +386,18 @@ function AppContent() {
               onPermissionDeny={handlePermissionDeny}
               onRateSession={handleRateSession}
               onLocationEnabledChange={setLocationEnabled}
+              userName={authUser?.username}
             />
           </>
         )}
       </main>
 
       {/* 右栏 — 实时会话洞察 */}
-      {!isAdmin && (
+      {!isAdmin && currentSession && currentSession.messages.length > 0 && (
         <InsightPanel
           session={currentSession}
-          userName={getAuthUser()?.username}
-          userId={getAuthUser()?.userId}
+          userName={authUser?.username}
+          userId={authUser?.userId}
         />
       )}
     </div>

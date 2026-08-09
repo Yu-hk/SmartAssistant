@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -26,6 +27,9 @@ import java.util.UUID;
  */
 @Service
 public class JwtService {
+    private static final String TOKEN_TYPE_CLAIM = "tokenType";
+    private static final String ACCESS_TOKEN_TYPE = "access";
+    private static final String REFRESH_TOKEN_TYPE = "refresh";
     
     private static final Logger log = LoggerFactory.getLogger(JwtService.class);
     
@@ -52,6 +56,7 @@ public class JwtService {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("username", username);
+        claims.put(TOKEN_TYPE_CLAIM, ACCESS_TOKEN_TYPE);
         claims.put("role", role);  // ⭐ 写入角色
         
         // 生成唯一的 Token ID (jti)
@@ -73,6 +78,8 @@ public class JwtService {
      */
     public String generateRefreshToken(String username) {
         Map<String, Object> claims = new HashMap<>();
+        claims.put(TOKEN_TYPE_CLAIM, REFRESH_TOKEN_TYPE);
+        claims.put("jti", UUID.randomUUID().toString());
         return createToken(claims, username, refreshExpiration);
     }
     
@@ -107,6 +114,10 @@ public class JwtService {
     public Long extractUserId(String token) {
         return extractClaim(token, claims -> claims.get("userId", Long.class));
     }
+
+    public String extractTokenType(String token) {
+        return extractClaim(token, claims -> claims.get(TOKEN_TYPE_CLAIM, String.class));
+    }
     
     /**
      * 提取任意 Claim
@@ -135,8 +146,12 @@ public class JwtService {
     public boolean validateToken(String token, String username) {
         try {
             final String extractedUsername = extractUsername(token);
-            return (extractedUsername.equals(username) && !isTokenExpired(token));
-        } catch (JwtException e) {
+            final String tokenType = extractTokenType(token);
+            return username != null
+                    && username.equals(extractedUsername)
+                    && ACCESS_TOKEN_TYPE.equals(tokenType)
+                    && !isTokenExpired(token);
+        } catch (JwtException | IllegalArgumentException e) {
             log.error("JWT Token 验证失败: {}", e.getMessage());
             return false;
         }
@@ -145,6 +160,33 @@ public class JwtService {
     /**
      * 检查 Token 是否过期
      */
+    public boolean validateAccessToken(String token, String username) {
+        return validateToken(token, username);
+    }
+
+    public boolean validateRefreshToken(String token, String username) {
+        try {
+            final String extractedUsername = extractUsername(token);
+            final String tokenType = extractTokenType(token);
+            return username != null
+                    && username.equals(extractedUsername)
+                    && REFRESH_TOKEN_TYPE.equals(tokenType)
+                    && !isTokenExpired(token);
+        } catch (JwtException | IllegalArgumentException e) {
+            log.error("JWT Refresh Token validation failed: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    public Duration getRemainingValidity(String token) {
+        long remainingMillis = extractExpiration(token).getTime() - System.currentTimeMillis();
+        return Duration.ofMillis(Math.max(remainingMillis, 1_000L));
+    }
+
+    public Duration getRefreshBlacklistTtl() {
+        return Duration.ofMillis(Math.max(refreshExpiration, 1_000L));
+    }
+
     private boolean isTokenExpired(String token) {
         return extractExpiration(token).before(new Date());
     }

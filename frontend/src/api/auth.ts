@@ -1,14 +1,16 @@
 import { apiClient } from './client';
+import {
+  clearAuth,
+  getAuthToken,
+  getAuthUser,
+  saveAuth,
+  updateAuthProfile,
+  type AuthProfile,
+  type AuthUser,
+} from './authStorage';
 
-export interface AuthUser {
-  token: string;
-  refreshToken: string;
-  tokenType: string;
-  userId: number;
-  username: string;
-  email?: string;
-  role: 'ROLE_USER' | 'ROLE_ADMIN';
-}
+export type { AuthProfile, AuthRole, AuthUser } from './authStorage';
+export { clearAuth, getAuthToken, getAuthUser, saveAuth } from './authStorage';
 
 interface ApiEnvelope<T> {
   code: number;
@@ -34,32 +36,36 @@ export const login = (username: string, password: string) =>
 export const register = (username: string, password: string, email: string) =>
   authenticate('/auth/register', { username, password, email: email || undefined });
 
-const TOKEN_KEY = 'smart-assistant-token';
-const USER_KEY = 'smart-assistant-user';
+export async function getCurrentUser(): Promise<AuthProfile> {
+  const response = await apiClient.get<ApiEnvelope<AuthProfile>>('/auth/me');
+  if (response.code !== 0 || !response.data?.userId) {
+    throw new Error(response.error?.detail || response.message || '登录状态校验失败');
+  }
+  updateAuthProfile(response.data);
+  return response.data;
+}
 
-export function saveAuth(user: AuthUser, remember = true) {
+export async function logout(): Promise<void> {
+  const current = getAuthUser();
+  const accessToken = getAuthToken();
+  // 先清理本地状态，阻止在途 refresh 响应把已退出会话重新写回。
   clearAuth();
-  const storage = remember ? localStorage : sessionStorage;
-  storage.setItem(TOKEN_KEY, user.token);
-  storage.setItem(USER_KEY, JSON.stringify(user));
-}
-
-export function clearAuth() {
-  [localStorage, sessionStorage].forEach(storage => {
-    storage.removeItem(TOKEN_KEY);
-    storage.removeItem(USER_KEY);
-  });
-}
-
-export function getAuthToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
-}
-
-export function getAuthUser(): AuthUser | null {
   try {
-    const raw = localStorage.getItem(USER_KEY) || sessionStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (accessToken && current) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        await apiClient.request<ApiEnvelope<void>>('/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ refreshToken: current.refreshToken }),
+          signal: controller.signal,
+        }, false);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
   } catch {
-    return null;
+    // 本地退出已经完成；服务端不可用不应阻止用户离开当前账号。
   }
 }

@@ -1,10 +1,21 @@
 import { FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { login, register, saveAuth } from '../api/auth';
-import { Users, Activity, Wifi, Eye, EyeOff } from 'lucide-react';
+import {
+  Activity,
+  AtSign,
+  Building2,
+  KeyRound,
+  Mail,
+  ShieldCheck,
+  Users,
+  Wifi,
+} from 'lucide-react';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
   const [mode, setMode] = useState<'login' | 'register'>('login');
 
@@ -22,7 +33,9 @@ export function LoginPage() {
   const [showPwd2, setShowPwd2] = useState(false);
   const [agreed, setAgreed] = useState(false);
 
-  const [error, setError] = useState('');
+  const [error, setError] = useState(
+    () => searchParams.get('expired') === '1' ? '登录状态已过期，请重新登录' : '',
+  );
   const [loading, setLoading] = useState(false);
   const [helpDialog, setHelpDialog] = useState<'forgot' | 'terms' | null>(null);
 
@@ -54,7 +67,8 @@ export function LoginPage() {
       } else {
         localStorage.removeItem('smart-assistant-remembered-username');
       }
-      navigate('/', { replace: true });
+      const requestedPath = (location.state as { from?: string } | null)?.from;
+      navigate(requestedPath || '/', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败，请稍后重试');
     } finally {
@@ -78,6 +92,12 @@ export function LoginPage() {
     }
     setError(`${provider}登录尚未配置，请联系系统管理员`);
   };
+
+  const enterpriseChannels = [
+    { name: '企业微信' as const, url: env.VITE_SSO_WECOM_URL, color: '#2ecc71' },
+    { name: '钉钉' as const, url: env.VITE_SSO_DINGTALK_URL, color: '#3370ff' },
+    { name: '飞书' as const, url: env.VITE_SSO_FEISHU_URL, color: '#00d6b9' },
+  ];
 
   return (
     <div className="login-page">
@@ -161,19 +181,19 @@ export function LoginPage() {
 
                 <label>账号</label>
                 <div className="login-input-wrap">
-                  <span className="li-pre">@</span>
+                  <span className="li-pre"><AtSign size={16} /></span>
                   <input
                     value={username}
                     onChange={e => setUsername(e.target.value)}
                     autoComplete="username"
-                    placeholder="手机号 / 邮箱 / 工号"
+                    placeholder="请输入用户名"
                     required
                   />
                 </div>
 
                 <label>密码</label>
                 <div className="login-input-wrap">
-                  <span className="li-pre">🔒</span>
+                  <span className="li-pre"><KeyRound size={16} /></span>
                   <input
                     type={showPwd ? 'text' : 'password'}
                     value={password}
@@ -211,22 +231,27 @@ export function LoginPage() {
                   {loading ? '正在处理…' : '登 录'}
                 </button>
 
-                <div className="login-divider"><span>或</span></div>
+                <div className="login-divider"><span>企业账号登录</span></div>
 
                 <div className="login-channels">
-                  <button type="button" className="login-channel"
-                    onClick={() => beginSso('企业微信', env.VITE_SSO_WECOM_URL)}>
-                    <span className="lc-dot" style={{ background: '#2ecc71' }}></span>企业微信
-                  </button>
-                  <button type="button" className="login-channel"
-                    onClick={() => beginSso('钉钉', env.VITE_SSO_DINGTALK_URL)}>
-                    <span className="lc-dot" style={{ background: '#3370ff' }}></span>钉钉
-                  </button>
-                  <button type="button" className="login-channel"
-                    onClick={() => beginSso('飞书', env.VITE_SSO_FEISHU_URL)}>
-                    <span className="lc-dot" style={{ background: '#00d6b9' }}></span>飞书
-                  </button>
+                  {enterpriseChannels.map(channel => (
+                    <button
+                      type="button"
+                      className="login-channel"
+                      key={channel.name}
+                      disabled={!channel.url}
+                      title={channel.url ? `使用${channel.name}登录` : `${channel.name}尚未开通`}
+                      onClick={() => beginSso(channel.name, channel.url)}
+                    >
+                      <span className="lc-dot" style={{ background: channel.color }} />
+                      <span>{channel.name}</span>
+                      {!channel.url && <small>未开通</small>}
+                    </button>
+                  ))}
                 </div>
+                <p className="login-channel-note">
+                  <Building2 size={13} /> 企业登录需管理员配置平台凭据与安全回调。
+                </p>
 
                 <button type="button" className="login-switch" onClick={() => switchMode('register')}>
                   还没有账号？立即注册
@@ -239,7 +264,7 @@ export function LoginPage() {
 
                 <label>用户名</label>
                 <div className="login-input-wrap">
-                  <span className="li-pre">@</span>
+                  <span className="li-pre"><AtSign size={16} /></span>
                   <input
                     value={username}
                     onChange={e => setUsername(e.target.value)}
@@ -253,7 +278,7 @@ export function LoginPage() {
 
                 <label>邮箱（可选）</label>
                 <div className="login-input-wrap">
-                  <span className="li-pre">✉</span>
+                  <span className="li-pre"><Mail size={16} /></span>
                   <input
                     type="email"
                     value={email}
@@ -265,7 +290,7 @@ export function LoginPage() {
 
                 <label>设置密码</label>
                 <div className="login-input-wrap">
-                  <span className="li-pre">🔒</span>
+                  <span className="li-pre"><KeyRound size={16} /></span>
                   <input
                     type={showPwd2 ? 'text' : 'password'}
                     value={password}
@@ -287,7 +312,7 @@ export function LoginPage() {
 
                 <label>确认密码</label>
                 <div className="login-input-wrap">
-                  <span className="li-pre">🔒</span>
+                  <span className="li-pre"><ShieldCheck size={16} /></span>
                   <input
                     type={showPwd2 ? 'text' : 'password'}
                     value={confirm}
