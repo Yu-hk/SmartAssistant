@@ -46,13 +46,14 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        ServerHttpRequest request = exchange.getRequest();
+        ServerHttpRequest request = stripUntrustedIdentityHeaders(exchange.getRequest());
+        ServerWebExchange sanitizedExchange = exchange.mutate().request(request).build();
         String path = request.getURI().getPath();
 
         // 检查是否在白名单中
         if (isWhiteListPath(path, whiteList)) {
             log.debug("[JWT] 路径 {} 在白名单中，跳过认证", path);
-            return chain.filter(exchange);
+            return chain.filter(sanitizedExchange);
         }
 
         // 检查是否有 Authorization 头
@@ -87,20 +88,39 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
                     String role = jwtUtil.getRoleFromToken(token);
                     
                     // 将用户信息添加到请求头中传递给下游服务
-                    ServerHttpRequest.Builder builder = request.mutate();
-                    builder.header("X-User-Id", userId);
-                    builder.header("X-User-Username", username);
-                    builder.header("X-User-Role", role);
+                    ServerHttpRequest authenticatedRequest = request.mutate()
+                            .headers(headers -> {
+                                headers.set("X-User-Id", userId);
+                                headers.set("X-User-Username", username);
+                                headers.set("X-User-Role", role);
+                            })
+                            .build();
                     
                     log.info("[JWT] 认证成功: 用户ID={}, 用户名={}, 角色={}", userId, username, role);
                     
-                    return chain.filter(exchange.mutate().request(builder.build()).build());
+                    return chain.filter(sanitizedExchange.mutate().request(authenticatedRequest).build());
                 });
 
         } catch (Exception e) {
             log.error("[JWT] 认证过程异常: {}", e.getMessage(), e);
             return unauthorizedResponse(exchange, "认证服务异常，请稍后重试");
         }
+    }
+
+    /**
+     * Identity headers are trusted only when this gateway derives them from a
+     * validated access token. Always remove client-provided values first,
+     * including on public endpoints, so they cannot be forwarded downstream.
+     */
+    private ServerHttpRequest stripUntrustedIdentityHeaders(ServerHttpRequest request) {
+        return request.mutate()
+                .headers(headers -> {
+                    List<String> untrustedHeaders = headers.keySet().stream()
+                            .filter(name -> name.regionMatches(true, 0, "X-User-", 0, 7))
+                            .toList();
+                    untrustedHeaders.forEach(headers::remove);
+                })
+                .build();
     }
 
     /**

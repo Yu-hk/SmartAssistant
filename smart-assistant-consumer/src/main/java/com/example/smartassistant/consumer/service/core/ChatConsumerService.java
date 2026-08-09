@@ -137,7 +137,8 @@ public class ChatConsumerService {
         // Step 4: 记录调用日志
         long latencyMs = System.currentTimeMillis() - startTime;
         routingCallLogService.saveLog(
-                userId,
+                userIdLong,
+                threadId,
                 question,
                 "router_service",
                 "ROUTER_SERVICE",
@@ -208,7 +209,8 @@ public class ChatConsumerService {
         // Step 4: 记录调用日志
         long latencyMs = System.currentTimeMillis() - startTime;
         routingCallLogService.saveLog(
-                userId,
+                userIdLong,
+                sessionId,
                 question,
                 "router_service",
                 "ROUTER_SERVICE",
