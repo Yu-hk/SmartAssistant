@@ -10,13 +10,20 @@ package com.example.smartassistant.gateway.filter;
 import com.example.smartassistant.gateway.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
 
 import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.*;
 
 /**
  * GlobalJwtAuthFilter 单元测试
@@ -25,11 +32,13 @@ import static org.mockito.Mockito.mock;
 class GlobalJwtAuthFilterTest {
 
     private GlobalJwtAuthFilter filter;
+    private JwtUtil jwtUtil;
+    private ReactiveStringRedisTemplate redisTemplate;
 
     @BeforeEach
     void setUp() {
-        JwtUtil jwtUtil = mock(JwtUtil.class);
-        ReactiveStringRedisTemplate redisTemplate = mock(ReactiveStringRedisTemplate.class);
+        jwtUtil = mock(JwtUtil.class);
+        redisTemplate = mock(ReactiveStringRedisTemplate.class);
         List<String> whiteList = List.of(
                 "/api/auth/login",
                 "/api/auth/register",
@@ -126,5 +135,62 @@ class GlobalJwtAuthFilterTest {
     @Test
     void emptyWhiteListShouldNotMatchAnything() throws Exception {
         assertFalse(invokeIsWhiteListPath("/api/auth/login", List.of()));
+    }
+
+    @Test
+    void authenticatedRequestShouldReplaceSpoofedIdentityHeaders() {
+        when(jwtUtil.getTokenIdFromToken("valid-token")).thenReturn("token-id");
+        when(redisTemplate.hasKey("blacklist:token-id")).thenReturn(Mono.just(false));
+        when(jwtUtil.validateToken("valid-token")).thenReturn(true);
+        when(jwtUtil.getUserIdFromToken("valid-token")).thenReturn("42");
+        when(jwtUtil.getUsernameFromToken("valid-token")).thenReturn("alice");
+        when(jwtUtil.getRoleFromToken("valid-token")).thenReturn("ROLE_USER");
+
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        ArgumentCaptor<ServerWebExchange> exchangeCaptor = ArgumentCaptor.forClass(ServerWebExchange.class);
+        when(chain.filter(exchangeCaptor.capture())).thenReturn(Mono.empty());
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/sessions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-token")
+                        .header("X-User-Id", "999")
+                        .header("X-User-Username", "attacker")
+                        .header("X-User-Role", "ROLE_ADMIN")
+                        .header("X-User-Permissions", "all")
+                        .header("x-uSeR-Debug", "true")
+                        .build());
+
+        filter.filter(exchange, chain).block();
+
+        HttpHeaders forwarded = exchangeCaptor.getValue().getRequest().getHeaders();
+        assertEquals(List.of("42"), forwarded.get("X-User-Id"));
+        assertEquals(List.of("alice"), forwarded.get("X-User-Username"));
+        assertEquals(List.of("ROLE_USER"), forwarded.get("X-User-Role"));
+        assertFalse(forwarded.containsKey("X-User-Permissions"));
+        assertFalse(forwarded.containsKey("X-User-Debug"));
+    }
+
+    @Test
+    void publicRequestShouldStripSpoofedIdentityHeaders() {
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        ArgumentCaptor<ServerWebExchange> exchangeCaptor = ArgumentCaptor.forClass(ServerWebExchange.class);
+        when(chain.filter(exchangeCaptor.capture())).thenReturn(Mono.empty());
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/auth/login")
+                        .header("X-User-Id", "999")
+                        .header("X-User-Username", "attacker")
+                        .header("X-User-Role", "ROLE_ADMIN")
+                        .header("X-User-Permissions", "all")
+                        .header("x-uSeR-Debug", "true")
+                        .build());
+
+        filter.filter(exchange, chain).block();
+
+        HttpHeaders forwarded = exchangeCaptor.getValue().getRequest().getHeaders();
+        assertFalse(forwarded.containsKey("X-User-Id"));
+        assertFalse(forwarded.containsKey("X-User-Username"));
+        assertFalse(forwarded.containsKey("X-User-Role"));
+        assertFalse(forwarded.containsKey("X-User-Permissions"));
+        assertFalse(forwarded.containsKey("X-User-Debug"));
+        verifyNoInteractions(jwtUtil, redisTemplate);
     }
 }

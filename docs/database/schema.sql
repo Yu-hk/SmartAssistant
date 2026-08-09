@@ -456,6 +456,7 @@ CREATE MATERIALIZED VIEW public.mv_city_attraction_stats AS
 CREATE TABLE public.routing_call_log (
     id bigint NOT NULL,
     session_id character varying(100),
+    user_id bigint,
     user_input text NOT NULL,
     routed_agent character varying(100),
     route_method character varying(20) NOT NULL,
@@ -1312,6 +1313,20 @@ CREATE INDEX idx_routing_call_log_routed_agent ON public.routing_call_log USING 
 --
 
 CREATE INDEX idx_routing_call_log_session_id ON public.routing_call_log USING btree (session_id);
+
+
+--
+-- Name: idx_routing_call_log_user_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_routing_call_log_user_created ON public.routing_call_log USING btree (user_id, created_at DESC);
+
+
+--
+-- Name: idx_routing_call_log_user_session; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_routing_call_log_user_session ON public.routing_call_log USING btree (user_id, session_id);
 
 
 --
