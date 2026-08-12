@@ -94,7 +94,7 @@ jobs:
       - name: Run router end-to-end test
         run: >-
           mvn -B -pl smart-assistant-router -am test
-          -Dtest="RouterServiceEndToEndTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,GraphExecutionServiceTest,GraphReplanTest"
+          -Dtest="RouterServiceEndToEndTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest"
           -Dsurefire.failIfNoSpecifiedTests=false
           -DfailIfNoTests=false
       - name: Upload surefire report
@@ -127,7 +127,7 @@ jobs:
       - name: Run router unit test with JaCoCo coverage
         run: >-
           mvn -B -pl smart-assistant-router -am test
-          -Dtest="RouterServiceEndToEndTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,GraphExecutionServiceTest,GraphReplanTest"
+          -Dtest="RouterServiceEndToEndTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest"
           -Dsurefire.failIfNoSpecifiedTests=false
           -DfailIfNoTests=false
       - name: Upload jacoco coverage report

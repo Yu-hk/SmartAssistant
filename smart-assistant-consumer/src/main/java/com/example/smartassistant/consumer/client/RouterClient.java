@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -211,6 +212,17 @@ public class RouterClient {
     }
 
     public Map<String, Object> waitForDecisionFromRedis(String requestId, long timeoutMs) {
+        return waitForDecisionFromRedis(requestId, timeoutMs, null);
+    }
+
+    /**
+     * 等待 Router 写入最终决策，并在等待期间持续转发执行进度。
+     *
+     * @param requestId 决策请求 ID
+     * @param timeoutMs 最长等待时间
+     * @param onPoll 每轮读取最终决策前执行的非阻塞回调，可为 {@code null}
+     */
+    public Map<String, Object> waitForDecisionFromRedis(String requestId, long timeoutMs, Runnable onPoll) {
         if (redisTemplate == null) {
             log.debug("[RouterClient] Redis 未配置，跳过等待");
             return null;
@@ -231,6 +243,9 @@ public class RouterClient {
         // 使用短轮询后，单次 Redis 命令不会跨越客户端超时。
         do {
             try {
+                if (onPoll != null) {
+                    onPoll.run();
+                }
                 String notifyResult = redisTemplate.opsForList().leftPop(notifyKey);
                 String value = redisTemplate.opsForValue().get(decisionKey);
                 if (value != null) {
@@ -283,6 +298,7 @@ public class RouterClient {
         triggerRoutingDecision(message, userId, requestId, null);
     }
 
+    @Async("taskExecutor")
     public void triggerRoutingDecision(String message, String userId, String requestId,
                                        DeviceLocation deviceLocation) {
         log.debug("[RouterClient] 触发路由决策: requestId={}, messageLength={}", 

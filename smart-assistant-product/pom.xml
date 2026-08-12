@@ -55,7 +55,7 @@
         <!-- Spring AOP (日志切面) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-aop</artifactId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
         </dependency>
 
         <!-- Redis (StageTraceRecorder 可选持久化，缺省降级内存) -->
@@ -127,12 +127,6 @@
         </dependency>
 
         <!-- ⭐ Spring Cloud Bootstrap (支持 @RefreshScope 热重载) -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-bootstrap</artifactId>
-            <version>4.1.0</version>
-        </dependency>
-
         <!-- Spring AI MCP Server (内嵌 MCP 工具) ⭐ -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

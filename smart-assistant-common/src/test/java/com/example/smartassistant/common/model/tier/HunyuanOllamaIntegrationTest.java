@@ -15,7 +15,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
-import org.springframework.ai.ollama.api.OllamaOptions;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
 
 import com.example.smartassistant.common.rag.pipeline.QueryComplexityClassifier;
 
@@ -46,13 +46,13 @@ class HunyuanOllamaIntegrationTest {
         OllamaApi ollamaApi = OllamaApi.builder()
                 .baseUrl(BASE_URL)
                 .build();
-        OllamaOptions options = OllamaOptions.builder()
+        OllamaChatOptions options = OllamaChatOptions.builder()
                 .model(MODEL)
                 .temperature(0.3)
                 .build();
         return OllamaChatModel.builder()
                 .ollamaApi(ollamaApi)
-                .defaultOptions(options)
+                .options(options)
                 .build();
     }
 
@@ -72,7 +72,7 @@ class HunyuanOllamaIntegrationTest {
     @DisplayName("canary 路由闭环：TieredModelRouter 经 canary 把流量切到混元")
     void tieredRouterCanaryRoutesToHunyuan() {
         OllamaChatModel ollama = buildOllamaModel();
-        OllamaOptions canaryOpt = OllamaOptions.builder()
+        OllamaChatOptions canaryOpt = OllamaChatOptions.builder()
                 .model(MODEL)
                 .temperature(0.3)
                 .build();

@@ -18,7 +18,9 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  * 统一入口、认证、限流、路由
  */
 @Slf4j
-@SpringBootApplication(exclude = ToolRegistryAutoConfiguration.class)
+@SpringBootApplication(
+        exclude = ToolRegistryAutoConfiguration.class,
+        excludeName = "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration")
 @EnableDiscoveryClient
 public class ApiGatewayApplication {
 

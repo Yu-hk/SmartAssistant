@@ -123,11 +123,13 @@ public class DiscoverToolsTool {
             @ToolParam(description = "能力名或关键词", required = true) String capabilityQuery,
             @ToolParam(description = "辅助关键词", required = false) String[] keywords,
             @ToolParam(description = "匹配模式 OR/AND，默认 OR", required = false) String matchMode,
-            @ToolParam(description = "返回上限，默认 20", required = false) int limit) {
+            @ToolParam(description = "返回上限，默认 20", required = false) Integer limit) {
         long startTime = System.currentTimeMillis();
         String clarification = "";
         String effectiveMatchMode = (matchMode != null && !matchMode.isBlank()) ? matchMode.toUpperCase() : "OR";
-        int effectiveLimit = limit > 0 ? Math.min(limit, properties.getMaxDynamicTools()) : 20;
+        int effectiveLimit = limit != null && limit > 0
+                ? Math.min(limit, properties.getMaxDynamicTools())
+                : 20;
 
         // ═══════════════════════════════════════════════════════════════
         // 护栏 1：已发现能力去重

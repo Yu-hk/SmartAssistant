@@ -79,7 +79,8 @@ public class IntentFusionService {
 
         // ===== 路 1: 规则匹配 =====
         KeywordFastRouteService.MatchResult ruleResult = fastRouteService.match(question);
-        if (ruleResult != null && ruleResult.getConfidence() >= 0.9) {
+        if (ruleResult != null && ruleResult.getConfidence() >= 0.9
+                && !looksPotentiallyMultiIntent(question)) {
             long elapsed = System.currentTimeMillis() - start;
             log.info("[IntentFusion] ⚡ 规则命中: intent={}, conf={}, elapsed={}ms",
                     ruleResult.getIntentTag(), ruleResult.getConfidence(), elapsed);
@@ -101,6 +102,9 @@ public class IntentFusionService {
             log.warn("[IntentFusion] ⏱ 小模型超时(100ms), 跳过");
         } catch (Exception e) {
             log.warn("[IntentFusion] 小模型失败: {}", e.getMessage());
+        } finally {
+            if (!classifierFuture.isDone()) classifierFuture.cancel(true);
+            executor.shutdownNow();
         }
 
         if (classifyResult != null && classifyResult.confidence() >= 0.7) {
@@ -121,9 +125,8 @@ public class IntentFusionService {
             double llmConf = llmResult.getConfidence();  // primitive double, default 1.0
 
             // 融合决策
-            IntentFusionResult fusionResult = fuseWithLLM(
+            return fuseWithLLM(
                     ruleResult, classifyResult, llmResult, start);
-            return fusionResult;
         }
 
         // ===== 全部失败 =====
@@ -154,6 +157,16 @@ public class IntentFusionService {
         String classifierIntent = classifyResult != null ? classifyResult.intentTag() : null;
         double classifierConf = applyBias(classifierIntent, classifyResult != null ? classifyResult.confidence() : 0);
 
+        // A structured multi-intent analysis must not be overwritten by a broad keyword hit.
+        if ("COMPLEX".equalsIgnoreCase(llmIntent) || llmResult.hasSubIntents()
+                && llmResult.getSubIntents().size() > 1) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            return new IntentFusionResult(llmIntent, llmConf,
+                    "complex", "LLM_COMPLEX",
+                    ruleIntent, ruleConf, classifierIntent, classifierConf,
+                    llmIntent, llmConf, elapsed, llmResult);
+        }
+
         // 融合逻辑：规则 > 小模型 > 大模型（置信度已含 Intent Prior Bias）
         if (ruleResult != null && ruleConf >= 0.6) {
             // 规则命中且置信度足够，优先采用
@@ -179,6 +192,23 @@ public class IntentFusionService {
                 llmIntent != null ? llmIntent.toLowerCase() : "unknown", "LLM",
                 ruleIntent, ruleConf, classifierIntent, classifierConf,
                 llmIntent, llmConf, elapsed, llmResult);
+    }
+
+    private boolean looksPotentiallyMultiIntent(String question) {
+        if (question == null || question.isBlank()) return false;
+        String value = question.toLowerCase();
+        int domains = 0;
+        if (containsAny(value, "商品", "产品", "库存", "价格", "热门")) domains++;
+        if (containsAny(value, "订单", "下单", "退款", "支付", "物流", "取消")) domains++;
+        if (containsAny(value, "天气", "新闻", "计算", "汇率", "搜索", "查询资料")) domains++;
+        return domains >= 2;
+    }
+
+    private boolean containsAny(String value, String... terms) {
+        for (String term : terms) {
+            if (value.contains(term)) return true;
+        }
+        return false;
     }
 
     /**

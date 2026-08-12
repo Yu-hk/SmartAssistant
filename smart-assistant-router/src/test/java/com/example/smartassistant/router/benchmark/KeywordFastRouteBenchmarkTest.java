@@ -181,18 +181,27 @@ class KeywordFastRouteBenchmarkTest {
     }
 
     @Test
-    @DisplayName("咨询类查询：使用了排除词，预期命中率 = 0")
-    void testConsultationQueriesShouldNotMatch() {
+    @DisplayName("退款政策咨询：应命中只读政策规则，不得命中退款执行规则")
+    void testConsultationQueriesShouldUseReadOnlyPolicyRoute() {
         List<String> queries = generateConsultationQueries();
 
         int hitCount = 0;
+        int safePolicyCount = 0;
         for (String query : queries) {
             var result = fastRouteService.match(query);
-            if (result != null) hitCount++;
+            if (result != null) {
+                hitCount++;
+                if ("order".equals(result.getTargetAgent())
+                        && "退款与售后政策".equals(result.getIntentTag())) {
+                    safePolicyCount++;
+                }
+            }
         }
 
         System.out.println("\n[咨询类查询] 命中条数: " + hitCount + "/" + queries.size());
-        assertEquals(0, hitCount, "咨询类查询（含排除词 [怎么退]）不应命中快车道");
+        assertEquals(queries.size(), hitCount, "退款政策咨询应走低风险只读快车道");
+        assertEquals(queries.size(), safePolicyCount,
+                "咨询请求只能命中退款政策规则，不能误触发退款申请");
     }
 
     @Test

@@ -25,6 +25,10 @@ public class JdbcProductBackend implements ProductBackend {
 
     private static final Logger log = LoggerFactory.getLogger(JdbcProductBackend.class);
     private static final int SEARCH_LIMIT = 10;
+    private static final String PRODUCTION_CATALOG_FILTER = """
+            UPPER(p.product_code) NOT LIKE 'LOAD-PROD-%'
+            AND UPPER(p.product_code) NOT LIKE 'E2E-PROD-%'
+            """;
     private static final String SELECT_COLUMNS = """
             SELECT product_code, product_name, price, stock, spec,
                    COALESCE(to_jsonb(p)->>'colors', to_jsonb(p)->>'color', '') AS color
@@ -110,11 +114,12 @@ public class JdbcProductBackend implements ProductBackend {
         List<ProductRecord> products;
         try {
             products = jdbcTemplate.query(SELECT_COLUMNS + """
-                            WHERE UPPER(product_code) LIKE ?
+                            WHERE (UPPER(product_code) LIKE ?
                                OR UPPER(product_name) LIKE ?
                                OR UPPER(COALESCE(spec, '')) LIKE ?
                                OR ? LIKE '%' || UPPER(product_code) || '%'
-                               OR ? LIKE '%' || UPPER(product_name) || '%'
+                               OR ? LIKE '%' || UPPER(product_name) || '%')
+                              AND """ + PRODUCTION_CATALOG_FILTER + """
                             ORDER BY CASE
                                 WHEN UPPER(product_code) = ? THEN 0
                                 WHEN UPPER(product_name) = ? THEN 1
@@ -151,6 +156,7 @@ public class JdbcProductBackend implements ProductBackend {
                       FROM products p
                       LEFT JOIN orders o
                         ON UPPER(o.product_name) = UPPER(p.product_name)
+                     WHERE """ + PRODUCTION_CATALOG_FILTER + """
                      GROUP BY p.product_code, p.product_name, p.price, p.stock, p.spec
                      ORDER BY COUNT(o.order_id) DESC,
                               CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
@@ -172,6 +178,7 @@ public class JdbcProductBackend implements ProductBackend {
     private List<ProductSummary> listCatalogProducts(int limit) {
         try {
             return jdbcTemplate.query(SELECT_COLUMNS + """
+                            WHERE """ + PRODUCTION_CATALOG_FILTER + """
                             ORDER BY CASE stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
                                      product_code
                             LIMIT ?

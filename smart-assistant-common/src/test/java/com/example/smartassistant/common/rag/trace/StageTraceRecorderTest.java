@@ -13,6 +13,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.util.Map;
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -84,7 +85,7 @@ class StageTraceRecorderTest {
         recorder.save("req-r");
 
         verify(redis).opsForValue();
-        verify(ops).set(eq("a2a:stage:trace:req-r"), anyString(), any());
+        verify(ops).set(eq("a2a:stage:trace:req-r"), anyString(), any(Duration.class));
     }
 
     @Test

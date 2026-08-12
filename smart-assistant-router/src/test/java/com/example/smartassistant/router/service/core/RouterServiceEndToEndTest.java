@@ -72,7 +72,6 @@ class RouterServiceEndToEndTest {
     @Mock private ReflectionService reflectionService;
     @Mock private ModelRoutingService modelRoutingService;
     @Mock private ExperienceService experienceService;
-    @Mock private GraphExecutionService graphExecutionService;
     @Mock private TaskAnalysisService taskAnalysisService;
     @Mock private QualityEvaluationService qualityEvaluationService;
     @Mock private IntentGuidedQueryRewriter queryRewriter;
@@ -182,6 +181,19 @@ class RouterServiceEndToEndTest {
                     return RoutingResult.builder()
                             .result(reply).agentName("general_agent").confidence(0.6).build();
                 });
+        when(routeExecutionService.executeCollaborative(
+                anyString(), anyLong(), anyString(), any(EmotionCheckResult.class), any(TaskAnalysisResult.class)))
+                .thenAnswer(inv -> {
+                    String question = inv.getArgument(0);
+                    Long userId = inv.getArgument(1);
+                    String requestId = inv.getArgument(2);
+                    String reply = agentCallerService.callAgent("general_agent", question, userId, requestId);
+                    if (reply == null || reply.isBlank()) {
+                        reply = "抱歉，暂时无法处理您的问题，请稍后再试。";
+                    }
+                    return RoutingResult.builder()
+                            .result(reply).agentName("general_agent").confidence(0.6).build();
+                });
         //   inlineFallback：终极兜底文案（语义缓存命中 builtin_fallback/none 时使用）
         when(routeExecutionService.inlineFallback(anyString(), any(EmotionCheckResult.class)))
                 .thenAnswer(inv -> RoutingResult.builder()
@@ -194,7 +206,7 @@ class RouterServiceEndToEndTest {
                 redisTemplate,
                 ragService, semanticCache, taskPlanner, resultMerger,
                 reflectionService, experienceService,
-                graphExecutionService, taskAnalysisService, qualityEvaluationService,
+                taskAnalysisService, qualityEvaluationService,
                 queryRewriter, keywordFastRouteService, routingToolChecker, null, // degradationService
                 guardrailService, promptManager, // ⭐ 新增必填参数
                 lightChatModel, null, routeFinalizer, routeExecutionService, routeContextHelper // BadCaseMinerService, RouteFinalizer, RouteExecutionService, RouteContextHelper
@@ -339,20 +351,20 @@ class RouterServiceEndToEndTest {
         when(keywordFastRouteService.match(anyString())).thenReturn(null);
 
         var cached = new SemanticRouteCacheService.CachedRouteDecision(
-                "weather_query", "weather_agent", 0.9, "上海天气");
-        cached.reply = "上海今天晴，25°C";
+                "general_knowledge", "general", 0.9, "Java是什么");
+        cached.reply = "Java 是一种通用编程语言";
         cached.hitCount = 2;
         cached.firstCachedAt = System.currentTimeMillis() - 5000;
         cached.firstUserId = 1L;
-        when(semanticCache.getCachedDecision("上海天气")).thenReturn(cached);
+        when(semanticCache.getCachedDecision("Java是什么")).thenReturn(cached);
         when(semanticCache.wrapCachedReply(anyString(), any(), anyString(), anyLong()))
-                .thenReturn("跟上次查询结果一样，上海今天晴，25°C");
+                .thenReturn("Java 是一种通用编程语言");
 
         RoutingResult result = routerService.route(RouteRequest.builder()
-                .userId(1L).question("上海天气").build());
+                .userId(1L).question("Java是什么").build());
 
         assertTrue(result.getFromCache());
-        assertTrue(result.getResult().contains("上海"));
+        assertTrue(result.getResult().contains("Java"));
         verify(taskAnalysisService, never()).analyze(anyString(), anyList());
     }
 
@@ -413,19 +425,15 @@ class RouterServiceEndToEndTest {
         RoutingResult r2 = routerService.route(RouteRequest.builder().userId(1L).question("查商品").build());
         assertNotNull(r2);
 
-        // ── 路径 C: 缓存 ──
-        when(keywordFastRouteService.match("北京天气")).thenReturn(null);
-        var cached = new SemanticRouteCacheService.CachedRouteDecision(
-                "weather_query", "weather_agent", 0.9, "北京天气");
-        cached.reply = "北京晴"; cached.hitCount = 2;
-        cached.firstCachedAt = System.currentTimeMillis() - 5000;
-        cached.firstUserId = 1L;
-        when(semanticCache.getCachedDecision("北京天气")).thenReturn(cached);
-        when(semanticCache.wrapCachedReply(anyString(), any(), anyString(), anyLong()))
-                .thenReturn("北京晴");
+        // ── 路径 C: 天气确定性直达（实时数据不能命中陈旧回复缓存） ──
+        when(agentCallerService.callAgentDetailed(
+                eq("general"), eq("北京天气"), eq(1L), isNull(), isNull()))
+                .thenReturn(new AgentCallResult("北京晴"));
 
         RoutingResult r3 = routerService.route(RouteRequest.builder().userId(1L).question("北京天气").build());
-        assertTrue(r3.getFromCache());
+        assertEquals("general", r3.getAgentName());
+        assertEquals("北京晴", r3.getResult());
+        verify(semanticCache, never()).getCachedDecision("北京天气");
     }
 
     @Test
@@ -533,5 +541,36 @@ class RouterServiceEndToEndTest {
         verify(taskAnalysisService, never()).analyze(anyString(), anyList());
         verify(routeExecutionService, never())
                 .executeCollaborative(anyString(), anyLong(), any(), any(EmotionCheckResult.class));
+    }
+
+    @Test
+    @DisplayName("[多意图] 缺少下单信息时先执行可完成的查询，不被澄清逻辑提前截断")
+    void multiIntentClarificationContinuesCollaborativeReadOnlyWork() {
+        String question = "帮我查下热门商品，然后说明下单还需要提供哪些信息；不要创建订单，也不要支付。";
+        String rewritten = "[用户原始请求]\n" + question
+                + "\n\n[执行边界]\n先查询热门商品，不得调用创建订单、支付等写操作。";
+
+        when(experienceService.match(anyString())).thenReturn(null);
+        when(keywordFastRouteService.match(question)).thenReturn(null);
+
+        when(queryRewriter.rewrite(eq(question), any(TaskAnalysisResult.class)))
+                .thenReturn(new IntentGuidedQueryRewriter.RewriteResult(
+                        rewritten, "decomposition", List.of("查询热门商品", "说明下单所需信息")));
+        when(agentCallerService.callAgent(eq("general_agent"), eq(rewritten), eq(1L), eq("multi-1")))
+                .thenReturn("热门商品列表；下单前请选择商品并提供收货地址。未创建订单。 ");
+
+        RoutingResult result = routerService.route(RouteRequest.builder()
+                .userId(1L).requestId("multi-1").question(question).build());
+
+        assertNotNull(result);
+        assertFalse(Boolean.TRUE.equals(result.getClarification()));
+        assertTrue(result.getResult().contains("热门商品列表"));
+        verify(routeExecutionService).executeCollaborative(
+                eq(rewritten), eq(1L), eq("multi-1"), any(EmotionCheckResult.class),
+                argThat(TaskAnalysisResult::hasSubIntents));
+        verify(intentFusionService, never()).fuse(eq(question), anyList());
+        verify(routeExecutionService, never()).callAgentAndFinalize(
+                anyString(), anyString(), anyDouble(), anyString(),
+                any(RouteRequest.class), anyString(), any(EmotionCheckResult.class));
     }
 }

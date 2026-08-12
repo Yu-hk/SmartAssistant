@@ -15,8 +15,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * MCP 表访问白名单配置（支持热重载）
- * 需要引入 spring-cloud-starter-bootstrap 依赖
+ * MCP 表访问白名单配置（支持通过 Spring Cloud Context 热重载）
  */
 @Slf4j
 @Component
