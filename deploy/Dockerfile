@@ -20,7 +20,8 @@ RUN mkdir -p /app/logs
 
 # 复制 JAR（Maven 构建产物在子模块 target/ 下）
 ARG SERVICE_NAME
-COPY ${SERVICE_NAME}/target/${SERVICE_NAME}-*.jar /app/app.jar
+ARG JAR_SUFFIX="1.0.0-SNAPSHOT.jar"
+COPY ${SERVICE_NAME}/target/${SERVICE_NAME}-${JAR_SUFFIX} /app/app.jar
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=90s --retries=3 \
