@@ -201,7 +201,11 @@ class EvalGapsDesignTest {
     }
 
     private static void stubModel(ChatModel cm, String json) {
-        AssistantMessage am = new AssistantMessage(json, Map.of(), List.of());
+        AssistantMessage am = AssistantMessage.builder()
+                .content(json)
+                .properties(Map.of())
+                .toolCalls(List.of())
+                .build();
         ChatResponse cr = new ChatResponse(List.of(new Generation(am)));
         when(cm.call(any(Prompt.class))).thenReturn(cr);
     }

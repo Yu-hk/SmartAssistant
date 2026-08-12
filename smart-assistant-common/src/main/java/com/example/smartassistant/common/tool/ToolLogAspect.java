@@ -187,7 +187,7 @@ public class ToolLogAspect {
     /**
      * ⭐ 分类工具异常类型：retryable（可重试）或 fatal（不可恢复）。
      * <p>
-     * 与 {@link com.example.smartassistant.router.service.core.GraphExecutionService#classifyException(Throwable)}
+     * 与 {@link com.example.smartassistant.router.service.core.GraphNodeExecutionService#classifyException(Throwable)}
      * 使用相同的判断逻辑：超时/连接类异常归类为 retryable，其余为 fatal。
      * </p>
      */

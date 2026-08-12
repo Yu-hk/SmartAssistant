@@ -8,6 +8,8 @@
 package com.example.smartassistant.controller;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
+import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import com.example.smartassistant.common.memory.ContextOrchestrator;
 import com.example.smartassistant.common.memory.MemoryExtractor;
 import com.example.smartassistant.common.quality.DomainQualityHeaders;
@@ -131,5 +133,19 @@ class OrderAgentControllerTest {
         verify(agent, never()).execute(anyString());
         assertEquals("SKIPPED", recorder.findByRequestId("req-refund-policy")
                 .lastStageOf(RagStage.GENERATION).status());
+    }
+
+    @Test
+    @DisplayName("统一协议：返回类型化订单响应")
+    void unifiedProtocol_shouldReturnTypedResponse() {
+        when(ragService.retrieveWithQualityResult(any(), anyString()))
+                .thenReturn(RetrievalQualityResult.highQuality("【订单信息】ORD-123 已发货", 0.9));
+        when(agent.execute(anyString())).thenReturn("订单已发货");
+
+        var response = controller.execute(AgentExecutionRequest.answer(
+                "req-order-protocol", "1", "查询订单 ORD-123", null), null);
+
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
+        assertTrue(response.getBody().answer().contains("已发货"));
     }
 }

@@ -173,6 +173,17 @@ class DiscoverToolsToolTest {
         assertEquals(0, tool.getDiscoveryCount());
     }
 
+    @Test
+    void shouldUseDefaultLimitWhenOptionalLimitIsOmitted() throws Exception {
+        when(discoveryClient.searchTools(any(McpSearchFilter.class))).thenReturn(List.of());
+
+        String result = assertDoesNotThrow(
+                () -> tool.discoverTools("order-create", null, null, null));
+
+        assertTrue(result.contains("order-create"));
+        verify(discoveryClient).searchTools(any(McpSearchFilter.class));
+    }
+
     // ==================== T2f 三期：缺口澄清测试 ====================
 
     @Test

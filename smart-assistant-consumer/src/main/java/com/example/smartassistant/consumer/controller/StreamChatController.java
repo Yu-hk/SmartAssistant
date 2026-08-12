@@ -24,6 +24,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.domain.Range;
+import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -33,6 +35,7 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -49,6 +52,8 @@ public class StreamChatController {
     private static final Logger logger = LoggerFactory.getLogger(StreamChatController.class);
 
     private static final long DECISION_TIMEOUT_MS = 60000;
+    private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
+    private static final String SSE_STREAM_KEY_PREFIX = "routing:sse:stream:";
 
     private final RouterClient routerClient;
     private final AgentStreamClient agentStreamClient;
@@ -112,8 +117,9 @@ public class StreamChatController {
         }
 
         // 获取路由决策
+        RedisEventCursor progressCursor = new RedisEventCursor();
         Map<String, Object> decision = getRoutingDecision(
-                requestId, sessionId, message, deviceLocation, bus);
+                requestId, sessionId, message, deviceLocation, bus, progressCursor);
         if (decision == null || !decision.containsKey("agentName")) {
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                     message, "unknown", null, startedAt, "FAILED");
@@ -166,7 +172,14 @@ public class StreamChatController {
 
         // 多 Agent SSE 事件检查
         if (requestId != null && redisTemplate != null) {
-            String eventsKey = "routing:sse:events:" + requestId;
+            String eventsKey = SSE_EVENTS_KEY_PREFIX + requestId;
+            if (progressCursor.forwardedAny) {
+                injectTokenUsageEvent(bus, tokenUsage);
+                bus.sendDone();
+                persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                        message, agentName, null, startedAt, "SUCCESS", tokenUsage, toolUsage);
+                return;
+            }
             Long eventCount = redisTemplate.opsForList().size(eventsKey);
             if (eventCount != null && eventCount > 0) {
                 logger.info("[StreamChat] 多 Agent SSE: {} 条", eventCount);
@@ -272,7 +285,8 @@ public class StreamChatController {
     }
 
     private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message,
-                                                   DeviceLocation deviceLocation, SseEventBus bus) {
+                                                   DeviceLocation deviceLocation, SseEventBus bus,
+                                                   RedisEventCursor progressCursor) {
         // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
         if (decisionKey == null || decisionKey.isBlank()) {
@@ -287,7 +301,9 @@ public class StreamChatController {
         }
         bus.sendWaiting();
         try {
-            return routerClient.waitForDecisionFromRedis(decisionKey, DECISION_TIMEOUT_MS);
+            String streamKey = SSE_STREAM_KEY_PREFIX + decisionKey;
+            return routerClient.waitForDecisionFromRedis(decisionKey, DECISION_TIMEOUT_MS,
+                    () -> forwardRedisStreamEvents(bus, streamKey, progressCursor));
         } catch (Exception e) {
             logger.error("[StreamChat] 获取决策失败: {}", e.getMessage());
             return null;
@@ -431,6 +447,33 @@ public class StreamChatController {
             logger.error("[StreamChat] Redis 事件转发失败: {}", e.getMessage());
             return false;
         }
+    }
+
+    private void forwardRedisStreamEvents(SseEventBus bus, String streamKey, RedisEventCursor cursor) {
+        if (redisTemplate == null) return;
+        try {
+            List<MapRecord<String, Object, Object>> records = redisTemplate.opsForStream()
+                    .range(streamKey, Range.leftOpen(cursor.lastRecordId, "+"));
+            if (records == null || records.isEmpty()) return;
+            for (MapRecord<String, Object, Object> record : records) {
+                cursor.lastRecordId = record.getId().getValue();
+                Object rawPayload = record.getValue().get("payload");
+                if (rawPayload == null) continue;
+                String payload = String.valueOf(rawPayload);
+                String type = extractType(payload);
+                if (!"done".equals(type)) {
+                    bus.send(SseEvent.raw(type, payload));
+                    cursor.forwardedAny = true;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("[StreamChat] Redis Stream 增量转发失败: key={}, error={}", streamKey, e.getMessage());
+        }
+    }
+
+    private static final class RedisEventCursor {
+        private String lastRecordId = "0-0";
+        private boolean forwardedAny;
     }
 
     private String extractType(String json) {

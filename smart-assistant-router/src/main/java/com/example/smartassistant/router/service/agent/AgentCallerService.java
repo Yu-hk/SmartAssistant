@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.router.service.agent;
 
+import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
+import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.TokenUsageHeaders;
 import com.example.smartassistant.common.audit.ToolUsageCache;
@@ -35,6 +37,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
@@ -45,8 +48,8 @@ import java.util.Map;
  * Agent Caller Service - 调用 Provider Agent
  * <p>
  * 使用自定义 HTTP 直调替代 A2A 协议。
- * Router 直接 POST 请求到 Agent 服务的 {@code /api/order/agent/process} 端点，
- * 不依赖 Spring AI Alibaba 的 A2aRemoteAgent 框架。
+ * Router 默认通过版本化的 {@code /internal/agents/{agent}/execute} 契约调用 Agent；
+ * 滚动部署期间若新端点尚未上线，会在 404/405 时自动回退旧端点。
  * </p>
  * <p>
  * <b>版本协商</b>：集成 {@link AgentVersionNegotiator} 选择兼容版本的 Agent。
@@ -173,6 +176,16 @@ public class AgentCallerService {
 
         AgentCallResult detailed = callAgentWithContextDetailed(
                 agentName, question, userId, null, requestId);
+        return withExtractedTitles(agentName, detailed);
+    }
+
+    /** Execute a validated DAG node without losing its operation, inputs or idempotency key. */
+    @CircuitBreaker(name = "agentCall", fallbackMethod = "callAgentExecutionFallback")
+    public AgentCallResult callAgentAndExtractTitles(String agentName, AgentExecutionRequest request) {
+        return withExtractedTitles(agentName, callAgentProtocolDetailed(agentName, request, null));
+    }
+
+    private AgentCallResult withExtractedTitles(String agentName, AgentCallResult detailed) {
         String result = detailed.getResponse();
 
         // ⭐ 检查 Agent 调用是否返回错误（callAgentWithContext 内部 catch 了异常并转为错误字符串）
@@ -182,9 +195,19 @@ public class AgentCallerService {
 
         // ⭐ 结构化抽取标题/标签（对标 OrderIntentService.entity() 约定），
         // 替代原先 realTitles 恒为空的 no-op 实现。
-        ExtractedTitles extracted = extractTitles(result);
+        ExtractedTitles extracted = supportsTitleExtraction(agentName)
+                ? extractTitles(result) : ExtractedTitles.EMPTY;
         return new AgentCallResult(result, extracted.titles(), extracted.tagsByTitle(),
                 detailed.getDomainQuality());
+    }
+
+    private AgentCallResult callAgentExecutionFallback(String agentName,
+                                                        AgentExecutionRequest request,
+                                                        Throwable t) {
+        log.warn("[AgentCaller] Agent protocol call circuit fallback: agent={}, executionId={}, error={}",
+                agentName, request != null ? request.executionId() : null,
+                t != null ? t.getMessage() : "unknown");
+        return new AgentCallResult("Agent '" + agentName + "' is temporarily unavailable. Please retry later.");
     }
 
     /**
@@ -215,11 +238,16 @@ public class AgentCallerService {
         }
     }
 
+    private boolean supportsTitleExtraction(String agentName) {
+        String canonicalName = AgentDiscoveryService.canonicalAgentName(agentName);
+        return "product".equals(canonicalName) || "travel".equals(canonicalName);
+    }
+
     /**
      * ⭐ Circuit Breaker fallback — 当 Agent 服务熔断时返回降级响应。
      * <p>
-     * 熔断期间不再尝试 HTTP 调用，直接返回提示信息给上游（GraphExecutionService），
-     * 由 DAG 执行引擎决定是否重试或跳转其他 Agent。
+     * 熔断期间不再尝试 HTTP 调用，直接返回提示信息给上游图节点执行器，
+     * 由 LangGraph4j 编排引擎决定是否重试或跳转其他 Agent。
      * </p>
      */
     private AgentCallResult callAgentAndExtractTitlesFallback(String agentName, String question, Long userId, String requestId, Throwable t) {
@@ -310,6 +338,29 @@ public class AgentCallerService {
     public AgentCallResult callAgentWithContextDetailed(String agentName, String question, Long userId,
                                                         RouteDecision.ExtractedContext context, String requestId,
                                                         DeviceLocation deviceLocation) {
+        AgentExecutionRequest protocolRequest = AgentExecutionRequest.answer(
+                requestId, userId != null ? String.valueOf(userId) : null,
+                question, deviceLocation);
+        return callAgentProtocolDetailed(agentName, protocolRequest, context);
+    }
+
+    private AgentCallResult callAgentProtocolDetailed(String agentName,
+                                                       AgentExecutionRequest protocolRequest,
+                                                       RouteDecision.ExtractedContext context) {
+        if (protocolRequest == null) {
+            protocolRequest = AgentExecutionRequest.answer(null, null, "", null);
+        }
+        String question = protocolRequest != null ? protocolRequest.question() : "";
+        String requestId = protocolRequest != null ? protocolRequest.executionId() : null;
+        DeviceLocation deviceLocation = protocolRequest != null ? protocolRequest.deviceLocation() : null;
+        Long userId = null;
+        if (protocolRequest != null && protocolRequest.userId() != null) {
+            try {
+                userId = Long.valueOf(protocolRequest.userId());
+            } catch (NumberFormatException ignored) {
+                // Agent protocol allows non-numeric identities; legacy logging remains nullable.
+            }
+        }
         log.info("[AgentCaller] HTTP 直调 Agent: {}, userId={}, questionLength={}, requestId={}",
                 agentName, userId, question != null ? question.length() : 0, requestId);
 
@@ -331,50 +382,72 @@ public class AgentCallerService {
                 return new AgentCallResult("❌ 未找到目标 Agent: " + agentName);
             }
 
-            // 从 Nacos 返回的 /a2a 路径转换为自定义 HTTP 端点
+            // 从 Nacos 返回的 /a2a 路径转换为统一内部 Agent 端点
             String baseUrl = agentUrl.replaceAll("/a2a$", "");
             String canonicalName = AgentDiscoveryService.canonicalAgentName(agentName);
             URI processUri = buildProcessUri(baseUrl, canonicalName, question);
 
             log.info("[AgentCaller] HTTP 直调 URL: {}", processUri);
 
-            // 构建请求体 {question: "...", userId: "..."}
-            Map<String, Object> requestBody = new java.util.LinkedHashMap<>();
-            requestBody.put("question", question);
-            if (userId != null) {
-                requestBody.put("userId", String.valueOf(userId));
+            if (!"general".equals(canonicalName) && protocolRequest.deviceLocation() != null) {
+                protocolRequest = new AgentExecutionRequest(
+                        protocolRequest.protocolVersion(), protocolRequest.executionId(), protocolRequest.nodeId(),
+                        protocolRequest.userId(), protocolRequest.operation(), protocolRequest.question(),
+                        protocolRequest.input(), protocolRequest.contextRefs(), protocolRequest.constraints(),
+                        protocolRequest.deadlineEpochMs(), protocolRequest.idempotencyKey(), null);
             }
-            if (requestId != null && !requestId.isBlank()) {
-                requestBody.put("requestId", requestId);
-            }
-            if ("general".equals(canonicalName)
-                    && deviceLocation != null && deviceLocation.isUsable()) {
-                requestBody.put("deviceLocation", deviceLocation);
-            }
-            String jsonBody = objectMapper.writeValueAsString(requestBody);
+            String jsonBody = objectMapper.writeValueAsString(protocolRequest);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             if (requestId != null && !requestId.isBlank()) {
                 headers.set("X-Request-Id", requestId);
             }
+            headers.set("X-Agent-Protocol-Version", AgentExecutionRequest.CURRENT_VERSION);
 
             HttpEntity<String> entity = new HttpEntity<>(jsonBody, headers);
 
             // 直接 HTTP POST 调用
             // 使用 URI 重载，避免 RestTemplate 再次编码已编码的 query 参数（%E6 → %25E6）。
-            ResponseEntity<String> response = restTemplate.postForEntity(processUri, entity, String.class);
+            ResponseEntity<String> response;
+            try {
+                response = restTemplate.postForEntity(processUri, entity, String.class);
+            } catch (HttpClientErrorException e) {
+                if (e.getStatusCode().value() != 404 && e.getStatusCode().value() != 405) throw e;
+                // Rolling deployment compatibility: an old Agent may not expose /execute yet.
+                URI legacyUri = buildLegacyProcessUri(baseUrl, canonicalName, question);
+                Map<String, Object> legacyBody = protocolRequest.toLegacyMap();
+                HttpEntity<String> legacyEntity = new HttpEntity<>(
+                        objectMapper.writeValueAsString(legacyBody), headers);
+                log.warn("[AgentCaller] 统一协议端点不可用，降级旧端点: agent={}, status={}",
+                        canonicalName, e.getStatusCode());
+                response = restTemplate.postForEntity(legacyUri, legacyEntity, String.class);
+            }
             recordDownstreamTokenUsage(requestId, response.getHeaders());
             recordDownstreamToolUsage(requestId, response.getHeaders());
 
-            String result = response.getBody();
-            if (result == null || result.isBlank()) {
+            String responseBody = response.getBody();
+            if (responseBody == null || responseBody.isBlank()) {
                 log.warn("[AgentCaller] Agent 返回空结果: {}", agentName);
                 return new AgentCallResult("⚠️ Agent 返回空结果");
             }
 
+            AgentExecutionResponse protocolResponse = parseProtocolResponse(responseBody);
+            if (protocolResponse != null
+                    && protocolResponse.status() != AgentExecutionResponse.Status.SUCCEEDED) {
+                String message = protocolResponse.error() != null
+                        ? protocolResponse.error().message() : "Agent execution failed";
+                return new AgentCallResult("❌ " + message);
+            }
+            String result = protocolResponse != null ? protocolResponse.answer() : responseBody;
+            if (result == null || result.isBlank()) {
+                return new AgentCallResult("⚠️ Agent 返回空结果");
+            }
             result = cleanThinkingContent(result);
-            DomainQualityResult domainQuality = DomainQualityResult.fromHeaders(
+            DomainQualityResult domainQuality = protocolResponse != null
+                    && protocolResponse.quality() != null
+                    ? protocolResponse.quality().toDomainQuality()
+                    : DomainQualityResult.fromHeaders(
                     response.getHeaders().getFirst(DomainQualityHeaders.STATUS),
                     response.getHeaders().getFirst(DomainQualityHeaders.SCORE),
                     response.getHeaders().getFirst(DomainQualityHeaders.REASON_CODES));
@@ -427,8 +500,12 @@ public class AgentCallerService {
     }
 
     static URI buildProcessUri(String baseUrl, String canonicalName, String question) {
+        return URI.create(baseUrl + "/internal/agents/" + canonicalName + "/execute");
+    }
+
+    static URI buildLegacyProcessUri(String baseUrl, String canonicalName, String question) {
         return switch (canonicalName) {
-            case "product" -> UriComponentsBuilder.fromHttpUrl(baseUrl + "/product/stream/chat/sync")
+            case "product" -> UriComponentsBuilder.fromUriString(baseUrl + "/product/stream/chat/sync")
                     .queryParam("message", question)
                     .build()
                     .encode()
@@ -436,6 +513,16 @@ public class AgentCallerService {
             case "general" -> URI.create(baseUrl + "/api/general/agent/process");
             default -> URI.create(baseUrl + "/api/order/agent/process");
         };
+    }
+
+    private AgentExecutionResponse parseProtocolResponse(String responseBody) {
+        if (responseBody == null || !responseBody.stripLeading().startsWith("{")) return null;
+        try {
+            return objectMapper.readValue(responseBody, AgentExecutionResponse.class);
+        } catch (Exception e) {
+            log.debug("[AgentCaller] 响应不是统一 Agent 协议，按旧纯文本处理: {}", e.getMessage());
+            return null;
+        }
     }
 
     // ==================== 私有方法 ====================

@@ -12,67 +12,57 @@ spring:
     name: api-gateway
 
   cloud:
-    # Spring Cloud Gateway 配置
+    # Spring Cloud Gateway 5 的服务端配置统一放在 server.webflux 命名空间。
     gateway:
-      # 启用服务发现路由
-      discovery:
-        locator:
-          enabled: true  # 启用基于服务发现的路由
-          lower-case-service-id: true  # 服务ID转小写
-      
-      # ⭐ 使用 LoadBalancerClientFilter 而非 ReactiveLoadBalancerClientFilter
-      httpclient:
-        connect-timeout: 3000
-        response-timeout: 3600s  # ⭐ SSE 流式输出需要较长超时
-      
-      # 默认过滤器（应用到所有路由）
-      default-filters:
-        - AddResponseHeader=X-Gateway-Version, 1.0.0
-        - name: RequestRateLimiter  # ⭐ 启用 Redis 限流，由 GatewayConfig 提供 KeyResolver 和 RedisRateLimiter
-          args:
-            key-resolver: "#{@userKeyResolver}"
-            redis-rate-limiter: "#{@redisRateLimiter}"
-      
-      # 路由配置
-      routes:
-        # ⭐ User Service 路由（认证服务）
-        - id: user-service
-          uri: lb://user-service
-          predicates:
-            - Path=/assistant/api/auth/**,/assistant/api/user/**
-          filters:
-            - StripPrefix=1  # 移除 /assistant，保留 /api/auth 或 /api/user
+      server:
+        webflux:
+          discovery:
+            locator:
+              enabled: true
+              lower-case-service-id: true
 
-        # User Service bare routes used by the frontend /api proxy.
-        # Keep the /api prefix because downstream controllers are mapped under /api.
-        - id: user-service-bare
-          uri: lb://user-service
-          predicates:
-            - Path=/api/auth/**,/api/user/**
-        
-        # Consumer Service 路由（聊天业务，/assistant 前缀）
-        - id: consumer-service
-          uri: lb://consumer-service
-          predicates:
-            - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/insight/**
-          filters:
-            - StripPrefix=1  # 移除 /assistant，保留 /api/chat 或 /api/math → 匹配 Consumer 的 @RequestMapping("/api/math")
+          httpclient:
+            connect-timeout: 3000
+            response-timeout: 3600s  # SSE 流式输出需要较长超时
 
-        # ⚠️ Consumer 裸前缀路由（前端 dev 代理 /api → 网关 8081，保留 /api 前缀直转 consumer）
-        # 覆盖 consumer 暴露的全部 /api 子路径（math/insight/session/feedback/data/analytics/prompt-monitoring/monitor/admin）
-        - id: consumer-service-bare
-          uri: lb://consumer-service
-          predicates:
-            - Path=/api/math/**,/api/insight/**,/api/session/**,/api/feedback/**,/api/data/**,/api/analytics/**,/api/prompt-monitoring/**,/api/monitor/**,/api/sessions/**,/api/faq/**,/api/check-login/**,/api/save-env-config/**,/api/permission-response/**,/api/admin/**
-          # 不剥离前缀，保留 /api/... 原样转发给 Consumer（其 @RequestMapping 以 /api 开头）
-        
-        # Router Service 路由（内部服务）
-        - id: router-service
-          uri: lb://router-service
-          predicates:
-            - Path=/assistant/api/router/**
-          filters:
-            - StripPrefix=1  # 移除 /assistant，保留 /api/router
+          default-filters:
+            - AddResponseHeader=X-Gateway-Version, 1.0.0
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@userKeyResolver}"
+                redis-rate-limiter: "#{@redisRateLimiter}"
+
+          routes:
+            - id: user-service
+              uri: lb://user-service
+              predicates:
+                - Path=/assistant/api/auth/**,/assistant/api/user/**
+              filters:
+                - StripPrefix=1
+
+            - id: user-service-bare
+              uri: lb://user-service
+              predicates:
+                - Path=/api/auth/**,/api/user/**
+
+            - id: consumer-service
+              uri: lb://consumer-service
+              predicates:
+                - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/insight/**
+              filters:
+                - StripPrefix=1
+
+            - id: consumer-service-bare
+              uri: lb://consumer-service
+              predicates:
+                - Path=/api/math/**,/api/insight/**,/api/session/**,/api/feedback/**,/api/data/**,/api/analytics/**,/api/prompt-monitoring/**,/api/monitor/**,/api/sessions/**,/api/faq/**,/api/check-login/**,/api/save-env-config/**,/api/permission-response/**,/api/admin/**
+
+            - id: router-service
+              uri: lb://router-service
+              predicates:
+                - Path=/assistant/api/router/**
+              filters:
+                - StripPrefix=1
 
     # Nacos 配置
     nacos:

@@ -1,23 +1,36 @@
 package com.example.smartassistant.router.service.agent;
 
+import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import org.junit.jupiter.api.Test;
-
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class AgentCallerProductUriTest {
 
     @Test
-    void productMessageIsEncodedExactlyOnce() {
+    void productUsesUnifiedInternalEndpointWithoutQuestionInQueryString() {
         String question = "办公 笔记本电脑";
         var uri = AgentCallerService.buildProcessUri(
                 "http://product:8084", "product", question);
 
-        String rawValue = uri.getRawQuery().substring("message=".length());
-        assertEquals(question, URLDecoder.decode(rawValue, StandardCharsets.UTF_8));
-        assertFalse(rawValue.contains("%25E6"));
+        assertEquals("http://product:8084/internal/agents/product/execute", uri.toString());
+        assertEquals(null, uri.getRawQuery());
+    }
+
+    @Test
+    void parsesTypedProtocolResponseAndKeepsLegacyFallbackUri() {
+        AgentCallerService service = new AgentCallerService(null, null, null);
+        AgentExecutionResponse response = ReflectionTestUtils.invokeMethod(
+                service, "parseProtocolResponse",
+                "{\"protocolVersion\":\"1.0\",\"status\":\"SUCCEEDED\","
+                        + "\"answer\":\"ok\",\"data\":{},\"error\":null,"
+                        + "\"quality\":{\"status\":\"PASS\",\"score\":0.9,"
+                        + "\"reasonCodes\":[\"OK\"]}}");
+
+        assertEquals("ok", response.answer());
+        assertEquals("http://product:8084/product/stream/chat/sync?message=%E5%8A%9E%E5%85%AC",
+                AgentCallerService.buildLegacyProcessUri(
+                        "http://product:8084", "product", "办公").toString());
     }
 }

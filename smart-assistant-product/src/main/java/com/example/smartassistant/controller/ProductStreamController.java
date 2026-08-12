@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.controller;
 
+import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
+import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.TokenUsageHeaders;
 import com.example.smartassistant.common.audit.ToolUsageCache;
@@ -35,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - event: done       - 完成信号
  */
 @RestController
-@RequestMapping("/product/stream")
+@RequestMapping({"/product/stream", "/internal/agents/product"})
 @Slf4j
 public class ProductStreamController {
 
@@ -131,6 +133,38 @@ public class ProductStreamController {
         String toolUsage = ToolUsageHeaders.encode(ToolUsageCache.consume(requestId));
         if (toolUsage != null) builder.header(ToolUsageHeaders.TOOL_USAGE, toolUsage);
         return builder.body(response.answer());
+    }
+
+    /** Unified Router-to-Agent protocol; legacy /chat/sync remains available during migration. */
+    @PostMapping("/execute")
+    public ResponseEntity<AgentExecutionResponse> execute(
+            @RequestBody AgentExecutionRequest request,
+            @RequestHeader(value = "X-Request-Id", required = false) String headerRequestId) {
+        String requestId = headerRequestId != null ? headerRequestId : request.executionId();
+        if (request.question() == null || request.question().isBlank()) {
+            return ResponseEntity.badRequest().body(
+                    AgentExecutionResponse.failure("EMPTY_PRODUCT_QUESTION",
+                            "Question must not be blank", false));
+        }
+        ToolUsageCache.start(requestId);
+        DomainAgentResponse response = streamingAgentService.executeWithQuality(
+                request.question(), requestId);
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
+                .header(DomainQualityHeaders.STATUS, response.quality().getStatus().name())
+                .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().getScore()))
+                .header(DomainQualityHeaders.REASON_CODES, response.quality().reasonCodesHeaderValue());
+        TokenUsageCache.TokenUsage usage = TokenUsageCache.consume(requestId);
+        if (usage != null) {
+            if (usage.promptTokens() != null) builder.header(
+                    TokenUsageHeaders.PROMPT_TOKENS, String.valueOf(usage.promptTokens()));
+            if (usage.completionTokens() != null) builder.header(
+                    TokenUsageHeaders.COMPLETION_TOKENS, String.valueOf(usage.completionTokens()));
+            if (usage.totalTokens() != null) builder.header(
+                    TokenUsageHeaders.TOTAL_TOKENS, String.valueOf(usage.totalTokens()));
+        }
+        String toolUsage = ToolUsageHeaders.encode(ToolUsageCache.consume(requestId));
+        if (toolUsage != null) builder.header(ToolUsageHeaders.TOOL_USAGE, toolUsage);
+        return builder.body(AgentExecutionResponse.success(response.answer(), response.quality()));
     }
 
     /**

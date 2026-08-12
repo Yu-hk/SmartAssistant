@@ -227,4 +227,29 @@ class RouteFinalizerTest {
         verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
     }
+
+    @Test
+    void cityWeatherIsNeverStoredInSemanticCacheOrExperience() {
+        RouteRequest cityRequest = RouteRequest.builder()
+                .userId(7L)
+                .question("请查询北京天气")
+                .sessionId("s-city-weather")
+                .requestId("r-city-weather")
+                .build();
+        RoutingResult routing = RoutingResult.builder()
+                .result("北京当前小雨，温度 26°C。")
+                .agentName("general")
+                .intentTag("weather_query")
+                .confidence(1.0)
+                .domainQuality(DomainQualityResult.pass(1.0, "DETERMINISTIC_WEATHER_RESPONSE"))
+                .build();
+
+        finalizer.finalizeRouting(routing, cityRequest, "请查询北京天气", null);
+
+        verify(semanticCache, never()).saveDecision(anyString(), anyString(), anyString(),
+                anyDouble(), anyLong(), anyString(), anyString());
+        verify(semanticCache, never()).saveExactMatch(anyString(), anyString());
+        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
+    }
 }

@@ -10,7 +10,10 @@ package com.example.smartassistant.service.quality;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.eval.FaithfulnessGuard;
+import com.example.smartassistant.common.tool.spi.OrderDataProvider;
+import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashSet;
@@ -30,6 +33,18 @@ public class OrderDomainQualityValidator {
     private static final List<String> ORDER_STATUSES = List.of(
             "待付款", "待支付", "已付款", "已支付", "待发货", "已发货",
             "已签收", "已完成", "已取消", "退款中", "已退款", "退款成功");
+
+    private final OrderDataProvider orderData;
+
+    /** Backward-compatible constructor for isolated controller/unit-test usage. */
+    public OrderDomainQualityValidator() {
+        this(null);
+    }
+
+    @Autowired
+    public OrderDomainQualityValidator(OrderDataProvider orderData) {
+        this.orderData = orderData;
+    }
 
     public DomainQualityResult evaluate(String question, String answer, IntentType intent,
                                         String userId, RetrievalQualityResult retrieval,
@@ -52,6 +67,20 @@ public class OrderDomainQualityValidator {
         Set<String> allowedIds = new LinkedHashSet<>(questionIds);
         allowedIds.addAll(contextIds);
 
+        // CREATE_ORDER is the one action where a valid answer must introduce a brand-new
+        // order ID that cannot exist in the question or pre-action retrieval context.
+        // Trust it only after verifying that the persisted order belongs to this user.
+        Set<String> persistedCreateStatuses = new LinkedHashSet<>();
+        if (intent == IntentType.CREATE_ORDER) {
+            for (String answerId : answerIds) {
+                OrderDTO persisted = findOwnedOrder(answerId, userId);
+                if (persisted != null) {
+                    allowedIds.add(answerId);
+                    persistedCreateStatuses.addAll(findStatuses(persisted.getStatus()));
+                }
+            }
+        }
+
         if (!questionIds.isEmpty() && !contextIds.containsAll(questionIds)) {
             return DomainQualityResult.fail("ORDER_EVIDENCE_ID_MISMATCH");
         }
@@ -60,6 +89,7 @@ public class OrderDomainQualityValidator {
         }
 
         Set<String> evidenceStatuses = findStatuses(context);
+        evidenceStatuses.addAll(persistedCreateStatuses);
         Set<String> answerStatuses = findStatuses(answer);
         if (!evidenceStatuses.isEmpty() && !answerStatuses.isEmpty()
                 && !evidenceStatuses.containsAll(answerStatuses)) {
@@ -87,6 +117,17 @@ public class OrderDomainQualityValidator {
 
         double score = retrieval != null ? retrieval.getNormalizedScore() : 0.75;
         return DomainQualityResult.pass(Math.max(0.7, score), "ORDER_FACTS_VERIFIED");
+    }
+
+    private OrderDTO findOwnedOrder(String orderId, String userId) {
+        if (orderData == null || orderId == null || userId == null || userId.isBlank()) {
+            return null;
+        }
+        OrderDTO order = orderData.findOrderByOrderId(orderId);
+        if (order == null || order.getUserId() == null) {
+            return null;
+        }
+        return String.valueOf(order.getUserId()).equals(userId.trim()) ? order : null;
     }
 
     private static boolean requiresOrderEvidence(IntentType intent) {

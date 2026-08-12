@@ -59,13 +59,13 @@
         <!-- Spring AOP (日志切面) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-aop</artifactId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
         </dependency>
 
         <!-- MyBatis Plus (数据访问层) -->
         <dependency>
             <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
         </dependency>
 
         <!-- PostgreSQL -->
@@ -148,7 +148,7 @@
         <!-- ⭐ Resilience4j (熔断 + 限流 + 重试) -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
-            <artifactId>resilience4j-spring-boot3</artifactId>
+            <artifactId>resilience4j-spring-boot4</artifactId>
             <!-- version managed by parent -->
         </dependency>
         <dependency>
@@ -170,12 +170,6 @@
         </dependency>
 
         <!-- ⭐ Spring Cloud Bootstrap (支持 @RefreshScope 热重载) -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-bootstrap</artifactId>
-            <!-- version managed by parent -->
-        </dependency>
-
         <!-- ⭐ Nacos Config 依赖 -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
@@ -242,8 +236,8 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <mainClass>com.example.smartassistant.consumer.A2aConsumerApplication</mainClass>
                     <jvmArguments>-Dfile.encoding=UTF-8 -Dconsole.encoding=UTF-8</jvmArguments>
-                    <executable>true</executable>
                 </configuration>
                 <executions>
                     <execution>

@@ -39,7 +39,9 @@ public class LoopGuardService {
     // 用户决策请求
     // ═══════════════════════════════
     private static final List<Pattern> USER_DECISION_PATTERNS = List.of(
-            Pattern.compile("(?i)(请选择|请确认|请决定|请你选择|请您选择)"),
+            Pattern.compile("(?i)(请选择|请决定|请你选择|请您选择)"),
+            Pattern.compile("(?i)请确认.{0,16}(是否|继续|执行|提交|授权|订单|支付|退款|取消|购买|下单|删除|修改)"),
+            Pattern.compile("(?i)(继续|执行|提交|授权|订单|支付|退款|取消|购买|下单|删除|修改).{0,16}请确认"),
             Pattern.compile("(?i)(是否继续|要不要|想怎么|怎么推进|下一步怎么做)"),
             Pattern.compile("(?i)(你希望|你想让|让我知道你的决定|等你回复)"),
             Pattern.compile("(?i)(请告知|请告诉我|请指示)")
