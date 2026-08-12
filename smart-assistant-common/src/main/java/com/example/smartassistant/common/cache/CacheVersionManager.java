@@ -77,6 +77,20 @@ public class CacheVersionManager {
     }
 
     /**
+     * Bypass the short-lived local snapshot and read the shared version again.
+     *
+     * <p>This is used after a remote operation that may have advanced the
+     * version before returning. Without the refresh, a caller can persist a
+     * freshly produced cache entry with the pre-request version and make that
+     * entry stale immediately.</p>
+     */
+    public synchronized long refreshCurrentVersion() {
+        cachedVersion = -1;
+        lastFetchTime = 0;
+        return getCurrentVersion();
+    }
+
+    /**
      * 递增缓存版本号（Router 端调用：经验更新/路由表变更时）。
      */
     public long incrementVersion() {

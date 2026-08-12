@@ -291,6 +291,14 @@ public class RouterService {
                 return finalizeRouting(weatherResult, request, question, emotion);
             }
 
+            // Consumer owns semantic route hints. Validate a hint before
+            // Router's experience and keyword fast paths; otherwise those
+            // earlier short circuits make every valid hint unreachable.
+            RoutingResult hinted = executeCachedRouteHint(request, question, emotion);
+            if (hinted != null) {
+                return hinted;
+            }
+
             // Step 0: 经验匹配（护栏触发 + skipShortCircuit 跳过短路）
             if (!guardrailSkipped) {
                 ExperienceService.ExperienceMatchResult experienceMatch = experienceService.match(question);
@@ -460,18 +468,6 @@ public class RouterService {
             // Step 4: Consumer may provide a semantic routing hint. Router still
             // validates it by attempting dispatch and falls through on failure.
             RoutingResult result;
-            if (request.hasCachedRouteHint()) {
-                log.info("[Router] Consumer route hint: agent={}, intent={}",
-                        request.getCachedAgentName(), request.getCachedIntentTag());
-                RoutingResult hinted = callAgentAndFinalize(
-                        request.getCachedAgentName(), enhancedQuestion,
-                        request.getCachedConfidence() != null ? request.getCachedConfidence() : 0.7,
-                        request.getCachedIntentTag(), request, enhancedQuestion, emotion);
-                if (hinted != null) {
-                    hinted.setFromCache(true);
-                    return hinted;
-                }
-            }
                 // ⭐ Step 3.5: L3 三路并行意图融合 + 任务分析
                 // 规则+小模型+LLM 三路融合，命中高置信路径则跳过 LLM
                 @SuppressWarnings("unchecked")
@@ -811,6 +807,23 @@ public class RouterService {
                                                 EmotionCheckResult emotion) {
         return routeExecutionService.callAgentAndFinalize(agentName, agentQuestion, confidence,
                 intentTag, request, rawQuestion, emotion);
+    }
+
+    RoutingResult executeCachedRouteHint(RouteRequest request, String question,
+                                         EmotionCheckResult emotion) {
+        if (request == null || !request.hasCachedRouteHint()) {
+            return null;
+        }
+        log.info("[Router] Consumer route hint: agent={}, intent={}",
+                request.getCachedAgentName(), request.getCachedIntentTag());
+        RoutingResult hinted = callAgentAndFinalize(
+                request.getCachedAgentName(), question,
+                request.getCachedConfidence() != null ? request.getCachedConfidence() : 0.7,
+                request.getCachedIntentTag(), request, question, emotion);
+        if (hinted != null) {
+            hinted.setFromCache(true);
+        }
+        return hinted;
     }
 
     /**

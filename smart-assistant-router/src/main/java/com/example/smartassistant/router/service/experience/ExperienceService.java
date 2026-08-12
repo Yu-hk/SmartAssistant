@@ -441,14 +441,17 @@ public class ExperienceService {
         commonExp.setConfidence(Math.min(1.0, commonExp.getConfidence() + 0.05));
 
         Set<String> merged = new HashSet<>(commonExp.getTriggerKeywords());
+        int originalKeywordCount = merged.size();
         merged.addAll(keywords);
         commonExp.setTriggerKeywords(new ArrayList<>(merged));
 
+        boolean intentChanged = false;
         if (!commonExp.getIntentTag().contains(intentTag)) {
             commonExp.setIntentTag(commonExp.getIntentTag() + "," + intentTag);
+            intentChanged = true;
         }
 
-        saveExperience(commonExp);
+        saveExperience(commonExp, merged.size() != originalKeywordCount || intentChanged);
         upsertEmbedding(commonExp.getId(), commonExp.getAgentName(), commonExp.getIntentTag());
         log.debug("[Experience] COMMON 经验已合并: id={}, agent={}, hits={}, newKeywords={}",
                 commonExp.getId(), commonExp.getAgentName(), commonExp.getHitCount(), keywords);
@@ -462,14 +465,17 @@ public class ExperienceService {
         toolExp.setConfidence(Math.min(1.0, toolExp.getConfidence() + 0.05));
 
         Set<String> merged = new HashSet<>(toolExp.getTriggerKeywords());
+        int originalKeywordCount = merged.size();
         merged.addAll(keywords);
         toolExp.setTriggerKeywords(new ArrayList<>(merged));
 
+        boolean intentChanged = false;
         if (!toolExp.getIntentTag().contains(intentTag)) {
             toolExp.setIntentTag(toolExp.getIntentTag() + "," + intentTag);
+            intentChanged = true;
         }
 
-        saveExperience(toolExp);
+        saveExperience(toolExp, merged.size() != originalKeywordCount || intentChanged);
         upsertEmbedding(toolExp.getId(), toolExp.getAgentName(), toolExp.getIntentTag());
         log.debug("[Experience] TOOL 经验已合并: tool={}, agent={}, hits={}",
                 toolExp.getToolName(), toolExp.getAgentName(), toolExp.getHitCount());
@@ -654,6 +660,15 @@ public class ExperienceService {
      * 保存经验到 Redis
      */
     public void saveExperience(ExperienceModel experience) {
+        saveExperience(experience, true);
+    }
+
+    /**
+     * Persist an experience while distinguishing routing-structure changes
+     * from telemetry-only updates. Hit counters, timestamps and confidence
+     * reinforcement must not invalidate every Consumer route hint.
+     */
+    void saveExperience(ExperienceModel experience, boolean routingStructureChanged) {
         if (experience == null || experience.getId() == null) return;
         try {
             String key = EXP_PREFIX + experience.getId();
@@ -683,7 +698,9 @@ public class ExperienceService {
         }
 
         // 经验变更后递增缓存版本号，通知 Consumer 侧缓存失效
-        cacheVersionManager.incrementVersion();
+        if (routingStructureChanged) {
+            cacheVersionManager.incrementVersion();
+        }
     }
 
     /**
@@ -896,7 +913,7 @@ public class ExperienceService {
     private void incrementHitCount(ExperienceModel exp) {
         exp.setHitCount(exp.getHitCount() + 1);
         exp.setLastHitAt(System.currentTimeMillis());
-        saveExperience(exp);
+        saveExperience(exp, false);
     }
 
     /**
