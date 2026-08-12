@@ -52,12 +52,6 @@ scrape_configs:
       - targets: ['host.docker.internal:8086']
         labels: { service: 'user-service', team: 'smartassistant' }
 
-  - job_name: 'smartassistant-general'
-    metrics_path: '/actuator/prometheus'
-    static_configs:
-      - targets: ['host.docker.internal:8087']
-        labels: { service: 'general-service', team: 'smartassistant' }
-
   # ========== Docker 基础设施 ==========
   - job_name: 'nacos'
     metrics_path: '/nacos/actuator/prometheus'

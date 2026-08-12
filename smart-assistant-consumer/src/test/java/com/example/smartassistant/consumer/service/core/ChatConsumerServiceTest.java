@@ -64,7 +64,7 @@ class ChatConsumerServiceTest {
     void calculatePersistsActualAgentAndResponseSummary() {
         when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
         when(routerClient.callRouterRaw(
-                "北京天气", "42", null, "request-1", null, null))
+                "北京天气", "42", null, "request-1"))
                 .thenReturn(Map.of(
                         "result", "今天晴朗",
                         "agentName", "weather_service",
@@ -89,7 +89,7 @@ class ChatConsumerServiceTest {
                 .thenReturn(new SentimentAnalysisService.SentimentResult(
                         2, "中性", "正常回复", false, false, 100));
         when(routerClient.callRouterRaw(
-                "北京天气", "42", "session-a", "request-2", null, null))
+                "北京天气", "42", "session-a", "request-2"))
                 .thenReturn(Map.of(
                         "result", "今天晴朗",
                         "agentName", "weather_service",
@@ -120,7 +120,7 @@ class ChatConsumerServiceTest {
         routerResponse.put("error", null);
         routerResponse.put("totalTokens", 9L);
         when(routerClient.callRouterRaw(
-                "hello", "42", "session-null-error", "request-null-error", null, null))
+                "hello", "42", "session-null-error", "request-null-error"))
                 .thenReturn(routerResponse);
 
         chatConsumerService.calculateWithSession(
@@ -139,7 +139,7 @@ class ChatConsumerServiceTest {
                 .thenReturn(new SentimentAnalysisService.SentimentResult(
                         2, "中性", "正常回复", false, false, 100));
         when(routerClient.callRouterRaw(
-                "查询退款进度", "42", "session-refund", "request-refund", null, null))
+                "查询退款进度", "42", "session-refund", "request-refund"))
                 .thenReturn(Map.of(
                         "result", "请提供订单号（格式：ORD-xxx）以便查询退款信息。",
                         "agentName", "order",
@@ -164,7 +164,7 @@ class ChatConsumerServiceTest {
                 .thenReturn(new SentimentAnalysisService.SentimentResult(
                         2, "中性", "正常回复", false, false, 100));
         when(routerClient.callRouterRaw(
-                "hello", "42", "request-without-session", "request-without-session", null, null))
+                "hello", "42", "request-without-session", "request-without-session"))
                 .thenReturn(Map.of(
                         "result", "hi",
                         "agentName", "general_service",
@@ -175,7 +175,7 @@ class ChatConsumerServiceTest {
 
         assertEquals("request-without-session", response.get("sessionId"));
         verify(routerClient).callRouterRaw(
-                "hello", "42", "request-without-session", "request-without-session", null, null);
+                "hello", "42", "request-without-session", "request-without-session");
         verify(routingCallLogService).saveLog(
                 eq(42L), eq("request-without-session"), eq("hello"), eq("general_service"),
                 eq("ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("hi"),

@@ -64,17 +64,3 @@ scrape_configs:
       - multiline:
           firstline: '^\d{4}-\d{2}-\d{2}'
           max_wait_time: 3s
-
-  # General Agent Service Logs
-  - job_name: a2a-general
-    static_configs:
-      - targets:
-          - localhost
-        labels:
-          job: a2a-logs
-          service: general-agent-service
-          __path__: /var/log/services/general-agent-service.log*
-    pipeline_stages:
-      - multiline:
-          firstline: '^\d{4}-\d{2}-\d{2}'
-          max_wait_time: 3s
