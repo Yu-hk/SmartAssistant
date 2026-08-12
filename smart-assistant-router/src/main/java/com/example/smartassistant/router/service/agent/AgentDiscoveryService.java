@@ -490,7 +490,7 @@ public class AgentDiscoveryService {
      * ⭐ 获取 Agent 是否始终缓存回复
      * <p>
      * 由各 Agent 在 metadata 中通过 always-cache-reply 声明。
-     * 为 true 时，SemanticRouteCacheService 在首次命中时即缓存回复，
+     * Legacy compatibility flag. Semantic routing cache is now owned by Consumer.
      * 无需等待成为高频问题。
      */
     public boolean isAlwaysCacheReply(String agentName) {

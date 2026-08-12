@@ -1,12 +1,11 @@
 package com.example.smartassistant.router.service.core;
 
-import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.model.ChatModel;
 
 import java.util.List;
 
@@ -51,8 +50,7 @@ class RouteLangGraphExecutionTest {
                 mock(ResultMerger.class),
                 mock(ExperienceService.class),
                 mock(RouteFinalizer.class),
-                mock(PromptManager.class),
-                mock(ChatModel.class),
+                mock(RouterFallbackAgentService.class),
                 null);
     }
 

@@ -2,12 +2,12 @@ package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.location.DeviceLocation;
+import com.example.smartassistant.common.intent.IntentTagGenerator;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.QualityEvaluationResult;
 import com.example.smartassistant.router.model.ReflectionResult;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
-import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.evaluation.BadCaseMinerService;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.quality.QualityEvaluationService;
@@ -32,7 +32,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class RouteFinalizerTest {
 
-    @Mock SemanticRouteCacheService semanticCache;
+    @Mock IntentTagGenerator intentTagGenerator;
+    @Mock RoutingDecisionPublisher decisionPublisher;
     @Mock OpsMetrics opsMetrics;
     @Mock ReflectionService reflectionService;
     @Mock QualityEvaluationService qualityEvaluationService;
@@ -43,7 +44,7 @@ class RouteFinalizerTest {
 
     @BeforeEach
     void setUp() {
-        finalizer = new RouteFinalizer(semanticCache, opsMetrics, null,
+        finalizer = new RouteFinalizer(intentTagGenerator, decisionPublisher, opsMetrics, null,
                 reflectionService, qualityEvaluationService, experienceService,
                 null, new ObjectMapper());
         ReflectionTestUtils.setField(finalizer, "qualityThreshold", 0.6);
@@ -91,7 +92,6 @@ class RouteFinalizerTest {
         RoutingResult finalized = finalizer.finalizeRouting(routing, request(), "查询订单状态", null);
 
         assertEquals("安全降级回复", finalized.getResult());
-        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
         verify(badCaseMinerService).recordQualityFailure(any(),
                 org.mockito.ArgumentMatchers.contains("存在幻觉"));
@@ -108,7 +108,6 @@ class RouteFinalizerTest {
         RoutingResult finalized = finalizer.finalizeRouting(routing, request(), "查询订单状态", null);
 
         assertEquals("安全降级回复", finalized.getResult());
-        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -129,7 +128,6 @@ class RouteFinalizerTest {
                 anyString(), anyString(), anyString(), anyLong(), anyString());
         verify(qualityEvaluationService).evaluate(
                 "办公笔记本电脑选购重点指标", "办公笔记本优先关注处理器、内存、硬盘和续航。", 0.9);
-        verify(semanticCache).saveExactMatch("查询订单状态", "order_query");
     }
 
     @Test
@@ -141,7 +139,6 @@ class RouteFinalizerTest {
 
         verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
         verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
-        verify(semanticCache).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -155,7 +152,6 @@ class RouteFinalizerTest {
         assertEquals("暂时无法核实该订单状态，请稍后重试。", finalized.getResult());
         verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
         verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
-        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
         verify(badCaseMinerService).recordQualityFailure(any(),
                 org.mockito.ArgumentMatchers.contains("ORDER_STATUS_MISMATCH"));
@@ -177,9 +173,6 @@ class RouteFinalizerTest {
         assertEquals(true, finalized.getClarification());
         verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
         verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
-        verify(semanticCache, never()).saveDecision(anyString(), anyString(), anyString(),
-                anyDouble(), anyLong(), anyString(), anyString());
-        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(badCaseMinerService, never()).recordQualityFailure(any(), anyString());
     }
 
@@ -195,9 +188,6 @@ class RouteFinalizerTest {
         assertEquals(true, finalized.getClarification());
         verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
         verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
-        verify(semanticCache, never()).saveDecision(anyString(), anyString(), anyString(),
-                anyDouble(), anyLong(), anyString(), anyString());
-        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(badCaseMinerService, never()).recordQualityFailure(any(), anyString());
     }
 
@@ -221,10 +211,6 @@ class RouteFinalizerTest {
 
         finalizer.finalizeRouting(routing, locationRequest, "查询天气", null);
 
-        verify(semanticCache, never()).saveDecision(anyString(), anyString(), anyString(),
-                anyDouble(), anyLong(), anyString(), anyString());
-        verify(semanticCache, never()).saveExactMatch(anyString(), anyString());
-        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
     }
 
@@ -246,10 +232,6 @@ class RouteFinalizerTest {
 
         finalizer.finalizeRouting(routing, cityRequest, "请查询北京天气", null);
 
-        verify(semanticCache, never()).saveDecision(anyString(), anyString(), anyString(),
-                anyDouble(), anyLong(), anyString(), anyString());
-        verify(semanticCache, never()).saveExactMatch(anyString(), anyString());
-        verify(semanticCache, never()).saveReply(anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
     }
 }

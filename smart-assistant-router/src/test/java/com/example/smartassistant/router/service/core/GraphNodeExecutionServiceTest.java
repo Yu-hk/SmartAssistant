@@ -4,6 +4,7 @@ import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,13 +36,14 @@ class GraphNodeExecutionServiceTest {
     @Mock ReflectionService reflectionService;
     @Mock DegradationService degradationService;
     @Mock AgentHeartbeatService heartbeatService;
+    @Mock RouterFallbackAgentService fallbackAgentService;
 
     private GraphNodeExecutionService service;
 
     @BeforeEach
     void setUp() {
         service = new GraphNodeExecutionService(agentCallerService, reflectionService,
-                degradationService, heartbeatService);
+                degradationService, heartbeatService, fallbackAgentService);
         ReflectionTestUtils.setField(service, "maxCriteriaCorrections", 1);
     }
 
@@ -97,5 +99,20 @@ class GraphNodeExecutionServiceTest {
                 .isEqualTo(SubTaskResult.ErrorType.RETRYABLE_FAILED);
         assertThat(GraphNodeExecutionService.classifyException(new IllegalArgumentException("bad input")))
                 .isEqualTo(SubTaskResult.ErrorType.FATAL_FAILED);
+    }
+
+    @Test
+    void neverCallsRemovedGeneralServiceWhenLocalFallbackReturnsEmpty() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "fallback", "回答通用问题", "general_agent", List.of());
+        when(fallbackAgentService.execute("回答通用问题", 1L, null)).thenReturn("");
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "request");
+
+        assertThat(result.isSuccess()).isFalse();
+        verify(agentCallerService, never()).callAgentAndExtractTitles(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 }

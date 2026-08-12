@@ -1,13 +1,13 @@
 # SmartAssistant
 
-SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体对话系统。系统通过网关统一接入用户请求，由 Router 完成意图识别与任务编排，再调用订单、商品、通用对话、推荐和工具注册等服务。
+SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体对话系统。系统通过网关统一接入用户请求，由 Consumer 持有用户画像与语义路由缓存，Router 只完成意图识别、任务分发与协调，再调用订单、商品、推荐等业务服务；分配失败时由 Router 内置的 Tool Registry 兜底 Agent 处理。
 
 ## 主要能力
 
 - 用户登录、权限控制与会话隔离
 - 多轮对话、历史会话管理和人工关闭会话
 - 多 Agent 路由与任务编排
-- 订单、商品、通用问答和推荐服务
+- 订单、商品、推荐服务，以及 Router 内置的通用兜底能力
 - RAG 文档解析、向量检索、重排序与评测门禁
 - Tool Registry 与 MCP 兼容的工具发现
 - Prometheus、Grafana、Loki 和 Jaeger 可观测性配置
@@ -17,14 +17,13 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 | 路径 | 说明 |
 | --- | --- |
 | `smart-assistant-gateway/` | API 网关，默认端口 8081 |
-| `smart-assistant-router/` | 意图识别、任务路由与 Agent 编排 |
-| `smart-assistant-consumer/` | 对话、会话、反馈与运营接口 |
+| `smart-assistant-router/` | 意图识别、任务分发、Agent 协调与最终兜底 |
+| `smart-assistant-consumer/` | 对话、用户画像、语义路由缓存、反馈与运营接口 |
 | `smart-assistant-user/` | 用户、认证与权限 |
 | `smart-assistant-order/` | 订单查询与订单工具 |
 | `smart-assistant-product/` | 商品检索与商品知识库 |
-| `smart-assistant-general/` | 通用对话 |
 | `smart-assistant-recommend/` | 推荐服务 |
-| `smart-assistant-tool-registry/` | 工具注册、发现与生命周期管理 |
+| `smart-assistant-tool-registry/` | 工具实现、注册、发现与生命周期管理 |
 | `smart-assistant-embedding-service/` | Embedding 服务 |
 | `smart-assistant-common/` | 公共模型、RAG、评测与基础组件 |
 | `frontend/` | React/Vite 前端与本地 BFF |

@@ -376,6 +376,12 @@ public class AgentCallerService {
                 return new AgentCallResult("");
             }
 
+            String canonicalName = AgentDiscoveryService.canonicalAgentName(agentName);
+            if ("general".equals(canonicalName)) {
+                throw new IllegalArgumentException(
+                        "General is an in-process Router fallback and cannot be called remotely");
+            }
+
             String agentUrl = findAgentUrl(agentName);
             if (agentUrl == null) {
                 log.error("[AgentCaller] 未找到 Agent: {}", agentName);
@@ -384,7 +390,6 @@ public class AgentCallerService {
 
             // 从 Nacos 返回的 /a2a 路径转换为统一内部 Agent 端点
             String baseUrl = agentUrl.replaceAll("/a2a$", "");
-            String canonicalName = AgentDiscoveryService.canonicalAgentName(agentName);
             URI processUri = buildProcessUri(baseUrl, canonicalName, question);
 
             log.info("[AgentCaller] HTTP 直调 URL: {}", processUri);
@@ -510,7 +515,8 @@ public class AgentCallerService {
                     .build()
                     .encode()
                     .toUri();
-            case "general" -> URI.create(baseUrl + "/api/general/agent/process");
+            case "general" -> throw new IllegalArgumentException(
+                    "General is an in-process Router fallback and has no remote endpoint");
             default -> URI.create(baseUrl + "/api/order/agent/process");
         };
     }

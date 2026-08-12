@@ -450,8 +450,8 @@ Error:
 | `smart-assistant-tool-registry/.../service/ToolManifestValidator.java` | 改 | 新增 `validateFunctionalCapabilities` 及与风险能力互检 |
 | `smart-assistant-order/src/.../config/OrderAgentConfig.java` | 改 | `toolTag` → `capabilityScope`（保留 tag 兼容映射）；init 用 capability 重载 |
 | `smart-assistant-product/src/.../config/ProductAgentConfig.java` | 改 | 同上 |
-| `smart-assistant-general/src/.../config/GeneralAgentConfig.java` | 改 | 同上 |
-| `smart-assistant-{order,product,general}/src/main/resources/prompts/*-system-prompt.txt` | 改 | 增加 `discover_tools` 使用说明与护栏提示 |
+| `smart-assistant-router/src/.../agent/RouterFallbackAgentService.java` | 改 | 通用能力作为 Router 分配失败后的本地兜底 Agent |
+| `smart-assistant-{order,product}/src/main/resources/prompts/*-system-prompt.txt`、Router fallback prompt | 改 | 增加 `discover_tools` 使用说明与护栏提示 |
 | 各工具 `initTools()`（`OrderTools`/`ProductTools`/`GeneralTools`/`WeatherTool`/`ImageTools`/`DataGifTool`/`KnowledgeQueryTool`/`CouponTools`/`*MemoryTool`/`OrderKnowledgeTool`/`OrderAnalyticsTool`/`TextToSqlTool` 等） | 改 | 补全 `functionalCapabilities` 声明（阶段 B 迁移） |
 | `ToolRegistryProperties`（common） | 改 | 新增 T1/T2 特性开关（`t1-capability-scope-enabled`、`t2-discovery-enabled`）、`maxDiscoveriesPerTurn/Session`、`maxDynamicTools` 等护栏阈值 |
 
@@ -462,7 +462,7 @@ Error:
 | **T1** | 数据模型扩展：新增 `functionalCapabilities` 字段 + `ToolFunctionalCapability` 枚举 + `ToolDefinition` 工厂重载 | — | P0 | ToolDefinition, ToolFunctionalCapability, ToolCapability(注释) |
 | **T2** | Registry 查询/搜索后端：Service `query` 支持 `functionalCapabilities` + 新增 `search()`；Controller `/api/tools` 增参 + 新增 `/api/tools/search` | T1 | P0 | RegistryService, RegistryController |
 | **T3** | 客户端与 Provider 能力作用域：`ToolRegistryClient` capability 查询+缓存重载；`SpringToolProvider`/`ToolProvider` capability 重载；CORE 常驻+降级保留；tag 兼容映射 | T1, T2 | P0 | ToolRegistryClient, SpringToolProvider, ToolProvider |
-| **T4** | T1 Agent 接入：3 个 AgentConfig 由 `toolTag`→`capabilityScope` + 提示词 + 上线开关（特性门控，可回退 tag） | T3 | P1 | Order/Product/GeneralAgentConfig, prompt files, Properties |
+| **T4** | T1 Agent 接入：Order/Product Agent 与 Router fallback 由 `toolTag`→`capabilityScope` + 提示词 + 上线开关（特性门控，可回退 tag） | T3 | P1 | Order/Product AgentConfig, RouterFallbackAgentService, prompt files, Properties |
 | **T5** | T2 发现机制：`DiscoverToolsTool` 元工具 + `SmartReActAgent.dynamicTools`/`registerDiscoveredTool` + 提示词护栏 + `DiscoveryEvent` 可观测 + 会话级缓存 | T2, T3 | P1 | DiscoverToolsTool, DiscoveryEvent, SmartReActAgent, prompt files, Properties |
 | **T6** | 校验与迁移：`ToolManifestValidator.validateFunctionalCapabilities` + 存量工具 `functionalCapabilities` 补全（启发式脚本+人工复核）+ 联调与回归测试 | T1, T2 | P1 | ToolManifestValidator, 各工具 initTools, 迁移脚本/映射 |
 

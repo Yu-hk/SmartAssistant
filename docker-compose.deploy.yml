@@ -148,6 +148,7 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
+      TOOL_REGISTRY_URL: http://tool-registry:8088
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
@@ -158,8 +159,25 @@ services:
       nacos: { condition: service_healthy }
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
+      tool-registry: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+    restart: unless-stopped
+
+  tool-registry:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE_NAME: smart-assistant-tool-registry
+        JAR_SUFFIX: 1.0.0-SNAPSHOT-exec.jar
+    ports:
+      - "8088:8088"
+    environment:
+      PORT: 8088
+      TOOL_REGISTRY_URL: http://tool-registry:8088
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
     restart: unless-stopped
 
   order:
@@ -220,32 +238,6 @@ services:
       redis: { condition: service_started }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
-    restart: unless-stopped
-
-  general:
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile
-      args:
-        SERVICE_NAME: smart-assistant-general
-    ports:
-      - "8087:8087"
-    environment:
-      PORT: 8087
-      NACOS_PASSWORD: ${NACOS_PASSWORD}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-a2a_system}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
-      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: nacos:8848
-      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD}
-    depends_on:
-      nacos: { condition: service_healthy }
-      postgres: { condition: service_healthy }
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
     restart: unless-stopped
 
 volumes:

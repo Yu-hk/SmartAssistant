@@ -14,10 +14,10 @@ import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.intent.WeatherQuerySupport;
+import com.example.smartassistant.common.intent.IntentTagGenerator;
 import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.*;
-import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.evaluation.BadCaseMinerService;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
@@ -50,7 +50,8 @@ public class RouteFinalizer {
 
     private static final Logger log = LoggerFactory.getLogger(RouteFinalizer.class);
 
-    private final SemanticRouteCacheService semanticCache;
+    private final IntentTagGenerator intentTagGenerator;
+    private final RoutingDecisionPublisher decisionPublisher;
     private final OpsMetrics opsMetrics;
     private final RoutingToolChecker routingToolChecker;
     private final ReflectionService reflectionService;
@@ -82,7 +83,8 @@ public class RouteFinalizer {
     private NewMetricsCollector newMetrics;
 
     public RouteFinalizer(
-            SemanticRouteCacheService semanticCache,
+            IntentTagGenerator intentTagGenerator,
+            RoutingDecisionPublisher decisionPublisher,
             OpsMetrics opsMetrics,
             RoutingToolChecker routingToolChecker,
             ReflectionService reflectionService,
@@ -90,7 +92,8 @@ public class RouteFinalizer {
             ExperienceService experienceService,
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper) {
-        this.semanticCache = semanticCache;
+        this.intentTagGenerator = intentTagGenerator;
+        this.decisionPublisher = decisionPublisher;
         this.opsMetrics = opsMetrics;
         this.routingToolChecker = routingToolChecker;
         this.reflectionService = reflectionService;
@@ -119,7 +122,7 @@ public class RouteFinalizer {
 
     /**
      * ⭐⭐ 路由后处理公共方法：
-     * 反思器质量评分 → LLM质量评估 → 语义缓存写入 → 经验提取 → 事件发布 → Bad Case 挖掘。
+     * 反思器质量评分 → LLM质量评估 → 路由经验提取 → 事件发布 → Bad Case 挖掘。
      */
     public RoutingResult finalizeRouting(RoutingResult result, RouteRequest request,
                                           String executionQuestion, EmotionCheckResult emotion) {
@@ -134,7 +137,7 @@ public class RouteFinalizer {
         boolean realTimeWeather = WeatherQuerySupport.isWeatherLookup(question);
         result.setClarification(clarification);
         if (intentTag == null || intentTag.isBlank()) {
-            intentTag = semanticCache.generateIntentTag(question);
+            intentTag = intentTagGenerator.generate(question);
             result.setIntentTag(intentTag);
         }
 
@@ -216,18 +219,6 @@ public class RouteFinalizer {
 
         if (!clarification && !realTimeWeather
                 && agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
-            semanticCache.saveDecision(requestId, question, agentName,
-                    result.getConfidence(), request.getUserId(), intentTag, request.getSessionId());
-            semanticCache.saveExactMatch(question, intentTag);
-
-            if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
-                if (reply != null && !reply.isBlank() && !reply.startsWith("❌") && !reply.startsWith("⚠️")
-                        && reply.length() >= 20) {
-                    semanticCache.saveReply(question, reply, agentName, intentTag,
-                            Boolean.TRUE.equals(result.getAdminOperation()));
-                }
-            }
-
             if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
                 experienceService.extractCommonExperience(question, agentName, intentTag);
                 extractToolExperienceIfApplicable(reply, agentName, intentTag, question);
@@ -250,7 +241,7 @@ public class RouteFinalizer {
 
         // ⭐ 完整决策写入 Redis
         if (requestId != null && !requestId.isBlank() && agentName != null) {
-            semanticCache.saveFullDecisionForConsumer(requestId, agentName,
+            decisionPublisher.publish(requestId, agentName,
                     result.getConfidence(), reply, intentTag, TokenUsageCache.snapshot(requestId),
                     ToolUsageCache.snapshot(requestId));
             appendTaskAnalysisToFullDecision(requestId);
@@ -353,7 +344,7 @@ public class RouteFinalizer {
                             "checkStock", "{\"product\": \"" + QuestionExtractor.extractProductName(question) + "\"}", "{product}的库存状态为{status}");
                 }
             }
-            case "general_agent" -> {
+            case "general_agent", "router_fallback" -> {
                 if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
                             "getWeather", "{\"location\": \"" + QuestionExtractor.extractLocation(question) + "\"}", "{location}当前天气为{weather}");
