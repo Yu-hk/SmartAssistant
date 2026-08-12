@@ -1202,7 +1202,7 @@ public class AdminService {
             case "product", "product-service", "product_service" -> "product";
             case "refund", "refund-service", "refund_service" -> "refund";
             case "human", "human-service", "human_service" -> "handoff";
-            case "general", "general-service", "general_service", "none" -> "general";
+            case "general", "router_fallback", "none" -> "general";
             default -> agent;
         };
     }

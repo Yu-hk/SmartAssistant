@@ -201,7 +201,7 @@ public class RegistryService {
     public List<ToolDefinition> query(String[] tags, ToolStatus status, String namespace,
                                        String[] capabilities, String[] functionalCapabilities,
                                        String matchMode) {
-        return definitions.values().stream()
+        return catalogView().stream()
                 .filter(def -> status == null || def.getStatus() == status)
                 .filter(def -> namespace == null || namespace.equals(def.getNamespace()))
                 .filter(def -> tags == null || tags.length == 0 || hasAnyTag(def, tags))

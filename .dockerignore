@@ -8,7 +8,10 @@
 .gitignore
 
 # 开发构建产物
-**/target/
+**/target/*
+!**/target/
+!**/target/*-1.0.0-SNAPSHOT.jar
+!**/target/*-1.0.0-SNAPSHOT-exec.jar
 **/build/
 **/node_modules/
 **/logs/
@@ -39,3 +42,7 @@ docker-compose.deploy.yml
 *.log
 *.gz
 *.tmp
+*.tar
+*.tail
+.env
+**/.env

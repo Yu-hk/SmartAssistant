@@ -5,6 +5,7 @@ import com.example.smartassistant.router.model.HandoffCommand;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,6 +41,7 @@ public class GraphNodeExecutionService {
     private final ReflectionService reflectionService;
     private final DegradationService degradationService;
     private final AgentHeartbeatService heartbeatService;
+    private final RouterFallbackAgentService fallbackAgentService;
 
     @Autowired(required = false)
     private StringRedisTemplate redisTemplate;
@@ -50,11 +52,13 @@ public class GraphNodeExecutionService {
     public GraphNodeExecutionService(AgentCallerService agentCallerService,
                                      ReflectionService reflectionService,
                                      DegradationService degradationService,
-                                     AgentHeartbeatService heartbeatService) {
+                                     AgentHeartbeatService heartbeatService,
+                                     RouterFallbackAgentService fallbackAgentService) {
         this.agentCallerService = agentCallerService;
         this.reflectionService = reflectionService;
         this.degradationService = degradationService;
         this.heartbeatService = heartbeatService;
+        this.fallbackAgentService = fallbackAgentService;
     }
 
     public SubTaskResult execute(IntentNode node,
@@ -83,6 +87,16 @@ public class GraphNodeExecutionService {
         int corrections = 0;
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
+                if (isFallbackTarget(targetAgent)) {
+                    String text = fallbackAgentService.execute(enrichedDescription, userId, null);
+                    if (text != null && !text.isBlank()) {
+                        return new SubTaskResult(node.getId(), node.getDescription(),
+                                RouterFallbackAgentService.AGENT_NAME, text, true, List.of(), Map.of());
+                    }
+                    return recordFailure(node, breakerFailures, requestId,
+                            "Router fallback returned an empty response",
+                            SubTaskResult.ErrorType.FATAL_FAILED);
+                }
                 var response = hasProtocolMetadata(node)
                         ? agentCallerService.callAgentAndExtractTitles(targetAgent,
                         new AgentExecutionRequest(
@@ -143,6 +157,12 @@ public class GraphNodeExecutionService {
         }
         return recordFailure(node, breakerFailures, requestId,
                 "节点重试次数已耗尽", SubTaskResult.ErrorType.FATAL_FAILED);
+    }
+
+    private static boolean isFallbackTarget(String agentName) {
+        return "general".equalsIgnoreCase(agentName)
+                || "general_agent".equalsIgnoreCase(agentName)
+                || RouterFallbackAgentService.AGENT_NAME.equalsIgnoreCase(agentName);
     }
 
     public SubTaskResult executeHandoff(HandoffCommand command,

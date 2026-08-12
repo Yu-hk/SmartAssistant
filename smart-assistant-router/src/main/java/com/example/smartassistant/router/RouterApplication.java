@@ -33,7 +33,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;  // ⭐ 启�
 @EnableScheduling       // ⭐ 启用定时任务调度（用于健康检查）
 @ComponentScan({
         "com.example.smartassistant.router",     // 主模块
-        "com.example.smartassistant.common"      // ⭐ 公共模块（ChineseTokenizer 等）
+        "com.example.smartassistant.common",     // ⭐ 公共模块（ChineseTokenizer 等）
+        "com.example.smartassistant.toolregistry.general" // Router fallback tools
 })
 public class RouterApplication {
     

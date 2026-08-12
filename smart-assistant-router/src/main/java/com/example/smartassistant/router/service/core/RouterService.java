@@ -14,6 +14,7 @@ import com.example.smartassistant.common.agent.GoalContinuityArbiter;
 import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.intent.WeatherQuerySupport;
+import com.example.smartassistant.common.intent.IntentTagGenerator;
 import com.example.smartassistant.common.model.tier.TieredModelRouter;
 import com.example.smartassistant.common.model.tier.TierSelection;
 import com.example.smartassistant.router.service.context.IntentDriftDetector;
@@ -22,7 +23,7 @@ import com.example.smartassistant.router.service.fusion.IntentFusionService;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
-import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
+import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.evaluation.BadCaseMinerService;
 import com.example.smartassistant.router.service.monitoring.NewMetricsCollector;
 import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
@@ -81,7 +82,7 @@ public class RouterService {
     private final AgentCallerService agentCallerService;
     private final StringRedisTemplate redisTemplate;
     private final RouterRagService ragService;
-    private final SemanticRouteCacheService semanticCache;
+    private final IntentTagGenerator intentTagGenerator;
     private final TaskPlannerService taskPlanner;
     private final ResultMerger resultMerger;
     private final ReflectionService reflectionService;
@@ -164,7 +165,7 @@ public class RouterService {
     public RouterService(AgentCallerService agentCallerService,
                          @Autowired(required = false) StringRedisTemplate redisTemplate,
                          RouterRagService ragService,
-                         SemanticRouteCacheService semanticCache,
+                         IntentTagGenerator intentTagGenerator,
                          TaskPlannerService taskPlanner,
                          ResultMerger resultMerger,
                          ReflectionService reflectionService,
@@ -185,7 +186,7 @@ public class RouterService {
         this.agentCallerService = agentCallerService;
         this.redisTemplate = redisTemplate;
         this.ragService = ragService;
-        this.semanticCache = semanticCache;
+        this.intentTagGenerator = intentTagGenerator;
         this.taskPlanner = taskPlanner;
         this.resultMerger = resultMerger;
         this.reflectionService = reflectionService;
@@ -237,10 +238,10 @@ public class RouterService {
                 log.warn("[Router] 💗 重度情绪风险，进入安全兜底: userId={}, signals={}",
                         request.getUserId(), emotion.signals());
                 // ⭐ G4 运营指标：重度情绪风险触发人工/专业接管
-                opsMetrics.recordHandoff("emotion_heavy", "general_agent");
+                opsMetrics.recordHandoff("emotion_heavy", "router_fallback");
                 return RoutingResult.builder()
                         .result(emotion.guidance())
-                        .agentName("general_agent")
+                        .agentName("router_fallback")
                         .confidence(1.0)
                         .emotionLevel(EmotionLevel.HEAVY)
                         .emotionIntervention(true)
@@ -273,7 +274,7 @@ public class RouterService {
             if (WeatherQuerySupport.requiresCityClarification(question, request.getDeviceLocation())) {
                 RoutingResult clarification = RoutingResult.builder()
                         .result(WeatherQuerySupport.CITY_CLARIFICATION)
-                        .agentName("general")
+                        .agentName(RouterFallbackAgentService.AGENT_NAME)
                         .confidence(1.0)
                         .intentTag("weather_query")
                         .clarification(true)
@@ -282,23 +283,12 @@ public class RouterService {
             }
 
             // Weather is a deterministic, single-domain capability once its required location is
-            // available. Route it directly so it never pays for model planning, reflection or a
-            // stale semantic/experience match. The General Agent owns normalization and lookup.
+            // available. Route it directly to the local Tool Registry-backed fallback agent.
             if (WeatherQuerySupport.isWeatherLookup(question)) {
-                var agentResult = agentCallerService.callAgentDetailed(
-                        "general", question, request.getUserId(), request.getRequestId(),
-                        request.getDeviceLocation());
-                RoutingResult weatherResult = RoutingResult.builder()
-                        .result(agentResult.getResponse())
-                        .agentName("general")
-                        .confidence(1.0)
-                        .intentTag("weather_query")
-                        .domainQuality(agentResult.getDomainQuality())
-                        .build();
-                String evaluationQuestion = request.hasUsableDeviceLocation()
-                        ? question + "\n[本次请求已提供有效的设备位置作为天气查询地点。]"
-                        : question;
-                return finalizeRouting(weatherResult, request, evaluationQuestion, emotion);
+                RoutingResult weatherResult = routeExecutionService.inlineFallback(
+                        question, request.getUserId(), request.getDeviceLocation(), emotion);
+                weatherResult.setIntentTag("weather_query");
+                return finalizeRouting(weatherResult, request, question, emotion);
             }
 
             // Step 0: 经验匹配（护栏触发 + skipShortCircuit 跳过短路）
@@ -361,9 +351,7 @@ public class RouterService {
                             final int idx = i;
                             final AgentTask task = multiAgentTasks.get(idx);
                             futures[idx] = java.util.concurrent.CompletableFuture
-                                    .supplyAsync(() -> agentCallerService.callAgent(
-                                            task.getAgentName(), task.getQuestion(),
-                                            request.getUserId(), request.getRequestId()),
+                                    .supplyAsync(() -> callCoordinatedAgent(task, request),
                                             virtExec) // 共享同一个虚拟线程执行器
                                     .thenAccept(r -> agentResults[idx] = r);
                         }
@@ -448,9 +436,6 @@ public class RouterService {
                 if (result != null) return result;
             }
 
-            // Step 1: 检查语义缓存（仅存 agent 名，不存回复内容）
-            SemanticRouteCacheService.CachedRouteDecision cached = semanticCache.getCachedDecision(question);
-            
             // Step 2: 构建上下文
             Map<String, Object> context = buildContext(request);
 
@@ -472,44 +457,21 @@ public class RouterService {
             Long userId = request.getUserId();
             String executionQuestion = enhancedQuestion;
 
-            // Step 4: 单意图路由（语义缓存命中时直接返回缓存回复）
+            // Step 4: Consumer may provide a semantic routing hint. Router still
+            // validates it by attempting dispatch and falls through on failure.
             RoutingResult result;
-            if (cached != null) {
-                log.info("[Router] ⚡ 语义缓存命中: intent={}, agent={}, hit={}", cached.intentTag, cached.agentName, cached.hitCount);
-                if (cached.reply != null && !cached.reply.isBlank()) {
-                    // ⭐ 有缓存回复，直接返回（加变化前缀避免重复）
-                    String wrapped = semanticCache.wrapCachedReply(cached.reply, cached, request.getQuestion(), request.getUserId());
-                    result = RoutingResult.builder()
-                            .result(wrapped)
-                            .agentName(cached.agentName)
-                            .confidence(cached.confidence)
-                            .intentTag(cached.intentTag)  // ⭐ 从缓存中恢复 intentTag
-                            .fromCache(true)  // ⭐ 标记为缓存命中，Consumer 据此跳过文档沉淀
-                            .build();
-                } else {
-                    // 仅有路由决策无回复内容，仍需调用 Agent
-                    result = RoutingResult.builder()
-                            .result("")
-                            .agentName(cached.agentName)
-                            .confidence(cached.confidence)
-                            .intentTag(cached.intentTag)  // ⭐ 从缓存中恢复 intentTag
-                            .build();
-                    // ⭐ 缓存了 builtin_fallback 但无回复 → 不使用缓存决策，走内联兜底
-                    if ("builtin_fallback".equals(cached.agentName) || "none".equals(cached.agentName)) {
-                        log.warn("[Router] 缓存命中但 agent={} 无可用 Agent，降级到内联兜底", cached.agentName);
-                        return inlineFallback(enhancedQuestion, emotion);
-                    }
-                    if (cached.agentName != null) {
-                        var agentResult = agentCallerService.callAgentDetailed(
-                                cached.agentName, enhancedQuestion, userId, request.getRequestId());
-                        String agentReply = agentResult.getResponse();
-                        if (agentReply != null) {
-                            result.setResult(agentReply);
-                            result.setDomainQuality(agentResult.getDomainQuality());
-                        }
-                    }
+            if (request.hasCachedRouteHint()) {
+                log.info("[Router] Consumer route hint: agent={}, intent={}",
+                        request.getCachedAgentName(), request.getCachedIntentTag());
+                RoutingResult hinted = callAgentAndFinalize(
+                        request.getCachedAgentName(), enhancedQuestion,
+                        request.getCachedConfidence() != null ? request.getCachedConfidence() : 0.7,
+                        request.getCachedIntentTag(), request, enhancedQuestion, emotion);
+                if (hinted != null) {
+                    hinted.setFromCache(true);
+                    return hinted;
                 }
-            } else {
+            }
                 // ⭐ Step 3.5: L3 三路并行意图融合 + 任务分析
                 // 规则+小模型+LLM 三路融合，命中高置信路径则跳过 LLM
                 @SuppressWarnings("unchecked")
@@ -689,11 +651,10 @@ public class RouterService {
                         QuestionExtractor.truncate(executionQuestion, 120));
                 result = executeCollaborative(
                         executionQuestion, userId, request.getRequestId(), emotion, taskAnalysis);
-            }
-
             // ⭐ 生成意图标签（用于用户画像统计），设置到 result
-            String intentTag = semanticCache.generateIntentTag(question);
-            result.setIntentTag(intentTag);
+            if (result.getIntentTag() == null || result.getIntentTag().isBlank()) {
+                result.setIntentTag(intentTag != null ? intentTag : intentTagGenerator.generate(question));
+            }
 
             // ⭐⭐ 反思器 + 缓存写入 + 经验提取（公共后处理）
                 return finalizeRouting(result, request, executionQuestion, emotion);
@@ -800,7 +761,7 @@ public class RouterService {
                 }
             }
             // General Agent 工具模式
-            case "general_agent" -> {
+            case "general_agent", "router_fallback" -> {
                 if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
                             "getWeather", "{\"location\": \"" + QuestionExtractor.extractLocation(question) + "\"}", "{location}当前天气为{weather}");
@@ -864,6 +825,21 @@ public class RouterService {
      */
     private RoutingResult inlineFallback(String question, EmotionCheckResult emotion) {
         return routeExecutionService.inlineFallback(question, emotion);
+    }
+
+    /** General tasks are handled by Router's local Tool Registry-backed fallback, never remotely. */
+    private String callCoordinatedAgent(AgentTask task, RouteRequest request) {
+        if (task == null) return null;
+        String agentName = task.getAgentName();
+        if ("general".equalsIgnoreCase(agentName)
+                || "general_agent".equalsIgnoreCase(agentName)
+                || "router_fallback".equalsIgnoreCase(agentName)) {
+            RoutingResult fallback = routeExecutionService.inlineFallback(
+                    task.getQuestion(), request.getUserId(), request.getDeviceLocation(), null);
+            return fallback != null ? fallback.getResult() : null;
+        }
+        return agentCallerService.callAgent(agentName, task.getQuestion(),
+                request.getUserId(), request.getRequestId());
     }
 
     private Map<String, Object> buildContext(RouteRequest request) {

@@ -7,21 +7,14 @@
 
 package com.example.smartassistant.router.service.core;
 
-import com.example.smartassistant.common.model.tier.TieredModelRouter;
-import com.example.smartassistant.common.model.tier.TierSelection;
-import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -67,12 +60,8 @@ public class RouteExecutionService {
     private final ResultMerger resultMerger;
     private final ExperienceService experienceService;
     private final RouteFinalizer routeFinalizer;
-    private final PromptManager promptManager;
-    private final ChatClient lightChatClient;
+    private final RouterFallbackAgentService fallbackAgentService;
     private final StringRedisTemplate redisTemplate;
-
-    @Autowired(required = false)
-    private TieredModelRouter tieredModelRouter;
 
     @Autowired(required = false)
     private DegradationService degradationService;
@@ -86,8 +75,7 @@ public class RouteExecutionService {
             ResultMerger resultMerger,
             ExperienceService experienceService,
             RouteFinalizer routeFinalizer,
-            PromptManager promptManager,
-            @Qualifier("lightChatModel") ChatModel lightModel,
+            RouterFallbackAgentService fallbackAgentService,
             @Autowired(required = false) StringRedisTemplate redisTemplate) {
         this.agentCallerService = agentCallerService;
         this.taskPlanner = taskPlanner;
@@ -95,8 +83,7 @@ public class RouteExecutionService {
         this.resultMerger = resultMerger;
         this.experienceService = experienceService;
         this.routeFinalizer = routeFinalizer;
-        this.promptManager = promptManager;
-        this.lightChatClient = ChatClient.create(lightModel);
+        this.fallbackAgentService = fallbackAgentService;
         this.redisTemplate = redisTemplate;
     }
 
@@ -146,14 +133,11 @@ public class RouteExecutionService {
         }
         if (degLevel == DegradationService.DegradationLevel.LIGHT) {
             log.warn("[Collaborative] 🟡 轻度降级，跳过复杂 DAG");
-            String reply = agentCallerService.callAgent("general_agent", question, userId, requestId);
-            if (reply == null || reply.isBlank() || reply.startsWith("❌")) {
-                return inlineFallback(question, emotion);
-            }
+            String reply = fallbackAgentService.execute(question, userId, null);
             long elapsed = System.currentTimeMillis() - start;
             log.info("[Collaborative] 降级单 Agent 完成: elapsed={}ms, replyLen={}", elapsed, reply.length());
             return routeFinalizer.applyEmotion(RoutingResult.builder()
-                    .result(reply).agentName("general_agent").confidence(1.0).build(), emotion);
+                    .result(reply).agentName(RouterFallbackAgentService.AGENT_NAME).confidence(1.0).build(), emotion);
         }
 
         IntentGraph graph = buildGraphFromAnalysis(question, taskAnalysis, requestId);
@@ -511,9 +495,19 @@ public class RouteExecutionService {
                                                double confidence, String intentTag,
                                                RouteRequest request, String rawQuestion,
                                                EmotionCheckResult emotion) {
-        var agentResult = agentCallerService.callAgentDetailed(
-                agentName, agentQuestion, request.getUserId(), request.getRequestId());
-        String agentReply = agentResult.getResponse();
+        String agentReply;
+        DomainQualityResult domainQuality;
+        if (isFallbackAgent(agentName)) {
+            agentReply = fallbackAgentService.execute(
+                    agentQuestion, request.getUserId(), request.getDeviceLocation());
+            agentName = RouterFallbackAgentService.AGENT_NAME;
+            domainQuality = DomainQualityResult.unknown();
+        } else {
+            var agentResult = agentCallerService.callAgentDetailed(
+                    agentName, agentQuestion, request.getUserId(), request.getRequestId());
+            agentReply = agentResult.getResponse();
+            domainQuality = agentResult.getDomainQuality();
+        }
         if (agentReply == null || agentReply.isBlank()) {
             return null;
         }
@@ -522,7 +516,7 @@ public class RouteExecutionService {
                 .agentName(agentName)
                 .confidence(confidence)
                 .intentTag(intentTag)
-                .domainQuality(agentResult.getDomainQuality())
+                .domainQuality(domainQuality)
                 .build();
         return routeFinalizer.finalizeRouting(result, request, rawQuestion, emotion);
     }
@@ -530,29 +524,20 @@ public class RouteExecutionService {
     // ==================== 内联兜底 ====================
 
     /**
-     * 内联 Ollama 兜底：本地推理 → 预设文案轮换。
+     * Tool Registry-backed local fallback agent, then a static safety reply.
      */
     public RoutingResult inlineFallback(String question, EmotionCheckResult emotion) {
-        String warmSystem = promptManager.inlineFallback();
+        return inlineFallback(question, null, null, emotion);
+    }
+
+    public RoutingResult inlineFallback(String question, Long userId,
+                                        com.example.smartassistant.common.location.DeviceLocation deviceLocation,
+                                        EmotionCheckResult emotion) {
         try {
-            String localReply;
-            if (tieredModelRouter != null) {
-                Prompt prompt = new Prompt(List.of(
-                        new SystemMessage(warmSystem),
-                        new UserMessage(question)));
-                TierSelection sel = tieredModelRouter.call(prompt, question, null);
-                localReply = sel.response() != null && sel.response().getResult() != null
-                        ? sel.response().getResult().getOutput().getText() : null;
-            } else {
-                localReply = lightChatClient.prompt()
-                        .system(warmSystem)
-                        .user(question)
-                        .call()
-                        .content();
-            }
+            String localReply = fallbackAgentService.execute(question, userId, deviceLocation);
             if (localReply != null && !localReply.isBlank()) {
                 return routeFinalizer.applyEmotion(RoutingResult.builder()
-                        .result(localReply).agentName("builtin_fallback").confidence(0.2).build(), emotion);
+                        .result(localReply).agentName(RouterFallbackAgentService.AGENT_NAME).confidence(0.2).build(), emotion);
             }
         } catch (Exception e) {
             log.warn("[Exec] 本地推理兜底失败: {}", e.getMessage());
@@ -561,6 +546,15 @@ public class RouteExecutionService {
         int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
         return routeFinalizer.applyEmotion(RoutingResult.builder()
                 .result(FALLBACK_MESSAGES.get(idx)).agentName("none").confidence(0.0).build(), emotion);
+    }
+
+    private static boolean isFallbackAgent(String agentName) {
+        return agentName == null
+                || agentName.isBlank()
+                || "general".equalsIgnoreCase(agentName)
+                || "general_agent".equalsIgnoreCase(agentName)
+                || "builtin_fallback".equalsIgnoreCase(agentName)
+                || RouterFallbackAgentService.AGENT_NAME.equalsIgnoreCase(agentName);
     }
 
     // ==================== SSE 事件 ====================

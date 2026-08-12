@@ -75,7 +75,9 @@ public class ToolRegistryClient {
     public ToolRegistryClient(ToolRegistryProperties properties, ObjectMapper objectMapper,
                               ToolGateway gateway, ToolRegistry toolRegistry) {
         this.properties = properties;
-        this.objectMapper = objectMapper;
+        // ToolDefinition contains java.time.Duration. Keep client serialization correct even
+        // when callers provide a plain ObjectMapper (tests and lightweight bootstrap paths).
+        this.objectMapper = objectMapper.copy().findAndRegisterModules();
         this.gateway = gateway;
         this.toolRegistry = toolRegistry;
 
@@ -193,12 +195,13 @@ public class ToolRegistryClient {
             if (response.statusCode() == 200) {
                 log.info("[ToolRegistryClient] 注册成功: name={}", definition.getName());
             } else {
-                log.warn("[ToolRegistryClient] 注册失败: name={}, status={}, body={}",
-                        definition.getName(), response.statusCode(), response.body());
+                throw new IllegalStateException("Registry registration failed: status="
+                        + response.statusCode() + ", body=" + response.body());
             }
         } catch (Exception e) {
             log.error("[ToolRegistryClient] 注册异常: name={}, error={}",
                     definition.getName(), e.getMessage());
+            throw new IllegalStateException("Failed to register tool " + definition.getName(), e);
         }
     }
 
@@ -270,10 +273,19 @@ public class ToolRegistryClient {
                     .map(ToolDefinition::getName)
                     .collect(Collectors.toSet());
         } catch (Exception e) {
-            log.warn("[ToolRegistryClient] getToolCallbacks({}) Registry 不可用，仅 CORE 工具可用: {}",
-                    tag, e.getMessage());
-            return Collections.emptySet();
+            Set<String> localNames = toolRegistry.getAll().stream()
+                    .filter(def -> hasTag(def, tag))
+                    .map(ToolDefinition::getName)
+                    .collect(Collectors.toSet());
+            log.warn("[ToolRegistryClient] getToolCallbacks({}) Registry 不可用，使用 {} 个本地注册工具: {}",
+                    tag, localNames.size(), e.getMessage());
+            return localNames;
         }
+    }
+
+    private static boolean hasTag(ToolDefinition definition, String tag) {
+        if (definition == null || tag == null || definition.getTags() == null) return false;
+        return Arrays.stream(definition.getTags()).anyMatch(tag::equalsIgnoreCase);
     }
 
     /**
