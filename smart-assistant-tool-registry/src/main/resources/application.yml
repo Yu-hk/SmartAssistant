@@ -1,9 +1,6 @@
 server:
   port: 8088
   shutdown: graceful
-tool-registry:
-  mcp:
-    exposure-enabled: true
 spring:
   lifecycle:
     timeout-per-shutdown-phase: "30s"
@@ -72,6 +69,8 @@ logging:
 
 # Tool Registry 配置（供 ToolRegistryClient 读取）
 tool-registry:
+  mcp:
+    exposure-enabled: true
   url: http://localhost:8088         # Registry 服务地址
   cache-ttl-seconds: 30              # 本地缓存 TTL（秒）
   refresh-interval-seconds: 60       # Agent 工具热刷新间隔（秒），0=禁用

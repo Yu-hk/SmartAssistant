@@ -74,6 +74,8 @@ spring:
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAsyncToolCallingManagerAutoConfiguration
 
   ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}
     # 生产环境直接调用 DeepSeek API，不依赖本地 Ollama。
     deepseek:
       api-key: ${DEEPSEEK_API_KEY}
@@ -91,6 +93,20 @@ spring:
             enabled: true
             namespace: ""  # 使用默认 namespace (public)
             group: DEFAULT_GROUP
+
+# Tool Registry-owned script tool limits used by the Router fallback agent.
+sandbox:
+  script:
+    enabled: true
+    timeout-ms: 2000
+    max-script-length: 2000
+    max-lines: 50
+    max-variables: 50
+    max-expression-length: 200
+    max-output-length: 8000
+
+tool-registry:
+  url: ${TOOL_REGISTRY_URL:http://smart-tool-registry:8088}
 
 # ⭐ G3 Tier 多模型路由配置（统一模型接入层）
 # 前缀 `tier` → 绑定 common.TieredModelRouterProperties

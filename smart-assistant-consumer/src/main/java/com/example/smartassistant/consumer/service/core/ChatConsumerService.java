@@ -115,16 +115,10 @@ public class ChatConsumerService {
             log.debug("[Consumer] 跳过画像提取（无偏好价值）: userId={}, question={}", userIdLong, question);
         }
 
-        // Step 2: 构建用户画像文本（独立字段，不塞入 question）
-        String userProfileText = null;
-        if (userIdLong != null) {
-            userProfileText = userProfileService.buildUserProfilePrompt(userIdLong);
-        }
-        
-        // Step 3: 转发纯文本 question + 独立 userProfile 给 Router Service
+        // Step 2: 用户画像始终留在 Consumer；Router 只接收任务与 Consumer 的路由提示。
         log.info("[Consumer] 转发请求到 Router Service (纯文本question), questionLength={}", question.length());
         Map<String, Object> routeResponse = routerClient.callRouterRaw(
-                question, userId, null, traceReqId, userProfileText, null);
+                question, userId, null, traceReqId);
         String response = (String) routeResponse.getOrDefault("result", "");
         String routedAgent = (String) routeResponse.getOrDefault("agentName", null);
         String intentTag = (String) routeResponse.get("intentTag");  // ⭐ 读取意图标签
@@ -224,16 +218,10 @@ public class ChatConsumerService {
             userProfileService.extractAndUpdatePreferencesAsync(userIdLong, question, null);
         }
 
-        // Step 2: 构建用户画像文本（独立字段，不塞入 question）
-        String userProfileText = null;
-        if (userIdLong != null) {
-            userProfileText = userProfileService.buildUserProfilePrompt(userIdLong);
-        }
-
-        // Step 3: 转发纯文本 question + 独立 userProfile 给 Router Service（传递 sessionId）
+        // Step 2: 用户画像始终留在 Consumer；Router 只接收任务与 Consumer 的路由提示。
         log.info("[Consumer] 转发请求到 Router Service(含session), questionLength={}", question.length());
         Map<String, Object> response = new java.util.HashMap<>(routerClient.callRouterRaw(
-                question, userId, effectiveSessionId, traceReqId, userProfileText, null));
+                question, userId, effectiveSessionId, traceReqId));
         
         // Step 3.5: 更新意图分布
         String routedAgent = (String) response.get("agentName");

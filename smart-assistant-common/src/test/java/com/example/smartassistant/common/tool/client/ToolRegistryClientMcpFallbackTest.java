@@ -6,9 +6,12 @@ import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.gateway.tool.ToolRiskLevel;
 import com.example.smartassistant.common.gateway.tool.ToolTier;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -58,5 +61,31 @@ class ToolRegistryClientMcpFallbackTest {
 
         List<ToolDefinition> result = client.getToolDefinitions("ORDER");
         assertNotNull(result);
+    }
+
+    @Test
+    void registerSerializesDurationWithPlainObjectMapper() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicReference<String> body = new AtomicReference<>();
+        server.createContext("/api/tools/register", exchange -> {
+            body.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            exchange.sendResponseHeaders(200, 0);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ToolRegistryProperties props = new ToolRegistryProperties();
+            props.setUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            ToolRegistry registry = new ToolRegistry();
+            ToolRegistryClient client = new ToolRegistryClient(props, new ObjectMapper(),
+                    new ToolGateway(registry, List.of()), registry);
+
+            client.register(sampleRestDef("weather", "/weather"));
+
+            assertNotNull(body.get());
+            assertTrue(body.get().contains("\"timeout\""));
+        } finally {
+            server.stop(0);
+        }
     }
 }

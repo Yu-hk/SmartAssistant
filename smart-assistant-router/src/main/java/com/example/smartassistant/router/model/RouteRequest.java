@@ -17,7 +17,7 @@ public class RouteRequest {
     /** 用户 ID */
     private Long userId;
 
-    /** 用户问题（已包含用户画像的完整 Prompt） */
+    /** 用户问题。用户画像由 Consumer 持有，不进入 Router。 */
     private String question;
 
     /** 会话 ID（可选） */
@@ -31,6 +31,11 @@ public class RouteRequest {
 
     /** 用户主动授权的短期设备位置，仅用于当前请求。 */
     private DeviceLocation deviceLocation;
+
+    /** Consumer-owned semantic cache hint. Router validates availability before dispatch. */
+    private String cachedAgentName;
+    private String cachedIntentTag;
+    private Double cachedConfidence;
 
     public RouteRequest() {}
 
@@ -60,6 +65,15 @@ public class RouteRequest {
     public void setRequestId(String requestId) { this.requestId = requestId; }
     public DeviceLocation getDeviceLocation() { return deviceLocation; }
     public void setDeviceLocation(DeviceLocation deviceLocation) { this.deviceLocation = deviceLocation; }
+    public String getCachedAgentName() { return cachedAgentName; }
+    public void setCachedAgentName(String cachedAgentName) { this.cachedAgentName = cachedAgentName; }
+    public String getCachedIntentTag() { return cachedIntentTag; }
+    public void setCachedIntentTag(String cachedIntentTag) { this.cachedIntentTag = cachedIntentTag; }
+    public Double getCachedConfidence() { return cachedConfidence; }
+    public void setCachedConfidence(Double cachedConfidence) { this.cachedConfidence = cachedConfidence; }
+    public boolean hasCachedRouteHint() {
+        return cachedAgentName != null && !cachedAgentName.isBlank();
+    }
     public boolean hasUsableDeviceLocation() {
         return deviceLocation != null && deviceLocation.isUsable();
     }

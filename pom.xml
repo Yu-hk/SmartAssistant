@@ -25,7 +25,6 @@
         <module>smart-assistant-router</module>
         <module>smart-assistant-order</module>
         <module>smart-assistant-product</module>
-        <module>smart-assistant-general</module>  <!-- ⭐ 通用对话模块 -->
         <module>smart-assistant-gateway</module>
         <module>smart-assistant-user</module>  <!-- ⭐ 用户服务 -->
         <module>smart-assistant-recommend</module>  <!-- ⭐ P3 推荐服务 -->
