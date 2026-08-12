@@ -92,7 +92,12 @@ public class RouteSemanticCacheService {
             return;
         }
         double confidence = numberValue(routeResponse.get("confidence"), 0.7d);
-        long version = cacheVersionManager != null ? cacheVersionManager.getCurrentVersion() : 0L;
+        // Router may advance the shared version while processing this exact
+        // request. Refresh after the response so the new hint is not persisted
+        // with Consumer's pre-request, five-second local snapshot.
+        long version = cacheVersionManager != null
+                ? cacheVersionManager.refreshCurrentVersion()
+                : 0L;
         CachedRouteHint hint = new CachedRouteHint(agentName, intentTag, confidence, version);
         try {
             String json = objectMapper.writeValueAsString(hint);

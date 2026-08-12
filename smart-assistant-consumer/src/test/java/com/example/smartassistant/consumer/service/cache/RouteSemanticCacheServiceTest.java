@@ -38,6 +38,7 @@ class RouteSemanticCacheServiceTest {
         when(redis.opsForValue()).thenReturn(values);
         when(tagGenerator.generate(anyString())).thenReturn("weather,beijing");
         when(versions.getCurrentVersion()).thenReturn(3L);
+        when(versions.refreshCurrentVersion()).thenReturn(3L);
         when(versions.isVersionValid(3L)).thenReturn(true);
         cache = new RouteSemanticCacheService(
                 new StaticListableBeanFactory(Map.of("redis", redis)).getBeanProvider(StringRedisTemplate.class),
@@ -75,6 +76,29 @@ class RouteSemanticCacheServiceTest {
 
         verify(values, org.mockito.Mockito.times(2))
                 .set(anyString(), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void storesHintWithVersionRefreshedAfterRouterResponse() {
+        CacheVersionManager versions = mock(CacheVersionManager.class);
+        when(versions.refreshCurrentVersion()).thenReturn(4L);
+        RouteSemanticCacheService refreshedCache = new RouteSemanticCacheService(
+                new StaticListableBeanFactory(Map.of("redis", redis)).getBeanProvider(StringRedisTemplate.class),
+                new ObjectMapper(), tagGenerator,
+                new StaticListableBeanFactory(Map.of("versions", versions)).getBeanProvider(CacheVersionManager.class),
+                Duration.ofHours(1));
+
+        refreshedCache.save("北京天气", Map.of(
+                "agentName", "router_fallback",
+                "intentTag", "weather,beijing",
+                "confidence", 0.9));
+
+        var json = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(values, org.mockito.Mockito.atLeastOnce())
+                .set(anyString(), json.capture(), any(Duration.class));
+        assertThat(json.getAllValues()).allSatisfy(value ->
+                assertThat(value).contains("\"cacheVersion\":4"));
+        verify(versions).refreshCurrentVersion();
     }
 
     @Test
