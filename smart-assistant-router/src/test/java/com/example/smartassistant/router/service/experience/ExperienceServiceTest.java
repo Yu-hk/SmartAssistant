@@ -119,6 +119,24 @@ public class ExperienceServiceTest {
         for (String kw : keywords) {
             verify(setOperations).add(eq("a2a:experience:keyword:" + kw), eq(expId));
         }
+        verify(cacheVersionManager).incrementVersion();
+    }
+
+    @Test
+    public void telemetryOnlyExperienceUpdateDoesNotInvalidateConsumerRouteHints() {
+        CommonExperience exp = new CommonExperience(
+                "common_telemetry", "product_query", List.of("product"),
+                "product", "router_fallback", 0.8);
+        exp.setHitCount(9);
+
+        experienceService.saveExperience(exp, false);
+
+        verify(valueOperations).set(
+                eq("a2a:experience:common_telemetry"),
+                anyString(),
+                eq(2592000L),
+                eq(TimeUnit.SECONDS));
+        verify(cacheVersionManager, never()).incrementVersion();
     }
 
     @Test
