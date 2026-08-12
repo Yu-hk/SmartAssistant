@@ -1,5 +1,7 @@
 package com.example.smartassistant.controller;
 
+import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
+import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.TokenUsageHeaders;
 import com.example.smartassistant.common.quality.DomainAgentResponse;
@@ -60,5 +62,21 @@ class ProductStreamControllerTest {
         assertEquals("11", response.getHeaders().getFirst(TokenUsageHeaders.COMPLETION_TOKENS));
         assertEquals("35", response.getHeaders().getFirst(TokenUsageHeaders.TOTAL_TOKENS));
         verify(service).executeWithQuality("推荐办公电脑", "req-1");
+    }
+
+    @Test
+    void unifiedEndpointReturnsTypedResponse() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        when(service.executeWithQuality("推荐办公电脑", "req-protocol"))
+                .thenReturn(DomainAgentResponse.of("推荐 A 型号",
+                        DomainQualityResult.pass(0.92, "PRODUCT_FACTS_VERIFIED")));
+        ProductStreamController controller = new ProductStreamController(service);
+
+        var response = controller.execute(AgentExecutionRequest.answer(
+                "req-protocol", "1", "推荐办公电脑", null), null);
+
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
+        assertEquals("推荐 A 型号", response.getBody().answer());
+        assertEquals("PASS", response.getBody().quality().status());
     }
 }

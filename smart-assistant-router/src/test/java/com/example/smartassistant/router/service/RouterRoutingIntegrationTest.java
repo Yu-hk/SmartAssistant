@@ -5,7 +5,6 @@ import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.model.ReflectionResult;
-import com.example.smartassistant.router.service.core.GraphExecutionService;
 import com.example.smartassistant.router.service.core.TaskPlannerService;
 import com.example.smartassistant.router.service.core.ResultMerger;
 import com.example.smartassistant.router.service.core.ReflectionService;
@@ -60,7 +59,6 @@ class RouterRoutingIntegrationTest {
     @Mock private ModelRoutingService modelRoutingService;
     @Mock private ExperienceService experienceService;
     @Mock private ChatModel lightChatModel;
-    @Mock private GraphExecutionService graphExecutionService;
     @Mock private TaskAnalysisService taskAnalysisService;
     @Mock private QualityEvaluationService qualityEvaluationService;
     @Mock private IntentGuidedQueryRewriter queryRewriter;
@@ -94,7 +92,7 @@ class RouterRoutingIntegrationTest {
         lenient().when(reflectionService.retry(anyString(), anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn("retry result");
         new RouterService(agentCallerService,
-                redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, experienceService, graphExecutionService, taskAnalysisService, qualityEvaluationService, queryRewriter, null, null, null, guardrailService, promptManager, lightChatModel, null, null, null, null);
+                redisTemplate, ragService, cacheService, taskPlanner, resultMerger, reflectionService, experienceService, taskAnalysisService, qualityEvaluationService, queryRewriter, null, null, null, guardrailService, promptManager, lightChatModel, null, null, null, null);
     }
 
     @Test

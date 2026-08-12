@@ -244,8 +244,7 @@ router:
     failure-message: "抱歉，我暂时无法可靠地回答这个问题。请补充更多信息或稍后重试。"
 
   graph:
-    checkpoint-enabled: true
-    async-handoff-enabled: false
+    # LangGraph4j is the sole engine; native checkpoints and handoffs are always enabled.
     max-replans: 1             # 单次 Graph 执行的全局重规划预算
     max-criteria-corrections: 1 # 非空结果验收失败时，仅定向修正一次
 

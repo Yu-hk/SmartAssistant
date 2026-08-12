@@ -190,7 +190,7 @@ public class SqlMetricsCollector {
         try {
             String sql = """
                 SELECT
-                    schemaname || '.' || tablename as table_name,
+                    schemaname || '.' || relname as table_name,
                     indexrelname as index_name,
                     idx_scan as scans,
                     idx_tup_read as tuples_read,

@@ -22,7 +22,7 @@ class InsightRouteConfigurationTest {
 
     private boolean hasPathPredicate(Properties properties, String path) {
         return properties.stringPropertyNames().stream()
-                .filter(name -> name.contains("spring.cloud.gateway.routes"))
+                .filter(name -> name.contains("spring.cloud.gateway.server.webflux.routes"))
                 .filter(name -> name.contains("predicates"))
                 .map(properties::getProperty)
                 .anyMatch(value -> value != null && value.contains(path));

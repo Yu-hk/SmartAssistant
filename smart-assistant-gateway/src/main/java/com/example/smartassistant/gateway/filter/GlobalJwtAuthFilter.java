@@ -126,7 +126,7 @@ public class GlobalJwtAuthFilter implements GlobalFilter, Ordered {
     private ServerHttpRequest stripUntrustedIdentityHeaders(ServerHttpRequest request) {
         return request.mutate()
                 .headers(headers -> {
-                    List<String> untrustedHeaders = headers.keySet().stream()
+                    List<String> untrustedHeaders = headers.headerNames().stream()
                             .filter(name -> name.regionMatches(true, 0, "X-User-", 0, 7))
                             .toList();
                     untrustedHeaders.forEach(headers::remove);

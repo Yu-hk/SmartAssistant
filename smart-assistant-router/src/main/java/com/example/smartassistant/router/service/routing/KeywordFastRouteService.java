@@ -1,5 +1,6 @@
 package com.example.smartassistant.router.service.routing;
 
+import com.example.smartassistant.common.intent.WeatherQuerySupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -195,15 +196,24 @@ public class KeywordFastRouteService {
         // ⭐ 两阶段匹配：先找第一命中，再检查是否有多意图
         MatchResult firstMatch = null;
         int firstIndex = -1;
+        boolean readOnlyOrderPreparation = false;
 
         for (int i = 0; i < activeRules.size(); i++) {
-            if (matchesRule(normalized, activeRules.get(i))) {
+            KeywordRule candidate = activeRules.get(i);
+            if (matchesRule(normalized, candidate)) {
+                if (isNegatedStateChangingRule(normalized, candidate)) {
+                    readOnlyOrderPreparation |= isCreateOrderRule(candidate)
+                            && isOrderPreparationRequest(normalized);
+                    log.info("[KeywordFastRoute] 否定语义跳过状态变更规则: rule={}, question={}",
+                            candidate.getName(), truncate(question, 50));
+                    continue;
+                }
                 if (firstMatch == null) {
                     firstMatch = new MatchResult(
-                            activeRules.get(i).getTargetAgent(),
-                            activeRules.get(i).getIntentTag(),
-                            activeRules.get(i).getConfidence(),
-                            activeRules.get(i).getName()
+                            candidate.getTargetAgent(),
+                            candidate.getIntentTag(),
+                            candidate.getConfidence(),
+                            candidate.getName()
                     );
                     firstIndex = i;
                 } else {
@@ -228,6 +238,18 @@ public class KeywordFastRouteService {
         }
 
         if (firstMatch != null) {
+            if (readOnlyOrderPreparation && "product".equalsIgnoreCase(firstMatch.targetAgent)) {
+                log.info("[KeywordFastRoute] 只读下单资料说明需要商品与订单准备协作，跳过快车道: question={}",
+                        truncate(question, 50));
+                return null;
+            }
+            if (!"general".equalsIgnoreCase(firstMatch.targetAgent)
+                    && WeatherQuerySupport.isWeatherLookup(question)) {
+                log.info("[KeywordFastRoute] 检测到天气跨域意图，跳过单 Agent 快车道: "
+                                + "firstAgent={}, question={}",
+                        firstMatch.targetAgent, truncate(question, 50));
+                return null;
+            }
             log.info("[KeywordFastRoute] 规则命中: rule={}, agent={}, intent={}, question={}",
                     firstMatch.matchedRuleName, firstMatch.targetAgent,
                     firstMatch.intentTag, truncate(question, 50));
@@ -246,11 +268,62 @@ public class KeywordFastRouteService {
         if (!orderThenProduct) return false;
 
         return !containsAny(normalizedQuestion,
-                List.of("价格", "多少钱", "库存", "有货", "有没有", "推荐", "详情", "参数", "规格", "型号"));
+                List.of("价格", "多少钱", "库存", "有货", "有没有", "推荐", "热门", "热销",
+                        "排行", "榜单", "销量", "详情", "参数", "规格", "型号"));
     }
 
     private static boolean containsAny(String value, List<String> markers) {
         return markers.stream().anyMatch(value::contains);
+    }
+
+    /**
+     * 状态变更类快车道不能只依赖关键词命中。例如“不要创建订单”虽然包含
+     * “创建订单”，真实意图却是禁止写操作。这里在所有规则（包括外部配置规则）
+     * 命中后统一检查否定作用域，避免将否定约束反向解释为执行指令。
+     */
+    private boolean isNegatedStateChangingRule(String normalizedQuestion, KeywordRule rule) {
+        List<String> actionTerms = stateChangingActionTerms(rule);
+        if (actionTerms.isEmpty()) return false;
+
+        if (containsAny(normalizedQuestion,
+                List.of("只查询", "仅查询", "只做查询", "仅做查询", "只允许查询", "仅允许查询"))) {
+            return true;
+        }
+
+        String compact = normalizedQuestion.replaceAll("\\s+", "");
+        String negationPrefix = "(?:不是要|不要|不再|不会|无需|不用|禁止|不允许|请勿|不能|不可|不)"
+                + "(?:再|直接|实际)?(?:执行|进行)?";
+        return actionTerms.stream().anyMatch(term -> Pattern.compile(
+                        negationPrefix + Pattern.quote(term.toLowerCase(Locale.CHINESE)))
+                .matcher(compact)
+                .find());
+    }
+
+    private List<String> stateChangingActionTerms(KeywordRule rule) {
+        String name = Objects.toString(rule.getName(), "").toLowerCase(Locale.ROOT);
+        String intent = Objects.toString(rule.getIntentTag(), "");
+        if (name.contains("create_order") || intent.contains("创建订单")) {
+            return List.of("下单", "购买", "买下", "创建订单");
+        }
+        if (name.equals("refund_fast_route") || intent.contains("退款申请")) {
+            return List.of("退款", "退货", "退钱");
+        }
+        if (name.contains("cancel_order") || intent.contains("取消订单")) {
+            return List.of("取消订单", "撤销订单", "取消");
+        }
+        return List.of();
+    }
+
+    private boolean isCreateOrderRule(KeywordRule rule) {
+        String name = Objects.toString(rule.getName(), "").toLowerCase(Locale.ROOT);
+        String intent = Objects.toString(rule.getIntentTag(), "");
+        return name.contains("create_order") || intent.contains("创建订单");
+    }
+
+    private boolean isOrderPreparationRequest(String question) {
+        return containsAny(question, List.of(
+                "下单资料", "下单材料", "下单信息", "下单还缺", "下单需要", "下单所需",
+                "说明下单", "告诉我下单", "如何下单", "怎么下单"));
     }
 
     /**
@@ -268,6 +341,7 @@ public class KeywordFastRouteService {
 
         // 2. 正则匹配（如果配置了 regex）
         if (rule.getRegex() != null && !rule.getRegex().isBlank()) {
+
             Pattern pattern = compiledPatterns.get(rule.getName());
             if (pattern != null && pattern.matcher(normalizedQuestion).find()) {
                 return true;
@@ -390,7 +464,18 @@ public class KeywordFastRouteService {
         refundPolicyRule.setPriority(9);
         activeRules.add(refundPolicyRule);
 
-        // 规则 2：执行退款或查询退款进度（Order 模块）
+        // 规则 2：创建订单（Order 模块）。优先于商品查询规则；当同一句还包含
+        // “热门/推荐/价格/库存”等明确商品诉求时，match() 会识别为跨 Agent 多意图并交给 LLM 规划。
+        KeywordRule createOrderRule = new KeywordRule();
+        createOrderRule.setName("create_order_fast_route");
+        createOrderRule.setTargetAgent("order");
+        createOrderRule.setIntentTag("创建订单");
+        createOrderRule.setAnyContain(Arrays.asList("下单", "购买", "买下", "创建订单"));
+        createOrderRule.setConfidence(0.97);
+        createOrderRule.setPriority(9);
+        activeRules.add(createOrderRule);
+
+        // 规则 3：执行退款或查询退款进度（Order 模块）
         KeywordRule refundRule = new KeywordRule();
         refundRule.setName("refund_fast_route");
         refundRule.setTargetAgent("order");
@@ -403,7 +488,7 @@ public class KeywordFastRouteService {
         refundRule.setPriority(10);
         activeRules.add(refundRule);
 
-        // 规则 3：查订单（Order 模块）
+        // 规则 4：查订单（Order 模块）
         KeywordRule queryOrderRule = new KeywordRule();
         queryOrderRule.setName("query_order_fast_route");
         queryOrderRule.setTargetAgent("order");
@@ -413,7 +498,7 @@ public class KeywordFastRouteService {
         queryOrderRule.setPriority(10);
         activeRules.add(queryOrderRule);
 
-        // 规则 4：取消订单（Order 模块）
+        // 规则 5：取消订单（Order 模块）
         KeywordRule cancelRule = new KeywordRule();
         cancelRule.setName("cancel_order_fast_route");
         cancelRule.setTargetAgent("order");
@@ -424,7 +509,7 @@ public class KeywordFastRouteService {
         cancelRule.setPriority(10);
         activeRules.add(cancelRule);
 
-        // 规则 5：商品查询（Product 模块）
+        // 规则 6：商品查询（Product 模块）
         KeywordRule productRule = new KeywordRule();
         productRule.setName("product_query_fast_route");
         productRule.setTargetAgent("product");
@@ -434,7 +519,7 @@ public class KeywordFastRouteService {
         productRule.setPriority(20);
         activeRules.add(productRule);
 
-        // 规则 6：问候（General 模块）
+        // 规则 7：问候（General 模块）
         KeywordRule greetingRule = new KeywordRule();
         greetingRule.setName("greeting_fast_route");
         greetingRule.setTargetAgent("general");

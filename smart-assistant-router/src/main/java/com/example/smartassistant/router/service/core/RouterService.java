@@ -55,6 +55,7 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 /**
  * Router Service - 核心路由服务（单意图路由）
@@ -85,9 +86,6 @@ public class RouterService {
     private final ResultMerger resultMerger;
     private final ReflectionService reflectionService;
     private final ExperienceService experienceService;
-
-    // ⭐ 基于图的意图执行引擎
-    private final GraphExecutionService graphExecutionService;
 
     // ⭐ 任务分析服务（结构化提取实体/约束/风险/工具评分）
     private final TaskAnalysisService taskAnalysisService;
@@ -171,7 +169,6 @@ public class RouterService {
                          ResultMerger resultMerger,
                          ReflectionService reflectionService,
                          ExperienceService experienceService,
-                         GraphExecutionService graphExecutionService,
                          TaskAnalysisService taskAnalysisService,
                          QualityEvaluationService qualityEvaluationService,
                          IntentGuidedQueryRewriter queryRewriter,
@@ -193,7 +190,6 @@ public class RouterService {
         this.resultMerger = resultMerger;
         this.reflectionService = reflectionService;
         this.experienceService = experienceService;
-        this.graphExecutionService = graphExecutionService;
         this.taskAnalysisService = taskAnalysisService;
         this.qualityEvaluationService = qualityEvaluationService;
         this.queryRewriter = queryRewriter;
@@ -285,11 +281,10 @@ public class RouterService {
                 return finalizeRouting(clarification, request, question, emotion);
             }
 
-            // A missing city can be satisfied by a fresh, user-authorized device location.
-            // Route this deterministic case directly so coordinates never enter semantic routing,
-            // experience matching, or cache lookup.
-            if (WeatherQuerySupport.requiresCityClarification(question)
-                    && request.hasUsableDeviceLocation()) {
+            // Weather is a deterministic, single-domain capability once its required location is
+            // available. Route it directly so it never pays for model planning, reflection or a
+            // stale semantic/experience match. The General Agent owns normalization and lookup.
+            if (WeatherQuerySupport.isWeatherLookup(question)) {
                 var agentResult = agentCallerService.callAgentDetailed(
                         "general", question, request.getUserId(), request.getRequestId(),
                         request.getDeviceLocation());
@@ -300,8 +295,9 @@ public class RouterService {
                         .intentTag("weather_query")
                         .domainQuality(agentResult.getDomainQuality())
                         .build();
-                String evaluationQuestion = question
-                        + "\n[本次请求已提供有效的设备位置作为天气查询地点。]";
+                String evaluationQuestion = request.hasUsableDeviceLocation()
+                        ? question + "\n[本次请求已提供有效的设备位置作为天气查询地点。]"
+                        : question;
                 return finalizeRouting(weatherResult, request, evaluationQuestion, emotion);
             }
 
@@ -520,22 +516,35 @@ public class RouterService {
                 List<String> conversationHistory =
                         (List<String>) context.get("conversationHistory");
 
+                // Deterministic high-frequency composition: querying popular products and
+                // preparing a later order has stable semantics and must not wait on an LLM
+                // just to rediscover the same two subtasks.
+                TaskAnalysisResult taskAnalysis =
+                        buildProductOrderMultiIntentAnalysis(enhancedQuestion);
+
                 // L3 融合：规则/小模型/LLM 并行
                 IntentFusionResult fusionResult = null;
-                if (intentFusionService != null) {
+                if (taskAnalysis == null && intentFusionService != null) {
                     fusionResult = intentFusionService.fuse(
                             enhancedQuestion,
                             conversationHistory != null ? conversationHistory : Collections.emptyList()
                     );
                 }
 
-                TaskAnalysisResult taskAnalysis = null;
                 String intentTag = null;
                 double confidence = 0.7;
 
                 TaskAnalysisResult fusedAnalysis = fusionResult != null
                         ? fusionResult.taskAnalysis() : null;
-                if (fusedAnalysis != null && fusedAnalysis.isMeaningful()) {
+                if (taskAnalysis != null) {
+                    intentTag = taskAnalysis.getIntentCategory();
+                    confidence = taskAnalysis.getConfidence();
+                    log.info("[Router] Deterministic product/order multi-intent analysis: "
+                                    + "subIntents={}, constraints={}, missingSlots={}",
+                            taskAnalysis.getSubIntents().size(),
+                            taskAnalysis.getActionConstraints(),
+                            taskAnalysis.getMissingSlots());
+                } else if (fusedAnalysis != null && fusedAnalysis.isMeaningful()) {
                     // IntentFusionService already paid for this structured model analysis.
                     // Reuse it instead of issuing the same model request a second time.
                     taskAnalysis = fusedAnalysis;
@@ -614,9 +623,7 @@ public class RouterService {
                     storeTaskAnalysisToRedis(request.getRequestId(), taskAnalysis);
                 }
 
-                if (taskAnalysis != null && taskAnalysis.isNeedsClarification()
-                        && taskAnalysis.getClarificationQuestions() != null
-                        && !taskAnalysis.getClarificationQuestions().isEmpty()) {
+                if (shouldShortCircuitForClarification(taskAnalysis)) {
                     String clarificationReply = String.join("\n", taskAnalysis.getClarificationQuestions());
                     String clarificationAgent = resolveAgentForCategory(taskAnalysis.getIntentCategory());
                     RoutingResult clarification = RoutingResult.builder()
@@ -627,6 +634,12 @@ public class RouterService {
                             .clarification(true)
                             .build();
                     return finalizeRouting(clarification, request, enhancedQuestion, emotion);
+                }
+                if (taskAnalysis != null && taskAnalysis.isNeedsClarification()
+                        && taskAnalysis.hasSubIntents()) {
+                    log.info("[Router] Multi-intent request contains executable subtasks; "
+                                    + "continue collaboration and defer incomplete state-changing operations: missingSlots={}",
+                            taskAnalysis.getMissingSlots());
                 }
 
                 // ⭐ Step 3.6: 意图引导的查询改写
@@ -674,7 +687,8 @@ public class RouterService {
                 }
                 log.info("[Router] 🤝 启动多 Agent 协作: question={}",
                         QuestionExtractor.truncate(executionQuestion, 120));
-                result = executeCollaborative(executionQuestion, userId, request.getRequestId(), emotion);
+                result = executeCollaborative(
+                        executionQuestion, userId, request.getRequestId(), emotion, taskAnalysis);
             }
 
             // ⭐ 生成意图标签（用于用户画像统计），设置到 result
@@ -806,12 +820,19 @@ public class RouterService {
      * <p>
      * 处理跨领域复杂问题，如"推荐北京景点和川菜馆"，
      * 使用 {@link TaskPlannerService#planToGraph(String)} 分解为带依赖关系的 DAG，
-     * 由 {@link GraphExecutionService#execute} 按拓扑顺序并行执行。
+     * 交由 {@link RouteExecutionService} 通过统一的 LangGraph4j 入口执行。
      * </p>
      */
     private RoutingResult executeCollaborative(String question, Long userId, String requestId,
                                                 EmotionCheckResult emotion) {
         return routeExecutionService.executeCollaborative(question, userId, requestId, emotion);
+    }
+
+    private RoutingResult executeCollaborative(String question, Long userId, String requestId,
+                                                EmotionCheckResult emotion,
+                                                TaskAnalysisResult taskAnalysis) {
+        return routeExecutionService.executeCollaborative(
+                question, userId, requestId, emotion, taskAnalysis);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -879,6 +900,86 @@ public class RouterService {
         return resolveAgentForCategory(analysis.getIntentCategory());
     }
 
+    /**
+     * A clarification may stop a single, currently unexecutable intent. For a multi-intent
+     * request it must not suppress independent work that can already be completed (for
+     * example, query popular products before asking which one should be ordered).
+     */
+    static boolean shouldShortCircuitForClarification(TaskAnalysisResult analysis) {
+        return analysis != null
+                && analysis.isNeedsClarification()
+                && !analysis.hasSubIntents()
+                && analysis.getClarificationQuestions() != null
+                && !analysis.getClarificationQuestions().isEmpty();
+    }
+
+    static TaskAnalysisResult buildProductOrderMultiIntentAnalysis(String question) {
+        if (question == null || question.isBlank()) return null;
+
+        String normalized = question.toLowerCase(Locale.CHINESE);
+        boolean productDiscovery = (normalized.contains("商品") || normalized.contains("产品"))
+                && (normalized.contains("热门") || normalized.contains("热销")
+                || normalized.contains("排行") || normalized.contains("榜单")
+                || normalized.contains("销量"));
+        boolean existingOrderQuery = containsAny(normalized, List.of(
+                "查询订单", "查订单", "我的订单", "最近的订单", "历史订单",
+                "订单状态", "订单进度", "订单详情", "订单号", "物流", "退款进度"));
+        boolean orderPreparation = containsAny(normalized, List.of(
+                "下单资料", "下单材料", "下单信息", "下单还缺", "下单需要",
+                "说明下单", "告诉我下单", "如何下单", "怎么下单"));
+        boolean laterOrder = orderPreparation || containsNonNegatedOrderAction(normalized);
+
+        // 已有订单查询不能降级成“商品查询 + 准备创建订单”，三意图场景也交给通用分析。
+        if (!productDiscovery || !laterOrder || existingOrderQuery) return null;
+
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setIntentCategory("COMPLEX");
+        analysis.setConfidence(0.99);
+        analysis.setTaskGoal("查询热门商品，并在用户选定商品、补齐收货信息后再处理下单");
+        analysis.setSubIntents(List.of(
+                Map.of("intent", "PRODUCT_QUERY", "description", "查询当前热门商品列表", "order", 1),
+                Map.of("intent", "CREATE_ORDER", "description", "说明下单所需资料并等待用户选择商品", "order", 2)));
+
+        List<String> constraints = new ArrayList<>();
+        boolean readOnlyRequest = normalized.contains("只查询") || normalized.contains("仅查询")
+                || normalized.contains("只做查询") || normalized.contains("仅做查询");
+        if (readOnlyRequest || normalized.contains("不要创建") || normalized.contains("禁止创建")) {
+            constraints.add("仅查询和说明，不创建订单");
+        }
+        if (readOnlyRequest || normalized.contains("不要支付") || normalized.contains("禁止支付")) {
+            constraints.add("不执行支付");
+        }
+        if (readOnlyRequest || normalized.contains("不要退款") || normalized.contains("禁止退款")) {
+            constraints.add("不执行退款");
+        }
+        if (readOnlyRequest || normalized.contains("不要取消") || normalized.contains("禁止取消")) {
+            constraints.add("不执行取消");
+        }
+        analysis.setActionConstraints(constraints);
+
+        analysis.setNeedsClarification(true);
+        analysis.setMissingSlots(List.of(
+                "productName", "amount", "contactName", "contactPhone", "shippingAddress"));
+        analysis.setClarificationReason("尚未选定具体商品，且收货信息不完整");
+        analysis.setClarificationQuestions(List.of(
+                "请从热门商品中选择一款，并提供收货人姓名、联系电话和收货地址"));
+        return analysis;
+    }
+
+
+    private static boolean containsNonNegatedOrderAction(String question) {
+        String compact = question.replaceAll("\\s+", "");
+        Pattern negatedAction = Pattern.compile(
+                "(?:不是要|不要|不再|不会|无需|不用|禁止|不允许|请勿|不能|不可|不)"
+                        + "(?:再|直接|实际)?(?:执行|进行)?"
+                        + "(?:下单|购买|买下|创建订单)");
+        String withoutNegatedActions = negatedAction.matcher(compact).replaceAll("");
+        return containsAny(withoutNegatedActions, List.of("下单", "购买", "买下", "创建订单"));
+    }
+
+    private static boolean containsAny(String value, List<String> markers) {
+        return markers.stream().anyMatch(value::contains);
+    }
     private static String resolveAgentForCategory(String category) {
         if (category == null) return null;
         String normalized = category.trim().toUpperCase(Locale.ROOT);

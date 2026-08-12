@@ -14,7 +14,7 @@ class DiscoverToolsToolSchemaTest {
     @Test
     void onlyCapabilityQueryIsRequired() throws Exception {
         Method method = DiscoverToolsTool.class.getDeclaredMethod(
-                "discoverTools", String.class, String[].class, String.class, int.class);
+                "discoverTools", String.class, String[].class, String.class, Integer.class);
         JsonNode schema = new ObjectMapper().readTree(JsonSchemaGenerator.generateForMethodInput(method));
 
         assertThat(schema.path("required").findValuesAsText(""))

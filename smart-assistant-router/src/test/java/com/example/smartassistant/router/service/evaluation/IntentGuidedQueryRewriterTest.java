@@ -40,6 +40,34 @@ class IntentGuidedQueryRewriterTest {
         assertEquals("decomposition", result.rewriteStrategy());
         assertEquals(2, result.subQueries().size());
         assertTrue(result.subQueries().contains("查明天杭州到上海的票"));
+        assertTrue(result.rewrittenQuery().contains("[用户原始请求]"));
+        assertTrue(result.rewrittenQuery().contains("查明天去上海的票，有合适的就订"));
+    }
+
+    @Test
+    @DisplayName("多意图缺少写操作参数 → 保留否定约束并限制为只读执行")
+    void testMultiIntentClarificationPreservesSafetyBoundary() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setIntentCategory("PRODUCT");
+        analysis.setSubIntents(List.of(
+                Map.of("intent", "PRODUCT_QUERY", "description", "查询热门商品"),
+                Map.of("intent", "CREATE_ORDER", "description", "说明下单所需信息")));
+        analysis.setActionConstraints(List.of("不要创建订单", "不要支付"));
+        analysis.setNeedsClarification(true);
+        analysis.setMissingSlots(List.of("productId", "shippingAddress"));
+        analysis.setClarificationQuestions(List.of("请选择商品并提供收货地址"));
+        analysis.setStandardizedInput("查询热门商品并了解下单流程");
+
+        var result = rewriter.rewrite(
+                "帮我查下热门商品，然后说明下单还需要提供哪些信息；不要创建订单，也不要支付。",
+                analysis);
+
+        assertEquals("decomposition", result.rewriteStrategy());
+        assertTrue(result.rewrittenQuery().contains("不要创建订单"));
+        assertTrue(result.rewrittenQuery().contains("不要支付"));
+        assertTrue(result.rewrittenQuery().contains("不得调用创建订单、支付、退款、取消"));
+        assertTrue(result.rewrittenQuery().contains("productId、shippingAddress"));
+        assertTrue(result.rewrittenQuery().contains("先完成可独立执行的查询或分析任务"));
     }
 
     // ==================== 模糊扩展 ====================

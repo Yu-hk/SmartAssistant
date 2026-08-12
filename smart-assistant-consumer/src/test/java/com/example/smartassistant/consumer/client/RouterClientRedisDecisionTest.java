@@ -11,6 +11,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -61,5 +62,21 @@ class RouterClientRedisDecisionTest {
 
         assertNotNull(decision);
         assertEquals("product", decision.get("agentName"));
+    }
+
+    @Test
+    void forwardsProgressBeforeReturningAvailableDecision() {
+        String requestId = "req-progress";
+        String decisionKey = "a2a:route:full-decision:" + requestId;
+        when(valueOperations.get(decisionKey))
+                .thenReturn("{\"agentName\":\"order\",\"confidence\":0.91}");
+        AtomicInteger polls = new AtomicInteger();
+
+        Map<String, Object> decision = routerClient.waitForDecisionFromRedis(
+                requestId, 1000, polls::incrementAndGet);
+
+        assertNotNull(decision);
+        assertEquals("order", decision.get("agentName"));
+        assertEquals(1, polls.get());
     }
 }

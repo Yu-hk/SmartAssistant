@@ -19,7 +19,7 @@ import jakarta.annotation.PreDestroy;
  * Consumer/Order/Product 通过 EmbeddingClient 调用本服务，
  * 避免每个服务各自加载 1.3GB 模型。</p>
  */
-@SpringBootApplication
+@SpringBootApplication(excludeName = "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration")
 @EnableDiscoveryClient
 @ComponentScan(basePackages = "com.example.smartassistant.embedding")
 public class EmbeddingApplication {

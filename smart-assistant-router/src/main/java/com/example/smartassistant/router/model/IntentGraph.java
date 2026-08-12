@@ -121,11 +121,9 @@ public class IntentGraph {
      */
     public List<IntentNode> getExecutableNodes(Set<String> completedNodeIds,
                                                 Map<String, SubTaskResult> nodeResults) {
-        if (completedNodeIds == null || completedNodeIds.isEmpty()) {
-            return getRootNodes();
-        }
+        Set<String> completed = completedNodeIds != null ? completedNodeIds : Set.of();
         return nodeMap.values().stream()
-                .filter(n -> !completedNodeIds.contains(n.getId()))
+                .filter(n -> !completed.contains(n.getId()))
                 // 排除仅用于重路由的节点（rerouteTarget 非空，本身不执行）
                 .filter(n -> !rerouteTargets.containsKey(n.getId()))
                 .filter(n -> {
@@ -133,12 +131,12 @@ public class IntentGraph {
                     if (deps == null || deps.isEmpty()) {
                         List<ConditionalDep> condDeps = conditionalDeps.getOrDefault(n.getId(), List.of());
                         if (condDeps.isEmpty()) return true;
-                        return condDeps.stream().allMatch(cd -> evaluateCondition(cd, completedNodeIds, nodeResults));
+                        return condDeps.stream().allMatch(cd -> evaluateCondition(cd, completed, nodeResults));
                     }
-                    if (!completedNodeIds.containsAll(deps)) return false;
+                    if (!completed.containsAll(deps)) return false;
                     List<ConditionalDep> condDeps = conditionalDeps.getOrDefault(n.getId(), List.of());
                     if (condDeps.isEmpty()) return true;
-                    return condDeps.stream().allMatch(cd -> evaluateCondition(cd, completedNodeIds, nodeResults));
+                    return condDeps.stream().allMatch(cd -> evaluateCondition(cd, completed, nodeResults));
                 })
                 .collect(Collectors.toList());
     }
@@ -229,12 +227,10 @@ public class IntentGraph {
      */
     public boolean hasDeadlock(Set<String> completedNodeIds, Map<String, SubTaskResult> nodeResults) {
         if (isCompleted(completedNodeIds)) return false;
-        if (completedNodeIds == null || completedNodeIds.isEmpty()) {
-            return getRootNodes().isEmpty() && !nodeMap.isEmpty();
-        }
         // 如果还有未完成节点但没有可执行的（含重路由节点），就是死锁
-        List<IntentNode> executable = getExecutableNodes(completedNodeIds, nodeResults);
-        boolean hasReroute = checkAnyRerouteMet(completedNodeIds, nodeResults);
+        Set<String> completed = completedNodeIds != null ? completedNodeIds : Set.of();
+        List<IntentNode> executable = getExecutableNodes(completed, nodeResults);
+        boolean hasReroute = checkAnyRerouteMet(completed, nodeResults);
         return executable.isEmpty() && !hasReroute;
     }
 
@@ -332,6 +328,11 @@ public class IntentGraph {
         private final String successCriteria;
         /** ⭐ 是否需要人工审批后才执行 */
         private final boolean humanApprovalRequired;
+        /** 统一 Agent 协议字段；旧规划器生成的节点使用安全默认值。 */
+        private final String operation;
+        private final Map<String, Object> input;
+        private final List<String> constraints;
+        private final String idempotencyKey;
 
         public IntentNode(String id, String description, String targetAgent, List<String> dependsOn) {
             this(id, description, targetAgent, dependsOn, null, List.of(), false);
@@ -344,6 +345,14 @@ public class IntentGraph {
         public IntentNode(String id, String description, String targetAgent, List<String> dependsOn,
                           String successCriteria, List<ConditionalDependency> conditionalDeps,
                           boolean humanApprovalRequired) {
+            this(id, description, targetAgent, dependsOn, successCriteria, conditionalDeps,
+                    humanApprovalRequired, "ANSWER", Map.of(), List.of(), null);
+        }
+
+        public IntentNode(String id, String description, String targetAgent, List<String> dependsOn,
+                          String successCriteria, List<ConditionalDependency> conditionalDeps,
+                          boolean humanApprovalRequired, String operation, Map<String, Object> input,
+                          List<String> constraints, String idempotencyKey) {
             this.id = id;
             this.description = description;
             this.targetAgent = targetAgent;
@@ -351,6 +360,11 @@ public class IntentGraph {
             this.successCriteria = successCriteria;
             this.conditionalDeps = conditionalDeps != null ? conditionalDeps : List.of();
             this.humanApprovalRequired = humanApprovalRequired;
+            this.operation = operation == null || operation.isBlank() ? "ANSWER" : operation;
+            this.input = input != null
+                    ? Collections.unmodifiableMap(new LinkedHashMap<>(input)) : Map.of();
+            this.constraints = constraints != null ? List.copyOf(constraints) : List.of();
+            this.idempotencyKey = idempotencyKey;
         }
 
         public String getId() { return id; }
@@ -360,6 +374,10 @@ public class IntentGraph {
         public List<ConditionalDependency> getConditionalDeps() { return conditionalDeps; }
         public String getSuccessCriteria() { return successCriteria; }
         public boolean isHumanApprovalRequired() { return humanApprovalRequired; }
+        public String getOperation() { return operation; }
+        public Map<String, Object> getInput() { return input; }
+        public List<String> getConstraints() { return constraints; }
+        public String getIdempotencyKey() { return idempotencyKey; }
 
         @Override
         public String toString() {

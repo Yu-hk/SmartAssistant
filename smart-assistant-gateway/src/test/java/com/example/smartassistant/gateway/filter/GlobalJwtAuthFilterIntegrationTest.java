@@ -11,7 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
@@ -30,7 +30,7 @@ import static org.mockito.Mockito.when;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "spring.autoconfigure.exclude="
-                        + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
+                        + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
                 "spring.cloud.nacos.discovery.enabled=false",
                 "spring.cloud.service-registry.auto-registration.enabled=false",
                 "management.health.redis.enabled=false"

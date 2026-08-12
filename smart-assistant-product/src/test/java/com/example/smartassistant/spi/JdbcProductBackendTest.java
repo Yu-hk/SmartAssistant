@@ -14,6 +14,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import org.mockito.ArgumentCaptor;
 
 class JdbcProductBackendTest {
 
@@ -71,6 +73,12 @@ class JdbcProductBackendTest {
                     assertThat(product.name()).isEqualTo("MacBook Air M3");
                     assertThat(product.popularity()).isEqualTo(7L);
                 });
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(sql.getValue())
+                .contains("LOAD-PROD-%")
+                .contains("E2E-PROD-%");
     }
 
     @Test

@@ -21,8 +21,8 @@ import java.util.List;
  * <ul>
  *   <li><b>摘要优先</b>：上下文构建优先使用 {@link SubTaskResult#getSummary()}（前 200 字符），
  *       全量结果通过 Redis 存储供按需工具查询，避免全量拼接 Token 膨胀。</li>
- *   <li><b>按需查询</b>：完整结果存入 Redis Key {@code a2a:task-result:{taskId}}（TTL=300s），
- *       供 {@code getAsyncTaskResult} 工具获取。</li>
+ *   <li><b>请求隔离</b>：完整结果存入 Redis Key
+ *       {@code a2a:task-result:{requestId}:{taskId}}（TTL=300s）。</li>
  * </ul>
  */
 @Component
@@ -46,34 +46,36 @@ public class ResultMerger {
     /**
      * 合并多个 Agent 的执行结果。
      *
-     * <p>上下文构建优先使用摘要（节省 Token）；完整结果存入 Redis 供后续工具按需查询。
-     * LLM 整合时基础信息来自摘要，需确认细节时可通过 {@code getAsyncTaskResult(taskId)} 工具获取全量原文。</p>
+     * <p>上下文构建优先使用摘要（节省 Token）；完整结果按 requestId 隔离存入 Redis，
+     * 仅用于短期诊断和审计，不向模型暴露不存在的查询工具。</p>
      *
      * @param question 用户的原始问题
      * @param results  各子任务的执行结果
      * @return 合并后的最终回答
      */
     public String merge(String question, List<SubTaskResult> results) {
+        return merge(question, results, null);
+    }
+
+    public String merge(String question, List<SubTaskResult> results, String requestId) {
         if (results == null || results.isEmpty()) return "";
         if (results.size() == 1) {
             return results.get(0).getResult();
         }
 
-        // ⭐ 存储完整结果到 Redis（供 getAsyncTaskResult 工具按需查询）
-        storeFullResults(results);
+        storeFullResults(results, requestId);
 
         // ⭐ 上下文构建：摘要优先（替代原来的全量 result 拼接）
         StringBuilder context = new StringBuilder();
         for (var r : results) {
-            if (r.getResult() == null || r.getResult().isBlank()) continue;
+            if (!r.isSuccess() || r.getResult() == null || r.getResult().isBlank()) continue;
             String source = r.getAgentName() != null ? r.getAgentName() : "unknown";
             String summary = r.getSummary() != null && !r.getSummary().isBlank()
                     ? r.getSummary() : r.getResult();
 
             context.append("【").append(source).append("】").append(r.getDescription()).append("\n");
             context.append("【摘要】").append(summary).append("\n");
-            context.append("（如需查看完整原文，可使用 getAsyncTaskResult 工具查询 taskId=")
-                    .append(r.getTaskId()).append("）\n\n");
+            context.append("\n");
         }
 
         String prompt = String.format("""
@@ -90,8 +92,8 @@ public class ResultMerger {
                 - 只需要输出整合后的回答，不要多余解释
 
                 ⚠️ 下面列出的是各助理回答的摘要（非完整原文）。
-                如果需要确认某个助理的完整回答，可调用 getAsyncTaskResult 工具查询。
-                请先基于摘要做整合，确保涵盖所有关键信息点。
+                只能依据这些摘要整合；不要声称调用、发现或建议使用任何未明确提供的工具。
+                如果摘要缺少细节，请明确说明信息不足，不得自行补造。
 
                 用户问题：%s
 
@@ -111,15 +113,17 @@ public class ResultMerger {
     }
 
     /**
-     * 将完整子任务结果存入 Redis（供 {@code getAsyncTaskResult} 工具按需查询）。
+     * 将完整子任务结果按请求范围存入 Redis，供短期诊断和审计。
      * 无 Redis 时静默跳过。
      */
-    private void storeFullResults(List<SubTaskResult> results) {
+    private void storeFullResults(List<SubTaskResult> results, String requestId) {
         if (redisTemplate == null) return;
+        String requestScope = requestId != null && !requestId.isBlank()
+                ? requestId : "unscoped-" + java.util.UUID.randomUUID();
         for (var r : results) {
             if (r.getTaskId() == null || r.getResult() == null) continue;
             try {
-                String key = TASK_RESULT_PREFIX + r.getTaskId();
+                String key = TASK_RESULT_PREFIX + requestScope + ":" + r.getTaskId();
                 redisTemplate.opsForValue().set(key, formatFullResult(r), TASK_RESULT_TTL);
             } catch (Exception e) {
                 log.debug("[ResultMerger] 存储 task 完整结果到 Redis 失败: taskId={}", r.getTaskId());

@@ -9,6 +9,7 @@ package com.example.smartassistant.general.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.intent.WeatherQuerySupport;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -49,11 +50,15 @@ public class WeatherTool {
         if (city == null || city.isBlank()) {
             return ToolResult.error(AgentErrorCode.WEATHER_NO_DATA, "请提供要查询的城市或位置。");
         }
-        boolean coordinateQuery = COORDINATES.matcher(city.trim()).matches();
+        String normalizedLocation = WeatherQuerySupport.normalizeLocation(city);
+        if (normalizedLocation == null) {
+            return ToolResult.error(AgentErrorCode.WEATHER_NO_DATA, "请提供要查询的城市或位置。");
+        }
+        boolean coordinateQuery = COORDINATES.matcher(normalizedLocation).matches();
         log.info("[WeatherTool] 查询天气: locationType={}", coordinateQuery ? "coordinates" : "city");
         try {
-            var req = HttpRequest.newBuilder(buildWeatherUri(city)).GET()
-                    .timeout(java.time.Duration.ofSeconds(10))
+            var req = HttpRequest.newBuilder(buildWeatherUri(normalizedLocation)).GET()
+                    .timeout(java.time.Duration.ofSeconds(5))
                     .header("User-Agent", "curl")
                     .build();
             var resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
@@ -75,7 +80,7 @@ public class WeatherTool {
             String windSpeed = current.get("windspeedKmph").asText();
             String windDir = current.get("winddir16Point").asText();
             String visibility = current.get("visibility").asText();
-            String displayLocation = coordinateQuery ? nearestAreaName(root) : city;
+            String displayLocation = coordinateQuery ? nearestAreaName(root) : normalizedLocation;
 
             StringBuilder forecast = new StringBuilder();
             JsonNode forecasts = root.get("weather");

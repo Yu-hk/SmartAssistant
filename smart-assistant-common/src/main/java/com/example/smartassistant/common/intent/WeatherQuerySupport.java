@@ -20,7 +20,7 @@ public final class WeatherQuerySupport {
             "查询|查一下|查查|看看|怎么样|如何|多少|预报|会不会|是否|什么|weather|temperature",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PREFIXES = Pattern.compile(
-            "^(?:请问|麻烦|帮我|帮忙|我想|想知道|看一下|看看|查一下|查询|查查|查|今天|明天|后天)+");
+            "^(?:请问|请|麻烦|帮我|帮忙|我想|想知道|看一下|看看|查一下|查询|查查|查|今天|明天|后天)+");
     private static final Pattern TIME_WORDS = Pattern.compile("今天|明天|后天|现在|当前|最近|未来");
     private static final Set<String> GENERIC_WORDS = Set.of(
             "", "天气", "气温", "温度", "预报", "天气预报", "查询", "查", "一下", "怎么样", "如何");
@@ -79,6 +79,20 @@ public final class WeatherQuerySupport {
             if (candidate != null && !candidate.isBlank()) return candidate;
         }
         return null;
+    }
+
+    /**
+     * Normalizes an LLM/tool argument defensively. The controller normally passes an already
+     * extracted city, but direct tool calls may still contain the complete user utterance.
+     */
+    public static String normalizeLocation(String location) {
+        if (location == null || location.isBlank()) return null;
+        String trimmed = location.trim();
+        if (trimmed.matches("^-?\\d{1,2}(?:\\.\\d+)?,\\s*-?\\d{1,3}(?:\\.\\d+)?$")) {
+            return trimmed.replaceAll("\\s+", "");
+        }
+        String extracted = extractCity(trimmed);
+        return extracted != null ? extracted : trimmed;
     }
 
     private static String sanitizeChineseCandidate(String candidate) {
