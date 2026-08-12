@@ -165,8 +165,8 @@ class GlobalJwtAuthFilterTest {
         assertEquals(List.of("42"), forwarded.get("X-User-Id"));
         assertEquals(List.of("alice"), forwarded.get("X-User-Username"));
         assertEquals(List.of("ROLE_USER"), forwarded.get("X-User-Role"));
-        assertFalse(forwarded.containsKey("X-User-Permissions"));
-        assertFalse(forwarded.containsKey("X-User-Debug"));
+        assertFalse(forwarded.containsHeader("X-User-Permissions"));
+        assertFalse(forwarded.containsHeader("X-User-Debug"));
     }
 
     @Test
@@ -186,11 +186,11 @@ class GlobalJwtAuthFilterTest {
         filter.filter(exchange, chain).block();
 
         HttpHeaders forwarded = exchangeCaptor.getValue().getRequest().getHeaders();
-        assertFalse(forwarded.containsKey("X-User-Id"));
-        assertFalse(forwarded.containsKey("X-User-Username"));
-        assertFalse(forwarded.containsKey("X-User-Role"));
-        assertFalse(forwarded.containsKey("X-User-Permissions"));
-        assertFalse(forwarded.containsKey("X-User-Debug"));
+        assertFalse(forwarded.containsHeader("X-User-Id"));
+        assertFalse(forwarded.containsHeader("X-User-Username"));
+        assertFalse(forwarded.containsHeader("X-User-Role"));
+        assertFalse(forwarded.containsHeader("X-User-Permissions"));
+        assertFalse(forwarded.containsHeader("X-User-Debug"));
         verifyNoInteractions(jwtUtil, redisTemplate);
     }
 

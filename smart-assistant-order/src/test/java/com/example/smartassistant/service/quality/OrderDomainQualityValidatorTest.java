@@ -3,16 +3,28 @@ package com.example.smartassistant.service.quality;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.eval.FaithfulnessGuard;
+import com.example.smartassistant.common.tool.spi.OrderDataProvider;
+import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class OrderDomainQualityValidatorTest {
 
-    private final OrderDomainQualityValidator validator = new OrderDomainQualityValidator();
+    private OrderDataProvider orderData;
+    private OrderDomainQualityValidator validator;
+
+    @BeforeEach
+    void setUp() {
+        orderData = mock(OrderDataProvider.class);
+        validator = new OrderDomainQualityValidator(orderData);
+    }
 
     @Test
     void passesOrderFactsThatMatchRetrievedEvidence() {
@@ -114,6 +126,57 @@ class OrderDomainQualityValidatorTest {
 
         assertTrue(result.isWarn());
         assertTrue(result.getReasonCodes().contains("UNSUPPORTED_ORDER_FACTS"));
+    }
+
+    @Test
+    void acceptsNewlyCreatedOrderIdAfterOwnershipVerification() {
+        when(orderData.findOrderByOrderId("ORD-2001")).thenReturn(OrderDTO.builder()
+                .orderId("ORD-2001")
+                .userId(42L)
+                .status("待付款")
+                .build());
+        RetrievalQualityResult retrieval = RetrievalQualityResult.highQuality("", 0.8);
+
+        DomainQualityResult result = validator.evaluate(
+                "我要下单一台电脑", "订单 ORD-2001 创建成功，状态：待付款", IntentType.CREATE_ORDER,
+                "42", retrieval, checked(false, 0.0));
+
+        assertTrue(result.isPass());
+        assertTrue(result.getReasonCodes().contains("ORDER_FACTS_VERIFIED"));
+    }
+
+    @Test
+    void rejectsCreatedOrderIdOwnedByAnotherUser() {
+        when(orderData.findOrderByOrderId("ORD-2001")).thenReturn(OrderDTO.builder()
+                .orderId("ORD-2001")
+                .userId(99L)
+                .status("待付款")
+                .build());
+        RetrievalQualityResult retrieval = RetrievalQualityResult.highQuality("", 0.8);
+
+        DomainQualityResult result = validator.evaluate(
+                "我要下单一台电脑", "订单 ORD-2001 创建成功，状态：待付款", IntentType.CREATE_ORDER,
+                "42", retrieval, checked(false, 0.0));
+
+        assertTrue(result.isFail());
+        assertTrue(result.getReasonCodes().contains("ANSWER_ORDER_ID_MISMATCH"));
+    }
+
+    @Test
+    void rejectsCreatedOrderStatusThatDiffersFromPersistedOrder() {
+        when(orderData.findOrderByOrderId("ORD-2001")).thenReturn(OrderDTO.builder()
+                .orderId("ORD-2001")
+                .userId(42L)
+                .status("待付款")
+                .build());
+        RetrievalQualityResult retrieval = RetrievalQualityResult.highQuality("", 0.8);
+
+        DomainQualityResult result = validator.evaluate(
+                "我要下单一台电脑", "订单 ORD-2001 创建成功，状态：已付款", IntentType.CREATE_ORDER,
+                "42", retrieval, checked(false, 0.0));
+
+        assertTrue(result.isFail());
+        assertTrue(result.getReasonCodes().contains("ORDER_STATUS_MISMATCH"));
     }
 
     private static FaithfulnessGuard.FaithfulnessVerdict checked(boolean hallucination, double score) {

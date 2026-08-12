@@ -290,7 +290,7 @@
 | 4 | 引入 Nacos 动态 prompt（如需） | 🟡 **中** | ✅ **已增加 @RefreshScope + 可外部化 prompt 属性** | `TaskAnalysisService` / `QualityEvaluationService` |
 | 5 | 任务分析结果驱动路由增强 | 🟡 **中** | ❌ 待处理 | `RouterService` |
 | 6 | 质检不通过时触发重试 | 🟡 **中** | ❌ 待处理 | `RouterService.finalizeRouting()` |
-| 7 | Checkpoint 断点续跑（Order 多步流） | ⚪ **低** | ❌ 待评估 | `GraphExecutionService` |
+| 7 | LangGraph4j 原生 Checkpoint 断点续跑（Order 多步流） | ⚪ **低** | ✅ 已实现 | `LangGraphRedisCheckpointSaver` |
 | 8 | 水平扩展适配（进程内限流→Redis） | ⚪ **低** | ❌ 待评估 | — |
 | 9 | **Tool Group 工具分组** | 🟡 **中** | ✅ **已实现** | `ToolGroupManager` + `SmartReActAgent` |
 | 10 | **结构化输出框架化** | 🟢 **高** | ✅ **已实现** | `StructuredOutputService` |

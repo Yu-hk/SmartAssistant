@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -51,7 +52,7 @@ class StreamChatControllerPersistenceTest {
         servletRequest.addHeader("X-User-Id", "42");
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
 
-        when(routerClient.waitForDecisionFromRedis("request-1", 60_000L))
+        when(routerClient.waitForDecisionFromRedis(eq("request-1"), eq(60_000L), any(Runnable.class)))
                 .thenReturn(Map.of(
                         "agentName", "weather_service",
                         "confidence", 0.98,
@@ -101,7 +102,7 @@ class StreamChatControllerPersistenceTest {
         });
         upstream.start();
         try {
-            when(routerClient.waitForDecisionFromRedis("session-only", 60_000L))
+            when(routerClient.waitForDecisionFromRedis(eq("session-only"), eq(60_000L), any(Runnable.class)))
                     .thenReturn(Map.of(
                             "agentName", "product_service",
                             "confidence", 0.9,

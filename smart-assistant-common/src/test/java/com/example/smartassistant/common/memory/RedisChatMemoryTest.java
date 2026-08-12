@@ -54,7 +54,11 @@ class RedisChatMemoryTest {
     void messageCodec_roundtrip_preservesAssistantToolCalls() {
         AssistantMessage.ToolCall toolCall =
                 new AssistantMessage.ToolCall("call_1", "function", "getWeather", "{\"city\":\"北京\"}");
-        AssistantMessage assist = new AssistantMessage("我来查天气", Map.of("source", "tool"), List.of(toolCall));
+        AssistantMessage assist = AssistantMessage.builder()
+                .content("我来查天气")
+                .properties(Map.<String, Object>of("source", "tool"))
+                .toolCalls(List.of(toolCall))
+                .build();
         String json = MessageCodec.encode(assist);
         Message back = MessageCodec.decode(json);
         assertEquals(MessageType.ASSISTANT, back.getMessageType());
@@ -70,7 +74,7 @@ class RedisChatMemoryTest {
         List<Message> origin = List.of(
                 SystemMessage.builder().text("system").build(),
                 new UserMessage("user"),
-                new AssistantMessage("assistant", Map.of(), List.of())
+                AssistantMessage.builder().content("assistant").build()
         );
         String json = MessageCodec.encodeList(origin);
         List<Message> back = MessageCodec.decodeList(json);

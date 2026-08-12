@@ -34,6 +34,18 @@
             <artifactId>spring-ai-client-chat</artifactId>
         </dependency>
 
+        <!-- LangGraph4j orchestration runtime and Spring AI 2.0 integration. -->
+        <dependency>
+            <groupId>org.bsc.langgraph4j</groupId>
+            <artifactId>langgraph4j-core</artifactId>
+            <version>${langgraph4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bsc.langgraph4j</groupId>
+            <artifactId>langgraph4j-spring-ai</artifactId>
+            <version>${langgraph4j.version}</version>
+        </dependency>
+
         <!-- Spring AI Ollama Starter (原生 Ollama 支持，替代自定义 OllamaApiClient) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
@@ -96,13 +108,13 @@
         <!-- Spring AOP (日志切面) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-aop</artifactId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
         </dependency>
 
         <!-- ⭐ Resilience4j 重试（指数退避） -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
-            <artifactId>resilience4j-spring-boot3</artifactId>
+            <artifactId>resilience4j-spring-boot4</artifactId>
         </dependency>
         <dependency>
             <groupId>io.github.resilience4j</groupId>

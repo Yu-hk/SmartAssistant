@@ -1,12 +1,16 @@
 package com.example.smartassistant.general.controller;
 
 import com.example.smartassistant.common.agent.SmartReActAgent;
+import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
+import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.TokenUsageHeaders;
 import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageHeaders;
 import com.example.smartassistant.common.intent.WeatherQuerySupport;
 import com.example.smartassistant.common.location.DeviceLocation;
+import com.example.smartassistant.common.quality.DomainQualityResult;
+import com.example.smartassistant.general.tool.WeatherTool;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,13 +23,16 @@ import java.util.Map;
 
 /** Internal synchronous endpoint used by the Router service. */
 @RestController
-@RequestMapping("/api/general/agent")
+@RequestMapping({"/api/general/agent", "/internal/agents/general"})
 public class GeneralAgentController {
 
     private final SmartReActAgent generalChatAgent;
+    private final WeatherTool weatherTool;
 
-    public GeneralAgentController(@Qualifier("generalChatAgent") SmartReActAgent generalChatAgent) {
+    public GeneralAgentController(@Qualifier("generalChatAgent") SmartReActAgent generalChatAgent,
+                                  WeatherTool weatherTool) {
         this.generalChatAgent = generalChatAgent;
+        this.weatherTool = weatherTool;
     }
 
     @PostMapping("/process")
@@ -39,13 +46,16 @@ public class GeneralAgentController {
             return responseWithUsage("Question must not be blank", requestId);
         }
         DeviceLocation deviceLocation = DeviceLocation.from(request.get("deviceLocation"));
-        if (WeatherQuerySupport.requiresCityClarification(question, deviceLocation)) {
+        if (WeatherQuerySupport.isWeatherLookup(question)) {
+            String city = WeatherQuerySupport.extractCity(question);
+            if (city != null) {
+                return responseWithUsage(weatherTool.queryWeather(city), requestId);
+            }
+            if (deviceLocation != null && deviceLocation.isUsable()) {
+                return responseWithUsage(
+                        weatherTool.queryWeather(deviceLocation.coordinateQuery()), requestId);
+            }
             return responseWithUsage(WeatherQuerySupport.CITY_CLARIFICATION, requestId);
-        }
-        if (WeatherQuerySupport.isWeatherLookup(question)
-                && WeatherQuerySupport.extractCity(question) == null
-                && deviceLocation != null && deviceLocation.isUsable()) {
-            question = WeatherQuerySupport.withDeviceLocation(question, deviceLocation);
         }
         String answer = generalChatAgent.execute(question);
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
@@ -63,6 +73,26 @@ public class GeneralAgentController {
         }
         addToolUsageHeader(builder, ToolUsageCache.consume(requestId));
         return builder.body(answer);
+    }
+
+    /** Unified Router-to-Agent protocol; legacy /process remains available during migration. */
+    @PostMapping("/execute")
+    public ResponseEntity<AgentExecutionResponse> execute(
+            @RequestBody AgentExecutionRequest request,
+            @RequestHeader(value = "X-Request-Id", required = false) String headerRequestId) {
+        String requestId = headerRequestId != null ? headerRequestId : request.executionId();
+        if (request.question() == null || request.question().isBlank()) {
+            return ResponseEntity.badRequest().body(
+                    AgentExecutionResponse.failure("EMPTY_GENERAL_QUESTION",
+                            "Question must not be blank", false));
+        }
+        ResponseEntity<String> legacy = process(request.toLegacyMap(), requestId);
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(legacy.getStatusCode());
+        builder.headers(headers -> headers.addAll(legacy.getHeaders()));
+        DomainQualityResult quality = WeatherQuerySupport.isWeatherLookup(request.question())
+                ? DomainQualityResult.pass(1.0, "DETERMINISTIC_WEATHER_RESPONSE")
+                : DomainQualityResult.unknown();
+        return builder.body(AgentExecutionResponse.success(legacy.getBody(), quality));
     }
 
     private ResponseEntity<String> responseWithUsage(String body, String requestId) {
