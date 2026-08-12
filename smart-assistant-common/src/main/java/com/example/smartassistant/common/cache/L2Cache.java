@@ -19,7 +19,7 @@ import java.util.function.Function;
  * ⭐ 二级缓存（Caffeine L1 + Redis L2）— 降低 Redis 延迟和网络开销。
  * <p>
  * 适用场景：高频率读取、低更新频率的数据，如语义缓存、路由决策缓存。
- * 当前项目中 {@code SemanticRouteCacheService} 的 T1/T2/T3 缓存层适用。
+ * 适用于 Consumer 侧的多级语义路由缓存。
  * </p>
  *
  * <p>使用方式：</p>

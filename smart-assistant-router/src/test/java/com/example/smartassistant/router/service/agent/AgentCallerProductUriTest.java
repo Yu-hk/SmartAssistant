@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AgentCallerProductUriTest {
 
@@ -32,5 +33,12 @@ class AgentCallerProductUriTest {
         assertEquals("http://product:8084/product/stream/chat/sync?message=%E5%8A%9E%E5%85%AC",
                 AgentCallerService.buildLegacyProcessUri(
                         "http://product:8084", "product", "办公").toString());
+    }
+
+    @Test
+    void generalHasNoRemoteLegacyEndpoint() {
+        assertThrows(IllegalArgumentException.class,
+                () -> AgentCallerService.buildLegacyProcessUri(
+                        "http://removed-general:8086", "general", "你好"));
     }
 }

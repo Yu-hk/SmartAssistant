@@ -8,10 +8,10 @@
 package com.example.smartassistant.router.service.experience;
 
 import com.example.smartassistant.common.cache.CacheVersionManager;
+import com.example.smartassistant.common.intent.IntentTagGenerator;
 import com.example.smartassistant.common.rag.InMemoryKnowledgeBase;
 import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingService;
-import com.example.smartassistant.router.service.cache.SemanticRouteCacheService;
 import com.example.smartassistant.router.service.experience.ExperienceEmbeddingMapper.EmbeddingSearchResult;
 import com.example.smartassistant.router.service.experience.ExperienceMilvusService.SearchResult;
 import com.example.smartassistant.router.service.experience.ExperienceModel.CommonExperience;
@@ -75,7 +75,7 @@ public class ExperienceService {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
-    private final SemanticRouteCacheService semanticCache;
+    private final IntentTagGenerator intentTagGenerator;
     private final BgeOnnxEmbeddingService bgeEmbedding;
     private final ExperienceEmbeddingMapper embeddingMapper;
     /** 经验验证器：召回后验证时效性和可靠度 */
@@ -90,7 +90,7 @@ public class ExperienceService {
     private InMemoryKnowledgeBase knowledgeBase;
 
     public ExperienceService(StringRedisTemplate redisTemplate,
-                             SemanticRouteCacheService semanticCache,
+                             IntentTagGenerator intentTagGenerator,
                              BgeOnnxEmbeddingService bgeEmbedding,
                              ExperienceEmbeddingMapper embeddingMapper,
                              ExperienceValidator experienceValidator,
@@ -98,7 +98,7 @@ public class ExperienceService {
                              CacheVersionManager cacheVersionManager) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
-        this.semanticCache = semanticCache;
+        this.intentTagGenerator = intentTagGenerator;
         this.bgeEmbedding = bgeEmbedding;
         this.embeddingMapper = embeddingMapper;
         this.experienceValidator = experienceValidator;
@@ -904,10 +904,8 @@ public class ExperienceService {
      */
     private String findFallbackAgent(String primaryAgent) {
         return switch (primaryAgent) {
-            case "order_agent" -> "general_agent";
-            case "product_agent" -> "general_agent";
-            case "general_agent" -> "builtin_fallback";
-            default -> "general_agent";
+            case "order_agent", "product_agent", "general_agent", "general" -> "router_fallback";
+            default -> "router_fallback";
         };
     }
 
@@ -918,7 +916,7 @@ public class ExperienceService {
         if (question == null || question.isBlank()) return Collections.emptyList();
 
         // 使用语义缓存的关键词提取
-        String intentTag = semanticCache.generateIntentTag(question);
+        String intentTag = intentTagGenerator.generate(question);
         if (intentTag == null || intentTag.isBlank()) return Collections.emptyList();
 
         return Arrays.stream(intentTag.split(","))
@@ -931,7 +929,7 @@ public class ExperienceService {
      * 生成意图标签
      */
     private String generateIntentTag(String question) {
-        return semanticCache.generateIntentTag(question);
+        return intentTagGenerator.generate(question);
     }
 
     private String md5(String str) {

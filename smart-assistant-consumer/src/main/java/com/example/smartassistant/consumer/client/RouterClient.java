@@ -8,6 +8,7 @@
 package com.example.smartassistant.consumer.client;
 
 import com.example.smartassistant.common.location.DeviceLocation;
+import com.example.smartassistant.consumer.service.cache.RouteSemanticCacheService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
@@ -48,12 +49,15 @@ public class RouterClient {
     
     private static final Logger log = LoggerFactory.getLogger(RouterClient.class);
     
-    // ⭐ 与 Router 中的 SemanticRouteCacheService.FULL_DECISION_KEY_PREFIX 保持一致
+    // Must match Router RoutingDecisionPublisher.FULL_DECISION_KEY_PREFIX.
     private static final String ROUTING_DECISION_KEY_PREFIX = "a2a:route:full-decision:";
     
     private final RestTemplate restTemplate;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+
+    @Autowired(required = false)
+    private RouteSemanticCacheService routeSemanticCache;
 
     @Value("${router.service.url:http://localhost:8083}")
     private String routerServiceUrl;
@@ -88,15 +92,12 @@ public class RouterClient {
      * @param userId     用户 ID
      * @param sessionId  会话 ID
      * @param requestId  请求 ID（可选）
-     * @param userProfile 用户画像文本（可选，独立字段）
-     * @param intentTag  意图标签（可选）
      * @return Router Service 返回的完整响应 Map
      */
     @CircuitBreaker(name = "routerService", fallbackMethod = "callRouterRawFallback")
     @RateLimiter(name = "routerRateLimiter")
     @Retry(name = "routerRetry")
-    public Map<String, Object> callRouterRaw(String question, String userId, String sessionId, String requestId,
-                                              String userProfile, String intentTag) {
+    public Map<String, Object> callRouterRaw(String question, String userId, String sessionId, String requestId) {
         log.info("[RouterClient] 调用 Router Service: userId={}, sessionId={}, questionLength={}",
                 userId, sessionId, question != null ? question.length() : 0);
 
@@ -114,13 +115,7 @@ public class RouterClient {
             if (requestId != null) {
                 requestBody.put("requestId", requestId);
             }
-            // ⭐ 独立字段传输用户画像和意图标签，不再塞入 question
-            if (userProfile != null && !userProfile.isBlank()) {
-                requestBody.put("userProfile", userProfile);
-            }
-            if (intentTag != null && !intentTag.isBlank()) {
-                requestBody.put("intentTag", intentTag);
-            }
+            applyCachedRouteHint(question, requestBody);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -155,6 +150,7 @@ public class RouterClient {
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 Map<String, Object> responseBody = response.getBody();
                 Map<String, Object> payload = unwrapRouterResponse(responseBody);
+                saveRouteHint(question, payload);
                 log.info("[RouterClient] Router 调用成功(完整响应): resultLength={}",
                         payload.get("result") instanceof String result ? result.length() : 0);
                 return payload;
@@ -201,8 +197,7 @@ public class RouterClient {
     }
 
     private Map<String, Object> callRouterRawFallback(String question, String userId, String sessionId,
-                                                       String requestId, String userProfile, String intentTag,
-                                                       Throwable t) {
+                                                       String requestId, Throwable t) {
         log.warn("[RouterClient] Router circuit fallback: requestId={}, error={}",
                 requestId, t != null ? t.getMessage() : "unknown");
         Map<String, Object> fallback = new HashMap<>();
@@ -307,7 +302,7 @@ public class RouterClient {
         try {
             // ⚠️ 原实现调用 /api/router/decision，但该端点并不存在（RouterController 仅暴露 /api/router/route 等）。
             // /api/router/route 执行完整路由决策，并经由 RouteFinalizer.finalizeRouting
-            // -> SemanticRouteCacheService.saveFullDecisionForConsumer 写入 FULL_DECISION_KEY + notify，
+            // -> RoutingDecisionPublisher writes FULL_DECISION_KEY + notify.
             // 供 Consumer SSE 端点 waitForDecisionFromRedis 阻塞读取。
             Map<String, Object> requestBody = new HashMap<>();
             // userId 与 callRouterRaw 保持一致：非数字（如 anonymous）映射为 0L
@@ -325,6 +320,7 @@ public class RouterClient {
             if (deviceLocation != null && deviceLocation.isUsable()) {
                 requestBody.put("deviceLocation", deviceLocation);
             }
+            applyCachedRouteHint(message, requestBody);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -335,11 +331,31 @@ public class RouterClient {
             log.debug("[RouterClient] 触发路由决策(调用 Router.route): {}", url);
 
             // 发送请求触发决策（route 端点同步返回，内部已写入 Redis 决策）
-            restTemplate.postForEntity(url, request, Map.class);
+            ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                saveRouteHint(message, unwrapRouterResponse(response.getBody()));
+            }
             log.debug("[RouterClient] Router 决策请求已发送: requestId={}", requestId);
 
         } catch (Exception e) {
             log.error("[RouterClient] 触发路由决策失败: requestId={}, error={}", requestId, e.getMessage(), e);
+        }
+    }
+
+    private void applyCachedRouteHint(String question, Map<String, Object> requestBody) {
+        if (routeSemanticCache == null) return;
+        RouteSemanticCacheService.CachedRouteHint hint = routeSemanticCache.find(question);
+        if (hint == null) return;
+        requestBody.put("cachedAgentName", hint.agentName());
+        requestBody.put("cachedIntentTag", hint.intentTag());
+        requestBody.put("cachedConfidence", hint.confidence());
+        log.debug("[RouterClient] Consumer semantic route hit: agent={}, intent={}",
+                hint.agentName(), hint.intentTag());
+    }
+
+    private void saveRouteHint(String question, Map<String, Object> response) {
+        if (routeSemanticCache != null) {
+            routeSemanticCache.save(question, response);
         }
     }
 }

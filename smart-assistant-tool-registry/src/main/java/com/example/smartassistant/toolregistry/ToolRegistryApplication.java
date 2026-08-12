@@ -2,6 +2,12 @@ package com.example.smartassistant.toolregistry;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Import;
+import com.example.smartassistant.common.correction.CorrectionService;
+import com.example.smartassistant.common.gateway.tool.ToolGateway;
+import com.example.smartassistant.common.gateway.tool.ToolRegistry;
+import com.example.smartassistant.common.tool.GifCacheStore;
 
 /**
  * Tool Registry 服务启动类。
@@ -14,6 +20,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @since 2026-07-10
  */
 @SpringBootApplication
+@ComponentScan({
+        "com.example.smartassistant.toolregistry"
+})
+@Import({ToolRegistry.class, ToolGateway.class, CorrectionService.class, GifCacheStore.class})
 public class ToolRegistryApplication {
 
     public static void main(String[] args) {
