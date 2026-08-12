@@ -67,8 +67,8 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <mainClass>com.example.smartassistant.embedding.EmbeddingApplication</mainClass>
                     <jvmArguments>-Dfile.encoding=UTF-8 -Dconsole.encoding=UTF-8</jvmArguments>
-                    <executable>true</executable>
                 </configuration>
                 <executions>
                     <execution>

@@ -90,6 +90,9 @@ public class TaskPlannerService {
                 - 不匹配时使用兜底：%s
                 - 无依赖的多个任务可以并行执行
                 - 验收标准说明"完成此任务需要什么"，如"返回至少3条结果""包含价格和评分"
+                - 必须保留用户原始请求中的否定约束和操作边界，不得把“不要创建/不要支付”等约束改写成执行操作
+                - 如果输入标明信息不完整或只允许查询，只规划可执行的查询/分析任务；缺失参数的创建、支付、退款、取消等写操作改为说明所需信息并追问，禁止实际执行
+                - 下游任务依赖上游候选列表时，用户未明确选择具体候选项前，不得替用户擅自选择并执行写操作
 
                 用户：%s
                 """, agentList, fallback, question);
@@ -99,6 +102,12 @@ public class TaskPlannerService {
             List<IntentGraph.IntentNode> nodes = parseGraphTasks(response);
             if (nodes.isEmpty()) {
                 log.warn("[TaskPlanner] LLM 返回格式异常，使用整句。响应: {}", response);
+                return createSingleNodeGraph(question, fallback);
+            }
+            Set<String> allowedAgents = getHealthyAgentNames();
+            var validation = ExecutionPlanValidator.validateGraphNodes(nodes, allowedAgents);
+            if (!validation.valid()) {
+                log.warn("[TaskPlanner] 拒绝不安全的 LLM 计划，降级为单节点: {}", validation.errors());
                 return createSingleNodeGraph(question, fallback);
             }
             log.info("[TaskPlanner] 图分解完成: {} 个节点, hasDeps={}",
@@ -317,6 +326,15 @@ public class TaskPlannerService {
                             caps != null ? caps : "");
                 })
                 .collect(Collectors.joining("\n"));
+    }
+
+    private Set<String> getHealthyAgentNames() {
+        Collection<DiscoveredAgent> agents = agentDiscovery.getCachedAgents();
+        if (agents == null) return Set.of();
+        return agents.stream()
+                .filter(agent -> agent.getAgentName() != null && agent.getHealthy())
+                .map(DiscoveredAgent::getAgentName)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     /**

@@ -84,6 +84,8 @@ services:
   postgres:
     image: pgvector/pgvector:0.8.0-pg16
     container_name: smart-postgres
+    ports:
+      - "0.0.0.0:5432:5432"
     expose:
       - "5432"
     environment:
@@ -98,7 +100,11 @@ services:
       -c shared_preload_libraries=vector
       -c max_connections=200
     networks:
-      - smart-network
+      smart-network:
+        ipv4_address: 10.89.1.4
+        aliases:
+          - smart-postgres
+          - postgres
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-a2a_system}"]
@@ -467,7 +473,8 @@ services:
 # ===========================
 networks:
   smart-network:
-    driver: bridge
+    name: smart-network
+    external: true
 
 volumes:
   redis-data:

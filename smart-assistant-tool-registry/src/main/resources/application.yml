@@ -38,7 +38,7 @@ spring:
     web-application-type: servlet
   autoconfigure:
     exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
       - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
       # 仅由 McpServerConfig 经 McpToolRegistryAdapter 手动注册发现型工具 + search_tools，
       # 禁止自动把任何 ToolCallback Bean 暴露为可执行 MCP 工具（避免绕过 ToolGateway）。

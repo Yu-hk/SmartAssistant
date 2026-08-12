@@ -68,7 +68,10 @@ public class IntentGuidedQueryRewriter {
 
         // 多意图 → 查询分解
         if (analysis != null && analysis.hasSubIntents()) {
-            return decomposeMultiIntent(baseQuery, analysis);
+            // Multi-intent execution must retain the user's exact wording. A standardized
+            // variant may normalize spelling, but it must never erase negative constraints
+            // such as "不要创建订单" or "不要支付".
+            return decomposeMultiIntent(question, analysis);
         }
 
         // 模糊意图 → 查询扩展
@@ -114,11 +117,39 @@ public class IntentGuidedQueryRewriter {
             subQueries.add(question);
         }
 
-        String rewritten = subQueries.size() > 1
-                ? String.join(" | ", subQueries)
-                : question;
+        StringBuilder rewritten = new StringBuilder();
+        rewritten.append("[用户原始请求]\n").append(question);
 
-        return new RewriteResult(rewritten, "decomposition", subQueries);
+        if (subQueries.size() > 1) {
+            rewritten.append("\n\n[已识别子任务]");
+            for (int i = 0; i < subQueries.size(); i++) {
+                rewritten.append("\n").append(i + 1).append(". ").append(subQueries.get(i));
+            }
+        }
+
+        if (analysis.getActionConstraints() != null && !analysis.getActionConstraints().isEmpty()) {
+            rewritten.append("\n\n[用户操作约束]");
+            for (String constraint : analysis.getActionConstraints()) {
+                rewritten.append("\n- ").append(constraint);
+            }
+        }
+
+        if (analysis.isNeedsClarification()) {
+            rewritten.append("\n\n[执行边界]\n")
+                    .append("存在尚未补齐的信息。先完成可独立执行的查询或分析任务；")
+                    .append("不得调用创建订单、支付、退款、取消等会改变数据或状态的工具。")
+                    .append("在返回查询结果后，再向用户询问下游操作缺少的信息。");
+            if (analysis.getMissingSlots() != null && !analysis.getMissingSlots().isEmpty()) {
+                rewritten.append("\n缺失信息：").append(String.join("、", analysis.getMissingSlots()));
+            }
+            if (analysis.getClarificationQuestions() != null
+                    && !analysis.getClarificationQuestions().isEmpty()) {
+                rewritten.append("\n建议追问：")
+                        .append(String.join("；", analysis.getClarificationQuestions()));
+            }
+        }
+
+        return new RewriteResult(rewritten.toString(), "decomposition", subQueries);
     }
 
     /**

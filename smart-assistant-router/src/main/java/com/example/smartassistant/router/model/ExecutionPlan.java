@@ -1,0 +1,89 @@
+package com.example.smartassistant.router.model;
+
+import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Collections;
+
+/**
+ * Strongly typed execution plan produced before a request enters the DAG executor.
+ *
+ * <p>The current executor still consumes {@link IntentGraph}; this model is the validated
+ * boundary between probabilistic task analysis and deterministic execution.</p>
+ */
+public record ExecutionPlan(
+        String executionId,
+        String originalQuestion,
+        List<String> globalConstraints,
+        List<TaskNode> nodes) {
+
+    public ExecutionPlan {
+        globalConstraints = globalConstraints != null ? List.copyOf(globalConstraints) : List.of();
+        nodes = nodes != null ? List.copyOf(nodes) : List.of();
+    }
+
+    public IntentGraph toIntentGraph() {
+        List<IntentGraph.IntentNode> graphNodes = nodes.stream()
+                .map(node -> new IntentGraph.IntentNode(
+                        node.nodeId(), node.description(), node.domain().agentName(),
+                        node.dependsOn(), node.successCriteria(), List.of(),
+                        node.approvalRequired(), node.operation(), node.input(),
+                        globalConstraints, node.idempotencyKey()))
+                .toList();
+        return new IntentGraph(originalQuestion, graphNodes);
+    }
+
+    public record TaskNode(
+            String nodeId,
+            Domain domain,
+            String operation,
+            String description,
+            Map<String, Object> input,
+            List<String> dependsOn,
+            AccessMode accessMode,
+            List<String> requiredSlots,
+            String idempotencyKey,
+            boolean approvalRequired,
+            String successCriteria,
+            MergePolicy mergePolicy) {
+
+        public TaskNode {
+            // Entity maps legitimately contain null values for absent slots; Map.copyOf rejects
+            // those values, so keep a defensive unmodifiable LinkedHashMap instead.
+            input = input != null
+                    ? Collections.unmodifiableMap(new LinkedHashMap<>(input)) : Map.of();
+            dependsOn = dependsOn != null ? List.copyOf(dependsOn) : List.of();
+            requiredSlots = requiredSlots != null ? List.copyOf(requiredSlots) : List.of();
+            accessMode = accessMode != null ? accessMode : AccessMode.READ;
+            mergePolicy = mergePolicy != null ? mergePolicy : MergePolicy.APPEND;
+        }
+    }
+
+    public enum Domain {
+        PRODUCT("product"),
+        ORDER("order"),
+        GENERAL("general"),
+        BUILTIN_ORDER_PREPARATION("builtin_order_preparation");
+
+        private final String agentName;
+
+        Domain(String agentName) {
+            this.agentName = agentName;
+        }
+
+        public String agentName() {
+            return agentName;
+        }
+    }
+
+    public enum AccessMode {
+        READ,
+        WRITE
+    }
+
+    public enum MergePolicy {
+        APPEND,
+        REPLACE,
+        STRUCTURED
+    }
+}
