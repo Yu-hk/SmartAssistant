@@ -74,7 +74,8 @@ class UserRouteConfigurationTest {
 
     private String routePrefix(Properties properties, String routeId) {
         return properties.stringPropertyNames().stream()
-                .filter(name -> name.matches("spring\\.cloud\\.gateway\\.routes\\[\\d+].id"))
+                .filter(name -> name.matches(
+                        "spring\\.cloud\\.gateway\\.server\\.webflux\\.routes\\[\\d+].id"))
                 .filter(name -> routeId.equals(properties.getProperty(name)))
                 .map(name -> name.substring(0, name.length() - ".id".length()))
                 .findFirst()

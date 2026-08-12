@@ -69,7 +69,7 @@
         <!-- ⭐ AOP（用于 @Tool 方法日志切面） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-aop</artifactId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
             <optional>true</optional>
         </dependency>
 

@@ -72,11 +72,17 @@ public class SqlPerformanceMonitor {
     public void checkSlowQueries() {
         try {
             // 首先检查 pg_stat_statements 扩展是否启用
-            Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM pg_extension WHERE extname = 'pg_stat_statements'", Integer.class);
+            Boolean available = jdbcTemplate.queryForObject("""
+                    SELECT EXISTS (
+                        SELECT 1
+                          FROM pg_extension
+                         WHERE extname = 'pg_stat_statements'
+                    ) AND current_setting('shared_preload_libraries', true)
+                              ~ '(^|,)\\s*pg_stat_statements\\s*(,|$)'
+                    """, Boolean.class);
             
-            if (count == null || count == 0) {
-                log.info("[SQL Performance] pg_stat_statements 扩展未启用，跳过慢查询检查");
+            if (!Boolean.TRUE.equals(available)) {
+                log.info("[SQL Performance] pg_stat_statements 未完成预加载，跳过慢查询检查");
                 return;
             }
 
