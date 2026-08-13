@@ -9,11 +9,13 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -87,6 +89,37 @@ public class GlobalExceptionHandler {
     }
 
     // ===================== 认证异常 =====================
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingRequestHeader(
+            MissingRequestHeaderException e, HttpServletRequest request) {
+        log.warn("[{}_002] missing required identity header | path={} | header={}",
+                moduleName, request.getRequestURI(), e.getHeaderName());
+
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                ExceptionHandlerSupport.formatModuleCode(moduleName, "002"),
+                "Missing required request header: " + e.getHeaderName(), null,
+                ExceptionHandlerSupport.getTraceIdFromMdc());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                ApiResponse.error(HttpStatus.UNAUTHORIZED.value(), "Authentication required", error));
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatusException(
+            ResponseStatusException e, HttpServletRequest request) {
+        int status = e.getStatusCode().value();
+        log.warn("[{}] request rejected | path={} | status={} | reason={}",
+                moduleName, request.getRequestURI(), status, e.getReason());
+
+        String detail = e.getReason() != null ? e.getReason() : e.getMessage();
+        String suffix = status == HttpStatus.UNAUTHORIZED.value() || status == HttpStatus.FORBIDDEN.value()
+                ? "002" : "001";
+        ApiResponse.ErrorDetail error = ExceptionHandlerSupport.buildErrorDetail(
+                ExceptionHandlerSupport.formatModuleCode(moduleName, suffix), detail, null,
+                ExceptionHandlerSupport.getTraceIdFromMdc());
+        return ResponseEntity.status(e.getStatusCode()).body(
+                ApiResponse.error(status, detail, error));
+    }
 
     @ExceptionHandler(SecurityException.class)
     public ResponseEntity<ApiResponse<Void>> handleSecurityException(

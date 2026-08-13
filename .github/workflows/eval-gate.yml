@@ -63,7 +63,7 @@ jobs:
       - name: Run evaluation gate
         run: >-
           mvn -B -pl smart-assistant-common test
-          -Dtest="GoldenSuiteEvalGateTest,GoldenSuiteEvalGateTrialTest,RagSearchPipelineTest,RagSearchPipelineGradingTest,AgentLoopDecisionTest,PhaseGateTest,FeedbackLogTest,UserFeedbackServiceTest,SmartReActAgentPhaseGateTest,DiscoverToolsToolSchemaTest"
+          -Dtest="GoldenSuiteEvalGateTest,GoldenSuiteEvalGateTrialTest,RagSearchPipelineTest,RagSearchPipelineGradingTest,AgentLoopDecisionTest,PhaseGateTest,FeedbackLogTest,UserFeedbackServiceTest,SmartReActAgentPhaseGateTest,DiscoverToolsToolSchemaTest,GlobalExceptionHandlerTest"
           -DfailIfNoTests=false
       - name: Upload eval report
         if: always()
