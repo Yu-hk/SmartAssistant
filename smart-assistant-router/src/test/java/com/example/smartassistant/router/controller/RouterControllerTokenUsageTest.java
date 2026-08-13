@@ -9,6 +9,7 @@ package com.example.smartassistant.router.controller;
 
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
@@ -58,5 +59,37 @@ class RouterControllerTokenUsageTest {
         assertEquals(true, response.getClarification());
         assertNull(TokenUsageCache.consume("router-request-usage"));
         assertNull(ToolUsageCache.consume("router-request-usage"));
+    }
+
+    @Test
+    void propagatesToolAuditContextToVirtualThreadAndClearsItAfterRouting() {
+        RouterService routerService = mock(RouterService.class);
+        RouteRequest request = RouteRequest.builder()
+                .requestId("router-virtual-tool-usage")
+                .userId(1L)
+                .question("北京天气")
+                .build();
+        when(routerService.route(request)).thenAnswer(ignored -> {
+            Thread worker = Thread.startVirtualThread(() -> ToolUsageCache.record(
+                    ToolLogContext.getRequestId(), "queryWeather", true, 42));
+            worker.join();
+            return RoutingResult.builder()
+                    .result("北京天气晴")
+                    .agentName("router_fallback")
+                    .confidence(0.9)
+                    .build();
+        });
+        RouterController controller = new RouterController(
+                routerService,
+                mock(DistributedTracingService.class),
+                mock(RoutingToolChecker.class),
+                null);
+
+        var response = controller.route(1L, request).getData();
+
+        assertEquals(true, response.getToolUsageComplete());
+        assertEquals("queryWeather", response.getToolCalls().getFirst().name());
+        assertNull(ToolLogContext.getRequestId());
+        assertNull(ToolUsageCache.consume("router-virtual-tool-usage"));
     }
 }
