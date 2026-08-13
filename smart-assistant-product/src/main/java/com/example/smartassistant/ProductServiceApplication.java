@@ -16,7 +16,6 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -25,7 +24,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * 启动后，商品咨询智能体将自动注册到 Nacos
  */
 @Slf4j
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {
+        "com.example.smartassistant.config",
+        "com.example.smartassistant.controller",
+        "com.example.smartassistant.product",
+        "com.example.smartassistant.service",
+        "com.example.smartassistant.spi",
+        "com.example.smartassistant.common"
+})
 @EnableServiceInterceptor(
         basePackages = {
                 "com.example.smartassistant.controller",
@@ -35,10 +41,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
         slowThresholdMs = 1000
 )
 @EnableDiscoveryClient
-@ComponentScan({
-        "com.example.smartassistant",
-        "com.example.smartassistant.common"
-})
 public class ProductServiceApplication {
 
     @Bean

@@ -36,6 +36,7 @@ import com.example.smartassistant.router.service.guardrail.EmotionLevel;
 import com.example.smartassistant.router.service.guardrail.GuardrailService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
 import com.example.smartassistant.router.service.routing.KeywordFastRouteService;
+import com.example.smartassistant.router.service.routing.DeterministicRoutingRules;
 import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
 import com.example.smartassistant.router.service.tool.RoutingToolChecker;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,7 +57,6 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Pattern;
 
 /**
  * Router Service - 核心路由服务（单意图路由）
@@ -583,7 +583,8 @@ public class RouterService {
 
                 if (shouldShortCircuitForClarification(taskAnalysis)) {
                     String clarificationReply = String.join("\n", taskAnalysis.getClarificationQuestions());
-                    String clarificationAgent = resolveAgentForCategory(taskAnalysis.getIntentCategory());
+                    String clarificationAgent = DeterministicRoutingRules.agentForCategory(
+                            taskAnalysis.getIntentCategory());
                     RoutingResult clarification = RoutingResult.builder()
                             .result(clarificationReply)
                             .agentName(clarificationAgent != null ? clarificationAgent : "builtin_clarification")
@@ -886,7 +887,7 @@ public class RouterService {
                 || analysis.hasSubIntents() || analysis.isNeedsClarification()) {
             return null;
         }
-        return resolveAgentForCategory(analysis.getIntentCategory());
+        return DeterministicRoutingRules.agentForCategory(analysis.getIntentCategory());
     }
 
     /**
@@ -903,102 +904,7 @@ public class RouterService {
     }
 
     static TaskAnalysisResult buildProductOrderMultiIntentAnalysis(String question) {
-        if (question == null || question.isBlank()) return null;
-
-        String normalized = question.toLowerCase(Locale.CHINESE);
-        boolean productDiscovery = (normalized.contains("商品") || normalized.contains("产品"))
-                && (normalized.contains("热门") || normalized.contains("热销")
-                || normalized.contains("排行") || normalized.contains("榜单")
-                || normalized.contains("销量"));
-        boolean existingOrderQuery = containsAny(normalized, List.of(
-                "查询订单", "查订单", "我的订单", "最近的订单", "历史订单",
-                "订单状态", "订单进度", "订单详情", "订单号", "物流", "退款进度"));
-        boolean orderPreparation = containsAny(normalized, List.of(
-                "下单资料", "下单材料", "下单信息", "下单还缺", "下单需要",
-                "说明下单", "告诉我下单", "如何下单", "怎么下单"));
-        boolean laterOrder = orderPreparation || containsNonNegatedOrderAction(normalized);
-
-        // 已有订单查询不能降级成“商品查询 + 准备创建订单”，三意图场景也交给通用分析。
-        if (!productDiscovery || !laterOrder || existingOrderQuery) return null;
-
-        TaskAnalysisResult analysis = new TaskAnalysisResult();
-        analysis.setIntentCategory("COMPLEX");
-        analysis.setConfidence(0.99);
-        analysis.setTaskGoal("查询热门商品，并在用户选定商品、补齐收货信息后再处理下单");
-        analysis.setSubIntents(List.of(
-                Map.of("intent", "PRODUCT_QUERY", "description", "查询当前热门商品列表", "order", 1),
-                Map.of("intent", "CREATE_ORDER", "description", "说明下单所需资料并等待用户选择商品", "order", 2)));
-
-        List<String> constraints = new ArrayList<>();
-        boolean readOnlyRequest = normalized.contains("只查询") || normalized.contains("仅查询")
-                || normalized.contains("只做查询") || normalized.contains("仅做查询");
-        if (readOnlyRequest || normalized.contains("不要创建") || normalized.contains("禁止创建")) {
-            constraints.add("仅查询和说明，不创建订单");
-        }
-        if (readOnlyRequest || normalized.contains("不要支付") || normalized.contains("禁止支付")) {
-            constraints.add("不执行支付");
-        }
-        if (readOnlyRequest || normalized.contains("不要退款") || normalized.contains("禁止退款")) {
-            constraints.add("不执行退款");
-        }
-        if (readOnlyRequest || normalized.contains("不要取消") || normalized.contains("禁止取消")) {
-            constraints.add("不执行取消");
-        }
-        analysis.setActionConstraints(constraints);
-
-        analysis.setNeedsClarification(true);
-        analysis.setMissingSlots(List.of(
-                "productName", "amount", "contactName", "contactPhone", "shippingAddress"));
-        analysis.setClarificationReason("尚未选定具体商品，且收货信息不完整");
-        analysis.setClarificationQuestions(List.of(
-                "请从热门商品中选择一款，并提供收货人姓名、联系电话和收货地址"));
-        return analysis;
-    }
-
-
-    private static boolean containsNonNegatedOrderAction(String question) {
-        String compact = question.replaceAll("\\s+", "");
-        Pattern negatedAction = Pattern.compile(
-                "(?:不是要|不要|不再|不会|无需|不用|禁止|不允许|请勿|不能|不可|不)"
-                        + "(?:再|直接|实际)?(?:执行|进行)?"
-                        + "(?:下单|购买|买下|创建订单)");
-        String withoutNegatedActions = negatedAction.matcher(compact).replaceAll("");
-        return containsAny(withoutNegatedActions, List.of("下单", "购买", "买下", "创建订单"));
-    }
-
-    private static boolean containsAny(String value, List<String> markers) {
-        return markers.stream().anyMatch(value::contains);
-    }
-    private static String resolveAgentForCategory(String category) {
-        if (category == null) return null;
-        String normalized = category.trim().toUpperCase(Locale.ROOT);
-        String exact = switch (normalized) {
-            case "ORDER" -> "order";
-            case "PRODUCT" -> "product";
-            case "GENERAL" -> "general";
-            default -> null;
-        };
-        if (exact != null) return exact;
-
-        // Rule/fusion routes may use localized business labels instead of the three canonical
-        // enum names. Normalize clear single-domain labels so they do not fall through to the
-        // expensive collaborative planner (which can outlive the SSE idle timeout).
-        if (normalized.contains("ORDER") || normalized.contains("REFUND")
-                || normalized.contains("LOGISTICS") || normalized.contains("AFTER_SALES")
-                || category.contains("订单") || category.contains("退款")
-                || category.contains("退货") || category.contains("物流")
-                || category.contains("售后")) {
-            return "order";
-        }
-        if (normalized.contains("PRODUCT") || category.contains("商品")
-                || category.contains("产品") || category.contains("推荐")) {
-            return "product";
-        }
-        if (normalized.contains("GENERAL") || category.contains("通用")
-                || category.contains("天气") || category.contains("搜索")) {
-            return "general";
-        }
-        return null;
+        return DeterministicRoutingRules.productThenOrder(question);
     }
 
     private void loadConversationHistoryFromRedis(Map<String, Object> context, String sessionId) {

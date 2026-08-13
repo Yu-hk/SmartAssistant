@@ -13,6 +13,7 @@ import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,8 +40,6 @@ public class RouteExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(RouteExecutionService.class);
 
-    private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
-    private static final String SSE_STREAM_KEY_PREFIX = "routing:sse:stream:";
     private static final long SSE_EVENTS_TTL_SECONDS = 120;
     private static final int MAX_SSE_EVENTS_PER_KEY = 5_000;
     static final String BUILTIN_ORDER_PREPARATION_AGENT = "builtin_order_preparation";
@@ -152,7 +151,7 @@ public class RouteExecutionService {
             return inlineFallback(question, emotion);
         }
 
-        String eventsKey = requestId != null ? SSE_EVENTS_KEY_PREFIX + requestId : null;
+        String eventsKey = requestId != null ? RoutingKeys.sseEvents(requestId) : null;
         List<SubTaskResult> results = executeGraph(graph, userId, eventsKey, requestId);
 
         storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);
@@ -590,8 +589,9 @@ public class RouteExecutionService {
 
     private void storeSseStreamEvent(String eventsKey, String payload) {
         try {
-            if (!eventsKey.startsWith(SSE_EVENTS_KEY_PREFIX)) return;
-            String streamKey = SSE_STREAM_KEY_PREFIX + eventsKey.substring(SSE_EVENTS_KEY_PREFIX.length());
+        if (!eventsKey.startsWith(RoutingKeys.SSE_EVENTS_PREFIX)) return;
+        String streamKey = RoutingKeys.SSE_STREAM_PREFIX
+                + eventsKey.substring(RoutingKeys.SSE_EVENTS_PREFIX.length());
             redisTemplate.opsForStream().add(streamKey, Map.of("payload", payload));
             redisTemplate.opsForStream().trim(streamKey, MAX_SSE_EVENTS_PER_KEY, true);
             redisTemplate.expire(streamKey, SSE_EVENTS_TTL_SECONDS, TimeUnit.SECONDS);

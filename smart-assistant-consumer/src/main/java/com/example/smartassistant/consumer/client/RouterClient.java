@@ -9,6 +9,7 @@ package com.example.smartassistant.consumer.client;
 
 import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.consumer.service.cache.RouteSemanticCacheService;
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
@@ -50,8 +51,6 @@ public class RouterClient {
     private static final Logger log = LoggerFactory.getLogger(RouterClient.class);
     
     // Must match Router RoutingDecisionPublisher.FULL_DECISION_KEY_PREFIX.
-    private static final String ROUTING_DECISION_KEY_PREFIX = "a2a:route:full-decision:";
-    
     private final RestTemplate restTemplate;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -101,14 +100,11 @@ public class RouterClient {
         log.info("[RouterClient] 调用 Router Service: userId={}, sessionId={}, questionLength={}",
                 userId, sessionId, question != null ? question.length() : 0);
 
+        long authenticatedUserId = requireAuthenticatedUserId(userId);
         try {
             Map<String, Object> requestBody = new HashMap<>();
             // ⭐ 将 userId 转为 Long（Router 端期望 Long 类型）
-            try {
-                requestBody.put("userId", userId != null ? Long.parseLong(userId) : 0L);
-            } catch (NumberFormatException e) {
-                requestBody.put("userId", 0L);  // 非数字 userId（如 "anonymous"）映射为 0
-            }
+            requestBody.put("userId", authenticatedUserId);
             requestBody.put("question", question);
             requestBody.put("sessionId", sessionId);
             requestBody.put("enableRag", false);
@@ -120,6 +116,7 @@ public class RouterClient {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("Accept-Charset", "UTF-8");
+            headers.set("X-User-Id", Long.toString(authenticatedUserId));
 
             // 传递追踪上下文
             String traceId = MDC.get("traceId");
@@ -228,8 +225,8 @@ public class RouterClient {
             return null;
         }
 
-        String decisionKey = ROUTING_DECISION_KEY_PREFIX + requestId;
-        String notifyKey = ROUTING_DECISION_KEY_PREFIX + "notify:" + requestId;
+        String decisionKey = RoutingKeys.fullDecision(requestId);
+        String notifyKey = RoutingKeys.decisionNotification(requestId);
         long startTime = System.currentTimeMillis();
         long deadline = startTime + Math.max(timeoutMs, 0L);
 
@@ -299,6 +296,7 @@ public class RouterClient {
         log.debug("[RouterClient] 触发路由决策: requestId={}, messageLength={}", 
                 requestId, message != null ? message.length() : 0);
 
+        long authenticatedUserId = requireAuthenticatedUserId(userId);
         try {
             // ⚠️ 原实现调用 /api/router/decision，但该端点并不存在（RouterController 仅暴露 /api/router/route 等）。
             // /api/router/route 执行完整路由决策，并经由 RouteFinalizer.finalizeRouting
@@ -306,13 +304,7 @@ public class RouterClient {
             // 供 Consumer SSE 端点 waitForDecisionFromRedis 阻塞读取。
             Map<String, Object> requestBody = new HashMap<>();
             // userId 与 callRouterRaw 保持一致：非数字（如 anonymous）映射为 0L
-            Object userIdVal;
-            try {
-                userIdVal = userId != null ? Long.parseLong(userId) : 0L;
-            } catch (NumberFormatException e) {
-                userIdVal = 0L;
-            }
-            requestBody.put("userId", userIdVal);
+            requestBody.put("userId", authenticatedUserId);
             requestBody.put("question", message);
             requestBody.put("sessionId", requestId);
             requestBody.put("requestId", requestId);
@@ -324,6 +316,9 @@ public class RouterClient {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            // Async execution has no Servlet RequestContext, so forward the
+            // identity already resolved by Consumer explicitly.
+            headers.set("X-User-Id", Long.toString(authenticatedUserId));
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
 
@@ -356,6 +351,18 @@ public class RouterClient {
     private void saveRouteHint(String question, Map<String, Object> response) {
         if (routeSemanticCache != null) {
             routeSemanticCache.save(question, response);
+        }
+    }
+
+    private long requireAuthenticatedUserId(String userId) {
+        try {
+            long parsed = Long.parseLong(userId);
+            if (parsed <= 0) {
+                throw new IllegalArgumentException("Authenticated user ID must be positive");
+            }
+            return parsed;
+        } catch (NumberFormatException | NullPointerException e) {
+            throw new IllegalArgumentException("Missing or invalid authenticated user ID", e);
         }
     }
 }
