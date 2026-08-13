@@ -38,16 +38,13 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Run manifest validation tests
-        run: >-
-          mvn -B test
-          -Dtest="*ManifestValidation*"
-          -pl smart-assistant-tool-registry
-          -am
-          -Dsurefire.failIfNoSpecifiedTests=false
+        run: |
+          mvn -B -pl smart-assistant-tool-registry -am -DskipTests install
+          mvn -B -pl smart-assistant-tool-registry test -Dtest="ToolManifestValidatorTest"
       - name: Run manifest shell validator
         run: |
           chmod +x scripts/validate-tool-manifest.sh
-          ./scripts/validate-tool-manifest.sh manifests || true
+          ./scripts/validate-tool-manifest.sh manifests
 
   # 评测闭环质量门禁 —— 核心回归卡点
   # 对黄金测试集执行离线 RAG 评测 + 门禁判定（阈值 + 基线回归），失败则阻断构建。
@@ -66,7 +63,7 @@ jobs:
       - name: Run evaluation gate
         run: >-
           mvn -B -pl smart-assistant-common test
-          -Dtest="GoldenSuiteEvalGateTest,GoldenSuiteEvalGateTrialTest,RagSearchPipelineTest,RagSearchPipelineGradingTest,AgentLoopDecisionTest,PhaseGateTest,FeedbackLogTest,UserFeedbackServiceTest,SmartReActAgentPhaseGateTest"
+          -Dtest="GoldenSuiteEvalGateTest,GoldenSuiteEvalGateTrialTest,RagSearchPipelineTest,RagSearchPipelineGradingTest,AgentLoopDecisionTest,PhaseGateTest,FeedbackLogTest,UserFeedbackServiceTest,SmartReActAgentPhaseGateTest,DiscoverToolsToolSchemaTest,GlobalExceptionHandlerTest"
           -DfailIfNoTests=false
       - name: Upload eval report
         if: always()
@@ -92,11 +89,9 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Run router end-to-end test
-        run: >-
-          mvn -B -pl smart-assistant-router -am test
-          -Dtest="RouterServiceEndToEndTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest"
-          -Dsurefire.failIfNoSpecifiedTests=false
-          -DfailIfNoTests=false
+        run: |
+          mvn -B -pl smart-assistant-router -am -DskipTests install
+          mvn -B -pl smart-assistant-router clean test -Dtest="RouterControllerIdentityTest,RouterControllerTokenUsageTest,RouterSingleIntentFastPathTest,BgeOnnxEmbeddingServiceTest,RouteLangGraphExecutionTest,RouterCachedRouteHintTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest"
       - name: Upload surefire report
         if: always()
         uses: actions/upload-artifact@v4
@@ -111,6 +106,24 @@ jobs:
   # 同时以 router 模块无 infra 单测产出 JaCoCo 覆盖率报告（在 `mvn test` 中自动采集）。
   # JaCoCo 硬门禁（check）默认关闭（jacoco.haltOnFailure=false），
   # 运行 `mvn -B verify -Djacoco.haltOnFailure=true` 时开启（需保证全量单测可跑）。
+  module-boundary-gate:
+    name: Product / Order module boundary gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Install shared dependencies
+        run: mvn -B -pl smart-assistant-product,smart-assistant-order -am -DskipTests install
+      - name: Verify component scan boundaries
+        run: |
+          mvn -B -pl smart-assistant-product test -Dtest="ProductApplicationScanBoundaryTest"
+          mvn -B -pl smart-assistant-order test -Dtest="OrderApplicationScanBoundaryTest"
+
   quality-gate:
     name: Quality gate (enforcer + jacoco)
     runs-on: ubuntu-latest
@@ -125,11 +138,9 @@ jobs:
       - name: Enforcer build-hygiene check (validate)
         run: mvn -B validate
       - name: Run router unit test with JaCoCo coverage
-        run: >-
-          mvn -B -pl smart-assistant-router -am test
-          -Dtest="RouterServiceEndToEndTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest"
-          -Dsurefire.failIfNoSpecifiedTests=false
-          -DfailIfNoTests=false
+        run: |
+          mvn -B -pl smart-assistant-router -am -DskipTests install
+          mvn -B -pl smart-assistant-router clean verify -Dtest="RouterControllerIdentityTest,RouterControllerTokenUsageTest,RouterSingleIntentFastPathTest,BgeOnnxEmbeddingServiceTest,RouteLangGraphExecutionTest,RouterCachedRouteHintTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest" -Djacoco.haltOnFailure=true -Djacoco.instruction.minimum=0.14 -Djacoco.branch.minimum=0.09
       - name: Upload jacoco coverage report
         if: always()
         uses: actions/upload-artifact@v4

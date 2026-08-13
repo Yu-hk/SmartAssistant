@@ -24,6 +24,15 @@ public class BgeEmbeddingModel implements AutoCloseable {
     private final int embedDim;
     private final boolean available;
 
+    /** Constructor for remote adapters that preserve the legacy BGE contract. */
+    protected BgeEmbeddingModel() {
+        this.env = null;
+        this.session = null;
+        this.vocab = Collections.emptyMap();
+        this.embedDim = 1024;
+        this.available = false;
+    }
+
     public BgeEmbeddingModel(String modelPath) {
         this(modelPath, null);
     }

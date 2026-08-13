@@ -17,7 +17,9 @@ import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
 import java.util.List;
@@ -53,7 +55,10 @@ public class RouterController {
      * 智能路由接口
      */
     @PostMapping("/route")
-    public ApiResponse<RouteResponse> route(@Valid @RequestBody RouteRequest request) {
+    public ApiResponse<RouteResponse> route(
+            @RequestHeader("X-User-Id") Long authenticatedUserId,
+            @Valid @RequestBody RouteRequest request) {
+        bindAuthenticatedUser(request, authenticatedUserId);
         String requestId = request.getRequestId();
         if (requestId == null || requestId.isBlank()) {
             requestId = extractRequestId(request.getQuestion());
@@ -111,7 +116,10 @@ public class RouterController {
      * ReactAgent 智能路由测试接口
      */
     @PostMapping("/react/route")
-    public ApiResponse<Map<String, Object>> reactRoute(@Valid @RequestBody RouteRequest request) {
+    public ApiResponse<Map<String, Object>> reactRoute(
+            @RequestHeader("X-User-Id") Long authenticatedUserId,
+            @Valid @RequestBody RouteRequest request) {
+        bindAuthenticatedUser(request, authenticatedUserId);
         log.info("[ReactAgent Router API] 收到 ReactAgent 路由请求: userId={}, question={}",
                 request.getUserId(), truncate(request.getQuestion()));
 
@@ -140,7 +148,10 @@ public class RouterController {
      * 对比测试：传统路由 vs ReactAgent 路由
      */
     @PostMapping("/compare/route")
-    public ApiResponse<Map<String, Object>> compareRoute(@Valid @RequestBody RouteRequest request) {
+    public ApiResponse<Map<String, Object>> compareRoute(
+            @RequestHeader("X-User-Id") Long authenticatedUserId,
+            @Valid @RequestBody RouteRequest request) {
+        bindAuthenticatedUser(request, authenticatedUserId);
         log.info("[Compare Router API] 开始对比测试: userId={}, question={}",
                 request.getUserId(), truncate(request.getQuestion()));
 
@@ -202,7 +213,10 @@ public class RouterController {
      * 测试接口 - 无需 JWT Token
      */
     @PostMapping("/test/route")
-    public ApiResponse<RouteResponse> testRoute(@Valid @RequestBody RouteRequest request) {
+    public ApiResponse<RouteResponse> testRoute(
+            @RequestHeader("X-User-Id") Long authenticatedUserId,
+            @Valid @RequestBody RouteRequest request) {
+        bindAuthenticatedUser(request, authenticatedUserId);
         log.info("[Router Test API] 收到测试路由请求: userId={}, question={}",
                 request.getUserId(), truncate(request.getQuestion()));
 
@@ -246,6 +260,19 @@ public class RouterController {
     }
 
     // ========== 工具方法 ==========
+
+    /** Binds the gateway-authenticated identity and rejects body spoofing. */
+    private void bindAuthenticatedUser(RouteRequest request, Long authenticatedUserId) {
+        if (authenticatedUserId == null || authenticatedUserId <= 0) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing authenticated user identity");
+        }
+        if (request.getUserId() != null && !authenticatedUserId.equals(request.getUserId())) {
+            log.warn("[Router API] rejected mismatched identity: headerUserId={}, bodyUserId={}",
+                    authenticatedUserId, request.getUserId());
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Request user does not match authenticated user");
+        }
+        request.setUserId(authenticatedUserId);
+    }
 
     private String truncate(String str) {
         if (str == null) return "";

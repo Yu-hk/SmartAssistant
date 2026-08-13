@@ -45,6 +45,7 @@ public class ProductKnowledgeConfig {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "embedding.local.enabled", havingValue = "true")
     public BgeEmbeddingModel productBgeEmbeddingModel() {
         log.info("[ProductKnowledge] 加载 BGE 模型 (path={})", modelPath);
         return new BgeEmbeddingModel(modelPath, vocabPath);

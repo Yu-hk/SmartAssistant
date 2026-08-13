@@ -29,7 +29,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.Resource;
 
@@ -45,9 +44,6 @@ import java.util.List;
  * <p>系统提示词外部化在 {@code prompts/product-system-prompt.txt}。</p>
  */
 @Configuration
-@ComponentScan(basePackages = {
-    "com.example.smartassistant"
-})
 @Slf4j
 public class ProductAgentConfig {
 

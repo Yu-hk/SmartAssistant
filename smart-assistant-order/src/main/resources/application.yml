@@ -169,6 +169,12 @@ nacos:
               - 我不想要了
 
   # ⭐ BGE embedding 配置（1.2GB 模型从项目级共享目录加载）
+embedding:
+  service:
+    url: ${EMBEDDING_SERVICE_URL:http://localhost:8091}
+  local:
+    enabled: ${EMBEDDING_LOCAL_ENABLED:false}
+
 bge:
   model:
     path: ${BGE_MODEL_PATH:D:\\workspace\\SmartAssistant\\models\\bge-large-zh-v1.5.onnx}

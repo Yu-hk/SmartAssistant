@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.controller;
 
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -37,9 +38,6 @@ import java.util.stream.Collectors;
 public class ExecutionDagController {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionDagController.class);
-
-    private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
-    private static final String FULL_DECISION_KEY_PREFIX = "a2a:route:full-decision:";
 
     @Autowired(required = false)
     private StringRedisTemplate redisTemplate;
@@ -88,7 +86,7 @@ public class ExecutionDagController {
 
         try {
             // 1. 读取 SSE 事件流 → 提取节点事件
-            String eventsKey = SSE_EVENTS_KEY_PREFIX + requestId;
+        String eventsKey = RoutingKeys.sseEvents(requestId);
             List<String> events = redisTemplate.opsForList().range(eventsKey, 0, -1);
             if (events == null || events.isEmpty()) {
                 return ResponseEntity.ok(Map.of("requestId", requestId, "nodes", List.of(), "message", "无执行数据"));
@@ -132,7 +130,7 @@ public class ExecutionDagController {
             }
 
             // 3. 读取完整决策 → 提取 finalAgent 和 question
-            String decisionKey = FULL_DECISION_KEY_PREFIX + requestId;
+        String decisionKey = RoutingKeys.fullDecision(requestId);
             String decisionJson = redisTemplate.opsForValue().get(decisionKey);
             String finalAgent = "";
             String question = "";
