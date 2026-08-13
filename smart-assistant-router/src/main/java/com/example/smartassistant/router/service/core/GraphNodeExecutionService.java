@@ -7,6 +7,7 @@ import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,8 +33,6 @@ public class GraphNodeExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(GraphNodeExecutionService.class);
     private static final int BREAKER_THRESHOLD = 2;
-    private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
-    private static final String SSE_STREAM_KEY_PREFIX = "routing:sse:stream:";
     private static final long SSE_TTL_SECONDS = 120;
     private static final long MAX_STREAM_EVENTS = 5_000;
 
@@ -251,9 +250,9 @@ public class GraphNodeExecutionService {
                     + escape(content) + "\",\"agent\":\"" + escape(agent) + "\"}";
             redisTemplate.opsForList().rightPush(eventsKey, payload);
             redisTemplate.expire(eventsKey, SSE_TTL_SECONDS, TimeUnit.SECONDS);
-            if (eventsKey.startsWith(SSE_EVENTS_KEY_PREFIX)) {
-                String streamKey = SSE_STREAM_KEY_PREFIX
-                        + eventsKey.substring(SSE_EVENTS_KEY_PREFIX.length());
+        if (eventsKey.startsWith(RoutingKeys.SSE_EVENTS_PREFIX)) {
+            String streamKey = RoutingKeys.SSE_STREAM_PREFIX
+                    + eventsKey.substring(RoutingKeys.SSE_EVENTS_PREFIX.length());
                 redisTemplate.opsForStream().add(streamKey, Map.of("payload", payload));
                 redisTemplate.opsForStream().trim(streamKey, MAX_STREAM_EVENTS, true);
                 redisTemplate.expire(streamKey, SSE_TTL_SECONDS, TimeUnit.SECONDS);

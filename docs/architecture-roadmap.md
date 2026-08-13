@@ -106,7 +106,7 @@
 ```
 Consumer → Router (REST + Redis)
 Router → Order/Product/General (HTTP POST)
-Recommend → Product/Order (Feign Client)
+Product 内部推荐链路 → ProductGraph / 商品目录（独立 Recommend 影子服务已收口）
 ```
 
 ### gRPC 在此项目中的收益分析

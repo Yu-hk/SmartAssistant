@@ -36,7 +36,6 @@ monitoring/
 # 旧 Docker 文件（已迁移到 deploy/）
 docker-compose.yml
 docker-compose-infra.yml
-docker-compose.deploy.yml
 
 # 系统文件
 *.log

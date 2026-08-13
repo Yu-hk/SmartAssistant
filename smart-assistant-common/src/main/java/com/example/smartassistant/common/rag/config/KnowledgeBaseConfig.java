@@ -21,6 +21,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,6 +43,7 @@ public class KnowledgeBaseConfig {
 
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean(BgeEmbeddingModel.class)
+    @ConditionalOnProperty(name = "embedding.local.enabled", havingValue = "true")
     public BgeEmbeddingModel bgeEmbeddingModel(
             @Value("${BGE_MODEL_PATH:models/bge-small-zh-v1.5.onnx}") String modelPath,
             @Value("${BGE_VOCAB_PATH:models/tokenizer.json}") String vocabPath) {
