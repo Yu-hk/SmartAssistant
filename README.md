@@ -21,9 +21,10 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 | `smart-assistant-consumer/` | 对话、用户画像、语义路由缓存、反馈与运营接口 |
 | `smart-assistant-user/` | 用户、认证与权限 |
 | `smart-assistant-order/` | 订单查询与订单工具 |
-| `smart-assistant-product/` | 商品检索与商品知识库 |
-| `smart-assistant-recommend/` | 推荐服务 |
-| `smart-assistant-tool-registry/` | 工具实现、注册、发现与生命周期管理 |
+| `smart-assistant-product/` | 商品检索、商品知识库与推荐 |
+| `smart-assistant-tool-runtime/` | 可嵌入的通用工具实现，不包含服务端传输 |
+| `smart-assistant-tool-registry/` | 工具注册、发现、MCP 与生命周期管理 |
+| `smart-assistant-routing-contract/` | Router/Consumer 共享的路由通信契约 |
 | `smart-assistant-embedding-service/` | Embedding 服务 |
 | `smart-assistant-common/` | 公共模型、RAG、评测与基础组件 |
 | `frontend/` | React/Vite 前端与本地 BFF |
@@ -88,7 +89,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 ## 部署
 
-生产配置位于 `deploy/` 和 `docker-compose.deploy.yml`。部署前必须通过环境变量注入真实密钥，禁止把 `.env`、数据库转储、运行日志或用户会话数据提交到仓库。
+生产部署的唯一入口是 `deploy/docker-compose.yml`。部署前必须通过环境变量注入真实密钥，禁止把 `.env`、数据库转储、运行日志或用户会话数据提交到仓库。
 
 参考：
 

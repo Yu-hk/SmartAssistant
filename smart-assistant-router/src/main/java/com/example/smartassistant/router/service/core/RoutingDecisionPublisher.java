@@ -2,6 +2,7 @@ package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +18,7 @@ import java.util.Map;
 @Service
 public class RoutingDecisionPublisher {
 
-    public static final String FULL_DECISION_KEY_PREFIX = "a2a:route:full-decision:";
+    public static final String FULL_DECISION_KEY_PREFIX = RoutingKeys.FULL_DECISION_PREFIX;
     private static final Logger log = LoggerFactory.getLogger(RoutingDecisionPublisher.class);
 
     private final StringRedisTemplate redisTemplate;
@@ -50,9 +51,9 @@ public class RoutingDecisionPublisher {
                 decision.put("toolUsageComplete", toolUsage.complete());
                 decision.put("toolCalls", toolUsage.calls());
             }
-            String key = FULL_DECISION_KEY_PREFIX + requestId;
+            String key = RoutingKeys.fullDecision(requestId);
             redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(decision), Duration.ofSeconds(120));
-            String notifyKey = FULL_DECISION_KEY_PREFIX + "notify:" + requestId;
+            String notifyKey = RoutingKeys.decisionNotification(requestId);
             redisTemplate.opsForList().rightPush(notifyKey, requestId);
             redisTemplate.expire(notifyKey, Duration.ofSeconds(120));
         } catch (Exception e) {
