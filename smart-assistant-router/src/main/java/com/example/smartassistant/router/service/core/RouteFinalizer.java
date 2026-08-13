@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.router.service.core;
 
+import com.example.smartassistant.routing.contract.RoutingKeys;
+
 import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.agent.AgentEventBus;
 import com.example.smartassistant.common.agent.FeedbackLog;
@@ -286,10 +288,10 @@ public class RouteFinalizer {
     private void appendTaskAnalysisToFullDecision(String requestId) {
         if (redisTemplate == null || requestId == null || requestId.isBlank()) return;
         try {
-            String analysisKey = "a2a:task-analysis:" + requestId;
+            String analysisKey = RoutingKeys.taskAnalysis(requestId);
             String analysisJson = redisTemplate.opsForValue().get(analysisKey);
             if (analysisJson == null) return;
-            String fullKey = "a2a:route:full-decision:" + requestId;
+            String fullKey = RoutingKeys.fullDecision(requestId);
             String fullJson = redisTemplate.opsForValue().get(fullKey);
             if (fullJson == null) return;
             @SuppressWarnings("unchecked")
@@ -308,7 +310,7 @@ public class RouteFinalizer {
     public void storeTaskAnalysisToRedis(String requestId, TaskAnalysisResult analysis) {
         if (requestId == null || requestId.isBlank() || redisTemplate == null) return;
         try {
-            String key = "a2a:task-analysis:" + requestId;
+            String key = RoutingKeys.taskAnalysis(requestId);
             String json = objectMapper.writeValueAsString(analysis);
             redisTemplate.opsForValue().set(key, json, 120, java.util.concurrent.TimeUnit.SECONDS);
             log.info("[RouteFinalizer] 🔍 任务分析已存储: requestId={}, intent={}, entities={}",

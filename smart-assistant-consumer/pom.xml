@@ -192,17 +192,17 @@
         <!-- ⭐ Tool Registry — 引用 DataGifTool 等工具 Bean（排除 web starter 避免端口冲突） -->
         <dependency>
             <groupId>com.example.smartassistant</groupId>
-            <artifactId>smart-assistant-tool-registry</artifactId>
+            <artifactId>smart-assistant-tool-runtime</artifactId>
             <version>1.0.0-SNAPSHOT</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.springframework.boot</groupId>
-                    <artifactId>spring-boot-starter-web</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <!-- ⭐ IKAnalyzer 中文分词器（common 中为 optional，需显式引入） -->
+        <dependency>
+            <groupId>com.example.smartassistant</groupId>
+            <artifactId>smart-assistant-routing-contract</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+
         <dependency>
             <groupId>com.github.magese</groupId>
             <artifactId>ik-analyzer</artifactId>

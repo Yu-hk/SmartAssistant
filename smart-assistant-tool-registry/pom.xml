@@ -41,6 +41,12 @@
             <version>1.0.0-SNAPSHOT</version>
         </dependency>
 
+        <dependency>
+            <groupId>com.example.smartassistant</groupId>
+            <artifactId>smart-assistant-tool-runtime</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+        </dependency>
+
         <!-- Spring AI Model (@Tool annotation) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

@@ -17,6 +17,7 @@ import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLog
 import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
 import com.example.smartassistant.consumer.service.infrastructure.ToolUsageExtractor;
 import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -52,8 +53,6 @@ public class StreamChatController {
     private static final Logger logger = LoggerFactory.getLogger(StreamChatController.class);
 
     private static final long DECISION_TIMEOUT_MS = 60000;
-    private static final String SSE_EVENTS_KEY_PREFIX = "routing:sse:events:";
-    private static final String SSE_STREAM_KEY_PREFIX = "routing:sse:stream:";
 
     private final RouterClient routerClient;
     private final AgentStreamClient agentStreamClient;
@@ -172,7 +171,7 @@ public class StreamChatController {
 
         // 多 Agent SSE 事件检查
         if (requestId != null && redisTemplate != null) {
-            String eventsKey = SSE_EVENTS_KEY_PREFIX + requestId;
+            String eventsKey = RoutingKeys.sseEvents(requestId);
             if (progressCursor.forwardedAny) {
                 injectTokenUsageEvent(bus, tokenUsage);
                 bus.sendDone();
@@ -301,7 +300,7 @@ public class StreamChatController {
         }
         bus.sendWaiting();
         try {
-            String streamKey = SSE_STREAM_KEY_PREFIX + decisionKey;
+            String streamKey = RoutingKeys.sseStream(decisionKey);
             return routerClient.waitForDecisionFromRedis(decisionKey, DECISION_TIMEOUT_MS,
                     () -> forwardRedisStreamEvents(bus, streamKey, progressCursor));
         } catch (Exception e) {
@@ -322,7 +321,7 @@ public class StreamChatController {
             }
         } catch (Exception ignored) {
         }
-        return "anonymous";
+        throw new IllegalStateException("Missing authenticated user identity");
     }
 
     private boolean handleQueue(String requestId, int priority, SseEventBus bus) {

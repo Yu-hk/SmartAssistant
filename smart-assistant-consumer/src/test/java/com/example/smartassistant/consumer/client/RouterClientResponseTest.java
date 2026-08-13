@@ -6,6 +6,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class RouterClientResponseTest {
     @Test
@@ -20,5 +21,13 @@ class RouterClientResponseTest {
     void preservesLegacyFlatResponse() {
         Map<String, Object> flat = Map.of("result", "legacy");
         assertSame(flat, RouterClient.unwrapRouterResponse(flat));
+    }
+
+
+    @Test
+    void rejectsAnonymousIdentityBeforeCallingRouter() {
+        RouterClient client = new RouterClient(null, new com.fasterxml.jackson.databind.ObjectMapper(), 1000, 1000);
+        assertThrows(IllegalArgumentException.class,
+                () -> client.callRouterRaw("hello", "anonymous", "session", "request"));
     }
 }

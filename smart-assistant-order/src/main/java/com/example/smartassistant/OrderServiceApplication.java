@@ -13,14 +13,26 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
-import org.springframework.context.annotation.ComponentScan;
 
 /**
  * Order Service 启动类
  * 启动后，订单客服智能体将自动注册到 Nacos
  */
 @Slf4j
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {
+        "com.example.smartassistant.annotation",
+        "com.example.smartassistant.aspect",
+        "com.example.smartassistant.config",
+        "com.example.smartassistant.controller",
+        "com.example.smartassistant.entity",
+        "com.example.smartassistant.handler",
+        "com.example.smartassistant.knowledge",
+        "com.example.smartassistant.mapper",
+        "com.example.smartassistant.order",
+        "com.example.smartassistant.service",
+        "com.example.smartassistant.spi",
+        "com.example.smartassistant.common"
+})
 @EnableServiceInterceptor(
         basePackages = {
                 "com.example.smartassistant.controller",
@@ -31,10 +43,6 @@ import org.springframework.context.annotation.ComponentScan;
 )
 @MapperScan("com.example.smartassistant.mapper")
 @EnableDiscoveryClient
-@ComponentScan({
-        "com.example.smartassistant",
-        "com.example.smartassistant.common"
-})
 public class OrderServiceApplication {
     public static void main(String[] args) {
         SpringApplication.run(OrderServiceApplication.class, args);
