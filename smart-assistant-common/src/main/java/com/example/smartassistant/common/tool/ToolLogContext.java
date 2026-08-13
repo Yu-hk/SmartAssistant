@@ -32,7 +32,7 @@ public final class ToolLogContext {
     /** MDC key，与 logback 配合使用 */
     public static final String MDC_KEY = "toolRequestId";
 
-    private static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();
+    private static final ThreadLocal<String> REQUEST_ID = new InheritableThreadLocal<>();
 
     /** Prevents the aspect and AgentToolExecutor from auditing one call twice. */
     private static final ThreadLocal<Integer> EXECUTOR_MANAGED_DEPTH =
