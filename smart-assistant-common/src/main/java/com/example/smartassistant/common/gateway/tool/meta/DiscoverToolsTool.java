@@ -11,8 +11,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -56,7 +54,6 @@ import java.util.stream.Collectors;
  * <h3>降级</h3>
  * <p>Registry/MCP 不可用时，返回「仅预载可用，无法发现新工具」，不阻断对话。</p>
  */
-@Component
 public class DiscoverToolsTool {
 
     private static final Logger log = LoggerFactory.getLogger(DiscoverToolsTool.class);
@@ -86,7 +83,7 @@ public class DiscoverToolsTool {
                              McpToolCallbackFactory callbackFactory,
                              ToolRegistryProperties properties,
                              ObjectMapper objectMapper,
-                             @Autowired(required = false) ObservationRegistry observationRegistry) {
+                             ObservationRegistry observationRegistry) {
         this.discoveryClient = discoveryClient;
         this.callbackFactory = callbackFactory;
         this.properties = properties;

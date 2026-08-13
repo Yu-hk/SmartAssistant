@@ -48,7 +48,7 @@ class RouterControllerTokenUsageTest {
                 mock(RoutingToolChecker.class),
                 null);
 
-        var response = controller.route(request).getData();
+        var response = controller.route(1L, request).getData();
 
         assertEquals(28, response.getPromptTokens());
         assertEquals(9, response.getCompletionTokens());

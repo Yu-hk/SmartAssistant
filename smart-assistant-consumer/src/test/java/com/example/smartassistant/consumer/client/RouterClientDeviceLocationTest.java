@@ -10,6 +10,7 @@ import org.springframework.web.client.RestTemplate;
 
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.http.HttpMethod.POST;
@@ -26,6 +27,7 @@ class RouterClientDeviceLocationTest {
 
         server.expect(requestTo("http://router.test/api/router/route"))
                 .andExpect(method(POST))
+                .andExpect(header("X-User-Id", "1"))
                 .andExpect(content().json("""
                         {
                           "question": "查询天气",

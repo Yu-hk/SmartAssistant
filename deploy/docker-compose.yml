@@ -221,6 +221,7 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       ROUTER_SERVICE_URL: http://smart-router:8083
+      EMBEDDING_SERVICE_URL: http://smart-embedding:8091
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
@@ -229,11 +230,6 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
-      # BGE 嵌入模型路径（容器内路径）
-      BGE_MODEL_PATH: /app/models/bge-large-zh-v1.5.onnx
-      BGE_VOCAB_PATH: /app/models/tokenizer.json
-    volumes:
-      - ../models:/app/models:ro
     networks:
       - smart-network
     depends_on:
@@ -242,6 +238,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      embedding-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
@@ -274,6 +272,7 @@ services:
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       TOOL_REGISTRY_URL: http://smart-tool-registry:8088
+      EMBEDDING_SERVICE_URL: http://smart-embedding:8091
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
@@ -291,6 +290,8 @@ services:
       redis:
         condition: service_healthy
       tool-registry:
+        condition: service_healthy
+      embedding-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
@@ -348,6 +349,7 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      EMBEDDING_SERVICE_URL: http://smart-embedding:8091
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
@@ -363,6 +365,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      embedding-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
@@ -393,6 +397,7 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      EMBEDDING_SERVICE_URL: http://smart-embedding:8091
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
@@ -408,6 +413,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      embedding-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]

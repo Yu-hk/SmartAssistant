@@ -20,6 +20,8 @@
 
     <modules>
         <module>smart-assistant-common</module>  <!-- ⭐ 公共模块 -->
+        <module>smart-assistant-routing-contract</module>
+        <module>smart-assistant-tool-runtime</module>
         <module>smart-assistant-embedding-service</module>  <!-- ⭐ 独立嵌入服务 -->
         <module>smart-assistant-consumer</module>
         <module>smart-assistant-router</module>
@@ -27,7 +29,6 @@
         <module>smart-assistant-product</module>
         <module>smart-assistant-gateway</module>
         <module>smart-assistant-user</module>  <!-- ⭐ 用户服务 -->
-        <module>smart-assistant-recommend</module>  <!-- ⭐ P3 推荐服务 -->
         <module>smart-assistant-tool-registry</module>  <!-- ⭐ P1 工具注册中心 -->
     </modules>
 
@@ -45,6 +46,8 @@
              运行 `mvn -B verify -Djacoco.haltOnFailure=true` 时开启硬门禁（需保证全量单测可跑） -->
         <jacoco.version>0.8.12</jacoco.version>
         <jacoco.haltOnFailure>false</jacoco.haltOnFailure>
+        <jacoco.instruction.minimum>0.30</jacoco.instruction.minimum>
+        <jacoco.branch.minimum>0.20</jacoco.branch.minimum>
         <!-- ⭐ 统一管理的第三方依赖版本 -->
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <jjwt.version>0.12.5</jjwt.version>
@@ -341,8 +344,8 @@
                                 <rule>
                                     <element>BUNDLE</element>
                                     <limits>
-                                        <limit><counter>INSTRUCTION</counter><value>COVEREDRATIO</value><minimum>0.30</minimum></limit>
-                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.20</minimum></limit>
+                                        <limit><counter>INSTRUCTION</counter><value>COVEREDRATIO</value><minimum>${jacoco.instruction.minimum}</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>${jacoco.branch.minimum}</minimum></limit>
                                     </limits>
                                 </rule>
                             </rules>
