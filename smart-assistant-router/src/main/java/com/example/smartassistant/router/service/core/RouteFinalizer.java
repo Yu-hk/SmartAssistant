@@ -10,7 +10,7 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 
 import com.example.smartassistant.common.agent.AgentExecutionState;
-import com.example.smartassistant.common.agent.AgentEventBus;
+import com.example.smartassistant.common.agent.ExecutionTraceStore;
 import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageCache;
@@ -73,7 +73,7 @@ public class RouteFinalizer {
     private String qualityFailureMessage;
 
     @Autowired(required = false)
-    private AgentEventBus agentEventBus;
+    private ExecutionTraceStore executionTraceStore;
 
     @Autowired(required = false)
     private BadCaseMinerService badCaseMinerService;
@@ -228,8 +228,8 @@ public class RouteFinalizer {
         }
 
         // ⭐ P1 Agent 执行事件
-        if (agentEventBus != null) {
-            agentEventBus.publishEvent(
+        if (executionTraceStore != null) {
+            executionTraceStore.publishEvent(
                     request.getRequestId(), result.getAgentName(),
                     AgentExecutionState.State.RUNNING,
                     result.getResult() != null ? AgentExecutionState.State.COMPLETED

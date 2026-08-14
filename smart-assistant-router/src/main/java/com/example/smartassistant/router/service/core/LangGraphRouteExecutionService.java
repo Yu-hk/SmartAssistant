@@ -109,6 +109,18 @@ public class LangGraphRouteExecutionService {
         }
     }
 
+    /** Publication-time smoke compile. It builds the native StateGraph without executing nodes. */
+    public void validateCompilation(IntentGraph graph) {
+        if (graph == null) throw new IllegalArgumentException("graph is required");
+        String contextId = UUID.randomUUID().toString();
+        contexts.put(contextId, new ExecutionContext(graph, 0L, null, "workflow-publication"));
+        try {
+            compile(graph, Set.of());
+        } finally {
+            contexts.remove(contextId);
+        }
+    }
+
     /** Resumes a graph that was paused by a native interruptBefore approval node. */
     public List<SubTaskResult> resumeApproved(IntentGraph graph, Long userId,
                                               String eventsKey, String requestId) {
