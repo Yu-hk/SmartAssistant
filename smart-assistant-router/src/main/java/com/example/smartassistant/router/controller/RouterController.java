@@ -1,6 +1,6 @@
 package com.example.smartassistant.router.controller;
 
-import com.example.smartassistant.common.agent.AgentEventBus;
+import com.example.smartassistant.common.agent.ExecutionTraceStore;
 import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageCache;
@@ -40,16 +40,16 @@ public class RouterController {
     private final RouterService routerService;
     private final DistributedTracingService tracingService;
     private final RoutingToolChecker routingToolChecker;
-    private final AgentEventBus agentEventBus;
+    private final ExecutionTraceStore executionTraceStore;
 
     public RouterController(RouterService routerService,
                            DistributedTracingService tracingService,
                            RoutingToolChecker routingToolChecker,
-                           @Autowired(required = false) AgentEventBus agentEventBus) {
+                           @Autowired(required = false) ExecutionTraceStore executionTraceStore) {
         this.routerService = routerService;
         this.tracingService = tracingService;
         this.routingToolChecker = routingToolChecker;
-        this.agentEventBus = agentEventBus;
+        this.executionTraceStore = executionTraceStore;
     }
 
     /**
@@ -258,8 +258,8 @@ public class RouterController {
     @GetMapping("/events/{requestId}")
     public ApiResponse<List<AgentExecutionState.StateTransition>> getEvents(
             @PathVariable("requestId") String requestId) {
-        List<AgentExecutionState.StateTransition> events = agentEventBus != null
-                ? agentEventBus.getEvents(requestId)
+        List<AgentExecutionState.StateTransition> events = executionTraceStore != null
+                ? executionTraceStore.getEvents(requestId)
                 : List.of();
         return ApiResponse.success(events);
     }

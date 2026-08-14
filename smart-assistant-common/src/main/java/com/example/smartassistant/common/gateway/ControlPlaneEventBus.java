@@ -22,18 +22,18 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * ⭐ 控制平面事件总线 — 与业务消息（{@link AgentEventBus}）分离。
+ * 控制平面事件总线 — 与业务任务数据平面分离。
  * <p>
  * 解决反常识 2"异常处理本身会制造异常"中的负反馈循环：
  * 异常处理、熔断状态变更、降级通知等控制信令走专用通道，
  * 与业务消息（Agent Handoff、任务调度）资源隔离。
  * </p>
  *
- * <h3>与 {@link AgentEventBus} 的区别</h3>
+ * <h3>与业务任务数据平面的区别</h3>
  * <table>
- *   <tr><th>维度</th><th>AgentEventBus（数据平面）</th><th>ControlPlaneEventBus（控制平面）</th></tr>
+ *   <tr><th>维度</th><th>AgentTaskQueue（数据平面）</th><th>ControlPlaneEventBus（控制平面）</th></tr>
  *   <tr><td>用途</td><td>Agent Handoff、任务调度</td><td>熔断状态、降级通知、异常率告警</td></tr>
- *   <tr><td>Redis Key 前缀</td><td>{@code agent:events:}</td><td>{@code ctrl:events:}</td></tr>
+ *   <tr><td>Redis Key 前缀</td><td>{@code a2a:queue:}</td><td>{@code ctrl:events:}</td></tr>
  *   <tr><td>Redis 连接</td><td>主 Redis</td><td>可选独立 Redis（避免相互影响）</td></tr>
  *   <tr><td>优先级</td><td>低（可丢弃）</td><td>高（必须送达）</td></tr>
  *   <tr><td>事件量</td><td>高（数百/秒）</td><td>低（数/秒）</td></tr>
