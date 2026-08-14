@@ -60,7 +60,7 @@ spring:
             - id: router-service
               uri: lb://router-service
               predicates:
-                - Path=/assistant/api/router/**
+                - Path=/assistant/api/router/**,/assistant/api/admin/workflows/**
               filters:
                 - StripPrefix=1
 

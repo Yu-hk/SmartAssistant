@@ -26,12 +26,13 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  */
 @Service
 @ConditionalOnClass(name = "org.springframework.data.redis.core.StringRedisTemplate")
-public class AgentEventBus {
+public class ExecutionTraceStore {
 
-    private static final Logger log = LoggerFactory.getLogger(AgentEventBus.class);
+    private static final Logger log = LoggerFactory.getLogger(ExecutionTraceStore.class);
 
     private static final String EVENT_KEY_PREFIX = "a2a:agent-events:";
     private static final int MAX_EVENTS_PER_REQUEST = 200;
+    private static final long EVENT_TTL_HOURS = 24;
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -40,7 +41,7 @@ public class AgentEventBus {
     private final ConcurrentLinkedDeque<AgentExecutionState.StateTransition> memoryFallback
             = new ConcurrentLinkedDeque<>();
 
-    public AgentEventBus(StringRedisTemplate redisTemplate) {
+    public ExecutionTraceStore(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
@@ -62,6 +63,7 @@ public class AgentEventBus {
                 if (size != null && size > MAX_EVENTS_PER_REQUEST) {
                     redisTemplate.opsForList().trim(key, 0, MAX_EVENTS_PER_REQUEST - 1);
                 }
+                redisTemplate.expire(key, EVENT_TTL_HOURS, java.util.concurrent.TimeUnit.HOURS);
             }
 
             // 内存回退
@@ -104,7 +106,7 @@ public class AgentEventBus {
                         try {
                             result.add(objectMapper.readValue(json, AgentExecutionState.StateTransition.class));
                         } catch (Exception e) {
-                            log.warn("[AgentEventBus] 解析状态转换事件失败: {}", e.getMessage());
+                            log.warn("[ExecutionTraceStore] 解析状态转换事件失败: {}", e.getMessage());
                         }
                     }
                 }

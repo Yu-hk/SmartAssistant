@@ -7,7 +7,7 @@
 
 package com.example.smartassistant.router.service.core;
 
-import com.example.smartassistant.common.agent.AgentEventBus;
+import com.example.smartassistant.common.agent.ExecutionTraceStore;
 import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.GoalContinuityArbiter;
@@ -124,7 +124,7 @@ public class RouterService {
 
     // ⭐ P1 Agent 执行事件总线（可选：无 Redis 时不记录事件）
     @Autowired(required = false)
-    private AgentEventBus agentEventBus;
+    private ExecutionTraceStore executionTraceStore;
 
     // ⭐ L3 三路并行意图融合引擎（可选：降级走原 LLM 路径）
     @Autowired(required = false)
@@ -663,8 +663,8 @@ public class RouterService {
             if (budgetTracker != null) budgetTracker.endSession();
 
             // ⭐ P1 执行事件：记录失败
-            if (agentEventBus != null) {
-                agentEventBus.publishEvent(
+            if (executionTraceStore != null) {
+                executionTraceStore.publishEvent(
                         request.getRequestId(), "unknown",
                         AgentExecutionState.State.RUNNING, AgentExecutionState.State.FAILED,
                         AgentExecutionState.EventType.TIMEOUT_REACHED,
