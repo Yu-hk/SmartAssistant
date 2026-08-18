@@ -25,11 +25,11 @@ import reactor.core.publisher.Flux;
 /**
  * 轻量 LLM 推理通道配置。
  * <p>
- * 基于 {@link OllamaChatModel} 委托模式实现，注入 Spring AI 自动配置的原生
- * OllamaChatModel 实例，但通过自定义 {@link OllamaOptions} 覆盖默认参数（小模型 +
- * 低温度），实现轻量调用通道。用于：对话摘要、偏好提取、缓存改写、关键词提取、意图识别等辅助任务。
+ * 基于 {@link DeepSeekChatModel} 委托模式实现，通过自定义
+ * {@link DeepSeekChatOptions} 覆盖默认参数（V4 Flash + 低温度），用于对话摘要、
+ * 偏好提取、缓存改写和意图识别等辅助任务。
  * <p>
- * 采用委托而非新建 OllamaChatModel 实例，避免重复构造 ToolCallingManager、
+ * 采用委托而非新建 DeepSeekChatModel 实例，避免重复构造 ToolCallingManager、
  * ObservationRegistry 等复杂依赖。
  */
 @Configuration
@@ -42,7 +42,7 @@ public class LightChatModelConfig {
     @Qualifier("lightChatModel")
     public ChatModel lightChatModel(
             DeepSeekChatModel deepSeekChatModel,
-            @Value("${consumer.light-model.name:${DEEPSEEK_LIGHT_MODEL:deepseek-chat}}") String model,
+            @Value("${consumer.light-model.name:${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}}") String model,
             @Value("${consumer.light-model.temperature:0.1}") double temperature) {
 
         var lightOptions = DeepSeekChatOptions.builder()
@@ -56,7 +56,7 @@ public class LightChatModelConfig {
     }
 
     /**
-     * 委托 ChatModel 实现。将所有 call/stream 请求转发给底层 OllamaChatModel，
+     * 委托 ChatModel 实现。将所有 call/stream 请求转发给底层 DeepSeekChatModel，
      * 但在每个请求上覆盖默认选项（模型名、温度等），实现"轻量"通道效果。
      */
     private static class LightDelegatingChatModel implements ChatModel {

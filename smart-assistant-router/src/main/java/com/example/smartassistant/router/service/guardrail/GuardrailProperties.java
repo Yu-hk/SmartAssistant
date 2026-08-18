@@ -36,7 +36,7 @@ public class GuardrailProperties {
 
     /**
      * 强制触发 RAG 的意图标签列表。
-     * 与 IntentFusionService 定义的 IntentType 保持一致。
+     * 与结构化意图分析输出的意图类型保持一致。
      */
     private List<String> enforcedIntents = new ArrayList<>(List.of(
             "REFUND", "CANCEL", "COMPLAINT"

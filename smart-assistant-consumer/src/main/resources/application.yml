@@ -25,7 +25,7 @@ spring:
   application:
     name: consumer-service
 
-  # ⭐ 排除 DashScope 自动配置（Consumer 使用 Ollama，不依赖云端 API）
+  # 排除未使用的 DashScope 自动配置（Consumer 直连 DeepSeek API）。
   autoconfigure:
     exclude:
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
@@ -108,7 +108,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY}
       chat:
         options:
-          model: ${DEEPSEEK_CHAT_MODEL:deepseek-chat}
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-v4-flash}
           temperature: 0.1
     
     # ⭐ MCP Server 配置（内嵌在 Consumer 中）
@@ -185,6 +185,10 @@ router:
     url: http://localhost:8083       # Router Service 地址
     connect-timeout-ms: 3000
     read-timeout-ms: 120000          # 覆盖意图分析、Agent 调用和质量评估完整链路
+    decision-timeout-ms: 60000       # 短问题保持 60 秒预算
+    heavy-decision-timeout-ms: 120000 # 长问题使用 Pro，覆盖分析与多节点执行
+    heavy-question-chars: 160        # 与 Router 模型分档阈值保持一致
+    sse-idle-grace-ms: 30000         # SSE 通道晚于路由预算关闭，避免长任务仍执行时断流
 
 # 用户画像是旁路增强：模型提取超时后降级到规则，不占用主对话预算
 preference:

@@ -30,4 +30,12 @@ public class WorkflowGraphCompiler {
         return new IntentGraph(question != null ? question : definition.name(), nodes,
                 definition.maxGraphIterations());
     }
+
+    /** Compiles a published immutable snapshot while retaining its runtime identity. */
+    public IntentGraph compile(WorkflowVersion version, String question) {
+        IntentGraph graph = compile(version.definition(), question);
+        return new IntentGraph(graph.getQuestion(), List.copyOf(graph.getAllNodes()),
+                version.definition().maxGraphIterations(), version.workflowKey(),
+                version.version(), version.checksum());
+    }
 }

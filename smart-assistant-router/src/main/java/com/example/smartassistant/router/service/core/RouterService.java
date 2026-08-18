@@ -13,99 +13,60 @@ import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.GoalContinuityArbiter;
 import com.example.smartassistant.common.budget.BudgetTracker;
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.intent.WeatherQuerySupport;
 import com.example.smartassistant.common.intent.IntentTagGenerator;
-import com.example.smartassistant.common.model.tier.TieredModelRouter;
-import com.example.smartassistant.common.model.tier.TierSelection;
 import com.example.smartassistant.router.service.context.IntentDriftDetector;
-import com.example.smartassistant.router.service.fusion.IntentFusionResult;
-import com.example.smartassistant.router.service.fusion.IntentFusionService;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.router.model.*;
-import com.example.smartassistant.router.service.agent.AgentCallerService;
-import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
-import com.example.smartassistant.router.service.evaluation.BadCaseMinerService;
 import com.example.smartassistant.router.service.monitoring.NewMetricsCollector;
 import com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriter;
-import com.example.smartassistant.router.service.experience.ExperienceService;
-import com.example.smartassistant.router.service.quality.QualityEvaluationService;
 import com.example.smartassistant.common.observability.OpsMetrics;
-import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
 import com.example.smartassistant.router.service.guardrail.EmotionLevel;
 import com.example.smartassistant.router.service.guardrail.GuardrailService;
 import com.example.smartassistant.router.service.rag.RouterRagService;
-import com.example.smartassistant.router.service.routing.KeywordFastRouteService;
-import com.example.smartassistant.router.service.routing.DeterministicRoutingRules;
 import com.example.smartassistant.router.service.taskanalysis.TaskAnalysisService;
-import com.example.smartassistant.router.service.tool.RoutingToolChecker;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Router Service - 核心路由服务（单意图路由）
+ * Router Service - DeepSeek 结构化意图分析与 LangGraph4j 协作入口。
  *
  * <p>职责范围：</p>
  * <ul>
- *     <li>单意图路由与 Agent 调用</li>
- *     <li>降级方案：关键词匹配</li>
+ *     <li>按问题长度选择 DeepSeek 模型</li>
+ *     <li>结构化拆解意图、依赖与目标 Agent</li>
+ *     <li>将分析结果交给 LangGraph4j 执行</li>
  * </ul>
  *
  * <p>已移除职责（迁移到 Consumer）：</p>
  * <ul>
  *     <li>日常建议生成 → Consumer.LLMSuggestionService</li>
  * </ul>
- * <p>⭐ v2: 多意图由 ExperienceService 的 BGE 向量匹配提供，Router 通过 secondaryIntents
- * 感知副意图并记录日志；未来可在协作执行场景下并行调用所有匹配的 Agent。</p>
+ * <p>关键词快车道、经验匹配和 Consumer 单 Agent 提示不再参与路由决策，
+ * 避免优化路径吞掉跨领域任务。</p>
  */
 @Service
 public class RouterService {
     
     private static final Logger log = LoggerFactory.getLogger(RouterService.class);
     
-    private final AgentCallerService agentCallerService;
     private final StringRedisTemplate redisTemplate;
     private final RouterRagService ragService;
     private final IntentTagGenerator intentTagGenerator;
-    private final TaskPlannerService taskPlanner;
-    private final ResultMerger resultMerger;
-    private final ReflectionService reflectionService;
-    private final ExperienceService experienceService;
 
     // ⭐ 任务分析服务（结构化提取实体/约束/风险/工具评分）
     private final TaskAnalysisService taskAnalysisService;
 
-    // ⭐ LLM-as-Judge 质量评估服务（深层语义质检）
-    private final QualityEvaluationService qualityEvaluationService;
-
     // ⭐ 意图引导的查询改写服务
     private final IntentGuidedQueryRewriter queryRewriter;
-
-    // ⭐ P1 Bad Case 自动挖掘服务
-    private final BadCaseMinerService badCaseMinerService;
-
-    // ⭐ 轻量模型（用于兜底回复等简单推理）
-    private final ChatClient lightChatClient;
-
-    // ⭐ G3 统一模型接入层（按复杂度选档 + 平滑降级；无 Ollama 环境为 null）
-    @Autowired(required = false)
-    private TieredModelRouter tieredModelRouter;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -126,10 +87,6 @@ public class RouterService {
     @Autowired(required = false)
     private ExecutionTraceStore executionTraceStore;
 
-    // ⭐ L3 三路并行意图融合引擎（可选：降级走原 LLM 路径）
-    @Autowired(required = false)
-    private IntentFusionService intentFusionService;
-
     // ⭐ L5 意图漂移检测
     @Autowired(required = false)
     private IntentDriftDetector intentDriftDetector;
@@ -141,14 +98,6 @@ public class RouterService {
     @Autowired(required = false)
     private NewMetricsCollector newMetrics;
 
-    // ⭐ 关键词快车道服务（P2 改进：高频明确意图跳过 LLM 分诊）
-    private final KeywordFastRouteService keywordFastRouteService;
-    // ⭐ 路由级工具健康检查
-    private final RoutingToolChecker routingToolChecker;
-
-    // ⭐ 异常率降级服务（解决反常识2：异常处理本身制造异常的负反馈循环）
-    private final DegradationService degradationService;
-
     // ⭐ P1 确定性护栏服务
     private final GuardrailService guardrailService;
 
@@ -159,48 +108,21 @@ public class RouterService {
     // ⭐ 上下文构建器
     private final RouteContextHelper routeContextHelper;
 
-    // ⭐ P2 Prompt 管理器
-    private final PromptManager promptManager;
-
-    public RouterService(AgentCallerService agentCallerService,
-                         @Autowired(required = false) StringRedisTemplate redisTemplate,
+    public RouterService(@Autowired(required = false) StringRedisTemplate redisTemplate,
                          RouterRagService ragService,
                          IntentTagGenerator intentTagGenerator,
-                         TaskPlannerService taskPlanner,
-                         ResultMerger resultMerger,
-                         ReflectionService reflectionService,
-                         ExperienceService experienceService,
                          TaskAnalysisService taskAnalysisService,
-                         QualityEvaluationService qualityEvaluationService,
                          IntentGuidedQueryRewriter queryRewriter,
-                        KeywordFastRouteService keywordFastRouteService,
-                        @Autowired(required = false) RoutingToolChecker routingToolChecker,
-                        @Autowired(required = false) DegradationService degradationService,
-                        GuardrailService guardrailService,
-                        PromptManager promptManager,
-                         @Qualifier("lightChatModel") ChatModel lightModel,
-                         @Autowired(required = false) BadCaseMinerService badCaseMinerService,
+                         GuardrailService guardrailService,
                          RouteFinalizer routeFinalizer,
                          RouteExecutionService routeExecutionService,
                          RouteContextHelper routeContextHelper) {
-        this.agentCallerService = agentCallerService;
         this.redisTemplate = redisTemplate;
         this.ragService = ragService;
         this.intentTagGenerator = intentTagGenerator;
-        this.taskPlanner = taskPlanner;
-        this.resultMerger = resultMerger;
-        this.reflectionService = reflectionService;
-        this.experienceService = experienceService;
         this.taskAnalysisService = taskAnalysisService;
-        this.qualityEvaluationService = qualityEvaluationService;
         this.queryRewriter = queryRewriter;
-        this.keywordFastRouteService = keywordFastRouteService;
-        this.routingToolChecker = routingToolChecker;
-        this.degradationService = degradationService;
         this.guardrailService = guardrailService;
-        this.promptManager = promptManager;
-        this.lightChatClient = ChatClient.create(lightModel);
-        this.badCaseMinerService = badCaseMinerService;
         this.routeFinalizer = routeFinalizer;
         this.routeExecutionService = routeExecutionService;
         this.routeContextHelper = routeContextHelper;
@@ -227,7 +149,6 @@ public class RouterService {
 
             // ⭐ P1 确定性护栏：检查高风险关键词（退款/退货/投诉等）
             GuardrailService.GuardrailCheckResult guardrail = guardrailService.check(question);
-            boolean guardrailSkipped = guardrail.triggered() && guardrail.skipShortCircuit();
             boolean guardrailForceRag = guardrail.triggered() && guardrail.forceRag();
 
             // ⭐ P4-A 情绪分级干预（对标文章②）：检测用户心理安全风险
@@ -269,182 +190,8 @@ public class RouterService {
                 }
             }
 
-            // Required parameters are collected before experience/cache short-circuits so a
-            // stale route or reply can never turn "查询天气" into an invalid tool invocation.
-            if (WeatherQuerySupport.requiresCityClarification(question, request.getDeviceLocation())) {
-                RoutingResult clarification = RoutingResult.builder()
-                        .result(WeatherQuerySupport.CITY_CLARIFICATION)
-                        .agentName(RouterFallbackAgentService.AGENT_NAME)
-                        .confidence(1.0)
-                        .intentTag("weather_query")
-                        .clarification(true)
-                        .build();
-                return finalizeRouting(clarification, request, question, emotion);
-            }
-
-            // Weather is a deterministic, single-domain capability once its required location is
-            // available. Route it directly to the local Tool Registry-backed fallback agent.
-            if (WeatherQuerySupport.isWeatherLookup(question)) {
-                RoutingResult weatherResult = routeExecutionService.inlineFallback(
-                        question, request.getUserId(), request.getDeviceLocation(), emotion);
-                weatherResult.setIntentTag("weather_query");
-                return finalizeRouting(weatherResult, request, question, emotion);
-            }
-
-            // Consumer owns semantic route hints. Validate a hint before
-            // Router's experience and keyword fast paths; otherwise those
-            // earlier short circuits make every valid hint unreachable.
-            RoutingResult hinted = executeCachedRouteHint(request, question, emotion);
-            if (hinted != null) {
-                return hinted;
-            }
-
-            // Step 0: 经验匹配（护栏触发 + skipShortCircuit 跳过短路）
-            if (!guardrailSkipped) {
-                ExperienceService.ExperienceMatchResult experienceMatch = experienceService.match(question);
-            if (experienceMatch != null) {
-                log.info("[Router] 🧠 经验匹配命中: type={}, agent={}, score={}",
-                        experienceMatch.experience.getType(), experienceMatch.agentName,
-                        String.format("%.2f", experienceMatch.matchScore));
-
-                // ⭐ 多意图：记录副匹配日志（未来可用于并行调用）
-                if (experienceMatch.secondaryIntents != null && !experienceMatch.secondaryIntents.isEmpty()) {
-                    for (var si : experienceMatch.secondaryIntents) {
-                        log.info("[Router] 🔀 副意图: agent={}, intent={}, score={}",
-                                si.agentName, si.intentTag, String.format("%.2f", si.score));
-                    }
-                }
-
-                // ⭐⭐ 多意图：Step 0 直接并行调度多个 Agent，不走 LLM 全管道
-                //    经验匹配的 secondaryIntents 已明确哪些 Agent 需要参与
-                boolean skipExperienceShortCircuit = experienceMatch.secondaryIntents != null
-                        && !experienceMatch.secondaryIntents.isEmpty();
-
-                if (skipExperienceShortCircuit) {
-                    log.info("[Router] 🔀 多意图经验命中，Step 0 直接并行调度: "
-                                    + "primary={}({}), secondaryCount={}",
-                            experienceMatch.agentName, experienceMatch.experience.getIntentTag(),
-                            experienceMatch.secondaryIntents.size());
-
-                    // Step 0a: 收集所有需要调用的 Agent 任务
-                    List<AgentTask> multiAgentTasks = new java.util.ArrayList<>();
-
-                    // 主意图 → 构建任务
-                    multiAgentTasks.add(new AgentTask(
-                            experienceMatch.agentName,
-                            experienceMatch.reroutedQuestion != null
-                                    ? experienceMatch.reroutedQuestion : question,
-                            experienceMatch.experience.getIntentTag(),
-                            experienceMatch.matchScore));
-
-                    // 副意图 → 各构建独立任务
-                    for (var si : experienceMatch.secondaryIntents) {
-                        multiAgentTasks.add(new AgentTask(
-                                si.agentName,
-                                question, // 各 Agent 拿同一问题自行解析
-                                si.intentTag,
-                                si.score));
-                    }
-
-                    // Step 0b: 并行调用所有 Agent（JDK 21 虚拟线程）
-                    //   创建共享虚拟线程执行器，所有 Agent 调用各占一个虚拟线程
-                    var virtExec = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
-                    try {
-                        String[] agentResults = new String[multiAgentTasks.size()];
-                        @SuppressWarnings("unchecked")
-                        java.util.concurrent.CompletableFuture<Void>[] futures =
-                                new java.util.concurrent.CompletableFuture[multiAgentTasks.size()];
-
-                        for (int i = 0; i < multiAgentTasks.size(); i++) {
-                            final int idx = i;
-                            final AgentTask task = multiAgentTasks.get(idx);
-                            futures[idx] = java.util.concurrent.CompletableFuture
-                                    .supplyAsync(() -> callCoordinatedAgent(task, request),
-                                            virtExec) // 共享同一个虚拟线程执行器
-                                    .thenAccept(r -> agentResults[idx] = r);
-                        }
-
-                        // Step 0c: 等待全部完成
-                        java.util.concurrent.CompletableFuture.allOf(futures).join();
-
-                        // Step 0d: 合并结果
-                        StringBuilder merged = new StringBuilder();
-                        String primaryResult = null;
-                        String primaryAgent = multiAgentTasks.get(0).getAgentName();
-                        String primaryIntent = multiAgentTasks.get(0).getIntentTag();
-                        double primaryConfidence = multiAgentTasks.get(0).getConfidence();
-
-                        for (int i = 0; i < agentResults.length; i++) {
-                            if (agentResults[i] != null && !agentResults[i].isBlank()) {
-                                if (i == 0) {
-                                    primaryResult = agentResults[i];
-                                } else {
-                                    merged.append("\n").append(agentResults[i]);
-                                }
-                            }
-                        }
-
-                        String finalReply = primaryResult != null
-                                ? primaryResult + merged
-                                : merged.toString();
-                        if (finalReply.isBlank()) {
-                            finalReply = "抱歉，暂时无法处理您的问题，请稍后再试。";
-                        }
-
-                        RoutingResult result = RoutingResult.builder()
-                                .result(finalReply)
-                                .agentName(primaryAgent)
-                                .confidence(primaryConfidence)
-                                .intentTag(primaryIntent)
-                                .build();
-                        return finalizeRouting(result, request, question, emotion);
-
-                    } finally {
-                        virtExec.shutdown();
-                    }
-                }
-
-                // ⭐ 单意图：TOOL / COMMON / REACT 经验直接短路
-                if (experienceMatch.isToolExperience) {
-                        RoutingResult result = callAgentAndFinalize(
-                                experienceMatch.agentName,
-                                experienceMatch.reroutedQuestion,
-                                experienceMatch.matchScore,
-                                experienceMatch.experience.getIntentTag(),
-                                request, question, emotion);
-                        if (result != null) return result;
-                    }
-
-                    // COMMON / REACT 经验：设置路由目标，跳过 TaskPlanner
-                    if (experienceMatch.skipTaskPlanning) {
-                        String agentQuestion = experienceMatch.reroutedQuestion != null
-                                ? experienceMatch.reroutedQuestion : question;
-                        RoutingResult result = callAgentAndFinalize(
-                                experienceMatch.agentName, agentQuestion,
-                                experienceMatch.matchScore,
-                                experienceMatch.experience.getIntentTag(),
-                                request, question, emotion);
-                        if (result != null) return result;
-                    }
-                } // end experienceMatch != null
-            } // end !guardrailSkipped (护栏激活时跳过经验匹配短路)
-
-            // Step 0.5: 关键词快车道（护栏触发 + skipShortCircuit 时跳过）
-            // 优先级：经验匹配 > 关键词快车道 > 语义缓存 > LLM 意图识别
-            KeywordFastRouteService.MatchResult keywordMatch = !guardrailSkipped
-                    ? keywordFastRouteService.match(question) : null;
-            if (keywordMatch != null) {
-                log.info("[Router] ⚡ 关键词快车道命中: rule={}, agent={}, intent={}, confidence={}",
-                        keywordMatch.getMatchedRuleName(), keywordMatch.getTargetAgent(),
-                        keywordMatch.getIntentTag(), keywordMatch.getConfidence());
-                RoutingResult result = callAgentAndFinalize(
-                        keywordMatch.getTargetAgent(), question,
-                        keywordMatch.getConfidence(), keywordMatch.getIntentTag(),
-                        request, question, emotion);
-                if (result != null) return result;
-            }
-
-            // Step 2: 构建上下文
+            // 普通业务意图不再执行关键词、经验或 Consumer 单 Agent 提示短路。
+            // 安全护栏只负责风险控制，节点拆解和分配统一由 DeepSeek 完成。
             Map<String, Object> context = buildContext(request);
 
             // Step 3: RAG 增强(可选) — 正常开启或护栏触发时均执行
@@ -465,82 +212,22 @@ public class RouterService {
             Long userId = request.getUserId();
             String executionQuestion = enhancedQuestion;
 
-            // Step 4: Consumer may provide a semantic routing hint. Router still
-            // validates it by attempting dispatch and falls through on failure.
             RoutingResult result;
-                // ⭐ Step 3.5: L3 三路并行意图融合 + 任务分析
-                // 规则+小模型+LLM 三路融合，命中高置信路径则跳过 LLM
+                // DeepSeek is the single source of truth for intent decomposition and node
+                // assignment. TaskAnalysisService selects chat/reasoner by question length.
                 @SuppressWarnings("unchecked")
                 List<String> conversationHistory =
                         (List<String>) context.get("conversationHistory");
-
-                // Deterministic high-frequency composition: querying popular products and
-                // preparing a later order has stable semantics and must not wait on an LLM
-                // just to rediscover the same two subtasks.
-                TaskAnalysisResult taskAnalysis =
-                        buildProductOrderMultiIntentAnalysis(enhancedQuestion);
-
-                // L3 融合：规则/小模型/LLM 并行
-                IntentFusionResult fusionResult = null;
-                if (taskAnalysis == null && intentFusionService != null) {
-                    fusionResult = intentFusionService.fuse(
-                            enhancedQuestion,
-                            conversationHistory != null ? conversationHistory : Collections.emptyList()
-                    );
-                }
-
-                String intentTag = null;
-                double confidence = 0.7;
-
-                TaskAnalysisResult fusedAnalysis = fusionResult != null
-                        ? fusionResult.taskAnalysis() : null;
-                if (taskAnalysis != null) {
-                    intentTag = taskAnalysis.getIntentCategory();
-                    confidence = taskAnalysis.getConfidence();
-                    log.info("[Router] Deterministic product/order multi-intent analysis: "
-                                    + "subIntents={}, constraints={}, missingSlots={}",
-                            taskAnalysis.getSubIntents().size(),
-                            taskAnalysis.getActionConstraints(),
-                            taskAnalysis.getMissingSlots());
-                } else if (fusedAnalysis != null && fusedAnalysis.isMeaningful()) {
-                    // IntentFusionService already paid for this structured model analysis.
-                    // Reuse it instead of issuing the same model request a second time.
-                    taskAnalysis = fusedAnalysis;
-                    intentTag = fusionResult.isValid()
-                            ? fusionResult.intentTag() : fusedAnalysis.getIntentCategory();
-                    confidence = fusionResult.isValid()
-                            ? fusionResult.confidence() : fusedAnalysis.getConfidence();
-                    taskAnalysis.setIntentCategory(intentTag);
-                    taskAnalysis.setConfidence(confidence);
-                    log.info("[Router] Reusing fusion task analysis: source={}, intent={}, conf={}, elapsed={}ms",
-                            fusionResult.source(), intentTag, confidence, fusionResult.elapsedMs());
-                } else if (fusionResult != null && fusionResult.isValid()
-                        && !"LLM".equals(fusionResult.source())) {
-                    // 规则或小模型命中 → 跳过 LLM，使用融合结果
-                    intentTag = fusionResult.intentTag();
-                    confidence = fusionResult.confidence();
-                    log.info("[Router] ⚡ L3 融合命中: source={}, intent={}, conf={}, elapsed={}ms",
-                            fusionResult.source(), intentTag, confidence, fusionResult.elapsedMs());
-
-                    // 构造一个空的 TaskAnalysisResult（只设 intentTag，下游 Agent 可用）
-                    taskAnalysis = new TaskAnalysisResult();
-                    taskAnalysis.setIntentCategory(intentTag);
-                    taskAnalysis.setConfidence(confidence);
-
-                } else {
-                    // LLM 路径或融合降级
-                    if (fusionResult != null) {
-                        log.info("[Router] 🤖 L3 融合走 LLM 路径: source={}, elapsed={}ms",
-                                fusionResult.source(), fusionResult.elapsedMs());
-                    }
-                    taskAnalysis = taskAnalysisService.analyze(
-                            enhancedQuestion,
-                            conversationHistory != null ? conversationHistory : Collections.emptyList()
-                    );
-                    if (taskAnalysis != null && taskAnalysis.isMeaningful()) {
-                        intentTag = taskAnalysis.getIntentCategory();
-                    }
-                }
+            TaskAnalysisResult taskAnalysis = taskAnalysisService.analyze(
+                    enhancedQuestion, question,
+                    conversationHistory != null ? conversationHistory : Collections.emptyList());
+                String intentTag = taskAnalysis != null ? taskAnalysis.getIntentCategory() : null;
+                double confidence = taskAnalysis != null && taskAnalysis.isMeaningful()
+                        ? taskAnalysis.getConfidence() : 0.5;
+                log.info("[Router] DeepSeek task analysis: intent={}, subIntents={}, confidence={}",
+                        intentTag,
+                        taskAnalysis != null ? taskAnalysis.getSubIntents().size() : 0,
+                        confidence);
 
                 // ⭐ L5 意图漂移检测：多轮对话中检测用户意图是否漂移
                 if (intentDriftDetector != null && intentTag != null
@@ -583,8 +270,7 @@ public class RouterService {
 
                 if (shouldShortCircuitForClarification(taskAnalysis)) {
                     String clarificationReply = String.join("\n", taskAnalysis.getClarificationQuestions());
-                    String clarificationAgent = DeterministicRoutingRules.agentForCategory(
-                            taskAnalysis.getIntentCategory());
+                    String clarificationAgent = declaredClarificationAgent(taskAnalysis);
                     RoutingResult clarification = RoutingResult.builder()
                             .result(clarificationReply)
                             .agentName(clarificationAgent != null ? clarificationAgent : "builtin_clarification")
@@ -633,21 +319,11 @@ public class RouterService {
                 // 复杂问题自动分解为多个子任务并行执行
                 executionQuestion = addConversationContextIfNeeded(
                         enhancedQuestion, conversationHistory);
-                String singleIntentAgent = resolveSingleIntentAgent(taskAnalysis);
-                if (singleIntentAgent != null) {
-                    log.info("[Router] Single-intent fast path: intent={}, agent={}",
-                            taskAnalysis.getIntentCategory(), singleIntentAgent);
-                    RoutingResult directResult = callAgentAndFinalize(
-                            singleIntentAgent, executionQuestion, confidence, intentTag,
-                            request, executionQuestion, emotion);
-                    if (directResult != null) {
-                        return directResult;
-                    }
-                }
                 log.info("[Router] 🤝 启动多 Agent 协作: question={}",
                         QuestionExtractor.truncate(executionQuestion, 120));
-                result = executeCollaborative(
-                        executionQuestion, userId, request.getRequestId(), emotion, taskAnalysis);
+            result = executeCollaborative(
+                    executionQuestion, userId, request.getRequestId(), request.getSessionId(),
+                    emotion, taskAnalysis);
             // ⭐ 生成意图标签（用于用户画像统计），设置到 result
             if (result.getIntentTag() == null || result.getIntentTag().isBlank()) {
                 result.setIntentTag(intentTag != null ? intentTag : intentTagGenerator.generate(question));
@@ -725,60 +401,14 @@ public class RouterService {
         routeFinalizer.storeTaskAnalysisToRedis(requestId, analysis);
     }
 
-    /**
-     * 尝试从 Agent 回复中提取 TOOL 经验。
-     * 当回复包含明显的工具调用模式时，提取为 TOOL 经验以备后续复用。
-     */
-    private void extractToolExperienceIfApplicable(String reply, String agentName, String intentTag, String question) {
-        if (reply == null || reply.isBlank() || agentName == null || intentTag == null) return;
-
-        // 检测工具调用模式：回复中包含特定的关键词表明使用了某个工具
-        // Order Agent 工具模式
-        switch (agentName) {
-            case "order_agent" -> {
-                if (reply.contains("订单") && (reply.contains("状态") || reply.contains("查询") || reply.contains("ORD-"))) {
-                    String params = QuestionExtractor.extractOrderParams(question);
-                    experienceService.extractToolExperience(question, agentName, intentTag,
-                            "queryOrder", params, "订单{orderId}当前状态为{status}");
-                }
-                if (reply.contains("退款") || reply.contains("退货")) {
-                    experienceService.extractToolExperience(question, agentName, intentTag,
-                            "refundOrder", "{\"orderId\": \"" + QuestionExtractor.extractOrderId(question) + "\"}", "退款申请已提交");
-                }
-            }
-            // Product Agent 工具模式
-            case "product_agent" -> {
-                if (reply.contains("价格") || reply.contains("多少钱") || reply.contains("报价")) {
-                    experienceService.extractToolExperience(question, agentName, intentTag,
-                            "queryPrice", "{\"product\": \"" + QuestionExtractor.extractProductName(question) + "\"}", "{product}的价格为{price}");
-                }
-                if (reply.contains("库存") || reply.contains("有货") || reply.contains("缺货")) {
-                    experienceService.extractToolExperience(question, agentName, intentTag,
-                            "checkStock", "{\"product\": \"" + QuestionExtractor.extractProductName(question) + "\"}", "{product}的库存状态为{status}");
-                }
-            }
-            // General Agent 工具模式
-            case "general_agent", "router_fallback" -> {
-                if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
-                    experienceService.extractToolExperience(question, agentName, intentTag,
-                            "getWeather", "{\"location\": \"" + QuestionExtractor.extractLocation(question) + "\"}", "{location}当前天气为{weather}");
-                }
-                if (reply.contains("新闻") || reply.contains("热点") || reply.contains("头条")) {
-                    experienceService.extractToolExperience(question, agentName, intentTag,
-                            "getHotNews", "{}", "以下是近期热点新闻");
-                }
-            }
-        }
-    }
-
     // ==================== 多 Agent 协作 ====================
 
     /**
      * 多 Agent 协作：图分解 → 图执行 → 结果合并。
      * <p>
      * 处理跨领域复杂问题，如"推荐北京景点和川菜馆"，
-     * 使用 {@link TaskPlannerService#planToGraph(String)} 分解为带依赖关系的 DAG，
-     * 交由 {@link RouteExecutionService} 通过统一的 LangGraph4j 入口执行。
+     * 使用 DeepSeek 结构化分析生成带依赖关系的 DAG，交由
+     * {@link RouteExecutionService} 通过统一的 LangGraph4j 入口执行。
      * </p>
      */
     private RoutingResult executeCollaborative(String question, Long userId, String requestId,
@@ -787,73 +417,11 @@ public class RouterService {
     }
 
     private RoutingResult executeCollaborative(String question, Long userId, String requestId,
+                                                String sessionId,
                                                 EmotionCheckResult emotion,
                                                 TaskAnalysisResult taskAnalysis) {
         return routeExecutionService.executeCollaborative(
-                question, userId, requestId, emotion, taskAnalysis);
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // ⭐ 共享：调用 Agent 并构建路由结果（消除 3 处重复）
-    // ═══════════════════════════════════════════════════════════
-
-    // ═══════════════════════════════════════════════════════════
-    // ⭐ 共享：调用 Agent 并构建路由结果（消除 3 处重复）
-    // ═══════════════════════════════════════════════════════════
-
-    /** 调用 Agent → 构建 RoutingResult → finalizeRouting 后处理（含情绪干预）。空回复返回 null。 */
-    private RoutingResult callAgentAndFinalize(String agentName, String agentQuestion,
-                                                double confidence, String intentTag,
-                                                RouteRequest request, String rawQuestion,
-                                                EmotionCheckResult emotion) {
-        return routeExecutionService.callAgentAndFinalize(agentName, agentQuestion, confidence,
-                intentTag, request, rawQuestion, emotion);
-    }
-
-    RoutingResult executeCachedRouteHint(RouteRequest request, String question,
-                                         EmotionCheckResult emotion) {
-        if (request == null || !request.hasCachedRouteHint()) {
-            return null;
-        }
-        log.info("[Router] Consumer route hint: agent={}, intent={}",
-                request.getCachedAgentName(), request.getCachedIntentTag());
-        RoutingResult hinted = callAgentAndFinalize(
-                request.getCachedAgentName(), question,
-                request.getCachedConfidence() != null ? request.getCachedConfidence() : 0.7,
-                request.getCachedIntentTag(), request, question, emotion);
-        if (hinted != null) {
-            hinted.setFromCache(true);
-        }
-        return hinted;
-    }
-
-    /**
-     * 内联 Ollama 兜底（handleSingleIntent 的第三、四层），
-     * 当所有 Agent 调用失败时的终极回应方案。
-     * <p>
-     * 纯本地推理：
-     * <ol>
-     *   <li>本地 Ollama（deepseek-r1:7b）</li>
-     *   <li>失败 → 预设文案（终极兜底）</li>
-     * </ol>
-     */
-    private RoutingResult inlineFallback(String question, EmotionCheckResult emotion) {
-        return routeExecutionService.inlineFallback(question, emotion);
-    }
-
-    /** General tasks are handled by Router's local Tool Registry-backed fallback, never remotely. */
-    private String callCoordinatedAgent(AgentTask task, RouteRequest request) {
-        if (task == null) return null;
-        String agentName = task.getAgentName();
-        if ("general".equalsIgnoreCase(agentName)
-                || "general_agent".equalsIgnoreCase(agentName)
-                || "router_fallback".equalsIgnoreCase(agentName)) {
-            RoutingResult fallback = routeExecutionService.inlineFallback(
-                    task.getQuestion(), request.getUserId(), request.getDeviceLocation(), null);
-            return fallback != null ? fallback.getResult() : null;
-        }
-        return agentCallerService.callAgent(agentName, task.getQuestion(),
-                request.getUserId(), request.getRequestId());
+                question, userId, requestId, emotion, taskAnalysis, sessionId);
     }
 
     private Map<String, Object> buildContext(RouteRequest request) {
@@ -879,32 +447,33 @@ public class RouterService {
     }
 
     /**
-     * Clear single-domain requests do not need a model planner, graph judge, or correction loop.
-     * Complex, multi-intent, and clarification-required requests keep the collaborative path.
-     */
-    static String resolveSingleIntentAgent(TaskAnalysisResult analysis) {
-        if (analysis == null || !analysis.isMeaningful()
-                || analysis.hasSubIntents() || analysis.isNeedsClarification()) {
-            return null;
-        }
-        return DeterministicRoutingRules.agentForCategory(analysis.getIntentCategory());
-    }
-
-    /**
      * A clarification may stop a single, currently unexecutable intent. For a multi-intent
      * request it must not suppress independent work that can already be completed (for
      * example, query popular products before asking which one should be ordered).
      */
+    private static String declaredClarificationAgent(TaskAnalysisResult analysis) {
+        if (analysis != null && analysis.getSubIntents() != null) {
+            for (Map<String, Object> subIntent : analysis.getSubIntents()) {
+                String agent = Objects.toString(subIntent.get("target_agent"), "")
+                        .trim().toLowerCase(Locale.ROOT);
+                if (Set.of("product", "order", "general").contains(agent)) return agent;
+            }
+        }
+        return switch (Objects.toString(
+                analysis != null ? analysis.getIntentCategory() : null, "")
+                .trim().toUpperCase(Locale.ROOT)) {
+            case "PRODUCT" -> "product";
+            case "ORDER" -> "order";
+            default -> "general";
+        };
+    }
+
     static boolean shouldShortCircuitForClarification(TaskAnalysisResult analysis) {
         return analysis != null
                 && analysis.isNeedsClarification()
                 && !analysis.hasSubIntents()
                 && analysis.getClarificationQuestions() != null
                 && !analysis.getClarificationQuestions().isEmpty();
-    }
-
-    static TaskAnalysisResult buildProductOrderMultiIntentAnalysis(String question) {
-        return DeterministicRoutingRules.productThenOrder(question);
     }
 
     private void loadConversationHistoryFromRedis(Map<String, Object> context, String sessionId) {

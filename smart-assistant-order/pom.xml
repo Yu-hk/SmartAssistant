@@ -28,8 +28,6 @@
             <version>${spring-ai.version}</version>
         </dependency>
 
-        <!-- Ollama 本地模型支持（轻量推理降级通道） -->
-
         <!-- Spring Cloud Alibaba Nacos Discovery (传统服务注册) ⭐ -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
