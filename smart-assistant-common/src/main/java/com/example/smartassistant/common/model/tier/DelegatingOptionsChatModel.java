@@ -32,12 +32,14 @@ class DelegatingOptionsChatModel implements ChatModel {
 
     @Override
     public ChatResponse call(Prompt prompt) {
-        return delegate.call(new Prompt(prompt.getInstructions(), options));
+        ChatOptions effective = ChatOptionsMerge.merge(options, prompt.getOptions());
+        return delegate.call(new Prompt(prompt.getInstructions(), effective));
     }
 
     @Override
     public Flux<ChatResponse> stream(Prompt prompt) {
-        return delegate.stream(new Prompt(prompt.getInstructions(), options));
+        ChatOptions effective = ChatOptionsMerge.merge(options, prompt.getOptions());
+        return delegate.stream(new Prompt(prompt.getInstructions(), effective));
     }
 
     public ChatOptions getOptions() {

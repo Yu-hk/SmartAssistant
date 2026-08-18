@@ -23,14 +23,6 @@ public class NewMetricsCollector {
 
     private static final Logger log = LoggerFactory.getLogger(NewMetricsCollector.class);
 
-    // ==================== L3 意图融合 ====================
-
-    private final Counter intentFusionTotal;
-    private final Counter intentFusionRule;
-    private final Counter intentFusionClassifier;
-    private final Counter intentFusionLLM;
-    private final Counter intentFusionFallback;
-
     // ==================== L5 意图漂移 ====================
 
     private final Counter driftDetected;
@@ -53,27 +45,6 @@ public class NewMetricsCollector {
     private final Timer toolExecLatency;
 
     public NewMetricsCollector(MeterRegistry meterRegistry) {
-        // L3 融合
-        this.intentFusionTotal = Counter.builder("a2a_intent_fusion_total")
-                .description("Total intent fusion calls")
-                .register(meterRegistry);
-        this.intentFusionRule = Counter.builder("a2a_intent_fusion_source")
-                .description("Intent fusion by source")
-                .tag("source", "rule")
-                .register(meterRegistry);
-        this.intentFusionClassifier = Counter.builder("a2a_intent_fusion_source")
-                .description("Intent fusion by source")
-                .tag("source", "classifier")
-                .register(meterRegistry);
-        this.intentFusionLLM = Counter.builder("a2a_intent_fusion_source")
-                .description("Intent fusion by source")
-                .tag("source", "llm")
-                .register(meterRegistry);
-        this.intentFusionFallback = Counter.builder("a2a_intent_fusion_source")
-                .description("Intent fusion by source")
-                .tag("source", "fallback")
-                .register(meterRegistry);
-
         // L5 漂移
         this.driftDetected = Counter.builder("a2a_intent_drift_total")
                 .description("Intent drift detected")
@@ -124,16 +95,6 @@ public class NewMetricsCollector {
     }
 
     // ==================== 公开方法供调用 ====================
-
-    public void recordFusion(String source) {
-        intentFusionTotal.increment();
-        switch (source) {
-            case "RULE" -> intentFusionRule.increment();
-            case "CLASSIFIER" -> intentFusionClassifier.increment();
-            case "LLM" -> intentFusionLLM.increment();
-            default -> intentFusionFallback.increment();
-        }
-    }
 
     public void recordDrift(boolean strong) {
         if (strong) driftStrong.increment();

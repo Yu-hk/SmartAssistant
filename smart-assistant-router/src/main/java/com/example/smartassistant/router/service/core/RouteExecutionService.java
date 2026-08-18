@@ -11,8 +11,8 @@ import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
-import com.example.smartassistant.router.service.experience.ExperienceService;
 import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
+import com.example.smartassistant.router.service.trace.AgentFlowTraceStore;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,13 +57,15 @@ public class RouteExecutionService {
     private final AgentCallerService agentCallerService;
     private final TaskPlannerService taskPlanner;
     private final ResultMerger resultMerger;
-    private final ExperienceService experienceService;
     private final RouteFinalizer routeFinalizer;
     private final RouterFallbackAgentService fallbackAgentService;
     private final StringRedisTemplate redisTemplate;
 
     @Autowired(required = false)
     private DegradationService degradationService;
+
+    @Autowired(required = false)
+    private AgentFlowTraceStore agentFlowTraceStore;
 
     private final LangGraphRouteExecutionService langGraphExecutionService;
 
@@ -72,7 +74,6 @@ public class RouteExecutionService {
             TaskPlannerService taskPlanner,
             LangGraphRouteExecutionService langGraphExecutionService,
             ResultMerger resultMerger,
-            ExperienceService experienceService,
             RouteFinalizer routeFinalizer,
             RouterFallbackAgentService fallbackAgentService,
             @Autowired(required = false) StringRedisTemplate redisTemplate) {
@@ -80,7 +81,6 @@ public class RouteExecutionService {
         this.taskPlanner = taskPlanner;
         this.langGraphExecutionService = langGraphExecutionService;
         this.resultMerger = resultMerger;
-        this.experienceService = experienceService;
         this.routeFinalizer = routeFinalizer;
         this.fallbackAgentService = fallbackAgentService;
         this.redisTemplate = redisTemplate;
@@ -104,7 +104,19 @@ public class RouteExecutionService {
     public RoutingResult executeCollaborative(String question, Long userId, String requestId,
                                                EmotionCheckResult emotion,
                                                TaskAnalysisResult taskAnalysis) {
+        return executeCollaborative(question, userId, requestId, emotion, taskAnalysis, requestId);
+    }
+
+    /**
+     * @param flowLookupId 管理端查询链路使用的稳定 ID，通常为 sessionId
+     */
+    public RoutingResult executeCollaborative(String question, Long userId, String requestId,
+                                               EmotionCheckResult emotion,
+                                               TaskAnalysisResult taskAnalysis,
+                                               String flowLookupId) {
         long start = System.currentTimeMillis();
+        String flowId = flowLookupId != null && !flowLookupId.isBlank()
+                ? flowLookupId : requestId;
 
         if (agentCallerService.getAvailableAgentCount() == 0) {
             log.warn("[Collaborative] 无可用 Agent，降级到内联 ChatClient 兜底");
@@ -140,6 +152,7 @@ public class RouteExecutionService {
         }
 
         IntentGraph graph = buildGraphFromAnalysis(question, taskAnalysis, requestId);
+        boolean fallbackPlanned = graph == null;
         if (graph == null) {
             graph = taskPlanner.planToGraph(question);
         } else {
@@ -151,8 +164,17 @@ public class RouteExecutionService {
             return inlineFallback(question, emotion);
         }
 
+        if (agentFlowTraceStore != null) {
+            agentFlowTraceStore.start(flowId, question, taskAnalysis, graph);
+        }
         String eventsKey = requestId != null ? RoutingKeys.sseEvents(requestId) : null;
-        List<SubTaskResult> results = executeGraph(graph, userId, eventsKey, requestId);
+        List<SubTaskResult> results;
+        try {
+            results = executeGraph(graph, userId, eventsKey, requestId);
+        } catch (RuntimeException e) {
+            if (agentFlowTraceStore != null) agentFlowTraceStore.fail(flowId, e.getMessage());
+            throw e;
+        }
 
         storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);
 
@@ -160,8 +182,20 @@ public class RouteExecutionService {
                 .anyMatch(result -> BUILTIN_ORDER_PREPARATION_AGENT.equals(result.getAgentName()));
         String merged = hasBuiltInOrderPreparation
                 ? mergeOrderPreparationResults(results)
-                : resultMerger.merge(question, results, requestId);
+                : fallbackPlanned
+                        ? mergeFallbackPlannedResults(results)
+                        : resultMerger.merge(question, results, requestId);
         long elapsed = System.currentTimeMillis() - start;
+
+        String firstAgent = results.stream()
+                .map(SubTaskResult::getAgentName)
+                .filter(Objects::nonNull)
+                .filter(agent -> !BUILTIN_ORDER_PREPARATION_AGENT.equals(agent))
+                .findFirst().orElse("none");
+        String resultOwner = graph.getNodeCount() > 1 ? "orchestrator" : firstAgent;
+        if (agentFlowTraceStore != null) {
+            agentFlowTraceStore.complete(flowId, results, resultOwner, elapsed);
+        }
 
         boolean allFailed = results.isEmpty() || results.stream().noneMatch(SubTaskResult::isSuccess);
         if (allFailed || merged == null || merged.isBlank()) {
@@ -172,20 +206,7 @@ public class RouteExecutionService {
         log.info("[Collaborative] 协作完成: {} 个子任务, 耗时={}ms, 结果长度={}",
                 results.size(), elapsed, merged.length());
 
-        String firstAgent = results.stream()
-                .map(SubTaskResult::getAgentName)
-                .filter(Objects::nonNull)
-                .filter(agent -> !BUILTIN_ORDER_PREPARATION_AGENT.equals(agent))
-                .findFirst().orElse("none");
-        String resultOwner = graph.getNodeCount() > 1 ? "orchestrator" : firstAgent;
         DomainQualityResult domainQuality = aggregateDomainQuality(results);
-
-        if (graph.getNodeCount() >= 2 && !hasBuiltInOrderPreparation) {
-            experienceService.extractReactExperience(question,
-                    graph.getAllNodes().stream()
-                            .map(n -> new SubTask(n.getId(), n.getDescription(), n.getTargetAgent(), n.getDependsOn()))
-                            .collect(java.util.stream.Collectors.toList()));
-        }
 
         return routeFinalizer.applyEmotion(RoutingResult.builder()
                 .result(merged).agentName(resultOwner).confidence(0.8)
@@ -213,6 +234,28 @@ public class RouteExecutionService {
                     Math.min(0.6, successfulQuality.getScore()), "PARTIAL_AGENT_FAILURE");
         }
         return successfulQuality;
+    }
+
+    /**
+     * 主结构化分析已经失败时，轻量规划器本身就是降级路径；直接合并已验证的
+     * 节点结果，避免再调用一次模型并把端到端耗时推过 SSE 决策预算。
+     */
+    static String mergeFallbackPlannedResults(List<SubTaskResult> results) {
+        if (results == null || results.isEmpty()) return "";
+        StringBuilder merged = new StringBuilder();
+        for (SubTaskResult result : results) {
+            if (result == null || !result.isSuccess()
+                    || result.getResult() == null || result.getResult().isBlank()) {
+                continue;
+            }
+            if (!merged.isEmpty()) merged.append("\n\n");
+            String description = result.getDescription();
+            if (description != null && !description.isBlank()) {
+                merged.append("### ").append(description.trim()).append('\n');
+            }
+            merged.append(result.getResult().trim());
+        }
+        return merged.toString();
     }
 
     static IntentGraph buildGraphFromAnalysis(String question, TaskAnalysisResult analysis) {
@@ -267,9 +310,10 @@ public class RouteExecutionService {
             String description = rawNode.description();
             String intent = rawNode.intent();
 
-            boolean explainOrderPreparation = isOrderPreparationQuestion(intent, description)
-                    || (analysis.isNeedsClarification()
-                    && isStateChangingOrderIntent(intent, description));
+            String operation = normalizeDeclaredOperation(subIntent.get("operation"),
+                    subIntent.get("target_agent"), analysis.getIntentCategory());
+            boolean explainOrderPreparation = "EXPLAIN_ORDER_REQUIREMENTS".equals(operation)
+                    || (analysis.isNeedsClarification() && "CREATE_ORDER".equals(operation));
             if (explainOrderPreparation) {
                 description = "说明后续下单所需信息（只说明，不执行）：明确列出具体商品及金额、"
                         + "收货人姓名、联系电话、收货地址；用户ID由登录态提供，商品类型可选。"
@@ -277,7 +321,7 @@ public class RouteExecutionService {
             }
             ExecutionPlan.Domain domain = explainOrderPreparation
                     ? ExecutionPlan.Domain.BUILTIN_ORDER_PREPARATION
-                    : resolveSubIntentDomain(intent, description);
+                    : resolveDeclaredDomain(subIntent.get("target_agent"), analysis.getIntentCategory());
             String agent = domain.agentName();
             List<String> dependencies = resolveSubIntentDependencies(
                     subIntent.get("depends_on"), dependencyAliases);
@@ -286,10 +330,10 @@ public class RouteExecutionService {
 
             String scopedDescription = buildScopedDescription(
                     description, agent, question, analysis.getActionConstraints());
-            ExecutionPlan.AccessMode accessMode = isStateChangingOrderIntent(intent, description)
-                    && !explainOrderPreparation
+            ExecutionPlan.AccessMode accessMode = !explainOrderPreparation
+                    && ("WRITE".equalsIgnoreCase(Objects.toString(subIntent.get("access_mode"), ""))
+                    || isWriteOperation(operation))
                     ? ExecutionPlan.AccessMode.WRITE : ExecutionPlan.AccessMode.READ;
-            String operation = normalizeOperation(intent, domain);
             boolean approvalRequired = booleanValue(subIntent.get("human_approval_required"))
                     || requiresApproval(operation, analysis.getRiskFlags());
             String idempotencyKey = accessMode == ExecutionPlan.AccessMode.WRITE
@@ -305,10 +349,8 @@ public class RouteExecutionService {
                     approvalRequired, criteria, ExecutionPlan.MergePolicy.APPEND));
         }
 
-        return nodes.size() > 1
-                ? new ExecutionPlan(effectiveExecutionId, question,
-                analysis.getActionConstraints(), nodes)
-                : null;
+        return nodes.isEmpty() ? null : new ExecutionPlan(effectiveExecutionId, question,
+                analysis.getActionConstraints(), nodes);
     }
 
     private static String buildScopedDescription(String description, String agent,
@@ -316,7 +358,7 @@ public class RouteExecutionService {
         // Product is a read-only domain. Its deterministic discovery/RAG layer treats the
         // incoming text as the actual search query, so orchestration prose must never leak in.
         if ("product".equals(agent)) {
-            return description;
+            return description + "\n\n[用户原始商品需求与约束]\n" + question;
         }
         StringBuilder scoped = new StringBuilder("仅执行这个子任务：").append(description);
         if ("general".equals(agent)) {
@@ -356,43 +398,19 @@ public class RouteExecutionService {
                 .collect(java.util.stream.Collectors.joining("\n\n"));
     }
 
-    private static boolean isOrderPreparationQuestion(String intent, String description) {
-        String normalizedIntent = intent != null ? intent.toUpperCase(Locale.ROOT) : "";
-        String value = (intent + " " + description).toUpperCase(Locale.ROOT);
-        boolean orderRelated = value.contains("ORDER") || value.contains("订单") || value.contains("下单");
-        boolean intentAsksForRequirements = normalizedIntent.contains("ORDER_INFO")
-                || normalizedIntent.contains("ORDER_REQUIRE")
-                || normalizedIntent.contains("ORDER_PREPARATION");
-        boolean descriptionAsksForRequirements = value.contains("还缺")
-                || value.contains("需要准备") || value.contains("准备什么")
-                || value.contains("哪些信息") || value.contains("哪些资料")
-                || value.contains("所需信息") || value.contains("所需资料")
-                || value.contains("下单要求");
-        boolean asksForRequirements = intentAsksForRequirements || descriptionAsksForRequirements;
-        return orderRelated && asksForRequirements;
-    }
-
-    private static boolean isStateChangingOrderIntent(String intent, String description) {
-        String value = (intent + " " + description).toUpperCase(Locale.ROOT);
-        return value.contains("CREATE_ORDER") || value.contains("PAY_ORDER")
-                || value.contains("REFUND") || value.contains("CANCEL_ORDER")
-                || value.contains("创建订单") || value.contains("支付订单")
-                || value.contains("申请退款") || value.contains("取消订单")
-                || (value.contains("下单") && !isOrderPreparationQuestion(intent, description));
-    }
-
-    private static ExecutionPlan.Domain resolveSubIntentDomain(String intent, String description) {
-        String value = (intent + " " + description).toUpperCase(Locale.ROOT);
-        if (value.contains("ORDER") || value.contains("REFUND") || value.contains("PAY")
-                || value.contains("CANCEL") || value.contains("订单") || value.contains("下单")
-                || value.contains("退款") || value.contains("支付") || value.contains("取消")) {
-            return ExecutionPlan.Domain.ORDER;
-        }
-        if (value.contains("PRODUCT") || value.contains("商品") || value.contains("产品")
-                || value.contains("库存") || value.contains("热门")) {
-            return ExecutionPlan.Domain.PRODUCT;
-        }
-        return ExecutionPlan.Domain.GENERAL;
+    private static ExecutionPlan.Domain resolveDeclaredDomain(Object targetAgent,
+                                                               String intentCategory) {
+        String declared = Objects.toString(targetAgent, "").trim().toLowerCase(Locale.ROOT);
+        return switch (declared) {
+            case "product" -> ExecutionPlan.Domain.PRODUCT;
+            case "order" -> ExecutionPlan.Domain.ORDER;
+            case "general" -> ExecutionPlan.Domain.GENERAL;
+            default -> switch (Objects.toString(intentCategory, "").trim().toUpperCase(Locale.ROOT)) {
+                case "PRODUCT" -> ExecutionPlan.Domain.PRODUCT;
+                case "ORDER" -> ExecutionPlan.Domain.ORDER;
+                default -> ExecutionPlan.Domain.GENERAL;
+            };
+        };
     }
 
     private static List<String> resolveSubIntentDependencies(
@@ -438,21 +456,28 @@ public class RouteExecutionService {
         }
     }
 
-    private static String normalizeOperation(String intent, ExecutionPlan.Domain domain) {
-        String normalized = intent == null ? "" : intent.trim().toUpperCase(Locale.ROOT)
-                .replaceAll("[^A-Z0-9_]+", "_");
-        if (!normalized.isBlank()) return normalized;
-        return switch (domain) {
+    private static String normalizeDeclaredOperation(Object operation, Object targetAgent,
+                                                     String intentCategory) {
+        String declared = Objects.toString(operation, "").trim().toUpperCase(Locale.ROOT);
+        Set<String> allowed = Set.of("QUERY_PRODUCT", "QUERY_ORDER", "CREATE_ORDER",
+                "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER", "ANSWER",
+                "EXPLAIN_ORDER_REQUIREMENTS", "EXPLAIN_ORDER_LIFECYCLE");
+        if (allowed.contains(declared)) return declared;
+        return switch (resolveDeclaredDomain(targetAgent, intentCategory)) {
             case PRODUCT -> "QUERY_PRODUCT";
             case ORDER -> "QUERY_ORDER";
-            case GENERAL -> "GENERAL_QUERY";
+            case GENERAL -> "ANSWER";
             case BUILTIN_ORDER_PREPARATION -> "EXPLAIN_ORDER_REQUIREMENTS";
         };
     }
 
+    private static boolean isWriteOperation(String operation) {
+        return Set.of("CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER")
+                .contains(operation);
+    }
+
     private static boolean requiresApproval(String operation, List<String> riskFlags) {
-        String value = operation != null ? operation.toUpperCase(Locale.ROOT) : "";
-        if (value.contains("PAY") || value.contains("REFUND") || value.contains("CANCEL")) return true;
+        if (Set.of("PAY_ORDER", "REFUND_ORDER", "CANCEL_ORDER").contains(operation)) return true;
         return riskFlags != null && riskFlags.stream().filter(Objects::nonNull)
                 .anyMatch(flag -> flag.contains("二次确认") || flag.contains("人工审批"));
     }

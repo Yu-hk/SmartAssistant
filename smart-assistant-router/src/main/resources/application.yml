@@ -66,7 +66,7 @@ spring:
       map-underscore-to-camel-case: true  # 自动转换下划线到驼峰
       log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl  # 启用 SQL 日志
 
-  # ⭐ 禁用 DashScope 自动配置（使用本地 Ollama 不需要 DashScope API Key）
+  # 禁用未使用的 DashScope 自动配置（Router 直连 DeepSeek API）。
   autoconfigure:
     exclude:
       - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration
@@ -87,7 +87,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY}
       chat:
         options:
-          model: ${DEEPSEEK_CHAT_MODEL:deepseek-chat}
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-v4-flash}
           temperature: 0.1
 
     alibaba:
@@ -116,16 +116,16 @@ tool-registry:
 
 # ⭐ G3 Tier 多模型路由配置（统一模型接入层）
 # 前缀 `tier` → 绑定 common.TieredModelRouterProperties
-# 本地环境三档可指向同一 Ollama 实例的不同模型名；云端 heavy 可指向 DeepSeek/GPT 等强模型
+# 默认使用 DeepSeek V4：LIGHT/STANDARD 走 Flash，HEAVY 走 Pro。
 tier:
   light:
-    model: ${DEEPSEEK_LIGHT_MODEL:deepseek-chat}
+    model: ${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}
     temperature: 0.1
   standard:
-    model: ${DEEPSEEK_STANDARD_MODEL:deepseek-chat}
+    model: ${DEEPSEEK_STANDARD_MODEL:deepseek-v4-flash}
     temperature: 0.3
   heavy:
-    model: ${DEEPSEEK_REASONING_MODEL:deepseek-reasoner}
+    model: ${DEEPSEEK_REASONING_MODEL:deepseek-v4-pro}
     temperature: 0.2
   # 意图维度覆盖：命中这些意图标签时强制升档到指定 tier（绕过复杂度分类）
   intent-overrides:
@@ -134,11 +134,10 @@ tier:
   degradation-enabled: true  # 启用平滑降级（HEAVY→STANDARD→LIGHT，LIGHT 永为兜底）
 
   # ⭐ 灰度发布（canary）：安全试接新模型
-  # 按比例切流到 canary-model（如本地混元 alibayram/hunyuan），命中灰度的请求优先走新模型，
+  # 按比例切流到 canary-model，命中灰度的请求优先走新模型，
   # 失败自动回退到上述三档降级链，不影响整体可用性。
-  # 前置：先 `ollama pull alibayram/hunyuan`；将 canary-ratio 调到 0.1 即让 10% 流量试用混元。
   canary-ratio: 0.0                  # 0.0=关闭；0.1=10% 流量试接新模型；1.0=全量新模型
-  canary-model: alibayram/hunyuan    # 灰度模型名（Ollama 本地模型 tag）
+  canary-model: deepseek-v4-pro      # 灰度模型名
   canary-temperature: 0.3            # 灰度模型温度
 
 # JWT 配置（与 Consumer Service 保持一致）
@@ -158,6 +157,17 @@ nacos:
 
 # Router 配置
 router:
+  task-analysis:
+    enabled: true
+    # 当前用户原始提问达到该长度时使用 V4 Pro，否则使用 V4 Flash。
+    pro-min-chars: ${DEEPSEEK_PRO_MIN_CHARS:${DEEPSEEK_REASONER_MIN_CHARS:160}}
+    # 每个请求只使用按长度选中的一个模型；失败后进入有界任务规划，不串行等待第二个模型。
+    pro-timeout-ms: ${DEEPSEEK_PRO_TIMEOUT_MS:35000}
+    flash-timeout-ms: ${DEEPSEEK_FLASH_TIMEOUT_MS:30000}
+  task-planner:
+    timeout-ms: ${DEEPSEEK_TASK_PLANNER_TIMEOUT_MS:35000}
+    max-tokens: ${DEEPSEEK_TASK_PLANNER_MAX_TOKENS:2048}
+
   # ⭐ Agent 发现配置（消除硬编码）
   agent-discovery:
     enabled: true  # 是否启用自动发现

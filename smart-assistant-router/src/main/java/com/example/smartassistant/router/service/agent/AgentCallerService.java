@@ -127,7 +127,7 @@ public class AgentCallerService {
 
     /**
      * ⭐ 获取可用 Agent 数量。
-     * 当无任何 Agent 注册时，Router 直接使用内联 Ollama 兜底。
+     * 当无任何 Agent 注册时，Router 使用 DeepSeek API 的内联模型兜底。
      */
     public int getAvailableAgentCount() {
         try {
@@ -195,10 +195,29 @@ public class AgentCallerService {
 
         // ⭐ 结构化抽取标题/标签（对标 OrderIntentService.entity() 约定），
         // 替代原先 realTitles 恒为空的 no-op 实现。
-        ExtractedTitles extracted = supportsTitleExtraction(agentName)
-                ? extractTitles(result) : ExtractedTitles.EMPTY;
+        ExtractedTitles extracted = extractStructuredProductTitles(detailed.getData());
+        if (extracted.titles().isEmpty() && supportsTitleExtraction(agentName)) {
+            extracted = extractTitles(result);
+        }
         return new AgentCallResult(result, extracted.titles(), extracted.tagsByTitle(),
-                detailed.getDomainQuality());
+                detailed.getDomainQuality(), detailed.getData());
+    }
+
+    /** Uses Agent protocol data before spending another model call on title extraction. */
+    private static ExtractedTitles extractStructuredProductTitles(Map<String, Object> data) {
+        if (data == null || !(data.get("products") instanceof java.util.Collection<?> products)) {
+            return ExtractedTitles.EMPTY;
+        }
+        java.util.LinkedHashSet<String> titles = new java.util.LinkedHashSet<>();
+        for (Object product : products) {
+            if (!(product instanceof Map<?, ?> values)) continue;
+            Object title = values.get("name");
+            if (title == null || title.toString().isBlank()) title = values.get("code");
+            if (title != null && !title.toString().isBlank()) titles.add(title.toString().trim());
+        }
+        return titles.isEmpty()
+                ? ExtractedTitles.EMPTY
+                : new ExtractedTitles(new java.util.ArrayList<>(titles), Map.of());
     }
 
     private AgentCallResult callAgentExecutionFallback(String agentName,
@@ -399,7 +418,10 @@ public class AgentCallerService {
                         protocolRequest.protocolVersion(), protocolRequest.executionId(), protocolRequest.nodeId(),
                         protocolRequest.userId(), protocolRequest.operation(), protocolRequest.question(),
                         protocolRequest.input(), protocolRequest.contextRefs(), protocolRequest.constraints(),
-                        protocolRequest.deadlineEpochMs(), protocolRequest.idempotencyKey(), null);
+                        protocolRequest.deadlineEpochMs(), protocolRequest.idempotencyKey(), null,
+                        protocolRequest.predecessorOutputs(), protocolRequest.workflowKey(),
+                        protocolRequest.workflowVersion(), protocolRequest.workflowChecksum(),
+                        protocolRequest.attempt(), protocolRequest.traceId());
             }
             String jsonBody = objectMapper.writeValueAsString(protocolRequest);
 
@@ -459,7 +481,8 @@ public class AgentCallerService {
 
             log.info("[AgentCaller] HTTP 直调成功: agent={}, status={}, resultLength={}, domainQuality={}",
                     agentName, response.getStatusCode(), result.length(), domainQuality.getStatus());
-            return new AgentCallResult(result, List.of(), Map.of(), domainQuality);
+            return new AgentCallResult(result, List.of(), Map.of(), domainQuality,
+                    protocolResponse != null ? protocolResponse.data() : Map.of());
 
         } catch (Exception e) {
             TokenUsageCache.markIncomplete(requestId);

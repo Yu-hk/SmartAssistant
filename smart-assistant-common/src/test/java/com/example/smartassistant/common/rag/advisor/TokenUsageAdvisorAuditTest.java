@@ -34,7 +34,7 @@ class TokenUsageAdvisorAuditTest {
         ChatClientRequest request = mock(ChatClientRequest.class);
         ChatClientResponse response = responseWithUsage(12, 34, 46);
         ChatResponse chatResponse = response.chatResponse();
-        when(chatResponse.getMetadata().getModel()).thenReturn("deepseek-chat");
+        when(chatResponse.getMetadata().getModel()).thenReturn("deepseek-v4-flash");
         Prompt prompt = mock(Prompt.class);
         when(request.prompt()).thenReturn(prompt);
         when(prompt.getContents()).thenReturn("plan a trip");
@@ -47,7 +47,7 @@ class TokenUsageAdvisorAuditTest {
         ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
         verify(publisher).publishEvent(captor.capture());
         AiAuditEvent event = (AiAuditEvent) captor.getValue();
-        assertEquals("deepseek-chat", event.model());
+        assertEquals("deepseek-v4-flash", event.model());
         assertEquals("deepseek", event.provider());
         assertEquals(12, event.promptTokens());
         assertEquals(34, event.completionTokens());

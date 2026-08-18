@@ -5,6 +5,7 @@
 # IDE
 .idea/
 .vscode/
+.vs/
 .codebuddy/
 *.iml
 *.ipr
@@ -88,10 +89,15 @@ post_result*.json
 
 # WorkBuddy session data (do not commit)
 .workbuddy/
+.codex-output/
 
 # Lingma local config
 .lingma/
 cp.txt
+
+# Duplicate root-level eval output; the maintained baseline lives under
+# smart-assistant-common/src/test/resources/.
+/src/test/resources/eval-baseline.json
 
 # BGE ONNX model files (large binary, ~95MB-1.2GB)
 models/*.onnx

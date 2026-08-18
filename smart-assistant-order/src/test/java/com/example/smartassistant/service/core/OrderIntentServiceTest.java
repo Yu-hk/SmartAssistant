@@ -39,4 +39,46 @@ class OrderIntentServiceTest {
 
         assertEquals(OrderIntentService.IntentType.REFUND, service.detect("帮我退款"));
     }
+
+    @Test
+    void lifecycleExplanationIsReadOnlyGuidanceWithoutCallingLlm() {
+        AiChatService aiChatService = mock(AiChatService.class);
+        OrderIntentService service = new OrderIntentService(
+                aiChatService, mock(ChatModel.class), mock(PromptManager.class));
+
+        assertEquals(OrderIntentService.IntentType.ORDER_GUIDANCE,
+                service.detect("请说明下单后如何查询订单、取消订单和申请售后"));
+        assertEquals(OrderIntentService.IntentType.ORDER_GUIDANCE,
+                service.detect("请说明如何查询订单、取消订单和申请退款"));
+        assertEquals(OrderIntentService.IntentType.REFUND_POLICY,
+                service.detect("退款多久到账？"));
+        verifyNoInteractions(aiChatService);
+    }
+
+    @Test
+    void preOrderChecklistIsReadOnlyGuidanceWithoutCallingLlm() {
+        AiChatService aiChatService = mock(AiChatService.class);
+        OrderIntentService service = new OrderIntentService(
+                aiChatService, mock(ChatModel.class), mock(PromptManager.class));
+
+        assertEquals(OrderIntentService.IntentType.ORDER_PREPARATION_GUIDANCE,
+                service.detect("说明创建订单前需要确认哪些信息，但不要执行下单"));
+        assertEquals(OrderIntentService.IntentType.ORDER_PREPARATION_GUIDANCE,
+                service.detect("说明创建订单前需确认的信息（不执行下单、不创建测试订单）"));
+        verifyNoInteractions(aiChatService);
+    }
+
+    @Test
+    void concreteOrderIdKeepsOperationalClassification() {
+        AiChatService aiChatService = mock(AiChatService.class);
+        ChatModel model = mock(ChatModel.class);
+        PromptManager promptManager = mock(PromptManager.class);
+        when(promptManager.orderIntentClassifier()).thenReturn("classify");
+        when(aiChatService.entity(any(), anyString(), anyString(), any()))
+                .thenReturn(new OrderIntentService.IntentResult(OrderIntentService.IntentType.CANCEL));
+        OrderIntentService service = new OrderIntentService(aiChatService, model, promptManager);
+
+        assertEquals(OrderIntentService.IntentType.CANCEL,
+                service.detect("怎么取消订单 ORD-20260818-1"));
+    }
 }

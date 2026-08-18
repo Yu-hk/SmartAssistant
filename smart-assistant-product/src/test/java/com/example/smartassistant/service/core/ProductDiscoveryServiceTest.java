@@ -30,4 +30,17 @@ class ProductDiscoveryServiceTest {
                 .contains("iPhone 15 Pro")
                 .doesNotContain("数据库中未找到");
     }
+
+    @Test
+    void scenarioSpecificDiscoveryStatesEvidenceBoundary() {
+        ProductDiscoveryService.DiscoveryResult result = service.discover(
+                "查询适合十五人办公室和视频会议使用的热门商品，并比较适用场景", 3);
+
+        assertThat(result.scenarioEvidenceLimited()).isTrue();
+        assertThat(result.answer())
+                .contains("不能把热度直接等同于适合")
+                .contains("场景适配：现有目录证据不足")
+                .contains("摄像头、麦克风")
+                .contains("不应把上述候选表述为最终推荐");
+    }
 }

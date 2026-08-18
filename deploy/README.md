@@ -2,15 +2,15 @@
 
 ## 推荐云服务器配置
 
-SmartAssistant 包含 8 个微服务 + Ollama 本地 LLM + PostgreSQL + Redis + Nacos，最低推荐配置：
+SmartAssistant 包含 8 个微服务，并使用 DeepSeek API、PostgreSQL、Redis 与 Nacos，最低推荐配置：
 
 | 配置等级 | 规格 | 适用场景 | 参考价格（月） |
 |----------|------|----------|----------------|
-| **入门** | 4 核 8G RAM / 80G SSD | 低流量测试/演示，CPU 推理较慢 | ¥80-120 |
-| **推荐** | 4 核 16G RAM / 120G SSD | 正常使用，5-10 并发用户 | ¥150-250 |
-| **生产** | 8 核 16G RAM / 200G SSD + GPU (T4/A10) | 高并发，GPU 加速推理 | ¥500+ |
+| **入门** | 2 核 4G RAM / 60G SSD | 低流量测试/演示 | ¥50-100 |
+| **推荐** | 4 核 8G RAM / 100G SSD | 正常使用，5-10 并发用户 | ¥100-200 |
+| **生产** | 8 核 16G RAM / 200G SSD | 高并发与完整可观测能力 | ¥300+ |
 
-> **磁盘注意**: Ollama deepseek-r1:7b 模型约 4.7GB，BGE ONNX 模型约 1.2GB，请确保有足够空间。
+> **磁盘注意**：项目不再存放本地大语言模型；仍需为镜像、日志和向量索引预留空间。
 
 ### 推荐云厂商
 
@@ -30,9 +30,9 @@ SmartAssistant 包含 8 个微服务 + Ollama 本地 LLM + PostgreSQL + Redis + 
                         ├── /healthz → Gateway /actuator/health
                         └── /* → 前端静态文件 (frontend/dist/)
 
-Gateway → Nacos 服务发现 → User / Consumer / Router / Order / Product / General / Embedding
+Gateway → Nacos 服务发现 → User / Consumer / Router / Tool Registry / Order / Product / Embedding
 
-基础设施：PostgreSQL / Redis / Ollama / Zipkin
+基础设施：PostgreSQL / Redis / Nacos / Zipkin；LLM 通过 DeepSeek API 调用
 ```
 
 ---
@@ -102,7 +102,7 @@ vim .env
 ```bash
 cd /home/user/SmartAssistant/deploy
 
-# 首次启动（会自动拉取 Ollama 模型，耗时较长）
+# 首次启动
 docker compose --env-file .env up -d
 
 # 查看启动进度
@@ -177,12 +177,11 @@ sudo systemctl enable --now smart-assistant-cert-renew.timer
 | Product | 8084 | ❌ | 商品智能体 |
 | Order | 8085 | ❌ | 订单智能体 |
 | User | 8086 | ❌ | 用户认证 |
-| General | 8087 | ❌ | 通用对话 |
+| Tool Registry | 8088 | ❌ | 工具注册与发现 |
 | Embedding | 8091 | ❌ | 向量嵌入服务 |
 | Nacos | 8848 | ❌ | 服务注册 |
 | Redis | 6379 | ❌ | 缓存 |
 | PostgreSQL | 5432 | ❌ | 数据库 |
-| Ollama | 11434 | ❌ | 本地 LLM |
 | Zipkin | 9411 | ❌ | 链路追踪 |
 
 ---
@@ -226,9 +225,8 @@ docker compose up -d smart-router
 | Redis | - | ~50MB |
 | Nacos | 512M | ~350MB |
 | PostgreSQL | - | ~200MB |
-| Ollama | - | **4-8GB** (7B 模型) |
 | 8 x 后端服务 | 各 512M | ~2GB 总计 |
-| **总计** | | **~7-10GB** |
+| **总计** | | **~3-5GB** |
 
 ---
 
@@ -245,10 +243,10 @@ docker compose up -d smart-router
 - 确认密码正确：检查 `.env` 中的 `NACOS_PASSWORD`
 - 检查网络：`docker exec smart-gateway ping smart-nacos`
 
-### Ollama 模型拉取失败
-- 检查磁盘空间：`df -h`
-- 手动拉取：`docker exec smart-ollama ollama pull deepseek-r1:7b`
-- 查看日志：`docker compose logs smart-ollama-setup`
+### DeepSeek 调用失败
+- 确认 `.env` 中 `DEEPSEEK_API_KEY` 已设置且有效
+- 检查 Router/Consumer 日志中的 HTTP 状态码和模型名称
+- 确认服务器可以访问 DeepSeek API
 
 ### 前端页面空白
 - 确认 `frontend/dist/` 存在且有内容

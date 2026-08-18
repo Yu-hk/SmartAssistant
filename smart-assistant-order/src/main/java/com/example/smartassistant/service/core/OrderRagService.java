@@ -80,6 +80,8 @@ public class OrderRagService {
         return switch (intent) {
             case QUERY_ORDER -> retrieveForQualityResult(message, "订单");
             case REFUND_POLICY -> retrieveRefundPolicy(message);
+            case ORDER_PREPARATION_GUIDANCE -> retrieveOrderPreparationGuidance();
+            case ORDER_GUIDANCE -> retrieveOrderGuidance();
             case REFUND -> retrieveForQualityResult(message, "退款");
             case CREATE_ORDER -> RetrievalQualityResult.highQuality(
                     "【下单引导】请让用户提供以下信息：\n• 商品名称\n• 购买数量\n• 收货人姓名、电话、地址\n• 支付方式\n确认信息后调用 createOrder 创建订单。",
@@ -141,6 +143,38 @@ public class OrderRagService {
             content = content.substring("【退款与退货政策】".length()).stripLeading();
         }
         return "根据当前退货退款政策：\n" + content;
+    }
+
+    /**
+     * 返回不依赖具体订单号的只读订单生命周期指南。这里不调用执行型工具，
+     * 也不把“如何操作”误解释成“现在替用户操作”。
+     */
+    private RetrievalQualityResult retrieveOrderGuidance() {
+        return RetrievalQualityResult.highQuality("""
+                【订单生命周期操作说明】
+                1. 查询订单：登录当前账号后进入订单记录，选择目标订单查看状态、金额和物流；需要精确查询时提供订单号。
+                2. 取消订单：先确认订单号和当前状态。通常仅待付款或待发货订单可取消，实际是否可取消以订单实时状态为准；执行前必须再次确认。
+                3. 申请售后：准备订单号、问题描述、售后类型及必要凭证；退款或退货条件、处理时效以当前售后政策和订单状态为准，提交前必须再次确认。
+                4. 查看退款进度：进入目标订单的售后/退款记录查看审核、退货、退款处理中或退款完成等状态；需要精确查询时提供订单号或售后单号，到账时间以支付渠道实际处理为准。
+                5. 安全边界：仅咨询流程不会创建、取消或退款任何订单，也不会补造地址、金额、支付信息或订单号。""", 1.0);
+    }
+
+    private RetrievalQualityResult retrieveOrderPreparationGuidance() {
+        return RetrievalQualityResult.highQuality("""
+                【下单前信息清单】
+                1. 商品：具体商品、规格/型号、数量，以及可核验的成交价格。
+                2. 收货：收货人姓名、联系电话、完整收货地址。
+                3. 交易：支付方式；如需发票，再确认发票类型与抬头信息。
+                4. 最终确认：提交前再次核对商品、金额、库存和收货信息。
+                5. 安全边界：当前仅说明所需信息，不会执行下单，也不会创建测试订单；不得替用户补造缺失参数。""", 1.0);
+    }
+
+    public String buildOrderGuidanceAnswer(RetrievalQualityResult result) {
+        if (result == null || result.isRejected()
+                || result.getContent() == null || result.getContent().isBlank()) {
+            return "当前订单操作指南暂不可用，请稍后重试。";
+        }
+        return result.getContent().trim();
     }
 
     /**

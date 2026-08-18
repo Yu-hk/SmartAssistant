@@ -33,6 +33,7 @@ public final class ToolLogContext {
     public static final String MDC_KEY = "toolRequestId";
 
     private static final ThreadLocal<String> REQUEST_ID = new InheritableThreadLocal<>();
+    private static final ThreadLocal<String> IDEMPOTENCY_KEY = new InheritableThreadLocal<>();
 
     /** Prevents the aspect and AgentToolExecutor from auditing one call twice. */
     private static final ThreadLocal<Integer> EXECUTOR_MANAGED_DEPTH =
@@ -64,6 +65,19 @@ public final class ToolLogContext {
         return id;
     }
 
+    /** Sets the workflow write idempotency key propagated by the Router. */
+    public static void setIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            IDEMPOTENCY_KEY.remove();
+        } else {
+            IDEMPOTENCY_KEY.set(idempotencyKey);
+        }
+    }
+
+    public static String getIdempotencyKey() {
+        return IDEMPOTENCY_KEY.get();
+    }
+
     public static void enterExecutorManagedCall() {
         EXECUTOR_MANAGED_DEPTH.set(EXECUTOR_MANAGED_DEPTH.get() + 1);
     }
@@ -86,6 +100,7 @@ public final class ToolLogContext {
      */
     public static void clear() {
         REQUEST_ID.remove();
+        IDEMPOTENCY_KEY.remove();
         EXECUTOR_MANAGED_DEPTH.remove();
         MDC.remove(MDC_KEY);
     }

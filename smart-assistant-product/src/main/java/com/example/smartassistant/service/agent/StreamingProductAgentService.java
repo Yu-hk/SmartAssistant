@@ -126,7 +126,9 @@ public class StreamingProductAgentService {
                     stageTraceRecorder.save(rid);
                 }
                 DomainQualityResult quality = discovery.productCount() > 0
-                        ? DomainQualityResult.pass(1.0, "PRODUCT_DISCOVERY_DATA")
+                        ? discovery.scenarioEvidenceLimited()
+                            ? DomainQualityResult.warn(0.7, "PRODUCT_SCENARIO_EVIDENCE_LIMITED")
+                            : DomainQualityResult.pass(1.0, "PRODUCT_DISCOVERY_DATA")
                         : DomainQualityResult.warn(0.5, "EMPTY_PRODUCT_CATALOG");
                 return DomainAgentResponse.of(discovery.answer(), quality);
             }
