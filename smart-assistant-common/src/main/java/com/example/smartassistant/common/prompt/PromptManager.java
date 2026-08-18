@@ -34,9 +34,8 @@ import java.util.stream.Collectors;
  * ├── product/product-system-prompt.txt
  * ├── order/order-system-prompt.txt
  * ├── router/
- * │   ├── inline-fallback.txt           # 内联兜底 warmSystem
- * │   ├── result-merger.txt             # 结果合并
- * │   └── task-analysis.txt             # 任务分析
+ * │   ├── rag-summary.txt               # RAG 对话摘要
+ * │   └── rag-entity.txt                # RAG 实体提取
  * ├── consumer/
  * │   └── mcp-agent.txt                 # MCP Agent
  * └── common/
@@ -134,26 +133,6 @@ public class PromptManager {
     // ═══════════════════════════════════════════════════════════
     // 便捷加载方法
     // ═══════════════════════════════════════════════════════════
-
-    /** 加载内联兜底 Prompt */
-    public String inlineFallback() {
-        return load("prompts/router/inline-fallback.txt");
-    }
-
-    /** 加载结果合并 Prompt */
-    public String resultMerger() {
-        return load("prompts/router/result-merger.txt");
-    }
-
-    /** 加载任务分析 Prompt */
-    public String taskAnalysis() {
-        return load("prompts/router/task-analysis.txt");
-    }
-
-    /** 加载质量评估 Prompt */
-    public String qualityEvaluation() {
-        return load("prompts/router/quality-evaluation.txt");
-    }
 
     /** 加载 RAG 对话摘要 Prompt */
     public String ragSummary() {

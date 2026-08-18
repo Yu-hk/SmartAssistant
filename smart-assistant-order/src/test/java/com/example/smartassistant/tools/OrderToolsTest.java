@@ -10,6 +10,7 @@ package com.example.smartassistant.tools;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.idempotent.TaskLogService;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
+import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
 import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
@@ -22,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -209,6 +211,26 @@ class OrderToolsTest {
         assertTrue(result.contains("检测到重复的订单创建请求"),
                 "Should warn about duplicate order creation request");
         verify(orderData).insertOrder(any(OrderDTO.class));
+    }
+
+    @Test
+    @DisplayName("createOrder should use propagated workflow idempotency key")
+    void should_keepWriteIdentity_when_retryPayloadChanges() {
+        ToolLogContext.setIdempotencyKey("workflow-order-001");
+        try {
+            orderTools.createOrder(1L, "降噪耳机", new BigDecimal("599.00"),
+                    "张三", "13800138000", "北京市朝阳区", null);
+            orderTools.createOrder(1L, "降噪耳机", new BigDecimal("599.00"),
+                    "张三", "13800138000", "北京市海淀区", null);
+        } finally {
+            ToolLogContext.clear();
+        }
+
+        ArgumentCaptor<String> requestIds = ArgumentCaptor.forClass(String.class);
+        verify(taskLogService, times(2)).executeIfNotDone(
+                requestIds.capture(), eq("order:create"), anyString(), any());
+        assertEquals(requestIds.getAllValues().get(0), requestIds.getAllValues().get(1));
+        assertTrue(requestIds.getValue().startsWith("idem-createOrder-"));
     }
 
     // ==================== payOrder ====================

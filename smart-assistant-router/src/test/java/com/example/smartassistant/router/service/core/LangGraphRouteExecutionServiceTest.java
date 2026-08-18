@@ -54,12 +54,14 @@ class LangGraphRouteExecutionServiceTest {
     void executesValidGraphAsNativeNodesAndPreservesResults() {
         IntentGraph graph = graphWithSingleNode();
         SubTaskResult expected = result("task_1", "product_agent", "商品结果");
-        when(nodeExecutor.execute(any(), anyMap(), any(), eq(7L), eq("events"), eq("request")))
+        when(nodeExecutor.execute(any(), anyMap(), any(), eq(7L), eq("events"), eq("request"),
+                any(), any(), any()))
                 .thenReturn(expected);
 
         assertThat(service.execute(graph, 7L, "events", "request"))
                 .containsExactly(expected);
-        verify(nodeExecutor).execute(any(), anyMap(), any(), eq(7L), eq("events"), eq("request"));
+        verify(nodeExecutor).execute(any(), anyMap(), any(), eq(7L), eq("events"), eq("request"),
+                any(), any(), any());
     }
 
     @Test
@@ -69,7 +71,8 @@ class LangGraphRouteExecutionServiceTest {
                         List.of("missing_task"))));
 
         assertThat(service.execute(invalid, 7L, null, "invalid")).isEmpty();
-        verify(nodeExecutor, never()).execute(any(), anyMap(), any(), any(), any(), any());
+        verify(nodeExecutor, never()).execute(any(), anyMap(), any(), any(), any(), any(),
+                any(), any(), any());
     }
 
     @Test
@@ -81,7 +84,8 @@ class LangGraphRouteExecutionServiceTest {
         CountDownLatch entered = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
         ConcurrentHashMap<String, Long> times = new ConcurrentHashMap<>();
-        when(nodeExecutor.execute(any(), anyMap(), any(), any(), any(), any()))
+        when(nodeExecutor.execute(any(), anyMap(), any(), any(), any(), any(),
+                any(), any(), any()))
                 .thenAnswer(invocation -> {
                     IntentGraph.IntentNode node = invocation.getArgument(0);
                     if (!"c".equals(node.getId())) {
@@ -114,7 +118,8 @@ class LangGraphRouteExecutionServiceTest {
                     assertThat(result.getAgentName()).isEqualTo("builtin_approval");
                     assertThat(result.getResult()).contains("明确确认");
                 });
-        verify(nodeExecutor, never()).execute(any(), anyMap(), any(), any(), any(), any());
+        verify(nodeExecutor, never()).execute(any(), anyMap(), any(), any(), any(), any(),
+                any(), any(), any());
     }
 
     @Test
@@ -122,7 +127,8 @@ class LangGraphRouteExecutionServiceTest {
         IntentGraph.IntentNode approval = new IntentGraph.IntentNode(
                 "pay", "支付订单", "order", List.of(), null, List.of(), true);
         IntentGraph graph = new IntentGraph("pay", List.of(approval));
-        when(nodeExecutor.execute(any(), anyMap(), any(), eq(1L), any(), eq("approved-request")))
+        when(nodeExecutor.execute(any(), anyMap(), any(), eq(1L), any(), eq("approved-request"),
+                any(), any(), any()))
                 .thenAnswer(invocation -> {
                     IntentGraph.IntentNode restored = invocation.getArgument(0);
                     assertThat(restored.getId()).isEqualTo("pay");
@@ -134,7 +140,8 @@ class LangGraphRouteExecutionServiceTest {
         assertThat(service.resumeApproved(1L, "approved-request"))
                 .extracting(SubTaskResult::getTaskId)
                 .containsExactly("pay");
-        verify(nodeExecutor).execute(any(), anyMap(), any(), eq(1L), any(), eq("approved-request"));
+        verify(nodeExecutor).execute(any(), anyMap(), any(), eq(1L), any(), eq("approved-request"),
+                any(), any(), any());
     }
 
     @Test
@@ -148,7 +155,8 @@ class LangGraphRouteExecutionServiceTest {
         assertThatThrownBy(() -> service.resumeApproved(2L, "owned-approval"))
                 .isInstanceOf(SecurityException.class)
                 .hasMessageContaining("authenticated user");
-        verify(nodeExecutor, never()).execute(any(), anyMap(), any(), any(), any(), any());
+        verify(nodeExecutor, never()).execute(any(), anyMap(), any(), any(), any(), any(),
+                any(), any(), any());
     }
 
     @Test
@@ -158,7 +166,8 @@ class LangGraphRouteExecutionServiceTest {
         IntentGraph.IntentNode replacement = new IntentGraph.IntentNode(
                 "write_retry", "修正并创建订单", "order", List.of());
         IntentGraph graph = new IntentGraph("create", List.of(approval));
-        when(nodeExecutor.execute(any(), anyMap(), any(), eq(1L), any(), eq("approved-replan")))
+        when(nodeExecutor.execute(any(), anyMap(), any(), eq(1L), any(), eq("approved-replan"),
+                any(), any(), any()))
                 .thenAnswer(invocation -> {
                     IntentGraph.IntentNode node = invocation.getArgument(0);
                     if ("write".equals(node.getId())) {
@@ -177,7 +186,7 @@ class LangGraphRouteExecutionServiceTest {
                 .containsExactly("write", "write_retry");
         verify(nodeExecutor, times(1)).execute(
                 org.mockito.ArgumentMatchers.argThat(node -> "write".equals(node.getId())),
-                anyMap(), any(), eq(1L), any(), eq("approved-replan"));
+                anyMap(), any(), eq(1L), any(), eq("approved-replan"), any(), any(), any());
     }
 
     @Test
@@ -188,9 +197,9 @@ class LangGraphRouteExecutionServiceTest {
                 List.of(new IntentGraph.IntentNode.ConditionalDependency(
                         "source", IntentGraph.ConditionType.RESULT_SUCCESS, null)), false);
         IntentGraph graph = new IntentGraph("conditional", List.of(source, conditional));
-        when(nodeExecutor.execute(eq(source), anyMap(), any(), any(), any(), any()))
+        when(nodeExecutor.execute(eq(source), anyMap(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(result("source", "general", "ok"));
-        when(nodeExecutor.execute(eq(conditional), anyMap(), any(), any(), any(), any()))
+        when(nodeExecutor.execute(eq(conditional), anyMap(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(result("conditional", "order", "done"));
 
         assertThat(service.execute(graph, 1L, null, "condition-request"))
@@ -206,13 +215,14 @@ class LangGraphRouteExecutionServiceTest {
                 List.of(new IntentGraph.IntentNode.ConditionalDependency(
                         "source", IntentGraph.ConditionType.RESULT_FAILED, null)), false);
         IntentGraph graph = new IntentGraph("conditional", List.of(source, conditional));
-        when(nodeExecutor.execute(eq(source), anyMap(), any(), any(), any(), any()))
+        when(nodeExecutor.execute(eq(source), anyMap(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(result("source", "general", "ok"));
 
         assertThat(service.execute(graph, 1L, null, "false-condition"))
                 .extracting(SubTaskResult::getTaskId)
                 .containsExactly("source");
-        verify(nodeExecutor, never()).execute(eq(conditional), anyMap(), any(), any(), any(), any());
+        verify(nodeExecutor, never()).execute(eq(conditional), anyMap(), any(), any(), any(), any(),
+                any(), any(), any());
     }
 
     @Test
@@ -224,9 +234,9 @@ class LangGraphRouteExecutionServiceTest {
         IntentGraph graph = new IntentGraph("replan", List.of(original));
         SubTaskResult needsReplan = new SubTaskResult("original", "original", "order", "bad",
                 false, SubTaskResult.ErrorType.NEED_REPLAN);
-        when(nodeExecutor.execute(eq(original), anyMap(), any(), any(), any(), any()))
+        when(nodeExecutor.execute(eq(original), anyMap(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(needsReplan);
-        when(nodeExecutor.execute(eq(replacement), anyMap(), any(), any(), any(), any()))
+        when(nodeExecutor.execute(eq(replacement), anyMap(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(result("replacement", "order", "recovered"));
         when(planner.replan(any())).thenReturn(new IntentGraph("replacement", List.of(replacement)));
 
@@ -234,7 +244,8 @@ class LangGraphRouteExecutionServiceTest {
                 .extracting(SubTaskResult::getTaskId)
                 .containsExactly("original", "replacement");
         assertThat(needsReplan.getErrorType()).isEqualTo(SubTaskResult.ErrorType.FATAL_FAILED);
-        verify(nodeExecutor, times(1)).execute(eq(original), anyMap(), any(), any(), any(), any());
+        verify(nodeExecutor, times(1)).execute(eq(original), anyMap(), any(), any(), any(), any(),
+                any(), any(), any());
         verify(planner, times(1)).replan(any());
     }
 
@@ -246,7 +257,7 @@ class LangGraphRouteExecutionServiceTest {
         HandoffCommand command = new HandoffCommand(HandoffCommand.HandoffType.HANDOFF,
                 "order", "查询订单", "orderId=1");
         sourceResult.setHandoffCommand(command);
-        when(nodeExecutor.execute(eq(source), anyMap(), any(), any(), any(), any()))
+        when(nodeExecutor.execute(eq(source), anyMap(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(sourceResult);
         when(nodeExecutor.executeHandoff(eq(command), any(), eq(1L), any(), eq("handoff-request")))
                 .thenReturn(result("handoff_order", "order", "done"));
@@ -267,7 +278,7 @@ class LangGraphRouteExecutionServiceTest {
                         "source", IntentGraph.ConditionType.RESULT_CONTAINS,
                         "pending", "source")), false);
         IntentGraph graph = new IntentGraph("poll", List.of(source, marker), 2);
-        when(nodeExecutor.execute(eq(source), anyMap(), any(), any(), any(), any()))
+        when(nodeExecutor.execute(eq(source), anyMap(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(result("source", "order", "pending"),
                         result("source", "order", "completed"));
 
@@ -277,7 +288,8 @@ class LangGraphRouteExecutionServiceTest {
                     assertThat(value.getTaskId()).isEqualTo("source");
                     assertThat(value.getResult()).isEqualTo("completed");
                 });
-        verify(nodeExecutor, times(2)).execute(eq(source), anyMap(), any(), any(), any(), any());
+        verify(nodeExecutor, times(2)).execute(eq(source), anyMap(), any(), any(), any(), any(),
+                any(), any(), any());
     }
 
     private static IntentGraph graphWithSingleNode() {

@@ -10,18 +10,26 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.gateway.llm.AgentLLMGateway;
 import com.example.smartassistant.common.gateway.llm.LLMCallConfig;
 import com.example.smartassistant.common.gateway.llm.LLMCallResult;
+import com.example.smartassistant.common.model.tier.ModelTier;
+import com.example.smartassistant.common.model.tier.TierModelRegistry;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+
 /**
- * 模型推理服务 — 纯本地推理引擎
+ * DeepSeek 模型推理服务。
  * <p>
- * SmartAssistant 所有推理请求统一通过此服务调用本地 Ollama 模型。
- * 使用 {@link AgentLLMGateway} 统一管理超时、重试、熔断。
+ * 意图拆解按当前用户问题长度选择模型：短请求使用低延迟的
+ * {@code deepseek-v4-flash}，长请求使用推理能力更强的
+ * {@code deepseek-v4-pro}。调用仍由 {@link AgentLLMGateway}
+ * 统一管理超时、重试和熔断。
  * </p>
  */
 @Service
@@ -30,20 +38,92 @@ public class ModelRoutingService {
     private static final Logger log = LoggerFactory.getLogger(ModelRoutingService.class);
 
     private final ChatClient chatClient;
+    private final String lightIntentModel;
+    private final String heavyIntentModel;
     private final AgentLLMGateway llmGateway;
+    private final DeepSeekPlanningClient planningClient;
+
+    @Value("${router.task-analysis.pro-min-chars:${router.task-analysis.reasoner-min-chars:160}}")
+    private int proMinChars = 160;
+
+    @Value("${router.task-analysis.pro-timeout-ms:35000}")
+    private long proTimeoutMs = 35_000L;
+
+    @Value("${router.task-analysis.flash-timeout-ms:30000}")
+    private long flashTimeoutMs = 30_000L;
 
     public ModelRoutingService(ChatClient.Builder chatClientBuilder,
                                AgentLLMGateway llmGateway,
-                               AiChatService aiChatService) {
+                               AiChatService aiChatService,
+                               ObjectProvider<TierModelRegistry> tierModelRegistryProvider,
+                               DeepSeekPlanningClient planningClient) {
         this.chatClient = aiChatService.applyAdvisors(chatClientBuilder).build();
         this.llmGateway = llmGateway;
-        log.info("[ModelRouting] DeepSeek API + LLMGateway + Advisor 链初始化完成");
+        this.planningClient = planningClient;
+
+        TierModelRegistry registry = tierModelRegistryProvider.getIfAvailable();
+        if (registry != null && registry.has(ModelTier.LIGHT) && registry.has(ModelTier.HEAVY)) {
+            this.lightIntentModel = registry.modelName(ModelTier.LIGHT);
+            this.heavyIntentModel = registry.modelName(ModelTier.HEAVY);
+        } else {
+            this.lightIntentModel = "deepseek-v4-flash";
+            this.heavyIntentModel = "deepseek-v4-flash";
+            log.warn("[ModelRouting] TierModelRegistry 不可用，意图分析暂统一使用 deepseek-v4-flash");
+        }
+        log.info("[ModelRouting] DeepSeek 意图模型就绪: short={}, long={}",
+                lightIntentModel, heavyIntentModel);
     }
 
     /**
-     * 调用本地 Ollama 模型推理。
+     * 根据当前问题长度选择 DeepSeek 模型并执行结构化意图拆解。
+     */
+    public IntentModelResponse callForIntent(String systemPrompt, String userMessage,
+                                             String currentQuestion) {
+        ModelTier tier = selectIntentTier(currentQuestion, proMinChars);
+        String selectedModel = tier == ModelTier.HEAVY ? heavyIntentModel : lightIntentModel;
+        long timeoutMs = tier == ModelTier.HEAVY ? proTimeoutMs : flashTimeoutMs;
+        LLMCallResult result = callIntentModel(
+                selectedModel, systemPrompt, userMessage, timeoutMs);
+
+        if (!result.success()) {
+            throw new RuntimeException("DeepSeek intent analysis failed: " + result.errorMessage());
+        }
+        int chars = codePointLength(currentQuestion);
+        log.info("[ModelRouting] 意图拆解完成: chars={}, tier={}, model={}, elapsed={}ms",
+                chars, tier.getCode(), selectedModel, result.elapsedMs());
+        return new IntentModelResponse(result.content(), selectedModel, tier.getCode(),
+                chars, result.elapsedMs());
+    }
+
+    private LLMCallResult callIntentModel(String modelName,
+                                          String systemPrompt, String userMessage,
+                                          long timeoutMs) {
+        int maxTokens = 2048;
+        LLMCallConfig config = new LLMCallConfig(
+                systemPrompt, maxTokens, Duration.ofMillis(Math.max(1L, timeoutMs)), 0, 0.2, false);
+        return llmGateway.call(
+                () -> planningClient.complete(modelName, systemPrompt, userMessage, maxTokens),
+                modelName, config);
+    }
+
+    static ModelTier selectIntentTier(String question, int proMinChars) {
+        int safeThreshold = Math.max(1, proMinChars);
+        return codePointLength(question) >= safeThreshold ? ModelTier.HEAVY : ModelTier.LIGHT;
+    }
+
+    private static int codePointLength(String value) {
+        if (value == null || value.isBlank()) return 0;
+        return value.codePointCount(0, value.length());
+    }
+
+    public record IntentModelResponse(String content, String modelName, String modelTier,
+                                      int questionChars, long elapsedMs) {
+    }
+
+    /**
+     * 调用默认 DeepSeek Chat 模型。
      * <p>
-     * 使用 AgentLLMGateway 统一管理超时（30s）、重试（2次）、熔断。
+     * 用于非意图分析场景，保留兼容入口。
      * </p>
      */
     @Retry(name = "modelRoutingRetry")
@@ -59,7 +139,7 @@ public class ModelRoutingService {
                     }
                     return builder.call().content();
                 },
-                "deepseek-chat",
+                "deepseek-v4-flash",
                 config);
 
         if (result.success()) {

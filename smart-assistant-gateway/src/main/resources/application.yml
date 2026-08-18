@@ -52,6 +52,13 @@ spring:
               filters:
                 - StripPrefix=1
 
+            # 真实 Agent/LangGraph 执行拓扑由 router-service 产生和保存。
+            # 必须放在 consumer-service-bare 的 /api/admin/** 泛匹配之前。
+            - id: router-execution-dag-admin
+              uri: lb://router-service
+              predicates:
+                - Path=/api/admin/execution-dag/**
+
             - id: consumer-service-bare
               uri: lb://consumer-service
               predicates:
@@ -60,7 +67,7 @@ spring:
             - id: router-service
               uri: lb://router-service
               predicates:
-                - Path=/assistant/api/router/**
+                - Path=/assistant/api/router/**,/assistant/api/admin/workflows/**
               filters:
                 - StripPrefix=1
 

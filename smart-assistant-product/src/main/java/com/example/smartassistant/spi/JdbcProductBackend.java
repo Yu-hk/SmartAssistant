@@ -156,7 +156,7 @@ public class JdbcProductBackend implements ProductBackend {
                       FROM products p
                       LEFT JOIN orders o
                         ON UPPER(o.product_name) = UPPER(p.product_name)
-                     WHERE """ + PRODUCTION_CATALOG_FILTER + """
+                     WHERE """ + " " + PRODUCTION_CATALOG_FILTER + """
                      GROUP BY p.product_code, p.product_name, p.price, p.stock, p.spec
                      ORDER BY COUNT(o.order_id) DESC,
                               CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
@@ -177,8 +177,7 @@ public class JdbcProductBackend implements ProductBackend {
 
     private List<ProductSummary> listCatalogProducts(int limit) {
         try {
-            return jdbcTemplate.query(SELECT_COLUMNS + """
-                            WHERE """ + PRODUCTION_CATALOG_FILTER + """
+            return jdbcTemplate.query(SELECT_COLUMNS + " WHERE " + PRODUCTION_CATALOG_FILTER + """
                             ORDER BY CASE stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
                                      product_code
                             LIMIT ?

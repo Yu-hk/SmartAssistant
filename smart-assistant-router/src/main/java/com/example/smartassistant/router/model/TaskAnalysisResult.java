@@ -46,6 +46,18 @@ public class TaskAnalysisResult {
     /** 工具相关性评分（{工具名: 0.0~1.0}，仅对当前问题相关工具打分） */
     private Map<String, Double> toolScores;
 
+    /** 本次意图拆解实际使用的 DeepSeek 模型。 */
+    private String analysisModel;
+
+    /** 意图模型档位：light / heavy。 */
+    private String analysisModelTier;
+
+    /** 当前用户问题长度（Unicode code point）。 */
+    private int analysisQuestionChars;
+
+    /** 意图拆解模型耗时。 */
+    private long analysisLatencyMs;
+
     // ======================== 新增字段 ========================
 
     // ---------- 1. 多意图拆分 ----------
@@ -157,6 +169,15 @@ public class TaskAnalysisResult {
     public Map<String, Double> getToolScores() { return toolScores; }
     public void setToolScores(Map<String, Double> toolScores) { this.toolScores = toolScores != null ? toolScores : new HashMap<>(); }
 
+    public String getAnalysisModel() { return analysisModel; }
+    public void setAnalysisModel(String analysisModel) { this.analysisModel = analysisModel; }
+    public String getAnalysisModelTier() { return analysisModelTier; }
+    public void setAnalysisModelTier(String analysisModelTier) { this.analysisModelTier = analysisModelTier; }
+    public int getAnalysisQuestionChars() { return analysisQuestionChars; }
+    public void setAnalysisQuestionChars(int analysisQuestionChars) { this.analysisQuestionChars = analysisQuestionChars; }
+    public long getAnalysisLatencyMs() { return analysisLatencyMs; }
+    public void setAnalysisLatencyMs(long analysisLatencyMs) { this.analysisLatencyMs = analysisLatencyMs; }
+
     // --- 新增字段 getters/setters ---
 
     public List<Map<String, Object>> getSubIntents() { return subIntents; }
@@ -214,8 +235,8 @@ public class TaskAnalysisResult {
     public boolean hasRisks() { return riskFlags != null && !riskFlags.isEmpty(); }
     public boolean hasToolScores() { return toolScores != null && !toolScores.isEmpty(); }
 
-    /** 是否有子意图（多意图拆分） */
-    public boolean hasSubIntents() { return subIntents != null && subIntents.size() > 1; }
+    /** 是否有可编译的子意图。单意图也应直接编译为一个 Agent 节点。 */
+    public boolean hasSubIntents() { return subIntents != null && !subIntents.isEmpty(); }
 
     /** 是否有隐含意图 */
     public boolean hasImplicitIntents() { return implicitIntents != null && !implicitIntents.isEmpty(); }
@@ -253,6 +274,8 @@ public class TaskAnalysisResult {
         return "TaskAnalysisResult{"
                 + "intentCategory='" + intentCategory + '\''
                 + ", confidence=" + confidence
+                + ", analysisModel='" + analysisModel + '\''
+                + ", analysisModelTier='" + analysisModelTier + '\''
                 + ", entities=" + entities
                 + ", subIntents=" + subIntents
                 + ", implicitIntents=" + implicitIntents

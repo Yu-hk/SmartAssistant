@@ -36,9 +36,7 @@ import static org.mockito.Mockito.when;
 /**
  * A2A Consumer 集成测试
  * 通过 HTTP chat 接口模拟远程调用，验证地点识别功能
- * <p>
- * 使用本地 Ollama 模型（qwen2.5:0.5b）替代云 API 进行测试。
- * </p>
+ * <p>模型与外部服务均使用 Mockito 隔离，不依赖真实基础设施。</p>
  */
 @ExtendWith(MockitoExtension.class)
 class ChatIntegrationTest {

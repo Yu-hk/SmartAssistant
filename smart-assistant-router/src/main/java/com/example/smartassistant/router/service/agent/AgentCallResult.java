@@ -13,6 +13,7 @@ public class AgentCallResult {
     private final List<String> realTitles;
     private final Map<String, String> tagsByTitle;
     private final DomainQualityResult domainQuality;
+    private final Map<String, Object> data;
 
     public AgentCallResult(String response, List<String> realTitles) {
         this(response, realTitles, Map.of());
@@ -24,10 +25,16 @@ public class AgentCallResult {
 
     public AgentCallResult(String response, List<String> realTitles, Map<String, String> tagsByTitle,
                            DomainQualityResult domainQuality) {
+        this(response, realTitles, tagsByTitle, domainQuality, Map.of());
+    }
+
+    public AgentCallResult(String response, List<String> realTitles, Map<String, String> tagsByTitle,
+                           DomainQualityResult domainQuality, Map<String, Object> data) {
         this.response = response;
         this.realTitles = realTitles != null ? realTitles : List.of();
         this.tagsByTitle = tagsByTitle != null ? tagsByTitle : Map.of();
         this.domainQuality = domainQuality != null ? domainQuality : DomainQualityResult.unknown();
+        this.data = data != null ? Map.copyOf(data) : Map.of();
     }
 
     public AgentCallResult(String response) {
@@ -38,4 +45,5 @@ public class AgentCallResult {
     public List<String> getRealTitles() { return realTitles; }
     public Map<String, String> getTagsByTitle() { return tagsByTitle; }
     public DomainQualityResult getDomainQuality() { return domainQuality; }
+    public Map<String, Object> getData() { return data; }
 }

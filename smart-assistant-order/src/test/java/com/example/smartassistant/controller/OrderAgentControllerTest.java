@@ -136,6 +136,48 @@ class OrderAgentControllerTest {
     }
 
     @Test
+    @DisplayName("订单生命周期说明：直接返回只读指南，不进入执行型 Agent")
+    void orderGuidance_shouldReturnReadOnlyGuideWithoutCallingAgent() {
+        RetrievalQualityResult guidance = RetrievalQualityResult.highQuality(
+                "【订单生命周期操作说明】\n查询订单、取消订单和申请售后均需先确认目标订单。", 1.0);
+        when(intentService.detect(anyString())).thenReturn(IntentType.ORDER_GUIDANCE);
+        when(ragService.retrieveWithQualityResult(eq(IntentType.ORDER_GUIDANCE), anyString()))
+                .thenReturn(guidance);
+        when(ragService.buildOrderGuidanceAnswer(guidance))
+                .thenReturn(guidance.getContent());
+
+        String result = controller.processQuestion(Map.of(
+                "question", "请说明下单后如何查询、取消和申请售后",
+                "requestId", "req-order-guidance"));
+
+        assertTrue(result.contains("查询订单"));
+        assertTrue(result.contains("取消订单"));
+        assertTrue(result.contains("申请售后"));
+        verify(agent, never()).execute(anyString());
+        assertEquals("SKIPPED", recorder.findByRequestId("req-order-guidance")
+                .lastStageOf(RagStage.GENERATION).status());
+    }
+
+    @Test
+    @DisplayName("下单前资料说明：直接返回清单，不进入执行型 Agent")
+    void orderPreparation_shouldReturnChecklistWithoutCallingAgent() {
+        RetrievalQualityResult guidance = RetrievalQualityResult.highQuality(
+                "【下单前信息清单】\n商品、数量、收货人姓名；当前不会执行下单，也不会创建测试订单。", 1.0);
+        when(intentService.detect(anyString())).thenReturn(IntentType.ORDER_PREPARATION_GUIDANCE);
+        when(ragService.retrieveWithQualityResult(eq(IntentType.ORDER_PREPARATION_GUIDANCE), anyString()))
+                .thenReturn(guidance);
+        when(ragService.buildOrderGuidanceAnswer(guidance)).thenReturn(guidance.getContent());
+
+        String result = controller.processQuestion(Map.of(
+                "question", "说明创建订单前需要确认哪些信息，但不要执行下单",
+                "requestId", "req-order-preparation"));
+
+        assertTrue(result.contains("收货人姓名"));
+        assertTrue(result.contains("不会创建测试订单"));
+        verify(agent, never()).execute(anyString());
+    }
+
+    @Test
     @DisplayName("统一协议：返回类型化订单响应")
     void unifiedProtocol_shouldReturnTypedResponse() {
         when(ragService.retrieveWithQualityResult(any(), anyString()))

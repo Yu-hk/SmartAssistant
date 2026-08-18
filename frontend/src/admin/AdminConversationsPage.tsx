@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FilterX,
+  GitBranch,
   Hash,
   MessageCircle,
   Search,
@@ -12,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import * as adminApi from '../api/admin';
-import type { AdminSessionDetail, AdminSessionPage, AdminSessionSummary } from '../types';
+import type { AdminAgentFlow, AdminAgentFlowNode, AdminSessionDetail, AdminSessionPage, AdminSessionSummary } from '../types';
 import {
   formatAgent,
   formatConversationTitle,
@@ -271,6 +272,64 @@ function formatTokenTracking(session: AdminSessionSummary): string {
   return '—';
 }
 
+function AgentFlowChain({ flow }: { flow: AdminAgentFlow | null }) {
+  const layers = useMemo(() => {
+    if (!flow?.nodes.length) return [];
+    const byId = new Map(flow.nodes.map(node => [node.id, node]));
+    const memo = new Map<string, number>();
+    const layerOf = (node: AdminAgentFlowNode, visiting = new Set<string>()): number => {
+      const cached = memo.get(node.id);
+      if (cached !== undefined) return cached;
+      if (visiting.has(node.id)) return 0;
+      const nextVisiting = new Set(visiting).add(node.id);
+      const parents = flow.edges.filter(edge => edge.to === node.id)
+        .map(edge => byId.get(edge.from)).filter((parent): parent is AdminAgentFlowNode => Boolean(parent));
+      const layer = parents.length ? Math.max(...parents.map(parent => layerOf(parent, nextVisiting))) + 1 : 0;
+      memo.set(node.id, layer);
+      return layer;
+    };
+    const grouped = new Map<number, AdminAgentFlowNode[]>();
+    flow.nodes.forEach(node => {
+      const layer = layerOf(node);
+      grouped.set(layer, [...(grouped.get(layer) ?? []), node]);
+    });
+    return [...grouped.entries()].sort(([left], [right]) => left - right).map(([, nodes]) => nodes);
+  }, [flow]);
+
+  if (!flow || flow.nodes.length === 0) {
+    return <div className="admin-agent-flow-empty">该会话暂无可视化 Agent 链路（旧会话不会补录）。</div>;
+  }
+
+  return (
+    <section className="admin-agent-flow" aria-label="Agent 处理链路">
+      <div className="admin-agent-flow-heading">
+        <span><GitBranch size={14} /> Agent 处理链路</span>
+        <small>{flow.modelName ? `${flow.modelName} · ${flow.questionChars} 字` : `${flow.nodes.length} 个节点`}</small>
+      </div>
+      <div className="admin-agent-flow-canvas">
+        {layers.map((nodes, layerIndex) => (
+          <div className="admin-agent-flow-stage-wrap" key={`layer-${layerIndex}`}>
+            {layerIndex > 0 && <span className="admin-agent-flow-arrow" aria-hidden="true">→</span>}
+            <div className="admin-agent-flow-stage">
+              {nodes.map(node => (
+                <article className={`admin-agent-flow-node is-${node.status}`} key={node.id}>
+                  <div className="admin-agent-flow-node-top">
+                    <span className="admin-agent-flow-dot" aria-hidden="true" />
+                    <strong>{node.label || node.id}</strong>
+                  </div>
+                  <p>{node.agent || '未分配 Agent'}</p>
+                  {node.summary && <small>{node.summary}</small>}
+                  {node.dependsOn.length > 0 && <em>依赖：{node.dependsOn.join(' / ')}</em>}
+                </article>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ConversationDrawer({
   sessionId,
   userId,
@@ -283,6 +342,7 @@ function ConversationDrawer({
   onDeleted: () => void | Promise<void>;
 }) {
   const [detail, setDetail] = useState<AdminSessionDetail | null>(null);
+  const [agentFlow, setAgentFlow] = useState<AdminAgentFlow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteError, setDeleteError] = useState('');
@@ -293,7 +353,12 @@ function ConversationDrawer({
     setLoading(true);
     setError('');
     try {
-      setDetail(await adminApi.fetchAdminSession(sessionId, userId));
+      const [sessionDetail, flow] = await Promise.all([
+        adminApi.fetchAdminSession(sessionId, userId),
+        adminApi.fetchAdminAgentFlow(sessionId).catch(() => null),
+      ]);
+      setDetail(sessionDetail);
+      setAgentFlow(flow);
     } catch (loadError) {
       setError(getErrorMessage(loadError, '无法获取对话详情'));
     } finally {
@@ -367,6 +432,7 @@ function ConversationDrawer({
             </div>
 
             <div className="admin-message-section">
+              <AgentFlowChain flow={agentFlow} />
               <div className="admin-message-heading"><strong>完整对话</strong><span>{messages.length} 条消息</span></div>
               {messages.length === 0 ? (
                 <AdminEmptyState title="暂无消息内容" description="该会话目前只有概要记录。" />
