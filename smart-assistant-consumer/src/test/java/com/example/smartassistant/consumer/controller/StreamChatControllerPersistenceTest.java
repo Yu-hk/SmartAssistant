@@ -79,7 +79,24 @@ class StreamChatControllerPersistenceTest {
     }
 
     @Test
+    void longQuestionUsesHeavyDecisionBudget() {
+        StreamChatController controller = new StreamChatController(
+                routerClient, agentStreamClient, requestQueueService,
+                routingCallLogService, null);
+        String longQuestion = "长".repeat(160);
+
+        assertEquals(60_000L, controller.decisionTimeoutFor("查询天气"));
+        assertEquals(120_000L, controller.decisionTimeoutFor(longQuestion));
+        assertEquals(90_000L, controller.sseIdleTimeoutFor("查询天气"));
+        assertEquals(150_000L, controller.sseIdleTimeoutFor(longQuestion));
+    }
+
+    @Test
     void directAgentStreamCombinesUsageAndOwnsSingleTerminalEvent() throws Exception {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+
         AtomicReference<String> forwardedRequestId = new AtomicReference<>();
         HttpServer upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         upstream.createContext("/stream", exchange -> {
@@ -136,7 +153,7 @@ class StreamChatControllerPersistenceTest {
             assertEquals("session-only", forwardedRequestId.get());
 
             verify(routingCallLogService).saveLog(
-                    eq((Long) null), eq("session-only"), eq("recommend something"),
+                    eq(42L), eq("session-only"), eq("recommend something"),
                     eq("product_service"), eq("STREAM_ROUTER_SERVICE"), anyLong(),
                     eq("SUCCESS"), eq((String) null), eq(50L), eq(15L), eq(65L),
                     eq("recommend something"), isNull());

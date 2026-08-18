@@ -1,5 +1,7 @@
 package com.example.smartassistant.common.scheduler;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
@@ -66,11 +68,13 @@ public class AgentTask implements Serializable {
     // ===== 便利方法 =====
 
     /** 是否可以开始执行（状态检查） */
+    @JsonIgnore
     public boolean canStart() {
         return status == AgentTaskStatus.PENDING || status == AgentTaskStatus.FAILED;
     }
 
     /** 是否已完成（终态检查） */
+    @JsonIgnore
     public boolean isTerminal() {
         return status == AgentTaskStatus.COMPLETED
                 || status == AgentTaskStatus.CANCELLED
@@ -78,6 +82,7 @@ public class AgentTask implements Serializable {
     }
 
     /** 是否可以重试 */
+    @JsonIgnore
     public boolean canRetry() {
         return retryCount < maxRetries
                 && (status == AgentTaskStatus.FAILED || status == AgentTaskStatus.TIMEOUT);
@@ -114,6 +119,16 @@ public class AgentTask implements Serializable {
     public AgentTask markCancelled() {
         this.status = AgentTaskStatus.CANCELLED;
         this.completedAt = LocalDateTime.now();
+        return this;
+    }
+
+    /** Resets transient execution state before putting a failed delivery back on the queue. */
+    public AgentTask prepareRetry() {
+        this.status = AgentTaskStatus.PENDING;
+        this.startedAt = null;
+        this.completedAt = null;
+        this.result = null;
+        this.errorMessage = null;
         return this;
     }
 

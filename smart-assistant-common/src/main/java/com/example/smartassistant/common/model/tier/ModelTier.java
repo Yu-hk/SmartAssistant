@@ -15,13 +15,13 @@ package com.example.smartassistant.common.model.tier;
  */
 public enum ModelTier {
 
-    /** Tier1 轻量模型：本地小模型（如 qwen2.5:3b），低延迟低成本，用于简单问答与兜底。 */
-    LIGHT(1, "light", "本地轻量模型"),
+    /** Tier1 轻量模型：低延迟模型（默认 DeepSeek V4 Flash），用于简单问答与兜底。 */
+    LIGHT(1, "light", "低延迟模型"),
 
-    /** Tier2 标准模型：本地主力（如 deepseek-r1:7b），兼顾能力与成本，处理中等复杂度。 */
-    STANDARD(2, "standard", "本地标准模型"),
+    /** Tier2 标准模型：兼顾能力与成本（默认 DeepSeek V4 Flash），处理中等复杂度。 */
+    STANDARD(2, "standard", "标准模型"),
 
-    /** Tier3 强模型：云端大模型（如 DeepSeek/GPT），高能力高成本，处理复杂推理。 */
+    /** Tier3 强模型：高能力模型（默认 DeepSeek V4 Pro），处理复杂推理。 */
     HEAVY(3, "heavy", "强模型");
 
     private final int order;

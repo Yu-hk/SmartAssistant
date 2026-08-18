@@ -25,6 +25,7 @@ import com.example.smartassistant.common.rag.trace.StageSpan;
 import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.rag.eval.FaithfulnessGuard;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
+import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
 import com.example.smartassistant.service.core.OrderRagService;
@@ -172,7 +173,14 @@ public class OrderAgentController {
         if (requestId != null) legacyRequest.put("requestId", requestId);
 
         ToolUsageCache.start(requestId);
-        DomainAgentResponse response = processQuestionWithQuality(legacyRequest);
+        DomainAgentResponse response;
+        ToolLogContext.setRequestId(requestId);
+        ToolLogContext.setIdempotencyKey(request.idempotencyKey());
+        try {
+            response = processQuestionWithQuality(legacyRequest);
+        } finally {
+            ToolLogContext.clear();
+        }
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(DomainQualityHeaders.STATUS, response.quality().getStatus().name())
                 .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().getScore()))
@@ -250,15 +258,24 @@ public class OrderAgentController {
             // Public refund/return policy is a read-only knowledge answer. Short-circuit the
             // action-oriented ReAct loop so words such as "请选择退款原因" in policy documents
             // cannot be mistaken for a pending order-operation confirmation.
-            if (intent == IntentType.REFUND_POLICY) {
-                String result = ragService.buildRefundPolicyAnswer(qr);
+            if (intent == IntentType.REFUND_POLICY
+                    || intent == IntentType.ORDER_PREPARATION_GUIDANCE
+                    || intent == IntentType.ORDER_GUIDANCE) {
+                String result = switch (intent) {
+                    case REFUND_POLICY -> ragService.buildRefundPolicyAnswer(qr);
+                    case ORDER_PREPARATION_GUIDANCE, ORDER_GUIDANCE ->
+                            ragService.buildOrderGuidanceAnswer(qr);
+                    default -> throw new IllegalStateException("Unexpected read-only intent: " + intent);
+                };
                 if (stageTraceRecorder != null) {
                     stageTraceRecorder.getOrCreate(requestId, question, "order_agent")
                             .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
                                     Map.of("qualityScore", qr.getNormalizedScore(),
                                             "highQuality", qr.isHighQuality())));
                     stageTraceRecorder.recordStage(requestId, RagStage.GENERATION,
-                            StageSpan.STATUS_SKIPPED, 0, Map.of("reason", "public-policy-answer"));
+                            StageSpan.STATUS_SKIPPED, 0, Map.of("reason",
+                        intent == IntentType.REFUND_POLICY
+                                ? "public-policy-answer" : "order-guidance-answer"));
                     stageTraceRecorder.save(requestId);
                 }
                 DomainQualityResult quality = domainQualityValidator.evaluate(
@@ -268,8 +285,8 @@ public class OrderAgentController {
                     CompletableFuture.runAsync(() ->
                             memoryExtractor.extractFromConversation("order", userId, question, finalResult));
                 }
-                log.info("[OrderAgent] 公共退款政策已直接返回: requestId={}, quality={}",
-                        requestId, quality.getStatus());
+                log.info("[OrderAgent] 只读订单知识已直接返回: intent={}, requestId={}, quality={}",
+                        intent.getLabel(), requestId, quality.getStatus());
                 return DomainAgentResponse.of(result, quality);
             }
 

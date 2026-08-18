@@ -4,7 +4,6 @@ import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
-import com.example.smartassistant.router.service.experience.ExperienceService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -48,7 +47,6 @@ class RouteLangGraphExecutionTest {
                 mock(TaskPlannerService.class),
                 langGraph,
                 mock(ResultMerger.class),
-                mock(ExperienceService.class),
                 mock(RouteFinalizer.class),
                 mock(RouterFallbackAgentService.class),
                 null);

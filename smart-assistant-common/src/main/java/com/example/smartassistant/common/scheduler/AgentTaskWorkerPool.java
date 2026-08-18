@@ -7,10 +7,12 @@ import org.springframework.beans.factory.InitializingBean;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /**
@@ -33,6 +35,9 @@ public class AgentTaskWorkerPool implements InitializingBean, DisposableBean {
 
     private final List<TaskWorker> workers = new ArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicLong lastReclaimNanos = new AtomicLong(0);
+    private static final long RECLAIM_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(30);
+    private static final Duration VISIBILITY_TIMEOUT = Duration.ofMinutes(2);
     private ExecutorService virtualThreadExecutor;
 
     /**
@@ -131,6 +136,7 @@ public class AgentTaskWorkerPool implements InitializingBean, DisposableBean {
 
             while (running.get()) {
                 try {
+                    maybeReclaimAbandonedTasks();
                     // 1. BRPOP 阻塞获取任务
                     var taskOpt = taskQueue.dequeue(pollTimeoutSeconds);
                     if (taskOpt.isEmpty()) {
@@ -141,16 +147,15 @@ public class AgentTaskWorkerPool implements InitializingBean, DisposableBean {
                     log.info("[AgentWorker] {} 获取任务: taskId={}, agent={}",
                             name, task.getTaskId(), task.getAgentName());
 
-                    // 2. 标记运行中
-                    task.markRunning();
-                    taskQueue.saveResult(task);
-
-                    // 3. ⭐ 执行任务（调用 taskExecutor 函数）
+                    // dequeue() atomically claimed and marked this delivery RUNNING.
+                    // 2. ⭐ 执行任务（调用 taskExecutor 函数）
                     try {
                         String result = taskExecutor.apply(task);
                         task.markCompleted(result);
                         log.info("[AgentWorker] {} 任务完成: taskId={}, resultLen={}",
                                 name, task.getTaskId(), result != null ? result.length() : 0);
+                        taskQueue.saveResult(task);
+                        taskQueue.acknowledge(task.getTaskId());
                     } catch (Exception e) {
                         task.markFailed(e.getMessage());
                         log.error("[AgentWorker] {} 任务执行失败: taskId={}, error={}",
@@ -161,12 +166,11 @@ public class AgentTaskWorkerPool implements InitializingBean, DisposableBean {
                             task.setRetryCount(task.getRetryCount() + 1);
                             log.info("[AgentWorker] 任务重试: taskId={}, attempt={}/{}",
                                     task.getTaskId(), task.getRetryCount(), task.getMaxRetries());
-                            taskQueue.enqueue(task);
+                            taskQueue.retry(task);
+                        } else {
+                            taskQueue.deadLetter(task);
                         }
                     }
-
-                    // 4. 保存结果
-                    taskQueue.saveResult(task);
 
                 } catch (Exception e) {
                     // 检查是否由中断导致
@@ -180,6 +184,17 @@ public class AgentTaskWorkerPool implements InitializingBean, DisposableBean {
             }
 
             log.debug("[AgentWorker] {} 停止", name);
+        }
+
+        private void maybeReclaimAbandonedTasks() {
+            long now = System.nanoTime();
+            long previous = lastReclaimNanos.get();
+            if (now - previous < RECLAIM_INTERVAL_NANOS
+                    || !lastReclaimNanos.compareAndSet(previous, now)) return;
+            int reclaimed = taskQueue.reclaimTimedOut(VISIBILITY_TIMEOUT);
+            if (reclaimed > 0) {
+                log.warn("[AgentWorker] reclaimed {} abandoned task delivery(s)", reclaimed);
+            }
         }
     }
 }

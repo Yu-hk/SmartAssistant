@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
+import com.example.smartassistant.common.agent.protocol.AgentNodeOutput;
 import com.example.smartassistant.router.model.HandoffCommand;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
@@ -64,12 +65,25 @@ public class GraphNodeExecutionService {
                           Map<String, SubTaskResult> completed,
                           ConcurrentHashMap<String, Integer> breakerFailures,
                           Long userId, String eventsKey, String requestId) {
+        return execute(node, completed, breakerFailures, userId, eventsKey, requestId,
+                null, null, null);
+    }
+
+    public SubTaskResult execute(IntentNode node,
+                          Map<String, SubTaskResult> completed,
+                          ConcurrentHashMap<String, Integer> breakerFailures,
+                          Long userId, String eventsKey, String requestId,
+                          String workflowKey, Integer workflowVersion, String workflowChecksum) {
         String targetAgent = node.getTargetAgent();
         progress(eventsKey, "node_started", "节点[" + node.getDescription() + "]开始执行", targetAgent);
 
         if (RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT.equals(targetAgent)) {
-            return new SubTaskResult(node.getId(), node.getDescription(), targetAgent,
+            SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(), targetAgent,
                     RouteExecutionService.builtInOrderPreparationReply(), true, List.of(), Map.of());
+            result.setDomainQuality(
+                    com.example.smartassistant.common.quality.DomainQualityResult.pass(
+                            1.0, "BUILTIN_ORDER_PREPARATION_GUIDANCE"));
+            return result;
         }
 
         if (requestId != null && targetAgent != null) {
@@ -103,7 +117,8 @@ public class GraphNodeExecutionService {
                                 requestId, node.getId(), userId != null ? String.valueOf(userId) : null,
                                 node.getOperation(), enrichedDescription, node.getInput(), node.getDependsOn(),
                                 node.getConstraints(), System.currentTimeMillis() + 60_000L,
-                                node.getIdempotencyKey(), null))
+                                node.getIdempotencyKey(), null, predecessorOutputs(node, completed),
+                                workflowKey, workflowVersion, workflowChecksum, attempt, requestId))
                         : agentCallerService.callAgentAndExtractTitles(
                         targetAgent, enrichedDescription, userId, requestId);
                 String text = response.getResponse();
@@ -116,8 +131,17 @@ public class GraphNodeExecutionService {
                             "节点返回空结果", SubTaskResult.ErrorType.FATAL_FAILED);
                 }
 
-                SubTaskResult.ErrorType criteria = reflectionService.checkCriteria(
-                        text, node.getSuccessCriteria());
+                boolean evidenceLimited = response.getDomainQuality().getReasonCodes().stream()
+                        .anyMatch(code -> code.endsWith("_EVIDENCE_LIMITED")
+                                || "PRODUCT_EVIDENCE_UNAVAILABLE".equals(code));
+                if (evidenceLimited) {
+                    progress(eventsKey, "node_evidence_limited",
+                            "节点[" + node.getDescription() + "]已返回可验证的证据边界",
+                            targetAgent);
+                }
+                SubTaskResult.ErrorType criteria = evidenceLimited
+                        ? SubTaskResult.ErrorType.NONE
+                        : reflectionService.checkCriteria(text, node.getSuccessCriteria());
                 if (criteria == SubTaskResult.ErrorType.NEED_REPLAN
                         && corrections < maxCriteriaCorrections) {
                     corrections++;
@@ -140,6 +164,7 @@ public class GraphNodeExecutionService {
                 SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(),
                         targetAgent, text, true, response.getRealTitles(), response.getTagsByTitle());
                 result.setDomainQuality(response.getDomainQuality());
+                result.setStructuredData(response.getData());
                 progress(eventsKey, criteria == SubTaskResult.ErrorType.NEED_REPLAN
                                 ? "node_quality_degraded" : "node_completed",
                         "节点[" + node.getDescription() + "]执行完成", targetAgent);
@@ -226,7 +251,22 @@ public class GraphNodeExecutionService {
     private static boolean hasProtocolMetadata(IntentNode node) {
         return node.getIdempotencyKey() != null || !node.getInput().isEmpty()
                 || !node.getConstraints().isEmpty()
+                || !node.getDependsOn().isEmpty()
                 || !"ANSWER".equalsIgnoreCase(node.getOperation());
+    }
+
+    private static Map<String, AgentNodeOutput> predecessorOutputs(
+            IntentNode node, Map<String, SubTaskResult> completed) {
+        Map<String, AgentNodeOutput> outputs = new java.util.LinkedHashMap<>();
+        for (String dependency : node.getDependsOn()) {
+            SubTaskResult result = completed.get(dependency);
+            if (result == null) continue;
+            outputs.put(dependency, new AgentNodeOutput(
+                    result.getTaskId(), result.getAgentName(),
+                    result.isSuccess() ? "SUCCEEDED" : result.getErrorType().name(),
+                    result.getResult(), result.getStructuredData()));
+        }
+        return outputs;
     }
 
     private static String correctionPrompt(String description, String criteria, String previous) {

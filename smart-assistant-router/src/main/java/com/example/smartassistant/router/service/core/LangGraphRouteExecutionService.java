@@ -255,6 +255,11 @@ public class LangGraphRouteExecutionService {
                         Objects.toString(map.get("description"), ""),
                         Objects.toString(map.get("agentName"), ""),
                         Objects.toString(map.get("result"), ""), success, errorType);
+                if (map.get("data") instanceof Map<?, ?> data) {
+                    Map<String, Object> restoredData = new LinkedHashMap<>();
+                    data.forEach((key, item) -> restoredData.put(Objects.toString(key), item));
+                    restored.setStructuredData(restoredData);
+                }
                 if (map.get("handoff") instanceof Map<?, ?> handoff) {
                     try {
                         restored.setHandoffCommand(new HandoffCommand(
@@ -397,7 +402,9 @@ public class LangGraphRouteExecutionService {
             return Map.of(COMPLETED_IDS, List.of(node.getId()));
         }
         SubTaskResult result = nodeExecutor.execute(node, completed, context.breakerFailures,
-                context.userId, context.eventsKey, context.requestId);
+                context.userId, context.eventsKey, context.requestId,
+                context.graph.getWorkflowKey(), context.graph.getWorkflowVersion(),
+                context.graph.getWorkflowChecksum());
         if (result == null) {
             throw new IllegalStateException("Graph node returned no result: " + node.getId());
         }
@@ -494,6 +501,7 @@ public class LangGraphRouteExecutionService {
         state.put("result", result.getResult());
         state.put("success", result.isSuccess());
         state.put("errorType", result.getErrorType().name());
+        state.put("data", result.getStructuredData());
         if (result.hasHandoff()) {
             HandoffCommand command = result.getHandoffCommand();
             state.put("handoff", Map.of(

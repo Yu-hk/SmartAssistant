@@ -24,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.stream.MapRecord;
@@ -52,14 +53,24 @@ public class StreamChatController {
 
     private static final Logger logger = LoggerFactory.getLogger(StreamChatController.class);
 
-    private static final long DECISION_TIMEOUT_MS = 60000;
-
     private final RouterClient routerClient;
     private final AgentStreamClient agentStreamClient;
     private final StringRedisTemplate redisTemplate;
     private final RequestQueueService requestQueueService;
     private final RoutingCallLogService routingCallLogService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${router.service.decision-timeout-ms:60000}")
+    private long decisionTimeoutMs = 60_000L;
+
+    @Value("${router.service.heavy-decision-timeout-ms:120000}")
+    private long heavyDecisionTimeoutMs = 120_000L;
+
+    @Value("${router.service.heavy-question-chars:160}")
+    private int heavyQuestionChars = 160;
+
+    @Value("${router.service.sse-idle-grace-ms:30000}")
+    private long sseIdleGraceMs = 30_000L;
 
     public StreamChatController(
             RouterClient routerClient,
@@ -106,7 +117,7 @@ public class StreamChatController {
         // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
 
-        SseEventBus bus = createBus(response, requestId);
+        SseEventBus bus = createBus(response, requestId, message);
 
         // 断线续传
         if (requestId != null && lastEventId != null && !lastEventId.isBlank()) {
@@ -277,10 +288,18 @@ public class StreamChatController {
 
     // ==================== 内部方法 ====================
 
-    private SseEventBus createBus(HttpServletResponse response, String requestId) {
+    private SseEventBus createBus(HttpServletResponse response, String requestId, String message) {
         SseEventBus.RedisZSetCache redisCache = redisTemplate != null
                 ? new RedisZSetCacheAdapter(redisTemplate) : null;
-        return new SseEventBus(response, requestId, redisCache);
+        return new SseEventBus(response, requestId, redisCache, sseIdleTimeoutFor(message));
+    }
+
+    long sseIdleTimeoutFor(String message) {
+        long decisionTimeout = decisionTimeoutFor(message);
+        long grace = Math.max(0L, sseIdleGraceMs);
+        return decisionTimeout > Long.MAX_VALUE - grace
+                ? Long.MAX_VALUE
+                : decisionTimeout + grace;
     }
 
     private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message,
@@ -301,7 +320,7 @@ public class StreamChatController {
         bus.sendWaiting();
         try {
             String streamKey = RoutingKeys.sseStream(decisionKey);
-            return routerClient.waitForDecisionFromRedis(decisionKey, DECISION_TIMEOUT_MS,
+            return routerClient.waitForDecisionFromRedis(decisionKey, decisionTimeoutFor(message),
                     () -> forwardRedisStreamEvents(bus, streamKey, progressCursor));
         } catch (Exception e) {
             logger.error("[StreamChat] 获取决策失败: {}", e.getMessage());
@@ -446,6 +465,14 @@ public class StreamChatController {
             logger.error("[StreamChat] Redis 事件转发失败: {}", e.getMessage());
             return false;
         }
+    }
+
+    long decisionTimeoutFor(String message) {
+        int chars = message == null ? 0
+                : message.codePointCount(0, message.length());
+        return chars >= Math.max(1, heavyQuestionChars)
+                ? Math.max(decisionTimeoutMs, heavyDecisionTimeoutMs)
+                : decisionTimeoutMs;
     }
 
     private void forwardRedisStreamEvents(SseEventBus bus, String streamKey, RedisEventCursor cursor) {

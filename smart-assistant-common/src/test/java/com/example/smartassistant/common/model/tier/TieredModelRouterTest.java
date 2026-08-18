@@ -66,9 +66,9 @@ class TieredModelRouterTest {
     @BeforeEach
     void setUp() {
         EnumMap<ModelTier, TierModelRegistry.TierModelEntry> m = new EnumMap<>(ModelTier.class);
-        m.put(ModelTier.LIGHT, new TierModelRegistry.TierModelEntry(lightModel, "qwen2.5:3b"));
-        m.put(ModelTier.STANDARD, new TierModelRegistry.TierModelEntry(standardModel, "deepseek-r1:7b"));
-        m.put(ModelTier.HEAVY, new TierModelRegistry.TierModelEntry(heavyModel, "deepseek-chat"));
+        m.put(ModelTier.LIGHT, new TierModelRegistry.TierModelEntry(lightModel, "deepseek-v4-flash"));
+        m.put(ModelTier.STANDARD, new TierModelRegistry.TierModelEntry(standardModel, "deepseek-v4-flash"));
+        m.put(ModelTier.HEAVY, new TierModelRegistry.TierModelEntry(heavyModel, "deepseek-v4-pro"));
         registry = new TierModelRegistry(m);
         meterRegistry = new SimpleMeterRegistry();
     }
@@ -149,7 +149,7 @@ class TieredModelRouterTest {
 
             assertEquals(ModelTier.HEAVY, sel.requestedTier());
             assertEquals(ModelTier.HEAVY, sel.servedTier());
-            assertEquals("deepseek-chat", sel.servedModelName());
+            assertEquals("deepseek-v4-pro", sel.servedModelName());
             assertFalse(sel.degraded());
             assertTrue(sel.latencyMillis() >= 0);
             assertNotNull(sel.response());
@@ -179,7 +179,7 @@ class TieredModelRouterTest {
 
             assertEquals(ModelTier.HEAVY, sel.requestedTier());
             assertEquals(ModelTier.STANDARD, sel.servedTier());
-            assertEquals("deepseek-r1:7b", sel.servedModelName());
+            assertEquals("deepseek-v4-flash", sel.servedModelName());
             assertTrue(sel.degraded());
             assertEquals("degraded-from-HEAVY", sel.reason());
             assertEquals(List.of(ModelTier.HEAVY, ModelTier.STANDARD), sel.attemptedTiers());
@@ -187,36 +187,17 @@ class TieredModelRouterTest {
         }
 
         @Test
-        @DisplayName("HEAVY+STANDARD 均失败 → 降级 LIGHT 成功（完整降级链）")
-        void fullDegradationChain() {
-            when(classifier.classify("复杂")).thenReturn(QueryComplexityClassifier.Complexity.COMPLEX);
-            when(heavyModel.call(anyPrompt())).thenThrow(new RuntimeException("HEAVY 失败"));
-            when(standardModel.call(anyPrompt())).thenThrow(new RuntimeException("STANDARD 失败"));
-            when(lightModel.call(anyPrompt())).thenReturn(mockResponse("轻量兜底"));
-
-            TierSelection sel = router(null, true).call(new Prompt("复杂"), "复杂", null);
-
-            assertEquals(ModelTier.HEAVY, sel.requestedTier());
-            assertEquals(ModelTier.LIGHT, sel.servedTier());
-            assertTrue(sel.degraded());
-            assertEquals("qwen2.5:3b", sel.servedModelName());
-            assertEquals(List.of(ModelTier.HEAVY, ModelTier.STANDARD, ModelTier.LIGHT), sel.attemptedTiers());
-            assertEquals("轻量兜底", sel.response().getResult().getOutput().getText());
-        }
-
-        @Test
-        @DisplayName("所有档位全失败 → ModelTierUnavailableException")
+        @DisplayName("Pro 与 Flash 均失败 → ModelTierUnavailableException（同名 Flash 不重复调用）")
         void allTiersUnavailable() {
             when(classifier.classify("复杂")).thenReturn(QueryComplexityClassifier.Complexity.COMPLEX);
             when(heavyModel.call(anyPrompt())).thenThrow(new RuntimeException("HEAVY fail"));
             when(standardModel.call(anyPrompt())).thenThrow(new RuntimeException("STANDARD fail"));
-            when(lightModel.call(anyPrompt())).thenThrow(new RuntimeException("LIGHT fail"));
-
             TieredModelRouter.ModelTierUnavailableException ex = assertThrows(TieredModelRouter.ModelTierUnavailableException.class,
                     () -> router(null, true).call(new Prompt("复杂"), "复杂", null));
 
             assertEquals(ModelTier.HEAVY, ex.requested);
-            assertEquals(List.of(ModelTier.HEAVY, ModelTier.STANDARD, ModelTier.LIGHT), ex.attempted);
+            assertEquals(List.of(ModelTier.HEAVY, ModelTier.STANDARD), ex.attempted);
+            verify(lightModel, never()).call(anyPrompt());
             assertTrue(ex.latencyMillis >= 0);
         }
 
@@ -241,9 +222,9 @@ class TieredModelRouterTest {
         void skipNullModelInRegistry() {
             // 构造 registry 时 standard 设置为 null
             EnumMap<ModelTier, TierModelRegistry.TierModelEntry> m = new EnumMap<>(ModelTier.class);
-            m.put(ModelTier.LIGHT, new TierModelRegistry.TierModelEntry(lightModel, "qwen2.5:3b"));
+            m.put(ModelTier.LIGHT, new TierModelRegistry.TierModelEntry(lightModel, "deepseek-v4-flash"));
             m.put(ModelTier.STANDARD, null);
-            m.put(ModelTier.HEAVY, new TierModelRegistry.TierModelEntry(heavyModel, "deepseek-chat"));
+            m.put(ModelTier.HEAVY, new TierModelRegistry.TierModelEntry(heavyModel, "deepseek-v4-pro"));
             TierModelRegistry partialRegistry = new TierModelRegistry(m);
 
             when(classifier.classify("中等问题")).thenReturn(QueryComplexityClassifier.Complexity.MEDIUM);
@@ -259,7 +240,7 @@ class TieredModelRouterTest {
             // 注意：selectTier 会把 MEDIUM → STANDARD（这是复杂度映射）
             // 但 registry.get(STANDARD)=null，所以跳过了 STANDARD，降级到 LIGHT
             assertTrue(sel.degraded());
-            assertEquals("qwen2.5:3b", sel.servedModelName());
+            assertEquals("deepseek-v4-flash", sel.servedModelName());
         }
 
         @Test
@@ -333,12 +314,12 @@ class TieredModelRouterTest {
         @DisplayName("灰度比例=1.0 时全部请求走 canary 模型，成功则 servedModelName=canary 且不触发原档位")
         void canaryServesAllWhenRatioOne() {
             when(classifier.classify("你好")).thenReturn(QueryComplexityClassifier.Complexity.SIMPLE);
-            when(canaryModel.call(anyPrompt())).thenReturn(mockResponse("混元回复"));
+            when(canaryModel.call(anyPrompt())).thenReturn(mockResponse("灰度回复"));
 
-            TieredModelRouter r = canaryRouter(1.0, "alibayram/hunyuan", canaryModel);
+            TieredModelRouter r = canaryRouter(1.0, "deepseek-v4-pro", canaryModel);
             TierSelection sel = r.call(new Prompt("你好"), "你好", null);
 
-            assertEquals("alibayram/hunyuan", sel.servedModelName());
+            assertEquals("deepseek-v4-pro", sel.servedModelName());
             assertFalse(sel.degraded());
             assertEquals("canary", sel.reason());
             verify(canaryModel).call(anyPrompt());
@@ -352,10 +333,10 @@ class TieredModelRouterTest {
             when(canaryModel.call(anyPrompt())).thenThrow(new RuntimeException("canary OOM"));
             when(standardModel.call(anyPrompt())).thenReturn(mockResponse("降级回复"));
 
-            TieredModelRouter r = canaryRouter(1.0, "alibayram/hunyuan", canaryModel);
+            TieredModelRouter r = canaryRouter(1.0, "deepseek-v4-pro", canaryModel);
             TierSelection sel = r.call(new Prompt("复杂问题"), "复杂问题", null);
 
-            assertEquals("deepseek-r1:7b", sel.servedModelName());
+            assertEquals("deepseek-v4-flash", sel.servedModelName());
             assertTrue(sel.degraded());
             verify(canaryModel).call(anyPrompt());
             verify(standardModel).call(anyPrompt());
@@ -367,10 +348,10 @@ class TieredModelRouterTest {
             when(classifier.classify("你好")).thenReturn(QueryComplexityClassifier.Complexity.SIMPLE);
             when(lightModel.call(anyPrompt())).thenReturn(mockResponse("轻量回复"));
 
-            TieredModelRouter r = canaryRouter(0.0, "alibayram/hunyuan", canaryModel);
+            TieredModelRouter r = canaryRouter(0.0, "deepseek-v4-pro", canaryModel);
             TierSelection sel = r.call(new Prompt("你好"), "你好", null);
 
-            assertEquals("qwen2.5:3b", sel.servedModelName());
+            assertEquals("deepseek-v4-flash", sel.servedModelName());
             verify(canaryModel, never()).call(anyPrompt());
         }
     }
