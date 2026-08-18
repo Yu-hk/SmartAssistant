@@ -94,14 +94,6 @@
             <artifactId>spring-ai-client-chat</artifactId>
         </dependency>
 
-        <!-- ⭐ Spring AI Ollama（G3 TierModelAutoConfiguration 引用 OllamaChatModel/OllamaChatOptions）
-             optional: 各服务按需显式声明，避免 common 的 pom 强依赖 ollama 运行时 -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-ollama</artifactId>
-            <optional>true</optional>
-        </dependency>
-
         <!-- DeepSeek API model used by the production tier router. -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

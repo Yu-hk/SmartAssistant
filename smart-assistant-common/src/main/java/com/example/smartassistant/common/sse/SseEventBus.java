@@ -57,7 +57,7 @@ public class SseEventBus {
     /** 心跳间隔（毫秒） */
     private static final long HEARTBEAT_INTERVAL_MS = 15_000;
     /** 闲置超时（毫秒）— 超过此时间无事件发送则自动关闭 */
-    private static final long IDLE_TIMEOUT_MS = 60_000;
+    private static final long DEFAULT_IDLE_TIMEOUT_MS = 60_000;
 
     /** ⭐ 每个缓冲区的最大事件数上限 —— 超过后停止缓存（防 Redis 内存溢出） */
     private static final int MAX_EVENTS_PER_BUFFER = 10_000;
@@ -65,6 +65,7 @@ public class SseEventBus {
     private final HttpServletResponse response;
     private final String redisKey;
     private final RedisZSetCache redisCache;
+    private final long idleTimeoutMs;
     private long seqNo = 1;
     private volatile boolean closed = false;
 
@@ -78,9 +79,21 @@ public class SseEventBus {
     private ScheduledFuture<?> heartbeatFuture;
 
     public SseEventBus(HttpServletResponse response, String requestId, RedisZSetCache redisCache) {
+        this(response, requestId, redisCache, DEFAULT_IDLE_TIMEOUT_MS);
+    }
+
+    /**
+     * 创建使用请求级闲置预算的事件总线。
+     *
+     * <p>长问题的路由分析可能超过默认 60 秒。调用方应让该预算覆盖完整的
+     * 路由等待时间，并额外预留至少一个心跳周期，避免业务仍在执行时关闭连接。</p>
+     */
+    public SseEventBus(HttpServletResponse response, String requestId, RedisZSetCache redisCache,
+                       long idleTimeoutMs) {
         this.response = response;
         this.redisKey = requestId != null ? SSE_BUFFER_PREFIX + requestId : null;
         this.redisCache = redisCache;
+        this.idleTimeoutMs = idleTimeoutMs > 0 ? idleTimeoutMs : DEFAULT_IDLE_TIMEOUT_MS;
         initResponse();
         startHeartbeat();
     }
@@ -106,7 +119,7 @@ public class SseEventBus {
 
     /**
      * 启动心跳线程。
-     * 每 15s 发送一次 comment 行保持连接，超过 60s 无事件则自动关闭。
+     * 每 15s 发送一次 comment 行保持连接，超过请求级闲置预算无业务事件则自动关闭。
      */
     private void startHeartbeat() {
         ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, r -> {
@@ -121,7 +134,7 @@ public class SseEventBus {
                     return;
                 }
                 long idle = System.currentTimeMillis() - lastActivityTime.get();
-                if (idle > IDLE_TIMEOUT_MS) {
+                if (idle > idleTimeoutMs) {
                     log.info("[SseEventBus] 闲置超时 ({}ms)，关闭连接", idle);
                     close();
                     return;

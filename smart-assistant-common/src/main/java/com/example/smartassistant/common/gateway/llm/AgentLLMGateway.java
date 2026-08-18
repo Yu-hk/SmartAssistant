@@ -63,6 +63,7 @@ public class AgentLLMGateway {
         }
 
         // 2. 重试循环
+        long overallStart = System.currentTimeMillis();
         Exception lastException = null;
         for (int attempt = 0; attempt <= config.maxRetries(); attempt++) {
             if (attempt > 0) {
@@ -73,8 +74,10 @@ public class AgentLLMGateway {
             }
 
             long start = System.currentTimeMillis();
-            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-                Future<String> future = executor.submit(() -> {
+            ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            Future<String> future = null;
+            try {
+                future = executor.submit(() -> {
                     try {
                         return modelCall.execute();
                     } catch (Exception e) {
@@ -96,16 +99,32 @@ public class AgentLLMGateway {
                 lastException = e;
                 log.warn("[LLMGateway] ❌ 调用失败(attempt={}): {}", attempt,
                         e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+            } finally {
+                // ExecutorService.close() 会等待未响应中断的网络任务自然结束，导致配置的
+                // timeout 形同虚设。这里取消任务并立即关闭执行器，让调用方按预算返回。
+                if (future != null && !future.isDone()) {
+                    future.cancel(true);
+                }
+                executor.shutdownNow();
             }
         }
 
         // 3. 全部重试失败
         if (config.enableCircuitBreaker()) recordFailure(key);
-        String errorMsg = lastException != null
-                ? (lastException.getCause() != null ? lastException.getCause().getMessage() : lastException.getMessage())
-                : "unknown";
+        String errorMsg;
+        if (lastException instanceof TimeoutException) {
+            errorMsg = "timeout after " + config.timeout().toMillis() + "ms";
+        } else if (lastException != null) {
+            errorMsg = lastException.getCause() != null
+                    ? lastException.getCause().getMessage()
+                    : lastException.getMessage();
+            if (errorMsg == null || errorMsg.isBlank()) errorMsg = lastException.getClass().getSimpleName();
+        } else {
+            errorMsg = "unknown";
+        }
+        long elapsed = System.currentTimeMillis() - overallStart;
         log.error("[LLMGateway] ❌ 调用彻底失败: error={}, maxRetries={}", errorMsg, config.maxRetries());
-        return LLMCallResult.failure(errorMsg, 0);
+        return LLMCallResult.failure(errorMsg, elapsed);
     }
 
     // ==================== 函数式接口 ====================

@@ -71,7 +71,7 @@ public class ProductKnowledgeConfig {
      *
      * <p>设计要点：</p>
      * <ul>
-     *     <li><b>异步</b>：放到后台线程执行，不阻塞应用启动；Ollama 未就绪时抽取调用会失败，
+     *     <li><b>异步</b>：放到后台线程执行，不阻塞应用启动；模型 API 未就绪时抽取调用会失败，
      *         由 {@link KnowledgeGraphService#extractFromDocument} 内部 try/catch 兜底，不影响启动；</li>
      *     <li><b>可选</b>：通过 {@code ObjectProvider} 取得图谱 Bean，缺失则跳过；</li>
      *     <li><b>可开关</b>：{@code product.rag.lightrag.ingest-seed.enabled}（默认 true）。</li>

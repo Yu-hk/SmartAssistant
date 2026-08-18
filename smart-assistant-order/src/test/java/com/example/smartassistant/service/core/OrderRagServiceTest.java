@@ -29,4 +29,42 @@ class OrderRagServiceTest {
         assertTrue(answer.contains("商品完好"));
         verifyNoInteractions(orderData);
     }
+
+    @Test
+    void lifecycleGuidanceDoesNotRequireOrderIdOrTouchOrderData() {
+        OrderDataProvider orderData = mock(OrderDataProvider.class);
+        OrderRagService service = new OrderRagService(orderData);
+
+        RetrievalQualityResult result = service.retrieveWithQualityResult(
+                OrderIntentService.IntentType.ORDER_GUIDANCE,
+                "请说明下单后如何查询、取消和申请售后");
+
+        assertFalse(result.isRejected());
+        assertTrue(result.isHighQuality());
+        String answer = service.buildOrderGuidanceAnswer(result);
+        assertTrue(answer.contains("查询订单"));
+        assertTrue(answer.contains("取消订单"));
+        assertTrue(answer.contains("申请售后"));
+        assertTrue(answer.contains("查看退款进度"));
+        assertTrue(answer.contains("售后单号"));
+        assertTrue(answer.contains("不会创建、取消或退款任何订单"));
+        verifyNoInteractions(orderData);
+    }
+
+    @Test
+    void preOrderChecklistDoesNotCreateOrderOrRequireOrderId() {
+        OrderDataProvider orderData = mock(OrderDataProvider.class);
+        OrderRagService service = new OrderRagService(orderData);
+
+        RetrievalQualityResult result = service.retrieveWithQualityResult(
+                OrderIntentService.IntentType.ORDER_PREPARATION_GUIDANCE,
+                "说明创建订单前需要确认哪些信息，但不要执行下单");
+
+        assertFalse(result.isRejected());
+        assertTrue(result.getContent().contains("商品"));
+        assertTrue(result.getContent().contains("收货人姓名"));
+        assertTrue(result.getContent().contains("不会执行下单"));
+        assertTrue(result.getContent().contains("不会创建测试订单"));
+        verifyNoInteractions(orderData);
+    }
 }

@@ -1,17 +1,18 @@
 package com.example.smartassistant.router.service.core;
 
-import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.common.gateway.llm.AgentLLMGateway;
+import com.example.smartassistant.common.gateway.llm.LLMCallConfig;
+import com.example.smartassistant.common.gateway.llm.LLMCallResult;
 import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,14 +37,22 @@ public class TaskPlannerService {
     private static final Pattern GRAPH_PATTERN = Pattern.compile("(\\w+)\\|([^|]+)\\|([^|\\n]+)\\|([^|\\n]+)");
     private static final Pattern FLEXIBLE_PATTERN = Pattern.compile("^(.+?)\\|(.+)\\|(.+)$", Pattern.MULTILINE);
 
-    private final ChatClient chatClient;
     private final AgentDiscoveryService agentDiscovery;
+    private final AgentLLMGateway llmGateway;
+    private final DeepSeekPlanningClient planningClient;
 
-    public TaskPlannerService(@Qualifier("lightChatModel") ChatModel lightModel,
-                               AgentDiscoveryService agentDiscovery,
-                               AiChatService aiChatService) {
-        this.chatClient = aiChatService.buildChatClient(lightModel);
+    @Value("${router.task-planner.timeout-ms:35000}")
+    private long plannerTimeoutMs = 35_000L;
+
+    @Value("${router.task-planner.max-tokens:2048}")
+    private int plannerMaxTokens = 2048;
+
+    public TaskPlannerService(AgentDiscoveryService agentDiscovery,
+                               AgentLLMGateway llmGateway,
+                               DeepSeekPlanningClient planningClient) {
         this.agentDiscovery = agentDiscovery;
+        this.llmGateway = llmGateway;
+        this.planningClient = planningClient;
     }
 
     /**
@@ -62,7 +71,7 @@ public class TaskPlannerService {
      * @return 意图图（DAG），空节点时返回仅含原始问题的单节点图
      */
     public IntentGraph planToGraph(String question) {
-        String agentList = buildAgentList();
+        String agentList = buildCompactAgentList();
         if (agentList.isEmpty()) {
             log.warn("[TaskPlanner] 无可用 Agent，使用整句");
             return createSingleNodeGraph(question, findFallbackAgent());
@@ -70,35 +79,20 @@ public class TaskPlannerService {
 
         String fallback = findFallbackAgent();
         String prompt = String.format("""
-                将用户的问题分配给最合适的助理，并标注任务间的依赖关系和验收标准。
-
-                助理（只能从以下选择）：
+                直接输出任务分配结果，不要解释、不要展示思考过程。
+                可用助理（只能从中选择）：
                 %s
 
-                输出格式（每行一条）：子任务ID|描述|助理名|依赖ID列表(逗号分隔,无依赖填none)|验收标准
-                示例：
-                t1|查询北京热门景点|location_weather|none|返回城市名和至少3个景点名
-                t2|推荐北京川菜馆|food_recommendation|t1|返回至少2家餐厅及评分
-                t3|查今天北京天气|location_weather|none|包含温度和天气状况描述
+                每行严格使用：t编号|简洁任务描述|助理名|依赖ID（无依赖填none）|验收标准。
+                最多6行；每行只表达一个原子目标；按助理能力做语义分配。
+                保留“不要创建/不要支付”等否定约束；只问流程时只能规划说明，不得规划写操作。
+                依赖只能引用前面已定义的节点；不匹配时使用兜底助理：%s。
 
-                规则：
-                - ID 格式：t1, t2, t3 ...
-                - 描述要简洁明确，包含具体地点/关键词
-                - 只能从上面的助理名单中选择，不要自创
-                - 如果 B 任务需要 A 任务的结果（如推荐景点附近的餐厅），B 依赖 A
-                - 如果任务间无依赖关系，依赖填 none
-                - 不匹配时使用兜底：%s
-                - 无依赖的多个任务可以并行执行
-                - 验收标准说明"完成此任务需要什么"，如"返回至少3条结果""包含价格和评分"
-                - 必须保留用户原始请求中的否定约束和操作边界，不得把“不要创建/不要支付”等约束改写成执行操作
-                - 如果输入标明信息不完整或只允许查询，只规划可执行的查询/分析任务；缺失参数的创建、支付、退款、取消等写操作改为说明所需信息并追问，禁止实际执行
-                - 下游任务依赖上游候选列表时，用户未明确选择具体候选项前，不得替用户擅自选择并执行写操作
-
-                用户：%s
+                用户请求：%s
                 """, agentList, fallback, question);
 
         try {
-            String response = chatClient.prompt().user(prompt).call().content();
+            String response = callPlanner(prompt);
             List<IntentGraph.IntentNode> nodes = parseGraphTasks(response);
             if (nodes.isEmpty()) {
                 log.warn("[TaskPlanner] LLM 返回格式异常，使用整句。响应: {}", response);
@@ -110,6 +104,7 @@ public class TaskPlannerService {
                 log.warn("[TaskPlanner] 拒绝不安全的 LLM 计划，降级为单节点: {}", validation.errors());
                 return createSingleNodeGraph(question, fallback);
             }
+            nodes = preserveProductContext(nodes, question);
             log.info("[TaskPlanner] 图分解完成: {} 个节点, hasDeps={}",
                     nodes.size(), nodes.stream().anyMatch(n -> !n.getDependsOn().isEmpty()));
             return new IntentGraph(question, nodes);
@@ -117,6 +112,26 @@ public class TaskPlannerService {
             log.warn("[TaskPlanner] LLM 图分解失败: {}", e.getMessage());
             return createSingleNodeGraph(question, fallback);
         }
+    }
+
+    static List<IntentGraph.IntentNode> preserveProductContext(
+            List<IntentGraph.IntentNode> nodes, String originalQuestion) {
+        if (nodes == null || nodes.isEmpty() || originalQuestion == null || originalQuestion.isBlank()) {
+            return nodes == null ? List.of() : nodes;
+        }
+        return nodes.stream().map(node -> {
+            String agent = node.getTargetAgent();
+            if (agent == null || !agent.toLowerCase(Locale.ROOT).contains("product")) {
+                return node;
+            }
+            String scoped = node.getDescription()
+                    + "\n\n[用户原始商品需求与约束]\n" + originalQuestion;
+            return new IntentGraph.IntentNode(
+                    node.getId(), scoped, node.getTargetAgent(), node.getDependsOn(),
+                    node.getSuccessCriteria(), node.getConditionalDeps(),
+                    node.isHumanApprovalRequired(), node.getOperation(), node.getInput(),
+                    node.getConstraints(), node.getIdempotencyKey());
+        }).toList();
     }
 
     /**
@@ -150,7 +165,7 @@ public class TaskPlannerService {
                 """, agentList, fallback, question);
 
         try {
-            String response = chatClient.prompt().user(prompt).call().content();
+            String response = callPlanner(prompt);
             List<SubTask> tasks = parseTasks(response);
             if (tasks.isEmpty()) {
                 log.warn("[TaskPlanner] LLM 返回格式异常，使用整句。响应: {}", response);
@@ -291,7 +306,7 @@ public class TaskPlannerService {
                 """, agentList, replanContext, fallback);
 
         try {
-            String response = chatClient.prompt().user(prompt).call().content();
+            String response = callPlanner(prompt);
             List<IntentGraph.IntentNode> nodes = parseGraphTasks(response);
             if (nodes.isEmpty()) {
                 log.warn("[TaskPlanner] 重规划 LLM 返回格式异常。响应: {}", response);
@@ -328,6 +343,31 @@ public class TaskPlannerService {
                 .collect(Collectors.joining("\n"));
     }
 
+    /**
+     * 首次规划只携带 Agent 名称和精简能力描述，避免重复关键词元数据诱发
+     * 长推理。Agent 仍由模型基于注册中心的能力语义选择。
+     */
+    private String buildCompactAgentList() {
+        Collection<DiscoveredAgent> agents = agentDiscovery.getCachedAgents();
+        if (agents == null || agents.isEmpty()) return "";
+        return agents.stream()
+                .filter(agent -> agent.getAgentName() != null && agent.getHealthy())
+                .filter(agent -> agent.getMetadata() != null
+                        && agent.getMetadata().getAgentType() != null
+                        && !agent.getMetadata().getAgentType().isBlank())
+                .map(agent -> {
+                    String capabilities = agent.getMetadata() != null
+                            ? agent.getMetadata().getCapabilities() : "";
+                    if (capabilities == null) capabilities = "";
+                    capabilities = capabilities.replaceAll("\\s+", " ").trim();
+                    if (capabilities.length() > 120) {
+                        capabilities = capabilities.substring(0, 120);
+                    }
+                    return "- " + agent.getAgentName() + "：" + capabilities;
+                })
+                .collect(Collectors.joining("\n"));
+    }
+
     private Set<String> getHealthyAgentNames() {
         Collection<DiscoveredAgent> agents = agentDiscovery.getCachedAgents();
         if (agents == null) return Set.of();
@@ -344,6 +384,26 @@ public class TaskPlannerService {
     private String findFallbackAgent() {
         DiscoveredAgent fallback = agentDiscovery.findFallbackAgent();
         return fallback != null ? fallback.getAgentName() : null;
+    }
+
+    /**
+     * 将任务规划限制在路由总时延预算内，并显式限制生成长度。
+     * 兼容模型若不设置 maxTokens，可能生成很长的推理内容，使节点尚未开始
+     * Consumer 就已超时。
+     */
+    private String callPlanner(String prompt) {
+        int maxTokens = Math.max(256, plannerMaxTokens);
+        LLMCallConfig config = new LLMCallConfig(
+                null, maxTokens, Duration.ofMillis(Math.max(1L, plannerTimeoutMs)),
+                0, 0.1, false);
+        LLMCallResult result = llmGateway.call(
+                () -> planningClient.complete(prompt, maxTokens),
+                "deepseek-v4-flash-task-planner",
+                config);
+        if (!result.success()) {
+            throw new IllegalStateException("task planner model failed: " + result.errorMessage());
+        }
+        return result.content();
     }
 
     private List<SubTask> parseTasks(String response) {
