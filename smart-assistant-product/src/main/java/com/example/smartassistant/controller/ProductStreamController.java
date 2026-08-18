@@ -16,13 +16,16 @@ import com.example.smartassistant.common.audit.ToolUsageHeaders;
 import com.example.smartassistant.common.quality.DomainAgentResponse;
 import com.example.smartassistant.common.quality.DomainQualityHeaders;
 import com.example.smartassistant.service.agent.StreamingProductAgentService;
+import com.example.smartassistant.service.core.ProductDiscoveryService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Map;
 
 /**
  * Product 服务流式响应控制器
@@ -42,9 +45,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ProductStreamController {
 
     private final StreamingProductAgentService streamingAgentService;
+    private final ProductDiscoveryService productDiscoveryService;
 
     public ProductStreamController(StreamingProductAgentService streamingAgentService) {
+        this(streamingAgentService, null);
+    }
+
+    @Autowired
+    public ProductStreamController(StreamingProductAgentService streamingAgentService,
+                                   ProductDiscoveryService productDiscoveryService) {
         this.streamingAgentService = streamingAgentService;
+        this.productDiscoveryService = productDiscoveryService;
     }
 
     /**
@@ -146,6 +157,28 @@ public class ProductStreamController {
                     AgentExecutionResponse.failure("EMPTY_PRODUCT_QUESTION",
                             "Question must not be blank", false));
         }
+        if (productDiscoveryService != null && isDiscoveryRequest(request)) {
+            Integer limit = request.input().get("limit") instanceof Number number
+                    ? number.intValue() : null;
+            ProductDiscoveryService.DiscoveryResult discovery =
+                    productDiscoveryService.discover(request.question(), limit);
+            DomainAgentResponse response = DomainAgentResponse.of(
+                    discovery.answer(), discovery.productCount() > 0
+                    ? discovery.scenarioEvidenceLimited()
+                        ? com.example.smartassistant.common.quality.DomainQualityResult.pass(
+                                1.0, "PRODUCT_SCENARIO_EVIDENCE_LIMITED")
+                        : com.example.smartassistant.common.quality.DomainQualityResult.pass(
+                                1.0, "PRODUCT_DISCOVERY_DATA")
+                    : com.example.smartassistant.common.quality.DomainQualityResult.warn(
+                            0.5, "EMPTY_PRODUCT_CATALOG"));
+            Map<String, Object> data = Map.of(
+                    "products", discovery.products(),
+                    "productCount", discovery.productCount(),
+                    "popularityBased", discovery.popularityBased(),
+                    "scenarioEvidenceLimited", discovery.scenarioEvidenceLimited());
+            return ResponseEntity.ok(AgentExecutionResponse.success(
+                    response.answer(), data, response.quality()));
+        }
         ToolUsageCache.start(requestId);
         DomainAgentResponse response = streamingAgentService.executeWithQuality(
                 request.question(), requestId);
@@ -165,6 +198,12 @@ public class ProductStreamController {
         String toolUsage = ToolUsageHeaders.encode(ToolUsageCache.consume(requestId));
         if (toolUsage != null) builder.header(ToolUsageHeaders.TOOL_USAGE, toolUsage);
         return builder.body(AgentExecutionResponse.success(response.answer(), response.quality()));
+    }
+
+    private boolean isDiscoveryRequest(AgentExecutionRequest request) {
+        return "QUERY_HOT_PRODUCTS".equalsIgnoreCase(request.operation())
+                || "DISCOVER_PRODUCTS".equalsIgnoreCase(request.operation())
+                || productDiscoveryService.supports(request.question());
     }
 
     /**

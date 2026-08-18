@@ -25,7 +25,7 @@ import reactor.core.publisher.Flux;
 /**
  * 轻量 LLM 推理通道配置（Order 模块）。
  * <p>
- * 基于 {@link OllamaChatModel} 委托模式实现。用于意图识别等辅助任务。
+ * 基于 {@link DeepSeekChatModel} 委托模式实现，默认使用 V4 Flash 处理意图识别等辅助任务。
  */
 @Configuration
 public class LightChatModelConfig {
@@ -37,7 +37,7 @@ public class LightChatModelConfig {
     @Qualifier("lightChatModel")
     public ChatModel lightChatModel(
             DeepSeekChatModel deepSeekChatModel,
-            @Value("${order.light-model.name:${DEEPSEEK_LIGHT_MODEL:deepseek-chat}}") String model,
+            @Value("${order.light-model.name:${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}}") String model,
             @Value("${order.light-model.temperature:0.1}") double temperature) {
 
         var lightOptions = DeepSeekChatOptions.builder()

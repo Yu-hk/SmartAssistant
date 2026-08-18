@@ -115,17 +115,9 @@ datasource:
       api-key: ${DEEPSEEK_API_KEY:}
       chat:
         options:
-          model: ${DEEPSEEK_CHAT_MODEL:deepseek-chat}
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-v4-flash}
           temperature: 0.5
           max-tokens: 4096
-
-    # ⭐ Ollama 本地模型配置（兜底降级通道）
-    ollama:
-      base-url: http://localhost:11434
-      chat:
-        options:
-          model: qwen2.5:7b
-          temperature: 0.7
 
     alibaba:
       a2a:

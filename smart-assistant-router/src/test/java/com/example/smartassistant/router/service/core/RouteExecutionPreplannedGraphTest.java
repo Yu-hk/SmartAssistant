@@ -17,8 +17,10 @@ class RouteExecutionPreplannedGraphTest {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setIntentCategory("COMPLEX");
         analysis.setSubIntents(List.of(
-                Map.of("intent", "PRODUCT_QUERY", "description", "查询当前热门商品列表"),
-                Map.of("intent", "ORDER_INFO", "description", "说明下单需要提供的信息")));
+                Map.of("intent", "PRODUCT_QUERY", "description", "查询当前热门商品列表",
+                        "target_agent", "product", "operation", "QUERY_PRODUCT"),
+                Map.of("intent", "ORDER_INFO", "description", "说明下单需要提供的信息",
+                        "target_agent", "order", "operation", "EXPLAIN_ORDER_REQUIREMENTS")));
         analysis.setActionConstraints(List.of("不创建订单", "不支付"));
 
         String question = "[用户原始请求]\n查询热门商品并说明下单信息\n"
@@ -34,9 +36,9 @@ class RouteExecutionPreplannedGraphTest {
         assertTrue(graph.getAllNodes().stream().toList().get(1).getDescription()
                 .contains("收货人姓名、联系电话、收货地址"));
         IntentGraph.IntentNode productNode = graph.getAllNodes().stream().toList().get(0);
-        assertEquals("查询当前热门商品列表", productNode.getDescription());
-        assertFalse(productNode.getDescription().contains("不创建订单"));
-        assertFalse(productNode.getDescription().contains("[完整用户请求与全局约束]"));
+        assertTrue(productNode.getDescription().startsWith("查询当前热门商品列表"));
+        assertTrue(productNode.getDescription().contains("[用户原始商品需求与约束]"));
+        assertTrue(productNode.getDescription().contains("不创建订单"));
         IntentGraph.IntentNode preparationNode = graph.getAllNodes().stream().toList().get(1);
         assertTrue(preparationNode.getDescription().contains("不得替用户补造缺失参数"));
     }
@@ -45,24 +47,30 @@ class RouteExecutionPreplannedGraphTest {
     void keepsExplicitDependencyBetweenSubIntents() {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setSubIntents(List.of(
-                Map.of("intent", "PRODUCT_QUERY", "description", "查询商品"),
-                Map.of("intent", "CREATE_ORDER", "description", "创建订单", "depends_on", "PRODUCT_QUERY")));
+                Map.of("id", "product", "intent", "PRODUCT_QUERY", "description", "查询商品",
+                        "target_agent", "product", "operation", "QUERY_PRODUCT"),
+                Map.of("id", "order", "intent", "CREATE_ORDER", "description", "创建订单",
+                        "target_agent", "order", "operation", "CREATE_ORDER",
+                        "access_mode", "WRITE", "depends_on", List.of("product"))));
 
         IntentGraph graph = RouteExecutionService.buildGraphFromAnalysis("先查商品再下单", analysis);
 
         assertNotNull(graph);
         assertEquals(1, graph.getRootNodes().size());
-        assertEquals(List.of("t1"), graph.getAllNodes().stream().toList().get(1).getDependsOn());
+        assertEquals(List.of("product"), graph.getAllNodes().stream().toList().get(1).getDependsOn());
     }
 
     @Test
     void preservesNonAdjacentDependencyByStableNodeId() {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setSubIntents(List.of(
-                Map.of("id", "catalog", "intent", "PRODUCT_QUERY", "description", "查询商品"),
-                Map.of("id", "weather", "intent", "WEATHER_QUERY", "description", "查询天气"),
+                Map.of("id", "catalog", "intent", "PRODUCT_QUERY", "description", "查询商品",
+                        "target_agent", "product", "operation", "QUERY_PRODUCT"),
+                Map.of("id", "weather", "intent", "WEATHER_QUERY", "description", "查询天气",
+                        "target_agent", "general", "operation", "ANSWER"),
                 Map.of("id", "order", "intent", "ORDER_INFO", "description", "说明订单信息",
-                        "depends_on", "catalog")));
+                        "target_agent", "order", "operation", "QUERY_ORDER",
+                        "depends_on", List.of("catalog"))));
 
         IntentGraph graph = RouteExecutionService.buildGraphFromAnalysis(
                 "查询商品和天气，再根据商品说明订单信息", analysis);
@@ -79,9 +87,11 @@ class RouteExecutionPreplannedGraphTest {
     void createsIdempotencyKeyForWriteNode() {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setSubIntents(List.of(
-                Map.of("intent", "PRODUCT_QUERY", "description", "查询商品"),
+                Map.of("intent", "PRODUCT_QUERY", "description", "查询商品",
+                        "target_agent", "product", "operation", "QUERY_PRODUCT"),
                 Map.of("intent", "CREATE_ORDER", "description", "使用完整资料创建订单",
-                        "depends_on", "PRODUCT_QUERY")));
+                        "target_agent", "order", "operation", "CREATE_ORDER",
+                        "access_mode", "WRITE", "depends_on", "PRODUCT_QUERY")));
 
         var plan = RouteExecutionService.buildExecutionPlan(
                 "先查询再创建订单", analysis, "req-123");
@@ -106,8 +116,10 @@ class RouteExecutionPreplannedGraphTest {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setNeedsClarification(true);
         analysis.setSubIntents(List.of(
-                Map.of("intent", "PRODUCT_QUERY", "description", "查询热门商品"),
-                Map.of("intent", "CREATE_ORDER", "description", "选择商品后下单")));
+                Map.of("intent", "PRODUCT_QUERY", "description", "查询热门商品",
+                        "target_agent", "product", "operation", "QUERY_PRODUCT"),
+                Map.of("intent", "CREATE_ORDER", "description", "选择商品后下单",
+                        "target_agent", "order", "operation", "CREATE_ORDER", "access_mode", "WRITE")));
 
         IntentGraph graph = RouteExecutionService.buildGraphFromAnalysis(
                 "[执行边界] 不得创建订单，先查询再追问", analysis);
@@ -137,6 +149,42 @@ class RouteExecutionPreplannedGraphTest {
     }
 
     @Test
+    void compilesSingleIntentDirectlyWithoutCallingASecondPlanner() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(Map.of(
+                "id", "weather", "intent", "WEATHER_QUERY", "description", "查询北京天气",
+                "target_agent", "general", "operation", "ANSWER")));
+
+        IntentGraph graph = RouteExecutionService.buildGraphFromAnalysis("北京天气如何", analysis);
+
+        assertNotNull(graph);
+        assertEquals(1, graph.getNodeCount());
+        assertEquals("general", graph.getAllNodes().iterator().next().getTargetAgent());
+    }
+
+    @Test
+    void preservesReadOnlyOrderLifecycleOperation() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(Map.of(
+                "id", "order_guidance",
+                "intent", "ORDER_GUIDANCE",
+                "description", "说明下单后如何查询订单、取消订单和申请售后",
+                "target_agent", "order",
+                "operation", "EXPLAIN_ORDER_LIFECYCLE",
+                "access_mode", "READ")));
+
+        var plan = RouteExecutionService.buildExecutionPlan(
+                "只说明流程，不执行任何订单操作", analysis, "req-guidance");
+
+        assertNotNull(plan);
+        assertEquals("EXPLAIN_ORDER_LIFECYCLE", plan.nodes().getFirst().operation());
+        assertEquals(com.example.smartassistant.router.model.ExecutionPlan.AccessMode.READ,
+                plan.nodes().getFirst().accessMode());
+        assertFalse(plan.nodes().getFirst().approvalRequired());
+        assertNull(plan.nodes().getFirst().idempotencyKey());
+    }
+
+    @Test
     void partialFailureProducesOrchestratorWarningInsteadOfDiscardingSuccess() {
         var success = new com.example.smartassistant.router.model.SubTaskResult(
                 "t1", "查询天气", "general", "北京晴", true);
@@ -150,5 +198,20 @@ class RouteExecutionPreplannedGraphTest {
 
         assertTrue(quality.isWarn());
         assertTrue(quality.getReasonCodes().contains("PARTIAL_AGENT_FAILURE"));
+    }
+
+    @Test
+    void fallbackPlanMergesSuccessfulResultsWithoutAnotherModelCall() {
+        var product = new com.example.smartassistant.router.model.SubTaskResult(
+                "t1", "查询热门商品", "product_agent", "目录证据不足，无法判断会议适配性", true);
+        var order = new com.example.smartassistant.router.model.SubTaskResult(
+                "t2", "说明订单操作", "order_agent", "可查询、取消和申请售后", true);
+
+        String merged = RouteExecutionService.mergeFallbackPlannedResults(List.of(product, order));
+
+        assertTrue(merged.contains("### 查询热门商品"));
+        assertTrue(merged.contains("目录证据不足"));
+        assertTrue(merged.contains("### 说明订单操作"));
+        assertTrue(merged.contains("申请售后"));
     }
 }

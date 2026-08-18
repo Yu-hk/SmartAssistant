@@ -8,9 +8,13 @@ import com.example.smartassistant.common.quality.DomainAgentResponse;
 import com.example.smartassistant.common.quality.DomainQualityHeaders;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.service.agent.StreamingProductAgentService;
+import com.example.smartassistant.service.core.ProductDiscoveryService;
+import com.example.smartassistant.spi.ProductBackend;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -78,5 +82,53 @@ class ProductStreamControllerTest {
         assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
         assertEquals("推荐 A 型号", response.getBody().answer());
         assertEquals("PASS", response.getBody().quality().status());
+    }
+
+    @Test
+    void unifiedDiscoveryEndpointReturnsProductsAsStructuredData() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        ProductDiscoveryService discovery = mock(ProductDiscoveryService.class);
+        when(discovery.supports("查询热门商品")).thenReturn(true);
+        when(discovery.discover("查询热门商品", 3)).thenReturn(
+                new ProductDiscoveryService.DiscoveryResult(
+                        "1. 降噪耳机（SKU-100） — ¥599", 1, true,
+                        List.of(new ProductBackend.ProductSummary(
+                                "SKU-100", "降噪耳机", new BigDecimal("599"),
+                                "有货", "黑色", 12))));
+        ProductStreamController controller = new ProductStreamController(service, discovery);
+        AgentExecutionRequest request = new AgentExecutionRequest(
+                "1.0", "scene-1", "hot-products", "42", "QUERY_HOT_PRODUCTS",
+                "查询热门商品", Map.of("limit", 3), List.of(), List.of(), null,
+                null, null);
+
+        var response = controller.execute(request, null);
+
+        assertEquals(1, response.getBody().data().get("productCount"));
+        assertEquals("SKU-100", ((ProductBackend.ProductSummary) ((List<?>) response
+                .getBody().data().get("products")).getFirst()).code());
+        verify(service, org.mockito.Mockito.never()).executeWithQuality(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void scenarioEvidenceBoundaryIsATrustedNonHallucinatingAnswer() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        ProductDiscoveryService discovery = mock(ProductDiscoveryService.class);
+        String question = "查询热门商品并判断是否适合视频会议，不要虚构参数";
+        when(discovery.supports(question)).thenReturn(true);
+        when(discovery.discover(question, null)).thenReturn(
+                new ProductDiscoveryService.DiscoveryResult(
+                        "目录证据不足，不能把热门等同于适合。", 1, true,
+                        List.of(new ProductBackend.ProductSummary(
+                                "SKU-100", "候选设备", new BigDecimal("599"),
+                                "有货", null, 12)), true));
+        ProductStreamController controller = new ProductStreamController(service, discovery);
+
+        var response = controller.execute(AgentExecutionRequest.answer(
+                "scene-limited", "42", question, null), null);
+
+        assertEquals("PASS", response.getBody().quality().status());
+        assertEquals(List.of("PRODUCT_SCENARIO_EVIDENCE_LIMITED"),
+                response.getBody().quality().reasonCodes());
     }
 }

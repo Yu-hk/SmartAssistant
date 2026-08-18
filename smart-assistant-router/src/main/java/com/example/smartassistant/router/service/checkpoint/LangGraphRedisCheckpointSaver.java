@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.bsc.langgraph4j.RunnableConfig;
 import org.bsc.langgraph4j.checkpoint.AbstractCheckpointSaver;
 import org.bsc.langgraph4j.checkpoint.Checkpoint;
+import org.springframework.aop.framework.AopInfrastructureBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -19,7 +20,8 @@ import java.util.concurrent.TimeUnit;
 
 /** Redis-backed native LangGraph4j checkpoint saver with an in-memory test fallback. */
 @Component
-public class LangGraphRedisCheckpointSaver extends AbstractCheckpointSaver {
+public class LangGraphRedisCheckpointSaver extends AbstractCheckpointSaver
+        implements AopInfrastructureBean {
 
     private static final String KEY_PREFIX = "a2a:langgraph:checkpoint:";
     private static final long TTL_SECONDS = 3_600;

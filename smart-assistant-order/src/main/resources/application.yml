@@ -80,7 +80,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY:}
       chat:
         options:
-          model: ${DEEPSEEK_CHAT_MODEL:deepseek-chat}
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-v4-flash}
           temperature: 0.5
           max-tokens: 4096
 

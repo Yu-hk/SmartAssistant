@@ -22,9 +22,14 @@ public record AgentExecutionResponse(
     }
 
     public static AgentExecutionResponse success(String answer, DomainQualityResult quality) {
+        return success(answer, Map.of(), quality);
+    }
+
+    public static AgentExecutionResponse success(
+            String answer, Map<String, Object> data, DomainQualityResult quality) {
         return new AgentExecutionResponse(
                 AgentExecutionRequest.CURRENT_VERSION, Status.SUCCEEDED, answer,
-                Map.of(), null, Quality.from(quality));
+                data, null, Quality.from(quality));
     }
 
     public static AgentExecutionResponse failure(String code, String message, boolean retryable) {

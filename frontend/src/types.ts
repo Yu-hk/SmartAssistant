@@ -191,6 +191,37 @@ export interface AdminSessionDetail {
   messages: AdminSessionMessage[];
 }
 
+export interface AdminAgentFlowNode {
+  id: string;
+  label: string;
+  agent: string;
+  type: 'planner' | 'agent' | 'merger' | string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | string;
+  summary: string;
+  dependsOn: string[];
+  elapsedMs: number | null;
+}
+
+export interface AdminAgentFlowEdge {
+  from: string;
+  to: string;
+  label: string;
+}
+
+export interface AdminAgentFlow {
+  requestId: string;
+  question: string;
+  modelName: string;
+  modelTier: string;
+  questionChars: number;
+  status: string;
+  startedAt: number;
+  completedAt: number | null;
+  nodes: AdminAgentFlowNode[];
+  edges: AdminAgentFlowEdge[];
+  message?: string;
+}
+
 export interface AdminSessionPage {
   items: AdminSessionSummary[];
   total: number;

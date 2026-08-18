@@ -78,7 +78,8 @@ class JdbcProductBackendTest {
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
         assertThat(sql.getValue())
                 .contains("LOAD-PROD-%")
-                .contains("E2E-PROD-%");
+                .contains("E2E-PROD-%")
+                .doesNotContain("WHEREUPPER");
     }
 
     @Test

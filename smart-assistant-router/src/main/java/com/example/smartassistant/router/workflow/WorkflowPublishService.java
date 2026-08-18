@@ -87,7 +87,7 @@ public class WorkflowPublishService {
         requireKey(workflowKey);
         WorkflowVersion published = repository.findPublished(workflowKey)
                 .orElseThrow(() -> new WorkflowNotFoundException(workflowKey, null));
-        return compiler.compile(published.definition(), question);
+        return compiler.compile(published, question);
     }
 
     public Optional<WorkflowVersion> find(String workflowKey, int version) {

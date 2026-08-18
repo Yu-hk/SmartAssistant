@@ -2,6 +2,9 @@
 import { apiClient } from './client';
 import type {
   AdminDailyStats,
+  AdminAgentFlow,
+  AdminAgentFlowEdge,
+  AdminAgentFlowNode,
   AdminIntentBreakdown,
   AdminSessionDetail,
   AdminSessionMessage,
@@ -172,6 +175,27 @@ function normalizeToolCalls(value: unknown): AdminToolCall[] {
   }).filter(item => item.name);
 }
 
+function normalizeAgentFlowNode(value: unknown): AdminAgentFlowNode {
+  const row = record(value);
+  return {
+    id: text(row.id),
+    label: text(row.label),
+    agent: text(row.agent),
+    type: text(row.type, 'agent'),
+    status: text(row.status, 'pending'),
+    summary: text(row.summary),
+    dependsOn: Array.isArray(row.dependsOn)
+      ? row.dependsOn.map(item => text(item)).filter(Boolean)
+      : [],
+    elapsedMs: nullableNumber(row.elapsedMs),
+  };
+}
+
+function normalizeAgentFlowEdge(value: unknown): AdminAgentFlowEdge {
+  const row = record(value);
+  return { from: text(row.from), to: text(row.to), label: text(row.label) };
+}
+
 function normalizeFaq(value: unknown): FaqItem {
   const row = record(value);
   return {
@@ -240,6 +264,26 @@ export async function fetchAdminSession(sessionId: string, userId: number | null
   return {
     session: normalizeSession(payload.session ?? payload),
     messages: messages.map(normalizeMessage),
+  };
+}
+
+export async function fetchAdminAgentFlow(requestId: string): Promise<AdminAgentFlow> {
+  const row = record(unwrap(await apiClient.get<unknown>(
+    `/admin/execution-dag/${encodeURIComponent(requestId)}`,
+  )));
+  return {
+    requestId: text(row.requestId, requestId),
+    question: text(row.question),
+    modelName: text(row.modelName),
+    modelTier: text(row.modelTier),
+    questionChars: number(row.questionChars),
+    status: text(row.status, 'unavailable'),
+    startedAt: number(row.startedAt),
+    completedAt: nullableNumber(row.completedAt),
+    nodes: Array.isArray(row.nodes) ? row.nodes.map(normalizeAgentFlowNode).filter(node => node.id) : [],
+    edges: Array.isArray(row.edges) ? row.edges.map(normalizeAgentFlowEdge)
+      .filter(edge => edge.from && edge.to) : [],
+    message: text(row.message) || undefined,
   };
 }
 

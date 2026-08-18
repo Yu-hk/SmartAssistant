@@ -41,13 +41,17 @@ public class ProductDiscoveryService {
                 : Math.max(1, Math.min(requestedLimit, MAX_LIMIT));
         List<ProductBackend.ProductSummary> products = productBackend.listPopularProducts(limit);
         if (products == null || products.isEmpty()) {
-            return new DiscoveryResult("当前暂无可推荐商品，请稍后再试。", 0, false);
+            return new DiscoveryResult("当前暂无可推荐商品，请稍后再试。", 0, false, List.of());
         }
 
         boolean hasPopularityData = products.stream().anyMatch(product -> product.popularity() > 0);
         boolean asksForPopularity = asksForPopularity(query);
+        boolean scenarioEvidenceLimited = isScenarioSpecific(query);
         StringBuilder answer = new StringBuilder();
-        if (asksForPopularity && hasPopularityData) {
+        if (scenarioEvidenceLimited) {
+            answer.append("以下仅是当前目录中的可售候选。目录没有可验证的场景适配字段，")
+                    .append("因此不能把热度直接等同于适合该办公或会议场景：\n");
+        } else if (asksForPopularity && hasPopularityData) {
             answer.append("近期热门商品（按订单热度排序）：\n");
         } else if (asksForPopularity) {
             answer.append("当前推荐商品（暂无足够销量数据，按可售状态展示）：\n");
@@ -64,10 +68,19 @@ public class ProductDiscoveryService {
             if (hasPopularityData && product.popularity() > 0) {
                 answer.append("，近期订单：").append(product.popularity());
             }
+            if (scenarioEvidenceLimited) {
+                answer.append("，场景适配：现有目录证据不足，需核实规格和实际需求");
+            }
             answer.append('\n');
         }
-        answer.append("\n告诉我商品名称或编码，我可以继续查询价格、规格和库存。");
-        return new DiscoveryResult(answer.toString().trim(), products.size(), hasPopularityData);
+        if (scenarioEvidenceLimited) {
+            answer.append("\n若用于多人办公室或视频会议，请继续确认并发使用人数、摄像头、麦克风、")
+                    .append("扬声器、接口和预算要求；在这些规格得到验证前，不应把上述候选表述为最终推荐。");
+        } else {
+            answer.append("\n告诉我商品名称或编码，我可以继续查询价格、规格和库存。");
+        }
+        return new DiscoveryResult(answer.toString().trim(), products.size(), hasPopularityData,
+                products, scenarioEvidenceLimited);
     }
 
     private static boolean asksForPopularity(String query) {
@@ -84,5 +97,33 @@ public class ProductDiscoveryService {
         return value == null || value.isBlank() ? fallback : value;
     }
 
-    public record DiscoveryResult(String answer, int productCount, boolean popularityBased) {}
+    public record DiscoveryResult(
+            String answer,
+            int productCount,
+            boolean popularityBased,
+            List<ProductBackend.ProductSummary> products,
+            boolean scenarioEvidenceLimited) {
+        public DiscoveryResult {
+            products = products != null ? List.copyOf(products) : List.of();
+        }
+
+        public DiscoveryResult(String answer, int productCount, boolean popularityBased) {
+            this(answer, productCount, popularityBased, List.of(), false);
+        }
+
+        public DiscoveryResult(String answer, int productCount, boolean popularityBased,
+                               List<ProductBackend.ProductSummary> products) {
+            this(answer, productCount, popularityBased, products, false);
+        }
+    }
+
+    private static boolean isScenarioSpecific(String query) {
+        if (query == null || query.isBlank()) return false;
+        String normalized = query.replaceAll("\\s+", "");
+        return normalized.contains("适合") || normalized.contains("用于")
+                || normalized.contains("使用场景") || normalized.contains("适用场景")
+                || normalized.contains("采购方案") || normalized.contains("办公室")
+                || normalized.contains("办公") || normalized.contains("视频会议")
+                || normalized.contains("会议室");
+    }
 }

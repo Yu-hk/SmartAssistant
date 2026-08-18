@@ -7,6 +7,7 @@ public final class RoutingKeys {
     public static final String TASK_ANALYSIS_PREFIX = "a2a:task-analysis:";
     public static final String SSE_EVENTS_PREFIX = "routing:sse:events:";
     public static final String SSE_STREAM_PREFIX = "routing:sse:stream:";
+    public static final String EXECUTION_GRAPH_PREFIX = "routing:execution-graph:";
 
     private RoutingKeys() {
     }
@@ -29,6 +30,10 @@ public final class RoutingKeys {
 
     public static String sseStream(String requestId) {
         return SSE_STREAM_PREFIX + requireRequestId(requestId);
+    }
+
+    public static String executionGraph(String requestId) {
+        return EXECUTION_GRAPH_PREFIX + requireRequestId(requestId);
     }
 
     private static String requireRequestId(String requestId) {

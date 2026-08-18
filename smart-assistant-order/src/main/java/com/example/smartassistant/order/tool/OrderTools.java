@@ -12,6 +12,7 @@ import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.idempotent.TaskLogService;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolResult;
+import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
 import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
@@ -79,8 +80,13 @@ public class OrderTools {
 
     private String idempotentRequestId(String action, Object... params) {
         StringBuilder sb = new StringBuilder(action);
-        for (Object p : params) {
-            if (p != null) sb.append("|").append(p);
+        String propagatedKey = ToolLogContext.getIdempotencyKey();
+        if (propagatedKey != null && !propagatedKey.isBlank()) {
+            sb.append("|").append(propagatedKey);
+        } else {
+            for (Object p : params) {
+                if (p != null) sb.append("|").append(p);
+            }
         }
         try {
             java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");

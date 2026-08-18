@@ -30,7 +30,8 @@ import java.util.regex.Pattern;
  * 对请求进行结构化分析，提取实体、约束、风险标记和工具相关性评分。
  * </p>
  * <p>
- * 核心流程：system prompt + 用户问题 → Ollama deepseek-r1 → 解析 JSON 响应 → TaskAnalysisResult
+ * 核心流程：system prompt + 用户问题 → 按长度选择 DeepSeek 模型
+ * → 意图拆解与 Agent 节点分配 → TaskAnalysisResult。
  * </p>
  * <p>
  * 降级策略：LLM 调用失败或 JSON 解析失败时返回空的 TaskAnalysisResult，
@@ -84,9 +85,14 @@ public class TaskAnalysisService {
             + "  },\n"
             + "  \"sub_intents\": [\n"
             + "    {\n"
+            + "      \"id\": \"稳定节点ID，例如 product_search\",\n"
             + "      \"intent\": \"子意图分类（查票/预订/改签/退票/订单查询/查商品/看天气等）\",\n"
             + "      \"description\": \"子任务描述\",\n"
-            + "      \"depends_on\": \"依赖的子任务（如'查票'后才有'下单'，填null表示无依赖）\",\n"
+            + "      \"target_agent\": \"仅限 product/order/general\",\n"
+            + "      \"operation\": \"仅限 QUERY_PRODUCT/QUERY_ORDER/CREATE_ORDER/CANCEL_ORDER/REFUND_ORDER/PAY_ORDER/EXPLAIN_ORDER_REQUIREMENTS/EXPLAIN_ORDER_LIFECYCLE/ANSWER\",\n"
+            + "      \"access_mode\": \"仅限 READ/WRITE\",\n"
+            + "      \"depends_on\": [\"依赖的节点ID\"],\n"
+            + "      \"success_criteria\": \"可验证的完成标准\",\n"
             + "      \"order\": 1\n"
             + "    }\n"
             + "  ],\n"
@@ -120,8 +126,12 @@ public class TaskAnalysisService {
             + "- 0.4~0.6: 中等相关\n"
             + "- 0.7~1.0: 高度相关或必须使用\n\n"
             + "多意图拆分说明：\n"
-            + "- 如果一句话包含多个任务（如\"查明天去上海的票，有合适的就订\"），务必拆到 sub_intents 数组\n"
-            + "- depends_on 体现任务依赖关系（先查票，再下单）\n"
+            + "- sub_intents 必须至少包含 1 个节点；单一任务也不能返回空数组\n"
+            + "- 多任务必须按可独立执行的 Agent 节点拆分\n"
+            + "- 每个 sub_intent 只能表达一个原子执行目标；不要把查询、取消、退款等实际操作合并成一个写节点\n"
+            + "- 用户只是询问下单后如何查询、取消、售后等流程且不要求现在执行时，使用 EXPLAIN_ORDER_LIFECYCLE + READ；不得标成取消、退款等写操作\n"
+            + "- target_agent 由你根据语义直接分配：商品/库存/价格给 product，订单/物流/退款给 order，其他给 general\n"
+            + "- depends_on 只能引用已定义的 id，无依赖时输出 []\n"
             + "- order 字段标记执行顺序（1最先）\n\n"
             + "隐含意图说明：\n"
             + "- 用户没直说但有上下文提示的目标，补到 implicit_intents\n"
@@ -172,6 +182,14 @@ public class TaskAnalysisService {
      * @return 结构化分析结果；LLM 调用或解析失败时返回空结果，不抛异常
      */
     public TaskAnalysisResult analyze(String question, List<String> conversationHistory) {
+        return analyze(question, question, conversationHistory);
+    }
+
+    /**
+     * 对 RAG 增强文本做分析，但始终以用户原始提问长度选择模型。
+     */
+    public TaskAnalysisResult analyze(String question, String modelSelectionQuestion,
+                                      List<String> conversationHistory) {
         if (!enabled || question == null || question.isBlank()) {
             return TaskAnalysisResult.empty();
         }
@@ -188,7 +206,10 @@ public class TaskAnalysisService {
             //     多轮场景：注入对话历史，提升指代消解和意图连贯性
             String basePrompt = buildDynamicPrompt(question, conversationHistory);
             String finalPrompt = stageAwareService.wrapPrompt(basePrompt, stage);
-            String rawResponse = modelRoutingService.call(finalPrompt, buildUserMessage(question, conversationHistory));
+            ModelRoutingService.IntentModelResponse modelResponse = modelRoutingService.callForIntent(
+                    finalPrompt, buildUserMessage(question, conversationHistory),
+                    modelSelectionQuestion);
+            String rawResponse = modelResponse.content();
 
             if (rawResponse == null || rawResponse.isBlank()) {
                 log.warn("[TaskAnalysis] LLM 返回空响应");
@@ -202,6 +223,10 @@ public class TaskAnalysisService {
             }
 
             TaskAnalysisResult result = parseJson(json);
+            result.setAnalysisModel(modelResponse.modelName());
+            result.setAnalysisModelTier(modelResponse.modelTier());
+            result.setAnalysisQuestionChars(modelResponse.questionChars());
+            result.setAnalysisLatencyMs(modelResponse.elapsedMs());
 
             // 规则层后处理：实体归一化、词槽状态、澄清判断、输入鲁棒性
             if (result.isMeaningful() && intentEvaluationService != null) {
@@ -211,8 +236,10 @@ public class TaskAnalysisService {
             long elapsed = System.currentTimeMillis() - start;
 
             if (result.isMeaningful()) {
-                log.info("[TaskAnalysis] ✅ 分析完成: intent={}, entities={}, subIntents={}, implicitIntents={}, constraints={}, risks={}, slots=[filled={},missing={},conflicts={}], cost={}ms",
+                log.info("[TaskAnalysis] ✅ 分析完成: intent={}, model={}/{}, entities={}, subIntents={}, implicitIntents={}, constraints={}, risks={}, slots=[filled={},missing={},conflicts={}], cost={}ms",
                         result.getIntentCategory(),
+                        result.getAnalysisModelTier(),
+                        result.getAnalysisModel(),
                         result.getEntities().size(),
                         result.getSubIntents().size(),
                         result.getImplicitIntents().size(),
@@ -461,7 +488,7 @@ public class TaskAnalysisService {
             if (map.containsKey("sub_intents") && map.get("sub_intents") instanceof List) {
                 @SuppressWarnings("unchecked")
                 List<Map<String, Object>> subIntents = (List<Map<String, Object>>) map.get("sub_intents");
-                if (subIntents.size() > 1) { // 只有多个意图才保留
+                if (!subIntents.isEmpty()) {
                     result.setSubIntents(subIntents);
                 }
             }

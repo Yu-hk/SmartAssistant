@@ -2227,6 +2227,26 @@ t-chat-sender::part(send-btn):disabled,
 .admin-feedback-note strong { color: #a56e0f; font-size: 9px; }
 .admin-feedback-note p { margin-top: 4px; color: var(--admin-text-muted); font-size: 10px; line-height: 1.6; }
 .admin-message-section { min-height: 0; flex: 1; overflow: auto; padding: 18px 20px 24px; }
+.admin-agent-flow { margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--admin-border); }
+.admin-agent-flow-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+.admin-agent-flow-heading > span { display: inline-flex; align-items: center; gap: 6px; color: var(--admin-text); font-size: 11px; font-weight: 700; }
+.admin-agent-flow-heading small { color: var(--admin-text-faint); font-size: 8px; }
+.admin-agent-flow-canvas { display: flex; align-items: stretch; min-width: max-content; padding: 10px; border: 1px solid var(--admin-border); border-radius: 10px; background: var(--admin-surface-muted); overflow-x: auto; }
+.admin-agent-flow-stage-wrap { display: flex; align-items: center; }
+.admin-agent-flow-stage { display: flex; flex-direction: column; justify-content: center; gap: 8px; width: 150px; }
+.admin-agent-flow-arrow { width: 28px; flex: none; color: var(--admin-text-faint); font-size: 16px; text-align: center; }
+.admin-agent-flow-node { position: relative; min-height: 78px; padding: 10px; border: 1px solid var(--admin-border); border-radius: 8px; background: var(--admin-surface); box-shadow: 0 3px 10px rgba(15,23,42,.04); }
+.admin-agent-flow-node-top { display: flex; align-items: flex-start; gap: 7px; }
+.admin-agent-flow-node-top strong { color: var(--admin-text); font-size: 9px; line-height: 1.45; }
+.admin-agent-flow-dot { width: 7px; height: 7px; flex: none; margin-top: 3px; border-radius: 50%; background: #94a3b8; box-shadow: 0 0 0 3px rgba(148,163,184,.12); }
+.admin-agent-flow-node.is-completed .admin-agent-flow-dot { background: #25a56a; box-shadow: 0 0 0 3px rgba(37,165,106,.13); }
+.admin-agent-flow-node.is-running .admin-agent-flow-dot { background: #3478e5; box-shadow: 0 0 0 3px rgba(52,120,229,.14); animation: pulse 1.4s infinite; }
+.admin-agent-flow-node.is-failed .admin-agent-flow-dot { background: #d74c59; box-shadow: 0 0 0 3px rgba(215,76,89,.13); }
+.admin-agent-flow-node.is-skipped .admin-agent-flow-dot { background: #d69a2b; box-shadow: 0 0 0 3px rgba(214,154,43,.13); }
+.admin-agent-flow-node > p { margin-top: 7px; color: var(--admin-primary); font-size: 8px; font-weight: 700; }
+.admin-agent-flow-node > small { display: -webkit-box; margin-top: 5px; overflow: hidden; color: var(--admin-text-muted); font-size: 8px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.admin-agent-flow-node > em { display: block; margin-top: 5px; color: var(--admin-text-faint); font-size: 7px; font-style: normal; }
+.admin-agent-flow-empty { margin-bottom: 18px; padding: 10px 12px; border: 1px dashed var(--admin-border); border-radius: 8px; color: var(--admin-text-faint); background: var(--admin-surface-muted); font-size: 9px; }
 .admin-message-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .admin-message-heading strong { color: var(--admin-text); font-size: 12px; }
 .admin-message-heading span { color: var(--admin-text-faint); font-size: 9px; }

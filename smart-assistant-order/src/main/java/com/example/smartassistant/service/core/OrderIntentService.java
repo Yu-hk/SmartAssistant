@@ -17,6 +17,7 @@ import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * ⭐ 订单意图识别服务。
@@ -42,6 +43,7 @@ import java.util.List;
 public class OrderIntentService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderIntentService.class);
+    private static final Pattern ORDER_ID = Pattern.compile("(?i)\\bORD-[A-Z0-9-]+\\b");
 
     private final AiChatService aiChatService;
     private final ChatModel lightModel;
@@ -66,7 +68,20 @@ public class OrderIntentService {
             return IntentType.OTHER;
         }
 
-        // 退款政策/条件咨询不依赖具体订单。先用确定性规则识别，避免 LLM 将
+        if (isOrderPreparationGuidance(message)) {
+            log.info("[OrderIntent] 确定性识别下单前资料说明: message={}", message);
+            return IntentType.ORDER_PREPARATION_GUIDANCE;
+        }
+
+        // "如何查询、取消和申请售后"描述的是只读操作指南，不是对某一订单
+        // 立即执行多个互斥动作。领域层先固定这个安全边界，避免单标签模型把
+        // 复合说明误判为 OTHER，或误触发需要订单号/人工确认的写操作。
+        if (isOrderLifecycleGuidance(message)) {
+            log.info("[OrderIntent] 确定性识别订单生命周期说明: message={}", message);
+            return IntentType.ORDER_GUIDANCE;
+        }
+
+        // 退款政策/条件咨询不依赖具体订单。用确定性规则识别，避免 LLM 将
         // “商品退货退款需要满足哪些条件”误判成需要订单号的退款操作。
         if (isRefundPolicyQuestion(message)) {
             log.info("[OrderIntent] 确定性识别退款政策咨询: message={}", message);
@@ -115,6 +130,41 @@ public class OrderIntentService {
                 "需要满足", "需要哪些", "需要什么", "几天"));
     }
 
+    static boolean isOrderLifecycleGuidance(String message) {
+        if (message == null || message.isBlank() || ORDER_ID.matcher(message).find()) return false;
+
+        boolean asksForExplanation = containsAny(message, List.of(
+                "如何", "怎么", "怎样", "说明", "介绍", "流程", "规则", "条件",
+                "需要什么", "需要哪些", "以后", "后续", "操作指南"));
+        if (!asksForExplanation) return false;
+
+        boolean requestsImmediateAction = containsAny(message, List.of(
+                "帮我取消", "给我取消", "替我取消", "我要取消", "立即取消", "现在取消",
+                "帮我退款", "给我退款", "替我退款", "我要退款", "立即退款", "发起退款",
+                "帮我退货", "替我退货", "我要退货", "发起退货"));
+        if (requestsImmediateAction) return false;
+
+        int topics = 0;
+        if (containsAny(message, List.of("查询订单", "订单查询", "订单状态", "物流查询"))) topics++;
+        if (containsAny(message, List.of("取消订单", "订单取消"))) topics++;
+        if (containsAny(message, List.of("售后", "退款", "退货"))) topics++;
+        boolean onlyRefundTopic = topics == 1
+                && containsAny(message, List.of("退款", "退货", "退钱"));
+        return topics >= 2 || (topics == 1 && !onlyRefundTopic);
+    }
+
+    static boolean isOrderPreparationGuidance(String message) {
+        if (message == null || message.isBlank() || ORDER_ID.matcher(message).find()) return false;
+        boolean beforeCreation = containsAny(message, List.of(
+                "下单前", "创建订单前", "订单创建前", "准备下单", "最终选定商品"));
+        boolean asksForChecklist = containsAny(message, List.of(
+                "哪些信息", "什么信息", "确认哪些", "需要确认", "需要准备", "需要提供",
+                "需确认", "确认的信息", "确认信息", "资料", "清单"));
+        boolean requestsImmediateCreation = containsAny(message, List.of(
+                "帮我下单", "替我下单", "立即下单", "现在下单", "直接下单"));
+        return beforeCreation && asksForChecklist && !requestsImmediateCreation;
+    }
+
     private static boolean containsAny(String value, List<String> markers) {
         return markers.stream().anyMatch(value::contains);
     }
@@ -127,6 +177,8 @@ public class OrderIntentService {
         CREATE_ORDER("下单"),
         QUERY_ORDER("查询订单"),
         REFUND_POLICY("退款政策"),
+        ORDER_PREPARATION_GUIDANCE("下单前资料说明"),
+        ORDER_GUIDANCE("订单操作说明"),
         REFUND("退款"),
         CANCEL("取消"),
         OTHER("其他");

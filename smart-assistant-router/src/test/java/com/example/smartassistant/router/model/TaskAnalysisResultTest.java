@@ -44,13 +44,13 @@ class TaskAnalysisResultTest {
     // ==================== 多意图拆分 ====================
 
     @Test
-    @DisplayName("多意图拆分: 单个意图不算多意图")
+    @DisplayName("意图拆分: 单个子意图也可编译为 Agent 节点")
     void testSingleSubIntent() {
         TaskAnalysisResult result = new TaskAnalysisResult();
         List<Map<String, Object>> intents = new ArrayList<>();
         intents.add(Map.of("intent", "查票", "order", 1));
         result.setSubIntents(intents);
-        assertFalse(result.hasSubIntents(), "单个子意图不算多意图");
+        assertTrue(result.hasSubIntents(), "单个子意图也应进入统一的工作流编译链路");
     }
 
     @Test

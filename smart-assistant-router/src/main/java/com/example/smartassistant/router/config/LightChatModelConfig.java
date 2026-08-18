@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.router.config;
 
+import com.example.smartassistant.common.model.tier.ChatOptionsMerge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
@@ -38,7 +39,7 @@ public class LightChatModelConfig {
     @Qualifier("lightChatModel")
     public ChatModel lightChatModel(
             DeepSeekChatModel deepSeekChatModel,
-            @Value("${router.light-model.name:${DEEPSEEK_LIGHT_MODEL:deepseek-chat}}") String model,
+            @Value("${router.light-model.name:${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}}") String model,
             @Value("${router.light-model.temperature:0.1}") double temperature) {
 
         var lightOptions = DeepSeekChatOptions.builder()
@@ -63,13 +64,15 @@ public class LightChatModelConfig {
 
         @Override
         public ChatResponse call(Prompt prompt) {
-            var lightPrompt = new Prompt(prompt.getInstructions(), lightOptions);
+            var lightPrompt = new Prompt(prompt.getInstructions(),
+                    ChatOptionsMerge.merge(lightOptions, prompt.getOptions()));
             return delegate.call(lightPrompt);
         }
 
         @Override
         public Flux<ChatResponse> stream(Prompt prompt) {
-            var lightPrompt = new Prompt(prompt.getInstructions(), lightOptions);
+            var lightPrompt = new Prompt(prompt.getInstructions(),
+                    ChatOptionsMerge.merge(lightOptions, prompt.getOptions()));
             return delegate.stream(lightPrompt);
         }
 

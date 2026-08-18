@@ -46,12 +46,21 @@ public class IntentGraph {
 
     /** 最大图迭代预算（防止无限循环，0=无限） */
     private final int maxGraphIterations;
+    /** Immutable identity of a published DSL snapshot, null for planner-generated graphs. */
+    private final String workflowKey;
+    private final Integer workflowVersion;
+    private final String workflowChecksum;
 
     public IntentGraph(String question, List<IntentNode> nodes) {
         this(question, nodes, 0);
     }
 
     public IntentGraph(String question, List<IntentNode> nodes, int maxGraphIterations) {
+        this(question, nodes, maxGraphIterations, null, null, null);
+    }
+
+    public IntentGraph(String question, List<IntentNode> nodes, int maxGraphIterations,
+                       String workflowKey, Integer workflowVersion, String workflowChecksum) {
         this.question = question;
         this.nodeMap = new LinkedHashMap<>();
         this.adjacency = new HashMap<>();
@@ -59,6 +68,9 @@ public class IntentGraph {
         this.conditionalDeps = new HashMap<>();
         this.rerouteTargets = new HashMap<>();
         this.maxGraphIterations = maxGraphIterations > 0 ? maxGraphIterations : 0;
+        this.workflowKey = workflowKey;
+        this.workflowVersion = workflowVersion;
+        this.workflowChecksum = workflowChecksum;
 
         if (nodes != null) {
             for (IntentNode node : nodes) {
@@ -488,6 +500,9 @@ public class IntentGraph {
     }
 
     public String getQuestion() { return question; }
+    public String getWorkflowKey() { return workflowKey; }
+    public Integer getWorkflowVersion() { return workflowVersion; }
+    public String getWorkflowChecksum() { return workflowChecksum; }
     public Collection<IntentNode> getAllNodes() { return nodeMap.values(); }
     public int getNodeCount() { return nodeMap.size(); }
 

@@ -46,7 +46,7 @@
             <version>${langgraph4j.version}</version>
         </dependency>
 
-        <!-- Spring AI Ollama Starter (原生 Ollama 支持，替代自定义 OllamaApiClient) -->
+        <!-- DeepSeek API model -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-deepseek</artifactId>
