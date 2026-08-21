@@ -304,6 +304,12 @@ public class RouteExecutionService {
             registerDependencyAlias(dependencyAliases, description, nodeId);
         }
 
+        Set<String> recommendationNodeIds = rawNodes.stream()
+                .filter(node -> "RECOMMEND_PRODUCT".equals(normalizeDeclaredOperation(
+                        node.source().get("operation"), node.source().get("target_agent"),
+                        analysis.getIntentCategory())))
+                .map(RawPlanNode::nodeId)
+                .collect(java.util.stream.Collectors.toSet());
         List<ExecutionPlan.TaskNode> nodes = new ArrayList<>();
         for (RawPlanNode rawNode : rawNodes) {
             Map<String, Object> subIntent = rawNode.source();
@@ -325,6 +331,8 @@ public class RouteExecutionService {
             String agent = domain.agentName();
             List<String> dependencies = resolveSubIntentDependencies(
                     subIntent.get("depends_on"), dependencyAliases);
+            boolean recommendationDerivedOrder = "CREATE_ORDER".equals(operation)
+                    && dependencies.stream().anyMatch(recommendationNodeIds::contains);
             String criteria = Objects.toString(subIntent.get("success_criteria"), "").trim();
             if (criteria.isEmpty()) criteria = null;
 
@@ -334,8 +342,10 @@ public class RouteExecutionService {
                     && ("WRITE".equalsIgnoreCase(Objects.toString(subIntent.get("access_mode"), ""))
                     || isWriteOperation(operation))
                     ? ExecutionPlan.AccessMode.WRITE : ExecutionPlan.AccessMode.READ;
-            boolean approvalRequired = booleanValue(subIntent.get("human_approval_required"))
-                    || requiresApproval(operation, analysis.getRiskFlags());
+            boolean approvalRequired = accessMode == ExecutionPlan.AccessMode.WRITE
+                    && (recommendationDerivedOrder
+                    || booleanValue(subIntent.get("human_approval_required"))
+                    || requiresApproval(operation, analysis.getRiskFlags()));
             String idempotencyKey = accessMode == ExecutionPlan.AccessMode.WRITE
                     ? effectiveExecutionId + ":" + rawNode.nodeId() : null;
 
@@ -358,7 +368,7 @@ public class RouteExecutionService {
         // Product is a read-only domain. Its deterministic discovery/RAG layer treats the
         // incoming text as the actual search query, so orchestration prose must never leak in.
         if ("product".equals(agent)) {
-            return description + "\n\n[用户原始商品需求与约束]\n" + question;
+            return description;
         }
         StringBuilder scoped = new StringBuilder("仅执行这个子任务：").append(description);
         if ("general".equals(agent)) {
@@ -459,8 +469,10 @@ public class RouteExecutionService {
     private static String normalizeDeclaredOperation(Object operation, Object targetAgent,
                                                      String intentCategory) {
         String declared = Objects.toString(operation, "").trim().toUpperCase(Locale.ROOT);
-        Set<String> allowed = Set.of("QUERY_PRODUCT", "QUERY_ORDER", "CREATE_ORDER",
-                "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER", "ANSWER",
+        Set<String> allowed = Set.of("DISCOVER_PRODUCTS", "QUERY_PRODUCT",
+                "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT", "QUERY_ORDER", "CREATE_ORDER",
+                "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER", "SHIP_ORDER",
+                "TRACK_LOGISTICS", "CONFIRM_DELIVERY", "ANSWER",
                 "EXPLAIN_ORDER_REQUIREMENTS", "EXPLAIN_ORDER_LIFECYCLE");
         if (allowed.contains(declared)) return declared;
         return switch (resolveDeclaredDomain(targetAgent, intentCategory)) {
@@ -472,12 +484,14 @@ public class RouteExecutionService {
     }
 
     private static boolean isWriteOperation(String operation) {
-        return Set.of("CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER")
+        return Set.of("CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER",
+                        "SHIP_ORDER", "CONFIRM_DELIVERY")
                 .contains(operation);
     }
 
     private static boolean requiresApproval(String operation, List<String> riskFlags) {
-        if (Set.of("PAY_ORDER", "REFUND_ORDER", "CANCEL_ORDER").contains(operation)) return true;
+        if (Set.of("PAY_ORDER", "REFUND_ORDER", "CANCEL_ORDER", "SHIP_ORDER",
+                "CONFIRM_DELIVERY").contains(operation)) return true;
         return riskFlags != null && riskFlags.stream().filter(Objects::nonNull)
                 .anyMatch(flag -> flag.contains("二次确认") || flag.contains("人工审批"));
     }

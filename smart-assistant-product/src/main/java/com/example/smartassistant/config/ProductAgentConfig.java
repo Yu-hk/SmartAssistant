@@ -64,7 +64,7 @@ public class ProductAgentConfig {
      */
     @Bean
     public SmartReActAgent productAgent(
-            @Qualifier("deepSeekChatModel") ChatModel chatModel,
+            @Qualifier("openAiChatModel") ChatModel chatModel,
             ProductTools productTools,
             ProductMemoryTool productMemoryTool,
             KnowledgeQueryTool knowledgeQueryTool,

@@ -6,6 +6,7 @@ import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.AgentMessageDispatcher;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +41,7 @@ class GraphNodeExecutionServiceTest {
     @Mock DegradationService degradationService;
     @Mock AgentHeartbeatService heartbeatService;
     @Mock RouterFallbackAgentService fallbackAgentService;
+    @Mock AgentMessageDispatcher agentMessageDispatcher;
 
     private GraphNodeExecutionService service;
 
@@ -180,5 +182,31 @@ class GraphNodeExecutionServiceTest {
         assertThat(orderRequest.workflowVersion()).isEqualTo(3);
         assertThat(orderRequest.workflowChecksum()).isEqualTo("sha256:shopping-v3");
         assertThat(orderRequest.contextRefs()).containsExactly("hot_products");
+    }
+
+    @Test
+    void dispatchesProtocolReadNodeThroughConfiguredMessageTransport() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "hot_products", "查询热门商品", "product", List.of(), null, List.of(),
+                false, "QUERY_PRODUCT", Map.of("limit", 3), List.of("仅返回可售商品"),
+                null, "READ");
+        service.setAgentMessageDispatcher(agentMessageDispatcher);
+        when(agentMessageDispatcher.dispatch(eq("product"), any(AgentExecutionRequest.class), eq("READ")))
+                .thenReturn(new AgentCallResult("热门商品：降噪耳机"));
+
+        SubTaskResult result = service.execute(
+                node, Map.of(), new ConcurrentHashMap<>(), 42L, null, "scene-mq-1",
+                "shopping", 5, "sha256:shopping-v5");
+
+        assertThat(result.isSuccess()).isTrue();
+        ArgumentCaptor<AgentExecutionRequest> requestCaptor =
+                ArgumentCaptor.forClass(AgentExecutionRequest.class);
+        verify(agentMessageDispatcher).dispatch(eq("product"), requestCaptor.capture(), eq("READ"));
+        AgentExecutionRequest queuedRequest = requestCaptor.getValue();
+        assertThat(queuedRequest.workflowKey()).isEqualTo("shopping");
+        assertThat(queuedRequest.workflowVersion()).isEqualTo(5);
+        assertThat(queuedRequest.traceId()).isEqualTo("scene-mq-1");
+        verify(agentCallerService, never()).callAgentAndExtractTitles(
+                eq("product"), any(AgentExecutionRequest.class));
     }
 }

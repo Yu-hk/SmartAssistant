@@ -5,7 +5,9 @@ import com.example.smartassistant.common.agent.protocol.AgentNodeOutput;
 import com.example.smartassistant.router.model.HandoffCommand;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
+import com.example.smartassistant.router.service.agent.AgentCallResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.AgentMessageDispatcher;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
 import com.example.smartassistant.routing.contract.RoutingKeys;
@@ -45,6 +47,9 @@ public class GraphNodeExecutionService {
 
     @Autowired(required = false)
     private StringRedisTemplate redisTemplate;
+
+    @Autowired(required = false)
+    private AgentMessageDispatcher agentMessageDispatcher;
 
     @Value("${router.graph.max-criteria-corrections:1}")
     private int maxCriteriaCorrections;
@@ -110,17 +115,23 @@ public class GraphNodeExecutionService {
                             "Router fallback returned an empty response",
                             SubTaskResult.ErrorType.FATAL_FAILED);
                 }
-                var response = hasProtocolMetadata(node)
-                        ? agentCallerService.callAgentAndExtractTitles(targetAgent,
-                        new AgentExecutionRequest(
-                                AgentExecutionRequest.CURRENT_VERSION,
-                                requestId, node.getId(), userId != null ? String.valueOf(userId) : null,
-                                node.getOperation(), enrichedDescription, node.getInput(), node.getDependsOn(),
-                                node.getConstraints(), System.currentTimeMillis() + 60_000L,
-                                node.getIdempotencyKey(), null, predecessorOutputs(node, completed),
-                                workflowKey, workflowVersion, workflowChecksum, attempt, requestId))
-                        : agentCallerService.callAgentAndExtractTitles(
-                        targetAgent, enrichedDescription, userId, requestId);
+                AgentCallResult response;
+                if (hasProtocolMetadata(node)) {
+                    AgentExecutionRequest executionRequest = new AgentExecutionRequest(
+                            AgentExecutionRequest.CURRENT_VERSION,
+                            requestId, node.getId(), userId != null ? String.valueOf(userId) : null,
+                            node.getOperation(), enrichedDescription, node.getInput(), node.getDependsOn(),
+                            node.getConstraints(), System.currentTimeMillis() + 60_000L,
+                            node.getIdempotencyKey(), null, predecessorOutputs(node, completed),
+                            workflowKey, workflowVersion, workflowChecksum, attempt, requestId);
+                    response = agentMessageDispatcher != null
+                            ? agentMessageDispatcher.dispatch(
+                                    targetAgent, executionRequest, node.getAccessMode())
+                            : agentCallerService.callAgentAndExtractTitles(targetAgent, executionRequest);
+                } else {
+                    response = agentCallerService.callAgentAndExtractTitles(
+                            targetAgent, enrichedDescription, userId, requestId);
+                }
                 String text = response.getResponse();
                 if (text == null || text.isBlank()) {
                     if (attempt < maxRetries) {
@@ -216,6 +227,10 @@ public class GraphNodeExecutionService {
         Throwable cause = error.getCause();
         return cause != null && cause != error
                 ? classifyException(cause) : SubTaskResult.ErrorType.FATAL_FAILED;
+    }
+
+    void setAgentMessageDispatcher(AgentMessageDispatcher agentMessageDispatcher) {
+        this.agentMessageDispatcher = agentMessageDispatcher;
     }
 
     private SubTaskResult recordFailure(IntentNode node,

@@ -345,6 +345,7 @@ public class IntentGraph {
         private final Map<String, Object> input;
         private final List<String> constraints;
         private final String idempotencyKey;
+        private final String accessMode;
 
         public IntentNode(String id, String description, String targetAgent, List<String> dependsOn) {
             this(id, description, targetAgent, dependsOn, null, List.of(), false);
@@ -365,6 +366,15 @@ public class IntentGraph {
                           String successCriteria, List<ConditionalDependency> conditionalDeps,
                           boolean humanApprovalRequired, String operation, Map<String, Object> input,
                           List<String> constraints, String idempotencyKey) {
+            this(id, description, targetAgent, dependsOn, successCriteria, conditionalDeps,
+                    humanApprovalRequired, operation, input, constraints, idempotencyKey,
+                    inferAccessMode(operation, humanApprovalRequired));
+        }
+
+        public IntentNode(String id, String description, String targetAgent, List<String> dependsOn,
+                          String successCriteria, List<ConditionalDependency> conditionalDeps,
+                          boolean humanApprovalRequired, String operation, Map<String, Object> input,
+                          List<String> constraints, String idempotencyKey, String accessMode) {
             this.id = id;
             this.description = description;
             this.targetAgent = targetAgent;
@@ -377,6 +387,7 @@ public class IntentGraph {
                     ? Collections.unmodifiableMap(new LinkedHashMap<>(input)) : Map.of();
             this.constraints = constraints != null ? List.copyOf(constraints) : List.of();
             this.idempotencyKey = idempotencyKey;
+            this.accessMode = "WRITE".equalsIgnoreCase(accessMode) ? "WRITE" : "READ";
         }
 
         public String getId() { return id; }
@@ -390,6 +401,17 @@ public class IntentGraph {
         public Map<String, Object> getInput() { return input; }
         public List<String> getConstraints() { return constraints; }
         public String getIdempotencyKey() { return idempotencyKey; }
+        public String getAccessMode() { return accessMode; }
+
+        private static String inferAccessMode(String operation, boolean approvalRequired) {
+            if (approvalRequired) return "WRITE";
+            String normalized = operation == null ? "" : operation.trim().toUpperCase(Locale.ROOT);
+            return switch (normalized) {
+                case "CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER",
+                        "SHIP_ORDER", "CONFIRM_DELIVERY" -> "WRITE";
+                default -> "READ";
+            };
+        }
 
         @Override
         public String toString() {

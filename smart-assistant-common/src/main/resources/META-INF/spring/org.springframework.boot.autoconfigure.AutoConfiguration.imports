@@ -1,2 +1,3 @@
 com.example.smartassistant.common.json.Jackson2CompatibilityAutoConfiguration
 com.example.smartassistant.common.tool.client.ToolRegistryAutoConfiguration
+com.example.smartassistant.common.model.tier.TierModelAutoConfiguration

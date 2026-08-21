@@ -62,13 +62,13 @@ public class ProductRagPipelineConfig {
     /**
      * 查询重写 Handler。
      *
-     * <p>利用 deepSeekChatModel 将用户查询改写为对检索更友好的形式。
+     * <p>利用供应商无关的 OpenAI 兼容模型将用户查询改写为对检索更友好的形式。
      */
     @Bean
     @ConditionalOnProperty(name = "product.rag.query-rewrite.enabled", havingValue = "true", matchIfMissing = true)
     public QueryRewriteHandler queryRewriteHandler(
-            @Qualifier("deepSeekChatModel") ChatModel chatModel) {
-        log.info("[ProductRagPipeline] 注册 QueryRewriteHandler（deepSeekChatModel）");
+            @Qualifier("openAiChatModel") ChatModel chatModel) {
+        log.info("[ProductRagPipeline] 注册 QueryRewriteHandler（openAiChatModel）");
 
         ChatClient chatClient = ChatClient.create(chatModel);
 
