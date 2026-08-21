@@ -12,6 +12,9 @@ import com.example.smartassistant.common.quality.DomainAgentResponse;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.observability.OpsMetrics;
+import com.example.smartassistant.common.model.tier.ModelTier;
+import com.example.smartassistant.common.model.tier.TierModelRegistry;
+import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.eval.FaithfulnessGuard;
 import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageSpan;
@@ -20,10 +23,16 @@ import com.example.smartassistant.service.search.ProductRagService;
 import com.example.smartassistant.service.core.ProductDiscoveryService;
 import com.example.smartassistant.service.quality.ProductDomainQualityValidator;
 import lombok.extern.slf4j.Slf4j;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,6 +59,19 @@ public class StreamingProductAgentService {
     @Autowired(required = false)
     private StageTraceRecorder stageTraceRecorder;
 
+    /** 商品推荐场景的数据分析 Prompt；缺失时保持确定性目录结果。 */
+    @Autowired(required = false)
+    private PromptManager promptManager;
+
+    /** 固定档位模型：Flash 负责分析，Pro 负责核实与推荐。 */
+    @Autowired(required = false)
+    private TierModelRegistry tierModelRegistry;
+
+    @Value("${product.recommendation.max-reanalysis:1}")
+    private int maxReanalysis = 1;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     /** ⭐ P5-A 生产忠实度护栏（可选，默认内置实例；测试可注入定制实例） */
     private FaithfulnessGuard faithfulnessGuard = new FaithfulnessGuard();
 
@@ -59,6 +81,21 @@ public class StreamingProductAgentService {
     /** 测试/手动注入用 setter */
     public void setStageTraceRecorder(StageTraceRecorder stageTraceRecorder) {
         this.stageTraceRecorder = stageTraceRecorder;
+    }
+
+    /** 测试/手动注入用 setter。 */
+    public void setPromptManager(PromptManager promptManager) {
+        this.promptManager = promptManager;
+    }
+
+    /** 测试/手动注入用 setter。 */
+    public void setTierModelRegistry(TierModelRegistry tierModelRegistry) {
+        this.tierModelRegistry = tierModelRegistry;
+    }
+
+    /** 测试可覆盖最大重分析次数。 */
+    public void setMaxReanalysis(int maxReanalysis) {
+        this.maxReanalysis = Math.max(0, maxReanalysis);
     }
 
     /** 测试可注入定制 FaithfulnessGuard */
@@ -115,22 +152,59 @@ public class StreamingProductAgentService {
                 ProductDiscoveryService.DiscoveryResult discovery =
                         productDiscoveryService.discover(userMessage, null);
                 long discoveryMs = System.currentTimeMillis() - discoveryStart;
+                String answer = discovery.answer();
+                String generationStatus = StageSpan.STATUS_SKIPPED;
+                long generationMs = 0L;
+                boolean analysisApplied = false;
+                DomainQualityResult generatedQuality = null;
+
+                // 兼容直连入口也必须走 Flash 分析 + Pro 核实推荐；失败时回退确定性目录。
+                if (promptManager != null && tierModelRegistry != null
+                        && discovery.productCount() > 0) {
+                    long generationStart = System.currentTimeMillis();
+                    try {
+                        DomainAgentResponse analysis = analyzeVerifiedContext(
+                                userMessage, discovery.answer(), rid + ":analysis");
+                        if (!analysis.quality().isFail()) {
+                            DomainAgentResponse recommendation = verifyAnalysisAndRecommend(
+                                    userMessage,
+                                    discovery.answer() + "\n\n[Flash 分析结果]\n" + analysis.answer(),
+                                    rid + ":recommendation");
+                            if (!recommendation.quality().isFail()) {
+                                answer = recommendation.answer();
+                                generatedQuality = recommendation.quality();
+                                analysisApplied = true;
+                                generationStatus = StageSpan.STATUS_OK;
+                            }
+                        }
+                    } catch (Exception analysisError) {
+                        generationStatus = StageSpan.STATUS_ERROR;
+                        log.warn("[StreamingProductAgent] 商品推荐分析失败，回退真实目录结果: {}",
+                                analysisError.getMessage());
+                    } finally {
+                        generationMs = System.currentTimeMillis() - generationStart;
+                    }
+                }
                 if (stageTraceRecorder != null) {
                     stageTraceRecorder.getOrCreate(rid, userMessage, "product_agent")
                             .addStage(StageSpan.of(RagStage.RETRIEVAL, discoveryMs, StageSpan.STATUS_OK,
                                     Map.of("mode", "product-discovery",
                                             "productCount", discovery.productCount(),
                                             "popularityBased", discovery.popularityBased())));
-                    stageTraceRecorder.recordStage(rid, RagStage.GENERATION, StageSpan.STATUS_SKIPPED, 0,
-                            Map.of("reason", "deterministic-product-discovery"));
+                    stageTraceRecorder.recordStage(rid, RagStage.GENERATION, generationStatus, generationMs,
+                            Map.of("analysisApplied", analysisApplied,
+                                    "fallback", !analysisApplied,
+                                    "auditVerified", generatedQuality != null));
                     stageTraceRecorder.save(rid);
                 }
-                DomainQualityResult quality = discovery.productCount() > 0
+                DomainQualityResult quality = generatedQuality != null
+                        ? generatedQuality
+                        : discovery.productCount() > 0
                         ? discovery.scenarioEvidenceLimited()
                             ? DomainQualityResult.warn(0.7, "PRODUCT_SCENARIO_EVIDENCE_LIMITED")
                             : DomainQualityResult.pass(1.0, "PRODUCT_DISCOVERY_DATA")
                         : DomainQualityResult.warn(0.5, "EMPTY_PRODUCT_CATALOG");
-                return DomainAgentResponse.of(discovery.answer(), quality);
+                return DomainAgentResponse.of(answer, quality);
             }
 
             // ⭐ P1: RAG 检索质量评估（决定拒答 or 注入上下文）
@@ -225,6 +299,179 @@ public class StreamingProductAgentService {
             log.error("[StreamingProductAgent] 执行异常: {}", e.getMessage(), e);
             return DomainAgentResponse.of("处理失败: " + e.getMessage(),
                     DomainQualityResult.fail("PRODUCT_EXECUTION_ERROR"));
+        }
+    }
+
+    /**
+     * Executes an analysis/recommendation node against verified predecessor output.
+     * This entry point deliberately skips catalog re-query and RAG so the node consumes exactly
+     * the evidence produced by its declared DAG dependencies.
+     */
+    public DomainAgentResponse analyzeVerifiedContext(String question, String verifiedContext,
+                                                      String requestId) {
+        if (verifiedContext == null || verifiedContext.isBlank()) {
+            return DomainAgentResponse.of(
+                    "缺少上游真实商品数据，无法执行分析或推荐。",
+                    DomainQualityResult.fail("MISSING_PRODUCT_ANALYSIS_CONTEXT"));
+        }
+        if (promptManager == null || tierModelRegistry == null
+                || !tierModelRegistry.has(ModelTier.LIGHT)) {
+            return DomainAgentResponse.of(
+                    "Flash 数据分析模型未就绪，无法生成可靠分析。",
+                    DomainQualityResult.fail("PRODUCT_ANALYSIS_MODEL_UNAVAILABLE"));
+        }
+
+        String rid = requestId != null && !requestId.isBlank()
+                ? requestId : "prod-analysis-" + System.nanoTime();
+        try {
+            String prompt = promptManager.renderDataAnalysisExpert(question, verifiedContext);
+            String answer = tierModelRegistry.get(ModelTier.LIGHT).call(prompt);
+            if (answer == null || answer.isBlank()) {
+                return DomainAgentResponse.of("商品分析结果为空。",
+                        DomainQualityResult.fail("EMPTY_PRODUCT_ANALYSIS"));
+            }
+            FaithfulnessGuard.FaithfulnessVerdict verdict =
+                    faithfulnessGuard.check(answer, verifiedContext);
+            DomainQualityResult quality = DomainQualityResult.pass(1.0, "PRODUCT_ANALYSIS_FLASH");
+            if (verdict.hallucination()) {
+                answer = answer + "\n\n" + verdict.message();
+                quality = DomainQualityResult.warn(0.4,
+                        "PRODUCT_ANALYSIS_FLASH", "UNSUPPORTED_PRODUCT_ANALYSIS_CLAIMS");
+            }
+            log.info("[StreamingProductAgent] 验证数据分析完成: requestId={}, quality={}",
+                    rid, quality.getStatus());
+            return DomainAgentResponse.of(answer, quality);
+        } catch (Exception error) {
+            log.error("[StreamingProductAgent] 验证数据分析失败: requestId={}, error={}",
+                    rid, error.getMessage(), error);
+            return DomainAgentResponse.of("商品数据分析失败：" + error.getMessage(),
+                    DomainQualityResult.fail("PRODUCT_ANALYSIS_ERROR"));
+        }
+    }
+
+    /**
+     * Uses the Pro model to audit Flash analysis, requests at most one Flash revision when needed,
+     * then lets Pro produce the final fact-checked recommendation.
+     */
+    public DomainAgentResponse verifyAnalysisAndRecommend(String question, String verifiedContext,
+                                                          String requestId) {
+        if (verifiedContext == null || verifiedContext.isBlank()) {
+            return DomainAgentResponse.of("缺少候选商品和分析结果，无法核实推荐。",
+                    DomainQualityResult.fail("MISSING_RECOMMENDATION_CONTEXT"));
+        }
+        if (!hasDistinctAnalysisAndRecommendationModels()) {
+            return DomainAgentResponse.of("商品分析与推荐模型未按 Flash/Pro 独立配置。",
+                    DomainQualityResult.fail("PRODUCT_MODELS_NOT_DISTINCT"));
+        }
+
+        String rid = requestId != null && !requestId.isBlank()
+                ? requestId : "prod-recommend-" + System.nanoTime();
+        ChatModel analysisModel = tierModelRegistry.get(ModelTier.LIGHT);
+        ChatModel recommendationModel = tierModelRegistry.get(ModelTier.HEAVY);
+        String workingContext = verifiedContext;
+        int revisionCount = 0;
+        try {
+            AnalysisAudit audit = auditAnalysis(recommendationModel, question, workingContext);
+            while (!audit.valid() && revisionCount < Math.max(0, maxReanalysis)) {
+                revisionCount++;
+                String correctionPrompt = promptManager.renderDataAnalysisExpert(
+                        question,
+                        verifiedContext + "\n\n[Pro 核实模型的修正要求]\n"
+                                + audit.correctionInstruction()
+                                + "\n问题明细：" + audit.issues());
+                String revisedAnalysis = analysisModel.call(correctionPrompt);
+                if (revisedAnalysis == null || revisedAnalysis.isBlank()) {
+                    return DomainAgentResponse.of("Flash 重分析结果为空，推荐流程已停止。",
+                            DomainQualityResult.fail("EMPTY_REANALYSIS_RESULT"));
+                }
+                workingContext = verifiedContext + "\n\n[Flash 修正后的分析]\n" + revisedAnalysis;
+                audit = auditAnalysis(recommendationModel, question, workingContext);
+            }
+
+            if (!audit.valid()) {
+                return DomainAgentResponse.of(
+                        "分析结果经 Pro 核实仍未通过，已停止推荐。问题："
+                                + String.join("；", audit.issues()),
+                        DomainQualityResult.fail("PRODUCT_ANALYSIS_AUDIT_REJECTED"));
+            }
+
+            String recommendationPrompt = promptManager.renderVerifiedProductRecommendation(
+                    question,
+                    workingContext + "\n\n[Pro 核实结果]\n分析事实核实通过");
+            String recommendation = recommendationModel.call(recommendationPrompt);
+            if (recommendation == null || recommendation.isBlank()) {
+                return DomainAgentResponse.of("Pro 推荐结果为空。",
+                        DomainQualityResult.fail("EMPTY_VERIFIED_RECOMMENDATION"));
+            }
+
+            FaithfulnessGuard.FaithfulnessVerdict verdict =
+                    faithfulnessGuard.check(recommendation, workingContext);
+            if (verdict.hallucination()) {
+                return DomainAgentResponse.of(
+                        "Pro 推荐结果与已核实数据仍存在事实偏差，已停止下单。\n" + verdict.message(),
+                        DomainQualityResult.fail("UNSUPPORTED_VERIFIED_RECOMMENDATION"));
+            }
+            String reason = revisionCount > 0
+                    ? "PRODUCT_RECOMMENDATION_PRO_VERIFIED_AFTER_REANALYSIS"
+                    : "PRODUCT_RECOMMENDATION_PRO_VERIFIED";
+            log.info("[StreamingProductAgent] Pro 推荐核实完成: requestId={}, revisions={}",
+                    rid, revisionCount);
+            return DomainAgentResponse.of(recommendation, DomainQualityResult.pass(1.0, reason));
+        } catch (Exception error) {
+            log.error("[StreamingProductAgent] Pro 推荐核实失败: requestId={}, error={}",
+                    rid, error.getMessage(), error);
+            return DomainAgentResponse.of("推荐核实失败：" + error.getMessage(),
+                    DomainQualityResult.fail("PRODUCT_RECOMMENDATION_AUDIT_ERROR"));
+        }
+    }
+
+    private boolean hasDistinctAnalysisAndRecommendationModels() {
+        if (promptManager == null || tierModelRegistry == null
+                || !tierModelRegistry.has(ModelTier.LIGHT)
+                || !tierModelRegistry.has(ModelTier.HEAVY)) {
+            return false;
+        }
+        String light = tierModelRegistry.modelName(ModelTier.LIGHT);
+        String heavy = tierModelRegistry.modelName(ModelTier.HEAVY);
+        return light != null && heavy != null && !light.equalsIgnoreCase(heavy);
+    }
+
+    private AnalysisAudit auditAnalysis(ChatModel recommendationModel,
+                                        String question, String context) throws Exception {
+        String raw = recommendationModel.call(
+                promptManager.renderProductAnalysisAudit(question, context));
+        return parseAudit(raw);
+    }
+
+    private AnalysisAudit parseAudit(String raw) throws Exception {
+        if (raw == null || raw.isBlank()) {
+            return AnalysisAudit.rejected("Pro 核实模型返回空结果");
+        }
+        int start = raw.indexOf('{');
+        int end = raw.lastIndexOf('}');
+        if (start < 0 || end <= start) {
+            return AnalysisAudit.rejected("Pro 核实结果不是合法 JSON");
+        }
+        Map<String, Object> data = objectMapper.readValue(raw.substring(start, end + 1),
+                new TypeReference<Map<String, Object>>() { });
+        boolean valid = Boolean.TRUE.equals(data.get("valid"))
+                || "true".equalsIgnoreCase(String.valueOf(data.get("valid")));
+        List<String> issues = new ArrayList<>();
+        if (data.get("issues") instanceof List<?> values) {
+            values.stream().filter(java.util.Objects::nonNull)
+                    .map(String::valueOf).filter(value -> !value.isBlank())
+                    .forEach(issues::add);
+        }
+        String instruction = String.valueOf(data.getOrDefault("correction_instruction", ""));
+        if (!valid && issues.isEmpty()) issues.add("Pro 核实未通过但未返回问题明细");
+        if (!valid && instruction.isBlank()) instruction = String.join("；", issues);
+        return new AnalysisAudit(valid, List.copyOf(issues), instruction);
+    }
+
+    private record AnalysisAudit(boolean valid, List<String> issues,
+                                 String correctionInstruction) {
+        static AnalysisAudit rejected(String issue) {
+            return new AnalysisAudit(false, List.of(issue), issue);
         }
     }
 }

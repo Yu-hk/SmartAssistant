@@ -28,7 +28,7 @@ public record ExecutionPlan(
                         node.nodeId(), node.description(), node.domain().agentName(),
                         node.dependsOn(), node.successCriteria(), List.of(),
                         node.approvalRequired(), node.operation(), node.input(),
-                        globalConstraints, node.idempotencyKey()))
+                        globalConstraints, node.idempotencyKey(), node.accessMode().name()))
                 .toList();
         return new IntentGraph(originalQuestion, graphNodes);
     }

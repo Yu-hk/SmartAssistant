@@ -1,5 +1,7 @@
 package com.example.smartassistant.common.scheduler;
 
+import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
+import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.io.Serializable;
@@ -34,6 +36,12 @@ public class AgentTask implements Serializable {
     private String intentTag;
     /** 路由置信度 */
     private double confidence;
+
+    /** 完整的节点执行协议；队列模式不得丢失依赖输出、工作流版本和幂等键。 */
+    private AgentExecutionRequest executionRequest;
+
+    /** 领域 Agent 的类型化响应；用于跨队列保留质量结论和结构化数据。 */
+    private AgentExecutionResponse executionResponse;
 
     /** 任务状态 */
     private AgentTaskStatus status;
@@ -129,6 +137,7 @@ public class AgentTask implements Serializable {
         this.completedAt = null;
         this.result = null;
         this.errorMessage = null;
+        this.executionResponse = null;
         return this;
     }
 
@@ -160,6 +169,16 @@ public class AgentTask implements Serializable {
 
     public double getConfidence() { return confidence; }
     public void setConfidence(double confidence) { this.confidence = confidence; }
+
+    public AgentExecutionRequest getExecutionRequest() { return executionRequest; }
+    public void setExecutionRequest(AgentExecutionRequest executionRequest) {
+        this.executionRequest = executionRequest;
+    }
+
+    public AgentExecutionResponse getExecutionResponse() { return executionResponse; }
+    public void setExecutionResponse(AgentExecutionResponse executionResponse) {
+        this.executionResponse = executionResponse;
+    }
 
     public AgentTaskStatus getStatus() { return status; }
     public void setStatus(AgentTaskStatus status) { this.status = status; }

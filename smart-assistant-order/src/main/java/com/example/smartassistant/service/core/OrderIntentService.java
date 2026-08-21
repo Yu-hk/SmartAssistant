@@ -29,6 +29,10 @@ import java.util.regex.Pattern;
  *   <li>{@link IntentType#REFUND_POLICY} — 退款/退货政策咨询</li>
  *   <li>{@link IntentType#REFUND} — 退款</li>
  *   <li>{@link IntentType#CANCEL} — 取消</li>
+ *   <li>{@link IntentType#PAY} — 支付</li>
+ *   <li>{@link IntentType#SHIP} — 发货</li>
+ *   <li>{@link IntentType#TRACK_LOGISTICS} — 查询物流</li>
+ *   <li>{@link IntentType#CONFIRM_DELIVERY} — 确认收货</li>
  *   <li>{@link IntentType#OTHER} — 其他</li>
  * </ul>
  * </p>
@@ -181,6 +185,10 @@ public class OrderIntentService {
         ORDER_GUIDANCE("订单操作说明"),
         REFUND("退款"),
         CANCEL("取消"),
+        PAY("支付"),
+        SHIP("发货"),
+        TRACK_LOGISTICS("查询物流"),
+        CONFIRM_DELIVERY("确认收货"),
         OTHER("其他");
 
         private final String label;

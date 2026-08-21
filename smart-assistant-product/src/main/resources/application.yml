@@ -15,7 +15,7 @@ spring:
   config:
     import: classpath:skill-packages.yml
 
-  # ⭐ 排除 Spring Security 自动配置（DeepSeek 改用原生自动配置）
+  # ⭐ 排除 Spring Security 自动配置（模型调用使用 Spring AI 原生自动配置）
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
@@ -50,6 +50,26 @@ spring:
           protocol-version: "v1"
           min-client-version: "1.0.0"
           supported-protocols: "a2a-v1"
+
+  ai:
+    # ⭐ OpenAI 兼容推理通道；生产默认接入阿里云百炼 Qwen。
+    model:
+      chat: openai
+    openai:
+      base-url: ${MODEL_API_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      api-key: ${MODEL_API_KEY:${DASHSCOPE_API_KEY:}}
+      chat:
+        options:
+          model: ${PRODUCT_CHAT_MODEL:${QWEN_CHAT_MODEL:qwen3.7-flash}}
+          temperature: 0.1
+          max-tokens: 4096
+
+    retry:
+      max-attempts: ${MODEL_RETRY_MAX_ATTEMPTS:2}
+      backoff:
+        initial-interval: 500ms
+        multiplier: 2
+        max-interval: 3s
 
 # ⭐ Nacos A2A Registry 配置（AgentCard 注册）
 # 默认关闭，开启后自动向 Nacos A2A Registry 注册 ProductAgent AgentCard。
@@ -110,15 +130,6 @@ datasource:
   driver-class-name: org.postgresql.Driver
 
   ai:
-    # ⭐ DeepSeek 云端推理（主推理通道）
-    deepseek:
-      api-key: ${DEEPSEEK_API_KEY:}
-      chat:
-        options:
-          model: ${DEEPSEEK_CHAT_MODEL:deepseek-v4-flash}
-          temperature: 0.5
-          max-tokens: 4096
-
     alibaba:
       a2a:
         # Nacos 注册中心配置
@@ -177,7 +188,19 @@ management:
       probability: 0.3  # ⭐ 采样率 30%（开发环境已足够，生产环境可调整为 0.1）
     zipkin:
       tracing:
-        endpoint: http://localhost:9411/api/v2/spans  # ⭐ Jaeger 兼容 Zipkin 协议的端点
+      endpoint: http://localhost:9411/api/v2/spans  # ⭐ Jaeger 兼容 Zipkin 协议的端点
+
+# 商品推荐双模型闭环：Flash 分析，Pro 负责事实核实与最终推荐。
+tier:
+  light:
+    model: ${PRODUCT_ANALYSIS_MODEL:${QWEN_ANALYSIS_MODEL:qwen3.7-flash}}
+    temperature: 0.1
+  standard:
+    model: ${PRODUCT_STANDARD_MODEL:${QWEN_STANDARD_MODEL:qwen3.7-flash}}
+    temperature: 0.2
+  heavy:
+    model: ${PRODUCT_RECOMMENDATION_MODEL:${QWEN_RECOMMENDATION_MODEL:qwen3.7-plus}}
+    temperature: 0.1
 
 # ⭐ BGE embedding 配置（1.2GB 模型从项目级共享目录加载）
 embedding:
@@ -206,6 +229,8 @@ logging:
 
 # ⭐ LightRAG 实体关系抽取配置
 product:
+  recommendation:
+    max-reanalysis: ${PRODUCT_RECOMMENDATION_MAX_REANALYSIS:1}
   rag:
     lightrag:
       enabled: true            # 查询侧「实体-关系图检索」Handler 开关（并入 RAG Pipeline）
