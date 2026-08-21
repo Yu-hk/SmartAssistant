@@ -37,8 +37,7 @@ class RouteExecutionPreplannedGraphTest {
                 .contains("收货人姓名、联系电话、收货地址"));
         IntentGraph.IntentNode productNode = graph.getAllNodes().stream().toList().get(0);
         assertTrue(productNode.getDescription().startsWith("查询当前热门商品列表"));
-        assertTrue(productNode.getDescription().contains("[用户原始商品需求与约束]"));
-        assertTrue(productNode.getDescription().contains("不创建订单"));
+        assertEquals("查询当前热门商品列表", productNode.getDescription());
         IntentGraph.IntentNode preparationNode = graph.getAllNodes().stream().toList().get(1);
         assertTrue(preparationNode.getDescription().contains("不得替用户补造缺失参数"));
     }
@@ -182,6 +181,126 @@ class RouteExecutionPreplannedGraphTest {
                 plan.nodes().getFirst().accessMode());
         assertFalse(plan.nodes().getFirst().approvalRequired());
         assertNull(plan.nodes().getFirst().idempotencyKey());
+    }
+
+    @Test
+    void compilesFulfillmentLifecycleWithCorrectReadWriteAndApprovalBoundaries() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(
+                Map.of("id", "stock", "intent", "STOCK_QUERY", "description", "查询商品库存",
+                        "target_agent", "product", "operation", "QUERY_PRODUCT"),
+                Map.of("id", "create", "intent", "CREATE_ORDER", "description", "创建订单",
+                        "target_agent", "order", "operation", "CREATE_ORDER",
+                        "depends_on", List.of("stock")),
+                Map.of("id", "pay", "intent", "PAY_ORDER", "description", "支付订单",
+                        "target_agent", "order", "operation", "PAY_ORDER",
+                        "depends_on", List.of("create")),
+                Map.of("id", "ship", "intent", "SHIP_ORDER", "description", "订单发货并生成物流",
+                        "target_agent", "order", "operation", "SHIP_ORDER",
+                        "depends_on", List.of("pay")),
+                Map.of("id", "logistics", "intent", "TRACK_LOGISTICS", "description", "查询物流轨迹",
+                        "target_agent", "order", "operation", "TRACK_LOGISTICS",
+                        "depends_on", List.of("ship")),
+                Map.of("id", "complete", "intent", "CONFIRM_DELIVERY", "description", "确认收货完成订单",
+                        "target_agent", "order", "operation", "CONFIRM_DELIVERY",
+                        "depends_on", List.of("logistics"))));
+
+        var plan = RouteExecutionService.buildExecutionPlan(
+                "查询库存后下单、支付、发货、查物流并完成订单", analysis, "req-lifecycle");
+
+        assertNotNull(plan);
+        assertEquals(List.of(
+                        com.example.smartassistant.router.model.ExecutionPlan.AccessMode.READ,
+                        com.example.smartassistant.router.model.ExecutionPlan.AccessMode.WRITE,
+                        com.example.smartassistant.router.model.ExecutionPlan.AccessMode.WRITE,
+                        com.example.smartassistant.router.model.ExecutionPlan.AccessMode.WRITE,
+                        com.example.smartassistant.router.model.ExecutionPlan.AccessMode.READ,
+                        com.example.smartassistant.router.model.ExecutionPlan.AccessMode.WRITE),
+                plan.nodes().stream().map(node -> node.accessMode()).toList());
+        assertFalse(plan.nodes().get(1).approvalRequired());
+        assertTrue(plan.nodes().get(2).approvalRequired());
+        assertTrue(plan.nodes().get(3).approvalRequired());
+        assertFalse(plan.nodes().get(4).approvalRequired());
+        assertTrue(plan.nodes().get(5).approvalRequired());
+        assertEquals("req-lifecycle:ship", plan.nodes().get(3).idempotencyKey());
+        assertEquals("req-lifecycle:complete", plan.nodes().get(5).idempotencyKey());
+    }
+
+    @Test
+    void riskFlagsNeverTurnReadOnlyNodesIntoApprovalCheckpoints() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setRiskFlags(List.of("涉及订单信息，需要二次确认"));
+        analysis.setSubIntents(List.of(Map.of(
+                "id", "query", "intent", "QUERY_ORDER", "description", "查询订单 ORD-1",
+                "target_agent", "order", "operation", "QUERY_ORDER",
+                "access_mode", "READ", "human_approval_required", true)));
+
+        var plan = RouteExecutionService.buildExecutionPlan(
+                "只查询订单，不修改", analysis, "req-read-only");
+
+        assertNotNull(plan);
+        assertEquals(com.example.smartassistant.router.model.ExecutionPlan.AccessMode.READ,
+                plan.nodes().getFirst().accessMode());
+        assertFalse(plan.nodes().getFirst().approvalRequired());
+    }
+
+    @Test
+    void compilesRecommendationToOrderAsEvidenceBackedSerialDag() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(
+                Map.of("id", "discover_products", "intent", "PRODUCT_DISCOVERY",
+                        "description", "查询真实候选商品、价格和库存",
+                        "target_agent", "product", "operation", "DISCOVER_PRODUCTS"),
+                Map.of("id", "analyze_product_data", "intent", "PRODUCT_ANALYSIS",
+                        "description", "分析候选商品与用户约束的匹配度",
+                        "target_agent", "product", "operation", "ANALYZE_PRODUCT_DATA",
+                        "depends_on", List.of("discover_products")),
+                Map.of("id", "recommend_product", "intent", "PRODUCT_RECOMMENDATION",
+                        "description", "基于分析选出最匹配商品",
+                        "target_agent", "product", "operation", "RECOMMEND_PRODUCT",
+                        "depends_on", List.of("discover_products", "analyze_product_data")),
+                Map.of("id", "create_order", "intent", "CREATE_ORDER",
+                        "description", "用户确认并补齐资料后创建订单",
+                        "target_agent", "order", "operation", "CREATE_ORDER",
+                        "access_mode", "WRITE", "depends_on", List.of("recommend_product"))));
+
+        var plan = RouteExecutionService.buildExecutionPlan(
+                "分析并推荐最合适商品，确认后下单", analysis, "req-recommend-order");
+
+        assertNotNull(plan);
+        assertEquals(List.of("DISCOVER_PRODUCTS", "ANALYZE_PRODUCT_DATA",
+                        "RECOMMEND_PRODUCT", "CREATE_ORDER"),
+                plan.nodes().stream().map(node -> node.operation()).toList());
+        assertEquals(List.of("discover_products"), plan.nodes().get(1).dependsOn());
+        assertEquals(List.of("discover_products", "analyze_product_data"),
+                plan.nodes().get(2).dependsOn());
+        assertEquals(List.of("recommend_product"), plan.nodes().get(3).dependsOn());
+        assertEquals(com.example.smartassistant.router.model.ExecutionPlan.AccessMode.WRITE,
+                plan.nodes().get(3).accessMode());
+        assertTrue(plan.nodes().get(3).approvalRequired());
+        assertTrue(ExecutionPlanValidator.validate(plan).valid());
+    }
+
+    @Test
+    void rejectsRecommendationThatSkipsDataAnalysis() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(
+                Map.of("id", "discover_products", "intent", "PRODUCT_DISCOVERY",
+                        "description", "查询候选商品", "target_agent", "product",
+                        "operation", "DISCOVER_PRODUCTS"),
+                Map.of("id", "recommend_product", "intent", "PRODUCT_RECOMMENDATION",
+                        "description", "直接推荐商品", "target_agent", "product",
+                        "operation", "RECOMMEND_PRODUCT",
+                        "depends_on", List.of("discover_products"))));
+
+        var plan = RouteExecutionService.buildExecutionPlan(
+                "查询后直接推荐", analysis, "req-invalid-recommendation");
+
+        assertNotNull(plan);
+        var validation = ExecutionPlanValidator.validate(plan);
+        assertFalse(validation.valid());
+        assertTrue(validation.errors().stream()
+                .anyMatch(error -> error.contains("must depend on product analysis")));
     }
 
     @Test

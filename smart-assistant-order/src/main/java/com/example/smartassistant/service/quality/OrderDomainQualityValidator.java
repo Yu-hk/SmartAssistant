@@ -17,7 +17,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -30,10 +29,6 @@ public class OrderDomainQualityValidator {
     private static final Pattern ORDER_ID = Pattern.compile("(?i)\\bORD-[A-Z0-9-]+\\b");
     private static final Pattern SUCCESS_CLAIM = Pattern.compile(
             "已(?:成功)?(?:退款|取消|创建|下单|支付)|(?:退款|取消|下单|支付)成功|订单已创建");
-    private static final List<String> ORDER_STATUSES = List.of(
-            "待付款", "待支付", "已付款", "已支付", "待发货", "已发货",
-            "已签收", "已完成", "已取消", "退款中", "已退款", "退款成功");
-
     private final OrderDataProvider orderData;
 
     /** Backward-compatible constructor for isolated controller/unit-test usage. */
@@ -131,7 +126,10 @@ public class OrderDomainQualityValidator {
     }
 
     private static boolean requiresOrderEvidence(IntentType intent) {
-        return intent == IntentType.QUERY_ORDER || intent == IntentType.REFUND || intent == IntentType.CANCEL;
+        return intent == IntentType.QUERY_ORDER || intent == IntentType.REFUND
+                || intent == IntentType.CANCEL || intent == IntentType.PAY
+                || intent == IntentType.SHIP || intent == IntentType.TRACK_LOGISTICS
+                || intent == IntentType.CONFIRM_DELIVERY;
     }
 
     private static boolean requiresIdentity(IntentType intent) {
@@ -139,7 +137,9 @@ public class OrderDomainQualityValidator {
     }
 
     private static boolean isActionIntent(IntentType intent) {
-        return intent == IntentType.CREATE_ORDER || intent == IntentType.REFUND || intent == IntentType.CANCEL;
+        return intent == IntentType.CREATE_ORDER || intent == IntentType.REFUND
+                || intent == IntentType.CANCEL || intent == IntentType.PAY
+                || intent == IntentType.SHIP || intent == IntentType.CONFIRM_DELIVERY;
     }
 
     private static Set<String> extractOrderIds(String value) {
@@ -155,9 +155,14 @@ public class OrderDomainQualityValidator {
     private static Set<String> findStatuses(String value) {
         Set<String> statuses = new LinkedHashSet<>();
         if (value == null) return statuses;
-        for (String status : ORDER_STATUSES) {
-            if (value.contains(status)) statuses.add(status);
-        }
+        if (value.contains("待付款") || value.contains("待支付")) statuses.add("PENDING_PAYMENT");
+        if (value.contains("已付款") || value.contains("已支付")) statuses.add("PAID");
+        if (value.contains("待发货")) statuses.add("PENDING_SHIPMENT");
+        if (value.contains("已发货")) statuses.add("SHIPPED");
+        if (value.contains("已签收") || value.contains("已完成")) statuses.add("DELIVERED");
+        if (value.contains("已取消")) statuses.add("CANCELLED");
+        if (value.contains("退款中")) statuses.add("REFUNDING");
+        if (value.contains("已退款") || value.contains("退款成功")) statuses.add("REFUNDED");
         return statuses;
     }
 }

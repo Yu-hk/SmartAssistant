@@ -83,6 +83,10 @@ public class OrderRagService {
             case ORDER_PREPARATION_GUIDANCE -> retrieveOrderPreparationGuidance();
             case ORDER_GUIDANCE -> retrieveOrderGuidance();
             case REFUND -> retrieveForQualityResult(message, "退款");
+            case PAY -> retrieveForQualityResult(message, "支付");
+            case SHIP -> retrieveForQualityResult(message, "发货");
+            case TRACK_LOGISTICS -> retrieveForQualityResult(message, "订单");
+            case CONFIRM_DELIVERY -> retrieveForQualityResult(message, "确认收货");
             case CREATE_ORDER -> RetrievalQualityResult.highQuality(
                     "【下单引导】请让用户提供以下信息：\n• 商品名称\n• 购买数量\n• 收货人姓名、电话、地址\n• 支付方式\n确认信息后调用 createOrder 创建订单。",
                     1.0);
@@ -269,6 +273,9 @@ public class OrderRagService {
             switch (intentLabel) {
                 case "退款" -> sb.append("\n\n【退款规则】\n• 仅已发货/已签收的订单可申请退款\n• 退款需二次确认\n• 退款金额以实际支付金额为准");
                 case "取消" -> sb.append("\n\n【取消规则】仅「待付款」和「待发货」状态的订单可取消");
+                case "支付" -> sb.append("\n\n【支付规则】仅「待付款」订单可支付；支付必须经过二次确认");
+                case "发货" -> sb.append("\n\n【发货规则】仅「待发货」订单可发货；必须提供物流公司和快递单号");
+                case "确认收货" -> sb.append("\n\n【确认收货规则】仅「已发货」订单可确认收货");
                 default -> {} // 查询无需额外规则
             }
 

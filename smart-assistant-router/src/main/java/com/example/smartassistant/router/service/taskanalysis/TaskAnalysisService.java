@@ -17,8 +17,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -46,6 +49,9 @@ import java.util.regex.Pattern;
 public class TaskAnalysisService {
 
     private static final Logger log = LoggerFactory.getLogger(TaskAnalysisService.class);
+    private static final String TASK_PLANNER_PROMPT = "prompts/router/task-planner.txt";
+    private static final String FALLBACK_PROMPT = "你是任务规划专家。仅输出合法 JSON，"
+            + "将用户目标拆为至少一个原子 sub_intents 节点，并明确依赖、Agent、读写属性和完成标准。";
 
     private final ModelRoutingService modelRoutingService;
     private final IntentEvaluationService intentEvaluationService;
@@ -59,90 +65,36 @@ public class TaskAnalysisService {
      * 任务分析 prompt，支持通过 Nacos Config 动态刷新（@RefreshScope）。
      * 可将此属性配置到 Nacos 配置中心，修改后立即生效，无需重启。
      */
-    @Value("${router.task-analysis.system-prompt:"
-            + "你是一个电商客服系统的任务分析器。\n"
-            + "分析用户的提问，提取结构化信息。\n\n"
-            + "输出要求：\n"
-            + "1. 仅输出一个合法的 JSON 对象，不要包含任何其他文字、markdown 代码块标记或说明。\n"
-            + "2. JSON 必须包含以下所有字段：\n\n"
-            + "{\n"
-            + "  \"intent_category\": \"意图分类，仅限 ORDER(订单/物流/退款)/PRODUCT(商品查询/库存/价格)/GENERAL(问答/计算/天气/新闻)/COMPLEX(跨领域)/UNKNOWN\",\n"
-            + "  \"confidence\": \"意图分类置信度 0.0~1.0，根据用户输入清晰度和匹配度评估\",\n"
-            + "  \"entities\": {\n"
-            + "    \"order_id\": \"订单号或null\",\n"
-            + "    \"product_name\": \"商品名称或null\",\n"
-            + "    \"date\": \"日期信息或null\",\n"
-            + "    \"amount\": \"金额信息或null\",\n"
-            + "    \"location\": \"地点或null\",\n"
-            + "    \"currency\": \"币种或null\",\n"
-            + "    \"departure_station\": \"出发站（火车票场景）或null\",\n"
-            + "    \"arrival_station\": \"到达站或null\",\n"
-            + "    \"departure_time\": \"出发时间或null\",\n"
-            + "    \"passenger\": \"乘客姓名或null\",\n"
-            + "    \"seat_type\": \"座位类型（二等座/一等座/商务座）或null\",\n"
-            + "    \"train_type\": \"车次类型（高铁/动车/普快）或null\",\n"
-            + "    \"departure_date\": \"出发日期或null\"\n"
-            + "  },\n"
-            + "  \"sub_intents\": [\n"
-            + "    {\n"
-            + "      \"id\": \"稳定节点ID，例如 product_search\",\n"
-            + "      \"intent\": \"子意图分类（查票/预订/改签/退票/订单查询/查商品/看天气等）\",\n"
-            + "      \"description\": \"子任务描述\",\n"
-            + "      \"target_agent\": \"仅限 product/order/general\",\n"
-            + "      \"operation\": \"仅限 QUERY_PRODUCT/QUERY_ORDER/CREATE_ORDER/CANCEL_ORDER/REFUND_ORDER/PAY_ORDER/EXPLAIN_ORDER_REQUIREMENTS/EXPLAIN_ORDER_LIFECYCLE/ANSWER\",\n"
-            + "      \"access_mode\": \"仅限 READ/WRITE\",\n"
-            + "      \"depends_on\": [\"依赖的节点ID\"],\n"
-            + "      \"success_criteria\": \"可验证的完成标准\",\n"
-            + "      \"order\": 1\n"
-            + "    }\n"
-            + "  ],\n"
-            + "  \"implicit_intents\": [\n"
-            + "    {\n"
-            + "      \"expression\": \"用户的表层表达\",\n"
-            + "      \"inferred_intent\": \"推断的真实目标\",\n"
-            + "      \"confidence\": \"confidence 0.0~1.0\",\n"
-            + "      \"trigger_basis\": \"触发依据（业务语境/对话状态/业务规则）\"\n"
-            + "    }\n"
-            + "  ],\n"
-            + "  \"action_constraints\": [\"行为约束列表，如'仅查询''勿修改订单'\"],\n"
-            + "  \"output_constraints\": [\"输出约束列表，如'Markdown格式''200字以内'\"],\n"
-            + "  \"risk_flags\": [\"风险标记列表，如'涉及退款''需二次确认''数据敏感''交易越界'\"],\n"
-            + "  \"task_goal\": \"一句话概括用户任务目标（≤20字）\",\n"
-            + "  \"tool_scores\": {\n"
-            + "    \"query_order\": 0.0-1.0,\n"
-            + "    \"pay_order\": 0.0-1.0,\n"
-            + "    \"cancel_order\": 0.0-1.0,\n"
-            + "    \"query_product\": 0.0-1.0,\n"
-            + "    \"check_stock\": 0.0-1.0,\n"
-            + "    \"getHotNews\": 0.0-1.0,\n"
-            + "    \"calculate\": 0.0-1.0,\n"
-            + "    \"convertCurrency\": 0.0-1.0,\n"
-            + "    \"searchWeb\": 0.0-1.0\n"
-            + "  }\n"
-            + "}\n\n"
-            + "评分规则：\n"
-            + "- 0.0: 完全不相关\n"
-            + "- 0.1~0.3: 边缘相关\n"
-            + "- 0.4~0.6: 中等相关\n"
-            + "- 0.7~1.0: 高度相关或必须使用\n\n"
-            + "多意图拆分说明：\n"
-            + "- sub_intents 必须至少包含 1 个节点；单一任务也不能返回空数组\n"
-            + "- 多任务必须按可独立执行的 Agent 节点拆分\n"
-            + "- 每个 sub_intent 只能表达一个原子执行目标；不要把查询、取消、退款等实际操作合并成一个写节点\n"
-            + "- 用户只是询问下单后如何查询、取消、售后等流程且不要求现在执行时，使用 EXPLAIN_ORDER_LIFECYCLE + READ；不得标成取消、退款等写操作\n"
-            + "- target_agent 由你根据语义直接分配：商品/库存/价格给 product，订单/物流/退款给 order，其他给 general\n"
-            + "- depends_on 只能引用已定义的 id，无依赖时输出 []\n"
-            + "- order 字段标记执行顺序（1最先）\n\n"
-            + "隐含意图说明：\n"
-            + "- 用户没直说但有上下文提示的目标，补到 implicit_intents\n"
-            + "- 例如用户说\"别耽误四点的会\"，隐含意图是\"到达时间需早于16点，预留出站缓冲\"\n"
-            + "- trigger_basis 必须来自：业务语境/对话状态/业务规则\n\n"
-            + "拒识说明：\n"
-            + "- 如果用户请求越界、不合规、无效（如\"买昨天票\"、\"绕过实名\"），在 risk_flags 中标出\n"
-            + "- 拒识原因加入 action_constraints：\"无效请求-原因\"/\"越界请求-原因\"/\"不支持-原因\"\n\n"
-            + "覆核要求：实体字段用 null 而非空字符串表示不存在。"
-            + "}")
+    @Value("${router.task-analysis.system-prompt:}")
     private String systemPrompt;
+
+    /*
+     * The previous inline prompt intentionally remains configurable through Nacos,
+     * while the maintained default now lives in prompts/router/task-planner.txt.
+     */
+    private volatile String defaultSystemPrompt;
+
+    /*
+     * Keep the following method close to the configurable field so prompt precedence
+     * is explicit: Nacos override first, checked-in resource second, safe fallback last.
+     */
+    private String resolveSystemPrompt() {
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            return systemPrompt;
+        }
+        String cached = defaultSystemPrompt;
+        if (cached != null) return cached;
+        synchronized (this) {
+            if (defaultSystemPrompt != null) return defaultSystemPrompt;
+            try (InputStream input = new ClassPathResource(TASK_PLANNER_PROMPT).getInputStream()) {
+                defaultSystemPrompt = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            } catch (Exception error) {
+                log.error("[TaskAnalysis] 无法加载任务规划提示词资源: {}", error.getMessage());
+                defaultSystemPrompt = FALLBACK_PROMPT;
+            }
+            return defaultSystemPrompt;
+        }
+    }
 
     @Value("${router.task-analysis.enabled:true}")
     private boolean enabled;
@@ -289,18 +241,18 @@ public class TaskAnalysisService {
      */
     private String buildDynamicPrompt(String question, List<String> conversationHistory) {
         if (intentRetriever == null) {
-            return systemPrompt;
+            return resolveSystemPrompt();
         }
         try {
             List<IntentDef> relevant = intentRetriever.retrieve(question, 3);
             String intentSection = intentRetriever.buildIntentSection(relevant);
             if (intentSection == null) {
-                return systemPrompt;
+                return resolveSystemPrompt();
             }
-            return systemPrompt + "\n\n" + intentSection;
+            return resolveSystemPrompt() + "\n\n" + intentSection;
         } catch (Exception e) {
             log.warn("[TaskAnalysis] Dynamic intent retrieval failed, using base prompt: {}", e.getMessage());
-            return systemPrompt;
+            return resolveSystemPrompt();
         }
     }
 
@@ -465,6 +417,19 @@ public class TaskAnalysisService {
                 }
             }
 
+            if (map.get("task_steps") instanceof List<?> values) {
+                result.setTaskSteps(toStringList(values));
+            }
+            if (map.get("execution_order") instanceof List<?> values) {
+                result.setExecutionOrder(toStringList(values));
+            }
+            if (map.get("flowchart") != null) {
+                String flowchart = String.valueOf(map.get("flowchart"));
+                if (!flowchart.isBlank() && !"null".equalsIgnoreCase(flowchart)) {
+                    result.setFlowchart(flowchart);
+                }
+            }
+
             // tool_scores
             if (map.containsKey("tool_scores") && map.get("tool_scores") instanceof Map) {
                 @SuppressWarnings("unchecked")
@@ -507,6 +472,15 @@ public class TaskAnalysisService {
             return TaskAnalysisResult.empty();
         }
         return result;
+    }
+
+    private static List<String> toStringList(List<?> values) {
+        return values.stream()
+                .filter(Objects::nonNull)
+                .map(String::valueOf)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .toList();
     }
 
     private static String truncate(String str, int max) {

@@ -11,6 +11,7 @@ import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
+import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tool.AiToolRegistry;
 import com.example.smartassistant.common.tool.GifCacheStore;
@@ -51,6 +52,7 @@ public class McpAgentService {
     private final McpTableWhitelistConfig whitelistConfig;  // ⭐ 注入白名单配置
     private final GifCacheStore gifCacheStore;  // ⭐ 共享 GIF 缓存（替代工具内静态 map）
     private final ApplicationContext applicationContext;  // ⭐ 取得 RegistryTool 标记的 GIF 工具 Bean
+    private final PromptManager promptManager;
 
     // ⭐ ChatClient 由 AiChatService 统一装配 Advisor 链
     @Autowired(required = false)
@@ -72,7 +74,8 @@ public class McpAgentService {
             SqlReviewService sqlReviewService,  // ⭐ 注入审查服务
             McpTableWhitelistConfig whitelistConfig,
             GifCacheStore gifCacheStore,
-            ApplicationContext applicationContext) {
+            ApplicationContext applicationContext,
+            PromptManager promptManager) {
         this.chatModel = chatModel;
         this.jdbcTemplate = jdbcTemplate;
         this.performanceMonitor = performanceMonitor;
@@ -81,6 +84,7 @@ public class McpAgentService {
         this.whitelistConfig = whitelistConfig;
         this.gifCacheStore = gifCacheStore;
         this.applicationContext = applicationContext;
+        this.promptManager = promptManager;
     }
     
     /**
@@ -592,8 +596,12 @@ public class McpAgentService {
         long startTime = System.currentTimeMillis();
         
         try {
+            String analysisRequest = promptManager.renderDataAnalysisExpert(
+                    question,
+                    "必须先调用 executeQuery 获取真实查询结果；若不确定字段，先调用 getTableSchema。"
+                            + " 工具返回结果是本次分析唯一允许使用的数据上下文。");
             // ⭐ SmartReActAgent 内置超时 + 迭代限制
-            String result = mcpAgent.execute(question);
+            String result = mcpAgent.execute(analysisRequest);
             
             // ⭐ 后处理：将 GIF_CACHE:xxx 替换为真实 Base64 data URI
             if (result != null) {

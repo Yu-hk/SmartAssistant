@@ -50,7 +50,46 @@ final class ExecutionPlanValidator {
                         ExecutionPlan.TaskNode::nodeId,
                         ExecutionPlan.TaskNode::dependsOn,
                         (left, right) -> left)), ids, errors);
+        validateProductRecommendationChain(plan.nodes(), errors);
         return new ValidationResult(errors.isEmpty(), List.copyOf(errors));
+    }
+
+    /** Ensures evidence flows forward instead of allowing recommendation nodes to invent inputs. */
+    private static void validateProductRecommendationChain(List<ExecutionPlan.TaskNode> nodes,
+                                                            List<String> errors) {
+        Map<String, ExecutionPlan.TaskNode> byId = nodes.stream().collect(
+                java.util.stream.Collectors.toMap(ExecutionPlan.TaskNode::nodeId, node -> node));
+        boolean hasRecommendation = nodes.stream()
+                .anyMatch(node -> "RECOMMEND_PRODUCT".equals(node.operation()));
+
+        for (ExecutionPlan.TaskNode node : nodes) {
+            if ("ANALYZE_PRODUCT_DATA".equals(node.operation())
+                    && !dependsOnOperation(node, byId, Set.of("DISCOVER_PRODUCTS", "QUERY_PRODUCT"))) {
+                errors.add("product analysis must depend on discovered product data: " + node.nodeId());
+            }
+            if ("RECOMMEND_PRODUCT".equals(node.operation())) {
+                if (!dependsOnOperation(node, byId, Set.of("ANALYZE_PRODUCT_DATA"))) {
+                    errors.add("product recommendation must depend on product analysis: " + node.nodeId());
+                }
+                if (!dependsOnOperation(node, byId, Set.of("DISCOVER_PRODUCTS", "QUERY_PRODUCT"))) {
+                    errors.add("product recommendation must retain candidate product evidence: " + node.nodeId());
+                }
+            }
+            if (hasRecommendation && "CREATE_ORDER".equals(node.operation())
+                    && !dependsOnOperation(node, byId, Set.of("RECOMMEND_PRODUCT"))) {
+                errors.add("order creation must depend on confirmed recommendation: " + node.nodeId());
+            }
+        }
+    }
+
+    private static boolean dependsOnOperation(ExecutionPlan.TaskNode node,
+                                              Map<String, ExecutionPlan.TaskNode> byId,
+                                              Set<String> operations) {
+        return node.dependsOn().stream()
+                .map(byId::get)
+                .filter(java.util.Objects::nonNull)
+                .map(ExecutionPlan.TaskNode::operation)
+                .anyMatch(operations::contains);
     }
 
     static ValidationResult validateGraph(IntentGraph graph, Set<String> allowedAgents) {

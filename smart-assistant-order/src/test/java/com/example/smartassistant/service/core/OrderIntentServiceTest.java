@@ -81,4 +81,27 @@ class OrderIntentServiceTest {
         assertEquals(OrderIntentService.IntentType.CANCEL,
                 service.detect("怎么取消订单 ORD-20260818-1"));
     }
+
+    @Test
+    void fulfillmentIntentsCanBeReturnedByStructuredClassifier() {
+        AiChatService aiChatService = mock(AiChatService.class);
+        ChatModel model = mock(ChatModel.class);
+        PromptManager promptManager = mock(PromptManager.class);
+        when(promptManager.orderIntentClassifier()).thenReturn("classify");
+        when(aiChatService.entity(any(), anyString(), anyString(), any()))
+                .thenReturn(new OrderIntentService.IntentResult(OrderIntentService.IntentType.PAY))
+                .thenReturn(new OrderIntentService.IntentResult(OrderIntentService.IntentType.SHIP))
+                .thenReturn(new OrderIntentService.IntentResult(OrderIntentService.IntentType.TRACK_LOGISTICS))
+                .thenReturn(new OrderIntentService.IntentResult(OrderIntentService.IntentType.CONFIRM_DELIVERY));
+        OrderIntentService service = new OrderIntentService(aiChatService, model, promptManager);
+
+        assertEquals(OrderIntentService.IntentType.PAY,
+                service.detect("确认支付订单 ORD-1"));
+        assertEquals(OrderIntentService.IntentType.SHIP,
+                service.detect("发货订单 ORD-1"));
+        assertEquals(OrderIntentService.IntentType.TRACK_LOGISTICS,
+                service.detect("查询订单 ORD-1 的物流"));
+        assertEquals(OrderIntentService.IntentType.CONFIRM_DELIVERY,
+                service.detect("确认收货订单 ORD-1"));
+    }
 }
