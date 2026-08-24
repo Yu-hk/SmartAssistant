@@ -12,13 +12,16 @@ import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import com.example.smartassistant.common.memory.ContextOrchestrator;
 import com.example.smartassistant.common.memory.MemoryExtractor;
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.quality.DomainQualityHeaders;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.trace.RagStage;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
+import com.example.smartassistant.service.core.OrderDeterministicExecutionService;
 import com.example.smartassistant.service.core.OrderRagService;
+import com.example.smartassistant.service.quality.OrderDomainQualityValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -189,5 +192,34 @@ class OrderAgentControllerTest {
 
         assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
         assertTrue(response.getBody().answer().contains("已发货"));
+    }
+
+    @Test
+    @DisplayName("统一协议快速路径：确定性订单查询不应进入意图识别、RAG 或 Agent")
+    void unifiedProtocol_deterministicQueryShouldBypassModelPipeline() {
+        OrderDeterministicExecutionService deterministic =
+                mock(OrderDeterministicExecutionService.class);
+        OrderAgentController fastController = new OrderAgentController(
+                agent, intentService, ragService, mock(MemoryExtractor.class), orchestrator,
+                new OrderDomainQualityValidator(), deterministic);
+        AgentExecutionRequest request = new AgentExecutionRequest(
+                AgentExecutionRequest.CURRENT_VERSION, "req-fast-order", "query-order", "1",
+                "QUERY_ORDER", "查询订单 ORD-123", Map.of("orderId", "ORD-123"),
+                List.of(), List.of(), null, "idem-fast-order", null);
+        AgentExecutionResponse result = AgentExecutionResponse.success(
+                "订单 ORD-123 状态：待发货",
+                Map.of("orderId", "ORD-123", "verified", true, "criteriaSatisfied", true),
+                DomainQualityResult.pass(1.0, "DETERMINISTIC_ORDER_QUERY"));
+        when(deterministic.supports("QUERY_ORDER")).thenReturn(true);
+        when(deterministic.execute(request)).thenReturn(result);
+
+        ResponseEntity<AgentExecutionResponse> response = fastController.execute(request, null);
+
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
+        assertEquals(true, response.getBody().data().get("verified"));
+        assertEquals("PASS", response.getHeaders().getFirst(DomainQualityHeaders.STATUS));
+        verify(deterministic).execute(request);
+        verifyNoInteractions(intentService, ragService);
+        verify(agent, never()).execute(anyString());
     }
 }

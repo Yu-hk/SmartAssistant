@@ -150,9 +150,34 @@ public class GraphNodeExecutionService {
                             "节点[" + node.getDescription() + "]已返回可验证的证据边界",
                             targetAgent);
                 }
-                SubTaskResult.ErrorType criteria = evidenceLimited
-                        ? SubTaskResult.ErrorType.NONE
-                        : reflectionService.checkCriteria(text, node.getSuccessCriteria());
+                boolean structuredVerified = response.getDomainQuality().isPass()
+                        && Boolean.TRUE.equals(response.getData().get("verified"))
+                        && response.getData().containsKey("criteriaSatisfied");
+                SubTaskResult.ErrorType criteria;
+                if (evidenceLimited) {
+                    criteria = SubTaskResult.ErrorType.NONE;
+                } else if (structuredVerified) {
+                    boolean satisfied = Boolean.TRUE.equals(
+                            response.getData().get("criteriaSatisfied"));
+                    criteria = satisfied
+                            ? SubTaskResult.ErrorType.NONE
+                            : SubTaskResult.ErrorType.FATAL_FAILED;
+                    log.info("[GraphNode] 使用领域结构化结果验收: nodeId={}, operation={}, satisfied={}",
+                            node.getId(), node.getOperation(), satisfied);
+                } else {
+                    criteria = reflectionService.checkCriteria(text, node.getSuccessCriteria());
+                }
+                if (criteria == SubTaskResult.ErrorType.FATAL_FAILED) {
+                    SubTaskResult rejected = new SubTaskResult(
+                            node.getId(), node.getDescription(), targetAgent, text, false,
+                            SubTaskResult.ErrorType.FATAL_FAILED,
+                            response.getRealTitles(), response.getTagsByTitle());
+                    rejected.setDomainQuality(response.getDomainQuality());
+                    rejected.setStructuredData(response.getData());
+                    progress(eventsKey, "node_criteria_rejected",
+                            "节点[" + node.getDescription() + "]结构化验收未满足", targetAgent);
+                    return rejected;
+                }
                 if (criteria == SubTaskResult.ErrorType.NEED_REPLAN
                         && corrections < maxCriteriaCorrections) {
                     corrections++;

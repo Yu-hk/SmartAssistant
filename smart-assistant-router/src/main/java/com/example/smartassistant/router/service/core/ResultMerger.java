@@ -65,6 +65,16 @@ public class ResultMerger {
 
         storeFullResults(results, requestId);
 
+        // A single domain already owns the execution order and the factual wording of each
+        // result. Re-sending those deterministic order results to an LLM adds seconds of
+        // latency and can accidentally rewrite lifecycle states (for example, 待发货 → 已支付).
+        if (isDeterministicOrderWorkflow(results)) {
+            String merged = fallbackMerge(results);
+            log.info("[ResultMerger] 同域订单结果确定性合并: agents={}, resultLength={}",
+                    results.size(), merged.length());
+            return merged;
+        }
+
         // ⭐ 上下文构建：摘要优先（替代原来的全量 result 拼接）
         StringBuilder context = new StringBuilder();
         for (var r : results) {
@@ -159,5 +169,17 @@ public class ResultMerger {
             }
         }
         return sb.toString().trim();
+    }
+
+    static boolean isDeterministicOrderWorkflow(List<SubTaskResult> results) {
+        return results != null && results.size() > 1
+                && results.stream().allMatch(result -> result != null
+                && result.isSuccess()
+                && "order".equalsIgnoreCase(result.getAgentName())
+                && result.getResult() != null
+                && !result.getResult().isBlank()
+                && result.getDomainQuality().isPass()
+                && Boolean.TRUE.equals(result.getStructuredData().get("verified"))
+                && Boolean.TRUE.equals(result.getStructuredData().get("criteriaSatisfied")));
     }
 }
