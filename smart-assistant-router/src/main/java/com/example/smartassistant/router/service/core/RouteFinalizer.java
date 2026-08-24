@@ -30,12 +30,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 路由后处理服务。
@@ -83,6 +86,10 @@ public class RouteFinalizer {
 
     @Autowired(required = false)
     private NewMetricsCollector newMetrics;
+
+    @Autowired(required = false)
+    @Qualifier("routerExperienceExecutor")
+    private Executor experienceExecutor;
 
     public RouteFinalizer(
             IntentTagGenerator intentTagGenerator,
@@ -222,7 +229,7 @@ public class RouteFinalizer {
         if (!clarification && !realTimeWeather
                 && agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
             if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
-                experienceService.extractCommonExperience(question, agentName, intentTag);
+                learnExperienceAsync(question, agentName, intentTag);
                 extractToolExperienceIfApplicable(reply, agentName, intentTag, question);
             }
         }
@@ -283,6 +290,27 @@ public class RouteFinalizer {
     }
 
     // ==================== 内部方法 ====================
+
+    private void learnExperienceAsync(String question, String agentName, String intentTag) {
+        if (experienceExecutor == null) {
+            // Preserve deterministic behavior in lightweight tests and minimal deployments.
+            experienceService.extractCommonExperience(question, agentName, intentTag);
+            return;
+        }
+        try {
+            experienceExecutor.execute(() -> {
+                try {
+                    experienceService.extractCommonExperience(question, agentName, intentTag);
+                } catch (Exception error) {
+                    log.warn("[Router] 异步经验提取失败: agent={}, error={}",
+                            agentName, error.getMessage());
+                }
+            });
+            log.debug("[Router] 经验提取已转入后台: agent={}, intent={}", agentName, intentTag);
+        } catch (RejectedExecutionException rejected) {
+            log.warn("[Router] 经验提取队列已满，本次跳过: agent={}, intent={}", agentName, intentTag);
+        }
+    }
 
     /** 将任务分析结果追加到完整决策 JSON 中 */
     private void appendTaskAnalysisToFullDecision(String requestId) {

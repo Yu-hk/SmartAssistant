@@ -470,7 +470,7 @@ public class RouteExecutionService {
                                                      String intentCategory) {
         String declared = Objects.toString(operation, "").trim().toUpperCase(Locale.ROOT);
         Set<String> allowed = Set.of("DISCOVER_PRODUCTS", "QUERY_PRODUCT",
-                "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT", "QUERY_ORDER", "CREATE_ORDER",
+                "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT", "QUERY_ORDER", "QUERY_PAYMENT_PENDING", "CREATE_ORDER",
                 "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER", "SHIP_ORDER",
                 "TRACK_LOGISTICS", "CONFIRM_DELIVERY", "ANSWER",
                 "EXPLAIN_ORDER_REQUIREMENTS", "EXPLAIN_ORDER_LIFECYCLE");

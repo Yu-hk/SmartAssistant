@@ -96,6 +96,28 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
+    void verifiedStructuredResultSkipsLlmCriteriaCheck() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "query_order", "查询订单并确认待付款", "order", List.of(),
+                "订单状态为待付款", List.of(), false, "QUERY_ORDER",
+                Map.of("order_id", "ORD-1001"), List.of(), null);
+        AgentCallResult verified = new AgentCallResult(
+                "订单 ORD-1001 状态：待付款", List.of(), Map.of(),
+                DomainQualityResult.pass(1.0, "DETERMINISTIC_ORDER_QUERY"),
+                Map.of("verified", true, "criteriaSatisfied", true,
+                        "orderId", "ORD-1001", "status", "待付款"));
+        when(agentCallerService.callAgentAndExtractTitles(eq("order"), any(AgentExecutionRequest.class)))
+                .thenReturn(verified);
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                1050L, null, "request");
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getStructuredData()).containsEntry("status", "待付款");
+        verify(reflectionService, never()).checkCriteria(anyString(), anyString());
+    }
+
+    @Test
     void executesBuiltinPreparationWithoutCallingRemoteAgent() {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "prepare", "准备订单", RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT, List.of());
