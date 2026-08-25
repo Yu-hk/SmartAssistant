@@ -187,18 +187,14 @@ public class RouteExecutionService {
                         : resultMerger.merge(question, results, requestId);
         long elapsed = System.currentTimeMillis() - start;
 
-        String firstAgent = results.stream()
-                .map(SubTaskResult::getAgentName)
-                .filter(Objects::nonNull)
-                .filter(agent -> !BUILTIN_ORDER_PREPARATION_AGENT.equals(agent))
-                .findFirst().orElse("none");
-        String resultOwner = graph.getNodeCount() > 1 ? "orchestrator" : firstAgent;
+        String resultOwner = determineResultOwner(results);
         if (agentFlowTraceStore != null) {
             agentFlowTraceStore.complete(flowId, results, resultOwner, elapsed);
         }
 
         boolean allFailed = results.isEmpty() || results.stream().noneMatch(SubTaskResult::isSuccess);
-        if (allFailed || merged == null || merged.isBlank()) {
+        boolean hasRequiredFailure = !ResultMerger.requiredFailures(results).isEmpty();
+        if ((!hasRequiredFailure && allFailed) || merged == null || merged.isBlank()) {
             log.warn("[Collaborative] 所有子任务均失败，降级到内联 ChatClient 兜底");
             return inlineFallback(question, emotion);
         }
@@ -211,6 +207,26 @@ public class RouteExecutionService {
         return routeFinalizer.applyEmotion(RoutingResult.builder()
                 .result(merged).agentName(resultOwner).confidence(0.8)
                 .domainQuality(domainQuality).build(), emotion);
+    }
+
+    /**
+     * Attributes a multi-node result to its only business Agent when every node
+     * belongs to the same domain. The orchestrator owns the result only when it
+     * actually combines multiple business domains.
+     */
+    static String determineResultOwner(List<SubTaskResult> results) {
+        if (results == null || results.isEmpty()) return "none";
+        List<String> businessAgents = results.stream()
+                .map(SubTaskResult::getAgentName)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(agent -> !agent.isBlank())
+                .filter(agent -> !"none".equals(agent))
+                .filter(agent -> !BUILTIN_ORDER_PREPARATION_AGENT.equals(agent))
+                .distinct()
+                .toList();
+        if (businessAgents.isEmpty()) return "none";
+        return businessAgents.size() == 1 ? businessAgents.getFirst() : "orchestrator";
     }
 
     /** Uses LangGraph4j as the sole orchestration engine. */
@@ -352,11 +368,23 @@ public class RouteExecutionService {
             Map<String, Object> input = new LinkedHashMap<>();
             input.put("description", description);
             if (analysis.getEntities() != null) input.putAll(analysis.getEntities());
+            ExecutionPlan.MergePolicy mergePolicy = mergePolicy(
+                    subIntent.get("merge_policy"), operation);
+            boolean required = subIntent.containsKey("required")
+                    ? booleanValue(subIntent.get("required"))
+                    : !booleanValue(subIntent.get("optional"));
+            String outputSchema = Objects.toString(
+                    subIntent.get("output_schema"), "").trim();
+            if (outputSchema.isEmpty()) outputSchema = null;
+            Map<String, String> inputBindings = sanitizeInputBindings(
+                    rawNode.nodeId(), dependencies, input,
+                    stringMap(subIntent.get("input_bindings")));
 
             nodes.add(new ExecutionPlan.TaskNode(
                     rawNode.nodeId(), domain, operation, scopedDescription, input,
                     dependencies, accessMode, analysis.getMissingSlots(), idempotencyKey,
-                    approvalRequired, criteria, ExecutionPlan.MergePolicy.APPEND));
+                    approvalRequired, criteria, mergePolicy, required,
+                    outputSchema, inputBindings));
         }
 
         return nodes.isEmpty() ? null : new ExecutionPlan(effectiveExecutionId, question,
@@ -499,6 +527,76 @@ public class RouteExecutionService {
     private static boolean booleanValue(Object value) {
         return value instanceof Boolean bool ? bool
                 : value != null && Boolean.parseBoolean(value.toString());
+    }
+
+    private static ExecutionPlan.MergePolicy mergePolicy(Object value, String operation) {
+        String declared = Objects.toString(value, "").trim().toUpperCase(Locale.ROOT);
+        if (!declared.isEmpty()) {
+            try {
+                return ExecutionPlan.MergePolicy.valueOf(declared);
+            } catch (IllegalArgumentException ignored) {
+                // Invalid model output falls through to the deterministic operation default.
+            }
+        }
+        return Set.of("ANSWER", "EXPLAIN_ORDER_REQUIREMENTS", "EXPLAIN_ORDER_LIFECYCLE")
+                .contains(operation)
+                ? ExecutionPlan.MergePolicy.APPEND
+                : ExecutionPlan.MergePolicy.STRUCTURED;
+    }
+
+    private static Map<String, String> stringMap(Object value) {
+        if (!(value instanceof Map<?, ?> map)) return Map.of();
+        Map<String, String> result = new LinkedHashMap<>();
+        map.forEach((key, item) -> {
+            if (key != null && item != null
+                    && !key.toString().isBlank() && !item.toString().isBlank()) {
+                result.put(key.toString().trim(), item.toString().trim());
+            }
+        });
+        return result;
+    }
+
+    /**
+     * Repairs only bindings that are redundant with a trusted entity already extracted from
+     * the original request. Models occasionally bind a root node's {@code order_id} to that
+     * same node's future output. Rejecting the entire typed plan sends execution to the legacy
+     * untyped planner; blindly accepting it would create a cycle. Dropping the redundant
+     * binding preserves the explicit entity while every binding without a trusted fallback is
+     * left intact so normal validation still rejects unsafe plans.
+     */
+    private static Map<String, String> sanitizeInputBindings(
+            String nodeId, List<String> dependencies, Map<String, Object> input,
+            Map<String, String> bindings) {
+        if (bindings == null || bindings.isEmpty()) return Map.of();
+        Set<String> declaredDependencies = dependencies != null
+                ? Set.copyOf(dependencies) : Set.of();
+        Map<String, String> sanitized = new LinkedHashMap<>();
+        bindings.forEach((target, expression) -> {
+            boolean validSource = false;
+            try {
+                InputBindingExpression.Parsed parsed = InputBindingExpression.parse(expression);
+                validSource = declaredDependencies.contains(parsed.sourceNodeId());
+            } catch (IllegalArgumentException ignored) {
+                // Keep malformed expressions unless the explicit input below makes them redundant.
+            }
+            Object explicitValue = input != null ? input.get(target) : null;
+            if (!validSource && hasUsablePlanInput(explicitValue)) {
+                log.warn("[Collaborative] Dropped redundant invalid input binding: "
+                                + "node={}, target={}, expression={}",
+                        nodeId, target, expression);
+                return;
+            }
+            sanitized.put(target, expression);
+        });
+        return Map.copyOf(sanitized);
+    }
+
+    private static boolean hasUsablePlanInput(Object value) {
+        if (value == null) return false;
+        if (value instanceof String text) return !text.isBlank();
+        if (value instanceof Collection<?> collection) return !collection.isEmpty();
+        if (value instanceof Map<?, ?> map) return !map.isEmpty();
+        return true;
     }
 
     private static boolean isValidNodeId(String value) {

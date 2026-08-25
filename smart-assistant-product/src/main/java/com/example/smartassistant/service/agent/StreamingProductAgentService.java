@@ -29,6 +29,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -70,6 +73,18 @@ public class StreamingProductAgentService {
     @Value("${product.recommendation.max-reanalysis:1}")
     private int maxReanalysis = 1;
 
+    @Value("${product.recommendation.analysis-max-tokens:900}")
+    private int analysisMaxTokens = 900;
+
+    @Value("${product.recommendation.audit-max-tokens:256}")
+    private int auditMaxTokens = 256;
+
+    @Value("${product.recommendation.output-max-tokens:700}")
+    private int recommendationMaxTokens = 700;
+
+    @Value("${product.recommendation.disable-thinking:true}")
+    private boolean disableRecommendationThinking = true;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** ⭐ P5-A 生产忠实度护栏（可选，默认内置实例；测试可注入定制实例） */
@@ -96,6 +111,13 @@ public class StreamingProductAgentService {
     /** 测试可覆盖最大重分析次数。 */
     public void setMaxReanalysis(int maxReanalysis) {
         this.maxReanalysis = Math.max(0, maxReanalysis);
+    }
+
+    /** Tests may override the bounded output budgets without Spring property binding. */
+    void setRecommendationTokenLimits(int analysis, int audit, int recommendation) {
+        this.analysisMaxTokens = Math.max(64, analysis);
+        this.auditMaxTokens = Math.max(64, audit);
+        this.recommendationMaxTokens = Math.max(64, recommendation);
     }
 
     /** 测试可注入定制 FaithfulnessGuard */
@@ -324,8 +346,12 @@ public class StreamingProductAgentService {
         String rid = requestId != null && !requestId.isBlank()
                 ? requestId : "prod-analysis-" + System.nanoTime();
         try {
-            String prompt = promptManager.renderDataAnalysisExpert(question, verifiedContext);
-            String answer = tierModelRegistry.get(ModelTier.LIGHT).call(prompt);
+            String prompt = promptManager.renderDataAnalysisExpert(question, verifiedContext)
+                    + "\n\n请压缩在600个中文字符以内，保留四个输出模块、关键数值证据和数据限制。";
+            String answer = callBoundedModel(
+                    tierModelRegistry.get(ModelTier.LIGHT),
+                    tierModelRegistry.modelName(ModelTier.LIGHT),
+                    prompt, analysisMaxTokens);
             if (answer == null || answer.isBlank()) {
                 return DomainAgentResponse.of("商品分析结果为空。",
                         DomainQualityResult.fail("EMPTY_PRODUCT_ANALYSIS"));
@@ -379,7 +405,12 @@ public class StreamingProductAgentService {
                         verifiedContext + "\n\n[Pro 核实模型的修正要求]\n"
                                 + audit.correctionInstruction()
                                 + "\n问题明细：" + audit.issues());
-                String revisedAnalysis = analysisModel.call(correctionPrompt);
+                String revisedAnalysis = callBoundedModel(
+                        analysisModel,
+                        tierModelRegistry.modelName(ModelTier.LIGHT),
+                        correctionPrompt
+                                + "\n\n请压缩在600个中文字符以内，只修正审计指出的问题。",
+                        analysisMaxTokens);
                 if (revisedAnalysis == null || revisedAnalysis.isBlank()) {
                     return DomainAgentResponse.of("Flash 重分析结果为空，推荐流程已停止。",
                             DomainQualityResult.fail("EMPTY_REANALYSIS_RESULT"));
@@ -397,8 +428,12 @@ public class StreamingProductAgentService {
 
             String recommendationPrompt = promptManager.renderVerifiedProductRecommendation(
                     question,
-                    workingContext + "\n\n[Pro 核实结果]\n分析事实核实通过");
-            String recommendation = recommendationModel.call(recommendationPrompt);
+                    workingContext + "\n\n[Pro 核实结果]\n分析事实核实通过")
+                    + "\n\n请压缩在450个中文字符以内，保留商品编码、名称、价格、库存、"
+                    + "三维依据和数据限制。";
+            String recommendation = callBoundedModel(
+                    recommendationModel, tierModelRegistry.modelName(ModelTier.HEAVY),
+                    recommendationPrompt, recommendationMaxTokens);
             if (recommendation == null || recommendation.isBlank()) {
                 return DomainAgentResponse.of("Pro 推荐结果为空。",
                         DomainQualityResult.fail("EMPTY_VERIFIED_RECOMMENDATION"));
@@ -438,22 +473,62 @@ public class StreamingProductAgentService {
 
     private AnalysisAudit auditAnalysis(ChatModel recommendationModel,
                                         String question, String context) throws Exception {
-        String raw = recommendationModel.call(
-                promptManager.renderProductAnalysisAudit(question, context));
-        return parseAudit(raw);
+        String auditPrompt = promptManager.renderProductAnalysisAudit(question, context);
+        String raw = callBoundedModel(
+                recommendationModel,
+                tierModelRegistry.modelName(ModelTier.HEAVY),
+                auditPrompt,
+                auditMaxTokens);
+        AnalysisAudit parsed = parseAudit(raw);
+        if (parsed != null) return parsed;
+
+        // Formatting failure is not a factual rejection. Ask the same Pro model once
+        // to repeat the audit in the required schema instead of sending the whole
+        // recommendation node (or the Flash analysis) through an expensive retry.
+        log.warn("[StreamingProductAgent] Pro 核实结果格式无效，执行一次 JSON 定向重试: raw={}",
+                truncateForLog(raw, 240));
+        String retryPrompt = auditPrompt
+                + "\n\n上一次输出未能解析为规定 JSON。请重新完成同一核实任务，"
+                + "只输出包含 valid、issues、correction_instruction 的单个 JSON 对象；"
+                + "不要输出 Markdown、解释或其他文字。";
+        String retriedRaw = callBoundedModel(
+                recommendationModel,
+                tierModelRegistry.modelName(ModelTier.HEAVY),
+                retryPrompt,
+                auditMaxTokens);
+        parsed = parseAudit(retriedRaw);
+        if (parsed != null) return parsed;
+        throw new IllegalStateException("Pro 核实模型连续两次未返回合法 JSON");
     }
 
-    private AnalysisAudit parseAudit(String raw) throws Exception {
+    /**
+     * Typed analysis/recommendation nodes need concise factual output, not a long reasoning trace.
+     * Request-level options preserve the tier-selected model while bounding generation cost.
+     */
+    private String callBoundedModel(ChatModel model, String modelName,
+                                    String prompt, int maxTokens) {
+        OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder()
+                // Spring AI 2.0 defaults a fresh OpenAI options object to gpt-5-mini;
+                // explicitly retain the tier-selected Qwen model on this bounded request.
+                .model(modelName)
+                .maxTokens(Math.max(64, maxTokens));
+        if (disableRecommendationThinking) {
+            builder.extraBody(Map.of("enable_thinking", false));
+        }
+        ChatResponse response = model.call(new Prompt(prompt, builder.build()));
+        if (response == null || response.getResult() == null
+                || response.getResult().getOutput() == null) {
+            return null;
+        }
+        return response.getResult().getOutput().getText();
+    }
+
+    private AnalysisAudit parseAudit(String raw) {
         if (raw == null || raw.isBlank()) {
-            return AnalysisAudit.rejected("Pro 核实模型返回空结果");
+            return null;
         }
-        int start = raw.indexOf('{');
-        int end = raw.lastIndexOf('}');
-        if (start < 0 || end <= start) {
-            return AnalysisAudit.rejected("Pro 核实结果不是合法 JSON");
-        }
-        Map<String, Object> data = objectMapper.readValue(raw.substring(start, end + 1),
-                new TypeReference<Map<String, Object>>() { });
+        Map<String, Object> data = firstAuditObject(raw);
+        if (data == null || !data.containsKey("valid")) return null;
         boolean valid = Boolean.TRUE.equals(data.get("valid"))
                 || "true".equalsIgnoreCase(String.valueOf(data.get("valid")));
         List<String> issues = new ArrayList<>();
@@ -466,6 +541,54 @@ public class StreamingProductAgentService {
         if (!valid && issues.isEmpty()) issues.add("Pro 核实未通过但未返回问题明细");
         if (!valid && instruction.isBlank()) instruction = String.join("；", issues);
         return new AnalysisAudit(valid, List.copyOf(issues), instruction);
+    }
+
+    /** Extracts the first balanced, parseable JSON object that contains an audit decision. */
+    private Map<String, Object> firstAuditObject(String raw) {
+        int start = -1;
+        int depth = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        for (int index = 0; index < raw.length(); index++) {
+            char current = raw.charAt(index);
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (current == '\\') {
+                    escaped = true;
+                } else if (current == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            if (current == '"') {
+                inString = true;
+            } else if (current == '{') {
+                if (depth == 0) start = index;
+                depth++;
+            } else if (current == '}' && depth > 0) {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    try {
+                        Map<String, Object> candidate = objectMapper.readValue(
+                                raw.substring(start, index + 1),
+                                new TypeReference<Map<String, Object>>() { });
+                        if (candidate.containsKey("valid")) return candidate;
+                    } catch (Exception ignored) {
+                        // Continue scanning in case the model emitted another valid object.
+                    }
+                    start = -1;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String truncateForLog(String value, int maxLength) {
+        if (value == null) return "<null>";
+        String normalized = value.replace('\n', ' ').replace('\r', ' ').trim();
+        return normalized.length() <= maxLength
+                ? normalized : normalized.substring(0, maxLength) + "...";
     }
 
     private record AnalysisAudit(boolean valid, List<String> issues,

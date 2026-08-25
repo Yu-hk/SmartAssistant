@@ -21,8 +21,13 @@ import com.example.smartassistant.spi.InMemoryProductBackend;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -97,24 +102,25 @@ class StreamingProductAgentServiceTest {
                 mock(org.springframework.ai.chat.model.ChatModel.class);
         discoveryService.setPromptManager(new PromptManager());
         discoveryService.setTierModelRegistry(tierRegistry(flash, pro));
-        when(flash.call(anyString())).thenReturn(
-                "### 数据分析开始 ###\n【核心结论】AIRPODS-PRO，¥1999，库存充足");
-        when(pro.call(anyString())).thenReturn(
-                "{\"valid\":true,\"issues\":[],\"correction_instruction\":\"\"}",
-                "### 推荐核实完成 ###\n推荐 AIRPODS-PRO（AirPods Pro（第二代）），"
-                        + "价格 ¥1999，库存充足，请确认后下单。");
+        when(flash.call(any(Prompt.class))).thenReturn(chatResponse(
+                "### 数据分析开始 ###\n【核心结论】AIRPODS-PRO，¥1999，库存充足"));
+        when(pro.call(any(Prompt.class))).thenReturn(
+                chatResponse("{\"valid\":true,\"issues\":[],\"correction_instruction\":\"\"}"),
+                chatResponse("### 推荐核实完成 ###\n推荐 AIRPODS-PRO（AirPods Pro（第二代）），"
+                        + "价格 ¥1999，库存充足，请确认后下单。"));
 
         String result = discoveryService.execute("推荐几款热门商品", "req-p-analysis");
 
         assertTrue(result.startsWith("### 推荐核实完成 ###"));
         verifyNoInteractions(ragService);
-        org.mockito.ArgumentCaptor<String> directAnalysisPrompt =
-                org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<Prompt> directAnalysisPrompt =
+                org.mockito.ArgumentCaptor.forClass(Prompt.class);
         verify(flash).call(directAnalysisPrompt.capture());
-        assertTrue(directAnalysisPrompt.getValue().contains("推荐几款热门商品"));
-        assertTrue(directAnalysisPrompt.getValue().contains("AirPods Pro"));
-        assertTrue(directAnalysisPrompt.getValue().contains("【核心结论】"));
-        verify(pro, times(2)).call(anyString());
+        assertTrue(directAnalysisPrompt.getValue().getContents().contains("推荐几款热门商品"));
+        assertTrue(directAnalysisPrompt.getValue().getContents().contains("AirPods Pro"));
+        assertTrue(directAnalysisPrompt.getValue().getContents().contains("【核心结论】"));
+        assertEquals(900, directAnalysisPrompt.getValue().getOptions().getMaxTokens());
+        verify(pro, times(2)).call(any(Prompt.class));
         verify(agent, never()).execute(anyString());
     }
 
@@ -168,8 +174,8 @@ class StreamingProductAgentServiceTest {
                 mock(org.springframework.ai.chat.model.ChatModel.class);
         org.springframework.ai.chat.model.ChatModel pro =
                 mock(org.springframework.ai.chat.model.ChatModel.class);
-        when(flash.call(anyString())).thenReturn(
-                "### 数据分析开始 ###\n【核心结论】SKU-100，¥599，有货");
+        when(flash.call(any(Prompt.class))).thenReturn(chatResponse(
+                "### 数据分析开始 ###\n【核心结论】SKU-100，¥599，有货"));
         StreamingProductAgentService dualModelService = dualModelService(flash, pro);
 
         var result = dualModelService.analyzeVerifiedContext(
@@ -177,11 +183,13 @@ class StreamingProductAgentServiceTest {
 
         assertTrue(result.answer().contains("SKU-100"));
         assertTrue(result.quality().getReasonCodes().contains("PRODUCT_ANALYSIS_FLASH"));
-        org.mockito.ArgumentCaptor<String> analysisPrompt =
-                org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<Prompt> analysisPrompt =
+                org.mockito.ArgumentCaptor.forClass(Prompt.class);
         verify(flash).call(analysisPrompt.capture());
-        assertTrue(analysisPrompt.getValue().contains("分析预算匹配度"));
-        assertTrue(analysisPrompt.getValue().contains("SKU-100"));
+        assertTrue(analysisPrompt.getValue().getContents().contains("分析预算匹配度"));
+        assertTrue(analysisPrompt.getValue().getContents().contains("SKU-100"));
+        assertEquals(900, analysisPrompt.getValue().getOptions().getMaxTokens());
+        assertEquals("qwen3.7-flash", analysisPrompt.getValue().getOptions().getModel());
         verifyNoInteractions(pro);
     }
 
@@ -192,14 +200,14 @@ class StreamingProductAgentServiceTest {
                 mock(org.springframework.ai.chat.model.ChatModel.class);
         org.springframework.ai.chat.model.ChatModel pro =
                 mock(org.springframework.ai.chat.model.ChatModel.class);
-        when(flash.call(anyString())).thenReturn(
-                "修正分析：SKU-100 价格 ¥599、库存有货；无场景规格证据");
-        when(pro.call(anyString())).thenReturn(
-                "{\"valid\":false,\"issues\":[\"错误声称支持会议\"],"
-                        + "\"correction_instruction\":\"删除无证据的会议适配结论\"}",
-                "{\"valid\":true,\"issues\":[],\"correction_instruction\":\"\"}",
-                "### 推荐核实完成 ###\n推荐 SKU-100，价格 ¥599，库存有货；"
-                        + "现有数据不支持会议适配结论，请确认后再下单。");
+        when(flash.call(any(Prompt.class))).thenReturn(chatResponse(
+                "修正分析：SKU-100 价格 ¥599、库存有货；无场景规格证据"));
+        when(pro.call(any(Prompt.class))).thenReturn(
+                chatResponse("{\"valid\":false,\"issues\":[\"错误声称支持会议\"],"
+                        + "\"correction_instruction\":\"删除无证据的会议适配结论\"}"),
+                chatResponse("{\"valid\":true,\"issues\":[],\"correction_instruction\":\"\"}"),
+                chatResponse("### 推荐核实完成 ###\n推荐 SKU-100，价格 ¥599，库存有货；"
+                        + "现有数据不支持会议适配结论，请确认后再下单。"));
         StreamingProductAgentService dualModelService = dualModelService(flash, pro);
         dualModelService.setMaxReanalysis(1);
 
@@ -211,11 +219,41 @@ class StreamingProductAgentServiceTest {
         assertTrue(result.answer().startsWith("### 推荐核实完成 ###"));
         assertTrue(result.quality().getReasonCodes().contains(
                 "PRODUCT_RECOMMENDATION_PRO_VERIFIED_AFTER_REANALYSIS"));
-        org.mockito.ArgumentCaptor<String> correctionPrompt =
-                org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<Prompt> correctionPrompt =
+                org.mockito.ArgumentCaptor.forClass(Prompt.class);
         verify(flash).call(correctionPrompt.capture());
-        assertTrue(correctionPrompt.getValue().contains("删除无证据的会议适配结论"));
-        verify(pro, times(3)).call(anyString());
+        assertTrue(correctionPrompt.getValue().getContents().contains("删除无证据的会议适配结论"));
+        verify(pro, times(3)).call(any(Prompt.class));
+    }
+
+    @Test
+    @DisplayName("推荐节点：Pro 首次未返回 JSON 时只重试核实格式，不重跑 Flash")
+    void recommendationNode_shouldRetryInvalidAuditFormatWithoutReanalysis() {
+        org.springframework.ai.chat.model.ChatModel flash =
+                mock(org.springframework.ai.chat.model.ChatModel.class);
+        org.springframework.ai.chat.model.ChatModel pro =
+                mock(org.springframework.ai.chat.model.ChatModel.class);
+        when(pro.call(any(Prompt.class))).thenReturn(
+                chatResponse("分析内容没有问题，可以继续推荐。"),
+                chatResponse("```json\n{\"valid\":true,\"issues\":[],"
+                        + "\"correction_instruction\":\"\"}\n```"),
+                chatResponse("### 推荐核实完成 ###\n推荐 XIAOMI-15（小米 15 Pro），"
+                        + "价格 ¥5299，库存充足，规格含徕卡光学；请确认后下单。"));
+        StreamingProductAgentService dualModelService = dualModelService(flash, pro);
+
+        var result = dualModelService.verifyAnalysisAndRecommend(
+                "预算6000元以内并重视拍照",
+                "候选：XIAOMI-15，小米 15 Pro，价格 ¥5299，库存充足，规格：徕卡光学。"
+                        + "\n分析：预算满足，拍照偏好有徕卡光学规格证据。",
+                "req-pro-format-retry");
+
+        assertTrue(result.answer().startsWith("### 推荐核实完成 ###"));
+        assertTrue(result.quality().isPass());
+        verify(flash, never()).call(any(Prompt.class));
+        org.mockito.ArgumentCaptor<Prompt> prompts =
+                org.mockito.ArgumentCaptor.forClass(Prompt.class);
+        verify(pro, times(3)).call(prompts.capture());
+        assertTrue(prompts.getAllValues().get(1).getContents().contains("上一次输出未能解析"));
     }
 
     private StreamingProductAgentService dualModelService(
@@ -238,5 +276,9 @@ class StreamingProductAgentServiceTest {
         entries.put(ModelTier.HEAVY,
                 new TierModelRegistry.TierModelEntry(pro, "qwen3.7-plus"));
         return new TierModelRegistry(entries);
+    }
+
+    private static ChatResponse chatResponse(String text) {
+        return new ChatResponse(List.of(new Generation(new AssistantMessage(text))));
     }
 }

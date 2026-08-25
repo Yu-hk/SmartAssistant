@@ -237,7 +237,7 @@ public class OrderRagService {
         if (orderId == null) {
             return RetrievalQualityResult.insufficientEvidence(
                     "", 0.0,
-                    "请提供订单号（格式：ORD-xxx）以便查询" + intentLabel + "信息。");
+                    "请提供订单号（如 ORD-xxx 或 BULK-xxx）以便查询" + intentLabel + "信息。");
         }
 
         try {
@@ -389,14 +389,15 @@ public class OrderRagService {
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * 从消息中提取订单号（ORD-xxx 格式）。
+     * 从消息中提取订单号（支持 ORD-xxx 与 BULK-xxx 格式）。
      */
     private String extractOrderId(String message) {
         if (message == null) return null;
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("ORD-\\w+");
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "(?i)\\b(?:ORD|BULK)-[A-Z0-9-]+\\b");
         java.util.regex.Matcher matcher = pattern.matcher(message);
         if (matcher.find()) {
-            return matcher.group();
+            return matcher.group().toUpperCase(java.util.Locale.ROOT);
         }
         return null;
     }

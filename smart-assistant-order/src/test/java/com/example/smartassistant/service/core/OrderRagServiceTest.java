@@ -90,4 +90,20 @@ class OrderRagServiceTest {
             assertTrue(result.getContent().contains("ORD-9001"));
         }
     }
+
+    @Test
+    void logisticsRetrievalAcceptsBulkOrderId() {
+        OrderDataProvider orderData = mock(OrderDataProvider.class);
+        when(orderData.findOrderByOrderId("BULK-0002")).thenReturn(OrderDTO.builder()
+                .orderId("BULK-0002").userId(42L).productName("测试商品")
+                .status("已发货").build());
+        OrderRagService service = new OrderRagService(orderData);
+
+        RetrievalQualityResult result = service.retrieveWithQualityResult(
+                OrderIntentService.IntentType.TRACK_LOGISTICS,
+                "查询 bulk-0002 的物流信息");
+
+        assertFalse(result.isRejected());
+        assertTrue(result.getContent().contains("BULK-0002"));
+    }
 }

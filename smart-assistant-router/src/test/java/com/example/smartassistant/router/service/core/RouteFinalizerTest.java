@@ -142,6 +142,23 @@ class RouteFinalizerTest {
     }
 
     @Test
+    void domainWarnKeepsTrustedPartialResultAndSkipsGeneralRetry() {
+        RoutingResult routing = result("订单 BULK-0002 已发货；物流节点暂时未返回完整轨迹。");
+        routing.setDomainQuality(DomainQualityResult.warn(0.6, "PARTIAL_AGENT_FAILURE"));
+        when(qualityEvaluationService.evaluate(anyString(), anyString(), anyDouble()))
+                .thenReturn(QualityEvaluationResult.skipped());
+
+        RoutingResult finalized = finalizer.finalizeRouting(
+                routing, request(), "查询 BULK-0002 的状态和物流", null);
+
+        assertEquals("订单 BULK-0002 已发货；物流节点暂时未返回完整轨迹。", finalized.getResult());
+        verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
+        verify(reflectionService, never()).retry(anyString(), anyString(), anyString(), anyString(), anyLong(), anyString());
+        verify(qualityEvaluationService).evaluate(
+                "查询 BULK-0002 的状态和物流", "订单 BULK-0002 已发货；物流节点暂时未返回完整轨迹。", 0.7);
+    }
+
+    @Test
     void domainFailPreservesSafeFallbackAndBlocksLearning() {
         RoutingResult routing = result("暂时无法核实该订单状态，请稍后重试。");
         routing.setDomainQuality(DomainQualityResult.fail("ORDER_STATUS_MISMATCH"));

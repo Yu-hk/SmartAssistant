@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.service.agent;
 
 import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -40,5 +41,27 @@ class AgentCallerProductUriTest {
         assertThrows(IllegalArgumentException.class,
                 () -> AgentCallerService.buildLegacyProcessUri(
                         "http://removed-general:8086", "general", "你好"));
+    }
+
+    @Test
+    void typedProtocolFailurePreservesDomainDecisionWithoutEmojiCircuitFallback() {
+        AgentCallResult result = AgentCallerService.protocolFailureResult(
+                AgentExecutionResponse.failure(
+                        "PRODUCT_ANALYSIS_AUDIT_REJECTED", "核实未通过", false));
+
+        assertEquals("核实未通过", result.getResponse());
+        assertEquals(DomainQualityResult.Status.FAIL, result.getDomainQuality().getStatus());
+        assertEquals(false, result.getData().containsKey(
+                AgentCallResult.PROTOCOL_RETRYABLE_FAILURE_KEY));
+    }
+
+    @Test
+    void typedRetryableProtocolFailureCarriesGraphRetryMarker() {
+        AgentCallResult result = AgentCallerService.protocolFailureResult(
+                AgentExecutionResponse.failure(
+                        "PRODUCT_MODEL_TEMPORARY_FAILURE", "模型暂时不可用", true));
+
+        assertEquals(true, result.getData().get(
+                AgentCallResult.PROTOCOL_RETRYABLE_FAILURE_KEY));
     }
 }

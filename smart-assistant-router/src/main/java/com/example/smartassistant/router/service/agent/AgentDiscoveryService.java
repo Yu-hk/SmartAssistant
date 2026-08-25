@@ -385,6 +385,7 @@ public class AgentDiscoveryService {
         metadata.setAgentType(nacosMetadata.get("agent-type"));
         metadata.setCapabilities(nacosMetadata.get("capabilities"));
         metadata.setKeywords(nacosMetadata.get("keywords"));
+        metadata.setRoutingExamples(nacosMetadata.get("routing-examples"));
         metadata.setCuisineTypes(nacosMetadata.get("cuisine-types"));
         metadata.setSupportLocation(Boolean.parseBoolean(nacosMetadata.get("support-location")));
         metadata.setSupportWeather(Boolean.parseBoolean(nacosMetadata.get("support-weather")));

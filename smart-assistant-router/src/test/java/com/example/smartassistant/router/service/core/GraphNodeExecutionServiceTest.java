@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.router.model.IntentGraph;
+import com.example.smartassistant.router.model.ExecutionPlan;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.SubTaskResult;
@@ -96,6 +97,72 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
+    void completedDomainWarningIsDeliveredWithoutGenericSemanticRetry() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "analysis", "分析候选商品", "product", List.of(),
+                "按销量、性价比和口碑完成分析");
+        AgentCallResult warning = new AgentCallResult(
+                "销量持平、口碑证据缺失，当前数据不足以选出唯一商品。",
+                List.of(), Map.of(),
+                DomainQualityResult.warn(0.4,
+                        "PRODUCT_ANALYSIS_FLASH", "UNSUPPORTED_PRODUCT_ANALYSIS_CLAIMS"));
+        when(agentCallerService.callAgentAndExtractTitles(eq("product"), anyString(),
+                eq(1L), eq("request"))).thenReturn(warning);
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "request");
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getDomainQuality().isWarn()).isTrue();
+        assertThat(result.getResult()).contains("数据不足");
+        verify(agentCallerService, times(1)).callAgentAndExtractTitles(
+                eq("product"), anyString(), eq(1L), eq("request"));
+        verify(reflectionService, never()).checkCriteria(anyString(), anyString());
+    }
+
+    @Test
+    void completedDomainPassIsDeliveredWithoutGenericSemanticRetry() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "recommend", "核实并推荐商品", "product", List.of(),
+                "推荐必须与真实候选一致");
+        AgentCallResult verified = new AgentCallResult(
+                "候选跨品类且缺少偏好，不能可靠选出唯一商品。",
+                List.of(), Map.of(),
+                DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED"));
+        when(agentCallerService.callAgentAndExtractTitles(eq("product"), anyString(),
+                eq(1L), eq("request"))).thenReturn(verified);
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "request");
+
+        assertThat(result.isSuccess()).isTrue();
+        verify(agentCallerService, times(1)).callAgentAndExtractTitles(
+                eq("product"), anyString(), eq(1L), eq("request"));
+        verify(reflectionService, never()).checkCriteria(anyString(), anyString());
+    }
+
+    @Test
+    void completedDomainFailureIsRejectedWithoutGenericSemanticRetry() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "recommend", "核实并推荐商品", "product", List.of(),
+                "推荐必须与真实候选一致");
+        AgentCallResult failed = new AgentCallResult(
+                "核实未通过。", List.of(), Map.of(),
+                DomainQualityResult.fail("PRODUCT_RECOMMENDATION_AUDIT_REJECTED"));
+        when(agentCallerService.callAgentAndExtractTitles(eq("product"), anyString(),
+                eq(1L), eq("request"))).thenReturn(failed);
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "request");
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getErrorType()).isEqualTo(SubTaskResult.ErrorType.FATAL_FAILED);
+        verify(agentCallerService, times(1)).callAgentAndExtractTitles(
+                eq("product"), anyString(), eq(1L), eq("request"));
+        verify(reflectionService, never()).checkCriteria(anyString(), anyString());
+    }
+
+    @Test
     void verifiedStructuredResultSkipsLlmCriteriaCheck() {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "query_order", "查询订单并确认待付款", "order", List.of(),
@@ -115,6 +182,30 @@ class GraphNodeExecutionServiceTest {
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getStructuredData()).containsEntry("status", "待付款");
         verify(reflectionService, never()).checkCriteria(anyString(), anyString());
+    }
+
+    @Test
+    void protocolNodeAlwaysReceivesOriginalUserConstraints() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "recommend", "从候选中选择符合预算和拍照偏好的商品", "product",
+                List.of(), null, List.of(), false, "RECOMMEND_PRODUCT",
+                Map.of(), List.of("READ_ONLY"), null);
+        when(agentCallerService.callAgentAndExtractTitles(
+                eq("product"), any(AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult(
+                        "推荐 XIAOMI-15", List.of(), Map.of(),
+                        DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED")));
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "request", null, null, null,
+                "预算6000元以内，我重视拍照，不要创建订单");
+
+        assertThat(result.isSuccess()).isTrue();
+        ArgumentCaptor<AgentExecutionRequest> request =
+                ArgumentCaptor.forClass(AgentExecutionRequest.class);
+        verify(agentCallerService).callAgentAndExtractTitles(eq("product"), request.capture());
+        assertThat(request.getValue().question())
+                .contains("[用户原始请求]", "预算6000元以内", "重视拍照", "[当前节点任务]");
     }
 
     @Test
@@ -148,6 +239,28 @@ class GraphNodeExecutionServiceTest {
                 .isEqualTo(SubTaskResult.ErrorType.RETRYABLE_FAILED);
         assertThat(GraphNodeExecutionService.classifyException(new IllegalArgumentException("bad input")))
                 .isEqualTo(SubTaskResult.ErrorType.FATAL_FAILED);
+    }
+
+    @Test
+    void transportTimeoutResponseDoesNotStartSemanticRetry() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "analysis", "分析商品", "product", List.of(), "输出商品分析");
+        AgentCallResult timeout = new AgentCallResult(
+                "❌ 调用 Agent 失败: Read timed out", List.of(), Map.of(),
+                DomainQualityResult.fail("AGENT_TRANSPORT_TIMEOUT"),
+                Map.of(AgentCallResult.TRANSPORT_FAILURE_KEY, true));
+        when(agentCallerService.callAgentAndExtractTitles(
+                eq("product"), anyString(), eq(1L), eq("request")))
+                .thenReturn(timeout);
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "request");
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getErrorType()).isEqualTo(SubTaskResult.ErrorType.RETRYABLE_FAILED);
+        verify(agentCallerService, times(1)).callAgentAndExtractTitles(
+                eq("product"), anyString(), eq(1L), eq("request"));
+        verify(reflectionService, never()).checkCriteria(anyString(), anyString());
     }
 
     @Test
@@ -230,5 +343,113 @@ class GraphNodeExecutionServiceTest {
         assertThat(queuedRequest.traceId()).isEqualTo("scene-mq-1");
         verify(agentCallerService, never()).callAgentAndExtractTitles(
                 eq("product"), any(AgentExecutionRequest.class));
+    }
+
+    @Test
+    void resolvesDeclaredStructuredPredecessorBindingsIntoNodeInput() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "recommend", "推荐商品", "product", List.of("analysis"), null, List.of(),
+                false, "RECOMMEND_PRODUCT", Map.of("limit", 1), List.of(), null,
+                true, ExecutionPlan.MergePolicy.STRUCTURED, "recommendation.v1",
+                Map.of("analysisResult", "$.nodes.analysis.data.analysis",
+                        "sourceAnswer", "analysis.answer"));
+        SubTaskResult predecessor = new SubTaskResult(
+                "analysis", "分析商品", "product", "分析完成", true);
+        predecessor.setStructuredData(Map.of("analysis", Map.of("bestSku", "SKU-100")));
+
+        Map<String, Object> resolved = GraphNodeExecutionService.resolveInput(
+                node, Map.of("analysis", predecessor));
+
+        assertThat(resolved).containsEntry("limit", 1)
+                .containsEntry("sourceAnswer", "分析完成");
+        assertThat(resolved.get("analysisResult"))
+                .isEqualTo(Map.of("bestSku", "SKU-100"));
+    }
+
+    @Test
+    void resolvesWholeStructuredPredecessorDataBinding() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "analysis", "分析商品", "product", List.of("discover"), null, List.of(),
+                false, "ANALYZE_PRODUCT_DATA", Map.of(), List.of(), null,
+                true, ExecutionPlan.MergePolicy.STRUCTURED, "analysis.v1",
+                Map.of("candidateData", "$.nodes.discover.data"));
+        Map<String, Object> productData = Map.of(
+                "products", List.of(Map.of("code", "SKU-100", "stock", 12)),
+                "productCount", 1);
+        SubTaskResult predecessor = new SubTaskResult(
+                "discover", "查询商品", "product", "发现 1 个商品", true);
+        predecessor.setStructuredData(productData);
+
+        Map<String, Object> resolved = GraphNodeExecutionService.resolveInput(
+                node, Map.of("discover", predecessor));
+
+        assertThat(resolved).containsEntry("candidateData", productData);
+    }
+
+    @Test
+    void keepsTrustedExplicitEntityWhenPredecessorBindingUsesMissingFieldAlias() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "query_logistics", "查询物流", "order", List.of("query_order_status"),
+                null, List.of(), false, "TRACK_LOGISTICS",
+                Map.of("order_id", "BULK-0002"), List.of(), null,
+                true, ExecutionPlan.MergePolicy.APPEND, null,
+                Map.of("order_id", "$.nodes.query_order_status.data.order_id"));
+        SubTaskResult predecessor = new SubTaskResult(
+                "query_order_status", "查询订单状态", "order", "订单已发货", true);
+        predecessor.setStructuredData(Map.of("orderId", "BULK-0002"));
+
+        Map<String, Object> resolved = GraphNodeExecutionService.resolveInput(
+                node, Map.of("query_order_status", predecessor));
+
+        assertThat(resolved).containsEntry("order_id", "BULK-0002");
+    }
+
+    @Test
+    void rejectsBindingThatBypassesDeclaredDependencies() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "order", "创建订单", "order", List.of("recommend"), null, List.of(),
+                false, "CREATE_ORDER", Map.of(), List.of(), "idem-1",
+                true, ExecutionPlan.MergePolicy.STRUCTURED, "order.v1",
+                Map.of("sku", "$.nodes.inventory.data.sku"));
+        SubTaskResult inventory = new SubTaskResult(
+                "inventory", "查询库存", "product", "有库存", true);
+        inventory.setStructuredData(Map.of("sku", "SKU-100"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        GraphNodeExecutionService.resolveInput(node, Map.of("inventory", inventory)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot be resolved");
+    }
+
+    @Test
+    void exposesFailedPredecessorStatusWithoutTrustingItsPayload() {
+        IntentGraph.IntentNode statusConsumer = new IntentGraph.IntentNode(
+                "recover", "根据前驱状态恢复", "order", List.of("create_order"), null,
+                List.of(), false, "RECOVER_ORDER", Map.of(), List.of(), null,
+                true, ExecutionPlan.MergePolicy.STRUCTURED, "recovery.v1",
+                Map.of("previousStatus", "$.nodes.create_order.status"));
+        SubTaskResult failed = new SubTaskResult(
+                "create_order", "创建订单", "order", "不可信的部分响应", false,
+                SubTaskResult.ErrorType.FATAL_FAILED);
+        failed.setStructuredData(Map.of("orderId", "UNVERIFIED"));
+
+        Map<String, Object> resolved = GraphNodeExecutionService.resolveInput(
+                statusConsumer, Map.of("create_order", failed));
+
+        assertThat(resolved).containsEntry("previousStatus", "FATAL_FAILED");
+    }
+
+    @Test
+    void rejectsUnsupportedBindingSectionAtRuntime() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "consumer", "消费结果", "product", List.of("source"), null, List.of(),
+                false, "QUERY", Map.of(), List.of(), null, true,
+                ExecutionPlan.MergePolicy.STRUCTURED, "consumer.v1",
+                Map.of("value", "$.nodes.source.payload.value"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        GraphNodeExecutionService.resolveInput(node, Map.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported binding section");
     }
 }

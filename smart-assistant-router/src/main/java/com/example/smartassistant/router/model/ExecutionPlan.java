@@ -28,7 +28,9 @@ public record ExecutionPlan(
                         node.nodeId(), node.description(), node.domain().agentName(),
                         node.dependsOn(), node.successCriteria(), List.of(),
                         node.approvalRequired(), node.operation(), node.input(),
-                        globalConstraints, node.idempotencyKey(), node.accessMode().name()))
+                        globalConstraints, node.idempotencyKey(), node.accessMode().name(),
+                        node.required(), node.mergePolicy(), node.outputSchema(),
+                        node.inputBindings()))
                 .toList();
         return new IntentGraph(originalQuestion, graphNodes);
     }
@@ -45,7 +47,21 @@ public record ExecutionPlan(
             String idempotencyKey,
             boolean approvalRequired,
             String successCriteria,
-            MergePolicy mergePolicy) {
+            MergePolicy mergePolicy,
+            boolean required,
+            String outputSchema,
+            Map<String, String> inputBindings) {
+
+        /** Compatibility constructor used by existing planner and workflow callers. */
+        public TaskNode(
+                String nodeId, Domain domain, String operation, String description,
+                Map<String, Object> input, List<String> dependsOn, AccessMode accessMode,
+                List<String> requiredSlots, String idempotencyKey, boolean approvalRequired,
+                String successCriteria, MergePolicy mergePolicy) {
+            this(nodeId, domain, operation, description, input, dependsOn, accessMode,
+                    requiredSlots, idempotencyKey, approvalRequired, successCriteria,
+                    mergePolicy, true, null, Map.of());
+        }
 
         public TaskNode {
             // Entity maps legitimately contain null values for absent slots; Map.copyOf rejects
@@ -56,6 +72,10 @@ public record ExecutionPlan(
             requiredSlots = requiredSlots != null ? List.copyOf(requiredSlots) : List.of();
             accessMode = accessMode != null ? accessMode : AccessMode.READ;
             mergePolicy = mergePolicy != null ? mergePolicy : MergePolicy.APPEND;
+            outputSchema = outputSchema == null || outputSchema.isBlank()
+                    ? null : outputSchema.trim();
+            inputBindings = inputBindings != null
+                    ? Collections.unmodifiableMap(new LinkedHashMap<>(inputBindings)) : Map.of();
         }
     }
 

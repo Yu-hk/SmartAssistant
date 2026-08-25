@@ -1,5 +1,6 @@
 package com.example.smartassistant.router.workflow;
 
+import com.example.smartassistant.router.model.InputBindingExpression;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -81,6 +82,7 @@ public class WorkflowValidator {
                         "write operations require an idempotency key");
             }
             validateInput(node.input(), path + ".input", violations);
+            validateInputBindings(node, path, violations);
             for (int c = 0; c < node.conditions().size(); c++) {
                 var condition = node.conditions().get(c);
                 String conditionPath = path + ".conditions[" + c + "]";
@@ -183,6 +185,30 @@ public class WorkflowValidator {
         } catch (Exception e) {
             add(violations, "INVALID_URL", path + ".url", "invalid URL");
         }
+    }
+
+    private static void validateInputBindings(
+            WorkflowDefinition.WorkflowNode node, String path,
+            List<WorkflowValidationResult.Violation> violations) {
+        node.inputBindings().forEach((target, expression) -> {
+            if (blank(target) || blank(expression)) {
+                add(violations, "INVALID_INPUT_BINDING", path + ".inputBindings",
+                        "binding target and expression are required");
+                return;
+            }
+            try {
+                InputBindingExpression.Parsed binding =
+                        InputBindingExpression.parse(expression);
+                if (!node.dependsOn().contains(binding.sourceNodeId())) {
+                    add(violations, "UNDECLARED_BINDING_SOURCE",
+                            path + ".inputBindings." + target,
+                            "binding source must be a declared dependency");
+                }
+            } catch (IllegalArgumentException error) {
+                add(violations, "INVALID_INPUT_BINDING",
+                        path + ".inputBindings." + target, error.getMessage());
+            }
+        });
     }
 
     private static boolean isPrivateAddress(String host) {

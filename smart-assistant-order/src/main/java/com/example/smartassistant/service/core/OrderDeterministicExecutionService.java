@@ -4,6 +4,7 @@ import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
+import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
 import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
 import com.example.smartassistant.service.ApprovalService;
 import org.slf4j.Logger;
@@ -30,8 +31,11 @@ import java.util.regex.Pattern;
 public class OrderDeterministicExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderDeterministicExecutionService.class);
-    private static final Set<String> SUPPORTED = Set.of("QUERY_ORDER", "QUERY_PAYMENT_PENDING");
-    private static final Pattern ORDER_ID = Pattern.compile("(?i)\\bORD-[A-Z0-9-]+\\b");
+    private static final Set<String> SUPPORTED = Set.of(
+            "QUERY_ORDER", "QUERY_PAYMENT_PENDING", "TRACK_LOGISTICS");
+    private static final Pattern ORDER_ID = Pattern.compile(
+            "(?i)\\b(?:ORD|BULK)-[A-Z0-9-]+\\b");
+    private static final Pattern TRAJECTORY_ENTRY = Pattern.compile("\\{([^}]*)}");
 
     private final OrderDataProvider orderData;
     private final ApprovalService approvalService;
@@ -69,6 +73,7 @@ public class OrderDeterministicExecutionService {
         return switch (operation) {
             case "QUERY_ORDER" -> queryOrder(request, order);
             case "QUERY_PAYMENT_PENDING" -> queryPendingPayment(order);
+            case "TRACK_LOGISTICS" -> trackLogistics(order);
             default -> AgentExecutionResponse.failure(
                     "UNSUPPORTED_ORDER_OPERATION", "不支持的订单快速操作: " + operation, false);
         };
@@ -120,6 +125,70 @@ public class OrderDeterministicExecutionService {
                 DomainQualityResult.pass(1.0, "DETERMINISTIC_PAYMENT_APPROVAL_QUERY"));
     }
 
+    private AgentExecutionResponse trackLogistics(OrderDTO order) {
+        LogisticsDTO logistics = orderData.findLogisticsByOrderId(order.getOrderId());
+        if (logistics == null) {
+            return AgentExecutionResponse.failure(
+                    "LOGISTICS_NOT_FOUND", "订单 " + order.getOrderId() + " 暂无物流信息", false);
+        }
+
+        Map<String, Object> data = baseOrderData(order);
+        data.put("operation", "TRACK_LOGISTICS");
+        putIfNotNull(data, "trackingNo", logistics.getTrackingNo());
+        putIfNotNull(data, "companyName", logistics.getCompanyName());
+        putIfNotNull(data, "logisticsStatus", logistics.getStatus());
+        putIfNotNull(data, "logisticsDetail", logistics.getLogisticsDetail());
+        putIfNotNull(data, "logisticsTime", logistics.getLogisticsTime());
+        data.put("verified", true);
+        data.put("criteriaSatisfied", true);
+
+        StringBuilder answer = new StringBuilder()
+                .append("订单 ").append(order.getOrderId()).append(" 物流查询成功。\n")
+                .append("物流公司：").append(display(logistics.getCompanyName())).append("\n")
+                .append("运单号：").append(display(logistics.getTrackingNo())).append("\n")
+                .append("物流状态：").append(display(logistics.getStatus()));
+        appendTrajectory(answer, logistics.getLogisticsDetail());
+        answer.append("\n预计送达时间：暂无可靠数据");
+
+        log.info("[OrderFastPath] 确定性物流查询完成: orderId={}, trackingNo={}, status={}",
+                order.getOrderId(), logistics.getTrackingNo(), logistics.getStatus());
+        return AgentExecutionResponse.success(answer.toString(), data,
+                DomainQualityResult.pass(1.0, "DETERMINISTIC_LOGISTICS_QUERY"));
+    }
+
+    private static void appendTrajectory(StringBuilder answer, String detail) {
+        if (detail == null || detail.isBlank() || "[]".equals(detail.trim())) {
+            answer.append("\n物流轨迹：暂无轨迹数据");
+            return;
+        }
+        Matcher matcher = TRAJECTORY_ENTRY.matcher(detail);
+        boolean found = false;
+        while (matcher.find()) {
+            String entry = matcher.group(1);
+            String time = jsonField(entry, "time");
+            String location = jsonField(entry, "location");
+            String description = jsonField(entry, "desc");
+            if (!found) answer.append("\n物流轨迹：");
+            answer.append("\n- ").append(String.join(" ",
+                    java.util.stream.Stream.of(time, location, description)
+                            .filter(value -> value != null && !value.isBlank())
+                            .toList()));
+            found = true;
+        }
+        if (!found) answer.append("\n物流轨迹：").append(detail);
+    }
+
+    private static String jsonField(String objectBody, String field) {
+        Matcher matcher = Pattern.compile(
+                "\\\"" + Pattern.quote(field) + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
+                .matcher(objectBody);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private static String display(String value) {
+        return value == null || value.isBlank() ? "暂无可靠数据" : value;
+    }
+
     private static Map<String, Object> baseOrderData(OrderDTO order) {
         Map<String, Object> data = new LinkedHashMap<>();
         putIfNotNull(data, "orderId", order.getOrderId());
@@ -158,6 +227,10 @@ public class OrderDeterministicExecutionService {
 
     private static boolean expectedStatusMatches(String question, String actualStatus) {
         String value = question != null ? question.replaceAll("\\s+", "") : "";
+        // "是否已支付、是否已发货" lists fields to inspect; it does not assert either
+        // status. Remove these interrogative alternatives before evaluating explicit status
+        // expectations such as "确认仍为待付款".
+        value = value.replaceAll("是否(?:已经|已)?(?:付款|支付|发货|签收|完成|取消)", "");
         if (value.contains("待付款")) return "待付款".equals(actualStatus);
         if (value.contains("待发货") || value.contains("已支付")) return "待发货".equals(actualStatus);
         if (value.contains("已发货")) return "已发货".equals(actualStatus);

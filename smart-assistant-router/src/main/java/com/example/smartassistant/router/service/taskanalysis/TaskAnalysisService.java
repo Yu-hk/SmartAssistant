@@ -8,6 +8,7 @@
 package com.example.smartassistant.router.service.taskanalysis;
 
 import com.example.smartassistant.router.model.TaskAnalysisResult;
+import com.example.smartassistant.router.service.agent.AgentPromptCatalogService;
 import com.example.smartassistant.router.service.core.ModelRoutingService;
 import com.example.smartassistant.router.service.evaluation.IntentEvaluationService;
 import com.example.smartassistant.router.service.prompt.RouterStageAwareService;
@@ -50,6 +51,9 @@ public class TaskAnalysisService {
 
     private static final Logger log = LoggerFactory.getLogger(TaskAnalysisService.class);
     private static final String TASK_PLANNER_PROMPT = "prompts/router/task-planner.txt";
+    private static final String NACOS_AGENT_CATALOG_PLACEHOLDER = "{{NACOS_AGENT_CATALOG}}";
+    private static final String LOCAL_FALLBACK_AGENT_CATALOG = "- route_name=general; source=local; "
+            + "service_name=router-local; capabilities=[通用问答]; examples=[\"回答通用问题\"]";
     private static final String FALLBACK_PROMPT = "你是任务规划专家。仅输出合法 JSON，"
             + "将用户目标拆为至少一个原子 sub_intents 节点，并明确依赖、Agent、读写属性和完成标准。";
 
@@ -60,6 +64,8 @@ public class TaskAnalysisService {
     private final IntentRetriever intentRetriever;
     /** P2 对话阶段感知 Prompt */
     private final RouterStageAwareService stageAwareService;
+    /** Nacos 健康 Agent 能力快照，调用模型前动态注入。 */
+    private final AgentPromptCatalogService agentPromptCatalogService;
 
     /**
      * 任务分析 prompt，支持通过 Nacos Config 动态刷新（@RefreshScope）。
@@ -105,11 +111,13 @@ public class TaskAnalysisService {
     public TaskAnalysisService(ModelRoutingService modelRoutingService,
                                IntentEvaluationService intentEvaluationService,
                                IntentRetriever intentRetriever,
-                               RouterStageAwareService stageAwareService) {
+                               RouterStageAwareService stageAwareService,
+                               AgentPromptCatalogService agentPromptCatalogService) {
         this.modelRoutingService = modelRoutingService;
         this.intentEvaluationService = intentEvaluationService;
         this.intentRetriever = intentRetriever;
         this.stageAwareService = stageAwareService;
+        this.agentPromptCatalogService = agentPromptCatalogService;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -240,20 +248,43 @@ public class TaskAnalysisService {
      * @return 构建完成的 system prompt 文本
      */
     private String buildDynamicPrompt(String question, List<String> conversationHistory) {
+        String basePrompt = injectDiscoveredAgents(resolveSystemPrompt());
         if (intentRetriever == null) {
-            return resolveSystemPrompt();
+            return basePrompt;
         }
         try {
             List<IntentDef> relevant = intentRetriever.retrieve(question, 3);
             String intentSection = intentRetriever.buildIntentSection(relevant);
             if (intentSection == null) {
-                return resolveSystemPrompt();
+                return basePrompt;
             }
-            return resolveSystemPrompt() + "\n\n" + intentSection;
+            return basePrompt + "\n\n" + intentSection;
         } catch (Exception e) {
             log.warn("[TaskAnalysis] Dynamic intent retrieval failed, using base prompt: {}", e.getMessage());
-            return resolveSystemPrompt();
+            return basePrompt;
         }
+    }
+
+    /**
+     * Injects the current healthy Agent catalog even when the base prompt is overridden
+     * through Nacos Config and therefore does not contain the checked-in placeholder.
+     */
+    private String injectDiscoveredAgents(String basePrompt) {
+        String catalog;
+        try {
+            catalog = agentPromptCatalogService != null
+                    ? agentPromptCatalogService.buildCatalog()
+                    : LOCAL_FALLBACK_AGENT_CATALOG;
+        } catch (Exception error) {
+            log.warn("[TaskAnalysis] Nacos Agent catalog unavailable, using local fallback: {}",
+                    error.getMessage());
+            catalog = LOCAL_FALLBACK_AGENT_CATALOG;
+        }
+
+        if (basePrompt.contains(NACOS_AGENT_CATALOG_PLACEHOLDER)) {
+            return basePrompt.replace(NACOS_AGENT_CATALOG_PLACEHOLDER, catalog);
+        }
+        return basePrompt + "\n\n## 本次请求可用 Agent（Router 从 Nacos 动态注入）\n" + catalog;
     }
 
     /**
