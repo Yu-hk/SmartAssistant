@@ -154,7 +154,8 @@ public class RouteFinalizer {
         opsMetrics.recordAnswer(result != null ? result.getAgentName() : "unknown", intentTag);
 
         // ⭐ P1 工具健康检查
-        if (routingToolChecker != null && result.getAgentName() != null) {
+        if (routingToolChecker != null && result.getAgentName() != null
+                && !"orchestrator".equals(result.getAgentName())) {
             var health = routingToolChecker.checkAgentHealth(result.getAgentName());
             if (!health.isHealthy()) {
                 log.warn("[Router] ⚠️ 路由到 Agent={} 但工具不健康: {}",
@@ -168,7 +169,7 @@ public class RouteFinalizer {
                 && result.getAgentName() != null && !"none".equals(result.getAgentName())
                 && !clarification
                 && !Boolean.TRUE.equals(result.getFromCache())
-                && (domainQuality.isUnknown() || domainQuality.isWarn())) {
+                && domainQuality.isUnknown()) {
             ReflectionResult reflection = reflectionService.evaluate(
                     evaluationQuestion, result.getResult(), result.getAgentName(), intentTag, request.getUserId());
             reflectScore = reflection.getScore();

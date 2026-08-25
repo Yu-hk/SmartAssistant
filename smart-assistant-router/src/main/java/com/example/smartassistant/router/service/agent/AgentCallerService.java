@@ -462,9 +462,7 @@ public class AgentCallerService {
             AgentExecutionResponse protocolResponse = parseProtocolResponse(responseBody);
             if (protocolResponse != null
                     && protocolResponse.status() != AgentExecutionResponse.Status.SUCCEEDED) {
-                String message = protocolResponse.error() != null
-                        ? protocolResponse.error().message() : "Agent execution failed";
-                return new AgentCallResult("❌ " + message);
+                return protocolFailureResult(protocolResponse);
             }
             String result = protocolResponse != null ? protocolResponse.answer() : responseBody;
             if (result == null || result.isBlank()) {
@@ -488,8 +486,43 @@ public class AgentCallerService {
             TokenUsageCache.markIncomplete(requestId);
             ToolUsageCache.markIncomplete(requestId);
             log.error("[AgentCaller] HTTP 直调失败: {}, 错误: {}", agentName, e.getMessage(), e);
-            return new AgentCallResult("❌ 调用 Agent 失败: " + e.getMessage());
+            String reason = hasCause(e, java.net.SocketTimeoutException.class)
+                    ? "AGENT_TRANSPORT_TIMEOUT" : "AGENT_TRANSPORT_FAILURE";
+            return new AgentCallResult(
+                    "❌ 调用 Agent 失败: " + e.getMessage(), List.of(), Map.of(),
+                    DomainQualityResult.fail(reason),
+                    Map.of(AgentCallResult.TRANSPORT_FAILURE_KEY, true));
         }
+    }
+
+    /** Keeps typed Agent failures as domain data instead of turning them into circuit-breaker errors. */
+    static AgentCallResult protocolFailureResult(AgentExecutionResponse response) {
+        String code = response.error() != null && response.error().code() != null
+                && !response.error().code().isBlank()
+                ? response.error().code() : "AGENT_EXECUTION_FAILED";
+        String message = response.error() != null && response.error().message() != null
+                && !response.error().message().isBlank()
+                ? response.error().message() : "Agent execution failed";
+        DomainQualityResult quality = response.quality() != null
+                ? response.quality().toDomainQuality()
+                : DomainQualityResult.fail(code);
+        Map<String, Object> data = new java.util.LinkedHashMap<>(response.data());
+        if (response.status() == AgentExecutionResponse.Status.RETRYABLE_FAILED
+                || response.error() != null && response.error().retryable()) {
+            data.put(AgentCallResult.PROTOCOL_RETRYABLE_FAILURE_KEY, true);
+        }
+        return new AgentCallResult(message, List.of(), Map.of(), quality, data);
+    }
+
+    private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+        Throwable current = error;
+        while (current != null) {
+            if (type.isInstance(current)) return true;
+            Throwable next = current.getCause();
+            if (next == current) break;
+            current = next;
+        }
+        return false;
     }
 
     static void recordDownstreamTokenUsage(String requestId, HttpHeaders headers) {

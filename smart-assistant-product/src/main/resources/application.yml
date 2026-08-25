@@ -40,8 +40,9 @@ spring:
         # 注册时携带元数据（供 Router Agent 发现和路由决策）
         metadata:
           agent-type: product_agent
-          capabilities: product_query,price_query,stock_check
+          capabilities: product_query,price_query,stock_check,product_analysis,product_recommendation
           keywords: 商品,价格,库存,规格,颜色,多少钱,有货,参数,对比,手机,电脑,推荐,性价比
+          routing-examples: "查询3000元内有库存的手机||分析热门商品的销量性价比和口碑||根据分析结果推荐最合适的商品"
           priority: 10
           cache-ttl-seconds: "43200"    # ⭐ 回复缓存 TTL（秒），商品咨询类 12h
           always-cache-reply: "true"    # ⭐ 首次即缓存回复，无需等待成为高频问题
@@ -144,8 +145,9 @@ datasource:
             # Agent 特征元数据（用于 Router 智能路由）
             metadata:
               agent-type: product_agent
-              capabilities: product_query,stock_check,price_query
+              capabilities: product_query,stock_check,price_query,product_analysis,product_recommendation
               keywords: 商品,价格,库存,规格,颜色,分期,多少钱,有货,参数,对比
+              routing-examples: "查询3000元内有库存的手机||分析热门商品的销量性价比和口碑||根据分析结果推荐最合适的商品"
               priority: 10
               cache-ttl-seconds: "43200"    # ⭐ 回复缓存 TTL（秒）
               # ⭐ 版本管理
@@ -231,6 +233,10 @@ logging:
 product:
   recommendation:
     max-reanalysis: ${PRODUCT_RECOMMENDATION_MAX_REANALYSIS:1}
+    analysis-max-tokens: ${PRODUCT_ANALYSIS_MAX_TOKENS:900}
+    audit-max-tokens: ${PRODUCT_AUDIT_MAX_TOKENS:256}
+    output-max-tokens: ${PRODUCT_RECOMMENDATION_MAX_TOKENS:700}
+    disable-thinking: ${PRODUCT_RECOMMENDATION_DISABLE_THINKING:true}
   rag:
     lightrag:
       enabled: true            # 查询侧「实体-关系图检索」Handler 开关（并入 RAG Pipeline）
