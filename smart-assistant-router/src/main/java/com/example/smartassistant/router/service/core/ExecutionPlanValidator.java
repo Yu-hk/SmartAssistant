@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.router.model.ExecutionPlan;
+import com.example.smartassistant.router.model.InputBindingExpression;
 import com.example.smartassistant.router.model.IntentGraph;
 
 import java.util.ArrayDeque;
@@ -43,6 +44,8 @@ final class ExecutionPlanValidator {
                     && (node.idempotencyKey() == null || node.idempotencyKey().isBlank())) {
                 errors.add("write node has no idempotency key: " + node.nodeId());
             }
+            validateBindingSources(node.nodeId(), node.dependsOn(),
+                    node.inputBindings(), errors);
         }
 
         validateDependencies(plan.nodes().stream().collect(
@@ -113,6 +116,8 @@ final class ExecutionPlanValidator {
             }
             if (!ids.add(node.getId())) errors.add("duplicate node id: " + node.getId());
             dependencies.put(node.getId(), node.getDependsOn());
+            validateBindingSources(node.getId(), node.getDependsOn(),
+                    node.getInputBindings(), errors);
             if (node.getTargetAgent() == null || node.getTargetAgent().isBlank()) {
                 errors.add("node has no target agent: " + node.getId());
             } else if (allowedAgents != null && !allowedAgents.isEmpty()
@@ -122,6 +127,29 @@ final class ExecutionPlanValidator {
         }
         validateDependencies(dependencies, ids, errors);
         return new ValidationResult(errors.isEmpty(), List.copyOf(errors));
+    }
+
+    private static void validateBindingSources(String nodeId, List<String> dependencies,
+                                               Map<String, String> bindings,
+                                               List<String> errors) {
+        if (bindings == null || bindings.isEmpty()) return;
+        Set<String> declared = dependencies != null ? Set.copyOf(dependencies) : Set.of();
+        bindings.forEach((target, expression) -> {
+            if (target == null || target.isBlank()) {
+                errors.add("invalid input binding for " + nodeId);
+                return;
+            }
+            try {
+                InputBindingExpression.Parsed binding =
+                        InputBindingExpression.parse(expression);
+                if (!declared.contains(binding.sourceNodeId())) {
+                    errors.add("binding source " + binding.sourceNodeId()
+                            + " is not a dependency of " + nodeId);
+                }
+            } catch (IllegalArgumentException error) {
+                errors.add("invalid input binding for " + nodeId + ": " + error.getMessage());
+            }
+        });
     }
 
     private static void validateDependencies(Map<String, List<String>> dependencies,

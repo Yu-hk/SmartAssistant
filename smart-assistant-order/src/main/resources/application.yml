@@ -42,8 +42,9 @@ spring:
         # Agent 特征元数据（用于 Router Agent 发现和路由决策）
         metadata:
           agent-type: order_agent
-          capabilities: order_query,refund,logistics,delivery,text_to_sql
+          capabilities: order_query,order_create,order_cancel,payment,refund,shipment,logistics,delivery,text_to_sql
           keywords: "订单,退款,退货,物流,快递,取消,换货,售后,投诉,赔偿,发货,收货,查单,包裹,配送"
+          routing-examples: "查询我的订单状态||为已确认商品创建订单||支付待确认订单||查询已发货订单的物流"
           priority: 10
           cache-ttl-seconds: "43200"    # ⭐ 回复缓存 TTL（秒），订单类 12h（订单状态相对稳定）
           always-cache-reply: "true"    # ⭐ 首次即缓存回复

@@ -60,6 +60,60 @@ class RouteExecutionPreplannedGraphTest {
     }
 
     @Test
+    void transportsPlannerNodeContractsIntoTheRuntimeGraph() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(
+                Map.ofEntries(
+                        Map.entry("id", "discover"),
+                        Map.entry("intent", "PRODUCT_DISCOVERY"),
+                        Map.entry("description", "查询候选商品"),
+                        Map.entry("target_agent", "product"),
+                        Map.entry("operation", "DISCOVER_PRODUCTS")),
+                Map.ofEntries(
+                        Map.entry("id", "analysis"),
+                        Map.entry("intent", "PRODUCT_ANALYSIS"),
+                        Map.entry("description", "分析候选商品"),
+                        Map.entry("target_agent", "product"),
+                        Map.entry("operation", "ANALYZE_PRODUCT_DATA"),
+                        Map.entry("depends_on", List.of("discover")),
+                        Map.entry("merge_policy", "STRUCTURED"),
+                        Map.entry("output_schema", "product-analysis.v1")),
+                Map.ofEntries(
+                        Map.entry("id", "recommend"),
+                        Map.entry("intent", "PRODUCT_RECOMMENDATION"),
+                        Map.entry("description", "核实分析并推荐商品"),
+                        Map.entry("target_agent", "product"),
+                        Map.entry("operation", "RECOMMEND_PRODUCT"),
+                        Map.entry("depends_on", List.of("discover", "analysis")),
+                        Map.entry("required", false),
+                        Map.entry("merge_policy", "REPLACE"),
+                        Map.entry("output_schema", "recommendation.v1"),
+                        Map.entry("input_bindings", Map.of(
+                                "analysisResult", "$.nodes.analysis.data.analysis")))));
+
+        var plan = RouteExecutionService.buildExecutionPlan(
+                "分析候选并推荐", analysis, "req-contract");
+
+        assertNotNull(plan);
+        var recommendation = plan.nodes().get(2);
+        assertFalse(recommendation.required());
+        assertEquals(com.example.smartassistant.router.model.ExecutionPlan.MergePolicy.REPLACE,
+                recommendation.mergePolicy());
+        assertEquals("recommendation.v1", recommendation.outputSchema());
+        assertEquals(Map.of("analysisResult", "$.nodes.analysis.data.analysis"),
+                recommendation.inputBindings());
+
+        IntentGraph.IntentNode runtimeNode = plan.toIntentGraph().getAllNodes().stream()
+                .filter(node -> "recommend".equals(node.getId()))
+                .findFirst().orElseThrow();
+        assertFalse(runtimeNode.isRequired());
+        assertEquals(recommendation.mergePolicy(), runtimeNode.getMergePolicy());
+        assertEquals(recommendation.outputSchema(), runtimeNode.getOutputSchema());
+        assertEquals(recommendation.inputBindings(), runtimeNode.getInputBindings());
+        assertTrue(ExecutionPlanValidator.validate(plan).valid());
+    }
+
+    @Test
     void preservesNonAdjacentDependencyByStableNodeId() {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setSubIntents(List.of(
@@ -181,6 +235,48 @@ class RouteExecutionPreplannedGraphTest {
                 plan.nodes().getFirst().accessMode());
         assertFalse(plan.nodes().getFirst().approvalRequired());
         assertNull(plan.nodes().getFirst().idempotencyKey());
+    }
+
+    @Test
+    void dropsRootSelfBindingWhenOriginalRequestAlreadyProvidesTrustedOrderId() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setIntentCategory("ORDER");
+        analysis.setEntities(Map.of("order_id", "BULK-0002"));
+        analysis.setSubIntents(List.of(
+                Map.of("id", "query_order_status", "intent", "QUERY_ORDER",
+                        "description", "查询订单 BULK-0002 当前状态",
+                        "target_agent", "order", "operation", "QUERY_ORDER",
+                        "input_bindings", Map.of("order_id",
+                                "$.nodes.query_order_status.data.order_id")),
+                Map.of("id", "query_logistics", "intent", "TRACK_LOGISTICS",
+                        "description", "查询订单 BULK-0002 物流",
+                        "target_agent", "order", "operation", "TRACK_LOGISTICS",
+                        "depends_on", List.of("query_order_status"),
+                        "input_bindings", Map.of("order_id",
+                                "$.nodes.query_order_status.data.order_id"))));
+
+        IntentGraph graph = RouteExecutionService.buildGraphFromAnalysis(
+                "只读查询订单 BULK-0002 的状态和物流", analysis);
+
+        assertNotNull(graph);
+        List<IntentGraph.IntentNode> nodes = graph.getAllNodes().stream().toList();
+        assertTrue(nodes.getFirst().getInputBindings().isEmpty());
+        assertEquals(Map.of("order_id", "$.nodes.query_order_status.data.order_id"),
+                nodes.get(1).getInputBindings());
+        assertEquals("BULK-0002", nodes.getFirst().getInput().get("order_id"));
+    }
+
+    @Test
+    void stillRejectsInvalidBindingWithoutTrustedExplicitInput() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setIntentCategory("ORDER");
+        analysis.setSubIntents(List.of(Map.of(
+                "id", "query_order_status", "intent", "QUERY_ORDER",
+                "description", "查询订单状态", "target_agent", "order",
+                "operation", "QUERY_ORDER", "input_bindings", Map.of(
+                        "order_id", "$.nodes.query_order_status.data.order_id"))));
+
+        assertNull(RouteExecutionService.buildGraphFromAnalysis("查询订单状态", analysis));
     }
 
     @Test
@@ -317,6 +413,26 @@ class RouteExecutionPreplannedGraphTest {
 
         assertTrue(quality.isWarn());
         assertTrue(quality.getReasonCodes().contains("PARTIAL_AGENT_FAILURE"));
+    }
+
+    @Test
+    void multiNodeSingleDomainResultBelongsToBusinessAgent() {
+        var status = new com.example.smartassistant.router.model.SubTaskResult(
+                "t1", "查询订单状态", "order", "已发货", true);
+        var logistics = new com.example.smartassistant.router.model.SubTaskResult(
+                "t2", "查询物流", "order", "顺丰运输中", true);
+
+        assertEquals("order", RouteExecutionService.determineResultOwner(List.of(status, logistics)));
+    }
+
+    @Test
+    void crossDomainResultBelongsToOrchestrator() {
+        var product = new com.example.smartassistant.router.model.SubTaskResult(
+                "t1", "查询商品", "product", "有库存", true);
+        var order = new com.example.smartassistant.router.model.SubTaskResult(
+                "t2", "查询订单", "order", "已发货", true);
+
+        assertEquals("orchestrator", RouteExecutionService.determineResultOwner(List.of(product, order)));
     }
 
     @Test

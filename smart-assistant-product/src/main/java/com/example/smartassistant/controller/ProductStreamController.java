@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -172,9 +173,17 @@ public class ProductStreamController {
                 return ResponseEntity.ok(AgentExecutionResponse.failure(
                         code, response.answer(), false));
             }
-            Map<String, Object> data = Map.of(
-                    "operation", request.operation(),
-                    "sourceNodeIds", List.copyOf(request.predecessorOutputs().keySet()));
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("operation", request.operation());
+            data.put("sourceNodeIds", List.copyOf(request.predecessorOutputs().keySet()));
+            // Workflow DSL input bindings address typed node data. Keep answer for
+            // display/backward compatibility and expose the same verified content
+            // under a stable operation-specific field for downstream nodes.
+            if ("ANALYZE_PRODUCT_DATA".equalsIgnoreCase(request.operation())) {
+                data.put("analysis", response.answer());
+            } else {
+                data.put("recommendation", response.answer());
+            }
             return ResponseEntity.ok(AgentExecutionResponse.success(
                     response.answer(), data, response.quality()));
         }
@@ -236,11 +245,15 @@ public class ProductStreamController {
         StringBuilder context = new StringBuilder();
         request.predecessorOutputs().forEach((nodeId, output) -> {
             context.append("[上游节点 ").append(nodeId).append("]\n");
-            if (output.answer() != null && !output.answer().isBlank()) {
-                context.append(output.answer().trim()).append('\n');
-            }
             if (output.data() != null && !output.data().isEmpty()) {
                 context.append("结构化数据：").append(output.data()).append('\n');
+            }
+            // Discovery's prose duplicates its typed product list. Keep only the structured
+            // evidence there, while retaining analysis prose whose data envelope is metadata-only.
+            boolean structuredCatalog = output.data() != null
+                    && output.data().containsKey("products");
+            if (!structuredCatalog && output.answer() != null && !output.answer().isBlank()) {
+                context.append(output.answer().trim()).append('\n');
             }
             context.append('\n');
         });
