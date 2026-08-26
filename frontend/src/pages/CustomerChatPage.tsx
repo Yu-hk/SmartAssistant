@@ -8,15 +8,20 @@ import { sessions as sessionApi } from '../api';
 import {
   ArrowRight,
   BookOpenText,
+  CircleCheck,
   CloudSun,
   Compass,
+  Headset,
+  MessagesSquare,
   PackageSearch,
+  PhoneForwarded,
   ShoppingBag,
   Sparkles,
   Workflow,
 } from 'lucide-react';
 
 interface CustomerChatPageProps {
+  sessions: Session[];
   currentSession: Session | undefined;
   isLoading: boolean;
   inputValue: string;
@@ -44,10 +49,10 @@ const QUICK_QUESTIONS = [
 ];
 
 const CAPABILITIES = [
-  { icon: PackageSearch, title: '订单服务', desc: '查订单、跟物流、处理售后', tone: 'indigo', prompt: '请帮我查询订单：' },
-  { icon: ShoppingBag, title: '商品助手', desc: '商品咨询、参数对比与推荐', tone: 'amber', prompt: '请帮我推荐或对比商品：' },
+  { icon: PackageSearch, title: '订单助手', desc: '查订单、跟物流、处理售后', tone: 'cyan', prompt: '请帮我查询订单：' },
+  { icon: ShoppingBag, title: '商品顾问', desc: '商品咨询、参数对比与推荐', tone: 'amber', prompt: '请帮我推荐或对比商品：' },
   { icon: BookOpenText, title: '知识检索', desc: '检索资料、文档问答与总结', tone: 'emerald', prompt: '请从知识库中查找并总结：' },
-  { icon: Workflow, title: '任务协同', desc: '识别意图并路由合适能力', tone: 'cyan', prompt: '请分析并安排合适的智能体处理：' },
+  { icon: Workflow, title: '智能路由', desc: '识别客户意图并分流到合适能力', tone: 'indigo', prompt: '请分析并安排合适的智能体处理：' },
 ];
 
 function getGreeting() {
@@ -59,6 +64,7 @@ function getGreeting() {
 }
 
 export function CustomerChatPage({
+  sessions,
   currentSession,
   isLoading,
   inputValue,
@@ -108,6 +114,13 @@ export function CustomerChatPage({
   const hasMessages = currentSession && currentSession.messages.length > 0;
   const isClosed = currentSession?.status === 'closed';
 
+  const homeStats = {
+    total: sessions.length,
+    active: sessions.filter(s => s.status === 'active').length,
+    human: sessions.filter(s => s.status === 'human_transfer').length,
+    closed: sessions.filter(s => s.status === 'closed').length,
+  };
+
   return (
     <>
       {/* 消息区域 */}
@@ -115,11 +128,30 @@ export function CustomerChatPage({
         {!hasMessages ? (
           <section className="assistant-home" aria-labelledby="home-title">
             <div className="home-hero">
-              <div className="home-eyebrow"><Sparkles size={15} /> 智能业务工作台</div>
+              <div className="home-eyebrow"><Sparkles size={15} /> 多智能体客服工作台</div>
               <h1 id="home-title">{getGreeting()}{userName ? `，${userName}` : ''}</h1>
               <p>{isClosed
                 ? '该会话已结束，请从左侧新建会话后继续。'
-                : '直接描述要处理的事情，我会识别需求、选择能力并完成后续步骤。'}</p>
+                : '输入客户问题或选择下方服务能力，智能体团队将识别意图并自动分流处理。'}</p>
+            </div>
+
+            <div className="home-stats" aria-label="接待概览">
+              <div className="home-stat">
+                <span className="home-stat-icon"><MessagesSquare size={17} /></span>
+                <span><strong>{homeStats.total}</strong><span>全部会话</span></span>
+              </div>
+              <div className="home-stat">
+                <span className="home-stat-icon is-ok"><Headset size={17} /></span>
+                <span><strong>{homeStats.active}</strong><span>进行中</span></span>
+              </div>
+              <div className="home-stat">
+                <span className="home-stat-icon is-warn"><PhoneForwarded size={17} /></span>
+                <span><strong>{homeStats.human}</strong><span>转人工</span></span>
+              </div>
+              <div className="home-stat">
+                <span className="home-stat-icon is-muted"><CircleCheck size={17} /></span>
+                <span><strong>{homeStats.closed}</strong><span>已结束</span></span>
+              </div>
             </div>
 
             <CustomerChatInput
@@ -137,7 +169,7 @@ export function CustomerChatPage({
 
             <div className="home-section-heading">
               <span>选择服务能力</span>
-              <small>也可以直接在上方输入问题</small>
+              <small>也可以直接在上方输入客户问题</small>
             </div>
             <div className="home-capability-grid">
               {CAPABILITIES.map((item, idx) => {
