@@ -179,6 +179,21 @@ class OrderDomainQualityValidatorTest {
         assertTrue(result.getReasonCodes().contains("ORDER_STATUS_MISMATCH"));
     }
 
+    @Test
+    void acceptsEquivalentBusinessStatusLabels() {
+        RetrievalQualityResult payment = RetrievalQualityResult.highQuality(
+                "订单 ORD-1001 当前状态为待付款。", 0.91);
+        RetrievalQualityResult delivered = RetrievalQualityResult.highQuality(
+                "订单 ORD-1002 当前状态为已签收。", 0.91);
+
+        assertTrue(validator.evaluate(
+                "查询 ORD-1001 的状态", "订单 ORD-1001 当前待支付。", IntentType.QUERY_ORDER,
+                "42", payment, checked(false, 0.0)).isPass());
+        assertTrue(validator.evaluate(
+                "查询 ORD-1002 的状态", "订单 ORD-1002 已完成。", IntentType.QUERY_ORDER,
+                "42", delivered, checked(false, 0.0)).isPass());
+    }
+
     private static FaithfulnessGuard.FaithfulnessVerdict checked(boolean hallucination, double score) {
         return new FaithfulnessGuard.FaithfulnessVerdict(true, hallucination, score, List.of(), null);
     }

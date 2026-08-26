@@ -36,6 +36,12 @@ public class AgentMetadata {
      * 例如：美食,餐厅,菜系,特色菜,吃什么
      */
     private String keywords;
+
+    /**
+     * 路由正例（使用 || 分隔）。
+     * 由应用在 Nacos 注册时声明，仅帮助 Router 理解应用场景边界。
+     */
+    private String routingExamples;
     
     /**
      * 支持的菜系类型（仅美食 Agent）
@@ -123,6 +129,16 @@ public class AgentMetadata {
             return new String[0];
         }
         return keywords.split(",");
+    }
+
+    /**
+     * 解析应用注册的简短路由正例。
+     */
+    public String[] getRoutingExamplesArray() {
+        if (routingExamples == null || routingExamples.isBlank()) {
+            return new String[0];
+        }
+        return routingExamples.split("\\|\\|");
     }
     
     /**

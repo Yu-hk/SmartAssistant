@@ -1,4 +1,5 @@
 import React from 'react';
+import { Moon, Sun } from 'lucide-react';
 import { Session, INTENT_LABELS, INTENT_COLORS } from '../types';
 
 interface CustomerSidebarProps {
@@ -16,14 +17,15 @@ interface CustomerSidebarProps {
 
 /**
  * 智能体团队 — 当前为 UI 展示用静态列表（贴合「多智能体客服」主题）。
+ * 色板与设计系统语义色对齐：蓝系为主，语义色区分领域。
  * TODO: 接入运行时智能体注册表后，改为从后端拉取在线状态与归属。
  */
 const AGENT_TEAM: { name: string; glyph: string; color: string }[] = [
-  { name: '售前顾问', glyph: '售', color: '#14B8A6' },
-  { name: '技术支持', glyph: '技', color: '#38BDF8' },
-  { name: '订单助手', glyph: '单', color: '#A78BFA' },
-  { name: '投诉处理', glyph: '诉', color: '#FB7185' },
-  { name: '知识管家', glyph: '知', color: '#FBBF24' },
+  { name: '售前顾问', glyph: '售', color: '#2563eb' },
+  { name: '技术支持', glyph: '技', color: '#0284c7' },
+  { name: '订单助手', glyph: '单', color: '#059669' },
+  { name: '投诉处理', glyph: '诉', color: '#dc2626' },
+  { name: '知识管家', glyph: '知', color: '#d97706' },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -68,7 +70,7 @@ export function CustomerSidebar({
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '17px', fontWeight: 800, color: 'white',
             flexShrink: 0,
-            boxShadow: '0 0 18px var(--nova-accent-glow)',
+            boxShadow: 'var(--nova-shadow-md)',
           }}>
             智
           </div>
@@ -245,7 +247,7 @@ export function CustomerSidebar({
             (e.currentTarget as HTMLElement).style.borderColor = 'var(--nova-border)';
           }}
         >
-          {theme === 'light' ? '🌙' : '☀️'}
+          {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
         </button>
       </div>
     </aside>
@@ -311,7 +313,6 @@ function SessionItem({ session, isActive, onSelect, onDelete }: {
           width: '3px', height: '40%',
           borderRadius: '2px',
           background: intentColor,
-          boxShadow: `0 0 6px ${intentColor}60`,
         }} />
       )}
 
@@ -323,7 +324,6 @@ function SessionItem({ session, isActive, onSelect, onDelete }: {
         <span style={{
           width: '5px', height: '5px', borderRadius: '50%',
           background: statusColor, flexShrink: 0,
-          boxShadow: `0 0 6px ${statusColor}`,
         }} />
         <span style={{
           flex: 1, fontSize: '13px', fontWeight: isActive ? 600 : 400,

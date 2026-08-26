@@ -45,6 +45,27 @@ public class SkillPackage {
     /** 标签 */
     private final Set<String> tags;
 
+    /** 触发该技能的标准化工作流操作。 */
+    private final Set<String> triggerOperations;
+
+    /** 触发该技能的请求标签。 */
+    private final Set<String> triggerTags;
+
+    /** 直连模块没有结构化 operation 时使用的兼容匹配词。 */
+    private final Set<String> matchTerms;
+
+    /** 技能执行前必须真实存在的工具。 */
+    private final Set<String> requiredTools;
+
+    /** 被当前技能依赖、需要一同注入的技能 ID。 */
+    private final Set<String> dependencies;
+
+    /** 优先级越大越先注入。 */
+    private final int priority;
+
+    /** 是否对所有绑定请求生效。 */
+    private final boolean alwaysApply;
+
     /** 创建时间 */
     private final LocalDateTime createdAt;
 
@@ -56,6 +77,15 @@ public class SkillPackage {
 
     public SkillPackage(String id, String name, String description,
                         String version, String instruction) {
+        this(id, name, description, version, instruction,
+                Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), 0, false);
+    }
+
+    private SkillPackage(String id, String name, String description,
+                         String version, String instruction,
+                         Set<String> triggerOperations, Set<String> triggerTags, Set<String> matchTerms,
+                         Set<String> requiredTools, Set<String> dependencies,
+                         int priority, boolean alwaysApply) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -63,6 +93,13 @@ public class SkillPackage {
         this.instruction = instruction;
         this.supportingFiles = new LinkedHashMap<>();
         this.tags = new LinkedHashSet<>();
+        this.triggerOperations = new LinkedHashSet<>(triggerOperations);
+        this.triggerTags = new LinkedHashSet<>(triggerTags);
+        this.matchTerms = new LinkedHashSet<>(matchTerms);
+        this.requiredTools = new LinkedHashSet<>(requiredTools);
+        this.dependencies = new LinkedHashSet<>(dependencies);
+        this.priority = priority;
+        this.alwaysApply = alwaysApply;
         this.createdAt = LocalDateTime.now();
         this.boundAgents = new LinkedHashMap<>();
         this.enabled = true;
@@ -77,6 +114,13 @@ public class SkillPackage {
     public String getInstruction() { return instruction; }
     public Map<String, String> getSupportingFiles() { return Collections.unmodifiableMap(supportingFiles); }
     public Set<String> getTags() { return Collections.unmodifiableSet(tags); }
+    public Set<String> getTriggerOperations() { return Collections.unmodifiableSet(triggerOperations); }
+    public Set<String> getTriggerTags() { return Collections.unmodifiableSet(triggerTags); }
+    public Set<String> getMatchTerms() { return Collections.unmodifiableSet(matchTerms); }
+    public Set<String> getRequiredTools() { return Collections.unmodifiableSet(requiredTools); }
+    public Set<String> getDependencies() { return Collections.unmodifiableSet(dependencies); }
+    public int getPriority() { return priority; }
+    public boolean isAlwaysApply() { return alwaysApply; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public Map<String, LocalDateTime> getBoundAgents() { return Collections.unmodifiableMap(boundAgents); }
     public boolean isEnabled() { return enabled; }
@@ -120,7 +164,8 @@ public class SkillPackage {
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append("\n【技能包：").append(name).append("】\n");
+        sb.append("\n【技能：").append(id).append('@').append(version)
+                .append(" · ").append(name).append("】\n");
         sb.append(instruction.trim()).append("\n");
 
         if (!supportingFiles.isEmpty()) {
@@ -165,6 +210,13 @@ public class SkillPackage {
         private String instruction = "";
         private final Map<String, String> supportingFiles = new LinkedHashMap<>();
         private final Set<String> tags = new LinkedHashSet<>();
+        private final Set<String> triggerOperations = new LinkedHashSet<>();
+        private final Set<String> triggerTags = new LinkedHashSet<>();
+        private final Set<String> matchTerms = new LinkedHashSet<>();
+        private final Set<String> requiredTools = new LinkedHashSet<>();
+        private final Set<String> dependencies = new LinkedHashSet<>();
+        private int priority = 0;
+        private boolean alwaysApply = false;
 
         Builder(String id, String name) {
             this.id = id;
@@ -176,9 +228,17 @@ public class SkillPackage {
         public Builder instruction(String instruction) { this.instruction = instruction; return this; }
         public Builder addFile(String fileName, String content) { this.supportingFiles.put(fileName, content); return this; }
         public Builder addTag(String tag) { this.tags.add(tag); return this; }
+        public Builder addTriggerOperation(String operation) { this.triggerOperations.add(operation); return this; }
+        public Builder addTriggerTag(String tag) { this.triggerTags.add(tag); return this; }
+        public Builder addMatchTerm(String term) { this.matchTerms.add(term); return this; }
+        public Builder addRequiredTool(String toolName) { this.requiredTools.add(toolName); return this; }
+        public Builder addDependency(String skillId) { this.dependencies.add(skillId); return this; }
+        public Builder priority(int priority) { this.priority = priority; return this; }
+        public Builder alwaysApply(boolean alwaysApply) { this.alwaysApply = alwaysApply; return this; }
 
         public SkillPackage build() {
-            SkillPackage pkg = new SkillPackage(id, name, description, version, instruction);
+            SkillPackage pkg = new SkillPackage(id, name, description, version, instruction,
+                    triggerOperations, triggerTags, matchTerms, requiredTools, dependencies, priority, alwaysApply);
             supportingFiles.forEach(pkg::addSupportingFile);
             tags.forEach(pkg::addTag);
             return pkg;

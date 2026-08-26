@@ -8,6 +8,7 @@
 package com.example.smartassistant.router.model;
 
 import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,12 +23,21 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class RouteResponse {
 
-    /**
-     * 目标 Agent 名称
-     */
+    /** Single registered business Agent; absent for multi-Agent or built-in execution. */
     private String agentName;
+
+    /** SINGLE_AGENT / MULTI_AGENT / BUILTIN / FALLBACK. */
+    private RoutingResult.ExecutionMode executionMode;
+
+    /** Registered business Agents that participated in this response. */
+    @Builder.Default
+    private List<String> participatingAgents = List.of();
+
+    /** COMPLETED / AWAITING_APPROVAL / CLARIFICATION / DEGRADED / FAILED. */
+    private RoutingResult.WorkflowStatus workflowStatus;
 
     /**
      * 处理结果

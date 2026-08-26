@@ -38,8 +38,7 @@ public class KnowledgeSeedData {
     public static InMemoryKnowledgeBase createOrderKnowledgeBase(
             BgeEmbeddingModel model, ChineseTokenizer tokenizer, Reranker reranker) {
         InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(ORDER_KB, model, tokenizer, reranker);
-        kb.addDocuments(orderDocuments());
-        kb.reindex();
+        kb.addDocumentsAndBuildIndexes(orderDocuments());
         return kb;
     }
 
@@ -53,8 +52,7 @@ public class KnowledgeSeedData {
     public static InMemoryKnowledgeBase createProductKnowledgeBase(
             BgeEmbeddingModel model, ChineseTokenizer tokenizer, Reranker reranker) {
         InMemoryKnowledgeBase kb = new InMemoryKnowledgeBase(PRODUCT_KB, model, tokenizer, reranker);
-        kb.addDocuments(productDocuments());
-        kb.reindex();
+        kb.addDocumentsAndBuildIndexes(productDocuments());
         return kb;
     }
 

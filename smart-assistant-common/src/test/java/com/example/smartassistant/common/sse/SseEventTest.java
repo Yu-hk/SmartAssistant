@@ -3,6 +3,8 @@ package com.example.smartassistant.common.sse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -74,5 +76,18 @@ class SseEventTest {
         assertTrue(rendered.contains("event: routed"));
         assertTrue(rendered.contains("order-service"));
         assertTrue(rendered.contains("0.95"));
+    }
+
+    @Test
+    @DisplayName("多 Agent routed 事件不伪造单一 Agent")
+    void multiAgentRoutedEventOmitsAgentName() {
+        String rendered = SseEvent.routed(null, 0.8, "MULTI_AGENT",
+                List.of("product", "order"), "COMPLETED").render();
+
+        assertFalse(rendered.contains("\"agentName\""));
+        assertFalse(rendered.contains("orchestrator"));
+        assertTrue(rendered.contains("\"executionMode\":\"MULTI_AGENT\""));
+        assertTrue(rendered.contains("\"participatingAgents\":[\"product\",\"order\"]"));
+        assertTrue(rendered.contains("\"workflowStatus\":\"COMPLETED\""));
     }
 }

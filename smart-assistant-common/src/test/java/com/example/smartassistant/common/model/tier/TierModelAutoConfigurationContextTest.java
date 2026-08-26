@@ -2,7 +2,7 @@ package com.example.smartassistant.common.model.tier;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.deepseek.DeepSeekChatModel;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,8 +14,8 @@ class TierModelAutoConfigurationContextTest {
     void createsTierRouterWithoutDependingOnBeanDefinitionOrder() {
         try (var context = new AnnotationConfigApplicationContext()) {
             context.getBeanFactory().registerSingleton(
-                    "deepSeekChatModel",
-                    mock(DeepSeekChatModel.class));
+                    "providerChatModel",
+                    mock(ChatModel.class));
             context.getBeanFactory().registerSingleton(
                     "meterRegistry",
                     new SimpleMeterRegistry());

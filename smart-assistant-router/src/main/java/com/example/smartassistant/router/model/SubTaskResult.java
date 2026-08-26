@@ -2,6 +2,7 @@ package com.example.smartassistant.router.model;
 
 import com.example.smartassistant.common.quality.DomainQualityResult;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -11,6 +12,14 @@ import java.util.Map;
  * {@link #result} 保留完整结果，供按需工具查询。</p>
  */
 public class SubTaskResult {
+    public static final String SYSTEM_NODE_TYPE_KEY = "_systemNodeType";
+
+    /** Workflow-owned nodes are execution metadata, not registered business Agents. */
+    public enum SystemNodeType {
+        APPROVAL,
+        ORDER_PREPARATION
+    }
+
     private String taskId;
     private String description;
     private String agentName;
@@ -26,6 +35,10 @@ public class SubTaskResult {
     /** Structured domain output used by downstream workflow nodes. */
     private Map<String, Object> structuredData = Map.of();
     private DomainQualityResult domainQuality = DomainQualityResult.unknown();
+    /** Execution-plan metadata used by the deterministic final merge. */
+    private boolean required = true;
+    private ExecutionPlan.MergePolicy mergePolicy = ExecutionPlan.MergePolicy.APPEND;
+    private String outputSchema;
     /** ⭐ Handoff 交接命令：执行完毕后如果需显式移交其他 Agent，非空表示有交接请求 */
     private HandoffCommand handoffCommand;
 
@@ -135,10 +148,36 @@ public class SubTaskResult {
     public void setStructuredData(Map<String, Object> structuredData) {
         this.structuredData = structuredData != null ? Map.copyOf(structuredData) : Map.of();
     }
+    public void setSystemNodeType(SystemNodeType systemNodeType) {
+        Map<String, Object> updated = new LinkedHashMap<>(structuredData);
+        if (systemNodeType == null) {
+            updated.remove(SYSTEM_NODE_TYPE_KEY);
+        } else {
+            updated.put(SYSTEM_NODE_TYPE_KEY, systemNodeType.name());
+        }
+        this.structuredData = Map.copyOf(updated);
+    }
+    public SystemNodeType getSystemNodeType() {
+        Object value = structuredData.get(SYSTEM_NODE_TYPE_KEY);
+        if (value == null) return null;
+        try {
+            return SystemNodeType.valueOf(value.toString());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
     public DomainQualityResult getDomainQuality() { return domainQuality; }
     public void setDomainQuality(DomainQualityResult domainQuality) {
         this.domainQuality = domainQuality != null ? domainQuality : DomainQualityResult.unknown();
     }
+    public boolean isRequired() { return required; }
+    public void setRequired(boolean required) { this.required = required; }
+    public ExecutionPlan.MergePolicy getMergePolicy() { return mergePolicy; }
+    public void setMergePolicy(ExecutionPlan.MergePolicy mergePolicy) {
+        this.mergePolicy = mergePolicy != null ? mergePolicy : ExecutionPlan.MergePolicy.APPEND;
+    }
+    public String getOutputSchema() { return outputSchema; }
+    public void setOutputSchema(String outputSchema) { this.outputSchema = outputSchema; }
 
     public HandoffCommand getHandoffCommand() { return handoffCommand; }
     public void setHandoffCommand(HandoffCommand handoffCommand) { this.handoffCommand = handoffCommand; }

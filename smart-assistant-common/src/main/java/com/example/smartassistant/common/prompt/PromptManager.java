@@ -154,6 +154,45 @@ public class PromptManager {
         return load("prompts/order/text-to-sql.txt");
     }
 
+    /** 加载数据分析专家 Prompt 模板。 */
+    public String dataAnalysisExpert() {
+        return load("prompts/analysis/data-analysis-expert.txt");
+    }
+
+    /**
+     * 渲染数据分析专家 Prompt。
+     *
+     * <p>调用方必须把真实工具结果或明确的数据获取约束传入 {@code context}；
+     * 数据为空时模板会要求模型明确披露限制，而不是补造结论。</p>
+     */
+    public String renderDataAnalysisExpert(String query, String context) {
+        String safeQuery = query == null || query.isBlank() ? "未提供具体问题" : query.trim();
+        String safeContext = context == null || context.isBlank()
+                ? "当前尚未提供可验证数据。必须先调用数据工具；若仍无数据，明确说明数据限制。"
+                : context.trim();
+        return dataAnalysisExpert()
+                .replace("{{query}}", safeQuery)
+                .replace("{{context}}", safeContext);
+    }
+
+    /** 渲染 Pro 推荐模型使用的分析事实核实 Prompt。 */
+    public String renderProductAnalysisAudit(String query, String context) {
+        return load("prompts/analysis/product-analysis-audit.txt")
+                .replace("{{query}}", safePromptValue(query, "未提供具体推荐目标"))
+                .replace("{{context}}", safePromptValue(context, "未提供候选商品或分析结果"));
+    }
+
+    /** 渲染 Pro 推荐模型使用的最终推荐 Prompt。 */
+    public String renderVerifiedProductRecommendation(String query, String context) {
+        return load("prompts/analysis/verified-product-recommendation.txt")
+                .replace("{{query}}", safePromptValue(query, "未提供具体推荐目标"))
+                .replace("{{context}}", safePromptValue(context, "未提供已核实分析结果"));
+    }
+
+    private static String safePromptValue(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
     /** 加载 MCP Agent Prompt */
     public String mcpAgent() {
         return load("prompts/consumer/mcp-agent.txt");

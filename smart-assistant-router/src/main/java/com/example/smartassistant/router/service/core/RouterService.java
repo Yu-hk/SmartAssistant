@@ -162,8 +162,9 @@ public class RouterService {
                 opsMetrics.recordHandoff("emotion_heavy", "router_fallback");
                 return RoutingResult.builder()
                         .result(emotion.guidance())
-                        .agentName("router_fallback")
                         .confidence(1.0)
+                        .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                        .workflowStatus(RoutingResult.WorkflowStatus.DEGRADED)
                         .emotionLevel(EmotionLevel.HEAVY)
                         .emotionIntervention(true)
                         .disableTools(true)
@@ -184,8 +185,9 @@ public class RouterService {
                     log.warn("[Router] ⚠️ 用户配额超限: userId={}, msg={}", request.getUserId(), quotaMsg);
                     return RoutingResult.builder()
                             .result(quotaMsg)
-                            .agentName("builtin_fallback")
                             .confidence(0.2)
+                            .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                            .workflowStatus(RoutingResult.WorkflowStatus.DEGRADED)
                             .build();
                 }
             }
@@ -273,7 +275,13 @@ public class RouterService {
                     String clarificationAgent = declaredClarificationAgent(taskAnalysis);
                     RoutingResult clarification = RoutingResult.builder()
                             .result(clarificationReply)
-                            .agentName(clarificationAgent != null ? clarificationAgent : "builtin_clarification")
+                            .agentName(clarificationAgent)
+                            .executionMode(clarificationAgent != null
+                                    ? RoutingResult.ExecutionMode.SINGLE_AGENT
+                                    : RoutingResult.ExecutionMode.BUILTIN)
+                            .participatingAgents(clarificationAgent != null
+                                    ? List.of(clarificationAgent) : List.of())
+                            .workflowStatus(RoutingResult.WorkflowStatus.CLARIFICATION)
                             .confidence(taskAnalysis.getConfidence())
                             .intentTag(intentTag)
                             .clarification(true)
@@ -352,6 +360,8 @@ public class RouterService {
                     AgentErrorCode.SYSTEM_ROUTE_FAILED, e.getMessage());
             return RoutingResult.builder()
                     .result(errorMsg)
+                    .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                    .workflowStatus(RoutingResult.WorkflowStatus.FAILED)
                 .build();
         } finally {
             // ⭐ G4 运营指标：端到端路由延迟（覆盖全部路径：HEAVY/配额/经验/正常）
