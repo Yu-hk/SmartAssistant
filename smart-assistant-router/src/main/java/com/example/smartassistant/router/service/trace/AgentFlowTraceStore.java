@@ -55,7 +55,7 @@ public class AgentFlowTraceStore {
                     "", List.copyOf(node.getDependsOn()), null));
         }
         nodes.add(new AgentFlowSnapshot.Node(
-                MERGER_NODE, "汇总 Agent 执行结果", "orchestrator", "merger", "pending",
+                MERGER_NODE, "汇总 Agent 执行结果", "", "merger", "pending",
                 "", terminalIds(graph), null));
 
         List<AgentFlowSnapshot.Edge> edges = new ArrayList<>();
@@ -80,7 +80,7 @@ public class AgentFlowTraceStore {
                 "running", now, null, List.copyOf(nodes), List.copyOf(edges)));
     }
 
-    public void complete(String requestId, List<SubTaskResult> results, String finalAgent,
+    public void complete(String requestId, List<SubTaskResult> results, List<String> participatingAgents,
                          long totalElapsedMs) {
         AgentFlowSnapshot current = get(requestId).orElse(null);
         if (current == null) return;
@@ -103,9 +103,9 @@ public class AgentFlowTraceStore {
             if (MERGER_NODE.equals(node.id())) {
                 boolean succeeded = results != null && results.stream().anyMatch(SubTaskResult::isSuccess);
                 return new AgentFlowSnapshot.Node(node.id(), node.label(),
-                        safe(finalAgent, "orchestrator"), node.type(),
+                        "", node.type(),
                         succeeded ? "completed" : "failed",
-                        succeeded ? "已完成结果汇总" : "没有可汇总的成功结果",
+                        succeeded ? mergerSummary(participatingAgents) : "没有可汇总的成功结果",
                         node.dependsOn(), totalElapsedMs);
             }
             return node;
@@ -169,6 +169,13 @@ public class AgentFlowTraceStore {
         return "按 " + analysis.getAnalysisQuestionChars() + " 字输入选择 "
                 + safe(analysis.getAnalysisModel(), "DeepSeek") + "，生成 "
                 + graph.getNodeCount() + " 个执行节点";
+    }
+
+    private static String mergerSummary(List<String> participatingAgents) {
+        if (participatingAgents == null || participatingAgents.isEmpty()) {
+            return "已完成内置流程结果汇总";
+        }
+        return "已汇总业务 Agent: " + String.join(", ", participatingAgents);
     }
 
     private static String safe(String value, String fallback) {

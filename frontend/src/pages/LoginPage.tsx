@@ -142,16 +142,16 @@ export function LoginPage() {
 
         <div className="login-stats">
           <div>
-            <div className="ls-num">12,800<span>+</span></div>
-            <div className="ls-label">已服务企业</div>
+            <div className="ls-num">3<span> 层</span></div>
+            <div className="ls-label">意图识别（规则 + 小模型 + LLM）</div>
           </div>
           <div>
-            <div className="ls-num">96.4%</div>
-            <div className="ls-label">一次解决率</div>
+            <div className="ls-num">RAG</div>
+            <div className="ls-label">知识库检索增强问答</div>
           </div>
           <div>
-            <div className="ls-num">1.8s</div>
-            <div className="ls-label">平均响应</div>
+            <div className="ls-num">360°</div>
+            <div className="ls-label">客户画像与偏好学习</div>
           </div>
         </div>
       </section>

@@ -64,7 +64,7 @@ public class ProductAgentConfig {
      */
     @Bean
     public SmartReActAgent productAgent(
-            @Qualifier("deepSeekChatModel") ChatModel chatModel,
+            @Qualifier("openAiChatModel") ChatModel chatModel,
             ProductTools productTools,
             ProductMemoryTool productMemoryTool,
             KnowledgeQueryTool knowledgeQueryTool,
@@ -87,17 +87,14 @@ public class ProductAgentConfig {
         // ⭐ T2d：注入 discover_tools 元工具 + 绑定注册器
         List<ToolCallback> effectiveToolList = DiscoverToolsHelper.injectDiscoverTools(toolList, discoverToolsTool);
 
-        // 构建系统 prompt（含技能包指令）
-        String basePrompt = buildSystemPrompt();
-        String skillPrompt = "";
+        // 技能发布校验：配置中引用的工具必须与本次真实 ToolCallback 一致。
         if (skillPackageManager != null) {
-            skillPrompt = skillPackageManager.buildAgentSkillPrompt(agentName);
-            if (!skillPrompt.isBlank()) {
-                log.info("[ProductAgent] 注入 {} 个技能包到 Agent",
-                        skillPackageManager.getAgentSkills(agentName).size());
-            }
+            skillPackageManager.requireValidAgentSkills(agentName, effectiveToolList.stream()
+                    .map(tool -> tool.getToolDefinition().name())
+                    .toList());
+            log.info("[ProductAgent] Skill 发布校验通过: count={}",
+                    skillPackageManager.getAgentSkills(agentName).size());
         }
-        String fullSystemPrompt = skillPrompt.isBlank() ? basePrompt : basePrompt + "\n" + skillPrompt;
 
         // ⭐ 构建 ChatClient（Advisor 链由 AiChatService 统一装配）
         ChatClient chatClient = aiChatService.buildChatClient(chatModel);
@@ -109,8 +106,12 @@ public class ProductAgentConfig {
                 .withProfile("product", reactProfileRegistry)
                 .withFeedbackLog(new FeedbackLog())
                 .withPreset(PromptBuilder.build()
-                        .withServicePrompt(fullSystemPrompt)
+                        .withServicePrompt(buildSystemPrompt())
                         .assemble(), effectiveToolList);
+
+        if (skillPackageManager != null) {
+            agent.withSkillPackages(agentName, skillPackageManager);
+        }
 
         // ⭐ T2d：Agent 创建后设置注册器
         DiscoverToolsHelper.bindRegistrar(discoverToolsTool, agent);

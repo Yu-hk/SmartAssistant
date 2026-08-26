@@ -25,7 +25,9 @@ public class WorkflowGraphCompiler {
                                 .toList(),
                         node.humanApprovalRequired()
                                 || node.type() == WorkflowDefinition.NodeType.HUMAN_APPROVAL,
-                        node.operation(), node.input(), node.constraints(), node.idempotencyKey()))
+                        node.operation(), node.input(), node.constraints(), node.idempotencyKey(),
+                        !Boolean.FALSE.equals(node.required()), node.mergePolicy(),
+                        node.outputSchema(), node.inputBindings()))
                 .toList();
         return new IntentGraph(question != null ? question : definition.name(), nodes,
                 definition.maxGraphIterations());

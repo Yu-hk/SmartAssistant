@@ -93,4 +93,23 @@ public class RouterThreadPoolConfig {
         
         return executor;
     }
+
+    /**
+     * Best-effort background pool for experience learning. Learning must never extend the
+     * user-facing response latency, and saturation must not push work back onto the request
+     * thread.
+     */
+    @Bean(name = "routerExperienceExecutor")
+    public Executor routerExperienceExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("router-experience-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        log.info("[Router ThreadPool] 经验提取后台线程池初始化完成: core=2, max=4, queue=200");
+        return executor;
+    }
 }

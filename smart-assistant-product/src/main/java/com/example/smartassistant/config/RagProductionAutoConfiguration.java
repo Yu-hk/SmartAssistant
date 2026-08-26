@@ -24,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -36,6 +37,8 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * RAG 生产化集成装配（T05）——把生产化能力落到 Product 模块。
@@ -63,6 +66,9 @@ import java.util.List;
 public class RagProductionAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(RagProductionAutoConfiguration.class);
+
+    private final AtomicBoolean seedWarmupStarted = new AtomicBoolean(false);
+    private volatile Runnable seedWarmup = () -> log.info("[RagProd] 无待执行的种子预热任务");
 
     @Value("${datasource.url:}")
     private String datasourceUrl;
@@ -103,9 +109,6 @@ public class RagProductionAutoConfiguration {
         // 内存快照（始终构建：memory 模式直接返回 / pg 模式作为降级目标）
         InMemoryKnowledgeBase memoryFallback = new InMemoryKnowledgeBase(
                 kbName, embeddingModel, tokenizer, reranker);
-        memoryFallback.addDocuments(KnowledgeSeedData.productDocuments());
-        memoryFallback.addDocuments(KnowledgeSeedData.orderDocuments());
-        memoryFallback.reindex();
 
         JdbcTemplate jdbc = jdbcTemplateProvider.getIfAvailable();
 
@@ -120,7 +123,8 @@ public class RagProductionAutoConfiguration {
             }
         }
         if ("memory".equalsIgnoreCase(mode) || !pgReachable) {
-            log.info("[RagProd] 知识库模式={} → 纯内存（{} 篇种子）", mode, memoryFallback.size());
+            configureMemoryWarmup(memoryFallback);
+            log.info("[RagProd] 知识库模式={} → 纯内存（种子将在服务启动后异步预热）", mode);
             return memoryFallback;
         }
 
@@ -129,14 +133,12 @@ public class RagProductionAutoConfiguration {
         try {
             KnowledgeIndexMetaService indexMeta = indexMetaProvider.getIfAvailable();
             pgPrimary = new PgVectorKnowledgeBase(kbName, embeddingModel, jdbc, tokenizer, indexMeta);
-            if (props.getRag().getSeed().isMigrateToPgOnStartup()) {
-                seedToPg(pgPrimary);
-            }
         } catch (Exception e) {
             log.warn("[RagProd] PG 主库构建失败，降级内存: {}", e.getMessage());
             pgPrimary = null;
         }
         if (pgPrimary == null) {
+            configureMemoryWarmup(memoryFallback);
             return memoryFallback;
         }
 
@@ -148,11 +150,49 @@ public class RagProductionAutoConfiguration {
         // 启动内存快照刷新协调器（从 PG 周期拉取，保障降级可读）
         MemoryRefreshCoordinator coordinator = new MemoryRefreshCoordinator(
                 memoryFallback, pgPrimary, props.getRag().getMemory().getRefreshIntervalMs());
-        coordinator.start();
+        PgVectorKnowledgeBase finalPgPrimary = pgPrimary;
+        seedWarmup = () -> {
+            if (props.getRag().getSeed().isMigrateToPgOnStartup()) {
+                seedToPg(finalPgPrimary);
+            }
+            coordinator.start();
+        };
 
         log.info("[RagProd] 知识库模式={} → PG 主库 + 内存降级（已启动刷新协调器，间隔 {}ms）",
                 mode, props.getRag().getMemory().getRefreshIntervalMs());
         return resilient;
+    }
+
+    /**
+     * 在 Spring 启动主链路之外执行远程向量预热，避免种子 embedding 阻塞健康检查。
+     */
+    @Bean
+    public CommandLineRunner productKnowledgeSeedWarmupRunner() {
+        return args -> {
+            if (!seedWarmupStarted.compareAndSet(false, true)) {
+                return;
+            }
+            Runnable warmupTask = seedWarmup;
+            CompletableFuture.runAsync(() -> {
+                long startedAt = System.currentTimeMillis();
+                try {
+                    log.info("[RagProd] 开始异步预热知识库种子");
+                    warmupTask.run();
+                    log.info("[RagProd] 知识库种子异步预热完成，耗时={}ms",
+                            System.currentTimeMillis() - startedAt);
+                } catch (Exception e) {
+                    log.warn("[RagProd] 知识库种子异步预热失败（服务保持可用）: {}", e.getMessage(), e);
+                }
+            });
+        };
+    }
+
+    private void configureMemoryWarmup(InMemoryKnowledgeBase memoryFallback) {
+        seedWarmup = () -> {
+            List<KnowledgeDocument> all = seedDocuments();
+            memoryFallback.addDocumentsAndBuildIndexes(all);
+            log.info("[RagProd] 内存种子预热完成：{} 篇", all.size());
+        };
     }
 
     /**
@@ -187,11 +227,16 @@ public class RagProductionAutoConfiguration {
 
     /** 种子同步进 PG（增量 upsert，幂等） */
     private void seedToPg(PgVectorKnowledgeBase pg) {
+        List<KnowledgeDocument> all = seedDocuments();
+        pg.addDocuments(all);
+        log.info("[RagProd] 种子数据已同步 PG：{} 篇", all.size());
+    }
+
+    private List<KnowledgeDocument> seedDocuments() {
         List<KnowledgeDocument> all = new ArrayList<>();
         all.addAll(KnowledgeSeedData.productDocuments());
         all.addAll(KnowledgeSeedData.orderDocuments());
-        pg.addDocuments(all);
-        log.info("[RagProd] 种子数据已同步 PG：{} 篇", all.size());
+        return all;
     }
 
     /** Reranker：默认关闭；开启且有可用实例时以 SafeReranker 包装 */

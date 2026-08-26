@@ -36,8 +36,10 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -130,7 +132,9 @@ public class StreamChatController {
         RedisEventCursor progressCursor = new RedisEventCursor();
         Map<String, Object> decision = getRoutingDecision(
                 requestId, sessionId, message, deviceLocation, bus, progressCursor);
-        if (decision == null || !decision.containsKey("agentName")) {
+        if (decision == null || (!decision.containsKey("result")
+                && !decision.containsKey("workflowStatus")
+                && !decision.containsKey("agentName"))) {
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                     message, "unknown", null, startedAt, "FAILED");
             bus.sendError("路由决策获取失败，请稍后重试");
@@ -138,6 +142,9 @@ public class StreamChatController {
         }
 
         String agentName = (String) decision.get("agentName");
+        String executionMode = Objects.toString(decision.get("executionMode"), null);
+        List<String> participatingAgents = stringList(decision.get("participatingAgents"));
+        String workflowStatus = Objects.toString(decision.get("workflowStatus"), null);
         TokenUsageExtractor.TokenUsage tokenUsage = TokenUsageExtractor.extract(decision);
         ToolUsageCache.ToolUsage toolUsage = ToolUsageExtractor.extract(decision);
         Double confidence = (Double) decision.getOrDefault("confidence", 0.0);
@@ -151,7 +158,8 @@ public class StreamChatController {
             bus.send(SseEvent.raw("init", initJson));
         } catch (Exception ignored) {
         }
-        bus.sendRouted(agentName, confidence);
+        bus.sendRouted(agentName, confidence, executionMode,
+                participatingAgents, workflowStatus);
 
         // Router 的 /api/router/route 已经完成 Agent 调用并返回最终结果。
         // 直接发送该结果，避免再次调用不存在或不兼容的 Agent SSE 端点。
@@ -159,11 +167,17 @@ public class StreamChatController {
         if (routedResult instanceof String result && !result.isBlank()) {
             try {
                 bus.sendProcessing();
-                String responseJson = objectMapper.writeValueAsString(Map.of(
-                        "type", "response",
-                        "content", result,
-                        "agentName", agentName,
-                        "sessionId", decisionKey != null ? decisionKey : ""));
+                Map<String, Object> responsePayload = new LinkedHashMap<>();
+                responsePayload.put("type", "response");
+                responsePayload.put("content", result);
+                if (agentName != null && !agentName.isBlank()) {
+                    responsePayload.put("agentName", agentName);
+                }
+                responsePayload.put("executionMode", executionMode);
+                responsePayload.put("participatingAgents", participatingAgents);
+                responsePayload.put("workflowStatus", workflowStatus);
+                responsePayload.put("sessionId", decisionKey != null ? decisionKey : "");
+                String responseJson = objectMapper.writeValueAsString(responsePayload);
                 bus.send(SseEvent.raw("response", responseJson));
                 injectTokenUsageEvent(bus, tokenUsage);
                 bus.sendDone();
@@ -204,6 +218,12 @@ public class StreamChatController {
         }
 
         // 流式支持检查
+        if (agentName == null || agentName.isBlank()) {
+            persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                    message, null, null, startedAt, "FAILED");
+            bus.sendError("路由结果缺少可直接调用的业务 Agent");
+            return;
+        }
         if (!agentStreamClient.isStreamingSupported(agentName)) {
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                     message, agentName, null, startedAt, "FAILED");
@@ -242,6 +262,11 @@ public class StreamChatController {
             }
             bus.close();
         }
+    }
+
+    private static List<String> stringList(Object value) {
+        if (!(value instanceof List<?> values)) return List.of();
+        return values.stream().filter(Objects::nonNull).map(Objects::toString).toList();
     }
 
     /** Emits the Router-provided token snapshot without consuming local state. */
