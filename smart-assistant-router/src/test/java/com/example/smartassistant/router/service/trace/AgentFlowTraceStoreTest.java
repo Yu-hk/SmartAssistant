@@ -28,7 +28,7 @@ class AgentFlowTraceStoreTest {
         store.complete("req-1", List.of(
                 new SubTaskResult("product", "查商品", "product", "商品结果", true),
                 new SubTaskResult("order", "查订单", "order", "订单结果", true)),
-                "orchestrator", 900);
+                List.of("product", "order"), 900);
 
         var snapshot = store.get("req-1").orElseThrow();
         assertEquals("completed", snapshot.status());
@@ -37,6 +37,10 @@ class AgentFlowTraceStoreTest {
                 "product".equals(edge.from()) && "order".equals(edge.to())));
         assertEquals("completed", snapshot.nodes().stream()
                 .filter(node -> "order".equals(node.id())).findFirst().orElseThrow().status());
+        var merger = snapshot.nodes().stream()
+                .filter(node -> "__result_merger__".equals(node.id())).findFirst().orElseThrow();
+        assertEquals("", merger.agent());
+        assertTrue(merger.summary().contains("product, order"));
         assertEquals(4, snapshot.nodes().size());
     }
 }

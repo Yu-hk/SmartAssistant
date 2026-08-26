@@ -1,5 +1,7 @@
 package com.example.smartassistant.router.service.taskanalysis;
 
+import com.example.smartassistant.common.skill.SkillPackage;
+import com.example.smartassistant.common.skill.SkillPackageManager;
 import com.example.smartassistant.router.service.core.ModelRoutingService;
 import com.example.smartassistant.router.service.agent.AgentPromptCatalogService;
 import com.example.smartassistant.router.service.evaluation.IntentEvaluationService;
@@ -63,10 +65,10 @@ class TaskAnalysisPromptTest {
         assertTrue(prompt.contains("DISCOVER_PRODUCTS"));
         assertTrue(prompt.contains("ANALYZE_PRODUCT_DATA"));
         assertTrue(prompt.contains("RECOMMEND_PRODUCT"));
-        assertTrue(prompt.contains("CREATE_ORDER 必须依赖 RECOMMEND_PRODUCT"));
         assertTrue(prompt.contains("仅输出一个合法 JSON 对象"));
         assertTrue(prompt.contains("从 Nacos 的健康实例缓存中发现 Agent"));
         assertTrue(prompt.contains("{{NACOS_AGENT_CATALOG}}"));
+        assertFalse(prompt.contains("## 商品推荐并下单的强制链路"));
     }
 
     @Test
@@ -86,5 +88,37 @@ class TaskAnalysisPromptTest {
         assertTrue(prompt.contains("route_name=product"));
         assertTrue(prompt.contains("service_name=product-service"));
         assertFalse(prompt.contains("{{NACOS_AGENT_CATALOG}}"));
+    }
+
+    @Test
+    void injectsPlanningSkillFromRetrievedIntentWithoutKeywordRouting() throws Exception {
+        IntentRetriever retriever = mock(IntentRetriever.class);
+        IntentDef product = new IntentDef("PRODUCT", "商品", "商品推荐",
+                List.of(), "示例", "相关工具");
+        when(retriever.retrieve("任意表达", 3)).thenReturn(List.of(product));
+        when(retriever.buildIntentSection(List.of(product))).thenReturn("intent-section");
+        TaskAnalysisService service = new TaskAnalysisService(
+                mock(ModelRoutingService.class), mock(IntentEvaluationService.class),
+                retriever, mock(RouterStageAwareService.class), null);
+        Field prompt = TaskAnalysisService.class.getDeclaredField("systemPrompt");
+        prompt.setAccessible(true);
+        prompt.set(service, "base-prompt");
+        SkillPackageManager manager = new SkillPackageManager();
+        manager.register(SkillPackage.builder("route-product", "商品链")
+                .instruction("DISCOVER_PRODUCTS -> ANALYZE_PRODUCT_DATA -> RECOMMEND_PRODUCT")
+                .addTriggerOperation("PRODUCT")
+                .build());
+        manager.bind("route-product", "router-service");
+        Field managerField = TaskAnalysisService.class.getDeclaredField("skillPackageManager");
+        managerField.setAccessible(true);
+        managerField.set(service, manager);
+        Method method = TaskAnalysisService.class.getDeclaredMethod(
+                "buildDynamicPrompt", String.class, List.class);
+        method.setAccessible(true);
+
+        String result = (String) method.invoke(service, "任意表达", List.of());
+
+        assertTrue(result.contains("【技能：route-product@1.0.0"));
+        assertTrue(result.contains("DISCOVER_PRODUCTS -> ANALYZE_PRODUCT_DATA -> RECOMMEND_PRODUCT"));
     }
 }

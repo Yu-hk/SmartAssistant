@@ -1,0 +1,143 @@
+# Order Agent 运行时技能。写操作的鉴权、幂等和审批仍由代码层保证。
+skill-package:
+  enabled: true
+  packages:
+    - id: order-detail-query
+      name: 订单详情查询
+      description: 按明确订单号查询真实订单详情与状态
+      version: "1.0.0"
+      priority: 90
+      tags: [order, query]
+      trigger-operations: [QUERY_ORDER]
+      match-terms: [订单详情, 订单状态, 订单号, 查订单]
+      required-tools: [queryOrder]
+      instruction: |
+        只有明确订单号时调用 queryOrder；订单号缺失时先询问，不得猜测。
+        “我的订单、历史订单、订单列表”属于 QUERY_ORDER_LIST，应走确定性列表接口，不得用单订单查询模拟列表。
+      bind-agents: [order-service]
+
+    - id: order-create
+      name: 创建订单
+      description: 在资料齐全且用户明确确认后创建订单
+      version: "1.0.0"
+      priority: 85
+      tags: [order, write]
+      trigger-operations: [CREATE_ORDER]
+      match-terms: [下单, 创建订单, 购买这个]
+      required-tools: [createOrder]
+      instruction: |
+        创建前必须具有真实 userId、商品名称、金额、收货人、电话和地址；缺少任一字段时只补全信息。
+        商品和金额必须来自已核实推荐或用户明确输入，用户明确确认后才可调用 createOrder。
+      bind-agents: [order-service]
+
+    - id: order-payment
+      name: 订单支付
+      description: 查询订单并通过二次确认完成支付
+      version: "1.0.0"
+      priority: 85
+      tags: [order, payment, write]
+      trigger-operations: [PAY_ORDER, QUERY_PAYMENT_PENDING]
+      match-terms: [支付, 付款, 确认支付, 待确认支付]
+      required-tools: [queryOrder, payOrder, confirmAction]
+      instruction: |
+        先 queryOrder 核对状态；payOrder 返回确认提醒后，展示金额和方式并等待用户明确确认。
+        确认后调用 confirmAction(orderId, "payment")，再调用 payOrder 完成支付；查询待确认项不得创建新的支付确认。
+      bind-agents: [order-service]
+
+    - id: order-cancellation
+      name: 取消订单
+      description: 校验状态后取消订单
+      version: "1.0.0"
+      priority: 80
+      tags: [order, cancel, write]
+      trigger-operations: [CANCEL_ORDER]
+      match-terms: [取消订单, 不要了]
+      required-tools: [queryOrder, cancelOrder]
+      instruction: |
+        先查询订单；只有待付款或待发货状态才能取消，并要求用户提供真实取消原因。
+        状态不允许时解释工具返回的业务原因，不得声称已取消。
+      bind-agents: [order-service]
+
+    - id: order-refund
+      name: 订单退款
+      description: 查询订单并通过二次确认提交退款
+      version: "1.0.0"
+      priority: 80
+      tags: [order, refund, write]
+      trigger-operations: [REFUND_ORDER]
+      match-terms: [退款, 退货, 申请售后]
+      required-tools: [queryOrder, applyRefund, confirmAction]
+      instruction: |
+        先 queryOrder，再调用 applyRefund；出现确认提醒时展示操作和原因并等待用户明确确认。
+        确认后调用 confirmAction(orderId, "refund")，再调用 applyRefund；不得编造法律条款或到账时间。
+      bind-agents: [order-service]
+
+    - id: order-fulfillment
+      name: 订单履约与物流
+      description: 发货、物流查询和确认收货
+      version: "1.0.0"
+      priority: 75
+      tags: [order, fulfillment]
+      trigger-operations: [SHIP_ORDER, TRACK_LOGISTICS, CONFIRM_DELIVERY]
+      match-terms: [发货, 物流, 快递, 运单, 确认收货, 签收]
+      required-tools: [queryOrder, shipOrder, trackLogistics, confirmDelivery]
+      instruction: |
+        发货前核对订单状态并要求物流公司和真实运单号；物流轨迹只通过 trackLogistics 查询。
+        确认收货前先核对订单已发货，严格遵守支付 → 发货 → 物流 → 确认收货的状态顺序。
+      bind-agents: [order-service]
+
+    - id: order-data-analysis
+      name: 订单经营数据分析
+      description: 基于真实只读统计结果分析订单、销量、退款和物流数据
+      version: "1.0.0"
+      enabled: ${order.agent.extended-tools-enabled:false}
+      priority: 60
+      tags: [order, analytics]
+      match-terms: [统计, 销量, 销售额, 趋势, 各状态, 退款排行]
+      required-tools: [queryOrdersByStatus, countOrdersByStatus, queryTopRefunds, queryUserRefunds, textToSql]
+      instruction: |
+        先调用参数化统计工具；只有参数化工具不能回答的只读问题才使用 textToSql。
+        所有结论必须附带工具返回的数值或范围；数据不足、口径不明或异常时明确说明，不得臆造数字。
+      bind-agents: [order-service]
+
+    - id: order-policy-knowledge
+      name: 订单政策问答
+      description: 查询退换货、发货和支付政策
+      version: "1.0.0"
+      enabled: ${order.agent.extended-tools-enabled:false}
+      priority: 50
+      tags: [order, knowledge]
+      match-terms: [政策, 条件, 规则, 多久到账, 发货时效, 支付方式]
+      required-tools: [queryOrderKnowledge]
+      instruction: |
+        政策类问题先调用 queryOrderKnowledge，只引用检索结果中真实存在的规则。
+        咨询流程属于只读回答，不得因为文本出现退款、取消等词而执行写操作。
+      bind-agents: [order-service]
+
+    - id: order-coupon
+      name: 订单优惠券
+      description: 查询优惠券并计算真实可用的优惠方案
+      version: "1.0.0"
+      enabled: ${order.agent.extended-tools-enabled:false}
+      priority: 45
+      tags: [order, coupon]
+      match-terms: [优惠券, 优惠, 最省钱]
+      required-tools: [queryUserCoupons, findBestCoupon]
+      instruction: |
+        使用 queryUserCoupons 查询列表，使用 findBestCoupon 基于真实金额计算方案。
+        优惠结果必须先展示给用户确认，不得自行修改商品原价或虚构优惠。
+      bind-agents: [order-service]
+
+    - id: order-preference-memory
+      name: 订单偏好记忆
+      description: 读取或保存用户明确表达的长期订单偏好
+      version: "1.0.0"
+      enabled: ${order.agent.extended-tools-enabled:false}
+      priority: 40
+      tags: [order, memory]
+      match-terms: [偏好, 常用, 以后都, 支付方式]
+      required-tools: [savePreference, recallMemories]
+      instruction: |
+        只保存明确且可复用的长期偏好，不保存订单号或临时操作数据。
+        当前表达优先于历史记忆，过期偏好使用前应再次确认。
+      bind-agents: [order-service]

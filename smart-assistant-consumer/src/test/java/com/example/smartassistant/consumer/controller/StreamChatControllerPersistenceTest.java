@@ -21,16 +21,19 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -76,6 +79,39 @@ class StreamChatControllerPersistenceTest {
                 eq(42L), eq("session-a"), eq("北京天气"), eq("weather_service"),
                 eq("STREAM_ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("北京今天晴朗"),
                 eq(24L), eq(6L), eq(30L), eq("北京天气"), isNull());
+    }
+
+    @Test
+    void completedMultiAgentTurnDoesNotRequireOrInventAgentName() throws Exception {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+
+        when(routerClient.waitForDecisionFromRedis(eq("request-multi"), eq(60_000L), any(Runnable.class)))
+                .thenReturn(Map.of(
+                        "executionMode", "MULTI_AGENT",
+                        "participatingAgents", List.of("product", "order"),
+                        "workflowStatus", "COMPLETED",
+                        "confidence", 0.8,
+                        "intentTag", "product_order",
+                        "result", "已查询商品并生成订单"));
+        StreamChatController controller = new StreamChatController(
+                routerClient, agentStreamClient, requestQueueService,
+                routingCallLogService, null);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.streamChatPost(Map.of(
+                "message", "查询商品后创建订单",
+                "requestId", "request-multi",
+                "sessionId", "session-multi"), response);
+
+        String rendered = response.getContentAsString();
+        assertTrue(rendered.contains("\"executionMode\":\"MULTI_AGENT\""));
+        assertTrue(rendered.contains("\"participatingAgents\":[\"product\",\"order\"]"));
+        assertTrue(rendered.contains("已查询商品并生成订单"));
+        assertFalse(rendered.contains("\"agentName\""));
+        assertFalse(rendered.contains("orchestrator"));
+        verify(agentStreamClient, never()).isStreamingSupported(any());
     }
 
     @Test

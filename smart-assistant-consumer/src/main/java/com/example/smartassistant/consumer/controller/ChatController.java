@@ -145,6 +145,7 @@ public class ChatController {
                         Map<String, Object> map = new HashMap<>();
                         map.put("result", resultText != null ? resultText : "");
                         map.put("agentName", agentName);
+                        copyRoutingMetadata(routerMap, map);
                         map.put("fromCache", fromCache);
                         map.put("intentTag", intentTag);  // ⭐ 透传 intentTag
                         map.put("toolInvoked", toolInvoked);  // ⭐ 透传工具调用信号
@@ -166,6 +167,7 @@ public class ChatController {
                         Map<String, Object> map = new HashMap<>();
                         map.put("result", resultText != null ? resultText : "");
                         map.put("agentName", agentName);
+                        copyRoutingMetadata(routerMap, map);
                         map.put("fromCache", fromCache);
                         map.put("intentTag", intentTag);
                         map.put("toolInvoked", toolInvoked);
@@ -240,6 +242,9 @@ public class ChatController {
                         .suggestions(suggestions)
                         .sessionId(Objects.toString(routerResponse.get("sessionId"), sessionId))
                         .agentName((String) routerResponse.get("agentName"))
+                        .executionMode((String) routerResponse.get("executionMode"))
+                        .participatingAgents(stringList(routerResponse.get("participatingAgents")))
+                        .workflowStatus((String) routerResponse.get("workflowStatus"))
                         .intentTag((String) routerResponse.get("intentTag"))
                         .fromCache((Boolean) routerResponse.getOrDefault("fromCache", false))
                         .toolInvoked((Boolean) routerResponse.getOrDefault("toolInvoked", false))
@@ -251,6 +256,18 @@ public class ChatController {
 
                 return Mono.just(ApiResponse.success(chatResp));
             });
+    }
+
+    private static void copyRoutingMetadata(Map<String, Object> source,
+                                            Map<String, Object> target) {
+        target.put("executionMode", source.get("executionMode"));
+        target.put("participatingAgents", source.getOrDefault("participatingAgents", List.of()));
+        target.put("workflowStatus", source.get("workflowStatus"));
+    }
+
+    private static List<String> stringList(Object value) {
+        if (!(value instanceof List<?> values)) return List.of();
+        return values.stream().filter(Objects::nonNull).map(Objects::toString).toList();
     }
 
     /*

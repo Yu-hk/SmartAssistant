@@ -132,6 +132,33 @@ public class SkillPackageManager {
                 .map(skillPackages::get)
                 .filter(Objects::nonNull)
                 .filter(SkillPackage::isEnabled)
+                .sorted(skillOrder())
+                .toList();
+    }
+
+    /**
+     * Selects request-relevant skills and expands their declared dependencies.
+     * Structured operation/tag matches take precedence; query terms are only a
+     * compatibility path for direct calls that do not carry routing metadata.
+     */
+    public List<SkillPackage> selectAgentSkills(String agentId, SkillSelectionContext context) {
+        if (context == null) return getAgentSkills(agentId);
+
+        List<SkillPackage> bound = getAgentSkills(agentId);
+        if (bound.isEmpty()) return List.of();
+
+        LinkedHashMap<String, SkillPackage> selected = new LinkedHashMap<>();
+        int directMatches = 0;
+        for (SkillPackage skill : bound) {
+            if (matches(skill, context) && toolsAvailable(skill, context)) {
+                if (directMatches >= context.getMaxSkills()) break;
+                addWithDependencies(skill, agentId, context, selected, new HashSet<>());
+                directMatches++;
+            }
+        }
+
+        return selected.values().stream()
+                .sorted(skillOrder())
                 .toList();
     }
 
@@ -160,11 +187,50 @@ public class SkillPackageManager {
      * @return 技能注入 prompt 文本，无技能时返回空字符串
      */
     public String buildAgentSkillPrompt(String agentId) {
-        List<SkillPackage> skills = getAgentSkills(agentId);
+        return buildSkillPrompt(getAgentSkills(agentId));
+    }
+
+    /** Builds a request-scoped prompt containing only matched, valid skills. */
+    public String buildAgentSkillPrompt(String agentId, SkillSelectionContext context) {
+        return buildSkillPrompt(selectAgentSkills(agentId, context));
+    }
+
+    /**
+     * Validates that all enabled skills bound to an Agent reference existing
+     * dependencies and real runtime tools.
+     */
+    public List<String> validateAgentSkills(String agentId, Collection<String> availableTools) {
+        Set<String> tools = normalize(availableTools);
+        List<String> errors = new ArrayList<>();
+        for (SkillPackage skill : getAgentSkills(agentId)) {
+            for (String dependency : skill.getDependencies()) {
+                SkillPackage dependencySkill = skillPackages.get(dependency);
+                if (dependencySkill == null || !dependencySkill.isEnabled()
+                        || !dependencySkill.isBoundTo(agentId)) {
+                    errors.add("skill=" + skill.getId() + " 缺少已启用依赖 " + dependency);
+                }
+            }
+            for (String requiredTool : skill.getRequiredTools()) {
+                if (!tools.contains(normalize(requiredTool))) {
+                    errors.add("skill=" + skill.getId() + " 引用了不可用工具 " + requiredTool);
+                }
+            }
+        }
+        return List.copyOf(errors);
+    }
+
+    public void requireValidAgentSkills(String agentId, Collection<String> availableTools) {
+        List<String> errors = validateAgentSkills(agentId, availableTools);
+        if (!errors.isEmpty()) {
+            throw new IllegalStateException("Agent Skill 发布校验失败: " + String.join("; ", errors));
+        }
+    }
+
+    private String buildSkillPrompt(List<SkillPackage> skills) {
         if (skills.isEmpty()) return "";
 
         StringBuilder sb = new StringBuilder();
-        sb.append("\n=== 技能包指令 ===\n");
+        sb.append("\n=== 本次请求已激活技能 ===\n");
 
         for (SkillPackage skill : skills) {
             String injection = skill.buildInjectionPrompt();
@@ -174,5 +240,79 @@ public class SkillPackageManager {
         }
 
         return sb.toString();
+    }
+
+    private boolean matches(SkillPackage skill, SkillSelectionContext context) {
+        if (skill.isAlwaysApply()) return true;
+
+        boolean hasSelectors = !skill.getTriggerOperations().isEmpty()
+                || !skill.getTriggerTags().isEmpty()
+                || !skill.getMatchTerms().isEmpty();
+        if (!hasSelectors) return true; // backwards compatible packages
+
+        for (String operation : skill.getTriggerOperations()) {
+            if (context.containsOperation(operation)
+                    || containsIgnoreCase(context.getQuery(), operation)) return true;
+        }
+        for (String tag : skill.getTriggerTags()) {
+            if (context.containsTag(tag)) return true;
+        }
+        for (String term : skill.getMatchTerms()) {
+            if (containsIgnoreCase(context.getQuery(), term)) return true;
+        }
+        return false;
+    }
+
+    private boolean toolsAvailable(SkillPackage skill, SkillSelectionContext context) {
+        if (!context.hasAvailableToolCatalog()) return true;
+        for (String requiredTool : skill.getRequiredTools()) {
+            if (!context.containsTool(requiredTool)) {
+                log.warn("[SkillManager] 跳过技能 {}：本次请求缺少工具 {}", skill.getId(), requiredTool);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void addWithDependencies(SkillPackage skill, String agentId,
+                                     SkillSelectionContext context,
+                                     Map<String, SkillPackage> selected,
+                                     Set<String> visiting) {
+        if (!visiting.add(skill.getId())) {
+            log.warn("[SkillManager] 检测到循环依赖: {}", skill.getId());
+            return;
+        }
+        for (String dependencyId : skill.getDependencies()) {
+            SkillPackage dependency = skillPackages.get(dependencyId);
+            if (dependency != null && dependency.isEnabled() && dependency.isBoundTo(agentId)
+                    && toolsAvailable(dependency, context)) {
+                addWithDependencies(dependency, agentId, context, selected, visiting);
+            }
+        }
+        selected.putIfAbsent(skill.getId(), skill);
+        visiting.remove(skill.getId());
+    }
+
+    private static Comparator<SkillPackage> skillOrder() {
+        return Comparator.comparingInt(SkillPackage::getPriority).reversed()
+                .thenComparing(SkillPackage::getId);
+    }
+
+    private static boolean containsIgnoreCase(String value, String expected) {
+        return value != null && expected != null && !expected.isBlank()
+                && value.toLowerCase(Locale.ROOT).contains(expected.toLowerCase(Locale.ROOT));
+    }
+
+    private static Set<String> normalize(Collection<String> values) {
+        if (values == null) return Set.of();
+        Set<String> normalized = new HashSet<>();
+        for (String value : values) {
+            if (value != null && !value.isBlank()) normalized.add(normalize(value));
+        }
+        return normalized;
+    }
+
+    private static String normalize(String value) {
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 }

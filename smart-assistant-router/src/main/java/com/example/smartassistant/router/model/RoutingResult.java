@@ -15,6 +15,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
  * 路由执行结果
  */
@@ -29,10 +31,20 @@ public class RoutingResult {
      */
     private String result;
 
-    /**
-     * 目标 Agent 名称
-     */
+    /** The single registered business Agent responsible for the result, if any. */
     private String agentName;
+
+    /** How the final response was produced; this is not an Agent identity. */
+    @Builder.Default
+    private ExecutionMode executionMode = ExecutionMode.SINGLE_AGENT;
+
+    /** Registered business Agents that participated in producing the result. */
+    @Builder.Default
+    private List<String> participatingAgents = List.of();
+
+    /** Current workflow lifecycle state, independent from Agent identity. */
+    @Builder.Default
+    private WorkflowStatus workflowStatus = WorkflowStatus.COMPLETED;
 
     /**
      * 置信度 (0.0 - 1.0)
@@ -83,5 +95,20 @@ public class RoutingResult {
      * 情绪安抚/求助引导话术（可注入回复）
      */
     private String emotionGuidance;
+
+    public enum ExecutionMode {
+        SINGLE_AGENT,
+        MULTI_AGENT,
+        BUILTIN,
+        FALLBACK
+    }
+
+    public enum WorkflowStatus {
+        COMPLETED,
+        AWAITING_APPROVAL,
+        CLARIFICATION,
+        DEGRADED,
+        FAILED
+    }
 
 }

@@ -37,6 +37,15 @@ public class ChatResponse {
     /** 处理的 Agent 名称 */
     private String agentName;
 
+    /** SINGLE_AGENT / MULTI_AGENT / BUILTIN / FALLBACK. */
+    private String executionMode;
+
+    /** Registered business Agents participating in the response. */
+    private List<String> participatingAgents;
+
+    /** COMPLETED / AWAITING_APPROVAL / CLARIFICATION / DEGRADED / FAILED. */
+    private String workflowStatus;
+
     /** 意图标签 */
     private String intentTag;
 

@@ -16,6 +16,10 @@ spring:
       enabled: true
   application:
     name: router-service
+
+  # 加载版本化规划 Skill；具体 Skill 由 BGE 意图检索结果按请求选择。
+  config:
+    import: classpath:skill-packages.yml
   
   # 禁用 Spring Cloud 兼容性检查（Spring Boot 3.4.x 需要）
   cloud:

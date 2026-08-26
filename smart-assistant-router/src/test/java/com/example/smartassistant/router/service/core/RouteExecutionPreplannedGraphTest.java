@@ -1,6 +1,8 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.router.model.IntentGraph;
+import com.example.smartassistant.router.model.RoutingResult;
+import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.model.TaskAnalysisResult;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import org.junit.jupiter.api.Test;
@@ -341,6 +343,25 @@ class RouteExecutionPreplannedGraphTest {
     }
 
     @Test
+    void preservesExplicitReadOnlyOrderListOperation() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(Map.of(
+                "id", "query_order_list", "intent", "QUERY_ORDER_LIST",
+                "description", "查询当前用户的订单列表",
+                "target_agent", "order", "operation", "QUERY_ORDER_LIST",
+                "access_mode", "READ", "human_approval_required", false)));
+
+        var plan = RouteExecutionService.buildExecutionPlan(
+                "查询我的订单列表", analysis, "req-order-list");
+
+        assertNotNull(plan);
+        assertEquals("QUERY_ORDER_LIST", plan.nodes().getFirst().operation());
+        assertEquals(com.example.smartassistant.router.model.ExecutionPlan.AccessMode.READ,
+                plan.nodes().getFirst().accessMode());
+        assertFalse(plan.nodes().getFirst().approvalRequired());
+    }
+
+    @Test
     void compilesRecommendationToOrderAsEvidenceBackedSerialDag() {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setSubIntents(List.of(
@@ -417,22 +438,93 @@ class RouteExecutionPreplannedGraphTest {
 
     @Test
     void multiNodeSingleDomainResultBelongsToBusinessAgent() {
-        var status = new com.example.smartassistant.router.model.SubTaskResult(
+        var status = new SubTaskResult(
                 "t1", "查询订单状态", "order", "已发货", true);
-        var logistics = new com.example.smartassistant.router.model.SubTaskResult(
+        var logistics = new SubTaskResult(
                 "t2", "查询物流", "order", "顺丰运输中", true);
 
-        assertEquals("order", RouteExecutionService.determineResultOwner(List.of(status, logistics)));
+        var attribution = RouteExecutionService.determineResultAttribution(List.of(status, logistics));
+
+        assertEquals("order", attribution.agentName());
+        assertEquals(RoutingResult.ExecutionMode.SINGLE_AGENT, attribution.executionMode());
+        assertEquals(List.of("order"), attribution.participatingAgents());
+        assertEquals(RoutingResult.WorkflowStatus.COMPLETED, attribution.workflowStatus());
     }
 
     @Test
-    void crossDomainResultBelongsToOrchestrator() {
-        var product = new com.example.smartassistant.router.model.SubTaskResult(
+    void crossDomainResultUsesMultiAgentMetadataWithoutSyntheticAgent() {
+        var product = new SubTaskResult(
                 "t1", "查询商品", "product", "有库存", true);
-        var order = new com.example.smartassistant.router.model.SubTaskResult(
+        var order = new SubTaskResult(
                 "t2", "查询订单", "order", "已发货", true);
 
-        assertEquals("orchestrator", RouteExecutionService.determineResultOwner(List.of(product, order)));
+        var attribution = RouteExecutionService.determineResultAttribution(List.of(product, order));
+
+        assertNull(attribution.agentName());
+        assertEquals(RoutingResult.ExecutionMode.MULTI_AGENT, attribution.executionMode());
+        assertEquals(List.of("product", "order"), attribution.participatingAgents());
+        assertEquals(RoutingResult.WorkflowStatus.COMPLETED, attribution.workflowStatus());
+    }
+
+    @Test
+    void canonicalizesDiscoveredAgentAliasesInPublicAttribution() {
+        var product = new SubTaskResult(
+                "t1", "查询商品", "product_agent", "有库存", true);
+        var order = new SubTaskResult(
+                "t2", "查询订单", "order-service", "已发货", true);
+
+        var attribution = RouteExecutionService.determineResultAttribution(List.of(product, order));
+
+        assertNull(attribution.agentName());
+        assertEquals(RoutingResult.ExecutionMode.MULTI_AGENT, attribution.executionMode());
+        assertEquals(List.of("product", "order"), attribution.participatingAgents());
+        assertEquals(RoutingResult.WorkflowStatus.COMPLETED, attribution.workflowStatus());
+    }
+
+    @Test
+    void partialCrossDomainFailureUsesDegradedWorkflowStatus() {
+        var product = new SubTaskResult(
+                "t1", "查询商品", "product", "有库存", true);
+        var order = new SubTaskResult(
+                "t2", "查询订单", "order", "缺少订单号", false,
+                SubTaskResult.ErrorType.FATAL_FAILED);
+
+        var attribution = RouteExecutionService.determineResultAttribution(List.of(product, order));
+
+        assertNull(attribution.agentName());
+        assertEquals(RoutingResult.ExecutionMode.MULTI_AGENT, attribution.executionMode());
+        assertEquals(List.of("product", "order"), attribution.participatingAgents());
+        assertEquals(RoutingResult.WorkflowStatus.DEGRADED, attribution.workflowStatus());
+    }
+
+    @Test
+    void allFailedResultsUseFailedWorkflowStatus() {
+        var product = new SubTaskResult(
+                "t1", "查询商品", "product", "服务不可用", false,
+                SubTaskResult.ErrorType.RETRYABLE_FAILED);
+        var order = new SubTaskResult(
+                "t2", "查询订单", "order", "参数非法", false,
+                SubTaskResult.ErrorType.FATAL_FAILED);
+
+        var attribution = RouteExecutionService.determineResultAttribution(List.of(product, order));
+
+        assertNull(attribution.agentName());
+        assertEquals(RoutingResult.ExecutionMode.MULTI_AGENT, attribution.executionMode());
+        assertEquals(List.of("product", "order"), attribution.participatingAgents());
+        assertEquals(RoutingResult.WorkflowStatus.FAILED, attribution.workflowStatus());
+    }
+
+    @Test
+    void approvalResultIsWorkflowMetadataAndNotAnAgent() {
+        var approval = new SubTaskResult("approve", "确认支付", null, "请确认", true);
+        approval.setSystemNodeType(SubTaskResult.SystemNodeType.APPROVAL);
+
+        var attribution = RouteExecutionService.determineResultAttribution(List.of(approval));
+
+        assertNull(attribution.agentName());
+        assertEquals(RoutingResult.ExecutionMode.BUILTIN, attribution.executionMode());
+        assertEquals(List.of(), attribution.participatingAgents());
+        assertEquals(RoutingResult.WorkflowStatus.AWAITING_APPROVAL, attribution.workflowStatus());
     }
 
     @Test
