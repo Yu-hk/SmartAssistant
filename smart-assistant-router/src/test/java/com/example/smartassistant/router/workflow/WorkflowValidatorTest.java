@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.workflow;
 
 import com.example.smartassistant.router.model.IntentGraph;
+import com.example.smartassistant.router.model.ExecutionPlan;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -54,6 +55,54 @@ class WorkflowValidatorTest {
 
         assertFalse(result.valid());
         assertTrue(has(result, "LOOP_BUDGET_REQUIRED"));
+    }
+
+    @Test
+    void acceptsBindingFromDeclaredDependency() {
+        WorkflowDefinition.WorkflowNode source = node(
+                "analysis", "product", "ANALYZE_PRODUCT_DATA", List.of(), false, null, List.of());
+        WorkflowDefinition.WorkflowNode consumer = new WorkflowDefinition.WorkflowNode(
+                "recommend", WorkflowDefinition.NodeType.AGENT, "recommend", "product",
+                "RECOMMEND_PRODUCT", Map.of(), List.of("analysis"), List.of(),
+                "has sku", false, List.of(), null, true,
+                ExecutionPlan.MergePolicy.STRUCTURED, "recommendation.v1",
+                Map.of("analysis", "$.nodes.analysis.data.analysis"));
+
+        var result = validator.validate(workflow(List.of(source, consumer)), Set.of("product"));
+
+        assertTrue(result.valid(), () -> result.violations().toString());
+    }
+
+    @Test
+    void rejectsBindingFromUndeclaredDependency() {
+        WorkflowDefinition.WorkflowNode consumer = new WorkflowDefinition.WorkflowNode(
+                "recommend", WorkflowDefinition.NodeType.AGENT, "recommend", "product",
+                "RECOMMEND_PRODUCT", Map.of(), List.of(), List.of(),
+                "has sku", false, List.of(), null, true,
+                ExecutionPlan.MergePolicy.STRUCTURED, "recommendation.v1",
+                Map.of("analysis", "$.nodes.analysis.data.analysis"));
+
+        var result = validator.validate(workflow(List.of(consumer)), Set.of("product"));
+
+        assertFalse(result.valid());
+        assertTrue(has(result, "UNDECLARED_BINDING_SOURCE"));
+    }
+
+    @Test
+    void rejectsBindingExpressionNotSupportedByRuntime() {
+        WorkflowDefinition.WorkflowNode source = node(
+                "analysis", "product", "ANALYZE_PRODUCT_DATA", List.of(), false, null, List.of());
+        WorkflowDefinition.WorkflowNode consumer = new WorkflowDefinition.WorkflowNode(
+                "recommend", WorkflowDefinition.NodeType.AGENT, "recommend", "product",
+                "RECOMMEND_PRODUCT", Map.of(), List.of("analysis"), List.of(),
+                "has sku", false, List.of(), null, true,
+                ExecutionPlan.MergePolicy.STRUCTURED, "recommendation.v1",
+                Map.of("analysis", "$.nodes.analysis.payload.analysis"));
+
+        var result = validator.validate(workflow(List.of(source, consumer)), Set.of("product"));
+
+        assertFalse(result.valid());
+        assertTrue(has(result, "INVALID_INPUT_BINDING"));
     }
 
     private static boolean has(WorkflowValidationResult result, String code) {

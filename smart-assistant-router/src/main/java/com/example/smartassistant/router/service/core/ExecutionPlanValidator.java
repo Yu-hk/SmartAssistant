@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.router.model.ExecutionPlan;
+import com.example.smartassistant.router.model.InputBindingExpression;
 import com.example.smartassistant.router.model.IntentGraph;
 
 import java.util.ArrayDeque;
@@ -43,6 +44,8 @@ final class ExecutionPlanValidator {
                     && (node.idempotencyKey() == null || node.idempotencyKey().isBlank())) {
                 errors.add("write node has no idempotency key: " + node.nodeId());
             }
+            validateBindingSources(node.nodeId(), node.dependsOn(),
+                    node.inputBindings(), errors);
         }
 
         validateDependencies(plan.nodes().stream().collect(
@@ -50,7 +53,46 @@ final class ExecutionPlanValidator {
                         ExecutionPlan.TaskNode::nodeId,
                         ExecutionPlan.TaskNode::dependsOn,
                         (left, right) -> left)), ids, errors);
+        validateProductRecommendationChain(plan.nodes(), errors);
         return new ValidationResult(errors.isEmpty(), List.copyOf(errors));
+    }
+
+    /** Ensures evidence flows forward instead of allowing recommendation nodes to invent inputs. */
+    private static void validateProductRecommendationChain(List<ExecutionPlan.TaskNode> nodes,
+                                                            List<String> errors) {
+        Map<String, ExecutionPlan.TaskNode> byId = nodes.stream().collect(
+                java.util.stream.Collectors.toMap(ExecutionPlan.TaskNode::nodeId, node -> node));
+        boolean hasRecommendation = nodes.stream()
+                .anyMatch(node -> "RECOMMEND_PRODUCT".equals(node.operation()));
+
+        for (ExecutionPlan.TaskNode node : nodes) {
+            if ("ANALYZE_PRODUCT_DATA".equals(node.operation())
+                    && !dependsOnOperation(node, byId, Set.of("DISCOVER_PRODUCTS", "QUERY_PRODUCT"))) {
+                errors.add("product analysis must depend on discovered product data: " + node.nodeId());
+            }
+            if ("RECOMMEND_PRODUCT".equals(node.operation())) {
+                if (!dependsOnOperation(node, byId, Set.of("ANALYZE_PRODUCT_DATA"))) {
+                    errors.add("product recommendation must depend on product analysis: " + node.nodeId());
+                }
+                if (!dependsOnOperation(node, byId, Set.of("DISCOVER_PRODUCTS", "QUERY_PRODUCT"))) {
+                    errors.add("product recommendation must retain candidate product evidence: " + node.nodeId());
+                }
+            }
+            if (hasRecommendation && "CREATE_ORDER".equals(node.operation())
+                    && !dependsOnOperation(node, byId, Set.of("RECOMMEND_PRODUCT"))) {
+                errors.add("order creation must depend on confirmed recommendation: " + node.nodeId());
+            }
+        }
+    }
+
+    private static boolean dependsOnOperation(ExecutionPlan.TaskNode node,
+                                              Map<String, ExecutionPlan.TaskNode> byId,
+                                              Set<String> operations) {
+        return node.dependsOn().stream()
+                .map(byId::get)
+                .filter(java.util.Objects::nonNull)
+                .map(ExecutionPlan.TaskNode::operation)
+                .anyMatch(operations::contains);
     }
 
     static ValidationResult validateGraph(IntentGraph graph, Set<String> allowedAgents) {
@@ -74,6 +116,8 @@ final class ExecutionPlanValidator {
             }
             if (!ids.add(node.getId())) errors.add("duplicate node id: " + node.getId());
             dependencies.put(node.getId(), node.getDependsOn());
+            validateBindingSources(node.getId(), node.getDependsOn(),
+                    node.getInputBindings(), errors);
             if (node.getTargetAgent() == null || node.getTargetAgent().isBlank()) {
                 errors.add("node has no target agent: " + node.getId());
             } else if (allowedAgents != null && !allowedAgents.isEmpty()
@@ -83,6 +127,29 @@ final class ExecutionPlanValidator {
         }
         validateDependencies(dependencies, ids, errors);
         return new ValidationResult(errors.isEmpty(), List.copyOf(errors));
+    }
+
+    private static void validateBindingSources(String nodeId, List<String> dependencies,
+                                               Map<String, String> bindings,
+                                               List<String> errors) {
+        if (bindings == null || bindings.isEmpty()) return;
+        Set<String> declared = dependencies != null ? Set.copyOf(dependencies) : Set.of();
+        bindings.forEach((target, expression) -> {
+            if (target == null || target.isBlank()) {
+                errors.add("invalid input binding for " + nodeId);
+                return;
+            }
+            try {
+                InputBindingExpression.Parsed binding =
+                        InputBindingExpression.parse(expression);
+                if (!declared.contains(binding.sourceNodeId())) {
+                    errors.add("binding source " + binding.sourceNodeId()
+                            + " is not a dependency of " + nodeId);
+                }
+            } catch (IllegalArgumentException error) {
+                errors.add("invalid input binding for " + nodeId + ": " + error.getMessage());
+            }
+        });
     }
 
     private static void validateDependencies(Map<String, List<String>> dependencies,

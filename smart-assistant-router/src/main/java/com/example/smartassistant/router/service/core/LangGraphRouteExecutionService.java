@@ -1,10 +1,12 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.router.model.HandoffCommand;
+import com.example.smartassistant.router.model.ExecutionPlan;
 import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.checkpoint.LangGraphRedisCheckpointSaver;
+import com.example.smartassistant.common.quality.DomainQualityResult;
 import org.bsc.langgraph4j.CompileConfig;
 import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.GraphInput;
@@ -223,9 +225,11 @@ public class LangGraphRouteExecutionService {
                 .findFirst().orElse(null);
         if (approval == null) return;
         String taskId = approval.getId() + ":approval";
-        context.put(new SubTaskResult(taskId, approval.getDescription(), "builtin_approval",
+        SubTaskResult approvalResult = new SubTaskResult(taskId, approval.getDescription(), null,
                 "该操作会修改业务数据，需要你明确确认后才能继续执行："
-                        + approval.getDescription(), true));
+                        + approval.getDescription(), true);
+        approvalResult.setSystemNodeType(SubTaskResult.SystemNodeType.APPROVAL);
+        context.put(approvalResult);
     }
 
     @SuppressWarnings("unchecked")
@@ -253,13 +257,21 @@ public class LangGraphRouteExecutionService {
                 }
                 SubTaskResult restored = new SubTaskResult(taskId,
                         Objects.toString(map.get("description"), ""),
-                        Objects.toString(map.get("agentName"), ""),
+                        nullableString(map.get("agentName")),
                         Objects.toString(map.get("result"), ""), success, errorType);
                 if (map.get("data") instanceof Map<?, ?> data) {
                     Map<String, Object> restoredData = new LinkedHashMap<>();
                     data.forEach((key, item) -> restoredData.put(Objects.toString(key), item));
                     restored.setStructuredData(restoredData);
                 }
+                restored.setRequired(Boolean.parseBoolean(
+                        Objects.toString(map.get("required"), "true")));
+                restored.setMergePolicy(mergePolicy(map.get("mergePolicy")));
+                restored.setOutputSchema(nullableString(map.get("outputSchema")));
+                restored.setDomainQuality(new DomainQualityResult(
+                        qualityStatus(map.get("qualityStatus")),
+                        doubleValue(map.get("qualityScore"), 0.5),
+                        stringList(map.get("qualityReasonCodes"))));
                 if (map.get("handoff") instanceof Map<?, ?> handoff) {
                     try {
                         restored.setHandoffCommand(new HandoffCommand(
@@ -404,10 +416,11 @@ public class LangGraphRouteExecutionService {
         SubTaskResult result = nodeExecutor.execute(node, completed, context.breakerFailures,
                 context.userId, context.eventsKey, context.requestId,
                 context.graph.getWorkflowKey(), context.graph.getWorkflowVersion(),
-                context.graph.getWorkflowChecksum());
+                context.graph.getWorkflowChecksum(), context.graph.getQuestion());
         if (result == null) {
             throw new IllegalStateException("Graph node returned no result: " + node.getId());
         }
+        applyNodeContract(node, result);
         context.put(result);
         return Map.of(RESULTS, List.of(resultState(result)),
                 COMPLETED_IDS, List.of(node.getId()));
@@ -497,11 +510,19 @@ public class LangGraphRouteExecutionService {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("taskId", result.getTaskId());
         state.put("description", result.getDescription());
-        state.put("agentName", result.getAgentName());
+        if (result.getAgentName() != null && !result.getAgentName().isBlank()) {
+            state.put("agentName", result.getAgentName());
+        }
         state.put("result", result.getResult());
         state.put("success", result.isSuccess());
         state.put("errorType", result.getErrorType().name());
         state.put("data", result.getStructuredData());
+        state.put("required", result.isRequired());
+        state.put("mergePolicy", result.getMergePolicy().name());
+        state.put("outputSchema", Objects.toString(result.getOutputSchema(), ""));
+        state.put("qualityStatus", result.getDomainQuality().getStatus().name());
+        state.put("qualityScore", result.getDomainQuality().getScore());
+        state.put("qualityReasonCodes", result.getDomainQuality().getReasonCodes());
         if (result.hasHandoff()) {
             HandoffCommand command = result.getHandoffCommand();
             state.put("handoff", Map.of(
@@ -537,6 +558,11 @@ public class LangGraphRouteExecutionService {
             value.put("input", node.getInput());
             value.put("constraints", node.getConstraints());
             value.put("idempotencyKey", Objects.toString(node.getIdempotencyKey(), ""));
+            value.put("accessMode", node.getAccessMode());
+            value.put("required", node.isRequired());
+            value.put("mergePolicy", node.getMergePolicy().name());
+            value.put("outputSchema", Objects.toString(node.getOutputSchema(), ""));
+            value.put("inputBindings", node.getInputBindings());
             List<Map<String, Object>> conditions = node.getConditionalDeps().stream()
                     .map(condition -> {
                         Map<String, Object> item = new LinkedHashMap<>();
@@ -584,6 +610,7 @@ public class LangGraphRouteExecutionService {
             if (node.get("input") instanceof Map<?, ?> rawInput) {
                 rawInput.forEach((key, item) -> input.put(Objects.toString(key), item));
             }
+            Map<String, String> inputBindings = stringMap(node.get("inputBindings"));
             nodes.add(new IntentNode(
                     Objects.toString(node.get("id"), ""),
                     Objects.toString(node.get("description"), ""),
@@ -595,7 +622,12 @@ public class LangGraphRouteExecutionService {
                     Objects.toString(node.get("operation"), "ANSWER"),
                     input,
                     constraints,
-                    nullableString(node.get("idempotencyKey"))));
+                    nullableString(node.get("idempotencyKey")),
+                    Objects.toString(node.get("accessMode"), "READ"),
+                    Boolean.parseBoolean(Objects.toString(node.get("required"), "true")),
+                    mergePolicy(node.get("mergePolicy")),
+                    nullableString(node.get("outputSchema")),
+                    inputBindings));
         }
         int maxIterations = intValue(graph.get("maxGraphIterations"));
         return new IntentGraph(Objects.toString(graph.get("question"), ""), nodes, maxIterations);
@@ -604,6 +636,53 @@ public class LangGraphRouteExecutionService {
     private static List<String> stringList(Object value) {
         if (!(value instanceof List<?> values)) return List.of();
         return values.stream().map(Objects::toString).toList();
+    }
+
+    private static Map<String, String> stringMap(Object value) {
+        if (!(value instanceof Map<?, ?> values)) return Map.of();
+        Map<String, String> result = new LinkedHashMap<>();
+        values.forEach((key, item) -> {
+            if (key != null && item != null) {
+                result.put(Objects.toString(key), Objects.toString(item));
+            }
+        });
+        return result;
+    }
+
+    private static ExecutionPlan.MergePolicy mergePolicy(Object value) {
+        try {
+            return ExecutionPlan.MergePolicy.valueOf(
+                    Objects.toString(value, ExecutionPlan.MergePolicy.APPEND.name())
+                            .trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return ExecutionPlan.MergePolicy.APPEND;
+        }
+    }
+
+    private static DomainQualityResult.Status qualityStatus(Object value) {
+        try {
+            return DomainQualityResult.Status.valueOf(
+                    Objects.toString(value, DomainQualityResult.Status.UNKNOWN.name())
+                            .trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return DomainQualityResult.Status.UNKNOWN;
+        }
+    }
+
+    private static double doubleValue(Object value, double fallback) {
+        if (value instanceof Number number) return number.doubleValue();
+        if (value == null || value.toString().isBlank()) return fallback;
+        try {
+            return Double.parseDouble(value.toString());
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static void applyNodeContract(IntentNode node, SubTaskResult result) {
+        result.setRequired(node.isRequired());
+        result.setMergePolicy(node.getMergePolicy());
+        result.setOutputSchema(node.getOutputSchema());
     }
 
     private static Long longValue(Object value) {

@@ -28,6 +28,7 @@ import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
+import com.example.smartassistant.service.core.OrderDeterministicExecutionService;
 import com.example.smartassistant.service.core.OrderRagService;
 import com.example.smartassistant.service.quality.OrderDomainQualityValidator;
 import org.slf4j.Logger;
@@ -70,6 +71,7 @@ public class OrderAgentController {
     /** 上下文协调器：统一调度四层记忆预算 */
     private final ContextOrchestrator orchestrator;
     private final OrderDomainQualityValidator domainQualityValidator;
+    private final OrderDeterministicExecutionService deterministicExecutionService;
 
     /** ⭐ P1 全阶段 trace 记录器（可选，null 时跳过 trace） */
     @Autowired(required = false)
@@ -97,7 +99,17 @@ public class OrderAgentController {
                                 MemoryExtractor memoryExtractor,
                                 ContextOrchestrator orchestrator) {
         this(orderAgent, intentService, ragService, memoryExtractor, orchestrator,
-                new OrderDomainQualityValidator());
+                new OrderDomainQualityValidator(), null);
+    }
+
+    public OrderAgentController(SmartReActAgent orderAgent,
+                                OrderIntentService intentService,
+                                OrderRagService ragService,
+                                MemoryExtractor memoryExtractor,
+                                ContextOrchestrator orchestrator,
+                                OrderDomainQualityValidator domainQualityValidator) {
+        this(orderAgent, intentService, ragService, memoryExtractor, orchestrator,
+                domainQualityValidator, null);
     }
 
     @Autowired
@@ -106,13 +118,15 @@ public class OrderAgentController {
                                 OrderRagService ragService,
                                 MemoryExtractor memoryExtractor,
                                 ContextOrchestrator orchestrator,
-                                OrderDomainQualityValidator domainQualityValidator) {
+                                OrderDomainQualityValidator domainQualityValidator,
+                                OrderDeterministicExecutionService deterministicExecutionService) {
         this.orderAgent = orderAgent;
         this.intentService = intentService;
         this.ragService = ragService;
         this.memoryExtractor = memoryExtractor;
         this.orchestrator = orchestrator;
         this.domainQualityValidator = domainQualityValidator;
+        this.deterministicExecutionService = deterministicExecutionService;
     }
 
     /**
@@ -167,6 +181,24 @@ public class OrderAgentController {
                     AgentExecutionResponse.failure("EMPTY_ORDER_QUESTION",
                             "Question must not be blank", false));
         }
+
+        if (deterministicExecutionService != null
+                && deterministicExecutionService.supports(request.operation())) {
+            long startedAt = System.currentTimeMillis();
+            ToolUsageCache.start(requestId);
+            ToolLogContext.setRequestId(requestId);
+            ToolLogContext.setIdempotencyKey(request.idempotencyKey());
+            try {
+                AgentExecutionResponse response = deterministicExecutionService.execute(request);
+                log.info("[OrderFastPath] 统一协议快速执行完成: operation={}, requestId={}, status={}, elapsed={}ms",
+                        request.operation(), requestId, response.status(),
+                        System.currentTimeMillis() - startedAt);
+                return typedResponse(response, requestId);
+            } finally {
+                ToolLogContext.clear();
+            }
+        }
+
         Map<String, String> legacyRequest = new java.util.LinkedHashMap<>();
         legacyRequest.put("question", request.question());
         if (request.userId() != null) legacyRequest.put("userId", request.userId());
@@ -197,6 +229,29 @@ public class OrderAgentController {
         String toolUsage = ToolUsageHeaders.encode(ToolUsageCache.consume(requestId));
         if (toolUsage != null) builder.header(ToolUsageHeaders.TOOL_USAGE, toolUsage);
         return builder.body(AgentExecutionResponse.success(response.answer(), response.quality()));
+    }
+
+    private ResponseEntity<AgentExecutionResponse> typedResponse(
+            AgentExecutionResponse response, String requestId) {
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
+        if (response.quality() != null) {
+            builder.header(DomainQualityHeaders.STATUS, response.quality().status())
+                    .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().score()))
+                    .header(DomainQualityHeaders.REASON_CODES,
+                            String.join(",", response.quality().reasonCodes()));
+        }
+        TokenUsageCache.TokenUsage usage = TokenUsageCache.consume(requestId);
+        if (usage != null) {
+            if (usage.promptTokens() != null) builder.header(
+                    TokenUsageHeaders.PROMPT_TOKENS, String.valueOf(usage.promptTokens()));
+            if (usage.completionTokens() != null) builder.header(
+                    TokenUsageHeaders.COMPLETION_TOKENS, String.valueOf(usage.completionTokens()));
+            if (usage.totalTokens() != null) builder.header(
+                    TokenUsageHeaders.TOTAL_TOKENS, String.valueOf(usage.totalTokens()));
+        }
+        String toolUsage = ToolUsageHeaders.encode(ToolUsageCache.consume(requestId));
+        if (toolUsage != null) builder.header(ToolUsageHeaders.TOOL_USAGE, toolUsage);
+        return builder.body(response);
     }
 
     /** Backward-compatible entry point used by local callers and unit tests. */

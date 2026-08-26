@@ -16,6 +16,10 @@ spring:
       enabled: true
   application:
     name: router-service
+
+  # 加载版本化规划 Skill；具体 Skill 由 BGE 意图检索结果按请求选择。
+  config:
+    import: classpath:skill-packages.yml
   
   # 禁用 Spring Cloud 兼容性检查（Spring Boot 3.4.x 需要）
   cloud:
@@ -236,9 +240,12 @@ router:
 
     # ⭐ P4 Hot Agent + 调度配置（默认关闭）
     scheduler:
-      enabled: false                  # 设为 true 启用异步任务队列调度
+      enabled: false                  # 灰度开关；开启后 READ 节点通过 Redis 可靠队列调度
+      read-only-only: true            # 写节点保持同步，避免审批和副作用越过当前图事务
       worker-count: 4                 # Worker 线程数
-      poll-timeout: 10                # BRPOP 轮询超时（秒）
+      poll-timeout: 1                 # 必须短于 Redis 客户端命令超时，空队列不应记为异常
+      wait-timeout-ms: 65000          # LangGraph 等待节点结果的上限
+      hot-pool-enabled: false         # 可选附加消费池，默认避免重复扩容
 
     # ⭐ 语义路由缓存配置
     semantic-cache:
