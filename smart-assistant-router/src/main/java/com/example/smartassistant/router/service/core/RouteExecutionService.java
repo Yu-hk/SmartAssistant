@@ -10,6 +10,7 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
 import com.example.smartassistant.router.service.trace.AgentFlowTraceStore;
@@ -148,7 +149,10 @@ public class RouteExecutionService {
             long elapsed = System.currentTimeMillis() - start;
             log.info("[Collaborative] 降级单 Agent 完成: elapsed={}ms, replyLen={}", elapsed, reply.length());
             return routeFinalizer.applyEmotion(RoutingResult.builder()
-                    .result(reply).agentName(RouterFallbackAgentService.AGENT_NAME).confidence(1.0).build(), emotion);
+                    .result(reply).confidence(1.0)
+                    .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                    .workflowStatus(RoutingResult.WorkflowStatus.DEGRADED)
+                    .build(), emotion);
         }
 
         IntentGraph graph = buildGraphFromAnalysis(question, taskAnalysis, requestId);
@@ -179,7 +183,8 @@ public class RouteExecutionService {
         storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);
 
         boolean hasBuiltInOrderPreparation = results.stream()
-                .anyMatch(result -> BUILTIN_ORDER_PREPARATION_AGENT.equals(result.getAgentName()));
+                .anyMatch(result -> result.getSystemNodeType()
+                        == SubTaskResult.SystemNodeType.ORDER_PREPARATION);
         String merged = hasBuiltInOrderPreparation
                 ? mergeOrderPreparationResults(results)
                 : fallbackPlanned
@@ -187,9 +192,9 @@ public class RouteExecutionService {
                         : resultMerger.merge(question, results, requestId);
         long elapsed = System.currentTimeMillis() - start;
 
-        String resultOwner = determineResultOwner(results);
+        ResultAttribution attribution = determineResultAttribution(results);
         if (agentFlowTraceStore != null) {
-            agentFlowTraceStore.complete(flowId, results, resultOwner, elapsed);
+            agentFlowTraceStore.complete(flowId, results, attribution.participatingAgents(), elapsed);
         }
 
         boolean allFailed = results.isEmpty() || results.stream().noneMatch(SubTaskResult::isSuccess);
@@ -205,28 +210,77 @@ public class RouteExecutionService {
         DomainQualityResult domainQuality = aggregateDomainQuality(results);
 
         return routeFinalizer.applyEmotion(RoutingResult.builder()
-                .result(merged).agentName(resultOwner).confidence(0.8)
+                .result(merged).agentName(attribution.agentName()).confidence(0.8)
+                .executionMode(attribution.executionMode())
+                .participatingAgents(attribution.participatingAgents())
+                .workflowStatus(attribution.workflowStatus())
                 .domainQuality(domainQuality).build(), emotion);
     }
 
     /**
-     * Attributes a multi-node result to its only business Agent when every node
-     * belongs to the same domain. The orchestrator owns the result only when it
-     * actually combines multiple business domains.
+     * Separates registered business Agent identity from workflow metadata.
+     * Multi-Agent orchestration and built-in nodes never masquerade as agents.
      */
-    static String determineResultOwner(List<SubTaskResult> results) {
-        if (results == null || results.isEmpty()) return "none";
+    static ResultAttribution determineResultAttribution(List<SubTaskResult> results) {
+        if (results == null || results.isEmpty()) {
+            return new ResultAttribution(null, RoutingResult.ExecutionMode.BUILTIN,
+                    List.of(), RoutingResult.WorkflowStatus.FAILED);
+        }
+        boolean awaitingApproval = results.stream()
+                .anyMatch(result -> result.getSystemNodeType()
+                        == SubTaskResult.SystemNodeType.APPROVAL);
         List<String> businessAgents = results.stream()
                 .map(SubTaskResult::getAgentName)
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(agent -> !agent.isBlank())
-                .filter(agent -> !"none".equals(agent))
-                .filter(agent -> !BUILTIN_ORDER_PREPARATION_AGENT.equals(agent))
+                .filter(agent -> !isSystemResultAgent(agent))
+                .map(AgentDiscoveryService::canonicalAgentName)
+                .filter(agent -> !agent.isBlank())
                 .distinct()
                 .toList();
-        if (businessAgents.isEmpty()) return "none";
-        return businessAgents.size() == 1 ? businessAgents.getFirst() : "orchestrator";
+        boolean anySucceeded = results.stream().anyMatch(SubTaskResult::isSuccess);
+        boolean anyFailed = results.stream().anyMatch(result -> !result.isSuccess());
+        RoutingResult.WorkflowStatus status;
+        if (awaitingApproval) {
+            status = RoutingResult.WorkflowStatus.AWAITING_APPROVAL;
+        } else if (!anySucceeded) {
+            status = RoutingResult.WorkflowStatus.FAILED;
+        } else if (anyFailed) {
+            status = RoutingResult.WorkflowStatus.DEGRADED;
+        } else {
+            status = RoutingResult.WorkflowStatus.COMPLETED;
+        }
+        if (businessAgents.isEmpty()) {
+            return new ResultAttribution(null, RoutingResult.ExecutionMode.BUILTIN,
+                    List.of(), status);
+        }
+        if (businessAgents.size() == 1) {
+            return new ResultAttribution(businessAgents.getFirst(),
+                    RoutingResult.ExecutionMode.SINGLE_AGENT, businessAgents, status);
+        }
+        return new ResultAttribution(null, RoutingResult.ExecutionMode.MULTI_AGENT,
+                businessAgents, status);
+    }
+
+    static String determineResultOwner(List<SubTaskResult> results) {
+        return determineResultAttribution(results).agentName();
+    }
+
+    private static boolean isSystemResultAgent(String agentName) {
+        return "none".equalsIgnoreCase(agentName)
+                || agentName.startsWith("builtin_")
+                || RouterFallbackAgentService.AGENT_NAME.equalsIgnoreCase(agentName);
+    }
+
+    record ResultAttribution(String agentName,
+                             RoutingResult.ExecutionMode executionMode,
+                             List<String> participatingAgents,
+                             RoutingResult.WorkflowStatus workflowStatus) {
+        ResultAttribution {
+            participatingAgents = participatingAgents == null
+                    ? List.of() : List.copyOf(participatingAgents);
+        }
     }
 
     /** Uses LangGraph4j as the sole orchestration engine. */
@@ -498,7 +552,8 @@ public class RouteExecutionService {
                                                      String intentCategory) {
         String declared = Objects.toString(operation, "").trim().toUpperCase(Locale.ROOT);
         Set<String> allowed = Set.of("DISCOVER_PRODUCTS", "QUERY_PRODUCT",
-                "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT", "QUERY_ORDER", "QUERY_PAYMENT_PENDING", "CREATE_ORDER",
+                "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT", "QUERY_ORDER", "QUERY_ORDER_LIST",
+                "QUERY_PAYMENT_PENDING", "CREATE_ORDER",
                 "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER", "SHIP_ORDER",
                 "TRACK_LOGISTICS", "CONFIRM_DELIVERY", "ANSWER",
                 "EXPLAIN_ORDER_REQUIREMENTS", "EXPLAIN_ORDER_LIFECYCLE");
@@ -647,9 +702,19 @@ public class RouteExecutionService {
         if (agentReply == null || agentReply.isBlank()) {
             return null;
         }
+        String responseAgentName = isFallbackAgent(agentName)
+                ? null : AgentDiscoveryService.canonicalAgentName(agentName);
         RoutingResult result = RoutingResult.builder()
                 .result(agentReply)
-                .agentName(agentName)
+                .agentName(responseAgentName)
+                .executionMode(isFallbackAgent(agentName)
+                        ? RoutingResult.ExecutionMode.FALLBACK
+                        : RoutingResult.ExecutionMode.SINGLE_AGENT)
+                .participatingAgents(isFallbackAgent(agentName)
+                        ? List.of() : List.of(responseAgentName))
+                .workflowStatus(isFallbackAgent(agentName)
+                        ? RoutingResult.WorkflowStatus.DEGRADED
+                        : RoutingResult.WorkflowStatus.COMPLETED)
                 .confidence(confidence)
                 .intentTag(intentTag)
                 .domainQuality(domainQuality)
@@ -673,7 +738,10 @@ public class RouteExecutionService {
             String localReply = fallbackAgentService.execute(question, userId, deviceLocation);
             if (localReply != null && !localReply.isBlank()) {
                 return routeFinalizer.applyEmotion(RoutingResult.builder()
-                        .result(localReply).agentName(RouterFallbackAgentService.AGENT_NAME).confidence(0.2).build(), emotion);
+                        .result(localReply).confidence(0.2)
+                        .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                        .workflowStatus(RoutingResult.WorkflowStatus.DEGRADED)
+                        .build(), emotion);
             }
         } catch (Exception e) {
             log.warn("[Exec] 本地推理兜底失败: {}", e.getMessage());
@@ -681,7 +749,10 @@ public class RouteExecutionService {
 
         int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
         return routeFinalizer.applyEmotion(RoutingResult.builder()
-                .result(FALLBACK_MESSAGES.get(idx)).agentName("none").confidence(0.0).build(), emotion);
+                .result(FALLBACK_MESSAGES.get(idx)).confidence(0.0)
+                .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                .workflowStatus(RoutingResult.WorkflowStatus.FAILED)
+                .build(), emotion);
     }
 
     private static boolean isFallbackAgent(String agentName) {

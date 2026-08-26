@@ -75,7 +75,8 @@ class RouterControllerTokenUsageTest {
             worker.join();
             return RoutingResult.builder()
                     .result("北京天气晴")
-                    .agentName("router_fallback")
+                    .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                    .workflowStatus(RoutingResult.WorkflowStatus.DEGRADED)
                     .confidence(0.9)
                     .build();
         });
@@ -89,7 +90,39 @@ class RouterControllerTokenUsageTest {
 
         assertEquals(true, response.getToolUsageComplete());
         assertEquals("queryWeather", response.getToolCalls().getFirst().name());
+        assertNull(response.getAgentName());
+        assertEquals(RoutingResult.ExecutionMode.FALLBACK, response.getExecutionMode());
+        assertEquals(RoutingResult.WorkflowStatus.DEGRADED, response.getWorkflowStatus());
         assertNull(ToolLogContext.getRequestId());
         assertNull(ToolUsageCache.consume("router-virtual-tool-usage"));
+    }
+
+    @Test
+    void exposesMultiAgentAttributionWithoutSyntheticAgentName() {
+        RouterService routerService = mock(RouterService.class);
+        RouteRequest request = RouteRequest.builder()
+                .requestId("router-multi-agent")
+                .userId(1L)
+                .question("查询商品后创建订单")
+                .build();
+        when(routerService.route(request)).thenReturn(RoutingResult.builder()
+                .result("已查询商品并生成订单")
+                .executionMode(RoutingResult.ExecutionMode.MULTI_AGENT)
+                .participatingAgents(java.util.List.of("product", "order"))
+                .workflowStatus(RoutingResult.WorkflowStatus.COMPLETED)
+                .confidence(0.8)
+                .build());
+        RouterController controller = new RouterController(
+                routerService,
+                mock(DistributedTracingService.class),
+                mock(RoutingToolChecker.class),
+                null);
+
+        var response = controller.route(1L, request).getData();
+
+        assertNull(response.getAgentName());
+        assertEquals(RoutingResult.ExecutionMode.MULTI_AGENT, response.getExecutionMode());
+        assertEquals(java.util.List.of("product", "order"), response.getParticipatingAgents());
+        assertEquals(RoutingResult.WorkflowStatus.COMPLETED, response.getWorkflowStatus());
     }
 }

@@ -2,6 +2,7 @@ package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Publishes one routing result for the Consumer SSE coordinator. */
@@ -29,18 +31,29 @@ public class RoutingDecisionPublisher {
         this.objectMapper = objectMapper;
     }
 
-    public void publish(String requestId, String agentName, double confidence,
-                        String result, String intentTag,
+    public void publish(String requestId, RoutingResult routingResult,
                         TokenUsageCache.TokenUsage tokenUsage,
                         ToolUsageCache.ToolUsage toolUsage) {
-        if (redisTemplate == null || requestId == null || requestId.isBlank()) return;
+        if (redisTemplate == null || requestId == null || requestId.isBlank()
+                || routingResult == null) return;
         try {
             Map<String, Object> decision = new LinkedHashMap<>();
             decision.put("requestId", requestId);
-            decision.put("agentName", agentName);
-            decision.put("confidence", confidence);
-            decision.put("result", result);
-            decision.put("intentTag", intentTag);
+            if (routingResult.getAgentName() != null
+                    && !routingResult.getAgentName().isBlank()) {
+                decision.put("agentName", routingResult.getAgentName());
+            }
+            RoutingResult.ExecutionMode executionMode = routingResult.getExecutionMode() != null
+                    ? routingResult.getExecutionMode() : RoutingResult.ExecutionMode.BUILTIN;
+            RoutingResult.WorkflowStatus workflowStatus = routingResult.getWorkflowStatus() != null
+                    ? routingResult.getWorkflowStatus() : RoutingResult.WorkflowStatus.COMPLETED;
+            decision.put("executionMode", executionMode.name());
+            decision.put("participatingAgents", routingResult.getParticipatingAgents() != null
+                    ? routingResult.getParticipatingAgents() : List.of());
+            decision.put("workflowStatus", workflowStatus.name());
+            decision.put("confidence", routingResult.getConfidence());
+            decision.put("result", routingResult.getResult());
+            decision.put("intentTag", routingResult.getIntentTag());
             decision.put("timestamp", System.currentTimeMillis());
             if (tokenUsage != null) {
                 if (tokenUsage.promptTokens() != null) decision.put("promptTokens", tokenUsage.promptTokens());

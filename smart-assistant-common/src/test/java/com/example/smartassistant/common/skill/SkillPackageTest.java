@@ -3,6 +3,8 @@ package com.example.smartassistant.common.skill;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -144,5 +146,57 @@ class SkillPackageManagerTest {
         mgr.register(SkillPackage.builder("a", "A").instruction("").build());
         mgr.register(SkillPackage.builder("b", "B").instruction("").build());
         assertEquals(2, mgr.getAll().size());
+    }
+
+    @Test
+    @DisplayName("请求级选择应按 operation 命中并展开依赖")
+    void selectsByOperationAndExpandsDependencies() {
+        SkillPackageManager mgr = new SkillPackageManager();
+        mgr.register(SkillPackage.builder("discover", "发现")
+                .instruction("先发现候选")
+                .addRequiredTool("listProducts")
+                .priority(100)
+                .build());
+        mgr.register(SkillPackage.builder("recommend", "推荐")
+                .instruction("核实后推荐")
+                .addTriggerOperation("RECOMMEND_PRODUCT")
+                .addDependency("discover")
+                .addRequiredTool("listProducts")
+                .priority(90)
+                .build());
+        mgr.bind("discover", "product-service");
+        mgr.bind("recommend", "product-service");
+
+        SkillSelectionContext context = SkillSelectionContext.builder()
+                .operation("RECOMMEND_PRODUCT")
+                .availableTools(List.of("listProducts"))
+                .build();
+
+        assertEquals(List.of("discover", "recommend"),
+                mgr.selectAgentSkills("product-service", context).stream()
+                        .map(SkillPackage::getId)
+                        .toList());
+    }
+
+    @Test
+    @DisplayName("缺少真实工具时应拒绝技能发布并且不注入")
+    void rejectsMissingRequiredTool() {
+        SkillPackageManager mgr = new SkillPackageManager();
+        mgr.register(SkillPackage.builder("stale", "过期技能")
+                .instruction("调用不存在工具")
+                .alwaysApply(true)
+                .addRequiredTool("missingTool")
+                .build());
+        mgr.bind("stale", "agent1");
+
+        SkillSelectionContext context = SkillSelectionContext.builder()
+                .query("任意问题")
+                .availableTools(List.of("realTool"))
+                .build();
+
+        assertTrue(mgr.buildAgentSkillPrompt("agent1", context).isBlank());
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> mgr.requireValidAgentSkills("agent1", List.of("realTool")));
+        assertTrue(error.getMessage().contains("missingTool"));
     }
 }

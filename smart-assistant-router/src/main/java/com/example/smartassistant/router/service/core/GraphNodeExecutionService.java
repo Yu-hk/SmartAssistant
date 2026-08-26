@@ -95,8 +95,9 @@ public class GraphNodeExecutionService {
         progress(eventsKey, "node_started", "节点[" + node.getDescription() + "]开始执行", targetAgent);
 
         if (RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT.equals(targetAgent)) {
-            SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(), targetAgent,
+            SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(), null,
                     RouteExecutionService.builtInOrderPreparationReply(), true, List.of(), Map.of());
+            result.setSystemNodeType(SubTaskResult.SystemNodeType.ORDER_PREPARATION);
             result.setDomainQuality(
                     com.example.smartassistant.common.quality.DomainQualityResult.pass(
                             1.0, "BUILTIN_ORDER_PREPARATION_GUIDANCE"));

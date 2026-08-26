@@ -198,6 +198,11 @@ public class SseEventBus {
     public void sendQueue(int pos, long est) { send(SseEvent.queue(pos, est)); }
     public void sendQueuePosition(int pos, long est) { send(SseEvent.queuePosition(pos, est)); }
     public void sendRouted(String agent, double confidence) { send(SseEvent.routed(agent, confidence)); }
+    public void sendRouted(String agent, double confidence, String executionMode,
+                           java.util.List<String> participatingAgents, String workflowStatus) {
+        send(SseEvent.routed(agent, confidence, executionMode,
+                participatingAgents, workflowStatus));
+    }
 
     // ==================== 断线续传 ====================
 

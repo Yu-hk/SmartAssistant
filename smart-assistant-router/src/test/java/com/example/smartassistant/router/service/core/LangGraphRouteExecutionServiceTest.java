@@ -135,7 +135,9 @@ class LangGraphRouteExecutionServiceTest {
         assertThat(service.execute(graph, 1L, null, "approval-request"))
                 .singleElement()
                 .satisfies(result -> {
-                    assertThat(result.getAgentName()).isEqualTo("builtin_approval");
+                    assertThat(result.getAgentName()).isNull();
+                    assertThat(result.getSystemNodeType())
+                            .isEqualTo(SubTaskResult.SystemNodeType.APPROVAL);
                     assertThat(result.getResult()).contains("明确确认");
                 });
         verify(nodeExecutor, never()).execute(any(), anyMap(), any(), any(), any(), any(),

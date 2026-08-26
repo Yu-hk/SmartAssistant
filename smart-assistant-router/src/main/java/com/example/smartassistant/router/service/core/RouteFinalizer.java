@@ -145,17 +145,17 @@ public class RouteFinalizer {
                 || ClarificationReplyDetector.isRequiredParameterClarification(result.getResult());
         boolean realTimeWeather = WeatherQuerySupport.isWeatherLookup(question);
         result.setClarification(clarification);
+        normalizeRoutingMetadata(result, clarification);
         if (intentTag == null || intentTag.isBlank()) {
             intentTag = intentTagGenerator.generate(question);
             result.setIntentTag(intentTag);
         }
 
         // ⭐ G4 运营指标
-        opsMetrics.recordAnswer(result != null ? result.getAgentName() : "unknown", intentTag);
+        opsMetrics.recordAnswer(metricOwner(result), intentTag);
 
         // ⭐ P1 工具健康检查
-        if (routingToolChecker != null && result.getAgentName() != null
-                && !"orchestrator".equals(result.getAgentName())) {
+        if (routingToolChecker != null && result.getAgentName() != null) {
             var health = routingToolChecker.checkAgentHealth(result.getAgentName());
             if (!health.isHealthy()) {
                 log.warn("[Router] ⚠️ 路由到 Agent={} 但工具不健康: {}",
@@ -201,10 +201,11 @@ public class RouteFinalizer {
                     result.getAgentName(), domainQuality.getReasonCodes());
         }
 
-        boolean requiresGlobalJudge = !clarification
+        boolean judgeEligible = result.getAgentName() != null
+                || result.getExecutionMode() == RoutingResult.ExecutionMode.MULTI_AGENT;
+        boolean requiresGlobalJudge = !clarification && judgeEligible
                 && (domainQuality.isUnknown() || domainQuality.isWarn());
         if (requiresGlobalJudge && result.getResult() != null && !result.getResult().isBlank()
-                && result.getAgentName() != null && !"none".equals(result.getAgentName())
                 && !Boolean.TRUE.equals(result.getFromCache())) {
             double judgeTriggerScore = domainQuality.isWarn() ? 0.7 : reflectScore;
             QualityEvaluationResult quality = qualityEvaluationService.evaluate(
@@ -244,15 +245,17 @@ public class RouteFinalizer {
                             : AgentExecutionState.State.FAILED,
                     AgentExecutionState.EventType.EXECUTION_COMPLETED,
                     "路由决策完成, agent=" + result.getAgentName()
+                            + ", executionMode=" + result.getExecutionMode()
+                            + ", participatingAgents=" + result.getParticipatingAgents()
                             + ", confidence=" + result.getConfidence() + ", intent=" + intentTag,
                     0, 0
             );
         }
 
         // ⭐ 完整决策写入 Redis
-        if (requestId != null && !requestId.isBlank() && agentName != null) {
-            decisionPublisher.publish(requestId, agentName,
-                    result.getConfidence(), reply, intentTag, TokenUsageCache.snapshot(requestId),
+        if (requestId != null && !requestId.isBlank()) {
+            decisionPublisher.publish(requestId, result,
+                    TokenUsageCache.snapshot(requestId),
                     ToolUsageCache.snapshot(requestId));
             appendTaskAnalysisToFullDecision(requestId);
         }
@@ -310,6 +313,34 @@ public class RouteFinalizer {
             log.debug("[Router] 经验提取已转入后台: agent={}, intent={}", agentName, intentTag);
         } catch (RejectedExecutionException rejected) {
             log.warn("[Router] 经验提取队列已满，本次跳过: agent={}, intent={}", agentName, intentTag);
+        }
+    }
+
+    private static String metricOwner(RoutingResult result) {
+        if (result == null) return "unknown";
+        if (result.getAgentName() != null && !result.getAgentName().isBlank()) {
+            return result.getAgentName();
+        }
+        return result.getExecutionMode() != null
+                ? result.getExecutionMode().name().toLowerCase(java.util.Locale.ROOT)
+                : "unknown";
+    }
+
+    private static void normalizeRoutingMetadata(RoutingResult result, boolean clarification) {
+        if (result.getParticipatingAgents() == null) {
+            result.setParticipatingAgents(java.util.List.of());
+        }
+        if (result.getAgentName() != null && !result.getAgentName().isBlank()
+                && result.getParticipatingAgents().isEmpty()) {
+            result.setParticipatingAgents(java.util.List.of(result.getAgentName()));
+        }
+        if (result.getAgentName() == null
+                && result.getExecutionMode() == RoutingResult.ExecutionMode.SINGLE_AGENT) {
+            result.setExecutionMode(RoutingResult.ExecutionMode.BUILTIN);
+        }
+        if (clarification
+                && result.getWorkflowStatus() == RoutingResult.WorkflowStatus.COMPLETED) {
+            result.setWorkflowStatus(RoutingResult.WorkflowStatus.CLARIFICATION);
         }
     }
 
