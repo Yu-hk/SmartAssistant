@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -32,7 +33,9 @@ public class OrderDeterministicExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderDeterministicExecutionService.class);
     private static final Set<String> SUPPORTED = Set.of(
-            "QUERY_ORDER", "QUERY_PAYMENT_PENDING", "TRACK_LOGISTICS");
+            "QUERY_ORDER", "QUERY_ORDER_LIST", "QUERY_PAYMENT_PENDING", "TRACK_LOGISTICS");
+    private static final List<String> ORDER_STATUSES = List.of(
+            "待付款", "待发货", "已发货", "已签收", "已取消", "退款中");
     private static final Pattern ORDER_ID = Pattern.compile(
             "(?i)\\b(?:ORD|BULK)-[A-Z0-9-]+\\b");
     private static final Pattern TRAJECTORY_ENTRY = Pattern.compile("\\{([^}]*)}");
@@ -53,6 +56,10 @@ public class OrderDeterministicExecutionService {
     public AgentExecutionResponse execute(AgentExecutionRequest request) {
         String operation = normalizeOperation(request.operation());
         String orderId = resolveOrderId(request);
+        if ("QUERY_ORDER_LIST".equals(operation)
+                || ("QUERY_ORDER".equals(operation) && orderId == null)) {
+            return queryOrderList(request);
+        }
         if (orderId == null) {
             return AgentExecutionResponse.failure(
                     "ORDER_ID_REQUIRED", "请提供需要查询的订单号", false);
@@ -77,6 +84,64 @@ public class OrderDeterministicExecutionService {
             default -> AgentExecutionResponse.failure(
                     "UNSUPPORTED_ORDER_OPERATION", "不支持的订单快速操作: " + operation, false);
         };
+    }
+
+    private AgentExecutionResponse queryOrderList(AgentExecutionRequest request) {
+        Long userId = parseUserId(request.userId());
+        if (userId == null) {
+            return AgentExecutionResponse.failure(
+                    "USER_ID_REQUIRED", "登录后才能查询订单列表", false);
+        }
+        int limit = intInput(request.input(), "limit", 10, 1, 20);
+        int offset = intInput(request.input(), "offset", 0, 0, Integer.MAX_VALUE);
+        String status = resolveStatus(request);
+        List<Map<String, Object>> orders = orderData.queryOrdersByUserId(
+                userId, status, limit, offset);
+        if (orders == null) orders = List.of();
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("operation", "QUERY_ORDER_LIST");
+        data.put("orders", orders);
+        data.put("count", orders.size());
+        data.put("limit", limit);
+        data.put("offset", offset);
+        data.put("hasMore", orders.size() >= limit);
+        if (status != null) data.put("statusFilter", status);
+        data.put("verified", true);
+        data.put("criteriaSatisfied", true);
+
+        String answer = formatOrderList(orders, status, offset, limit);
+        log.info("[OrderFastPath] 确定性订单列表查询完成: userId={}, status={}, count={}, offset={}",
+                userId, status, orders.size(), offset);
+        return AgentExecutionResponse.success(answer, data,
+                DomainQualityResult.pass(1.0, "DETERMINISTIC_ORDER_LIST_QUERY"));
+    }
+
+    private static String formatOrderList(List<Map<String, Object>> orders, String status,
+                                          int offset, int limit) {
+        if (orders.isEmpty()) {
+            return status == null
+                    ? "当前没有查询到你的订单。"
+                    : "当前没有查询到状态为「" + status + "」的订单。";
+        }
+        StringBuilder answer = new StringBuilder();
+        if (status == null) {
+            answer.append("你的订单列表：");
+        } else {
+            answer.append("你的「").append(status).append("」订单列表：");
+        }
+        for (int index = 0; index < orders.size(); index++) {
+            Map<String, Object> order = orders.get(index);
+            answer.append("\n").append(offset + index + 1).append(". 订单 ")
+                    .append(display(order.get("orderId")))
+                    .append("｜商品：").append(display(order.get("productName")))
+                    .append("｜金额：¥").append(display(order.get("amount")))
+                    .append("｜状态：").append(display(order.get("status")));
+        }
+        if (orders.size() >= limit) {
+            answer.append("\n如需查看更多，请继续查询下一页。");
+        }
+        return answer.toString();
     }
 
     private AgentExecutionResponse queryOrder(AgentExecutionRequest request, OrderDTO order) {
@@ -189,6 +254,10 @@ public class OrderDeterministicExecutionService {
         return value == null || value.isBlank() ? "暂无可靠数据" : value;
     }
 
+    private static String display(Object value) {
+        return value == null || value.toString().isBlank() ? "暂无可靠数据" : value.toString();
+    }
+
     private static Map<String, Object> baseOrderData(OrderDTO order) {
         Map<String, Object> data = new LinkedHashMap<>();
         putIfNotNull(data, "orderId", order.getOrderId());
@@ -223,6 +292,36 @@ public class OrderDeterministicExecutionService {
         }
         Matcher matcher = ORDER_ID.matcher(request.question() != null ? request.question() : "");
         return matcher.find() ? matcher.group().toUpperCase(Locale.ROOT) : null;
+    }
+
+    private static Long parseUserId(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static int intInput(Map<String, Object> input, String key, int fallback,
+                                int minimum, int maximum) {
+        Object value = input.get(key);
+        if (value == null) return fallback;
+        try {
+            int parsed = Integer.parseInt(value.toString());
+            return Math.max(minimum, Math.min(maximum, parsed));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static String resolveStatus(AgentExecutionRequest request) {
+        Object explicit = request.input().get("status");
+        if (explicit != null && ORDER_STATUSES.contains(explicit.toString().trim())) {
+            return explicit.toString().trim();
+        }
+        String question = request.question() != null ? request.question() : "";
+        return ORDER_STATUSES.stream().filter(question::contains).findFirst().orElse(null);
     }
 
     private static boolean expectedStatusMatches(String question, String actualStatus) {

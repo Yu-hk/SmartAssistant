@@ -217,6 +217,9 @@ class GraphNodeExecutionServiceTest {
                 1L, null, "request");
 
         assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getAgentName()).isNull();
+        assertThat(result.getSystemNodeType())
+                .isEqualTo(SubTaskResult.SystemNodeType.ORDER_PREPARATION);
         verify(agentCallerService, never()).callAgentAndExtractTitles(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());

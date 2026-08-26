@@ -15,6 +15,8 @@ import com.example.smartassistant.common.error.RecoveryAction;
 import com.example.smartassistant.common.memory.ConversationSummaryStore;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.observability.OpsMetrics;
+import com.example.smartassistant.common.skill.SkillPackageManager;
+import com.example.smartassistant.common.skill.SkillSelectionContext;
 import com.example.smartassistant.common.tool.ToolGroupManager;
 import com.example.smartassistant.common.trace.TraceSpan;
 import io.micrometer.observation.ObservationRegistry;
@@ -165,6 +167,10 @@ public class SmartReActAgent {
 	/** 预配置的工具列表（可选，可在 execute 时传入） */
 	private List<ToolCallback> presetTools;
 
+    /** 可选的请求级技能装配器。 */
+    private SkillPackageManager skillPackageManager;
+    private String skillAgentId;
+
     /** ⭐ T2d：会话级动态工具集（由 {@link #registerDiscoveredTool(ToolCallback...)} 注入，每轮合并到 effectiveTools） */
 	private final List<ToolCallback> dynamicTools = new ArrayList<>();
 
@@ -285,6 +291,13 @@ public class SmartReActAgent {
         return this;
     }
 
+    /** Enables request-scoped skill selection for this Agent. */
+    public SmartReActAgent withSkillPackages(String agentId, SkillPackageManager manager) {
+        this.skillAgentId = agentId;
+        this.skillPackageManager = manager;
+        return this;
+    }
+
 	/**
 	 * 运行时刷新工具列表。
 	 * <p>
@@ -397,6 +410,20 @@ public class SmartReActAgent {
 		merged.addAll(dynamicTools);
 		return merged;
 	}
+
+    private static SkillSelectionContext withAvailableTools(SkillSelectionContext context,
+                                                             List<ToolCallback> tools) {
+        List<String> toolNames = tools == null ? List.of() : tools.stream()
+                .map(tool -> tool.getToolDefinition().name())
+                .toList();
+        return SkillSelectionContext.builder()
+                .query(context.getQuery())
+                .operations(context.getOperations())
+                .tags(context.getTags())
+                .availableTools(toolNames)
+                .maxSkills(context.getMaxSkills())
+                .build();
+    }
 
     /**
      * 设置指标采集器。
@@ -528,7 +555,15 @@ public class SmartReActAgent {
         if (presetSystemPrompt == null || presetTools == null) {
             throw new IllegalStateException("未配置 presetSystemPrompt/presetTools，请使用 execute(userMessage, systemPrompt, tools)");
         }
-        return execute(userMessage, presetSystemPrompt, presetTools);
+        return execute(userMessage, SkillSelectionContext.forQuery(userMessage));
+    }
+
+    /** Executes with trusted routing operations/tags supplied by the caller. */
+    public String execute(String userMessage, SkillSelectionContext skillContext) {
+        if (presetSystemPrompt == null || presetTools == null) {
+            throw new IllegalStateException("未配置 presetSystemPrompt/presetTools，请使用 execute(userMessage, systemPrompt, tools)");
+        }
+        return execute(userMessage, presetSystemPrompt, presetTools, skillContext);
     }
 
     // ==================== 核心循环 ====================
@@ -542,6 +577,12 @@ public class SmartReActAgent {
      * @return 最终回答或超时/预算耗尽提示
      */
     public String execute(String userMessage, String systemPrompt, List<ToolCallback> tools) {
+		return execute(userMessage, systemPrompt, tools, SkillSelectionContext.forQuery(userMessage));
+	}
+
+    /** Executes ReAct with an explicit request-scoped skill selection context. */
+    public String execute(String userMessage, String systemPrompt, List<ToolCallback> tools,
+                          SkillSelectionContext skillContext) {
 		// ⭐ 当有 ToolGroupManager 时，使用活跃组的工具替换平坦列表
 		List<ToolCallback> effectiveTools = tools;
 		String enhancedPrompt = systemPrompt;
@@ -566,6 +607,21 @@ public class SmartReActAgent {
 			log.info("[SmartReActAgent] 合并动态工具: preset={}, dynamic={}, total={}",
 					effectiveTools.size() - dynamicTools.size(), dynamicTools.size(), effectiveTools.size());
 		}
+
+        if (skillPackageManager != null && skillAgentId != null && !skillAgentId.isBlank()) {
+            SkillSelectionContext effectiveSkillContext = withAvailableTools(
+                    skillContext != null ? skillContext : SkillSelectionContext.forQuery(userMessage),
+                    effectiveTools);
+            String skillPrompt = skillPackageManager.buildAgentSkillPrompt(skillAgentId, effectiveSkillContext);
+            if (!skillPrompt.isBlank()) {
+                enhancedPrompt = enhancedPrompt + "\n" + skillPrompt;
+                log.info("[SmartReActAgent] 请求级技能已注入: agent={}, skills={}",
+                        skillAgentId,
+                        skillPackageManager.selectAgentSkills(skillAgentId, effectiveSkillContext).stream()
+                                .map(skill -> skill.getId() + "@" + skill.getVersion())
+                                .toList());
+            }
+        }
 
         // Tool descriptions must reflect the callbacks actually exposed for this execution.
         // This also makes the discover_tools guidance conditional on the feature callback

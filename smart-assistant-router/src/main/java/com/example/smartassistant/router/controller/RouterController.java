@@ -84,7 +84,10 @@ public class RouterController {
             long latency = System.currentTimeMillis() - startTime;
 
             RouteResponse response = RouteResponse.builder()
-                    .agentName(routingResult.getAgentName() != null ? routingResult.getAgentName() : "determined_by_router")
+                    .agentName(routingResult.getAgentName())
+                    .executionMode(routingResult.getExecutionMode())
+                    .participatingAgents(routingResult.getParticipatingAgents())
+                    .workflowStatus(routingResult.getWorkflowStatus())
                     .result(routingResult.getResult())
                     .confidence(routingResult.getConfidence() != null ? routingResult.getConfidence() : 0.9)
                     .routingMethod("LLM_ROUTING")
@@ -133,12 +136,17 @@ public class RouterController {
         RoutingResult routingResult = routerService.route(request);
         long latency = System.currentTimeMillis() - startTime;
 
-        if (routingResult == null || routingResult.getAgentName() == null) {
+        if (routingResult == null) {
             return ApiResponse.error(500, "路由决策失败");
         }
 
         Map<String, Object> response = new HashMap<>();
-        response.put("serviceName", routingResult.getAgentName());
+        if (routingResult.getAgentName() != null) {
+            response.put("serviceName", routingResult.getAgentName());
+        }
+        response.put("executionMode", routingResult.getExecutionMode());
+        response.put("participatingAgents", routingResult.getParticipatingAgents());
+        response.put("workflowStatus", routingResult.getWorkflowStatus());
         response.put("confidence", routingResult.getConfidence());
         response.put("latency_ms", latency);
         response.put("note", "这是路由决策结果（含 Agent 回复）");
@@ -188,13 +196,19 @@ public class RouterController {
             long reactLatency = System.currentTimeMillis() - reactStart;
 
             if (routingResult != null) {
-                comparison.put("keyword_routing", Map.of(
-                        "success", true,
-                        "agent", routingResult.getAgentName(),
-                        "result_length", routingResult.getResult() != null ? routingResult.getResult().length() : 0,
-                        "latency_ms", reactLatency,
-                        "method", "KEYWORD_ROUTING"
-                ));
+                Map<String, Object> routeDetails = new HashMap<>();
+                routeDetails.put("success", true);
+                if (routingResult.getAgentName() != null) {
+                    routeDetails.put("agent", routingResult.getAgentName());
+                }
+                routeDetails.put("executionMode", routingResult.getExecutionMode());
+                routeDetails.put("participatingAgents", routingResult.getParticipatingAgents());
+                routeDetails.put("workflowStatus", routingResult.getWorkflowStatus());
+                routeDetails.put("result_length",
+                        routingResult.getResult() != null ? routingResult.getResult().length() : 0);
+                routeDetails.put("latency_ms", reactLatency);
+                routeDetails.put("method", "KEYWORD_ROUTING");
+                comparison.put("keyword_routing", routeDetails);
             } else {
                 comparison.put("keyword_routing", Map.of(
                         "success", false,
@@ -231,7 +245,10 @@ public class RouterController {
         long latency = System.currentTimeMillis() - startTime;
 
         RouteResponse response = RouteResponse.builder()
-                .agentName(routingResult.getAgentName() != null ? routingResult.getAgentName() : "determined_by_router")
+                .agentName(routingResult.getAgentName())
+                .executionMode(routingResult.getExecutionMode())
+                .participatingAgents(routingResult.getParticipatingAgents())
+                .workflowStatus(routingResult.getWorkflowStatus())
                 .result(routingResult.getResult())
                 .confidence(routingResult.getConfidence() != null ? routingResult.getConfidence() : 0.9)
                 .routingMethod("LLM_ROUTING")

@@ -332,7 +332,6 @@ public class ReflectionService {
      * - 不健康或无法检测：0.5 分（降级处理，不直接判死刑）
      */
     private double checkAgentHealth(String agentName) {
-        if ("orchestrator".equals(agentName)) return 1.0;
         if (discoveryService == null) return 0.7;  // 无发现服务，给默认分
         try {
             var agent = discoveryService.resolveAgent(agentName);
@@ -351,7 +350,6 @@ public class ReflectionService {
      */
     private double checkIntentMatch(String intentTag, String agentName) {
         if (intentTag == null || agentName == null) return 0.5;
-        if ("orchestrator".equals(agentName)) return 1.0;
 
         for (IntentAgentRule rule : INTENT_AGENT_RULES) {
             if (intentTag.contains(rule.intentKeyword)) {

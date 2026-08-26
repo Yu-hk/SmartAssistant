@@ -2,6 +2,7 @@ package com.example.smartassistant.router.model;
 
 import com.example.smartassistant.common.quality.DomainQualityResult;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -11,6 +12,14 @@ import java.util.Map;
  * {@link #result} 保留完整结果，供按需工具查询。</p>
  */
 public class SubTaskResult {
+    public static final String SYSTEM_NODE_TYPE_KEY = "_systemNodeType";
+
+    /** Workflow-owned nodes are execution metadata, not registered business Agents. */
+    public enum SystemNodeType {
+        APPROVAL,
+        ORDER_PREPARATION
+    }
+
     private String taskId;
     private String description;
     private String agentName;
@@ -138,6 +147,24 @@ public class SubTaskResult {
     public Map<String, Object> getStructuredData() { return structuredData; }
     public void setStructuredData(Map<String, Object> structuredData) {
         this.structuredData = structuredData != null ? Map.copyOf(structuredData) : Map.of();
+    }
+    public void setSystemNodeType(SystemNodeType systemNodeType) {
+        Map<String, Object> updated = new LinkedHashMap<>(structuredData);
+        if (systemNodeType == null) {
+            updated.remove(SYSTEM_NODE_TYPE_KEY);
+        } else {
+            updated.put(SYSTEM_NODE_TYPE_KEY, systemNodeType.name());
+        }
+        this.structuredData = Map.copyOf(updated);
+    }
+    public SystemNodeType getSystemNodeType() {
+        Object value = structuredData.get(SYSTEM_NODE_TYPE_KEY);
+        if (value == null) return null;
+        try {
+            return SystemNodeType.valueOf(value.toString());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
     public DomainQualityResult getDomainQuality() { return domainQuality; }
     public void setDomainQuality(DomainQualityResult domainQuality) {

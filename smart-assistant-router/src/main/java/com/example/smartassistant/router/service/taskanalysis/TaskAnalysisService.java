@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.router.service.taskanalysis;
 
+import com.example.smartassistant.common.skill.SkillPackageManager;
+import com.example.smartassistant.common.skill.SkillSelectionContext;
 import com.example.smartassistant.router.model.TaskAnalysisResult;
 import com.example.smartassistant.router.service.agent.AgentPromptCatalogService;
 import com.example.smartassistant.router.service.core.ModelRoutingService;
@@ -16,6 +18,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.core.io.ClassPathResource;
@@ -66,6 +69,10 @@ public class TaskAnalysisService {
     private final RouterStageAwareService stageAwareService;
     /** Nacos 健康 Agent 能力快照，调用模型前动态注入。 */
     private final AgentPromptCatalogService agentPromptCatalogService;
+
+    /** 可信的本地版本化规划技能；不从 Nacos metadata 直接加载指令。 */
+    @Autowired(required = false)
+    private SkillPackageManager skillPackageManager;
 
     /**
      * 任务分析 prompt，支持通过 Nacos Config 动态刷新（@RefreshScope）。
@@ -250,10 +257,11 @@ public class TaskAnalysisService {
     private String buildDynamicPrompt(String question, List<String> conversationHistory) {
         String basePrompt = injectDiscoveredAgents(resolveSystemPrompt());
         if (intentRetriever == null) {
-            return basePrompt;
+            return appendRouterSkills(basePrompt, question, List.of());
         }
         try {
             List<IntentDef> relevant = intentRetriever.retrieve(question, 3);
+            basePrompt = appendRouterSkills(basePrompt, question, relevant);
             String intentSection = intentRetriever.buildIntentSection(relevant);
             if (intentSection == null) {
                 return basePrompt;
@@ -263,6 +271,28 @@ public class TaskAnalysisService {
             log.warn("[TaskAnalysis] Dynamic intent retrieval failed, using base prompt: {}", e.getMessage());
             return basePrompt;
         }
+    }
+
+    private String appendRouterSkills(String basePrompt, String question, List<IntentDef> intents) {
+        if (skillPackageManager == null) return basePrompt;
+        // Skill 选择只采用语义检索 Top-1，避免 Top-3 中的低相关意图导致能力膨胀；
+        // COMPLEX 技能通过 dependencies 显式带入跨域规则。
+        List<String> intentIds = intents == null ? List.of() : intents.stream()
+                .limit(1)
+                .map(IntentDef::id)
+                .toList();
+        SkillSelectionContext context = SkillSelectionContext.builder()
+                .query(question)
+                .operations(intentIds)
+                .maxSkills(4)
+                .build();
+        String skillPrompt = skillPackageManager.buildAgentSkillPrompt("router-service", context);
+        if (skillPrompt.isBlank()) return basePrompt;
+        log.info("[TaskAnalysis] 本次激活规划技能: {}",
+                skillPackageManager.selectAgentSkills("router-service", context).stream()
+                        .map(skill -> skill.getId() + "@" + skill.getVersion())
+                        .toList());
+        return basePrompt + "\n" + skillPrompt;
     }
 
     /**

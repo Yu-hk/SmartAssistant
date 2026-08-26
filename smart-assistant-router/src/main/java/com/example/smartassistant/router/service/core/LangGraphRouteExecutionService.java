@@ -225,9 +225,11 @@ public class LangGraphRouteExecutionService {
                 .findFirst().orElse(null);
         if (approval == null) return;
         String taskId = approval.getId() + ":approval";
-        context.put(new SubTaskResult(taskId, approval.getDescription(), "builtin_approval",
+        SubTaskResult approvalResult = new SubTaskResult(taskId, approval.getDescription(), null,
                 "该操作会修改业务数据，需要你明确确认后才能继续执行："
-                        + approval.getDescription(), true));
+                        + approval.getDescription(), true);
+        approvalResult.setSystemNodeType(SubTaskResult.SystemNodeType.APPROVAL);
+        context.put(approvalResult);
     }
 
     @SuppressWarnings("unchecked")
@@ -255,7 +257,7 @@ public class LangGraphRouteExecutionService {
                 }
                 SubTaskResult restored = new SubTaskResult(taskId,
                         Objects.toString(map.get("description"), ""),
-                        Objects.toString(map.get("agentName"), ""),
+                        nullableString(map.get("agentName")),
                         Objects.toString(map.get("result"), ""), success, errorType);
                 if (map.get("data") instanceof Map<?, ?> data) {
                     Map<String, Object> restoredData = new LinkedHashMap<>();
@@ -508,7 +510,9 @@ public class LangGraphRouteExecutionService {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("taskId", result.getTaskId());
         state.put("description", result.getDescription());
-        state.put("agentName", result.getAgentName());
+        if (result.getAgentName() != null && !result.getAgentName().isBlank()) {
+            state.put("agentName", result.getAgentName());
+        }
         state.put("result", result.getResult());
         state.put("success", result.isSuccess());
         state.put("errorType", result.getErrorType().name());

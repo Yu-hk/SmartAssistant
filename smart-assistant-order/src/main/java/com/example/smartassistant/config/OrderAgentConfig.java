@@ -13,8 +13,8 @@ import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsHelper;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsTool;
 import com.example.smartassistant.common.prompt.PromptBuilder;
-import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.common.skill.SkillPackageManager;
 import com.example.smartassistant.order.tool.CouponTools;
 import com.example.smartassistant.order.tool.OrderAnalyticsTool;
 import com.example.smartassistant.order.tool.OrderKnowledgeTool;
@@ -84,7 +84,7 @@ public class OrderAgentConfig {
             OrderMetricsCollector metricsCollector,
             ObservationRegistry observationRegistry,
             AiChatService aiChatService,
-            PromptManager promptManager,
+            @Autowired(required = false) SkillPackageManager skillPackageManager,
             @Autowired(required = false) ReActProfileRegistry reactProfileRegistry) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
@@ -109,6 +109,14 @@ public class OrderAgentConfig {
 		// ⭐ T2d：注入 discover_tools 元工具 + 绑定注册器
 		List<ToolCallback> effectiveToolList = DiscoverToolsHelper.injectDiscoverTools(toolList, discoverToolsTool);
 
+		if (skillPackageManager != null) {
+			skillPackageManager.requireValidAgentSkills(agentName, effectiveToolList.stream()
+					.map(tool -> tool.getToolDefinition().name())
+					.toList());
+			log.info("[OrderAgent] Skill 发布校验通过: count={}",
+					skillPackageManager.getAgentSkills(agentName).size());
+		}
+
 		// ⭐ 构建 ChatClient
 		ChatClient chatClient = aiChatService.buildChatClient(chatModel);
 		log.info("[OrderAgent] ChatClient 由 AiChatService 统一装配 Advisor 链");
@@ -120,12 +128,12 @@ public class OrderAgentConfig {
 				.withObservationRegistry(observationRegistry)
 				.withFeedbackLog(new FeedbackLog())
 				.withPreset(PromptBuilder.build()
-						.withServicePrompt(buildSystemPrompt() + "\n\n"
-								+ promptManager.renderDataAnalysisExpert(
-								"当前用户提出的订单、销量、销售额、退款或物流统计问题",
-								"只允许使用订单统计工具或 TextToSqlTool 返回的真实数据；"
-										+ "普通订单查询和订单操作不得套用数据分析格式。"))
+						.withServicePrompt(buildSystemPrompt())
 						.assemble(), effectiveToolList);
+
+		if (skillPackageManager != null) {
+			agent.withSkillPackages(agentName, skillPackageManager);
+		}
 
 		// ⭐ T2d：Agent 创建后设置注册器
 		DiscoverToolsHelper.bindRegistrar(discoverToolsTool, agent);

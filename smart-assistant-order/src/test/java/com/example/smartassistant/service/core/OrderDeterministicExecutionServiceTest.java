@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,6 +61,59 @@ class OrderDeterministicExecutionServiceTest {
         assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
         assertThat(response.data()).containsEntry("status", "已发货")
                 .containsEntry("criteriaSatisfied", true);
+    }
+
+    @Test
+    void queryOrderListReturnsOnlyAuthenticatedUsersVerifiedOrders() {
+        when(orderData.queryOrdersByUserId(1050L, null, 10, 0)).thenReturn(List.of(
+                Map.of("orderId", "ORD-2002", "productName", "Aurora 耳机",
+                        "amount", new BigDecimal("1299.00"), "status", "已发货"),
+                Map.of("orderId", "ORD-2001", "productName", "Nova 手机",
+                        "amount", new BigDecimal("3999.00"), "status", "待付款")));
+
+        AgentExecutionResponse response = service.execute(request(
+                "QUERY_ORDER_LIST", "查询我的订单列表", Map.of()));
+
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        assertThat(response.data()).containsEntry("operation", "QUERY_ORDER_LIST")
+                .containsEntry("count", 2)
+                .containsEntry("verified", true)
+                .containsEntry("criteriaSatisfied", true);
+        assertThat(response.answer()).contains("ORD-2002", "Aurora 耳机", "已发货",
+                "ORD-2001", "Nova 手机", "待付款");
+        verify(orderData).queryOrdersByUserId(1050L, null, 10, 0);
+        verify(orderData, never()).findOrderByOrderId(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void legacyQueryOrderWithoutOrderIdFallsBackToSuccessfulOrderListQuery() {
+        when(orderData.queryOrdersByUserId(1050L, null, 10, 0)).thenReturn(List.of());
+
+        AgentExecutionResponse response = service.execute(request(
+                "QUERY_ORDER", "查询我已有的订单列表", Map.of()));
+
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        assertThat(response.answer()).isEqualTo("当前没有查询到你的订单。");
+        assertThat(response.data()).containsEntry("operation", "QUERY_ORDER_LIST")
+                .containsEntry("count", 0)
+                .containsEntry("verified", true);
+        verify(orderData).queryOrdersByUserId(1050L, null, 10, 0);
+        verify(orderData, never()).findOrderByOrderId(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void orderListCanBeFilteredByStatusAndPaginationIsBounded() {
+        when(orderData.queryOrdersByUserId(1050L, "已发货", 20, 2)).thenReturn(List.of());
+
+        AgentExecutionResponse response = service.execute(request(
+                "QUERY_ORDER_LIST", "查询我的已发货订单",
+                Map.of("status", "已发货", "limit", 100, "offset", 2)));
+
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        assertThat(response.data()).containsEntry("statusFilter", "已发货")
+                .containsEntry("limit", 20)
+                .containsEntry("offset", 2);
+        verify(orderData).queryOrdersByUserId(1050L, "已发货", 20, 2);
     }
 
     @Test

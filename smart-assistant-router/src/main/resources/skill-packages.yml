@@ -1,0 +1,58 @@
+# Router 只加载本地可信规划指令；Nacos AgentCard 仍只提供能力元数据。
+skill-package:
+  enabled: true
+  packages:
+    - id: route-task-decomposition
+      name: 原子任务拆解
+      description: 使用 MECE/WBS 生成最小任务图
+      version: "1.0.0"
+      priority: 100
+      always-apply: true
+      tags: [route, planning]
+      instruction: |
+        1. 识别核心目标、显性需求、隐含意图、实体、约束和风险。
+        2. 使用 MECE/WBS 拆成最小原子任务；一个节点只能有一个执行目标和一个 target_agent。
+        3. 标出依赖、可并行节点、读写属性、审批要求和可验证完成标准。
+        4. task_steps、execution_order、flowchart 必须与 sub_intents 一一对应。
+      bind-agents: [router-service]
+
+    - id: route-product-recommendation-flow
+      name: 商品分析推荐链规划
+      description: 规划真实商品发现、分析、核实推荐及可选下单链路
+      version: "1.0.0"
+      priority: 90
+      trigger-operations: [PRODUCT]
+      tags: [route, product]
+      instruction: |
+        涉及分析、推荐或推荐后下单时，依次生成：
+        discover_products(DISCOVER_PRODUCTS, READ) → analyze_product_data(ANALYZE_PRODUCT_DATA, READ)
+        → recommend_product(RECOMMEND_PRODUCT, READ)。继续下单时再生成 create_order(CREATE_ORDER, WRITE)。
+        分析只使用真实候选；推荐必须核实事实；创建订单必须依赖推荐结果并等待用户确认和资料齐全。
+      bind-agents: [router-service]
+
+    - id: route-order-lifecycle-flow
+      name: 订单生命周期规划
+      description: 区分订单读写操作并按状态机安排依赖
+      version: "1.0.0"
+      priority: 85
+      trigger-operations: [ORDER]
+      tags: [route, order]
+      instruction: |
+        “我的订单、历史订单、订单列表”使用 QUERY_ORDER_LIST；只有明确订单号详情才使用 QUERY_ORDER。
+        查询待确认支付使用 QUERY_PAYMENT_PENDING，不得生成新的 PAY_ORDER 确认项。
+        完整履约顺序为库存核验 → 创建订单 → 支付 → 发货 → 物流查询 → 确认收货；写节点依赖必要查询并标记审批。
+      bind-agents: [router-service]
+
+    - id: route-parallel-execution
+      name: 多意图并行规划
+      description: 对跨领域任务生成无歧义的串并行依赖图
+      version: "1.0.0"
+      priority: 80
+      trigger-operations: [COMPLEX]
+      tags: [route, parallel]
+      dependencies: [route-product-recommendation-flow, route-order-lifecycle-flow]
+      instruction: |
+        多个互不依赖的只读任务应并行；写任务必须等待其必需的查询、推荐或用户确认节点。
+        depends_on 只能引用已定义节点；input_bindings 只能读取 depends_on 节点的结构化输出。
+        补充性节点可以 required=false，生成完整结论所需节点必须 required=true。
+      bind-agents: [router-service]
