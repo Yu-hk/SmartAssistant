@@ -9,7 +9,6 @@ package com.example.smartassistant.common.skill;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -24,31 +23,20 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @EnableConfigurationProperties(SkillPackageProperties.class)
 @ConditionalOnProperty(name = "skill-package.enabled", havingValue = "true", matchIfMissing = true)
-public class SkillPackageAutoConfiguration implements InitializingBean {
+public class SkillPackageAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(SkillPackageAutoConfiguration.class);
 
     @Bean
-    public SkillPackageManager skillPackageManager() {
-        return new SkillPackageManager();
-    }
-
-    /**
-     * 从配置属性加载技能包到管理器。
-     */
-    @Bean
-    public InitializingBean skillPackageLoader(
-            SkillPackageManager manager,
-            SkillPackageProperties properties) {
-        return () -> {
-            properties.registerTo(manager);
-            log.info("[SkillPackage] 技能包系统初始化完成，共 {} 个包",
-                    manager.getAll().size());
-        };
-    }
-
-    @Override
-    public void afterPropertiesSet() {
+    public SkillPackageManager skillPackageManager(SkillPackageProperties properties) {
         log.info("[SkillPackage] 技能包自动配置已启用");
+        SkillPackageManager manager = new SkillPackageManager();
+        // Register before exposing the manager Bean. Agent configuration may validate
+        // skills while its own Bean is being created, so a separate InitializingBean
+        // loader would run too late and make that validation observe an empty registry.
+        properties.registerTo(manager);
+        log.info("[SkillPackage] 技能包系统初始化完成，共 {} 个包",
+                manager.getAll().size());
+        return manager;
     }
 }

@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -157,6 +159,34 @@ public class ProductStreamController {
                     AgentExecutionResponse.failure("EMPTY_PRODUCT_QUESTION",
                             "Question must not be blank", false));
         }
+        if (isAnalysisOrRecommendationRequest(request)) {
+            String verifiedContext = buildVerifiedContext(request);
+            ToolUsageCache.start(requestId);
+            DomainAgentResponse response = "ANALYZE_PRODUCT_DATA".equalsIgnoreCase(request.operation())
+                    ? streamingAgentService.analyzeVerifiedContext(
+                            request.question(), verifiedContext, requestId)
+                    : streamingAgentService.verifyAnalysisAndRecommend(
+                            request.question(), verifiedContext, requestId);
+            if (response.quality().isFail()) {
+                String code = response.quality().getReasonCodes().isEmpty()
+                        ? "PRODUCT_ANALYSIS_FAILED" : response.quality().getReasonCodes().getFirst();
+                return ResponseEntity.ok(AgentExecutionResponse.failure(
+                        code, response.answer(), false));
+            }
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("operation", request.operation());
+            data.put("sourceNodeIds", List.copyOf(request.predecessorOutputs().keySet()));
+            // Workflow DSL input bindings address typed node data. Keep answer for
+            // display/backward compatibility and expose the same verified content
+            // under a stable operation-specific field for downstream nodes.
+            if ("ANALYZE_PRODUCT_DATA".equalsIgnoreCase(request.operation())) {
+                data.put("analysis", response.answer());
+            } else {
+                data.put("recommendation", response.answer());
+            }
+            return ResponseEntity.ok(AgentExecutionResponse.success(
+                    response.answer(), data, response.quality()));
+        }
         if (productDiscoveryService != null && isDiscoveryRequest(request)) {
             Integer limit = request.input().get("limit") instanceof Number number
                     ? number.intValue() : null;
@@ -204,6 +234,30 @@ public class ProductStreamController {
         return "QUERY_HOT_PRODUCTS".equalsIgnoreCase(request.operation())
                 || "DISCOVER_PRODUCTS".equalsIgnoreCase(request.operation())
                 || productDiscoveryService.supports(request.question());
+    }
+
+    private static boolean isAnalysisOrRecommendationRequest(AgentExecutionRequest request) {
+        return "ANALYZE_PRODUCT_DATA".equalsIgnoreCase(request.operation())
+                || "RECOMMEND_PRODUCT".equalsIgnoreCase(request.operation());
+    }
+
+    private static String buildVerifiedContext(AgentExecutionRequest request) {
+        StringBuilder context = new StringBuilder();
+        request.predecessorOutputs().forEach((nodeId, output) -> {
+            context.append("[上游节点 ").append(nodeId).append("]\n");
+            if (output.data() != null && !output.data().isEmpty()) {
+                context.append("结构化数据：").append(output.data()).append('\n');
+            }
+            // Discovery's prose duplicates its typed product list. Keep only the structured
+            // evidence there, while retaining analysis prose whose data envelope is metadata-only.
+            boolean structuredCatalog = output.data() != null
+                    && output.data().containsKey("products");
+            if (!structuredCatalog && output.answer() != null && !output.answer().isBlank()) {
+                context.append(output.answer().trim()).append('\n');
+            }
+            context.append('\n');
+        });
+        return context.toString().trim();
     }
 
     /**

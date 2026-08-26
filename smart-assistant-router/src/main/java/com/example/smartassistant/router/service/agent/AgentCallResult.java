@@ -9,6 +9,11 @@ import java.util.Map;
  * Agent 调用结果，包含响应文本和工具输出中提取的真实游记标题。
  */
 public class AgentCallResult {
+    /** Internal marker: the Agent call failed at transport level and must not be semantically retried. */
+    public static final String TRANSPORT_FAILURE_KEY = "_agentTransportFailure";
+    /** Internal marker: the Agent returned a typed retryable protocol failure. */
+    public static final String PROTOCOL_RETRYABLE_FAILURE_KEY = "_agentProtocolRetryableFailure";
+
     private final String response;
     private final List<String> realTitles;
     private final Map<String, String> tagsByTitle;

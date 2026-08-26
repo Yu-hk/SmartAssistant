@@ -27,5 +27,13 @@ class LoopGuardServiceTest {
     void explicitChoiceStillWaitsForUser() {
         assertEquals(LoopGuardService.GuardAction.AWAIT_CONFIRMATION,
                 guard.analyze("请选择退款还是换货").action());
+        assertEquals(LoopGuardService.GuardAction.AWAIT_CONFIRMATION,
+                guard.analyze("请告知是否继续支付该订单").action());
+    }
+
+    @Test
+    void genericOfferForMoreHelpDoesNotBecomeActionConfirmation() {
+        assertEquals(LoopGuardService.GuardAction.CONTINUE,
+                guard.analyze("订单 ORD-1 当前状态为已签收，如需其他信息请告知。").action());
     }
 }

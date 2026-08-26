@@ -2,6 +2,7 @@ package com.example.smartassistant.controller;
 
 import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
+import com.example.smartassistant.common.agent.protocol.AgentNodeOutput;
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.TokenUsageHeaders;
 import com.example.smartassistant.common.quality.DomainAgentResponse;
@@ -130,5 +131,72 @@ class ProductStreamControllerTest {
         assertEquals("PASS", response.getBody().quality().status());
         assertEquals(List.of("PRODUCT_SCENARIO_EVIDENCE_LIMITED"),
                 response.getBody().quality().reasonCodes());
+    }
+
+    @Test
+    void analysisNodeConsumesOnlyDeclaredPredecessorOutputs() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        ProductStreamController controller = new ProductStreamController(service);
+        Map<String, AgentNodeOutput> predecessors = Map.of(
+                "discover_products", new AgentNodeOutput(
+                        "discover_products", "product", "SUCCEEDED",
+                        "候选商品：降噪耳机 SKU-100，¥599，有货",
+                        Map.of("products", List.of(Map.of(
+                                "code", "SKU-100", "name", "降噪耳机", "price", 599)))));
+        AgentExecutionRequest request = new AgentExecutionRequest(
+                "1.0", "scene-analysis", "analyze_product_data", "42",
+                "ANALYZE_PRODUCT_DATA", "分析候选商品与用户预算的匹配度",
+                Map.of(), List.of("discover_products"), List.of(), null,
+                null, null, predecessors, "shopping", 1, "sha256:v1", 0,
+                "scene-analysis");
+        when(service.analyzeVerifiedContext(
+                org.mockito.ArgumentMatchers.eq("分析候选商品与用户预算的匹配度"),
+                org.mockito.ArgumentMatchers.contains("SKU-100"),
+                org.mockito.ArgumentMatchers.eq("scene-analysis")))
+                .thenReturn(DomainAgentResponse.of(
+                        "### 数据分析开始 ###\n【核心结论】SKU-100 符合预算",
+                        DomainQualityResult.pass(1.0, "VERIFIED_PRODUCT_ANALYSIS")));
+
+        var response = controller.execute(request, null);
+
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
+        assertEquals(List.of("discover_products"), response.getBody().data().get("sourceNodeIds"));
+        assertEquals("### 数据分析开始 ###\n【核心结论】SKU-100 符合预算",
+                response.getBody().data().get("analysis"));
+        verify(service).analyzeVerifiedContext(
+                org.mockito.ArgumentMatchers.eq("分析候选商品与用户预算的匹配度"),
+                org.mockito.ArgumentMatchers.argThat(context ->
+                        context.contains("SKU-100") && context.contains("结构化数据")
+                                && !context.contains("候选商品：")),
+                org.mockito.ArgumentMatchers.eq("scene-analysis"));
+    }
+
+    @Test
+    void recommendationNodePublishesStableStructuredRecommendation() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        ProductStreamController controller = new ProductStreamController(service);
+        Map<String, AgentNodeOutput> predecessors = Map.of(
+                "analyze_product_data", new AgentNodeOutput(
+                        "analyze_product_data", "product", "SUCCEEDED",
+                        "SKU-100 符合预算", Map.of("analysis", "SKU-100 符合预算")));
+        AgentExecutionRequest request = new AgentExecutionRequest(
+                "1.0", "scene-recommend", "recommend_product", "42",
+                "RECOMMEND_PRODUCT", "核实分析并推荐",
+                Map.of(), List.of("analyze_product_data"), List.of(), null,
+                null, null, predecessors, "shopping", 1, "sha256:v1", 0,
+                "scene-recommend");
+        when(service.verifyAnalysisAndRecommend(
+                org.mockito.ArgumentMatchers.eq("核实分析并推荐"),
+                org.mockito.ArgumentMatchers.contains("SKU-100"),
+                org.mockito.ArgumentMatchers.eq("scene-recommend")))
+                .thenReturn(DomainAgentResponse.of(
+                        "推荐 SKU-100，价格 ¥599，库存有货",
+                        DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED")));
+
+        var response = controller.execute(request, null);
+
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
+        assertEquals("推荐 SKU-100，价格 ¥599，库存有货",
+                response.getBody().data().get("recommendation"));
     }
 }

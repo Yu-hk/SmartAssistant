@@ -345,6 +345,15 @@ public class IntentGraph {
         private final Map<String, Object> input;
         private final List<String> constraints;
         private final String idempotencyKey;
+        private final String accessMode;
+        /** Whether failure of this node makes the final answer incomplete. */
+        private final boolean required;
+        /** Deterministic merge contract propagated from the execution plan. */
+        private final ExecutionPlan.MergePolicy mergePolicy;
+        /** Optional versioned schema name for structured node output. */
+        private final String outputSchema;
+        /** Target input field -> predecessor result path. */
+        private final Map<String, String> inputBindings;
 
         public IntentNode(String id, String description, String targetAgent, List<String> dependsOn) {
             this(id, description, targetAgent, dependsOn, null, List.of(), false);
@@ -365,6 +374,38 @@ public class IntentGraph {
                           String successCriteria, List<ConditionalDependency> conditionalDeps,
                           boolean humanApprovalRequired, String operation, Map<String, Object> input,
                           List<String> constraints, String idempotencyKey) {
+            this(id, description, targetAgent, dependsOn, successCriteria, conditionalDeps,
+                    humanApprovalRequired, operation, input, constraints, idempotencyKey,
+                    inferAccessMode(operation, humanApprovalRequired));
+        }
+
+        public IntentNode(String id, String description, String targetAgent, List<String> dependsOn,
+                          String successCriteria, List<ConditionalDependency> conditionalDeps,
+                          boolean humanApprovalRequired, String operation, Map<String, Object> input,
+                          List<String> constraints, String idempotencyKey, String accessMode) {
+            this(id, description, targetAgent, dependsOn, successCriteria, conditionalDeps,
+                    humanApprovalRequired, operation, input, constraints, idempotencyKey,
+                    accessMode, true, ExecutionPlan.MergePolicy.APPEND, null, Map.of());
+        }
+
+        public IntentNode(String id, String description, String targetAgent, List<String> dependsOn,
+                          String successCriteria, List<ConditionalDependency> conditionalDeps,
+                          boolean humanApprovalRequired, String operation, Map<String, Object> input,
+                          List<String> constraints, String idempotencyKey, boolean required,
+                          ExecutionPlan.MergePolicy mergePolicy, String outputSchema,
+                          Map<String, String> inputBindings) {
+            this(id, description, targetAgent, dependsOn, successCriteria, conditionalDeps,
+                    humanApprovalRequired, operation, input, constraints, idempotencyKey,
+                    inferAccessMode(operation, humanApprovalRequired), required, mergePolicy,
+                    outputSchema, inputBindings);
+        }
+
+        public IntentNode(String id, String description, String targetAgent, List<String> dependsOn,
+                          String successCriteria, List<ConditionalDependency> conditionalDeps,
+                          boolean humanApprovalRequired, String operation, Map<String, Object> input,
+                          List<String> constraints, String idempotencyKey, String accessMode,
+                          boolean required, ExecutionPlan.MergePolicy mergePolicy,
+                          String outputSchema, Map<String, String> inputBindings) {
             this.id = id;
             this.description = description;
             this.targetAgent = targetAgent;
@@ -377,6 +418,14 @@ public class IntentGraph {
                     ? Collections.unmodifiableMap(new LinkedHashMap<>(input)) : Map.of();
             this.constraints = constraints != null ? List.copyOf(constraints) : List.of();
             this.idempotencyKey = idempotencyKey;
+            this.accessMode = "WRITE".equalsIgnoreCase(accessMode) ? "WRITE" : "READ";
+            this.required = required;
+            this.mergePolicy = mergePolicy != null
+                    ? mergePolicy : ExecutionPlan.MergePolicy.APPEND;
+            this.outputSchema = outputSchema == null || outputSchema.isBlank()
+                    ? null : outputSchema.trim();
+            this.inputBindings = inputBindings != null
+                    ? Collections.unmodifiableMap(new LinkedHashMap<>(inputBindings)) : Map.of();
         }
 
         public String getId() { return id; }
@@ -390,6 +439,21 @@ public class IntentGraph {
         public Map<String, Object> getInput() { return input; }
         public List<String> getConstraints() { return constraints; }
         public String getIdempotencyKey() { return idempotencyKey; }
+        public String getAccessMode() { return accessMode; }
+        public boolean isRequired() { return required; }
+        public ExecutionPlan.MergePolicy getMergePolicy() { return mergePolicy; }
+        public String getOutputSchema() { return outputSchema; }
+        public Map<String, String> getInputBindings() { return inputBindings; }
+
+        private static String inferAccessMode(String operation, boolean approvalRequired) {
+            if (approvalRequired) return "WRITE";
+            String normalized = operation == null ? "" : operation.trim().toUpperCase(Locale.ROOT);
+            return switch (normalized) {
+                case "CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER",
+                        "SHIP_ORDER", "CONFIRM_DELIVERY" -> "WRITE";
+                default -> "READ";
+            };
+        }
 
         @Override
         public String toString() {
