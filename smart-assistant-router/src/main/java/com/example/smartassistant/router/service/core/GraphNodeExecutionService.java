@@ -3,9 +3,12 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
 import com.example.smartassistant.common.agent.protocol.AgentNodeOutput;
 import com.example.smartassistant.router.model.HandoffCommand;
+import com.example.smartassistant.router.model.InputBindingExpression;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
+import com.example.smartassistant.router.service.agent.AgentCallResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.AgentMessageDispatcher;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
 import com.example.smartassistant.routing.contract.RoutingKeys;
@@ -19,6 +22,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -45,6 +49,9 @@ public class GraphNodeExecutionService {
 
     @Autowired(required = false)
     private StringRedisTemplate redisTemplate;
+
+    @Autowired(required = false)
+    private AgentMessageDispatcher agentMessageDispatcher;
 
     @Value("${router.graph.max-criteria-corrections:1}")
     private int maxCriteriaCorrections;
@@ -74,12 +81,23 @@ public class GraphNodeExecutionService {
                           ConcurrentHashMap<String, Integer> breakerFailures,
                           Long userId, String eventsKey, String requestId,
                           String workflowKey, Integer workflowVersion, String workflowChecksum) {
+        return execute(node, completed, breakerFailures, userId, eventsKey, requestId,
+                workflowKey, workflowVersion, workflowChecksum, null);
+    }
+
+    public SubTaskResult execute(IntentNode node,
+                          Map<String, SubTaskResult> completed,
+                          ConcurrentHashMap<String, Integer> breakerFailures,
+                          Long userId, String eventsKey, String requestId,
+                          String workflowKey, Integer workflowVersion, String workflowChecksum,
+                          String originalQuestion) {
         String targetAgent = node.getTargetAgent();
         progress(eventsKey, "node_started", "节点[" + node.getDescription() + "]开始执行", targetAgent);
 
         if (RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT.equals(targetAgent)) {
-            SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(), targetAgent,
+            SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(), null,
                     RouteExecutionService.builtInOrderPreparationReply(), true, List.of(), Map.of());
+            result.setSystemNodeType(SubTaskResult.SystemNodeType.ORDER_PREPARATION);
             result.setDomainQuality(
                     com.example.smartassistant.common.quality.DomainQualityResult.pass(
                             1.0, "BUILTIN_ORDER_PREPARATION_GUIDANCE"));
@@ -95,7 +113,16 @@ public class GraphNodeExecutionService {
             return failed(node, SubTaskResult.ErrorType.RETRYABLE_FAILED);
         }
 
-        String enrichedDescription = enrich(node, completed);
+        Map<String, Object> resolvedInput;
+        try {
+            resolvedInput = resolveInput(node, completed);
+        } catch (IllegalArgumentException error) {
+            log.warn("[GraphNode] 输入绑定解析失败: nodeId={}, reason={}",
+                    node.getId(), truncate(error.getMessage(), 160));
+            return recordFailure(node, breakerFailures, requestId,
+                    truncate(error.getMessage(), 100), SubTaskResult.ErrorType.FATAL_FAILED);
+        }
+        String enrichedDescription = enrich(node, completed, originalQuestion);
         int maxRetries = 3;
         int corrections = 0;
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
@@ -110,17 +137,23 @@ public class GraphNodeExecutionService {
                             "Router fallback returned an empty response",
                             SubTaskResult.ErrorType.FATAL_FAILED);
                 }
-                var response = hasProtocolMetadata(node)
-                        ? agentCallerService.callAgentAndExtractTitles(targetAgent,
-                        new AgentExecutionRequest(
-                                AgentExecutionRequest.CURRENT_VERSION,
-                                requestId, node.getId(), userId != null ? String.valueOf(userId) : null,
-                                node.getOperation(), enrichedDescription, node.getInput(), node.getDependsOn(),
-                                node.getConstraints(), System.currentTimeMillis() + 60_000L,
-                                node.getIdempotencyKey(), null, predecessorOutputs(node, completed),
-                                workflowKey, workflowVersion, workflowChecksum, attempt, requestId))
-                        : agentCallerService.callAgentAndExtractTitles(
-                        targetAgent, enrichedDescription, userId, requestId);
+                AgentCallResult response;
+                if (hasProtocolMetadata(node)) {
+                    AgentExecutionRequest executionRequest = new AgentExecutionRequest(
+                            AgentExecutionRequest.CURRENT_VERSION,
+                            requestId, node.getId(), userId != null ? String.valueOf(userId) : null,
+                            node.getOperation(), enrichedDescription, resolvedInput, node.getDependsOn(),
+                            node.getConstraints(), System.currentTimeMillis() + 60_000L,
+                            node.getIdempotencyKey(), null, predecessorOutputs(node, completed),
+                            workflowKey, workflowVersion, workflowChecksum, attempt, requestId);
+                    response = agentMessageDispatcher != null
+                            ? agentMessageDispatcher.dispatch(
+                                    targetAgent, executionRequest, node.getAccessMode())
+                            : agentCallerService.callAgentAndExtractTitles(targetAgent, executionRequest);
+                } else {
+                    response = agentCallerService.callAgentAndExtractTitles(
+                            targetAgent, enrichedDescription, userId, requestId);
+                }
                 String text = response.getResponse();
                 if (text == null || text.isBlank()) {
                     if (attempt < maxRetries) {
@@ -131,7 +164,28 @@ public class GraphNodeExecutionService {
                             "节点返回空结果", SubTaskResult.ErrorType.FATAL_FAILED);
                 }
 
-                boolean evidenceLimited = response.getDomainQuality().getReasonCodes().stream()
+                // The downstream request may still be running after this client times out.
+                // Retrying it as a semantic quality correction duplicates an expensive model call
+                // and amplifies load, so return control to the graph immediately.
+                if (Boolean.TRUE.equals(response.getData().get(
+                        AgentCallResult.TRANSPORT_FAILURE_KEY))) {
+                    progress(eventsKey, "node_transport_failed",
+                            "节点[" + node.getDescription() + "]下游调用超时或中断",
+                            targetAgent);
+                    return recordFailure(node, breakerFailures, requestId,
+                            truncate(text, 100), SubTaskResult.ErrorType.RETRYABLE_FAILED);
+                }
+                if (Boolean.TRUE.equals(response.getData().get(
+                        AgentCallResult.PROTOCOL_RETRYABLE_FAILURE_KEY))) {
+                    progress(eventsKey, "node_protocol_retryable_failed",
+                            "节点[" + node.getDescription() + "]返回可重试协议失败",
+                            targetAgent);
+                    return recordFailure(node, breakerFailures, requestId,
+                            truncate(text, 100), SubTaskResult.ErrorType.RETRYABLE_FAILED);
+                }
+
+                var domainQuality = response.getDomainQuality();
+                boolean evidenceLimited = domainQuality.getReasonCodes().stream()
                         .anyMatch(code -> code.endsWith("_EVIDENCE_LIMITED")
                                 || "PRODUCT_EVIDENCE_UNAVAILABLE".equals(code));
                 if (evidenceLimited) {
@@ -139,9 +193,44 @@ public class GraphNodeExecutionService {
                             "节点[" + node.getDescription() + "]已返回可验证的证据边界",
                             targetAgent);
                 }
-                SubTaskResult.ErrorType criteria = evidenceLimited
-                        ? SubTaskResult.ErrorType.NONE
-                        : reflectionService.checkCriteria(text, node.getSuccessCriteria());
+                boolean structuredVerified = !domainQuality.isUnknown()
+                        && Boolean.TRUE.equals(response.getData().get("verified"))
+                        && response.getData().containsKey("criteriaSatisfied");
+                SubTaskResult.ErrorType criteria;
+                if (domainQuality.isFail()) {
+                    criteria = SubTaskResult.ErrorType.FATAL_FAILED;
+                    log.warn("[GraphNode] 领域验收拒绝结果: nodeId={}, operation={}, reasons={}",
+                            node.getId(), node.getOperation(), domainQuality.getReasonCodes());
+                } else if (evidenceLimited) {
+                    criteria = SubTaskResult.ErrorType.NONE;
+                } else if (structuredVerified) {
+                    boolean satisfied = Boolean.TRUE.equals(
+                            response.getData().get("criteriaSatisfied"));
+                    criteria = satisfied
+                            ? SubTaskResult.ErrorType.NONE
+                            : SubTaskResult.ErrorType.FATAL_FAILED;
+                    log.info("[GraphNode] 使用领域结构化结果验收: nodeId={}, operation={}, satisfied={}",
+                            node.getId(), node.getOperation(), satisfied);
+                } else if (domainQuality.isPass() || domainQuality.isWarn()) {
+                    // PASS and WARN are both completed domain decisions. WARN means the
+                    // answer is usable with an explicit evidence boundary; asking a generic
+                    // Router reflection model to rewrite it can duplicate expensive Agent
+                    // calls and even replace a factually safe answer with a model failure.
+                    criteria = SubTaskResult.ErrorType.NONE;
+                } else {
+                    criteria = reflectionService.checkCriteria(text, node.getSuccessCriteria());
+                }
+                if (criteria == SubTaskResult.ErrorType.FATAL_FAILED) {
+                    SubTaskResult rejected = new SubTaskResult(
+                            node.getId(), node.getDescription(), targetAgent, text, false,
+                            SubTaskResult.ErrorType.FATAL_FAILED,
+                            response.getRealTitles(), response.getTagsByTitle());
+                    rejected.setDomainQuality(response.getDomainQuality());
+                    rejected.setStructuredData(response.getData());
+                    progress(eventsKey, "node_criteria_rejected",
+                            "节点[" + node.getDescription() + "]结构化验收未满足", targetAgent);
+                    return rejected;
+                }
                 if (criteria == SubTaskResult.ErrorType.NEED_REPLAN
                         && corrections < maxCriteriaCorrections) {
                     corrections++;
@@ -166,6 +255,7 @@ public class GraphNodeExecutionService {
                 result.setDomainQuality(response.getDomainQuality());
                 result.setStructuredData(response.getData());
                 progress(eventsKey, criteria == SubTaskResult.ErrorType.NEED_REPLAN
+                                || domainQuality.isWarn()
                                 ? "node_quality_degraded" : "node_completed",
                         "节点[" + node.getDescription() + "]执行完成", targetAgent);
                 return result;
@@ -218,6 +308,10 @@ public class GraphNodeExecutionService {
                 ? classifyException(cause) : SubTaskResult.ErrorType.FATAL_FAILED;
     }
 
+    void setAgentMessageDispatcher(AgentMessageDispatcher agentMessageDispatcher) {
+        this.agentMessageDispatcher = agentMessageDispatcher;
+    }
+
     private SubTaskResult recordFailure(IntentNode node,
                                         ConcurrentHashMap<String, Integer> breakerFailures,
                                         String requestId, String reason,
@@ -234,7 +328,8 @@ public class GraphNodeExecutionService {
                 node.getTargetAgent(), "", false, type);
     }
 
-    private static String enrich(IntentNode node, Map<String, SubTaskResult> completed) {
+    private static String enrich(IntentNode node, Map<String, SubTaskResult> completed,
+                                 String originalQuestion) {
         StringBuilder context = new StringBuilder();
         for (String dependency : node.getDependsOn()) {
             SubTaskResult result = completed.get(dependency);
@@ -244,8 +339,16 @@ public class GraphNodeExecutionService {
                         .append("] ").append(result.getResult()).append("\n\n");
             }
         }
-        return context.isEmpty() ? node.getDescription()
-                : node.getDescription() + "\n\n[已知信息]\n" + context;
+        StringBuilder prompt = new StringBuilder();
+        if (originalQuestion != null && !originalQuestion.isBlank()) {
+            prompt.append("[用户原始请求]\n").append(originalQuestion.trim())
+                    .append("\n\n[当前节点任务]\n");
+        }
+        prompt.append(node.getDescription());
+        if (!context.isEmpty()) {
+            prompt.append("\n\n[已知信息]\n").append(context);
+        }
+        return prompt.toString();
     }
 
     private static boolean hasProtocolMetadata(IntentNode node) {
@@ -267,6 +370,68 @@ public class GraphNodeExecutionService {
                     result.getResult(), result.getStructuredData()));
         }
         return outputs;
+    }
+
+    /**
+     * Resolves explicit node input bindings from declared predecessor outputs.
+     * Supported paths are {@code $.nodes.<nodeId>.data.<field>},
+     * {@code <nodeId>.data}, {@code <nodeId>.data.<field>} and {@code <nodeId>.answer}.
+     */
+    static Map<String, Object> resolveInput(
+            IntentNode node, Map<String, SubTaskResult> completed) {
+        Map<String, Object> resolved = new LinkedHashMap<>(node.getInput());
+        for (Map.Entry<String, String> binding : node.getInputBindings().entrySet()) {
+            String target = binding.getKey();
+            if (target == null || target.isBlank()) {
+                throw new IllegalArgumentException("input binding target is blank");
+            }
+            Object value = resolveBinding(node, completed, binding.getValue());
+            if (value == null) {
+                Object explicitValue = resolved.get(target);
+                if (hasUsableExplicitInput(explicitValue)) {
+                    continue;
+                }
+                throw new IllegalArgumentException(
+                        "input binding cannot be resolved: " + binding.getValue());
+            }
+            resolved.put(target, value);
+        }
+        return resolved;
+    }
+
+    private static boolean hasUsableExplicitInput(Object value) {
+        if (value == null) return false;
+        if (value instanceof String text) return !text.isBlank();
+        if (value instanceof java.util.Collection<?> collection) return !collection.isEmpty();
+        if (value instanceof Map<?, ?> map) return !map.isEmpty();
+        return true;
+    }
+
+    private static Object resolveBinding(IntentNode node,
+                                         Map<String, SubTaskResult> completed,
+                                         String expression) {
+        InputBindingExpression.Parsed binding = InputBindingExpression.parse(expression);
+        if (!node.getDependsOn().contains(binding.sourceNodeId())) return null;
+        SubTaskResult source = completed.get(binding.sourceNodeId());
+        if (source == null) return null;
+
+        if (binding.section() == InputBindingExpression.Section.STATUS) {
+            return source.getErrorType().name();
+        }
+        if (binding.section() == InputBindingExpression.Section.AGENT_NAME) {
+            return source.getAgentName();
+        }
+        if (!source.isSuccess()) return null;
+        if (binding.section() == InputBindingExpression.Section.ANSWER) {
+            return source.getResult();
+        }
+
+        Object value = source.getStructuredData();
+        int index = 0;
+        while (index < binding.dataPath().size() && value instanceof Map<?, ?> map) {
+            value = map.get(binding.dataPath().get(index++));
+        }
+        return index == binding.dataPath().size() ? value : null;
     }
 
     private static String correctionPrompt(String description, String criteria, String previous) {

@@ -1,43 +1,102 @@
-# Product 模块技能包配置
-# 技能包通过 SKILL.md 指令注入 Agent system prompt，增强特定场景下的行为
+# Product Agent 运行时技能。核心安全约束保留在 product-system-prompt.txt；
+# 这里仅声明可按请求选择、可独立版本化的业务能力。
 skill-package:
   enabled: true
   packages:
-    - id: product-price-comparison
-      name: 商品比价技能
-      description: 帮助用户比较不同商品的价格、配置和性价比
-      version: "1.0.0"
-      tags: [product, price, comparison]
+    - id: product-discovery
+      name: 商品发现
+      description: 查询真实的热门、推荐或可售商品候选
+      version: "2.0.0"
+      priority: 90
+      tags: [product, discovery]
+      trigger-operations: [DISCOVER_PRODUCTS]
+      match-terms: [热门商品, 推荐商品, 商品列表, 有什么商品, 有哪些商品]
+      required-tools: [listRecommendedProducts]
       instruction: |
-        当用户需要比较多个商品时，按以下步骤操作：
-        1. 先获取每个商品的完整信息（调用 queryProductInfo）
-        2. 提取关键对比维度（价格、配置、评分、库存）
-        3. 以表格形式呈现对比结果，突出差异
-        4. 给出客观的选购建议
+        先调用 listRecommendedProducts 获取真实候选；没有销量数据时明确说明当前结果只是可售目录。
+        不得把目录顺序解释成销量排名，也不得补写工具结果中不存在的销量、口碑或规格。
       bind-agents: [product-service]
 
-    - id: product-stock-alert
-      name: 库存查询与预警
-      description: 查询商品库存状态，缺货时提供替代方案
-      version: "1.0.0"
-      tags: [product, stock, inventory]
+    - id: product-detail-query
+      name: 商品详情查询
+      description: 查询指定商品的真实详情、价格和库存
+      version: "2.0.0"
+      priority: 80
+      tags: [product, query]
+      trigger-operations: [QUERY_PRODUCT]
+      match-terms: [详情, 参数, 规格, 多少钱, 价格, 分期, 库存, 有货, 发货时间]
+      required-tools: [queryProductInfo, getPrice, checkStock]
       instruction: |
-        当用户查询库存时：
-        1. 优先调用 checkStock 检查当前库存
-        2. 如果缺货，自动推荐同类替代商品（调用 queryRecommendations）
-        3. 告知用户预计补货时间（如果有）
-        4. 提供到货通知或预订选项
+        根据用户实际需要调用 queryProductInfo、getPrice 或 checkStock；多个维度可以依次查询后合并回答。
+        需要具体商品但缺少商品编码或名称时先补充信息，不得猜测商品。
+      bind-agents: [product-service]
+
+    - id: product-price-comparison
+      name: 商品比价
+      description: 比较真实候选商品的价格、配置和库存约束
+      version: "2.0.0"
+      priority: 75
+      tags: [product, comparison]
+      trigger-operations: [ANALYZE_PRODUCT_DATA]
+      match-terms: [比较, 对比, 比价, 性价比]
+      required-tools: [queryProductInfo, getPrice, checkStock]
+      instruction: |
+        逐个查询候选商品的详情、价格和库存，保证比较口径一致。
+        价格、规格或库存缺失时标注无法比较，不得用常识补齐；跨品类商品不得强行做整体性价比排名。
+      bind-agents: [product-service]
+
+    - id: product-analysis
+      name: 商品数据分析
+      description: 按销售量、性价比、口碑及明确用户偏好分析候选商品
+      version: "2.0.0"
+      priority: 70
+      tags: [product, analysis]
+      trigger-operations: [ANALYZE_PRODUCT_DATA]
+      match-terms: [分析商品, 销量, 销售量, 性价比, 口碑, 好评率]
+      dependencies: [product-discovery]
+      required-tools: [listRecommendedProducts]
+      instruction: |
+        只基于工具返回的真实候选，从销售量、性价比、口碑三个维度分析；仅在存在明确偏好时增加用户偏好维度。
+        数据缺失或口径不一致时明确披露，禁止制造排名或确定性结论。
+      bind-agents: [product-service]
+
+    - id: product-recommendation
+      name: 商品推荐核实
+      description: 基于已验证的候选和分析结果给出推荐
+      version: "2.0.0"
+      priority: 65
+      tags: [product, recommendation]
+      trigger-operations: [RECOMMEND_PRODUCT]
+      match-terms: [推荐一款, 最适合, 帮我选, 哪个好, 购买建议]
+      dependencies: [product-discovery, product-analysis]
+      required-tools: [listRecommendedProducts]
+      instruction: |
+        推荐前核对候选商品编码、名称、价格、库存和分析证据，只能从真实候选中选择。
+        证据不足时说明需要补充的数据；只负责推荐，不创建订单，最终由用户确认购买。
       bind-agents: [product-service]
 
     - id: product-knowledge-qa
       name: 商品知识问答
-      description: 回答关于商品参数、技术规格、使用方法的专业问题
-      version: "1.0.0"
-      tags: [product, knowledge, faq]
+      description: 回答商品政策、参数说明和使用方法
+      version: "2.0.0"
+      priority: 50
+      tags: [product, knowledge]
+      match-terms: [政策, 规则, 售后, 使用方法, 技术说明, 保修]
+      required-tools: [queryKnowledge]
       instruction: |
-        当用户询问商品专业知识时：
-        1. 优先从知识库检索（调用 queryKnowledge）
-        2. 如果知识库未命中，结合已获取的商品信息推理回答
-        3. 对于不确定的技术参数，明确告知用户需要核实
-        4. 引用来源（商品信息、知识库或经验数据）
+        先调用 queryKnowledge 检索知识库；未命中时只结合本轮已获取的真实商品信息回答。
+        对无法核实的技术参数明确说明不确定性，并标注信息来源。
+      bind-agents: [product-service]
+
+    - id: product-preference-memory
+      name: 商品偏好记忆
+      description: 读取或保存用户明确表达的长期商品偏好
+      version: "2.0.0"
+      priority: 40
+      tags: [product, memory]
+      match-terms: [偏好, 预算, 只看, 品牌, 以后都, 我喜欢]
+      required-tools: [savePreference, recallMemories]
+      instruction: |
+        只保存用户明确表达且可复用的长期偏好，如品类、预算上限和品牌；不保存具体商品 ID 或临时查询结果。
+        超过 7 天的偏好使用前先确认，当前用户表达始终优先于历史记忆。
       bind-agents: [product-service]

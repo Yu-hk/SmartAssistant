@@ -8,6 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
 
 class OrderRagServiceTest {
 
@@ -66,5 +69,41 @@ class OrderRagServiceTest {
         assertTrue(result.getContent().contains("不会执行下单"));
         assertTrue(result.getContent().contains("不会创建测试订单"));
         verifyNoInteractions(orderData);
+    }
+
+    @Test
+    void fulfillmentIntentsRetrieveCurrentOrderEvidence() {
+        OrderDataProvider orderData = mock(OrderDataProvider.class);
+        when(orderData.findOrderByOrderId("ORD-9001")).thenReturn(OrderDTO.builder()
+                .orderId("ORD-9001").userId(42L).productName("测试商品")
+                .status("待付款").build());
+        OrderRagService service = new OrderRagService(orderData);
+
+        for (OrderIntentService.IntentType intent : java.util.List.of(
+                OrderIntentService.IntentType.PAY,
+                OrderIntentService.IntentType.SHIP,
+                OrderIntentService.IntentType.TRACK_LOGISTICS,
+                OrderIntentService.IntentType.CONFIRM_DELIVERY)) {
+            RetrievalQualityResult result = service.retrieveWithQualityResult(
+                    intent, "处理订单 ORD-9001");
+            assertFalse(result.isRejected(), () -> "intent should have evidence: " + intent);
+            assertTrue(result.getContent().contains("ORD-9001"));
+        }
+    }
+
+    @Test
+    void logisticsRetrievalAcceptsBulkOrderId() {
+        OrderDataProvider orderData = mock(OrderDataProvider.class);
+        when(orderData.findOrderByOrderId("BULK-0002")).thenReturn(OrderDTO.builder()
+                .orderId("BULK-0002").userId(42L).productName("测试商品")
+                .status("已发货").build());
+        OrderRagService service = new OrderRagService(orderData);
+
+        RetrievalQualityResult result = service.retrieveWithQualityResult(
+                OrderIntentService.IntentType.TRACK_LOGISTICS,
+                "查询 bulk-0002 的物流信息");
+
+        assertFalse(result.isRejected());
+        assertTrue(result.getContent().contains("BULK-0002"));
     }
 }

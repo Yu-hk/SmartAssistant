@@ -10,6 +10,7 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
 import com.example.smartassistant.router.service.trace.AgentFlowTraceStore;
@@ -148,7 +149,10 @@ public class RouteExecutionService {
             long elapsed = System.currentTimeMillis() - start;
             log.info("[Collaborative] 降级单 Agent 完成: elapsed={}ms, replyLen={}", elapsed, reply.length());
             return routeFinalizer.applyEmotion(RoutingResult.builder()
-                    .result(reply).agentName(RouterFallbackAgentService.AGENT_NAME).confidence(1.0).build(), emotion);
+                    .result(reply).confidence(1.0)
+                    .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                    .workflowStatus(RoutingResult.WorkflowStatus.DEGRADED)
+                    .build(), emotion);
         }
 
         IntentGraph graph = buildGraphFromAnalysis(question, taskAnalysis, requestId);
@@ -179,7 +183,8 @@ public class RouteExecutionService {
         storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);
 
         boolean hasBuiltInOrderPreparation = results.stream()
-                .anyMatch(result -> BUILTIN_ORDER_PREPARATION_AGENT.equals(result.getAgentName()));
+                .anyMatch(result -> result.getSystemNodeType()
+                        == SubTaskResult.SystemNodeType.ORDER_PREPARATION);
         String merged = hasBuiltInOrderPreparation
                 ? mergeOrderPreparationResults(results)
                 : fallbackPlanned
@@ -187,18 +192,14 @@ public class RouteExecutionService {
                         : resultMerger.merge(question, results, requestId);
         long elapsed = System.currentTimeMillis() - start;
 
-        String firstAgent = results.stream()
-                .map(SubTaskResult::getAgentName)
-                .filter(Objects::nonNull)
-                .filter(agent -> !BUILTIN_ORDER_PREPARATION_AGENT.equals(agent))
-                .findFirst().orElse("none");
-        String resultOwner = graph.getNodeCount() > 1 ? "orchestrator" : firstAgent;
+        ResultAttribution attribution = determineResultAttribution(results);
         if (agentFlowTraceStore != null) {
-            agentFlowTraceStore.complete(flowId, results, resultOwner, elapsed);
+            agentFlowTraceStore.complete(flowId, results, attribution.participatingAgents(), elapsed);
         }
 
         boolean allFailed = results.isEmpty() || results.stream().noneMatch(SubTaskResult::isSuccess);
-        if (allFailed || merged == null || merged.isBlank()) {
+        boolean hasRequiredFailure = !ResultMerger.requiredFailures(results).isEmpty();
+        if ((!hasRequiredFailure && allFailed) || merged == null || merged.isBlank()) {
             log.warn("[Collaborative] 所有子任务均失败，降级到内联 ChatClient 兜底");
             return inlineFallback(question, emotion);
         }
@@ -209,8 +210,77 @@ public class RouteExecutionService {
         DomainQualityResult domainQuality = aggregateDomainQuality(results);
 
         return routeFinalizer.applyEmotion(RoutingResult.builder()
-                .result(merged).agentName(resultOwner).confidence(0.8)
+                .result(merged).agentName(attribution.agentName()).confidence(0.8)
+                .executionMode(attribution.executionMode())
+                .participatingAgents(attribution.participatingAgents())
+                .workflowStatus(attribution.workflowStatus())
                 .domainQuality(domainQuality).build(), emotion);
+    }
+
+    /**
+     * Separates registered business Agent identity from workflow metadata.
+     * Multi-Agent orchestration and built-in nodes never masquerade as agents.
+     */
+    static ResultAttribution determineResultAttribution(List<SubTaskResult> results) {
+        if (results == null || results.isEmpty()) {
+            return new ResultAttribution(null, RoutingResult.ExecutionMode.BUILTIN,
+                    List.of(), RoutingResult.WorkflowStatus.FAILED);
+        }
+        boolean awaitingApproval = results.stream()
+                .anyMatch(result -> result.getSystemNodeType()
+                        == SubTaskResult.SystemNodeType.APPROVAL);
+        List<String> businessAgents = results.stream()
+                .map(SubTaskResult::getAgentName)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(agent -> !agent.isBlank())
+                .filter(agent -> !isSystemResultAgent(agent))
+                .map(AgentDiscoveryService::canonicalAgentName)
+                .filter(agent -> !agent.isBlank())
+                .distinct()
+                .toList();
+        boolean anySucceeded = results.stream().anyMatch(SubTaskResult::isSuccess);
+        boolean anyFailed = results.stream().anyMatch(result -> !result.isSuccess());
+        RoutingResult.WorkflowStatus status;
+        if (awaitingApproval) {
+            status = RoutingResult.WorkflowStatus.AWAITING_APPROVAL;
+        } else if (!anySucceeded) {
+            status = RoutingResult.WorkflowStatus.FAILED;
+        } else if (anyFailed) {
+            status = RoutingResult.WorkflowStatus.DEGRADED;
+        } else {
+            status = RoutingResult.WorkflowStatus.COMPLETED;
+        }
+        if (businessAgents.isEmpty()) {
+            return new ResultAttribution(null, RoutingResult.ExecutionMode.BUILTIN,
+                    List.of(), status);
+        }
+        if (businessAgents.size() == 1) {
+            return new ResultAttribution(businessAgents.getFirst(),
+                    RoutingResult.ExecutionMode.SINGLE_AGENT, businessAgents, status);
+        }
+        return new ResultAttribution(null, RoutingResult.ExecutionMode.MULTI_AGENT,
+                businessAgents, status);
+    }
+
+    static String determineResultOwner(List<SubTaskResult> results) {
+        return determineResultAttribution(results).agentName();
+    }
+
+    private static boolean isSystemResultAgent(String agentName) {
+        return "none".equalsIgnoreCase(agentName)
+                || agentName.startsWith("builtin_")
+                || RouterFallbackAgentService.AGENT_NAME.equalsIgnoreCase(agentName);
+    }
+
+    record ResultAttribution(String agentName,
+                             RoutingResult.ExecutionMode executionMode,
+                             List<String> participatingAgents,
+                             RoutingResult.WorkflowStatus workflowStatus) {
+        ResultAttribution {
+            participatingAgents = participatingAgents == null
+                    ? List.of() : List.copyOf(participatingAgents);
+        }
     }
 
     /** Uses LangGraph4j as the sole orchestration engine. */
@@ -304,6 +374,12 @@ public class RouteExecutionService {
             registerDependencyAlias(dependencyAliases, description, nodeId);
         }
 
+        Set<String> recommendationNodeIds = rawNodes.stream()
+                .filter(node -> "RECOMMEND_PRODUCT".equals(normalizeDeclaredOperation(
+                        node.source().get("operation"), node.source().get("target_agent"),
+                        analysis.getIntentCategory())))
+                .map(RawPlanNode::nodeId)
+                .collect(java.util.stream.Collectors.toSet());
         List<ExecutionPlan.TaskNode> nodes = new ArrayList<>();
         for (RawPlanNode rawNode : rawNodes) {
             Map<String, Object> subIntent = rawNode.source();
@@ -325,6 +401,8 @@ public class RouteExecutionService {
             String agent = domain.agentName();
             List<String> dependencies = resolveSubIntentDependencies(
                     subIntent.get("depends_on"), dependencyAliases);
+            boolean recommendationDerivedOrder = "CREATE_ORDER".equals(operation)
+                    && dependencies.stream().anyMatch(recommendationNodeIds::contains);
             String criteria = Objects.toString(subIntent.get("success_criteria"), "").trim();
             if (criteria.isEmpty()) criteria = null;
 
@@ -334,19 +412,33 @@ public class RouteExecutionService {
                     && ("WRITE".equalsIgnoreCase(Objects.toString(subIntent.get("access_mode"), ""))
                     || isWriteOperation(operation))
                     ? ExecutionPlan.AccessMode.WRITE : ExecutionPlan.AccessMode.READ;
-            boolean approvalRequired = booleanValue(subIntent.get("human_approval_required"))
-                    || requiresApproval(operation, analysis.getRiskFlags());
+            boolean approvalRequired = accessMode == ExecutionPlan.AccessMode.WRITE
+                    && (recommendationDerivedOrder
+                    || booleanValue(subIntent.get("human_approval_required"))
+                    || requiresApproval(operation, analysis.getRiskFlags()));
             String idempotencyKey = accessMode == ExecutionPlan.AccessMode.WRITE
                     ? effectiveExecutionId + ":" + rawNode.nodeId() : null;
 
             Map<String, Object> input = new LinkedHashMap<>();
             input.put("description", description);
             if (analysis.getEntities() != null) input.putAll(analysis.getEntities());
+            ExecutionPlan.MergePolicy mergePolicy = mergePolicy(
+                    subIntent.get("merge_policy"), operation);
+            boolean required = subIntent.containsKey("required")
+                    ? booleanValue(subIntent.get("required"))
+                    : !booleanValue(subIntent.get("optional"));
+            String outputSchema = Objects.toString(
+                    subIntent.get("output_schema"), "").trim();
+            if (outputSchema.isEmpty()) outputSchema = null;
+            Map<String, String> inputBindings = sanitizeInputBindings(
+                    rawNode.nodeId(), dependencies, input,
+                    stringMap(subIntent.get("input_bindings")));
 
             nodes.add(new ExecutionPlan.TaskNode(
                     rawNode.nodeId(), domain, operation, scopedDescription, input,
                     dependencies, accessMode, analysis.getMissingSlots(), idempotencyKey,
-                    approvalRequired, criteria, ExecutionPlan.MergePolicy.APPEND));
+                    approvalRequired, criteria, mergePolicy, required,
+                    outputSchema, inputBindings));
         }
 
         return nodes.isEmpty() ? null : new ExecutionPlan(effectiveExecutionId, question,
@@ -358,7 +450,7 @@ public class RouteExecutionService {
         // Product is a read-only domain. Its deterministic discovery/RAG layer treats the
         // incoming text as the actual search query, so orchestration prose must never leak in.
         if ("product".equals(agent)) {
-            return description + "\n\n[用户原始商品需求与约束]\n" + question;
+            return description;
         }
         StringBuilder scoped = new StringBuilder("仅执行这个子任务：").append(description);
         if ("general".equals(agent)) {
@@ -459,8 +551,11 @@ public class RouteExecutionService {
     private static String normalizeDeclaredOperation(Object operation, Object targetAgent,
                                                      String intentCategory) {
         String declared = Objects.toString(operation, "").trim().toUpperCase(Locale.ROOT);
-        Set<String> allowed = Set.of("QUERY_PRODUCT", "QUERY_ORDER", "CREATE_ORDER",
-                "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER", "ANSWER",
+        Set<String> allowed = Set.of("DISCOVER_PRODUCTS", "QUERY_PRODUCT",
+                "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT", "QUERY_ORDER", "QUERY_ORDER_LIST",
+                "QUERY_PAYMENT_PENDING", "CREATE_ORDER",
+                "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER", "SHIP_ORDER",
+                "TRACK_LOGISTICS", "CONFIRM_DELIVERY", "ANSWER",
                 "EXPLAIN_ORDER_REQUIREMENTS", "EXPLAIN_ORDER_LIFECYCLE");
         if (allowed.contains(declared)) return declared;
         return switch (resolveDeclaredDomain(targetAgent, intentCategory)) {
@@ -472,12 +567,14 @@ public class RouteExecutionService {
     }
 
     private static boolean isWriteOperation(String operation) {
-        return Set.of("CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER")
+        return Set.of("CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER",
+                        "SHIP_ORDER", "CONFIRM_DELIVERY")
                 .contains(operation);
     }
 
     private static boolean requiresApproval(String operation, List<String> riskFlags) {
-        if (Set.of("PAY_ORDER", "REFUND_ORDER", "CANCEL_ORDER").contains(operation)) return true;
+        if (Set.of("PAY_ORDER", "REFUND_ORDER", "CANCEL_ORDER", "SHIP_ORDER",
+                "CONFIRM_DELIVERY").contains(operation)) return true;
         return riskFlags != null && riskFlags.stream().filter(Objects::nonNull)
                 .anyMatch(flag -> flag.contains("二次确认") || flag.contains("人工审批"));
     }
@@ -485,6 +582,76 @@ public class RouteExecutionService {
     private static boolean booleanValue(Object value) {
         return value instanceof Boolean bool ? bool
                 : value != null && Boolean.parseBoolean(value.toString());
+    }
+
+    private static ExecutionPlan.MergePolicy mergePolicy(Object value, String operation) {
+        String declared = Objects.toString(value, "").trim().toUpperCase(Locale.ROOT);
+        if (!declared.isEmpty()) {
+            try {
+                return ExecutionPlan.MergePolicy.valueOf(declared);
+            } catch (IllegalArgumentException ignored) {
+                // Invalid model output falls through to the deterministic operation default.
+            }
+        }
+        return Set.of("ANSWER", "EXPLAIN_ORDER_REQUIREMENTS", "EXPLAIN_ORDER_LIFECYCLE")
+                .contains(operation)
+                ? ExecutionPlan.MergePolicy.APPEND
+                : ExecutionPlan.MergePolicy.STRUCTURED;
+    }
+
+    private static Map<String, String> stringMap(Object value) {
+        if (!(value instanceof Map<?, ?> map)) return Map.of();
+        Map<String, String> result = new LinkedHashMap<>();
+        map.forEach((key, item) -> {
+            if (key != null && item != null
+                    && !key.toString().isBlank() && !item.toString().isBlank()) {
+                result.put(key.toString().trim(), item.toString().trim());
+            }
+        });
+        return result;
+    }
+
+    /**
+     * Repairs only bindings that are redundant with a trusted entity already extracted from
+     * the original request. Models occasionally bind a root node's {@code order_id} to that
+     * same node's future output. Rejecting the entire typed plan sends execution to the legacy
+     * untyped planner; blindly accepting it would create a cycle. Dropping the redundant
+     * binding preserves the explicit entity while every binding without a trusted fallback is
+     * left intact so normal validation still rejects unsafe plans.
+     */
+    private static Map<String, String> sanitizeInputBindings(
+            String nodeId, List<String> dependencies, Map<String, Object> input,
+            Map<String, String> bindings) {
+        if (bindings == null || bindings.isEmpty()) return Map.of();
+        Set<String> declaredDependencies = dependencies != null
+                ? Set.copyOf(dependencies) : Set.of();
+        Map<String, String> sanitized = new LinkedHashMap<>();
+        bindings.forEach((target, expression) -> {
+            boolean validSource = false;
+            try {
+                InputBindingExpression.Parsed parsed = InputBindingExpression.parse(expression);
+                validSource = declaredDependencies.contains(parsed.sourceNodeId());
+            } catch (IllegalArgumentException ignored) {
+                // Keep malformed expressions unless the explicit input below makes them redundant.
+            }
+            Object explicitValue = input != null ? input.get(target) : null;
+            if (!validSource && hasUsablePlanInput(explicitValue)) {
+                log.warn("[Collaborative] Dropped redundant invalid input binding: "
+                                + "node={}, target={}, expression={}",
+                        nodeId, target, expression);
+                return;
+            }
+            sanitized.put(target, expression);
+        });
+        return Map.copyOf(sanitized);
+    }
+
+    private static boolean hasUsablePlanInput(Object value) {
+        if (value == null) return false;
+        if (value instanceof String text) return !text.isBlank();
+        if (value instanceof Collection<?> collection) return !collection.isEmpty();
+        if (value instanceof Map<?, ?> map) return !map.isEmpty();
+        return true;
     }
 
     private static boolean isValidNodeId(String value) {
@@ -535,9 +702,19 @@ public class RouteExecutionService {
         if (agentReply == null || agentReply.isBlank()) {
             return null;
         }
+        String responseAgentName = isFallbackAgent(agentName)
+                ? null : AgentDiscoveryService.canonicalAgentName(agentName);
         RoutingResult result = RoutingResult.builder()
                 .result(agentReply)
-                .agentName(agentName)
+                .agentName(responseAgentName)
+                .executionMode(isFallbackAgent(agentName)
+                        ? RoutingResult.ExecutionMode.FALLBACK
+                        : RoutingResult.ExecutionMode.SINGLE_AGENT)
+                .participatingAgents(isFallbackAgent(agentName)
+                        ? List.of() : List.of(responseAgentName))
+                .workflowStatus(isFallbackAgent(agentName)
+                        ? RoutingResult.WorkflowStatus.DEGRADED
+                        : RoutingResult.WorkflowStatus.COMPLETED)
                 .confidence(confidence)
                 .intentTag(intentTag)
                 .domainQuality(domainQuality)
@@ -561,7 +738,10 @@ public class RouteExecutionService {
             String localReply = fallbackAgentService.execute(question, userId, deviceLocation);
             if (localReply != null && !localReply.isBlank()) {
                 return routeFinalizer.applyEmotion(RoutingResult.builder()
-                        .result(localReply).agentName(RouterFallbackAgentService.AGENT_NAME).confidence(0.2).build(), emotion);
+                        .result(localReply).confidence(0.2)
+                        .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                        .workflowStatus(RoutingResult.WorkflowStatus.DEGRADED)
+                        .build(), emotion);
             }
         } catch (Exception e) {
             log.warn("[Exec] 本地推理兜底失败: {}", e.getMessage());
@@ -569,7 +749,10 @@ public class RouteExecutionService {
 
         int idx = fallbackIndex.getAndUpdate(i -> (i + 1) % FALLBACK_MESSAGES.size());
         return routeFinalizer.applyEmotion(RoutingResult.builder()
-                .result(FALLBACK_MESSAGES.get(idx)).agentName("none").confidence(0.0).build(), emotion);
+                .result(FALLBACK_MESSAGES.get(idx)).confidence(0.0)
+                .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                .workflowStatus(RoutingResult.WorkflowStatus.FAILED)
+                .build(), emotion);
     }
 
     private static boolean isFallbackAgent(String agentName) {

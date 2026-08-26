@@ -100,6 +100,20 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         log.info("[KnowledgeBase:{}] 添加文档: id={}, title={}", name, doc.getId(), doc.getTitle());
     }
 
+    /**
+     * 批量写入文档并只重建非向量索引。
+     *
+     * <p>{@link #addDocument(KnowledgeDocument)} 已经为每篇文档生成过一次向量，初始化阶段若再调用
+     * {@link #reindex()} 会把所有远程向量重复计算一遍。该方法保留完整的版本清理和 BM25 初始化，
+     * 但不会重复请求 embedding 服务。</p>
+     */
+    public void addDocumentsAndBuildIndexes(Collection<KnowledgeDocument> documents) {
+        if (documents != null) {
+            documents.forEach(this::addDocument);
+        }
+        rebuildNonVectorIndexes();
+    }
+
     @Override
     public void removeDocument(String id) {
         docs.remove(id);
@@ -382,11 +396,7 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
     public void replaceAll(java.util.Collection<KnowledgeDocument> documents) {
         docs.clear();
         vectors.clear();
-        if (documents != null) {
-            for (KnowledgeDocument doc : documents) {
-                addDocument(doc);
-            }
-        }
+        addDocumentsAndBuildIndexes(documents);
         log.info("[KnowledgeBase:{}] 内存快照刷新完成: {} 篇文档", name, docs.size());
     }
 
@@ -398,20 +408,27 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         List<KnowledgeDocument> allDocs = new ArrayList<>(docs.values());
         removeSuperseded(allDocs);
 
-        for (KnowledgeDocument doc : allDocs) {
+        for (KnowledgeDocument doc : docs.values()) {
             float[] vec = embeddingModel.embedding(doc.toEmbedText());
             if (vec != null) vectors.put(doc.getId(), normalize(vec));
         }
-        // ★ 重新初始化 BM25 索引
+        rebuildNonVectorIndexes();
+        log.info("[KnowledgeBase:{}] 重新索引完成: {} 篇文档", name, docs.size());
+    }
+
+    /** 清理旧版本并刷新 BM25 等非向量索引。 */
+    private void rebuildNonVectorIndexes() {
+        List<KnowledgeDocument> activeDocs = new ArrayList<>(docs.values());
+        removeSuperseded(activeDocs);
+        activeDocs = new ArrayList<>(docs.values());
         if (bm25Scorer != null) {
-            bm25Scorer.initialize(allDocs);
+            bm25Scorer.initialize(activeDocs);
             log.info("[KnowledgeBase:{}] BM25 索引完成: {} 篇文档, avgDocLen={:.1f}",
-                    name, allDocs.size(),
-                    bm25Scorer.isInitialized() ? (double) allDocs.stream()
+                    name, activeDocs.size(),
+                    bm25Scorer.isInitialized() ? (double) activeDocs.stream()
                             .mapToInt(d -> (d.getContent() != null ? d.getContent().length() : 0)).average().orElse(0)
                             : 0);
         }
-        log.info("[KnowledgeBase:{}] 重新索引完成: {} 篇文档", name, docs.size());
     }
 
     /**

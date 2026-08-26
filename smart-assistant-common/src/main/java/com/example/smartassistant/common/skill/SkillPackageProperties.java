@@ -11,8 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 import java.util.*;
 
 /**
@@ -52,6 +50,7 @@ public class SkillPackageProperties {
         for (PackageDef def : packages) {
             try {
                 SkillPackage pkg = def.toSkillPackage();
+                pkg.setEnabled(def.enabled);
                 manager.register(pkg);
 
                 // 绑定到指定 Agent
@@ -76,6 +75,14 @@ public class SkillPackageProperties {
         private String instruction = "";
         private List<String> tags = new ArrayList<>();
         private List<String> bindAgents = new ArrayList<>();
+        private List<String> triggerOperations = new ArrayList<>();
+        private List<String> triggerTags = new ArrayList<>();
+        private List<String> matchTerms = new ArrayList<>();
+        private List<String> requiredTools = new ArrayList<>();
+        private List<String> dependencies = new ArrayList<>();
+        private int priority;
+        private boolean alwaysApply;
+        private boolean enabled = true;
 
         // Getters & Setters
         public String getId() { return id; }
@@ -92,13 +99,36 @@ public class SkillPackageProperties {
         public void setTags(List<String> tags) { this.tags = tags; }
         public List<String> getBindAgents() { return bindAgents; }
         public void setBindAgents(List<String> bindAgents) { this.bindAgents = bindAgents; }
+        public List<String> getTriggerOperations() { return triggerOperations; }
+        public void setTriggerOperations(List<String> triggerOperations) { this.triggerOperations = triggerOperations; }
+        public List<String> getTriggerTags() { return triggerTags; }
+        public void setTriggerTags(List<String> triggerTags) { this.triggerTags = triggerTags; }
+        public List<String> getMatchTerms() { return matchTerms; }
+        public void setMatchTerms(List<String> matchTerms) { this.matchTerms = matchTerms; }
+        public List<String> getRequiredTools() { return requiredTools; }
+        public void setRequiredTools(List<String> requiredTools) { this.requiredTools = requiredTools; }
+        public List<String> getDependencies() { return dependencies; }
+        public void setDependencies(List<String> dependencies) { this.dependencies = dependencies; }
+        public int getPriority() { return priority; }
+        public void setPriority(int priority) { this.priority = priority; }
+        public boolean isAlwaysApply() { return alwaysApply; }
+        public void setAlwaysApply(boolean alwaysApply) { this.alwaysApply = alwaysApply; }
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
         public SkillPackage toSkillPackage() {
             SkillPackage.Builder builder = SkillPackage.builder(id, name)
                     .description(description)
                     .version(version)
-                    .instruction(instruction);
+                    .instruction(instruction)
+                    .priority(priority)
+                    .alwaysApply(alwaysApply);
             if (tags != null) tags.forEach(builder::addTag);
+            if (triggerOperations != null) triggerOperations.forEach(builder::addTriggerOperation);
+            if (triggerTags != null) triggerTags.forEach(builder::addTriggerTag);
+            if (matchTerms != null) matchTerms.forEach(builder::addMatchTerm);
+            if (requiredTools != null) requiredTools.forEach(builder::addRequiredTool);
+            if (dependencies != null) dependencies.forEach(builder::addDependency);
             return builder.build();
         }
     }

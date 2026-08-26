@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.workflow;
 
 import com.example.smartassistant.router.model.IntentGraph;
+import com.example.smartassistant.router.model.ExecutionPlan;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.Collections;
@@ -46,13 +47,35 @@ public record WorkflowDefinition(
             String successCriteria,
             boolean humanApprovalRequired,
             List<String> constraints,
-            String idempotencyKey) {
+            String idempotencyKey,
+            Boolean required,
+            ExecutionPlan.MergePolicy mergePolicy,
+            String outputSchema,
+            Map<String, String> inputBindings) {
+
+        /** Compatibility constructor for schema-v1 definitions without data contracts. */
+        public WorkflowNode(
+                String id, NodeType type, String description, String targetAgent,
+                String operation, Map<String, Object> input, List<String> dependsOn,
+                List<ConditionalEdge> conditions, String successCriteria,
+                boolean humanApprovalRequired, List<String> constraints,
+                String idempotencyKey) {
+            this(id, type, description, targetAgent, operation, input, dependsOn,
+                    conditions, successCriteria, humanApprovalRequired, constraints,
+                    idempotencyKey, true, ExecutionPlan.MergePolicy.APPEND, null, Map.of());
+        }
 
         public WorkflowNode {
             input = immutableMap(input);
             dependsOn = dependsOn != null ? List.copyOf(dependsOn) : List.of();
             conditions = conditions != null ? List.copyOf(conditions) : List.of();
             constraints = constraints != null ? List.copyOf(constraints) : List.of();
+            required = required == null ? Boolean.TRUE : required;
+            mergePolicy = mergePolicy != null
+                    ? mergePolicy : ExecutionPlan.MergePolicy.APPEND;
+            outputSchema = outputSchema == null || outputSchema.isBlank()
+                    ? null : outputSchema.trim();
+            inputBindings = immutableMap(inputBindings);
         }
     }
 

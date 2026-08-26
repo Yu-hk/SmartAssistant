@@ -43,6 +43,15 @@ public class TaskAnalysisResult {
     /** 任务目标——一句话概括用户想做什么 */
     private String taskGoal;
 
+    /** 面向执行者的一句话任务步骤，与 subIntents 一一对应。 */
+    private List<String> taskSteps;
+
+    /** 节点 ID 的拓扑执行顺序；同层无依赖节点可并行。 */
+    private List<String> executionOrder;
+
+    /** 与节点一致的紧凑文本流程图。 */
+    private String flowchart;
+
     /** 工具相关性评分（{工具名: 0.0~1.0}，仅对当前问题相关工具打分） */
     private Map<String, Double> toolScores;
 
@@ -124,6 +133,8 @@ public class TaskAnalysisResult {
         this.actionConstraints = new ArrayList<>();
         this.outputConstraints = new ArrayList<>();
         this.riskFlags = new ArrayList<>();
+        this.taskSteps = new ArrayList<>();
+        this.executionOrder = new ArrayList<>();
         this.toolScores = new HashMap<>();
         this.subIntents = new ArrayList<>();
         this.implicitIntents = new ArrayList<>();
@@ -165,6 +176,20 @@ public class TaskAnalysisResult {
 
     public String getTaskGoal() { return taskGoal; }
     public void setTaskGoal(String taskGoal) { this.taskGoal = taskGoal; }
+
+    public List<String> getTaskSteps() { return taskSteps; }
+    public void setTaskSteps(List<String> taskSteps) {
+        this.taskSteps = taskSteps != null ? new ArrayList<>(taskSteps) : new ArrayList<>();
+    }
+
+    public List<String> getExecutionOrder() { return executionOrder; }
+    public void setExecutionOrder(List<String> executionOrder) {
+        this.executionOrder = executionOrder != null
+                ? new ArrayList<>(executionOrder) : new ArrayList<>();
+    }
+
+    public String getFlowchart() { return flowchart; }
+    public void setFlowchart(String flowchart) { this.flowchart = flowchart; }
 
     public Map<String, Double> getToolScores() { return toolScores; }
     public void setToolScores(Map<String, Double> toolScores) { this.toolScores = toolScores != null ? toolScores : new HashMap<>(); }
@@ -256,7 +281,8 @@ public class TaskAnalysisResult {
     /** 是否包含实质性内容 */
     public boolean isMeaningful() {
         return intentCategory != null || hasEntities() || hasConstraints()
-                || hasRisks() || taskGoal != null || hasToolScores()
+                || hasRisks() || taskGoal != null || !taskSteps.isEmpty()
+                || !executionOrder.isEmpty() || flowchart != null || hasToolScores()
                 || hasSubIntents() || hasImplicitIntents()
                 || hasMissingSlots() || hasSlotConflicts()
                 || hasNormalizedEntities() || hasInputCorrections()
@@ -285,6 +311,9 @@ public class TaskAnalysisResult {
                 + ", needsClarification=" + needsClarification
                 + ", standardizedInput='" + standardizedInput + '\''
                 + ", taskGoal='" + taskGoal + '\''
+                + ", taskSteps=" + taskSteps
+                + ", executionOrder=" + executionOrder
+                + ", flowchart='" + flowchart + '\''
                 + ", riskFlags=" + riskFlags
                 + '}';
     }

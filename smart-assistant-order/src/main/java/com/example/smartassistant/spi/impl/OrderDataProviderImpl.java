@@ -71,6 +71,24 @@ public class OrderDataProviderImpl implements OrderDataProvider {
     }
 
     @Override
+    public List<Map<String, Object>> queryOrdersByUserId(Long userId, String status,
+                                                         int limit, int offset) {
+        if (userId == null) {
+            return List.of();
+        }
+        String columns = "SELECT order_id AS \"orderId\", product_name AS \"productName\", "
+                + "amount, status, created_at AS \"createdAt\" FROM orders WHERE user_id = ? ";
+        if (status == null || status.isBlank()) {
+            return jdbcTemplate.queryForList(
+                    columns + "ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                    userId, limit, offset);
+        }
+        return jdbcTemplate.queryForList(
+                columns + "AND status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                userId, status, limit, offset);
+    }
+
+    @Override
     public void insertOrder(OrderDTO order) {
         OrderEntity entity = toOrderEntity(order);
         orderMapper.insert(entity);

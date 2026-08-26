@@ -14,6 +14,7 @@ import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsHelper;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsTool;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
+import com.example.smartassistant.common.skill.SkillPackageManager;
 import com.example.smartassistant.order.tool.CouponTools;
 import com.example.smartassistant.order.tool.OrderAnalyticsTool;
 import com.example.smartassistant.order.tool.OrderKnowledgeTool;
@@ -83,6 +84,7 @@ public class OrderAgentConfig {
             OrderMetricsCollector metricsCollector,
             ObservationRegistry observationRegistry,
             AiChatService aiChatService,
+            @Autowired(required = false) SkillPackageManager skillPackageManager,
             @Autowired(required = false) ReActProfileRegistry reactProfileRegistry) {
 
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
@@ -107,6 +109,14 @@ public class OrderAgentConfig {
 		// ⭐ T2d：注入 discover_tools 元工具 + 绑定注册器
 		List<ToolCallback> effectiveToolList = DiscoverToolsHelper.injectDiscoverTools(toolList, discoverToolsTool);
 
+		if (skillPackageManager != null) {
+			skillPackageManager.requireValidAgentSkills(agentName, effectiveToolList.stream()
+					.map(tool -> tool.getToolDefinition().name())
+					.toList());
+			log.info("[OrderAgent] Skill 发布校验通过: count={}",
+					skillPackageManager.getAgentSkills(agentName).size());
+		}
+
 		// ⭐ 构建 ChatClient
 		ChatClient chatClient = aiChatService.buildChatClient(chatModel);
 		log.info("[OrderAgent] ChatClient 由 AiChatService 统一装配 Advisor 链");
@@ -120,6 +130,10 @@ public class OrderAgentConfig {
 				.withPreset(PromptBuilder.build()
 						.withServicePrompt(buildSystemPrompt())
 						.assemble(), effectiveToolList);
+
+		if (skillPackageManager != null) {
+			agent.withSkillPackages(agentName, skillPackageManager);
+		}
 
 		// ⭐ T2d：Agent 创建后设置注册器
 		DiscoverToolsHelper.bindRegistrar(discoverToolsTool, agent);

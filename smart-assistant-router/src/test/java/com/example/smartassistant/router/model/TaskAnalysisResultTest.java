@@ -41,6 +41,20 @@ class TaskAnalysisResultTest {
         assertEquals("ORDER", result.getIntentCategory());
     }
 
+    @Test
+    @DisplayName("行动路线图: 保留步骤、执行顺序和流程图")
+    void testActionRoadmap() {
+        TaskAnalysisResult result = new TaskAnalysisResult();
+        result.setTaskSteps(List.of("1. 查询热门商品", "2. 汇总推荐理由"));
+        result.setExecutionOrder(List.of("product_search", "summary"));
+        result.setFlowchart("START -> product_search -> summary -> END");
+
+        assertTrue(result.isMeaningful());
+        assertEquals(2, result.getTaskSteps().size());
+        assertEquals("summary", result.getExecutionOrder().get(1));
+        assertTrue(result.getFlowchart().contains("product_search"));
+    }
+
     // ==================== 多意图拆分 ====================
 
     @Test

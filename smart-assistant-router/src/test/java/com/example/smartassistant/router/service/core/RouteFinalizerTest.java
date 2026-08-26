@@ -19,12 +19,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -142,6 +147,23 @@ class RouteFinalizerTest {
     }
 
     @Test
+    void domainWarnKeepsTrustedPartialResultAndSkipsGeneralRetry() {
+        RoutingResult routing = result("订单 BULK-0002 已发货；物流节点暂时未返回完整轨迹。");
+        routing.setDomainQuality(DomainQualityResult.warn(0.6, "PARTIAL_AGENT_FAILURE"));
+        when(qualityEvaluationService.evaluate(anyString(), anyString(), anyDouble()))
+                .thenReturn(QualityEvaluationResult.skipped());
+
+        RoutingResult finalized = finalizer.finalizeRouting(
+                routing, request(), "查询 BULK-0002 的状态和物流", null);
+
+        assertEquals("订单 BULK-0002 已发货；物流节点暂时未返回完整轨迹。", finalized.getResult());
+        verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
+        verify(reflectionService, never()).retry(anyString(), anyString(), anyString(), anyString(), anyLong(), anyString());
+        verify(qualityEvaluationService).evaluate(
+                "查询 BULK-0002 的状态和物流", "订单 BULK-0002 已发货；物流节点暂时未返回完整轨迹。", 0.7);
+    }
+
+    @Test
     void domainFailPreservesSafeFallbackAndBlocksLearning() {
         RoutingResult routing = result("暂时无法核实该订单状态，请稍后重试。");
         routing.setDomainQuality(DomainQualityResult.fail("ORDER_STATUS_MISMATCH"));
@@ -233,5 +255,32 @@ class RouteFinalizerTest {
         finalizer.finalizeRouting(routing, cityRequest, "请查询北京天气", null);
 
         verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void multiAgentAggregateIsPublishedWithoutAgentSpecificReflectionOrLearning() {
+        RoutingResult routing = RoutingResult.builder()
+                .result("商品有库存，订单已创建。")
+                .executionMode(RoutingResult.ExecutionMode.MULTI_AGENT)
+                .participatingAgents(List.of("product", "order"))
+                .workflowStatus(RoutingResult.WorkflowStatus.COMPLETED)
+                .intentTag("product_order")
+                .confidence(0.8)
+                .build();
+        when(qualityEvaluationService.evaluate(anyString(), anyString(), anyDouble()))
+                .thenReturn(QualityEvaluationResult.skipped());
+
+        RoutingResult finalized = finalizer.finalizeRouting(
+                routing, request(), "查询商品后创建订单", null);
+
+        assertNull(finalized.getAgentName());
+        assertEquals(RoutingResult.ExecutionMode.MULTI_AGENT, finalized.getExecutionMode());
+        assertEquals(List.of("product", "order"), finalized.getParticipatingAgents());
+        verify(reflectionService, never())
+                .evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
+        verify(qualityEvaluationService).evaluate(
+                "查询商品后创建订单", "商品有库存，订单已创建。", 0.7);
+        verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
+        verify(decisionPublisher).publish(eq("r1"), eq(routing), isNull(), isNull());
     }
 }

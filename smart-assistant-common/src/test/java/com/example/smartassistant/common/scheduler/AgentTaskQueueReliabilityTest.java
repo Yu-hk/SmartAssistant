@@ -87,4 +87,5 @@ class AgentTaskQueueReliabilityTest {
         verify(lists).remove("a2a:queue:processing", 1, "task-3");
         verify(lists).leftPush("a2a:queue:tasks", "task-3");
     }
+
 }

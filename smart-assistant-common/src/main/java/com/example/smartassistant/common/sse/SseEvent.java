@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.sse;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -85,9 +86,31 @@ public class SseEvent {
     }
 
     public static SseEvent routed(String agentName, double confidence) {
-        return create().event("routed").data(
-                "{\"type\":\"routed\",\"agentName\":\"" + escape(agentName)
-                        + "\",\"confidence\":" + confidence + "}");
+        return routed(agentName, confidence, null, List.of(), null);
+    }
+
+    public static SseEvent routed(String agentName, double confidence,
+                                  String executionMode, List<String> participatingAgents,
+                                  String workflowStatus) {
+        StringBuilder json = new StringBuilder("{\"type\":\"routed\"");
+        if (agentName != null && !agentName.isBlank()) {
+            json.append(",\"agentName\":\"").append(escape(agentName)).append('"');
+        }
+        if (executionMode != null && !executionMode.isBlank()) {
+            json.append(",\"executionMode\":\"").append(escape(executionMode)).append('"');
+        }
+        json.append(",\"participatingAgents\":[");
+        List<String> agents = participatingAgents != null ? participatingAgents : List.of();
+        for (int index = 0; index < agents.size(); index++) {
+            if (index > 0) json.append(',');
+            json.append('"').append(escape(agents.get(index))).append('"');
+        }
+        json.append(']');
+        if (workflowStatus != null && !workflowStatus.isBlank()) {
+            json.append(",\"workflowStatus\":\"").append(escape(workflowStatus)).append('"');
+        }
+        json.append(",\"confidence\":").append(confidence).append('}');
+        return create().event("routed").data(json.toString());
     }
 
     public static SseEvent raw(String eventName, String jsonData) {
