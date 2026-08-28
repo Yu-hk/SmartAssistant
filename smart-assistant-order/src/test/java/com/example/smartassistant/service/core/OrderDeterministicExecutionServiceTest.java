@@ -155,7 +155,7 @@ class OrderDeterministicExecutionServiceTest {
         AgentExecutionRequest foreign = new AgentExecutionRequest(
                 AgentExecutionRequest.CURRENT_VERSION, "req-1", "query", "999",
                 "QUERY_ORDER", "查询 ORD-1001", Map.of(), List.of(), List.of(),
-                null, null, null);
+                null, null);
 
         AgentExecutionResponse response = service.execute(foreign);
 
@@ -201,7 +201,7 @@ class OrderDeterministicExecutionServiceTest {
                                                  Map<String, Object> input) {
         return new AgentExecutionRequest(
                 AgentExecutionRequest.CURRENT_VERSION, "req-1", "query", "1050",
-                operation, question, input, List.of(), List.of(), null, null, null);
+                operation, question, input, List.of(), List.of(), null, null);
     }
 
     private static OrderDTO order(String status) {

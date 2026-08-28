@@ -9,7 +9,6 @@ import {
   ArrowRight,
   BookOpenText,
   CircleCheck,
-  CloudSun,
   Compass,
   Headset,
   MessagesSquare,
@@ -29,20 +28,17 @@ interface CustomerChatPageProps {
   faqSuggestions: FaqItem[];
   queuePosition: number | null;
   queueEstimatedWait: number | null;
-  locationEnabled: boolean;
-  locationStatus: 'off' | 'ready' | 'denied' | 'unavailable';
   onSendMessage: (message: string, sessionIdOverride?: string, onNavigate?: (path: string) => void) => void;
   onStop: () => void;
   onInputChange: (value: string) => void;
   onPermissionAllow: () => void;
   onPermissionDeny: () => void;
+  onRecoverMessage: (messageId: string, requestId: string) => void;
   onRateSession: (score: number) => void;
-  onLocationEnabledChange: (enabled: boolean) => void;
   userName?: string;
 }
 
 const QUICK_QUESTIONS = [
-  { icon: CloudSun, text: '查询我所在城市的天气' },
   { icon: PackageSearch, text: '帮我追踪最近一笔订单' },
   { icon: ShoppingBag, text: '推荐现在的热门商品' },
   { icon: BookOpenText, text: '从知识库查资料并总结' },
@@ -72,15 +68,13 @@ export function CustomerChatPage({
   faqSuggestions,
   queuePosition,
   queueEstimatedWait,
-  locationEnabled,
-  locationStatus,
   onSendMessage,
   onStop,
   onInputChange,
   onPermissionAllow,
   onPermissionDeny,
+  onRecoverMessage,
   onRateSession,
-  onLocationEnabledChange,
   userName,
 }: CustomerChatPageProps) {
   const navigate = useNavigate();
@@ -159,12 +153,9 @@ export function CustomerChatPage({
               inputValue={inputValue}
               isLoading={isLoading}
               disabled={isClosed}
-              locationEnabled={locationEnabled}
-              locationStatus={locationStatus}
               onSend={handleSend}
               onStop={onStop}
               onChange={onInputChange}
-              onLocationEnabledChange={onLocationEnabledChange}
             />
 
             <div className="home-section-heading">
@@ -246,6 +237,7 @@ export function CustomerChatPage({
               permissionRequest={permissionRequest}
               onPermissionAllow={onPermissionAllow}
               onPermissionDeny={onPermissionDeny}
+              onRecoverMessage={onRecoverMessage}
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
               sessionStatus={currentSession?.status}
@@ -262,12 +254,9 @@ export function CustomerChatPage({
           inputValue={inputValue}
           isLoading={isLoading}
           disabled={currentSession?.status === 'closed'}
-          locationEnabled={locationEnabled}
-          locationStatus={locationStatus}
           onSend={handleSend}
           onStop={onStop}
           onChange={onInputChange}
-          onLocationEnabledChange={onLocationEnabledChange}
         />
       )}
 
@@ -283,12 +272,9 @@ interface CustomerChatInputProps {
   inputValue: string;
   isLoading: boolean;
   disabled?: boolean;
-  locationEnabled: boolean;
-  locationStatus: 'off' | 'ready' | 'denied' | 'unavailable';
   onSend: (msg: string) => void;
   onStop: () => void;
   onChange: (val: string) => void;
-  onLocationEnabledChange: (enabled: boolean) => void;
 }
 
 function CustomerChatInput({
@@ -296,12 +282,9 @@ function CustomerChatInput({
   inputValue,
   isLoading,
   disabled,
-  locationEnabled,
-  locationStatus,
   onSend,
   onStop,
   onChange,
-  onLocationEnabledChange,
 }: CustomerChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -363,21 +346,6 @@ function CustomerChatInput({
         )}
       </div>
       <div className="chat-composer-meta">
-        <button
-          type="button"
-          onClick={() => onLocationEnabledChange(!locationEnabled)}
-          title="开启后，仅在天气问题缺少地点时请求浏览器定位授权；定位不会保存到会话记录"
-          aria-pressed={locationEnabled}
-          className={`composer-location ${locationEnabled ? 'is-enabled' : ''}`}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
-            <circle cx="12" cy="10" r="2.5" />
-          </svg>
-          定位天气：{locationEnabled ? '已开启' : '未开启'}
-          {locationStatus === 'denied' && '（已拒绝）'}
-          {locationStatus === 'unavailable' && '（不可用）'}
-        </button>
         <span className="composer-disclaimer">
           AI 生成内容可能存在偏差，涉及订单、金额和关键业务操作时请再次确认
         </span>

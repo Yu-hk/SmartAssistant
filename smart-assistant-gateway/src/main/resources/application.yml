@@ -48,7 +48,7 @@ spring:
             - id: consumer-service
               uri: lb://consumer-service
               predicates:
-                - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/insight/**
+                - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/insight/**,/assistant/api/notifications/**
               filters:
                 - StripPrefix=1
 
@@ -59,10 +59,17 @@ spring:
               predicates:
                 - Path=/api/admin/execution-dag/**
 
+            # 工作流恢复接口由 router-service 提供。显式裸路径必须放在
+            # consumer-service-bare 的 /api/admin/** 泛匹配之前。
+            - id: router-workflow-recovery-bare
+              uri: lb://router-service
+              predicates:
+                - Path=/api/router/workflows/**,/api/router/graph/**,/api/admin/workflows/**
+
             - id: consumer-service-bare
               uri: lb://consumer-service
               predicates:
-                - Path=/api/math/**,/api/insight/**,/api/session/**,/api/feedback/**,/api/data/**,/api/analytics/**,/api/prompt-monitoring/**,/api/monitor/**,/api/sessions/**,/api/faq/**,/api/check-login/**,/api/save-env-config/**,/api/permission-response/**,/api/admin/**
+                - Path=/api/math/**,/api/insight/**,/api/session/**,/api/feedback/**,/api/data/**,/api/analytics/**,/api/prompt-monitoring/**,/api/monitor/**,/api/sessions/**,/api/faq/**,/api/check-login/**,/api/save-env-config/**,/api/permission-response/**,/api/notifications/**,/api/admin/**
 
             - id: router-service
               uri: lb://router-service

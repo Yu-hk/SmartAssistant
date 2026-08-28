@@ -359,34 +359,20 @@ public class ChatController {
         String[] friendlyMessages = {
             "✨ 这个问题我暂时无法回答你，不过你可以试试问问我其他问题呢？",
             "🌸 哎呀，这个问题有点超出我的能力范围了，换一个试试吧～",
-            "🌻 我暂时还不会这个，不过我可以帮你查天气、找美食、做旅行规划哦！",
+            "🌻 我暂时还不会这个，不过我可以帮你查询订单或推荐商品哦！",
             "💫 这个问题我先记下来，你也可以先试试问我其他问题呢～",
             "🌈 这个我还在学习中！不过下面的问题我都可以帮你解答哦：",
-            "🍀 换一个问题试试吧，比如查天气、推荐美食或者规划旅行都可以～",
+            "🍀 换一个问题试试吧，比如查询订单、追踪物流或者推荐商品～",
             "🌺 我暂时帮不上这个忙，不过我有好多其他技能等你来发现呢！"
         };
         String friendly = friendlyMessages[new java.util.Random().nextInt(friendlyMessages.length)];
         
-        // 建议列表：根据用户问题中的地点/意图生成上下文相关建议
+        // 建议列表：仅展示当前已启用的业务能力
         List<String> suggestions = new ArrayList<>();
-        String lower = message != null ? message.toLowerCase() : "";
-        boolean hasLocation = false;
-        for (String city : new String[]{"北京", "上海", "广州", "深圳", "杭州", "成都", "南京", "西安", "重庆", "武汉"}) {
-            if (lower.contains(city)) {
-                hasLocation = true;
-                suggestions.add(city + "今天天气怎么样？");
-                suggestions.add(city + "有什么好吃的推荐？");
-                suggestions.add(city + "有哪些必去的景点？");
-                break;
-            }
-        }
-        if (!hasLocation) {
-            suggestions.add("北京今天天气怎么样？");
-            suggestions.add("成都有什么美食推荐？");
-            suggestions.add("杭州有哪些必去的景点？");
-        }
-        suggestions.add("帮我规划一次周末旅行");
-        suggestions.add("今天适合出门走走吗？");
+        suggestions.add("帮我追踪最近一笔订单");
+        suggestions.add("推荐现在的热门商品");
+        suggestions.add("帮我查询商品库存");
+        suggestions.add("帮我查看订单物流");
         
         response.put("reply", friendly);
         response.put("suggestions", suggestions);

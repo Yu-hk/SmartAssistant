@@ -33,7 +33,7 @@ class IntentEvaluationServiceTest {
     void setUp() {
         entityNormalizer = new EntityNormalizer();
         entityNormalizer.init(); // 触发 @PostConstruct 别名/纠错映射
-        slotStateMachine = new SlotStateMachine();
+        slotStateMachine = new SlotStateMachine(TestSlotSchemas.schemas());
         clarificationService = new ClarificationService();
         evaluationService = new IntentEvaluationService(
                 entityNormalizer, slotStateMachine, clarificationService);
@@ -140,6 +140,9 @@ class IntentEvaluationServiceTest {
         entities.put("departure_date", "明天");
         entities.put("passenger", "张三");
         llmResult.setEntities(entities);
+        llmResult.setSlotConflicts(List.of(Map.of(
+                "reason", "两个字段不能相同", "slot1", "departure_station",
+                "slot2", "arrival_station")));
 
         TaskAnalysisResult result = evaluationService.postProcess("杭州到杭州", llmResult);
 

@@ -38,7 +38,7 @@ public class AgentToolExecutor {
      *  仅这些码触发 EMPTY_RESULT 遥测，避免对正常成功(errorCode==null)或其他错误误报。 */
     private static final Set<String> EMPTY_RESULT_CODES = Set.of(
             "DATA_NOT_FOUND", "ORDER_NOT_FOUND", "PRODUCT_NOT_FOUND",
-            "LOGISTICS_NOT_FOUND", "NO_RESULTS", "WEATHER_NO_DATA");
+            "LOGISTICS_NOT_FOUND", "NO_RESULTS");
 
     /** 工具执行线程池（延迟初始化，JDK 21 虚拟线程，每工具一线程） */
     private volatile ExecutorService toolExecutor;

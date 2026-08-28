@@ -7,6 +7,46 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermiss
 export type IntentType = 'refund' | 'order' | 'product' | 'tech' | 'general' | 'unknown';
 export type SessionStatus = 'active' | 'human_transfer' | 'closed';
 
+export type WorkflowRecoveryStatus =
+  | 'REQUESTED'
+  | 'QUEUED'
+  | 'RECOVERING'
+  | 'RETRY_SCHEDULED'
+  | 'SUCCEEDED'
+  | 'DEAD_LETTERED'
+  | 'SKIPPED_ACTIVE'
+  | 'SKIPPED_APPROVAL'
+  | 'SKIPPED_SUPERSEDED'
+  | 'SKIPPED_DUPLICATE'
+  | 'REJECTED_INVALID_COMMAND';
+
+export interface WorkflowRecoveryJob {
+  recoveryId: string;
+  requestId: string;
+  checkpointUpdatedAtEpochMs: number;
+  trigger: string;
+  workflowOwnerId: number | null;
+  requestedBy: number | null;
+  reason: string;
+  status: WorkflowRecoveryStatus;
+  attempts: number;
+  lastError: string;
+  result: string;
+  requestedAt: string;
+  updatedAt: string;
+}
+
+export interface UserNotification {
+  id: string;
+  type: 'WORKFLOW_RECOVERY' | string;
+  title: string;
+  content: string;
+  sessionId: string | null;
+  requestId: string | null;
+  status: 'UNREAD' | 'READ';
+  createdAt: string;
+}
+
 export const INTENT_LABELS: Record<IntentType, string> = {
   refund: '退款/退货',
   order: '订单查询',
@@ -35,7 +75,7 @@ export function normalizeIntentType(value: unknown): IntentType {
   if (intent.includes('商品') || intent.includes('产品') || intent.includes('product')) return 'product';
   if (intent.includes('技术') || intent.includes('故障') || intent.includes('tech')) return 'tech';
   if (intent.includes('general') || intent.includes('通用') || intent.includes('问候')
-      || intent.includes('天气') || intent.includes('新闻') || intent.includes('计算')
+      || intent.includes('新闻') || intent.includes('计算')
       || intent.includes('system_capabilities')) return 'general';
   return 'unknown';
 }
@@ -88,6 +128,12 @@ export interface Message {
   isStreaming?: boolean;
   toolCalls?: ToolCall[];
   contentBlocks?: ContentBlock[];
+  /** Independent Router/LangGraph execution ID for this conversation turn. */
+  requestId?: string;
+  deliveryStatus?: 'streaming' | 'completed' | 'failed' | 'stopped';
+  recoverable?: boolean;
+  recoveryStatus?: WorkflowRecoveryStatus;
+  recoveryError?: string;
 }
 
 export interface Session {
@@ -169,6 +215,7 @@ export interface AdminSessionMessage {
   role: 'user' | 'assistant' | 'system' | string;
   content: string;
   createdAt: string;
+  requestId: string | null;
   agentName: string | null;
   status: string | null;
   latencyMs: number | null;

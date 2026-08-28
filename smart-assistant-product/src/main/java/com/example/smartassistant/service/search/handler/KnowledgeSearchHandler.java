@@ -39,15 +39,19 @@ public class KnowledgeSearchHandler implements RagSearchHandler {
     public void handle(RagSearchContext context) {
         List<String> results = new ArrayList<>();
 
-        try {
-            String knowledge = retrievalService.search(
-                    KnowledgeSeedData.PRODUCT_KB, context.getOriginalQuery(), 5, AclContext.fromMdc());
-            if (knowledge != null && !knowledge.isBlank()
-                    && !knowledge.contains("未找到") && !knowledge.contains("PRODUCT_NOT_FOUND")) {
-                results.add(knowledge);
+        for (String knowledgeBase : selectedKnowledgeBases(context)) {
+            try {
+                String knowledge = retrievalService.search(
+                        knowledgeBase, context.getOriginalQuery(), 5, AclContext.fromMdc());
+                if (knowledge != null && !knowledge.isBlank()
+                        && !knowledge.contains("未找到")
+                        && !knowledge.contains("INSUFFICIENT_EVIDENCE")
+                        && !knowledge.contains("PRODUCT_NOT_FOUND")) {
+                    results.add(knowledge);
+                }
+            } catch (Exception e) {
+                log.warn("[RagHandler] KnowledgeSearch 失败 (kb={}): {}", knowledgeBase, e.getMessage());
             }
-        } catch (Exception e) {
-            log.warn("[RagHandler] KnowledgeSearch 失败: {}", e.getMessage());
         }
 
         context.addPathResult("知识库", results);
@@ -57,5 +61,19 @@ public class KnowledgeSearchHandler implements RagSearchHandler {
     @Override
     public int getOrder() {
         return 40;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> selectedKnowledgeBases(RagSearchContext context) {
+        Object selected = context.getAttribute("rag.knowledgeBases");
+        if (selected instanceof List<?> values) {
+            List<String> names = values.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .filter(name -> !name.isBlank())
+                    .toList();
+            return names;
+        }
+        return List.of(KnowledgeSeedData.PRODUCT_KB);
     }
 }

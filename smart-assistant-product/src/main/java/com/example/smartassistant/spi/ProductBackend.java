@@ -9,6 +9,7 @@ package com.example.smartassistant.spi;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * ⭐ 商品数据后端 SPI。
@@ -50,12 +51,70 @@ public interface ProductBackend {
         return List.of();
     }
 
+    /**
+     * Returns the product categories currently available in the catalog.
+     *
+     * <p>The discovery layer uses this method instead of maintaining a hard-coded
+     * category list. Integrations should override it when their catalog supports
+     * a native category query.</p>
+     */
+    default List<String> listProductCategories() {
+        return listPopularProducts(20).stream()
+                .map(ProductSummary::category)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(category -> !category.isBlank())
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    /**
+     * Returns popular products constrained by a structured discovery request.
+     * Implementations must not silently drop a non-empty category constraint.
+     */
+    default List<ProductSummary> listPopularProducts(ProductDiscoveryCriteria criteria) {
+        if (criteria == null || criteria.category().isBlank()) {
+            return listPopularProducts(criteria != null ? criteria.limit() : 5);
+        }
+        String category = criteria.category().toLowerCase();
+        return listPopularProducts(Math.max(criteria.limit(), 20)).stream()
+                .filter(product -> product.category().toLowerCase().contains(category)
+                        || product.name().toLowerCase().contains(category)
+                        || product.spec().toLowerCase().contains(category))
+                .limit(criteria.limit())
+                .toList();
+    }
+
+    record ProductDiscoveryCriteria(String category, String keyword, int limit) {
+        public ProductDiscoveryCriteria {
+            category = category == null ? "" : category.trim();
+            keyword = keyword == null ? "" : keyword.trim();
+            limit = Math.max(1, Math.min(limit, 20));
+        }
+    }
+
     record ProductSummary(
             String code,
             String name,
             BigDecimal price,
             String stock,
             String spec,
-            long popularity
-    ) {}
+            long popularity,
+            String category
+    ) {
+        public ProductSummary {
+            code = code == null ? "" : code;
+            name = name == null ? "" : name;
+            stock = stock == null ? "" : stock;
+            spec = spec == null ? "" : spec;
+            category = category == null ? "" : category;
+        }
+
+        /** Compatibility constructor for integrations that have not exposed category yet. */
+        public ProductSummary(String code, String name, BigDecimal price, String stock,
+                              String spec, long popularity) {
+            this(code, name, price, stock, spec, popularity, "");
+        }
+    }
 }

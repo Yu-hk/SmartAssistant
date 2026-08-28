@@ -28,6 +28,9 @@ public interface OrderDataProvider {
     /** Find an order by its business order ID. */
     OrderDTO findOrderByOrderId(String orderId);
 
+    /** Find an order by the durable idempotency request ID. */
+    OrderDTO findOrderByRequestId(String requestId);
+
     /** Query orders owned by a user, optionally filtered by status, with pagination. */
     List<Map<String, Object>> queryOrdersByUserId(Long userId, String status, int limit, int offset);
 

@@ -96,9 +96,6 @@ public enum AgentErrorCode {
     /** 汇率服务不可用（可重试） */
     SERVICE_RATE_UNAVAILABLE("SERVICE_RATE_UNAVAILABLE", true, "汇率服务暂时不可用，请稍后重试"),
 
-    /** 天气服务不可用（可重试） */
-    SERVICE_WEATHER_UNAVAILABLE("SERVICE_WEATHER_UNAVAILABLE", true, "天气服务暂时不可用，请稍后重试"),
-
     /** 优惠券查询失败（可重试） */
     SERVICE_COUPON_QUERY_FAILED("SERVICE_COUPON_QUERY_FAILED", true, "查询优惠券失败，请稍后重试"),
 
@@ -133,9 +130,6 @@ public enum AgentErrorCode {
 
     /** 需要快递单号（不可重试） */
     TRACKING_REQUIRED("TRACKING_REQUIRED", false, "请提供快递单号"),
-
-    /** 天气数据不存在（不可重试） */
-    WEATHER_NO_DATA("WEATHER_NO_DATA", false, "未找到该城市的天气数据"),
 
     /** 无结果（不可重试） */
     NO_RESULTS("NO_RESULTS", false, "未找到相关结果"),

@@ -10,6 +10,7 @@ package com.example.smartassistant.order.tool;
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.idempotent.TaskLogService;
+import com.example.smartassistant.common.order.OrderStatus;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.common.tool.ToolLogContext;
@@ -52,13 +53,6 @@ public class OrderTools {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final AtomicLong ORDER_ID_COUNTER = new AtomicLong(System.currentTimeMillis() % 100000);
-
-    private static final String S_PENDING_PAY = "待付款";
-    private static final String S_PENDING_SHIP = "待发货";
-    private static final String S_SHIPPED = "已发货";
-    private static final String S_DELIVERED = "已签收";
-    private static final String S_CANCELLED = "已取消";
-    private static final String S_REFUNDING = "退款中";
 
     private final OrderDataProvider orderData;
     private final ReadBeforeEditGuard readGuard;
@@ -117,6 +111,13 @@ public class OrderTools {
         String requestId = idempotentRequestId("createOrder", userId, productName, amount, shippingAddress);
         return taskLogService.executeIfNotDone(requestId, "order:create",
                 idempotentKey("create", productName + "|" + userId), () -> {
+                    OrderDTO existing = orderData.findOrderByRequestId(requestId);
+                    if (existing != null) {
+                        log.info("[OrderTool] 恢复已提交订单结果: requestId={}, orderId={}",
+                                requestId, existing.getOrderId());
+                        return createdOrderResult(existing);
+                    }
+
                     String orderId = String.format("ORD-%d%04d",
                             System.currentTimeMillis() % 1000000,
                             ORDER_ID_COUNTER.incrementAndGet() % 10000);
@@ -128,7 +129,7 @@ public class OrderTools {
                             .userId(userId)
                             .productName(productName)
                             .amount(amount)
-                            .status(S_PENDING_PAY)
+                            .status(OrderStatus.PENDING_PAYMENT.value())
                             .carrier("")
                             .trackingNo("")
                             .productType(type)
@@ -148,23 +149,27 @@ public class OrderTools {
                     }
                     log.info("[OrderTool] ✅ 订单创建成功: orderId={}", orderId);
 
-                    return String.format(
-                            """
-                                    📦 订单创建成功！
-                                    订单号：%s
-                                    商品：%s
-                                    金额：¥%.2f
-                                    商品类型：%s
-                                    收货人：%s
-                                    联系电话：%s
-                                    收货地址：%s
-                                    状态：待付款
-                                    
-                                    下一步：请提醒用户核对收货信息并完成付款，可调用 payOrder(orderId="%s") 进行支付。""",
-                            orderId, productName, amount, type,
-                            contactName, contactPhone, shippingAddress,
-                            orderId);
+                    return createdOrderResult(order);
                 });
+    }
+
+    private static String createdOrderResult(OrderDTO order) {
+        return String.format(
+                """
+                        📦 订单创建成功！
+                        订单号：%s
+                        商品：%s
+                        金额：¥%.2f
+                        商品类型：%s
+                        收货人：%s
+                        联系电话：%s
+                        收货地址：%s
+                        状态：%s
+
+                        下一步：请提醒用户核对收货信息并完成付款，可调用 payOrder(orderId="%s") 进行支付。""",
+                order.getOrderId(), order.getProductName(), order.getAmount(), order.getProductType(),
+                order.getContactName(), order.getContactPhone(), order.getShippingAddress(),
+                order.getStatus(), order.getOrderId());
     }
 
     // ==================== Payment ====================
@@ -187,13 +192,13 @@ public class OrderTools {
             return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
-        if (!S_PENDING_PAY.equals(order.getStatus())) {
+        if (!OrderStatus.PENDING_PAYMENT.matches(order.getStatus())) {
             return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待付款」订单可以支付");
         }
 
         if (orderData.checkAndConsume(orderId, "payment")) {
-            orderData.updatePayment(orderId, S_PENDING_SHIP, paymentMethod);
+            orderData.updatePayment(orderId, OrderStatus.PENDING_SHIPMENT.value(), paymentMethod);
 
             log.info("[OrderTool] ✅ 支付成功: orderId={}, paymentMethod={}", orderId, paymentMethod);
             return String.format(
@@ -252,13 +257,15 @@ public class OrderTools {
             return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
-        if (!S_PENDING_PAY.equals(order.getStatus()) && !S_PENDING_SHIP.equals(order.getStatus())) {
+        if (!OrderStatus.from(order.getStatus())
+                .map(status -> status.canTransitionTo(OrderStatus.CANCELLED))
+                .orElse(false)) {
             return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待付款」或「待发货」订单可以取消。"
                     + "已发货的订单如需退款，请使用 applyRefund 申请退款。");
         }
 
-        order.setStatus(S_CANCELLED);
+        order.setStatus(OrderStatus.CANCELLED.value());
         orderData.updateOrderById(order);
 
         log.info("[OrderTool] ✅ 订单已取消: orderId={}", orderId);
@@ -301,14 +308,14 @@ public class OrderTools {
             return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
-        if (!S_PENDING_SHIP.equals(order.getStatus())) {
+        if (!OrderStatus.PENDING_SHIPMENT.matches(order.getStatus())) {
             return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「待发货」订单可以发货");
         }
 
         order.setCarrier(carrier);
         order.setTrackingNo(trackingNo);
-        order.setStatus(S_SHIPPED);
+        order.setStatus(OrderStatus.SHIPPED.value());
         order.setUpdatedAt(LocalDateTime.now());
         int updateRows = orderData.updateOrderById(order);
         log.info("[OrderTool] 订单更新影响行数: {} (orderId={})", updateRows, orderId);
@@ -376,12 +383,12 @@ public class OrderTools {
             return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
-        if (!S_SHIPPED.equals(order.getStatus())) {
+        if (!OrderStatus.SHIPPED.matches(order.getStatus())) {
             return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「已发货」订单可以确认收货");
         }
 
-        order.setStatus(S_DELIVERED);
+        order.setStatus(OrderStatus.DELIVERED.value());
         order.setDeliveredDate(LocalDateTime.now());
         order.setUpdatedAt(LocalDateTime.now());
         int updateRows = orderData.updateOrderById(order);
@@ -490,11 +497,13 @@ public class OrderTools {
             return ToolResult.error(AgentErrorCode.ORDER_NOT_FOUND, "未找到订单 " + orderId);
         }
 
-        if (S_REFUNDING.equals(order.getStatus())) {
+        if (OrderStatus.REFUNDING.matches(order.getStatus())) {
             return ToolResult.error(AgentErrorCode.ALREADY_REFUNDING, "订单 " + orderId + " 已在退款处理中，请耐心等待");
         }
 
-        if (!S_SHIPPED.equals(order.getStatus()) && !S_DELIVERED.equals(order.getStatus())) {
+        if (!OrderStatus.from(order.getStatus())
+                .map(status -> status.canTransitionTo(OrderStatus.REFUNDING))
+                .orElse(false)) {
             return ToolResult.error(AgentErrorCode.INVALID_STATUS,
                     "订单 " + orderId + " 当前状态为「" + order.getStatus() + "」，仅「已发货」或「已签收」订单可以申请退款。"
                     + "「待付款」订单请使用 cancelOrder 取消，"
@@ -511,7 +520,7 @@ public class OrderTools {
                     .build();
             orderData.insertRefund(refund);
 
-            orderData.updateStatusByOrderId(orderId, S_REFUNDING);
+            orderData.updateStatusByOrderId(orderId, OrderStatus.REFUNDING.value());
 
             String deliveredDateStr = order.getDeliveredDate() != null
                     ? order.getDeliveredDate().format(DTF) : "未签收";

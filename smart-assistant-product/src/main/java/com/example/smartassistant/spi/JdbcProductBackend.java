@@ -34,6 +34,8 @@ public class JdbcProductBackend implements ProductBackend {
                    COALESCE(to_jsonb(p)->>'colors', to_jsonb(p)->>'color', '') AS color
               FROM products p
             """;
+    private static final String DISCOVERY_CATEGORY =
+            "COALESCE(to_jsonb(p)->>'category', '')";
 
     private final JdbcTemplate jdbcTemplate;
     private final ProductBackend fallback;
@@ -145,50 +147,103 @@ public class JdbcProductBackend implements ProductBackend {
 
     @Override
     public List<ProductSummary> listPopularProducts(int limit) {
+        return listPopularProducts(new ProductDiscoveryCriteria("", "", limit));
+    }
+
+    @Override
+    public List<String> listProductCategories() {
         if (jdbcTemplate == null) {
-            return fallback.listPopularProducts(limit);
+            return fallback.listProductCategories();
         }
-        int safeLimit = Math.max(1, Math.min(limit, SEARCH_LIMIT));
         try {
-            return jdbcTemplate.query("""
+            String sql = ("""
+                    SELECT DISTINCT %s AS category
+                      FROM products p
+                     WHERE %s
+                       AND %s <> ''
+                     ORDER BY category
+                    """).formatted(DISCOVERY_CATEGORY, PRODUCTION_CATALOG_FILTER,
+                    DISCOVERY_CATEGORY);
+            return jdbcTemplate.query(sql, (rs, rowNum) -> rs.getString("category")).stream()
+                    .filter(category -> category != null && !category.isBlank())
+                    .toList();
+        } catch (RuntimeException e) {
+            log.warn("[JdbcProduct] 商品类型查询失败，降级到内存目录: {}", e.getMessage());
+            return fallback.listProductCategories();
+        }
+    }
+
+    @Override
+    public List<ProductSummary> listPopularProducts(ProductDiscoveryCriteria criteria) {
+        ProductDiscoveryCriteria safeCriteria = criteria != null
+                ? criteria : new ProductDiscoveryCriteria("", "", 5);
+        if (jdbcTemplate == null) {
+            return fallback.listPopularProducts(safeCriteria);
+        }
+        int safeLimit = Math.max(1, Math.min(safeCriteria.limit(), SEARCH_LIMIT));
+        String category = normalize(safeCriteria.category());
+        String categoryLike = "%" + category + "%";
+        try {
+            String sql = ("""
                     SELECT p.product_code, p.product_name, p.price, p.stock, p.spec,
+                           %s AS category,
                            COUNT(o.order_id) AS popularity
                       FROM products p
                       LEFT JOIN orders o
                         ON UPPER(o.product_name) = UPPER(p.product_name)
-                     WHERE """ + " " + PRODUCTION_CATALOG_FILTER + """
-                     GROUP BY p.product_code, p.product_name, p.price, p.stock, p.spec
+                     WHERE %s
+                       AND (? = '' OR UPPER(%s) LIKE ?
+                            OR UPPER(p.product_name) LIKE ?
+                            OR UPPER(COALESCE(p.spec, '')) LIKE ?)
+                     GROUP BY p.product_code, p.product_name, p.price, p.stock, p.spec,
+                              %s
                      ORDER BY COUNT(o.order_id) DESC,
                               CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
                               p.product_code
                      LIMIT ?
-                    """, (rs, rowNum) -> new ProductSummary(
+                    """).formatted(DISCOVERY_CATEGORY, PRODUCTION_CATALOG_FILTER,
+                    DISCOVERY_CATEGORY, DISCOVERY_CATEGORY);
+            return jdbcTemplate.query(sql, (rs, rowNum) -> new ProductSummary(
                     rs.getString("product_code"),
                     rs.getString("product_name"),
                     rs.getBigDecimal("price"),
                     rs.getString("stock"),
                     rs.getString("spec"),
-                    rs.getLong("popularity")), safeLimit);
+                    rs.getLong("popularity"),
+                    rs.getString("category")),
+                    category, categoryLike, categoryLike, categoryLike, safeLimit);
         } catch (RuntimeException e) {
             log.warn("[JdbcProduct] 热度统计查询失败，尝试读取实时商品目录: {}", e.getMessage());
-            return listCatalogProducts(safeLimit);
+            return listCatalogProducts(safeCriteria);
         }
     }
 
-    private List<ProductSummary> listCatalogProducts(int limit) {
+    private List<ProductSummary> listCatalogProducts(ProductDiscoveryCriteria criteria) {
+        int limit = Math.max(1, Math.min(criteria.limit(), SEARCH_LIMIT));
+        String category = normalize(criteria.category());
+        String categoryLike = "%" + category + "%";
         try {
-            return jdbcTemplate.query(SELECT_COLUMNS + " WHERE " + PRODUCTION_CATALOG_FILTER + """
-                            ORDER BY CASE stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
-                                     product_code
-                            LIMIT ?
-                            """, this::mapProduct, limit).stream()
-                    .map(product -> new ProductSummary(
-                            product.code(), product.name(), product.price(), product.stock(),
-                            product.spec(), 0))
-                    .toList();
+            String sql = ("""
+                    SELECT p.product_code, p.product_name, p.price, p.stock, p.spec,
+                           %s AS category
+                      FROM products p
+                     WHERE %s
+                       AND (? = '' OR UPPER(%s) LIKE ?
+                            OR UPPER(p.product_name) LIKE ?
+                            OR UPPER(COALESCE(p.spec, '')) LIKE ?)
+                     ORDER BY CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
+                              p.product_code
+                     LIMIT ?
+                    """).formatted(DISCOVERY_CATEGORY, PRODUCTION_CATALOG_FILTER,
+                    DISCOVERY_CATEGORY);
+            return jdbcTemplate.query(sql, (rs, rowNum) -> new ProductSummary(
+                    rs.getString("product_code"), rs.getString("product_name"),
+                    rs.getBigDecimal("price"), rs.getString("stock"),
+                    rs.getString("spec"), 0L, rs.getString("category")),
+                    category, categoryLike, categoryLike, categoryLike, limit);
         } catch (RuntimeException e) {
             log.warn("[JdbcProduct] 实时商品目录查询失败，降级到内存目录: {}", e.getMessage());
-            return fallback.listPopularProducts(limit);
+            return fallback.listPopularProducts(criteria);
         }
     }
 

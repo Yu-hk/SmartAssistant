@@ -465,8 +465,10 @@ public class RouterService {
         if (analysis != null && analysis.getSubIntents() != null) {
             for (Map<String, Object> subIntent : analysis.getSubIntents()) {
                 String agent = Objects.toString(subIntent.get("target_agent"), "")
-                        .trim().toLowerCase(Locale.ROOT);
-                if (Set.of("product", "order", "general").contains(agent)) return agent;
+                        .trim();
+                String canonical = com.example.smartassistant.router.service.agent.AgentDiscoveryService
+                        .canonicalAgentName(agent);
+                if (!canonical.isBlank()) return canonical;
             }
         }
         return switch (Objects.toString(

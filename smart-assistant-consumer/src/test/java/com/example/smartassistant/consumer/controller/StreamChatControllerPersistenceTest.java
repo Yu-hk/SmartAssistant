@@ -57,10 +57,10 @@ class StreamChatControllerPersistenceTest {
 
         when(routerClient.waitForDecisionFromRedis(eq("request-1"), eq(60_000L), any(Runnable.class)))
                 .thenReturn(Map.of(
-                        "agentName", "weather_service",
+                        "agentName", "product_service",
                         "confidence", 0.98,
-                        "intentTag", "weather",
-                        "result", "北京今天晴朗",
+                        "intentTag", "product",
+                        "result", "当前有 3 个热门商品",
                         "promptTokens", 24,
                         "completionTokens", 6,
                         "totalTokens", 30));
@@ -69,16 +69,16 @@ class StreamChatControllerPersistenceTest {
                 routingCallLogService, null);
 
         controller.streamChatPost(Map.of(
-                "message", "北京天气",
+                "message", "查询热门商品",
                 "requestId", "request-1",
                 "sessionId", "session-a"), new MockHttpServletResponse());
 
         verify(routerClient).triggerRoutingDecision(
-                eq("北京天气"), eq("42"), eq("request-1"), eq(null));
+                eq("查询热门商品"), eq("42"), eq("request-1"));
         verify(routingCallLogService).saveLog(
-                eq(42L), eq("session-a"), eq("北京天气"), eq("weather_service"),
-                eq("STREAM_ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("北京今天晴朗"),
-                eq(24L), eq(6L), eq(30L), eq("北京天气"), isNull());
+                eq(42L), eq("session-a"), eq("request-1"), eq("查询热门商品"), eq("product_service"),
+                eq("STREAM_ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("当前有 3 个热门商品"),
+                eq(24L), eq(6L), eq(30L), eq("查询热门商品"), isNull());
     }
 
     @Test
@@ -106,6 +106,8 @@ class StreamChatControllerPersistenceTest {
                 "sessionId", "session-multi"), response);
 
         String rendered = response.getContentAsString();
+        assertTrue(rendered.contains("\"sessionId\":\"session-multi\""));
+        assertTrue(rendered.contains("\"requestId\":\"request-multi\""));
         assertTrue(rendered.contains("\"executionMode\":\"MULTI_AGENT\""));
         assertTrue(rendered.contains("\"participatingAgents\":[\"product\",\"order\"]"));
         assertTrue(rendered.contains("已查询商品并生成订单"));
@@ -189,7 +191,7 @@ class StreamChatControllerPersistenceTest {
             assertEquals("session-only", forwardedRequestId.get());
 
             verify(routingCallLogService).saveLog(
-                    eq(42L), eq("session-only"), eq("recommend something"),
+                    eq(42L), eq("session-only"), eq("session-only"), eq("recommend something"),
                     eq("product_service"), eq("STREAM_ROUTER_SERVICE"), anyLong(),
                     eq("SUCCESS"), eq((String) null), eq(50L), eq(15L), eq(65L),
                     eq("recommend something"), isNull());

@@ -26,6 +26,8 @@ class PgVectorBuildAclClauseTest {
         String clause = PgVectorKnowledgeBase.buildAclClause(AclContext.PUBLIC);
         assertTrue(clause.contains("tenant_id IS NULL OR tenant_id = ''"),
                 "公开上下文应只匹配公开(空)租户文档: " + clause);
+        assertTrue(clause.contains("LOWER(tenant_id) = 'public'"),
+                "公开上下文也应匹配显式 public 租户文档: " + clause);
         assertTrue(clause.contains("security_level <= 0"), "安全等级默认 0: " + clause);
         // 始终输出角色/用户子句（匿名 → 排除限定了角色/用户的文档）
         assertTrue(clause.contains("authorized_roles"), clause);

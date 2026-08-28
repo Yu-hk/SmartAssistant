@@ -6,6 +6,7 @@ import {
   GitBranch,
   Hash,
   MessageCircle,
+  RefreshCw,
   Search,
   Star,
   Trash2,
@@ -13,6 +14,8 @@ import {
   X,
 } from 'lucide-react';
 import * as adminApi from '../api/admin';
+import type { WorkflowRecoveryJob, WorkflowRecoveryStatus } from '../api/admin';
+import { ApiError } from '../api/client';
 import type { AdminAgentFlow, AdminAgentFlowNode, AdminSessionDetail, AdminSessionPage, AdminSessionSummary } from '../types';
 import {
   formatAgent,
@@ -136,7 +139,6 @@ export function AdminConversationsPage({ refreshVersion }: { refreshVersion: num
             <option value="order">订单与物流</option>
             <option value="refund">退款与售后</option>
             <option value="tech">技术支持</option>
-            <option value="weather">天气查询</option>
             <option value="travel">出行规划</option>
           </select>
         </label>
@@ -330,6 +332,105 @@ function AgentFlowChain({ flow }: { flow: AdminAgentFlow | null }) {
   );
 }
 
+const ACTIVE_RECOVERY_STATUSES = new Set<WorkflowRecoveryStatus>([
+  'REQUESTED',
+  'QUEUED',
+  'RECOVERING',
+  'RETRY_SCHEDULED',
+]);
+
+const RECOVERY_STATUS_LABELS: Record<WorkflowRecoveryStatus, string> = {
+  REQUESTED: '已提交',
+  QUEUED: '排队中',
+  RECOVERING: '恢复中',
+  RETRY_SCHEDULED: '等待重试',
+  SUCCEEDED: '恢复成功',
+  DEAD_LETTERED: '恢复失败',
+  SKIPPED_ACTIVE: '任务仍在执行',
+  SKIPPED_APPROVAL: '等待用户确认',
+  SKIPPED_SUPERSEDED: '已被新检查点替代',
+  SKIPPED_DUPLICATE: '重复恢复已跳过',
+  REJECTED_INVALID_COMMAND: '恢复请求无效',
+};
+
+const RECOVERY_ERROR_LABELS: Record<string, string> = {
+  CHECKPOINT_NOT_FOUND: '最近检查点不存在或已经过期，无法恢复。',
+  FORBIDDEN: '当前账号没有恢复该工作流的权限。',
+  APPROVAL_REQUIRED: '工作流正在等待用户确认，请先完成审批。',
+  ACTIVE_EXECUTION: '工作流仍在正常执行，请稍后再试。',
+  CHECKPOINT_VERSION_CONFLICT: '检查点已经更新，请刷新执行链路后重试。',
+};
+
+function getRecoveryErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.body) {
+    try {
+      const body = JSON.parse(error.body) as { code?: string };
+      if (body.code && RECOVERY_ERROR_LABELS[body.code]) return RECOVERY_ERROR_LABELS[body.code];
+    } catch {
+      // 非 JSON 错误体继续使用统一错误信息。
+    }
+  }
+  return getErrorMessage(error, fallback);
+}
+
+function RecoveryPanel({
+  flow,
+  job,
+  reason,
+  error,
+  submitting,
+  onReasonChange,
+  onSubmit,
+}: {
+  flow: AdminAgentFlow | null;
+  job: WorkflowRecoveryJob | null;
+  reason: string;
+  error: string;
+  submitting: boolean;
+  onReasonChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  if (!flow || !['running', 'failed'].includes(flow.status.toLowerCase())) return null;
+  const active = job ? ACTIVE_RECOVERY_STATUSES.has(job.status) : false;
+
+  return (
+    <section className="admin-recovery-panel" aria-label="工作流恢复">
+      <div className="admin-recovery-heading">
+        <span><RefreshCw size={14} className={active ? 'admin-spin' : undefined} /> 工作流恢复</span>
+        <small>执行 ID：{flow.requestId}</small>
+      </div>
+      <p>该执行处于{flow.status.toLowerCase() === 'running' ? '运行或异常中断' : '失败'}状态，可从最近检查点异步恢复。</p>
+      <div className="admin-recovery-actions">
+        <input
+          value={reason}
+          maxLength={200}
+          onChange={event => onReasonChange(event.target.value)}
+          placeholder="填写恢复原因（可选）"
+          disabled={submitting || active}
+          aria-label="恢复原因"
+        />
+        <button
+          type="button"
+          className="admin-button secondary"
+          disabled={submitting || active}
+          onClick={onSubmit}
+        >
+          <RefreshCw size={14} /> {submitting ? '正在提交…' : active ? '恢复处理中…' : '从检查点恢复'}
+        </button>
+      </div>
+      {job && (
+        <div className={`admin-recovery-status is-${job.status.toLowerCase()}`} aria-live="polite">
+          <strong>{RECOVERY_STATUS_LABELS[job.status]}</strong>
+          <span>尝试 {job.attempts} 次</span>
+          {job.updatedAt && <span>更新于 {formatDateTime(job.updatedAt)}</span>}
+          {job.lastError && <p>{job.lastError}</p>}
+        </div>
+      )}
+      {error && <span className="admin-inline-error" role="alert">{error}</span>}
+    </section>
+  );
+}
+
 function ConversationDrawer({
   sessionId,
   userId,
@@ -347,32 +448,94 @@ function ConversationDrawer({
   const [error, setError] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [recoveryJob, setRecoveryJob] = useState<WorkflowRecoveryJob | null>(null);
+  const [recoveryReason, setRecoveryReason] = useState('');
+  const [recoveryError, setRecoveryError] = useState('');
+  const [submittingRecovery, setSubmittingRecovery] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  const loadAgentFlow = useCallback(async (requestId: string) => {
+    setAgentFlow(await adminApi.fetchAdminAgentFlow(requestId).catch(() => null));
+  }, []);
 
   const loadDetail = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [sessionDetail, flow] = await Promise.all([
-        adminApi.fetchAdminSession(sessionId, userId),
-        adminApi.fetchAdminAgentFlow(sessionId).catch(() => null),
-      ]);
+      const sessionDetail = await adminApi.fetchAdminSession(sessionId, userId);
+      const latestRequestId = [...sessionDetail.messages].reverse()
+        .find(message => message.role.toLowerCase() === 'assistant' && message.requestId)
+        ?.requestId;
       setDetail(sessionDetail);
-      setAgentFlow(flow);
+      await loadAgentFlow(latestRequestId || sessionId);
     } catch (loadError) {
       setError(getErrorMessage(loadError, '无法获取对话详情'));
     } finally {
       setLoading(false);
     }
-  }, [sessionId, userId]);
+  }, [loadAgentFlow, sessionId, userId]);
 
   useEffect(() => { void loadDetail(); }, [loadDetail]);
+  useEffect(() => {
+    setRecoveryJob(null);
+    setRecoveryReason('');
+    setRecoveryError('');
+    setSubmittingRecovery(false);
+  }, [sessionId]);
   useEffect(() => {
     closeButtonRef.current?.focus();
     const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose]);
+
+  useEffect(() => {
+    if (!recoveryJob || !ACTIVE_RECOVERY_STATUSES.has(recoveryJob.status)) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const latest = await adminApi.fetchAdminWorkflowRecovery(recoveryJob.recoveryId);
+        if (cancelled) return;
+        setRecoveryError('');
+        setRecoveryJob(latest);
+        if (ACTIVE_RECOVERY_STATUSES.has(latest.status)) {
+          timer = setTimeout(() => void poll(), 2000);
+        } else if (latest.status === 'SUCCEEDED') {
+          await loadDetail();
+        }
+      } catch (pollError) {
+        if (!cancelled) {
+          setRecoveryError(getRecoveryErrorMessage(pollError, '无法获取恢复状态，正在重试'));
+          timer = setTimeout(() => void poll(), 4000);
+        }
+      }
+    };
+
+    timer = setTimeout(() => void poll(), 1500);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [loadDetail, recoveryJob?.recoveryId, recoveryJob?.status]);
+
+  const requestRecovery = async () => {
+    if (!agentFlow?.requestId) return;
+    if (!window.confirm('确认从最近检查点恢复这次工作流执行？')) return;
+    setSubmittingRecovery(true);
+    setRecoveryError('');
+    try {
+      const job = await adminApi.requestAdminWorkflowRecovery(agentFlow.requestId, {
+        reason: recoveryReason.trim() || '管理员从对话详情手动触发恢复',
+      });
+      setRecoveryJob(job);
+    } catch (requestError) {
+      setRecoveryError(getRecoveryErrorMessage(requestError, '恢复请求提交失败'));
+    } finally {
+      setSubmittingRecovery(false);
+    }
+  };
 
   const deleteSession = async () => {
     if (!window.confirm('确认永久删除这条对话及其关联记录？此操作无法撤销。')) return;
@@ -433,6 +596,15 @@ function ConversationDrawer({
 
             <div className="admin-message-section">
               <AgentFlowChain flow={agentFlow} />
+              <RecoveryPanel
+                flow={agentFlow}
+                job={recoveryJob}
+                reason={recoveryReason}
+                error={recoveryError}
+                submitting={submittingRecovery}
+                onReasonChange={setRecoveryReason}
+                onSubmit={() => void requestRecovery()}
+              />
               <div className="admin-message-heading"><strong>完整对话</strong><span>{messages.length} 条消息</span></div>
               {messages.length === 0 ? (
                 <AdminEmptyState title="暂无消息内容" description="该会话目前只有概要记录。" />
@@ -457,6 +629,17 @@ function ConversationDrawer({
                             {isAssistant && message.promptTokens !== null && <span>Prompt {formatTokenCount(message.promptTokens)}</span>}
                             {isAssistant && message.completionTokens !== null && <span>Completion {formatTokenCount(message.completionTokens)}</span>}
                             {isAssistant && message.totalTokens !== null && <span>总计 {formatTokenCount(message.totalTokens)} Token</span>}
+                            {isAssistant && message.requestId && (
+                              <button
+                                type="button"
+                                className="admin-message-flow-button"
+                                disabled={agentFlow?.requestId === message.requestId}
+                                onClick={() => void loadAgentFlow(message.requestId!)}
+                              >
+                                <GitBranch size={12} />
+                                {agentFlow?.requestId === message.requestId ? '当前执行链路' : '查看本轮链路'}
+                              </button>
+                            )}
                           </div>
                         )}
                         {isAssistant && (message.promptSnapshot || message.toolUsageComplete !== null) && (

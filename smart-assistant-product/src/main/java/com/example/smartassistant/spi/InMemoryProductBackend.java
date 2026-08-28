@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 
 import java.util.Map;
 import java.util.Locale;
@@ -29,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 @ConditionalOnMissingBean(ProductBackend.class)
+@Profile({"dev", "test"})
 public class InMemoryProductBackend implements ProductBackend {
 
     private static final Logger log = LoggerFactory.getLogger(InMemoryProductBackend.class);
@@ -37,15 +39,22 @@ public class InMemoryProductBackend implements ProductBackend {
     static {
         PRODUCTS.put("IPHONE-15-PRO", Map.of(
             "name", "iPhone 15 Pro", "price", "8999", "stock", "充足",
-            "spec", "钛金属、A17 Pro芯片、4800万像素", "color", "原色钛金属/蓝色钛金属/白色钛金属/黑色钛金属"
+            "spec", "钛金属、A17 Pro芯片、4800万像素", "color", "原色钛金属/蓝色钛金属/白色钛金属/黑色钛金属",
+            "category", "手机"
         ));
         PRODUCTS.put("AIRPODS-PRO", Map.of(
             "name", "AirPods Pro（第二代）", "price", "1999", "stock", "充足",
-            "spec", "降噪、自适应音频、USB-C充电", "color", "白色"
+            "spec", "降噪、自适应音频、USB-C充电", "color", "白色", "category", "耳机"
         ));
         PRODUCTS.put("MACBOOK-AIR-M3", Map.of(
             "name", "MacBook Air M3", "price", "8999起", "stock", "紧张",
-            "spec", "13.6英寸、M3芯片、18小时续航", "color", "午夜色/星光色/深空灰色/银色"
+            "spec", "13.6英寸、M3芯片、18小时续航", "color", "午夜色/星光色/深空灰色/银色",
+            "category", "笔记本电脑"
+        ));
+        PRODUCTS.put("IPAD-PRO-M4", Map.of(
+            "name", "iPad Pro M4 13英寸", "price", "9499", "stock", "充足",
+            "spec", "13英寸、M4芯片、OLED显示屏", "color", "深空黑色/银色",
+            "category", "平板电脑"
         ));
     }
 
@@ -132,7 +141,8 @@ public class InMemoryProductBackend implements ProductBackend {
                     }
                     return new ProductSummary(
                             entry.getKey(), product.get("name"), price,
-                            product.get("stock"), product.get("spec"), 0L);
+                            product.get("stock"), product.get("spec"), 0L,
+                            product.get("category"));
                 })
                 .sorted((left, right) -> {
                     int stockComparison = Integer.compare(stockRank(left.stock()), stockRank(right.stock()));
@@ -141,6 +151,16 @@ public class InMemoryProductBackend implements ProductBackend {
                             : left.code().compareTo(right.code());
                 })
                 .limit(safeLimit)
+                .toList();
+    }
+
+    @Override
+    public List<String> listProductCategories() {
+        return PRODUCTS.values().stream()
+                .map(product -> product.get("category"))
+                .filter(category -> category != null && !category.isBlank())
+                .distinct()
+                .sorted()
                 .toList();
     }
 

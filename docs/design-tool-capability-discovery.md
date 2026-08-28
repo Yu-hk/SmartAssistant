@@ -95,7 +95,7 @@ ToolDefinition.highRisk(name, desc, needsApproval, tags, new String[]{"refund","
 ### 1.5 存量工具迁移策略（3 阶段，零停机）
 
 - **阶段 A（加字段、零风险）**：`functionalCapabilities` 默认 `[]`。查询/发现端点若 `functionalCapabilities` 为空，则**退化到 `tags`** 匹配（保证未迁移工具仍可被 tag 检索到）。校验仅 WARN。
-- **阶段 B（补全声明）**：在各工具 `initTools()` / `@Tool` 注册处（`OrderTools`、`ProductTools`、`GeneralTools`、`WeatherTool`、`ImageTools`、`DataGifTool`、`KnowledgeQueryTool`、`CouponTools`、`*MemoryTool`、`OrderKnowledgeTool`、`OrderAnalyticsTool`、`TextToSqlTool` 等）通过 `ToolDefinition.read/write/highRisk(..., functionalCapabilities)` 补全。提供**启发式映射脚本**（按工具名/描述关键词推断，如 `*query*Order*`→`query-order`、`*refund*`→`refund`），产出「建议 functionalCapabilities」清单供人工复核，对高风险工具（payment/refund）强制人工确认。
+- **阶段 B（补全声明）**：在各工具 `initTools()` / `@Tool` 注册处（`OrderTools`、`ProductTools`、`GeneralTools`、`ImageTools`、`DataGifTool`、`KnowledgeQueryTool`、`CouponTools`、`*MemoryTool`、`OrderKnowledgeTool`、`OrderAnalyticsTool`、`TextToSqlTool` 等）通过 `ToolDefinition.read/write/highRisk(..., functionalCapabilities)` 补全。提供**启发式映射脚本**（按工具名/描述关键词推断，如 `*query*Order*`→`query-order`、`*refund*`→`refund`），产出「建议 functionalCapabilities」清单供人工复核，对高风险工具（payment/refund）强制人工确认。
 - **阶段 C（校验收紧）**：迁移窗关闭后，`validateFunctionalCapabilities` 对关键工具升级为 ERROR；搜索端点停止 tag 退化（仅当工具确实无 functionalCapabilities 时回退，并打 metric）。
 
 **存量工具 → functionalCapabilities 映射（示例，待人工复核）**
@@ -118,7 +118,6 @@ ToolDefinition.highRisk(name, desc, needsApproval, tags, new String[]{"refund","
 | `ProductTools.detail*` | `query-product` | CORE |
 | `KnowledgeQueryTool.*` | `rag-retrieve` | CORE |
 | `ProductMemoryTool.*` | `memory-read`, `memory-write` | CORE |
-| `WeatherTool.*` | `query-weather` | SHARED |
 | `ImageTools.*` | `image-generate`, `image-edit` | SHARED |
 | `DataGifTool.*` | `chart-generate` | SHARED/EXTENSION |
 | `GeneralTools.*` | `web-search`, `general-qa` | SHARED |
@@ -132,7 +131,7 @@ ToolDefinition.highRisk(name, desc, needsApproval, tags, new String[]{"refund","
 
 - 配置项：`agent.capability-scope`（一组 `functionalCapabilities`，如 `query-order,create-order,pay,cancel-order,refund,track-logistics,confirm-action`）。
 - 兼容层：保留 `agent.tool-tag`（如 `ORDER`），提供 **tag → capabilityScope 映射表**（见 2.3），`toolTag` 仅作为 capabilityScope 的便捷别名；最终统一走能力集查询。
-- 每个 Agent 的能力 scope 来自其「角色」：Order 客服需要订单生命周期相关能力；Product 顾问需要商品/检索能力；General 需要通用/天气/图像等。
+- 每个 Agent 的能力 scope 来自其「角色」：Order 客服需要订单生命周期相关能力；Product 顾问需要商品/检索能力；General 需要通用问答、搜索与图像等。
 
 ### 2.2 `SpringToolProvider` / `ToolRegistryClient` 按能力集查询
 
@@ -163,7 +162,7 @@ List<ToolCallback> getToolCallbacks(Set<String> functionalCapabilities, Object..
 |---------|------------------------------------------|
 | `ORDER` | `query-order, track-logistics, create-order, pay, cancel-order, refund, payment-confirm, ship-order, confirm-delivery, query-coupon, order-analytics, rag-retrieve, memory-read, memory-write` |
 | `PRODUCT` | `search-product, query-product, rag-retrieve, memory-read, memory-write, apply-coupon` |
-| `GENERAL` | `query-weather, image-generate, image-edit, chart-generate, web-search, general-qa, notify-user, rag-retrieve` |
+| `GENERAL` | `image-generate, image-edit, chart-generate, web-search, general-qa, notify-user, rag-retrieve` |
 
 ### 2.4 T1 时序图（init 加载）
 
@@ -350,7 +349,6 @@ sequenceDiagram
 | `rag-retrieve` | `OrderKnowledgeTool.*`, `KnowledgeQueryTool.*` | CORE/SHARED |
 | `memory-read` / `memory-write` | `*MemoryTool.*` | CORE |
 | `search-product` / `query-product` | `ProductTools.*` | CORE |
-| `query-weather` | `WeatherTool.*` | SHARED |
 | `image-generate` / `image-edit` | `ImageTools.*` | SHARED |
 | `chart-generate` | `DataGifTool.*` | SHARED/EXTENSION |
 | `web-search` / `general-qa` | `GeneralTools.*` | SHARED |
@@ -452,7 +450,7 @@ Error:
 | `smart-assistant-product/src/.../config/ProductAgentConfig.java` | 改 | 同上 |
 | `smart-assistant-router/src/.../agent/RouterFallbackAgentService.java` | 改 | 通用能力作为 Router 分配失败后的本地兜底 Agent |
 | `smart-assistant-{order,product}/src/main/resources/prompts/*-system-prompt.txt`、Router fallback prompt | 改 | 增加 `discover_tools` 使用说明与护栏提示 |
-| 各工具 `initTools()`（`OrderTools`/`ProductTools`/`GeneralTools`/`WeatherTool`/`ImageTools`/`DataGifTool`/`KnowledgeQueryTool`/`CouponTools`/`*MemoryTool`/`OrderKnowledgeTool`/`OrderAnalyticsTool`/`TextToSqlTool` 等） | 改 | 补全 `functionalCapabilities` 声明（阶段 B 迁移） |
+| 各工具 `initTools()`（`OrderTools`/`ProductTools`/`GeneralTools`/`ImageTools`/`DataGifTool`/`KnowledgeQueryTool`/`CouponTools`/`*MemoryTool`/`OrderKnowledgeTool`/`OrderAnalyticsTool`/`TextToSqlTool` 等） | 改 | 补全 `functionalCapabilities` 声明（阶段 B 迁移） |
 | `ToolRegistryProperties`（common） | 改 | 新增 T1/T2 特性开关（`t1-capability-scope-enabled`、`t2-discovery-enabled`）、`maxDiscoveriesPerTurn/Session`、`maxDynamicTools` 等护栏阈值 |
 
 ### 5.5 有序任务列表（含依赖）
@@ -488,7 +486,7 @@ Error:
 
 **推荐上线节奏**
 - **T1 先上（快赢，低风险的演进）**：仅把"按 tag 过滤"演进为"按 capability 集预载"，零新增运行期发现、无循环/延迟新风险，复用 70% 原语；用特性开关灰度，可一键回退 tag 模式。
-- **T2 二期（受控放量）**：先对**只读/低风险** functionalCapability（如 `query-weather`、`rag-retrieve`、`search-product`）开放发现，积累 discovery 命中率/延迟指标；再按指标逐步开放 `refund`/`pay` 等高风险能力；配套护栏与可观测全量上线。
+- **T2 二期（受控放量）**：先对**只读/低风险** functionalCapability（如 `rag-retrieve`、`search-product`）开放发现，积累 discovery 命中率/延迟指标；再按指标逐步开放 `refund`/`pay` 等高风险能力；配套护栏与可观测全量上线。
 
 ---
 
@@ -509,7 +507,6 @@ Error:
 | `greeting` | 寒暄/闲聊 | — | `greeting` | read-only |
 | `math-calculate` | 数学/脚本计算 | `calculate`, `executeScript` | `calculate` | read-only / unknown |
 | `unit-convert` | 单位换算 | `convertTemperature`, `convertLength`, `convertWeight`, `convertCurrency` | — | read-only |
-| `weather-query` | 天气查询 | `queryWeather` | `weather_query` | read-only |
 | `image-analyze` | 图片内容分析 | `analyzeImage` | — | mutate-state |
 | `image-generate` | 文生图 | `generateImage` | — | mutate-state |
 | `gif-generate` | 趋势动画生成 | `generateTrendGif` | — | mutate-state |
@@ -539,11 +536,11 @@ Error:
 | `knowledge-retrieve` | 通用知识库检索 | `queryKnowledge`, `queryOrderKnowledge` | — | read-only |
 | `sql-query` | 自然语言/直连 SQL 查询 | `textToSql` | — | read-only（MCP `executeQuery`/`getTableSchema` 未入中心） |
 
-> 共 **32** 个首批令牌。T2 二期建议先对低风险令牌开放发现：`weather-query` / `product-query` / `product-stock` / `product-price` / `product-knowledge` / `knowledge-retrieve` / `order-query` / `order-logistics`；`order-refund` / `order-pay` / `order-cancel` 等高风险令牌待指标稳定后逐步开放。
+> 共 **31** 个首批令牌。T2 二期建议先对低风险令牌开放发现：`product-query` / `product-stock` / `product-price` / `product-knowledge` / `knowledge-retrieve` / `order-query` / `order-logistics`；`order-refund` / `order-pay` / `order-cancel` 等高风险令牌待指标稳定后逐步开放。
 
 ### 7.2 T6 回填前必须解决的 3 个数据质量雷点（不影响 T1）
 
 1. **同名工具 upsert 冲突**：`recallMemories` / `savePreference` 同时被 `ProductMemoryTool` 与 `OrderMemoryTool` 注册（描述不同），中心注册表 `register` 为 upsert，后者覆盖前者 → 无法区分"商品偏好"与"订单偏好"。**已在能力层用域前缀 token 区分（`product-preference-*` vs `order-preference-*`），但工具名冲突仍会导致 Agent 调用歧义，建议 T6 前评估工具重命名或命名空间化。**
 2. **`GeneralMemoryTool` 未注册**：`smart-assistant-tool-registry/.../general/GeneralMemoryTool.java` 仅有 `@Tool` 方法、无 `initTools()`，未进入中心注册表 → general 域偏好治理缺失。T6 需先补注册，再补 `general-preference-read` / `general-preference-write`。
-3. **router 技能元数据缺失**：9 个技能用裸 `ToolDefinition.builder()` 注册（capabilities=["unknown"]），且与中心工具同名重复（`calculate`、`weather_query` vs `queryWeather`）。T6 迁移需给技能也补 `functionalCapabilities`，或中心/技能去重。
+3. **router 技能元数据缺失**：部分技能用裸 `ToolDefinition.builder()` 注册（capabilities=["unknown"]），且存在与中心工具同名重复的情况。T6 迁移需给技能也补 `functionalCapabilities`，或中心/技能去重。
 4. **MCP 工具不入中心**：consumer / order(Travel) 的 `executeQuery` / `getTableSchema` 仅经 MCP Server 暴露，无 `capabilities/tags/tier` 元数据，`sql-query` 能力当前仅 `textToSql` 在中心。纳入需额外工作（建议放 T2 或后续专项）。

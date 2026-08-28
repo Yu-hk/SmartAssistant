@@ -117,7 +117,7 @@ public class ResultMerger {
 
                 要求：
                 - 按逻辑顺序组织内容，不要简单罗列
-                - 保留每个回答中的关键信息（景点名称、餐厅推荐、价格、天气等）
+                - 保留每个回答中的关键信息（商品名称、价格、库存、订单状态等）
                 - 去掉重复内容
                 - 语言自然流畅，像一个人在回答
                 - 在引用特定信息时标注来源，如"根据景点攻略的推荐"、"美食助理提到"
@@ -293,8 +293,7 @@ public class ResultMerger {
         StringBuilder answer = new StringBuilder();
         for (SubTaskResult result : results) {
             if (!answer.isEmpty()) answer.append("\n\n");
-            answer.append("### ").append(result.getDescription()).append('\n')
-                    .append(result.getResult().trim());
+            answer.append(result.getResult().trim());
         }
         return answer.toString();
     }

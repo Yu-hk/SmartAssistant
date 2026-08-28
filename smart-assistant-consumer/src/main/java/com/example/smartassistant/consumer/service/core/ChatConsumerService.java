@@ -319,7 +319,6 @@ public class ChatConsumerService {
      * 判断该问题是否具有偏好提取价值
      * <p>
      * 以下类型的问题不含有用户长期偏好信息，跳过 LLM 提取以节省资源：
-     * - 天气/气象查询（临时地点，不代表偏好）
      * - 通用问候语
      * - 纯知识性问答（"什么是"、"怎么"等）
      *
@@ -331,12 +330,6 @@ public class ChatConsumerService {
             return false;
         }
         String lower = question.toLowerCase().trim();
-
-        // 天气/气象类 - 临时查询，地点不代表偏好
-        String[] weatherKeywords = { "天气", "气温", "几度", "下雨", "下雪", "雨雪", "预报", "晴", "阴天", "雾霾", "pm2.5", "空气质量" };
-        for (String kw : weatherKeywords) {
-            if (lower.contains(kw)) return false;
-        }
 
         // 通用问候/闲聊 - 无任何偏好信息
         String[] greetingKeywords = { "你好", "hello", "hi ", "嗨", "谢谢", "感谢", "再见", "拜拜", "早上好", "晚上好", "下午好" };

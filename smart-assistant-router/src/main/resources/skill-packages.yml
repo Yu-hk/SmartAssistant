@@ -27,6 +27,10 @@ skill-package:
         涉及分析、推荐或推荐后下单时，依次生成：
         discover_products(DISCOVER_PRODUCTS, READ) → analyze_product_data(ANALYZE_PRODUCT_DATA, READ)
         → recommend_product(RECOMMEND_PRODUCT, READ)。继续下单时再生成 create_order(CREATE_ORDER, WRITE)。
+        用户明确手机、平板电脑、耳机等品类时写入 entities.product_category；发现节点至少召回 5 个同类候选，
+        “推荐一款”只约束最终推荐数量，不能把候选召回数缩减为 1。
+        分析节点绑定 {"products":"$.nodes.discover_products.data.products"}；推荐节点绑定
+        {"analysis":"$.nodes.analyze_product_data.data.analysis"}，不得使用未声明的 product_ids 字段。
         分析只使用真实候选；推荐必须核实事实；创建订单必须依赖推荐结果并等待用户确认和资料齐全。
       bind-agents: [router-service]
 

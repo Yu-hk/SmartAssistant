@@ -25,6 +25,21 @@ spring:
   application:
     name: consumer-service
 
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:smartassistant}
+    password: ${RABBITMQ_PASSWORD:}
+    listener:
+      simple:
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          initial-interval: 1s
+          max-attempts: 5
+          multiplier: 2
+          max-interval: 30s
+
   # 排除未使用的 DashScope 自动配置（Consumer 直连 DeepSeek API）。
   autoconfigure:
     exclude:
@@ -69,7 +84,7 @@ spring:
         namespace: ""
         group: DEFAULT_GROUP
         username: ${NACOS_USERNAME:nacos}
-        password: ${NACOS_PASSWORD:nacos123}
+        password: ${NACOS_PASSWORD:}
         enabled: true
         metadata:
           instance-id: consumer-service-8082  # 实例标识
@@ -194,6 +209,16 @@ router:
 preference:
   extraction:
     timeout-ms: 8000
+
+workflow:
+  recovery:
+    notifications:
+      exchange: ${WORKFLOW_RECOVERY_EXCHANGE:smartassistant.workflow}
+      queue: ${WORKFLOW_RECOVERY_NOTIFICATION_QUEUE:smartassistant.workflow.recovery.completed}
+      routing-key: ${WORKFLOW_RECOVERY_NOTIFICATION_ROUTING_KEY:workflow.recovery.completed}
+      dead-letter-exchange: ${WORKFLOW_RECOVERY_NOTIFICATION_DLX:smartassistant.workflow.notification.dlx}
+      dead-letter-queue: ${WORKFLOW_RECOVERY_NOTIFICATION_DLQ:smartassistant.workflow.recovery.completed.dlq}
+      dead-letter-routing-key: ${WORKFLOW_RECOVERY_NOTIFICATION_DLQ_ROUTING_KEY:workflow.recovery.completed.dead}
 
 # ⭐ 线程池配置（消除硬编码）
 thread-pool:

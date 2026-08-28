@@ -31,7 +31,7 @@ class WorkflowValidatorTest {
     void rejectsUnknownAgentsUnsafeUrlsAndWriteWithoutIdempotency() {
         WorkflowDefinition.WorkflowNode unsafe = new WorkflowDefinition.WorkflowNode(
                 "call", WorkflowDefinition.NodeType.AGENT, "call internal endpoint", "missing",
-                "CREATE", Map.of("url", "http://127.0.0.1:8080/admin"), List.of(), List.of(),
+                "CREATE_ORDER", Map.of("url", "http://127.0.0.1:8080/admin"), List.of(), List.of(),
                 null, false, List.of(), null);
 
         var result = validator.validate(workflow(List.of(unsafe)), Set.of("product"));

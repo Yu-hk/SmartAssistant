@@ -50,7 +50,19 @@ spring:
       idle-timeout: 30000
       connection-timeout: 20000
 
-  # Redis 配置（用于加载会话上下文）
+  # RabbitMQ：工作流恢复命令使用发布确认和持久化队列
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    connection-timeout: 5s
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+
+  # Redis 配置（会话上下文、checkpoint、恢复去重与执行租约）
   data:
     redis:
       host: localhost
@@ -120,16 +132,16 @@ tool-registry:
 
 # ⭐ G3 Tier 多模型路由配置（统一模型接入层）
 # 前缀 `tier` → 绑定 common.TieredModelRouterProperties
-# 默认使用 DeepSeek V4：LIGHT/STANDARD 走 Flash，HEAVY 走 Pro。
+# 模型名仅由环境配置，Router/Common 不绑定具体供应商。
 tier:
   light:
-    model: ${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}
+    model: ${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:}}
     temperature: 0.1
   standard:
-    model: ${DEEPSEEK_STANDARD_MODEL:deepseek-v4-flash}
+    model: ${MODEL_STANDARD:${DEEPSEEK_STANDARD_MODEL:}}
     temperature: 0.3
   heavy:
-    model: ${DEEPSEEK_REASONING_MODEL:deepseek-v4-pro}
+    model: ${MODEL_HEAVY:${DEEPSEEK_REASONING_MODEL:}}
     temperature: 0.2
   # 意图维度覆盖：命中这些意图标签时强制升档到指定 tier（绕过复杂度分类）
   intent-overrides:
@@ -141,7 +153,7 @@ tier:
   # 按比例切流到 canary-model，命中灰度的请求优先走新模型，
   # 失败自动回退到上述三档降级链，不影响整体可用性。
   canary-ratio: 0.0                  # 0.0=关闭；0.1=10% 流量试接新模型；1.0=全量新模型
-  canary-model: deepseek-v4-pro      # 灰度模型名
+  canary-model: ${MODEL_CANARY:}     # 灰度模型名，空值不启用
   canary-temperature: 0.3            # 灰度模型温度
 
 # JWT 配置（与 Consumer Service 保持一致）
@@ -246,6 +258,8 @@ router:
       poll-timeout: 1                 # 必须短于 Redis 客户端命令超时，空队列不应记为异常
       wait-timeout-ms: 65000          # LangGraph 等待节点结果的上限
       hot-pool-enabled: false         # 可选附加消费池，默认避免重复扩容
+      hot-agents: ${ROUTER_HOT_AGENTS:} # agent:priority，逗号分隔；空值时不预设业务类型
+      max-concurrency-per-agent: ${ROUTER_AGENT_MAX_CONCURRENCY:4}
 
     # ⭐ 语义路由缓存配置
     semantic-cache:
@@ -286,6 +300,28 @@ router:
     # LangGraph4j is the sole engine; native checkpoints and handoffs are always enabled.
     max-replans: 1             # 单次 Graph 执行的全局重规划预算
     max-criteria-corrections: 1 # 非空结果验收失败时，仅定向修正一次
+    recovery:
+      enabled: ${ROUTER_GRAPH_RECOVERY_ENABLED:false} # 未部署 RabbitMQ 时安全关闭；生产 Compose 显式开启
+      broker: rabbit            # rabbit 为生产默认值；redis 仅保留为紧急回滚适配器
+      scan-interval-ms: 30000
+      stale-after-ms: 120000    # 超过两个节点调用超时后才判定为失联
+      execution-lease-ms: 90000 # 活跃 Router 持续续租，进程崩溃后自动过期
+      visibility-timeout-ms: 120000
+      scan-batch-size: 100
+      worker-count: 2
+      idle-poll-ms: 250
+      max-retries: 3
+      dedup-ttl-ms: 60000
+      message-ttl-ms: 7200000
+      rabbit:
+        exchange: smartassistant.workflow
+        queue: smartassistant.workflow.recovery
+        routing-key: workflow.recovery
+        dead-letter-exchange: smartassistant.workflow.dlx
+        dead-letter-queue: smartassistant.workflow.recovery.dlq
+        dead-letter-routing-key: workflow.recovery.dead
+        retry-delays: 1s,5s,30s
+        confirm-timeout: 5s
 
   context:
     history:
@@ -303,6 +339,12 @@ management:
       enabled: true
     health:
       show-details: always
+  health:
+    # Spring AMQP is on the classpath even when workflow recovery is disabled.
+    # Avoid turning the whole Router health endpoint DOWN on deployments
+    # that intentionally do not provision RabbitMQ.
+    rabbit:
+      enabled: ${ROUTER_GRAPH_RECOVERY_ENABLED:false}
   metrics:
     export:
       prometheus:

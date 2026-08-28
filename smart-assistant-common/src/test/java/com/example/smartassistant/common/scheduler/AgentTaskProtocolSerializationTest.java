@@ -21,7 +21,7 @@ class AgentTaskProtocolSerializationTest {
         task.setExecutionRequest(new AgentExecutionRequest(
                 "1.0", "exec-4", "create_order", "42", "CREATE_ORDER", "创建订单",
                 Map.of("quantity", 1), List.of("products"), List.of("需确认"),
-                null, "idem-4", null,
+                null, "idem-4",
                 Map.of("products", new AgentNodeOutput(
                         "products", "product", "COMPLETED", "找到商品",
                         Map.of("sku", "SKU-1"))),

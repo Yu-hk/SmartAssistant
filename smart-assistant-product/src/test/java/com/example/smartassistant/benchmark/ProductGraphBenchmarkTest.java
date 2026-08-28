@@ -1,7 +1,10 @@
 package com.example.smartassistant.benchmark;
 
 import com.example.smartassistant.service.graph.ProductGraphService;
+import com.example.smartassistant.service.graph.ProductGraphSource;
 import org.junit.jupiter.api.*;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -15,17 +18,25 @@ class ProductGraphBenchmarkTest {
 
     @BeforeEach
     void setUp() {
-        graphService = new ProductGraphService();
+        ProductGraphSource source = () -> new ProductGraphSource.GraphSnapshot(
+                List.of(
+                        new ProductGraphSource.ProductNode("IPHONE-15-PRO", "iPhone 15 Pro", "手机", "Apple"),
+                        new ProductGraphSource.ProductNode("IPHONE-16-PRO", "iPhone 16 Pro", "手机", "Apple"),
+                        new ProductGraphSource.ProductNode("AIRPODS-PRO", "AirPods Pro", "耳机", "Apple"),
+                        new ProductGraphSource.ProductNode("APPLE-WATCH-U2", "Apple Watch Ultra 2", "智能手表", "Apple")),
+                List.of(
+                        new ProductGraphSource.ProductRelation("IPHONE-15-PRO", "IPHONE-16-PRO", "SAME_CATEGORY", 0.95),
+                        new ProductGraphSource.ProductRelation("IPHONE-15-PRO", "AIRPODS-PRO", "ACCESSORY", 0.85),
+                        new ProductGraphSource.ProductRelation("IPHONE-15-PRO", "APPLE-WATCH-U2", "COMPLEMENT", 0.70)));
+        graphService = new ProductGraphService(source);
         graphService.init();
     }
 
     @Test
-    @DisplayName("图谱初始化：包含 15 个节点")
+    @DisplayName("图谱初始化：加载数据源节点")
     void testGraphInitialization() {
-        assertEquals(15, graphService.getNodeCount(),
-                "默认图应包含 15 个商品节点");
-        assertTrue(graphService.getEdgeCount() >= 15,
-                "默认图应至少有 15 条边");
+        assertEquals(4, graphService.getNodeCount());
+        assertEquals(3, graphService.getEdgeCount());
     }
 
     @Test
@@ -59,8 +70,7 @@ class ProductGraphBenchmarkTest {
     @DisplayName("综合推荐：合并所有关系类型")
     void testRecommendations() {
         var results = graphService.queryRecommendations("IPHONE-15-PRO", 5);
-        assertTrue(results.size() >= 3,
-                "综合推荐应返回至少 3 个结果");
+        assertEquals(3, results.size());
         // 验证按得分降序排列
         for (int i = 1; i < results.size(); i++) {
             assertTrue(results.get(i-1).getRelevanceScore() >= results.get(i).getRelevanceScore(),

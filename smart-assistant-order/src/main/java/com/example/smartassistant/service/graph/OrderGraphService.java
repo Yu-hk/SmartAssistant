@@ -1,12 +1,14 @@
 package com.example.smartassistant.service.graph;
 
+import com.example.smartassistant.common.order.OrderStatus;
+
+import com.example.smartassistant.entity.OrderEntity;
+import com.example.smartassistant.mapper.OrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -65,54 +67,10 @@ public class OrderGraphService {
         public double getRelevanceScore() { return relevanceScore; }
     }
 
-    // ==================== 图数据 ====================
+    private final OrderMapper orderMapper;
 
-    /** 用户 → 订单列表（邻接表） */
-    private final Map<Long, List<OrderNode>> userOrders = new ConcurrentHashMap<>();
-
-    /** 商品 → 订单列表（邻接表） */
-    private final Map<String, List<OrderNode>> productOrders = new ConcurrentHashMap<>();
-
-    /** 订单内部类 */
-    private record OrderNode(String orderId, String productName, Double amount,
-                             String status, Long userId, String address) {}
-
-    // ==================== 初始化 ====================
-
-    @PostConstruct
-    public void init() {
-        log.info("[OrderGraph] 初始化订单关联图谱...");
-        buildDefaultGraph();
-        log.info("[OrderGraph] 初始化完成: 用户数量={}, 商品数量={}, 订单总数={}",
-                userOrders.size(), productOrders.size(),
-                userOrders.values().stream().mapToInt(List::size).sum());
-    }
-
-    /**
-     * 构建默认订单关系数据。
-     */
-    private void buildDefaultGraph() {
-        // 用户1: 于海阔
-        addOrder(1L, "ORD-2024-001", 8999.0, "已签收", "iPhone 15 Pro", "北京市朝阳区xxx");
-        addOrder(1L, "ORD-2024-002", 1999.0, "已签收", "AirPods Pro（第二代）", "北京市朝阳区xxx");
-        addOrder(1L, "ORD-2024-003", 8999.0, "已发货", "MacBook Air M3", "北京市朝阳区xxx");
-        addOrder(1L, "ORD-2024-005", 3999.0, "待付款", "iPad Pro M4", "北京市朝阳区xxx");
-
-        // 用户2: 张三
-        addOrder(2L, "ORD-2024-010", 6999.0, "已签收", "iPhone 15", "上海市浦东新区yyy");
-        addOrder(2L, "ORD-2024-011", 1299.0, "已签收", "AirPods 4", "上海市浦东新区yyy");
-        addOrder(2L, "ORD-2024-012", 2499.0, "退款中", "Apple Watch Series 9", "上海市浦东新区yyy");
-
-        // 用户3: 李四
-        addOrder(3L, "ORD-2024-020", 15999.0, "已签收", "MacBook Pro M4", "深圳市南山区zzz");
-        addOrder(3L, "ORD-2024-021", 1999.0, "已取消", "AirPods Pro（第二代）", "深圳市南山区zzz");
-    }
-
-    private void addOrder(Long userId, String orderId, Double amount, String status,
-                          String productName, String address) {
-        OrderNode node = new OrderNode(orderId, productName, amount, status, userId, address);
-        userOrders.computeIfAbsent(userId, k -> new ArrayList<>()).add(node);
-        productOrders.computeIfAbsent(productName, k -> new ArrayList<>()).add(node);
+    public OrderGraphService(OrderMapper orderMapper) {
+        this.orderMapper = orderMapper;
     }
 
     // ==================== 核心查询 ====================
@@ -121,14 +79,13 @@ public class OrderGraphService {
      * 查询指定用户的其他订单（同一用户关联）。
      */
     public List<GraphQueryResult> queryByUser(Long userId, String excludeOrderId, int maxResults) {
-        if (userId == null || !userOrders.containsKey(userId)) {
+        if (userId == null) {
             return List.of();
         }
-        return userOrders.get(userId).stream()
-                .filter(n -> !n.orderId().equals(excludeOrderId))
-                .map(n -> new GraphQueryResult(n.orderId(), n.productName(),
-                        n.amount(), n.status(), RelationType.SAME_USER,
-                        "已签收".equals(n.status()) ? 0.9 : 0.5))
+        return orderMapper.findByUserId(userId).stream()
+                .filter(order -> !Objects.equals(order.getOrderId(), excludeOrderId))
+                .map(order -> result(order, RelationType.SAME_USER,
+                        OrderStatus.DELIVERED.matches(order.getStatus()) ? 0.9 : 0.5))
                 .sorted((a, b) -> Double.compare(b.getRelevanceScore(), a.getRelevanceScore()))
                 .limit(maxResults)
                 .collect(Collectors.toList());
@@ -138,12 +95,11 @@ public class OrderGraphService {
      * 查询买了相同商品的其他用户（同一商品关联）。
      */
     public List<GraphQueryResult> queryByProduct(String productName, int maxResults) {
-        if (productName == null || !productOrders.containsKey(productName)) {
+        if (productName == null || productName.isBlank()) {
             return List.of();
         }
-        return productOrders.get(productName).stream()
-                .map(n -> new GraphQueryResult(n.orderId(), n.productName(),
-                        n.amount(), n.status(), RelationType.SAME_PRODUCT, 0.8))
+        return orderMapper.findByProductName(productName).stream()
+                .map(order -> result(order, RelationType.SAME_PRODUCT, 0.8))
                 .limit(maxResults)
                 .collect(Collectors.toList());
     }
@@ -155,34 +111,20 @@ public class OrderGraphService {
         Map<String, GraphQueryResult> merged = new LinkedHashMap<>();
 
         // 1. 查同用户的其他订单
-        List<OrderNode> userOrderList = userOrders.get(userId);
-        if (userOrderList != null) {
-            for (OrderNode node : userOrderList) {
-                if (node.productName().equals(currentProductName)) continue;
-                merged.put(node.orderId(), new GraphQueryResult(
-                        node.orderId(), node.productName(),
-                        node.amount(), node.status(),
-                        RelationType.SAME_USER, 0.9
-                ));
-            }
+        List<OrderEntity> userOrderList = userId == null ? List.of() : orderMapper.findByUserId(userId);
+        for (OrderEntity order : userOrderList) {
+            if (Objects.equals(order.getProductName(), currentProductName)) continue;
+            merged.put(order.getOrderId(), result(order, RelationType.SAME_USER, 0.9));
         }
 
         // 2. 查买过当前商品的用户还买了什么
-        List<OrderNode> productOrderList = productOrders.get(currentProductName);
-        if (productOrderList != null) {
-            for (OrderNode node : productOrderList) {
-                if (node.userId().equals(userId)) continue;
-                Long otherUserId = node.userId();
-                List<OrderNode> otherOrders = userOrders.get(otherUserId);
-                if (otherOrders != null) {
-                    for (OrderNode other : otherOrders) {
-                        if (other.productName().equals(currentProductName)) continue;
-                        merged.putIfAbsent(other.orderId(), new GraphQueryResult(
-                                other.orderId(), other.productName(),
-                                other.amount(), other.status(),
-                                RelationType.SAME_PRODUCT, 0.6
-                        ));
-                    }
+        if (currentProductName != null && !currentProductName.isBlank()) {
+            for (OrderEntity sameProduct : orderMapper.findByProductName(currentProductName)) {
+                if (Objects.equals(sameProduct.getUserId(), userId)) continue;
+                for (OrderEntity other : orderMapper.findByUserId(sameProduct.getUserId())) {
+                    if (Objects.equals(other.getProductName(), currentProductName)) continue;
+                    merged.putIfAbsent(other.getOrderId(),
+                            result(other, RelationType.SAME_PRODUCT, 0.6));
                 }
             }
         }
@@ -195,10 +137,24 @@ public class OrderGraphService {
 
     // ==================== 统计 ====================
 
-    public int getUserCount() { return userOrders.size(); }
-    public int getProductCount() { return productOrders.size(); }
+    public List<String> queryPurchasedProductCodes(Long userId) {
+        return userId == null ? List.of() : orderMapper.findPurchasedProductCodes(userId);
+    }
+
+    private static GraphQueryResult result(OrderEntity order, RelationType type, double score) {
+        return new GraphQueryResult(order.getOrderId(), order.getProductName(),
+                order.getAmount() == null ? null : order.getAmount().doubleValue(),
+                order.getStatus(), type, score);
+    }
+
+    public int getUserCount() {
+        return (int) orderMapper.findAllOrders().stream().map(OrderEntity::getUserId).distinct().count();
+    }
+    public int getProductCount() {
+        return (int) orderMapper.findAllOrders().stream().map(OrderEntity::getProductName).distinct().count();
+    }
     public int getTotalOrderCount() {
-        return userOrders.values().stream().mapToInt(List::size).sum();
+        return orderMapper.findAllOrders().size();
     }
 
     /**

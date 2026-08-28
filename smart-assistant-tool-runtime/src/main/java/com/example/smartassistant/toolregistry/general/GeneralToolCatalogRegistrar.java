@@ -33,7 +33,6 @@ public class GeneralToolCatalogRegistrar {
                 ToolDefinition.write("executeScript", "执行受限计算脚本", ToolRiskLevel.MEDIUM)
                         .toBuilder().toolTier(ToolTier.SHARED)
                         .tags(new String[]{"GENERAL", "SANDBOXED"}).build(),
-                read("queryWeather", "实时天气与天气预报", "weather"),
                 read("analyzeImage", "分析图片内容", "image-analysis"),
                 ToolDefinition.write("generateImage", "根据文本生成图片", ToolRiskLevel.MEDIUM)
                         .toBuilder().toolTier(ToolTier.SHARED)

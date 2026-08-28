@@ -230,7 +230,7 @@ public class AgentDiscoveryService {
      * ⭐ 将 Agent SSE URL 映射存入 Redis（从 agentCache 读取，使用 Nacos 注册的 IP:Port）
      * <p>
      * key: a2a:agent:sse:urls
-     * value: {"location_weather": "http://192.168.0.101:8085/travel/stream/chat", ...}
+     * value: {"product": "http://192.168.0.101:8085/product/stream/chat", ...}
      */
     private void saveSseUrlsToRedis() {
         if (redisTemplate == null) {
@@ -386,10 +386,7 @@ public class AgentDiscoveryService {
         metadata.setCapabilities(nacosMetadata.get("capabilities"));
         metadata.setKeywords(nacosMetadata.get("keywords"));
         metadata.setRoutingExamples(nacosMetadata.get("routing-examples"));
-        metadata.setCuisineTypes(nacosMetadata.get("cuisine-types"));
-        metadata.setSupportLocation(Boolean.parseBoolean(nacosMetadata.get("support-location")));
-        metadata.setSupportWeather(Boolean.parseBoolean(nacosMetadata.get("support-weather")));
-        metadata.setSupportPlanning(Boolean.parseBoolean(nacosMetadata.get("support-planning")));
+        metadata.setSlotDefinitions(nacosMetadata.get("slot-definitions"));
         
         String priorityStr = nacosMetadata.get("priority");
         if (priorityStr != null) {
@@ -435,9 +432,6 @@ public class AgentDiscoveryService {
     public static String canonicalAgentName(String name) {
         if (name == null) return "";
         String normalized = name.trim().toLowerCase(Locale.ROOT).replace('_', '-');
-        if (normalized.startsWith("general")) return "general";
-        if (normalized.startsWith("product")) return "product";
-        if (normalized.startsWith("order")) return "order";
         for (String suffix : List.of("-agent-service", "-service", "-agent", "-chat")) {
             if (normalized.endsWith(suffix)) {
                 return normalized.substring(0, normalized.length() - suffix.length());
