@@ -5,7 +5,6 @@ export const KNOWLEDGE_CATEGORIES = [
   { value: 'product', label: '商品服务' },
   { value: 'refund', label: '退款与售后' },
   { value: 'technical', label: '技术支持' },
-  { value: 'weather', label: '天气服务' },
 ] as const;
 
 export function formatStatus(value?: string | null): string {
@@ -35,7 +34,6 @@ export function formatIntent(value?: string | null): string {
   if (intent.includes('order') || intent.includes('订单') || intent.includes('物流')) return '订单与物流';
   if (intent.includes('product') || intent.includes('商品') || intent.includes('产品')) return '商品咨询';
   if (intent.includes('technical') || intent.includes('tech') || intent.includes('技术') || intent.includes('故障')) return '技术支持';
-  if (intent.includes('weather') || intent.includes('天气')) return '天气查询';
   if (intent.includes('travel') || intent.includes('旅行') || intent.includes('出行')) return '出行规划';
   if (intent.includes('news') || intent.includes('新闻')) return '资讯查询';
   if (intent.includes('general') || intent.includes('通用') || intent.includes('问候')) return '通用咨询';
@@ -45,7 +43,6 @@ export function formatIntent(value?: string | null): string {
 export function formatAgent(value?: string | null): string {
   const agent = (value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
   if (!agent) return '智能助手';
-  if (agent.includes('weather')) return '天气查询';
   if (agent.includes('internet') || agent.includes('search') || agent.includes('web')) return '联网搜索';
   if (agent.includes('product') || agent.includes('recommend')) return '商品服务';
   if (agent.includes('order')) return '订单服务';
@@ -68,7 +65,6 @@ export function formatRole(value?: string | null): string {
 export function formatToolCapability(value?: string | null): string {
   const tool = (value || '').trim().toLowerCase().replace(/[\s_.:-]+/g, '');
   if (!tool) return '智能工具';
-  if (tool.includes('weather') || tool.includes('forecast')) return '天气查询';
   if (tool.includes('location') || tool.includes('geocode') || tool.includes('position')) return '定位解析';
   if (tool.includes('search') || tool.includes('internet') || tool.includes('web')) return '联网搜索';
   if (tool.includes('order') || tool.includes('logistics')) return '订单查询';

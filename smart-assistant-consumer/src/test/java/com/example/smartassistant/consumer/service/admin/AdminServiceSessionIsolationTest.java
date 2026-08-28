@@ -106,6 +106,7 @@ class AdminServiceSessionIsolationTest {
     void sessionDetailExposesPerTurnUsageWithoutPresentingPartialSumAsTotal() {
         Map<String, Object> tracked = new LinkedHashMap<>();
         tracked.put("id", 1L);
+        tracked.put("request_id", "request-1");
         tracked.put("user_input", "first question");
         tracked.put("response_summary", "first answer");
         tracked.put("routed_agent", "general_service");
@@ -121,6 +122,7 @@ class AdminServiceSessionIsolationTest {
 
         Map<String, Object> historical = new LinkedHashMap<>();
         historical.put("id", 2L);
+        historical.put("request_id", null);
         historical.put("user_input", "historical question");
         historical.put("response_summary", "historical answer");
         historical.put("routed_agent", "general_service");
@@ -132,7 +134,7 @@ class AdminServiceSessionIsolationTest {
         historical.put("created_at", "2026-08-09T10:01:00");
 
         when(jdbcTemplate.queryForList(
-                startsWith("SELECT id, user_input"), eq("session-a"), eq(7L)))
+                startsWith("SELECT id, request_id"), eq("session-a"), eq(7L)))
                 .thenReturn(List.of(tracked, historical));
         when(jdbcTemplate.queryForList(
                 startsWith("SELECT username"), eq(String.class), eq(7L)))
@@ -153,10 +155,12 @@ class AdminServiceSessionIsolationTest {
         assertFalse(detail.tokenUsageComplete());
         assertNull(detail.totalTokens());
         assertEquals(120L, detail.messages().get(1).totalTokens());
+        assertEquals("request-1", detail.messages().get(1).requestId());
         assertEquals("effective prompt", detail.messages().get(1).promptSnapshot());
         assertTrue(detail.messages().get(1).toolUsageComplete());
         assertEquals("queryWeather", detail.messages().get(1).toolCalls().getFirst().name());
         assertNull(detail.messages().get(3).totalTokens());
+        assertNull(detail.messages().get(3).requestId());
         assertNull(detail.messages().get(3).toolUsageComplete());
     }
 

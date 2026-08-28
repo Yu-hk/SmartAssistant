@@ -5,15 +5,12 @@ import com.example.smartassistant.common.agent.ReActProfileRegistry;
 import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsHelper;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsTool;
-import com.example.smartassistant.common.intent.WeatherQuerySupport;
-import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.tool.client.ToolRegistryClient;
 import com.example.smartassistant.router.service.monitoring.RouterMetricsCollector;
 import com.example.smartassistant.toolregistry.general.tool.GeneralTools;
 import com.example.smartassistant.toolregistry.general.tool.ImageTools;
-import com.example.smartassistant.toolregistry.general.tool.WeatherTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -38,11 +35,9 @@ public class RouterFallbackAgentService {
     private static final Logger log = LoggerFactory.getLogger(RouterFallbackAgentService.class);
 
     private final SmartReActAgent agent;
-    private final WeatherTool weatherTool;
 
     public RouterFallbackAgentService(
             @Qualifier("deepSeekChatModel") ChatModel chatModel,
-            WeatherTool weatherTool,
             ImageTools imageTools,
             GeneralTools generalTools,
             ToolRegistryClient toolRegistryClient,
@@ -50,9 +45,8 @@ public class RouterFallbackAgentService {
             AiChatService aiChatService,
             ObjectProvider<ReActProfileRegistry> profileProvider,
             ObjectProvider<DiscoverToolsTool> discoverToolsProvider) {
-        this.weatherTool = weatherTool;
         List<ToolCallback> callbacks = toolRegistryClient.getToolCallbacks(
-                "GENERAL", weatherTool, imageTools, generalTools);
+                "GENERAL", imageTools, generalTools);
         List<ToolCallback> effectiveTools = DiscoverToolsHelper.injectDiscoverTools(
                 new ArrayList<>(callbacks), discoverToolsProvider.getIfAvailable());
         ChatClient chatClient = aiChatService.buildChatClient(chatModel);
@@ -67,15 +61,7 @@ public class RouterFallbackAgentService {
         DiscoverToolsHelper.bindRegistrar(discoverToolsProvider.getIfAvailable(), agent);
     }
 
-    public String execute(String question, Long userId, DeviceLocation deviceLocation) {
-        if (WeatherQuerySupport.isWeatherLookup(question)) {
-            String city = WeatherQuerySupport.extractCity(question);
-            if (city != null) return weatherTool.queryWeather(city);
-            if (deviceLocation != null && deviceLocation.isUsable()) {
-                return weatherTool.queryWeather(deviceLocation.coordinateQuery());
-            }
-            return WeatherQuerySupport.CITY_CLARIFICATION;
-        }
+    public String execute(String question, Long userId) {
         String contextualQuestion = userId == null
                 ? question
                 : "当前用户ID：" + userId + "。\n用户问题：" + question;

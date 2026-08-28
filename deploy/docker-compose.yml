@@ -53,6 +53,27 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    container_name: smart-rabbitmq
+    expose:
+      - "5672"
+      - "15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-smartassistant}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - smart-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   nacos:
     image: nacos/nacos-server:v3.1.0
     container_name: smart-nacos
@@ -137,9 +158,13 @@ services:
       PORT: 8081
       JWT_SECRET: ${JWT_SECRET}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-smartassistant}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
+      SPRING_RABBITMQ_HOST: smart-rabbitmq
+      ROUTER_GRAPH_RECOVERY_ENABLED: ${ROUTER_GRAPH_RECOVERY_ENABLED:-true}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
@@ -149,6 +174,8 @@ services:
       nacos:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
@@ -220,6 +247,9 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-smartassistant}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+      SPRING_RABBITMQ_HOST: smart-rabbitmq
       ROUTER_SERVICE_URL: http://smart-router:8083
       EMBEDDING_SERVICE_URL: http://smart-embedding:8091
       # Docker 环境覆盖
@@ -238,6 +268,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
       embedding-service:
         condition: service_healthy
@@ -401,6 +433,11 @@ services:
       PRODUCT_ANALYSIS_MODEL: ${PRODUCT_ANALYSIS_MODEL:-qwen3.7-flash}
       PRODUCT_STANDARD_MODEL: ${PRODUCT_STANDARD_MODEL:-qwen3.7-flash}
       PRODUCT_RECOMMENDATION_MODEL: ${PRODUCT_RECOMMENDATION_MODEL:-qwen3.7-plus}
+      PRODUCT_RAG_AGENTIC_ENABLED: ${PRODUCT_RAG_AGENTIC_ENABLED:-true}
+      PRODUCT_RAG_AGENTIC_MAX_ATTEMPTS: ${PRODUCT_RAG_AGENTIC_MAX_ATTEMPTS:-2}
+      PRODUCT_RAG_AGENTIC_MAX_EVIDENCE_ITEMS: ${PRODUCT_RAG_AGENTIC_MAX_EVIDENCE_ITEMS:-8}
+      PRODUCT_RAG_AGENTIC_SUFFICIENT_SCORE: ${PRODUCT_RAG_AGENTIC_SUFFICIENT_SCORE:-0.5}
+      PRODUCT_RAG_ANSWER_VERIFICATION_MAX_RETRIES: ${PRODUCT_RAG_ANSWER_VERIFICATION_MAX_RETRIES:-1}
       EMBEDDING_SERVICE_URL: http://smart-embedding:8091
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
@@ -478,5 +515,6 @@ networks:
 
 volumes:
   redis-data:
+  rabbitmq-data:
   nacos-data:
   postgres-data:

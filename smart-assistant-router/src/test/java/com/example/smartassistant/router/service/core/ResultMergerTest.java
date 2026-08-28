@@ -53,6 +53,24 @@ class ResultMergerTest {
     }
 
     @Test
+    void finalRecommendationDoesNotExposePlanningNodeLabels() {
+        SubTaskResult discovery = successful("discover", "获取当前热门商品候选列表", "候选商品 A");
+        discovery.setMergePolicy(ExecutionPlan.MergePolicy.STRUCTURED);
+        SubTaskResult analysis = successful("analysis", "分析销量、性价比和口碑", "商品 A 综合领先");
+        analysis.setMergePolicy(ExecutionPlan.MergePolicy.STRUCTURED);
+        SubTaskResult recommendation = successful("recommend", "核实分析并推荐", "推荐商品 A");
+        recommendation.setMergePolicy(ExecutionPlan.MergePolicy.REPLACE);
+
+        List<SubTaskResult> selected = ResultMerger.applyMergePolicies(
+                List.of(discovery, analysis, recommendation));
+
+        assertThat(selected).singleElement().extracting(SubTaskResult::getResult)
+                .isEqualTo("推荐商品 A");
+        assertThat(selected.getFirst().getResult())
+                .doesNotContain("获取当前热门商品候选列表", "分析销量、性价比和口碑");
+    }
+
+    @Test
     void distinguishesRequiredAndOptionalFailures() {
         SubTaskResult required = new SubTaskResult(
                 "inventory", "查询库存", "product", "超时", false,

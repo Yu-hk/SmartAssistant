@@ -17,7 +17,7 @@ class GeneralToolCatalogRegistrarTest {
         new GeneralToolCatalogRegistrar(registry).register();
 
         assertThat(registry.getAll()).extracting("name").contains(
-                "calculate", "queryWeather", "webSearch", "executeScript",
+                "calculate", "webSearch", "executeScript",
                 "analyzeImage", "generateImage")
                 .doesNotContain("savePreference", "recallMemories");
 
@@ -30,6 +30,7 @@ class GeneralToolCatalogRegistrarTest {
         assertThat(registryService.query(
                 new String[]{"GENERAL"}, ToolStatus.ACTIVE, null))
                 .extracting("name")
-                .contains("calculate", "queryWeather", "webSearch");
+                .contains("calculate", "webSearch")
+                .doesNotContain("queryWeather");
     }
 }

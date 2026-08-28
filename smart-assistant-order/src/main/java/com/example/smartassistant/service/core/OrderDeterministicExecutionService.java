@@ -3,10 +3,12 @@ package com.example.smartassistant.service.core;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
 import com.example.smartassistant.common.quality.DomainQualityResult;
+import com.example.smartassistant.common.order.OrderStatus;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
 import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
 import com.example.smartassistant.service.ApprovalService;
+import com.example.smartassistant.routing.contract.WorkflowOperation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,9 +35,10 @@ public class OrderDeterministicExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderDeterministicExecutionService.class);
     private static final Set<String> SUPPORTED = Set.of(
-            "QUERY_ORDER", "QUERY_ORDER_LIST", "QUERY_PAYMENT_PENDING", "TRACK_LOGISTICS");
-    private static final List<String> ORDER_STATUSES = List.of(
-            "待付款", "待发货", "已发货", "已签收", "已取消", "退款中");
+            WorkflowOperation.QUERY_ORDER.code(),
+            WorkflowOperation.QUERY_ORDER_LIST.code(),
+            WorkflowOperation.QUERY_PAYMENT_PENDING.code(),
+            WorkflowOperation.TRACK_LOGISTICS.code());
     private static final Pattern ORDER_ID = Pattern.compile(
             "(?i)\\b(?:ORD|BULK)-[A-Z0-9-]+\\b");
     private static final Pattern TRAJECTORY_ENTRY = Pattern.compile("\\{([^}]*)}");
@@ -317,11 +320,14 @@ public class OrderDeterministicExecutionService {
 
     private static String resolveStatus(AgentExecutionRequest request) {
         Object explicit = request.input().get("status");
-        if (explicit != null && ORDER_STATUSES.contains(explicit.toString().trim())) {
-            return explicit.toString().trim();
+        if (explicit != null) {
+            var status = OrderStatus.from(explicit.toString());
+            if (status.isPresent()) {
+                return status.get().value();
+            }
         }
         String question = request.question() != null ? request.question() : "";
-        return ORDER_STATUSES.stream().filter(question::contains).findFirst().orElse(null);
+        return OrderStatus.firstMentionedIn(question).map(OrderStatus::value).orElse(null);
     }
 
     private static boolean expectedStatusMatches(String question, String actualStatus) {
@@ -330,13 +336,9 @@ public class OrderDeterministicExecutionService {
         // status. Remove these interrogative alternatives before evaluating explicit status
         // expectations such as "确认仍为待付款".
         value = value.replaceAll("是否(?:已经|已)?(?:付款|支付|发货|签收|完成|取消)", "");
-        if (value.contains("待付款")) return "待付款".equals(actualStatus);
-        if (value.contains("待发货") || value.contains("已支付")) return "待发货".equals(actualStatus);
-        if (value.contains("已发货")) return "已发货".equals(actualStatus);
-        if (value.contains("已签收") || value.contains("已完成")) return "已签收".equals(actualStatus);
-        if (value.contains("已取消")) return "已取消".equals(actualStatus);
-        if (value.contains("退款中")) return "退款中".equals(actualStatus);
-        return true;
+        return OrderStatus.firstMentionedIn(value)
+                .map(expected -> expected.matches(actualStatus))
+                .orElse(true);
     }
 
     private static String normalizeOperation(String operation) {

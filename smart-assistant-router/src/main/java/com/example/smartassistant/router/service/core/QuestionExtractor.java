@@ -32,9 +32,6 @@ public final class QuestionExtractor {
     /** 商品关键词指示词 */
     private static final String[] PRODUCT_INDICATORS = {"多少钱", "价格", "有货", "库存", "怎么样", "好不好"};
 
-    /** 地点指示词 */
-    private static final String[] LOCATION_INDICATORS = {"在", "到", "去", "于", "的天气", "气温"};
-
     /** 当前问题标记 */
     private static final String CURRENT_QUESTION_MARKER = "【当前问题】";
 
@@ -123,20 +120,4 @@ public final class QuestionExtractor {
 
     // ==================== 地点参数提取 ====================
 
-    /**
-     * 从问题中提取地点
-     */
-    public static String extractLocation(String question) {
-        if (question == null) return "";
-        for (String ind : LOCATION_INDICATORS) {
-            int idx = question.indexOf(ind);
-            if (idx >= 0) {
-                String before = question.substring(0, idx).trim();
-                String after = question.substring(idx + ind.length()).trim();
-                if (before.length() >= 2 && before.length() <= 10) return before;
-                if (after.length() >= 2 && after.length() <= 10 && !after.contains("?")) return after;
-            }
-        }
-        return question.replace("天气", "").replace("气温", "").replace("?", "").trim();
-    }
 }

@@ -61,11 +61,11 @@ public class TaskPlannerService {
      * LLM 输出格式：{@code 子任务ID|描述|助理名|依赖ID列表(逗号分隔,无依赖填none)}
      * 示例：
      * <pre>
-     * t1|查询北京热门景点|location_weather|none
-     * t2|推荐北京川菜馆|food_recommendation|t1
+     * t1|查询热门商品|product|none
+     * t2|查询候选商品库存|product|t1
      * </pre>
-     * t2 依赖 t1 的结果（知道景点后推荐附近餐厅）。
-     * 无依赖的 t1 和 t3（如"查天气"）可以并行执行。
+     * t2 依赖 t1 的结果（获得候选商品后查询库存）。
+     * 无依赖的任务可以并行执行。
      *
      * @param question 用户原始问题
      * @return 意图图（DAG），空节点时返回仅含原始问题的单节点图
@@ -291,8 +291,8 @@ public class TaskPlannerService {
                 请为失败的任务和后续未完成任务重新规划。
                 输出格式（每行一条）：子任务ID|描述|助理名|依赖ID列表(逗号分隔,无依赖填none)|验收标准
                 示例：
-                t1_r|查询北京今日天气|general|none|包含温度和天气描述
-                t2_r|推荐北京特色餐厅|product|t1_r|返回至少2家餐厅及评分
+                t1_r|查询热门商品|product|none|返回至少2个候选商品
+                t2_r|查询候选商品库存|product|t1_r|返回各商品库存状态
 
                 规则：
                 - ID 格式：原ID后加 _r1, _r2 ...（如 t2_r1, t2_r2）
@@ -398,7 +398,7 @@ public class TaskPlannerService {
                 0, 0.1, false);
         LLMCallResult result = llmGateway.call(
                 () -> planningClient.complete(prompt, maxTokens),
-                "deepseek-v4-flash-task-planner",
+                planningClient.modelName() + "-task-planner",
                 config);
         if (!result.success()) {
             throw new IllegalStateException("task planner model failed: " + result.errorMessage());

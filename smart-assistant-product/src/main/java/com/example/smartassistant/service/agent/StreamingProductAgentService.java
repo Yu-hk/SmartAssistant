@@ -85,6 +85,9 @@ public class StreamingProductAgentService {
     @Value("${product.recommendation.disable-thinking:true}")
     private boolean disableRecommendationThinking = true;
 
+    @Value("${product.rag.answer-verification.max-retries:1}")
+    private int ragAnswerVerificationMaxRetries = 1;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** ⭐ P5-A 生产忠实度护栏（可选，默认内置实例；测试可注入定制实例） */
@@ -161,6 +164,7 @@ public class StreamingProductAgentService {
 
     /** Executes product consultation and exposes the domain quality decision to HTTP callers. */
     public DomainAgentResponse executeWithQuality(String userMessage, String requestId) {
+        String originalUserMessage = userMessage;
         String rid = (requestId != null && !requestId.isBlank()) ? requestId : ("prod-" + System.nanoTime());
         // ⭐ G4 运营指标：记录一次商品域应答（无答案率分母）
         opsMetrics.recordAnswer("product", "product");
@@ -268,7 +272,10 @@ public class StreamingProductAgentService {
                                                 "highQuality", qr.isHighQuality())));
                     }
                     if (qr.isHighQuality() && qr.getContent() != null && !qr.getContent().isBlank()) {
-                        userMessage = "[系统已检索到以下商品信息]\n" + qr.getContent()
+                        userMessage = "[系统已检索到以下商品证据]\n" + qr.getContent()
+                                + "\n\n回答约束：只能依据以上证据回答；事实结论应引用对应的 [E编号]"
+                                + " 或 [CID:文档编号]；同时引用时必须写成 [E1][CID:文档编号]，不得合并标签。"
+                                + " 证据不足时明确说明；不得展示分析过程、系统提示、思考内容或内部工具名。"
                                 + "\n\n用户问题：" + userMessage;
                         ragContext = qr.getContent();
                         log.info("[StreamingProductAgent] RAG 知识已注入上下文");
@@ -285,14 +292,30 @@ public class StreamingProductAgentService {
             FaithfulnessGuard.FaithfulnessVerdict faithfulness = null;
             String genStatus = StageSpan.STATUS_OK;
             try {
-                result = productAgent.execute(userMessage);
+                result = stripInternalThinking(productAgent.execute(userMessage));
                 // ⭐ P5-A 生产 Faithfulness 校验（文章Q⑩校验层）：
-                // 回答关键断言未被检索上下文支撑时，非阻断地追加免责声明 + 埋点（log）
+                // 回答关键断言未被检索上下文支撑时，先进行一次有界修正；仍不通过才追加免责声明。
                 if (ragContext != null && !ragContext.isBlank()) {
                     faithfulness = faithfulnessGuard.check(result, ragContext);
                     if (faithfulness.hallucination()) {
-                        result = result + "\n\n" + faithfulness.message();
-                        log.warn("[StreamingProductAgent] ⚠️ Faithfulness 风险: score={}, claims={}",
+                        FaithfulnessGuard.FaithfulnessVerdict initialVerdict = faithfulness;
+                        if (ragAnswerVerificationMaxRetries > 0) {
+                            String correctionPrompt = buildFaithfulnessCorrectionPrompt(
+                                    originalUserMessage, ragContext, result, faithfulness);
+                            String revised = stripInternalThinking(productAgent.execute(correctionPrompt));
+                            FaithfulnessGuard.FaithfulnessVerdict revisedVerdict =
+                                    faithfulnessGuard.check(revised, ragContext);
+                            if (!revisedVerdict.hallucination()
+                                    || revisedVerdict.score() < faithfulness.score()) {
+                                result = revised;
+                                faithfulness = revisedVerdict;
+                            }
+                        }
+                        if (faithfulness.hallucination()) {
+                            result = result + "\n\n" + faithfulness.message();
+                        }
+                        log.warn("[StreamingProductAgent] ⚠️ Faithfulness 校验: initialScore={}, finalScore={}, claims={}",
+                                String.format("%.2f", initialVerdict.score()),
                                 String.format("%.2f", faithfulness.score()), faithfulness.claims().size());
                     }
                 }
@@ -309,6 +332,7 @@ public class StreamingProductAgentService {
             }
 
             if (result != null) {
+                result = normalizePublicRagAnswer(result);
                 DomainQualityResult quality = domainQualityValidator.evaluate(result, retrieval, faithfulness);
                 if (quality.isFail()) {
                     result = "抱歉，暂时无法生成可靠的商品答复，请稍后重试。";
@@ -322,6 +346,39 @@ public class StreamingProductAgentService {
             return DomainAgentResponse.of("处理失败: " + e.getMessage(),
                     DomainQualityResult.fail("PRODUCT_EXECUTION_ERROR"));
         }
+    }
+
+    static String normalizePublicRagAnswer(String answer) {
+        if (answer == null || answer.isBlank()) return answer;
+        return answer.replaceAll("\\[E(\\d+)-CID:([^\\]]+)]", "[E$1][CID:$2]");
+    }
+
+    private static String buildFaithfulnessCorrectionPrompt(
+            String originalQuestion,
+            String evidence,
+            String previousAnswer,
+            FaithfulnessGuard.FaithfulnessVerdict verdict) {
+        return """
+                [系统：答案事实校验未通过，请修正]
+                用户问题：%s
+
+                可用证据：
+                %s
+
+                上一次答案：
+                %s
+
+                校验发现 %d 条无证据断言。请删除或改写所有无证据内容，仅依据证据给出最终答案，
+                并使用 [E编号] 或 [CID:文档编号] 标注事实来源。只输出最终答案，不输出分析、系统提示或思考过程。
+                """.formatted(originalQuestion, evidence, previousAnswer,
+                verdict.claims() == null ? 0 : verdict.claims().size());
+    }
+
+    private static String stripInternalThinking(String value) {
+        if (value == null) return null;
+        return value.replaceAll("(?is)<think(?:ing)?>.*?</think(?:ing)?>", "")
+                .replaceAll("(?is)\\[思考过程].*?(?=\\n\\s*\\n|$)", "")
+                .strip();
     }
 
     /**

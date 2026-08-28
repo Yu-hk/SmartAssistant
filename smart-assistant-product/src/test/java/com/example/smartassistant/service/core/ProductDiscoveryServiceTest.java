@@ -1,7 +1,11 @@
 package com.example.smartassistant.service.core;
 
 import com.example.smartassistant.spi.InMemoryProductBackend;
+import com.example.smartassistant.spi.ProductBackend;
 import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -14,7 +18,53 @@ class ProductDiscoveryServiceTest {
     void recognizesGenericPopularProductQuery() {
         assertThat(service.supports("现在有什么热门商品")).isTrue();
         assertThat(service.supports("给我一份商品列表")).isTrue();
-        assertThat(service.supports("推荐无线耳机")).isFalse();
+        assertThat(service.supports("推荐无线耳机")).isTrue();
+    }
+
+    @Test
+    void obtainsCategoriesFromBackendInsteadOfHardCodingThem() {
+        ProductBackend backend = new InMemoryProductBackend() {
+            @Override
+            public List<String> listProductCategories() {
+                return List.of("投影仪");
+            }
+
+            @Override
+            public List<ProductSummary> listPopularProducts(ProductDiscoveryCriteria criteria) {
+                return List.of(new ProductSummary("PROJECTOR-01", "会议投影仪",
+                        new BigDecimal("3999"), "充足", "4K", 12L, "投影仪"));
+            }
+        };
+        ProductDiscoveryService dynamicService = new ProductDiscoveryService(backend);
+
+        assertThat(dynamicService.listProductCategories()).containsExactly("投影仪");
+        assertThat(dynamicService.supports("推荐一款热门投影仪")).isTrue();
+        assertThat(dynamicService.discover("推荐一款热门投影仪", 1).category())
+                .isEqualTo("投影仪");
+    }
+
+    @Test
+    void doesNotGuessWhenCategoryFragmentIsAmbiguous() {
+        assertThat(service.discover("推荐电脑", "电脑", 5).category()).isEqualTo("电脑");
+    }
+
+    @Test
+    void discoversOnlyTabletCandidatesForEncodedNaturalLanguageRequest() {
+        String question = "我想买一部平板电脑，帮我推荐一款热门的&#x20;";
+
+        ProductDiscoveryService.DiscoveryResult result = service.discover(question, 1);
+
+        assertThat(service.supports(question)).isTrue();
+        assertThat(result.category()).isEqualTo("平板电脑");
+        assertThat(result.products())
+                .singleElement()
+                .satisfies(product -> {
+                    assertThat(product.code()).isEqualTo("IPAD-PRO-M4");
+                    assertThat(product.category()).isEqualTo("平板电脑");
+                });
+        assertThat(result.answer())
+                .contains("推荐平板电脑", "iPad Pro M4")
+                .doesNotContain("AirPods", "iPhone", "MacBook");
     }
 
     @Test

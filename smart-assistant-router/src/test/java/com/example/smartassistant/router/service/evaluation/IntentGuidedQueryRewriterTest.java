@@ -40,8 +40,8 @@ class IntentGuidedQueryRewriterTest {
         assertEquals("decomposition", result.rewriteStrategy());
         assertEquals(2, result.subQueries().size());
         assertTrue(result.subQueries().contains("查明天杭州到上海的票"));
-        assertTrue(result.rewrittenQuery().contains("[用户原始请求]"));
-        assertTrue(result.rewrittenQuery().contains("查明天去上海的票，有合适的就订"));
+        assertEquals("查明天去上海的票，有合适的就订", result.rewrittenQuery());
+        assertFalse(result.rewrittenQuery().contains("[已识别子任务]"));
     }
 
     @Test
@@ -58,16 +58,14 @@ class IntentGuidedQueryRewriterTest {
         analysis.setClarificationQuestions(List.of("请选择商品并提供收货地址"));
         analysis.setStandardizedInput("查询热门商品并了解下单流程");
 
-        var result = rewriter.rewrite(
-                "帮我查下热门商品，然后说明下单还需要提供哪些信息；不要创建订单，也不要支付。",
-                analysis);
+        String question = "帮我查下热门商品，然后说明下单还需要提供哪些信息；不要创建订单，也不要支付。";
+        var result = rewriter.rewrite(question, analysis);
 
         assertEquals("decomposition", result.rewriteStrategy());
-        assertTrue(result.rewrittenQuery().contains("不要创建订单"));
-        assertTrue(result.rewrittenQuery().contains("不要支付"));
-        assertTrue(result.rewrittenQuery().contains("不得调用创建订单、支付、退款、取消"));
-        assertTrue(result.rewrittenQuery().contains("productId、shippingAddress"));
-        assertTrue(result.rewrittenQuery().contains("先完成可独立执行的查询或分析任务"));
+        assertEquals(question, result.rewrittenQuery());
+        assertFalse(result.rewrittenQuery().contains("[执行边界]"));
+        assertEquals(List.of("productId", "shippingAddress"), analysis.getMissingSlots());
+        assertEquals(List.of("不要创建订单", "不要支付"), analysis.getActionConstraints());
     }
 
     // ==================== 模糊扩展 ====================

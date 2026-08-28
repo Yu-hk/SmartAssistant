@@ -8,12 +8,14 @@
 package com.example.smartassistant.router.service.taskanalysis;
 
 import com.example.smartassistant.common.skill.SkillPackageManager;
+import com.example.smartassistant.common.util.UserQuestionNormalizer;
 import com.example.smartassistant.common.skill.SkillSelectionContext;
 import com.example.smartassistant.router.model.TaskAnalysisResult;
 import com.example.smartassistant.router.service.agent.AgentPromptCatalogService;
 import com.example.smartassistant.router.service.core.ModelRoutingService;
 import com.example.smartassistant.router.service.evaluation.IntentEvaluationService;
 import com.example.smartassistant.router.service.prompt.RouterStageAwareService;
+import com.example.smartassistant.routing.contract.WorkflowOperation;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -55,6 +57,8 @@ public class TaskAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(TaskAnalysisService.class);
     private static final String TASK_PLANNER_PROMPT = "prompts/router/task-planner.txt";
     private static final String NACOS_AGENT_CATALOG_PLACEHOLDER = "{{NACOS_AGENT_CATALOG}}";
+    private static final String WORKFLOW_OPERATION_CATALOG_PLACEHOLDER =
+            "{{WORKFLOW_OPERATION_CATALOG}}";
     private static final String LOCAL_FALLBACK_AGENT_CATALOG = "- route_name=general; source=local; "
             + "service_name=router-local; capabilities=[通用问答]; examples=[\"回答通用问题\"]";
     private static final String FALLBACK_PROMPT = "你是任务规划专家。仅输出合法 JSON，"
@@ -157,6 +161,8 @@ public class TaskAnalysisService {
      */
     public TaskAnalysisResult analyze(String question, String modelSelectionQuestion,
                                       List<String> conversationHistory) {
+        question = UserQuestionNormalizer.normalize(question);
+        modelSelectionQuestion = UserQuestionNormalizer.normalize(modelSelectionQuestion);
         if (!enabled || question == null || question.isBlank()) {
             return TaskAnalysisResult.empty();
         }
@@ -311,10 +317,12 @@ public class TaskAnalysisService {
             catalog = LOCAL_FALLBACK_AGENT_CATALOG;
         }
 
-        if (basePrompt.contains(NACOS_AGENT_CATALOG_PLACEHOLDER)) {
-            return basePrompt.replace(NACOS_AGENT_CATALOG_PLACEHOLDER, catalog);
-        }
-        return basePrompt + "\n\n## 本次请求可用 Agent（Router 从 Nacos 动态注入）\n" + catalog;
+        String enriched = basePrompt.contains(NACOS_AGENT_CATALOG_PLACEHOLDER)
+                ? basePrompt.replace(NACOS_AGENT_CATALOG_PLACEHOLDER, catalog)
+                : basePrompt + "\n\n## 本次请求可用 Agent（Router 从 Nacos 动态注入）\n"
+                        + catalog;
+        return enriched.replace(WORKFLOW_OPERATION_CATALOG_PLACEHOLDER,
+                WorkflowOperation.promptCodes());
     }
 
     /**

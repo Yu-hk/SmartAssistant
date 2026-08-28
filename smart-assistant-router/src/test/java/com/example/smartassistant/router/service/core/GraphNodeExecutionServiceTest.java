@@ -205,7 +205,11 @@ class GraphNodeExecutionServiceTest {
                 ArgumentCaptor.forClass(AgentExecutionRequest.class);
         verify(agentCallerService).callAgentAndExtractTitles(eq("product"), request.capture());
         assertThat(request.getValue().question())
-                .contains("[用户原始请求]", "预算6000元以内", "重视拍照", "[当前节点任务]");
+                .isEqualTo("预算6000元以内，我重视拍照，不要创建订单");
+        assertThat(request.getValue().question())
+                .doesNotContain("[用户原始请求]", "[当前节点任务]", "[执行边界]");
+        assertThat(request.getValue().input()).containsEntry(
+                "_taskDescription", "从候选中选择符合预算和拍照偏好的商品");
     }
 
     @Test
@@ -270,7 +274,7 @@ class GraphNodeExecutionServiceTest {
     void neverCallsRemovedGeneralServiceWhenLocalFallbackReturnsEmpty() {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "fallback", "回答通用问题", "general_agent", List.of());
-        when(fallbackAgentService.execute("回答通用问题", 1L, null)).thenReturn("");
+        when(fallbackAgentService.execute("回答通用问题", 1L)).thenReturn("");
 
         SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
                 1L, null, "request");
@@ -387,6 +391,26 @@ class GraphNodeExecutionServiceTest {
                 node, Map.of("discover", predecessor));
 
         assertThat(resolved).containsEntry("candidateData", productData);
+    }
+
+    @Test
+    void derivesLegacyProductIdsBindingFromCanonicalProductCatalog() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "analysis", "分析商品", "product", List.of("discover_products"), null,
+                List.of(), false, "ANALYZE_PRODUCT_DATA", Map.of(), List.of(), null,
+                true, ExecutionPlan.MergePolicy.STRUCTURED, "analysis.v1",
+                Map.of("product_ids", "$.nodes.discover_products.data.product_ids"));
+        SubTaskResult predecessor = new SubTaskResult(
+                "discover_products", "查询商品", "product", "发现 2 个商品", true);
+        predecessor.setStructuredData(Map.of("products", List.of(
+                Map.of("code", "AIRPODS-MAX", "name", "AirPods Max"),
+                Map.of("code", "IPAD-PRO-M4", "name", "iPad Pro M4"))));
+
+        Map<String, Object> resolved = GraphNodeExecutionService.resolveInput(
+                node, Map.of("discover_products", predecessor));
+
+        assertThat(resolved).containsEntry(
+                "product_ids", List.of("AIRPODS-MAX", "IPAD-PRO-M4"));
     }
 
     @Test

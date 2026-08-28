@@ -3,6 +3,7 @@ import { ChatMarkdown } from '@tdesign-react/chat';
 import { Message, Model, PermissionRequest, ContentBlock, SessionStatus } from '../types';
 import { ToolCallsCollapse } from './ToolCallsCollapse';
 import { InlinePermissionCard } from './InlinePermissionCard';
+import { RefreshCw } from 'lucide-react';
 
 interface ChatMessagesProps {
   messages: Message[];
@@ -17,6 +18,7 @@ interface ChatMessagesProps {
   satisfaction?: number | null;
   onRateSession?: (score: number) => void;
   agentName?: string;
+  onRecoverMessage?: (messageId: string, requestId: string) => void;
 }
 
 export function ChatMessages({ 
@@ -32,6 +34,7 @@ export function ChatMessages({
   satisfaction,
   onRateSession,
   agentName,
+  onRecoverMessage,
 }: ChatMessagesProps) {
   const satisfactionOptions = [
     { score: 1, emoji: '😞', label: '很不满意' },
@@ -214,6 +217,30 @@ export function ChatMessages({
             {/* 助手消息 */}
             {message.role === 'assistant' && renderAssistantContent(message)}
 
+            {message.role === 'assistant' && message.requestId
+              && (message.recoverable || message.recoveryStatus || message.recoveryError)
+              && onRecoverMessage && (
+              <div className="chat-recovery-card" aria-live="polite">
+                {message.recoveryStatus && (
+                  <span className="chat-recovery-status">
+                    {formatRecoveryStatus(message.recoveryStatus)}
+                  </span>
+                )}
+                {message.recoveryError && <span className="chat-recovery-error">{message.recoveryError}</span>}
+                {message.recoverable && !isRecoveryActive(message.recoveryStatus) && (
+                  <button
+                    type="button"
+                    onClick={() => onRecoverMessage(message.id, message.requestId!)}
+                  >
+                    <RefreshCw size={14} /> 恢复本次回答
+                  </button>
+                )}
+                {isRecoveryActive(message.recoveryStatus) && (
+                  <span className="chat-recovery-progress"><Loading size="small" /> 正在从检查点恢复…</span>
+                )}
+              </div>
+            )}
+
               {message.role === 'assistant'
                 && idx === lastAssistantIndex
                 && !message.isStreaming
@@ -322,4 +349,24 @@ export function ChatMessages({
       <div ref={messagesEndRef} />
     </div>
   );
+}
+
+function isRecoveryActive(status?: Message['recoveryStatus']): boolean {
+  return Boolean(status && ['REQUESTED', 'QUEUED', 'RECOVERING', 'RETRY_SCHEDULED'].includes(status));
+}
+
+function formatRecoveryStatus(status: NonNullable<Message['recoveryStatus']>): string {
+  return ({
+    REQUESTED: '恢复请求已提交',
+    QUEUED: '恢复任务排队中',
+    RECOVERING: '正在恢复工作流',
+    RETRY_SCHEDULED: '恢复任务等待重试',
+    SUCCEEDED: '回答已恢复',
+    DEAD_LETTERED: '恢复失败，可再次尝试',
+    SKIPPED_ACTIVE: '任务仍在执行，请稍后重试',
+    SKIPPED_APPROVAL: '任务正在等待用户确认',
+    SKIPPED_SUPERSEDED: '旧检查点已失效',
+    SKIPPED_DUPLICATE: '重复恢复已跳过',
+    REJECTED_INVALID_COMMAND: '恢复请求无效',
+  })[status];
 }

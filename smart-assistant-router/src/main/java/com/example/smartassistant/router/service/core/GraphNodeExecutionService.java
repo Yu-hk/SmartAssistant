@@ -122,13 +122,17 @@ public class GraphNodeExecutionService {
             return recordFailure(node, breakerFailures, requestId,
                     truncate(error.getMessage(), 100), SubTaskResult.ErrorType.FATAL_FAILED);
         }
+        if (hasProtocolMetadata(node)) {
+            resolvedInput = new LinkedHashMap<>(resolvedInput);
+            resolvedInput.putIfAbsent("_taskDescription", node.getDescription());
+        }
         String enrichedDescription = enrich(node, completed, originalQuestion);
         int maxRetries = 3;
         int corrections = 0;
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 if (isFallbackTarget(targetAgent)) {
-                    String text = fallbackAgentService.execute(enrichedDescription, userId, null);
+                    String text = fallbackAgentService.execute(enrichedDescription, userId);
                     if (text != null && !text.isBlank()) {
                         return new SubTaskResult(node.getId(), node.getDescription(),
                                 RouterFallbackAgentService.AGENT_NAME, text, true, List.of(), Map.of());
@@ -139,12 +143,15 @@ public class GraphNodeExecutionService {
                 }
                 AgentCallResult response;
                 if (hasProtocolMetadata(node)) {
+                    String requestQuestion = corrections > 0
+                            ? enrichedDescription
+                            : plainUserQuestion(originalQuestion, node.getDescription());
                     AgentExecutionRequest executionRequest = new AgentExecutionRequest(
                             AgentExecutionRequest.CURRENT_VERSION,
                             requestId, node.getId(), userId != null ? String.valueOf(userId) : null,
-                            node.getOperation(), enrichedDescription, resolvedInput, node.getDependsOn(),
+                            node.getOperation(), requestQuestion, resolvedInput, node.getDependsOn(),
                             node.getConstraints(), System.currentTimeMillis() + 60_000L,
-                            node.getIdempotencyKey(), null, predecessorOutputs(node, completed),
+                            node.getIdempotencyKey(), predecessorOutputs(node, completed),
                             workflowKey, workflowVersion, workflowChecksum, attempt, requestId);
                     response = agentMessageDispatcher != null
                             ? agentMessageDispatcher.dispatch(
@@ -351,6 +358,13 @@ public class GraphNodeExecutionService {
         return prompt.toString();
     }
 
+    private static String plainUserQuestion(String originalQuestion, String nodeDescription) {
+        if (originalQuestion != null && !originalQuestion.isBlank()) {
+            return originalQuestion.trim();
+        }
+        return nodeDescription;
+    }
+
     private static boolean hasProtocolMetadata(IntentNode node) {
         return node.getIdempotencyKey() != null || !node.getInput().isEmpty()
                 || !node.getConstraints().isEmpty()
@@ -429,9 +443,33 @@ public class GraphNodeExecutionService {
         Object value = source.getStructuredData();
         int index = 0;
         while (index < binding.dataPath().size() && value instanceof Map<?, ?> map) {
-            value = map.get(binding.dataPath().get(index++));
+            String field = binding.dataPath().get(index++);
+            value = map.get(field);
+            if (value == null && "product_ids".equals(field)) {
+                value = productIdsFromCatalog(map.get("products"));
+            }
         }
         return index == binding.dataPath().size() ? value : null;
+    }
+
+    /**
+     * Keeps dynamically generated plans compatible with the product protocol. The canonical
+     * discovery output is {@code data.products}; older/model-generated plans sometimes ask for
+     * {@code data.product_ids}. Derive the requested IDs without discarding the richer catalog
+     * that is still delivered through predecessorOutputs.
+     */
+    private static Object productIdsFromCatalog(Object products) {
+        if (!(products instanceof java.util.Collection<?> catalog) || catalog.isEmpty()) {
+            return null;
+        }
+        java.util.List<Object> ids = new java.util.ArrayList<>();
+        for (Object item : catalog) {
+            if (!(item instanceof Map<?, ?> product)) return null;
+            Object code = product.get("code");
+            if (code == null || code.toString().isBlank()) return null;
+            ids.add(code);
+        }
+        return java.util.List.copyOf(ids);
     }
 
     private static String correctionPrompt(String description, String criteria, String previous) {

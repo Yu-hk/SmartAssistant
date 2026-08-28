@@ -39,7 +39,7 @@ class AgentMessageDispatcherTest {
         request = new AgentExecutionRequest(
                 AgentExecutionRequest.CURRENT_VERSION, "exec-1", "product_search", "42",
                 "QUERY_PRODUCT", "查询热门耳机", Map.of("limit", 3), List.of("source"),
-                List.of("仅查询"), System.currentTimeMillis() + 60_000, null, null,
+                List.of("仅查询"), System.currentTimeMillis() + 60_000, null,
                 Map.of("source", new AgentNodeOutput(
                         "source", "general", "COMPLETED", "需求已确认", Map.of())),
                 "shopping", 2, "sha256:v2", 0, "trace-1");
@@ -80,7 +80,7 @@ class AgentMessageDispatcherTest {
         AgentExecutionRequest writeRequest = new AgentExecutionRequest(
                 request.protocolVersion(), request.executionId(), "create_order", request.userId(),
                 "CREATE_ORDER", "创建订单", Map.of(), List.of(), List.of(),
-                request.deadlineEpochMs(), "idem-1", null, Map.of(),
+                request.deadlineEpochMs(), "idem-1", Map.of(),
                 "shopping", 2, "sha256:v2", 0, "trace-1");
         when(caller.callAgentAndExtractTitles(eq("order"), eq(writeRequest)))
                 .thenReturn(new AgentCallResult("等待确认"));

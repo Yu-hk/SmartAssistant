@@ -21,6 +21,26 @@ class JdbcProductBackendTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void listsDistinctProductCategoriesFromLiveCatalog() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ResultSet row = mock(ResultSet.class);
+        when(row.getString("category")).thenReturn("平板电脑");
+        when(jdbc.query(anyString(), any(RowMapper.class)))
+                .thenAnswer(invocation -> {
+                    RowMapper<String> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(row, 0));
+                });
+
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc, new InMemoryProductBackend());
+
+        assertThat(backend.listProductCategories()).containsExactly("平板电脑");
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class));
+        assertThat(sql.getValue()).contains("SELECT DISTINCT").contains("category");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void returnsLiveCatalogDataForNaturalLanguageSearch() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         ResultSet row = productRow();
@@ -59,6 +79,7 @@ class JdbcProductBackendTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         ResultSet row = productRow();
         when(row.getLong("popularity")).thenReturn(7L);
+        when(row.getString("category")).thenReturn("笔记本电脑");
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
                 .thenAnswer(invocation -> {
                     RowMapper<Object> mapper = invocation.getArgument(1);
@@ -72,6 +93,7 @@ class JdbcProductBackendTest {
                 .satisfies(product -> {
                     assertThat(product.name()).isEqualTo("MacBook Air M3");
                     assertThat(product.popularity()).isEqualTo(7L);
+                    assertThat(product.category()).isEqualTo("笔记本电脑");
                 });
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
@@ -79,6 +101,7 @@ class JdbcProductBackendTest {
         assertThat(sql.getValue())
                 .contains("LOAD-PROD-%")
                 .contains("E2E-PROD-%")
+                .contains("category")
                 .doesNotContain("WHEREUPPER");
     }
 

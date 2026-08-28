@@ -27,25 +27,7 @@ public class OrderRecommendController {
      */
     @GetMapping("/user/{userId}/products")
     public List<String> getUserPurchasedProducts(@PathVariable("userId") Long userId) {
-        var orders = orderGraphService.queryByUser(userId, null, 20);
-        return orders.stream()
-                .map(o -> {
-                    // 尝试从商品名称推断编码
-                    String name = o.getProductName();
-                    if (name != null) {
-                        if (name.contains("iPhone 15 Pro")) return "IPHONE-15-PRO";
-                        if (name.contains("iPhone")) return "IPHONE-16-PRO";
-                        if (name.contains("AirPods Pro")) return "AIRPODS-PRO";
-                        if (name.contains("MacBook Air")) return "MACBOOK-AIR-M3";
-                        if (name.contains("MacBook Pro")) return "MACBOOK-PRO-M4";
-                        if (name.contains("iPad Pro")) return "IPAD-PRO-M4";
-                        if (name.contains("Apple Watch")) return "APPLE-WATCH-U2";
-                    }
-                    return name;
-                })
-                .filter(Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
+        return orderGraphService.queryPurchasedProductCodes(userId);
     }
 
     /**

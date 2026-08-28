@@ -17,6 +17,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -39,6 +41,9 @@ public class UserProfile {
     private String[] travelPreferences;
     private String[] dietaryRestrictions;
     private String budgetRange;
+
+    /** Extensible preference groups published by extraction, e.g. {"设备用途":["绘画"]}. */
+    private Map<String, List<String>> preferenceGroups = new LinkedHashMap<>();
 
     /** 偏好权重，如 {"川菜": 10, "火锅": 8} */
     private Map<String, Integer> preferenceWeights = new HashMap<>();
@@ -74,6 +79,14 @@ public class UserProfile {
 
     public void setPreferenceWeightsMap(Map<String, Integer> weights) {
         this.preferenceWeights = weights != null ? weights : new HashMap<>();
+    }
+
+    public Map<String, List<String>> getPreferenceGroupsMap() {
+        return preferenceGroups != null ? preferenceGroups : new LinkedHashMap<>();
+    }
+
+    public void setPreferenceGroupsMap(Map<String, List<String>> groups) {
+        this.preferenceGroups = groups != null ? new LinkedHashMap<>(groups) : new LinkedHashMap<>();
     }
 
     public Map<String, Integer> getIntentDistribution() {

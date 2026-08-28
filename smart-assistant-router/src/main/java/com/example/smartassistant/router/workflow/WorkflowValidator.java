@@ -1,6 +1,7 @@
 package com.example.smartassistant.router.workflow;
 
 import com.example.smartassistant.router.model.InputBindingExpression;
+import com.example.smartassistant.routing.contract.WorkflowOperation;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -20,8 +21,6 @@ public class WorkflowValidator {
     private static final int MAX_NODES = 32;
     private static final int MAX_GRAPH_ITERATIONS = 16;
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,63}");
-    private static final Set<String> WRITE_OPERATIONS = Set.of(
-            "CREATE", "UPDATE", "DELETE", "CANCEL", "PAY", "REFUND", "SUBMIT", "CONFIRM");
 
     public WorkflowValidationResult validate(WorkflowDefinition definition, Set<String> allowedAgents) {
         List<WorkflowValidationResult.Violation> violations = new ArrayList<>();
@@ -77,7 +76,8 @@ public class WorkflowValidator {
                 add(violations, "APPROVAL_FLAG_REQUIRED", path + ".humanApprovalRequired",
                         "HUMAN_APPROVAL nodes must require approval");
             }
-            if (isWriteOperation(node.operation()) && blank(node.idempotencyKey())) {
+            if ((isWriteOperation(node.operation()) || node.humanApprovalRequired())
+                    && blank(node.idempotencyKey())) {
                 add(violations, "IDEMPOTENCY_KEY_REQUIRED", path + ".idempotencyKey",
                         "write operations require an idempotency key");
             }
@@ -234,9 +234,9 @@ public class WorkflowValidator {
     }
 
     private static boolean isWriteOperation(String operation) {
-        if (blank(operation)) return false;
-        String normalized = operation.trim().toUpperCase();
-        return WRITE_OPERATIONS.stream().anyMatch(normalized::contains);
+        return WorkflowOperation.fromCode(operation)
+                .map(WorkflowOperation::isWrite)
+                .orElse(false);
     }
 
     private static boolean blank(String value) {

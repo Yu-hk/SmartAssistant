@@ -188,7 +188,7 @@ class OrderAgentControllerTest {
         when(agent.execute(anyString())).thenReturn("订单已发货");
 
         var response = controller.execute(AgentExecutionRequest.answer(
-                "req-order-protocol", "1", "查询订单 ORD-123", null), null);
+                "req-order-protocol", "1", "查询订单 ORD-123"), null);
 
         assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
         assertTrue(response.getBody().answer().contains("已发货"));
@@ -205,7 +205,7 @@ class OrderAgentControllerTest {
         AgentExecutionRequest request = new AgentExecutionRequest(
                 AgentExecutionRequest.CURRENT_VERSION, "req-fast-order", "query-order", "1",
                 "QUERY_ORDER", "查询订单 ORD-123", Map.of("orderId", "ORD-123"),
-                List.of(), List.of(), null, "idem-fast-order", null);
+                List.of(), List.of(), null, "idem-fast-order");
         AgentExecutionResponse result = AgentExecutionResponse.success(
                 "订单 ORD-123 状态：待发货",
                 Map.of("orderId", "ORD-123", "verified", true, "criteriaSatisfied", true),

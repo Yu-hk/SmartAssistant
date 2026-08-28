@@ -9,6 +9,7 @@ package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.router.model.ReflectionResult;
+import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.SubTaskResult.ErrorType;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
@@ -73,25 +74,6 @@ public class ReflectionService {
             "基础设施(?:错误|故障)|" +
             "(?:数据库|知识库).{0,12}(?:未找到|没有)|" +
             "%[0-9A-Fa-f]{2}|ERROR|error|Exception|exception"
-    );
-
-    // ==================== 意图→Agent 匹配规则 ====================
-    private static final List<IntentAgentRule> INTENT_AGENT_RULES = List.of(
-            new IntentAgentRule("旅游",    List.of("travel")),
-            new IntentAgentRule("travel", List.of("travel")),
-            new IntentAgentRule("美食",    List.of("food")),
-            new IntentAgentRule("food",   List.of("food")),
-            new IntentAgentRule("订单",    List.of("order")),
-            new IntentAgentRule("order",  List.of("order")),
-            new IntentAgentRule("商品",    List.of("product")),
-            new IntentAgentRule("库存",    List.of("product")),
-            new IntentAgentRule("product", List.of("product")),
-            new IntentAgentRule("天气",    List.of("general")),
-            new IntentAgentRule("weather", List.of("general")),
-            new IntentAgentRule("图片",    List.of("general")),
-            new IntentAgentRule("计算",    List.of("general")),
-            new IntentAgentRule("新闻",    List.of("general")),
-            new IntentAgentRule("general", List.of("general"))
     );
 
     // ==================== 依赖 ====================
@@ -350,22 +332,22 @@ public class ReflectionService {
      */
     private double checkIntentMatch(String intentTag, String agentName) {
         if (intentTag == null || agentName == null) return 0.5;
+        if (discoveryService == null) return 0.5;
 
-        for (IntentAgentRule rule : INTENT_AGENT_RULES) {
-            if (intentTag.contains(rule.intentKeyword)) {
-                if (rule.matchedAgents.stream().anyMatch(agentName::contains)) {
-                    return 1.0;
-                }
-            }
+        DiscoveredAgent matched = discoveryService.matchAgent(intentTag);
+        if (matched == null) {
+            // No live capability claims can prove or disprove the assignment.
+            return 0.5;
+        }
+        if (discoveryService.matchesAgentName(matched, agentName)) {
+            return 1.0;
         }
 
-        // 通用 Agent（general/builtin）处理所有意图，给基础分
-        if (agentName.contains("general") || agentName.contains("builtin")
-                || agentName.contains("fallback")) {
+        DiscoveredAgent fallback = discoveryService.findFallbackAgent();
+        if (fallback != null && discoveryService.matchesAgentName(fallback, agentName)) {
             return 0.6;
         }
-
-        return 0.3;  // 不匹配
+        return 0.3;
     }
 
     // ========================================================================
@@ -508,20 +490,4 @@ public class ReflectionService {
         }
     }
 
-    // ========================================================================
-    // 内部类
-    // ========================================================================
-
-    /**
-     * 意图→Agent 匹配规则
-     */
-    private static class IntentAgentRule {
-        final String intentKeyword;
-        final List<String> matchedAgents;
-
-        IntentAgentRule(String intentKeyword, List<String> matchedAgents) {
-            this.intentKeyword = intentKeyword;
-            this.matchedAgents = matchedAgents;
-        }
-    }
 }

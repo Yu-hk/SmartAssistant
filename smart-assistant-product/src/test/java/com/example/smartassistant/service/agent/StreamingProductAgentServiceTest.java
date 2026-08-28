@@ -40,6 +40,13 @@ import static org.mockito.Mockito.*;
  */
 class StreamingProductAgentServiceTest {
 
+    @Test
+    void normalizesMergedEvidenceAndDocumentCitation() {
+        assertEquals("结论。[E1][CID:PROD-PRICE-001]",
+                StreamingProductAgentService.normalizePublicRagAnswer(
+                        "结论。[E1-CID:PROD-PRICE-001]"));
+    }
+
     private SmartReActAgent agent;
     private ProductRagService ragService;
     private StreamingProductAgentService service;
@@ -135,12 +142,45 @@ class StreamingProductAgentServiceTest {
 
         assertNotNull(result);
         verify(agent, times(1)).execute(argThat(msg ->
-                msg.contains("系统已检索到以下商品信息") && msg.contains("iPhone 15")));
+                msg.contains("系统已检索到以下商品证据")
+                        && msg.contains("iPhone 15")
+                        && msg.contains("不得展示分析过程")));
 
         var trace = recorder.findByRequestId("req-p-ok");
         assertNotNull(trace);
         assertFalse(trace.isRejected());
         assertEquals("OK", trace.lastStageOf(RagStage.GENERATION).status());
+    }
+
+    @Test
+    @DisplayName("忠实度失败：应只修正一次并隐藏思考过程")
+    void faithfulnessFailure_shouldReviseOnceAndHideThinking() {
+        when(ragService.retrieveWithQualityResult(anyString()))
+                .thenReturn(RetrievalQualityResult.highQuality(
+                        "【商品检索证据】\n[E1] [CID:PROD-1] 商品支持一年保修", 0.9));
+        when(agent.execute(anyString())).thenReturn(
+                "<think>内部推理</think>商品支持三年保修",
+                "<thinking>重新核对</thinking>商品支持一年保修 [E1] [CID:PROD-1]");
+        com.example.smartassistant.common.rag.eval.FaithfulnessGuard guard =
+                mock(com.example.smartassistant.common.rag.eval.FaithfulnessGuard.class);
+        when(guard.check(contains("三年保修"), anyString())).thenReturn(
+                new com.example.smartassistant.common.rag.eval.FaithfulnessGuard.FaithfulnessVerdict(
+                        true, true, 0.8, List.of(), "风险提示"));
+        when(guard.check(contains("一年保修"), anyString())).thenReturn(
+                new com.example.smartassistant.common.rag.eval.FaithfulnessGuard.FaithfulnessVerdict(
+                        true, false, 0.0, List.of(), null));
+        service.setFaithfulnessGuard(guard);
+
+        String result = service.execute("保修多久", "req-p-faithfulness-retry");
+
+        assertTrue(result.contains("一年保修"));
+        assertTrue(result.contains("[E1]"));
+        assertFalse(result.contains("think"));
+        assertFalse(result.contains("内部推理"));
+        org.mockito.ArgumentCaptor<String> prompts = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(agent, times(2)).execute(prompts.capture());
+        assertTrue(prompts.getAllValues().get(1).contains("答案事实校验未通过"));
+        assertTrue(prompts.getAllValues().get(1).contains("只输出最终答案"));
     }
 
     @Test

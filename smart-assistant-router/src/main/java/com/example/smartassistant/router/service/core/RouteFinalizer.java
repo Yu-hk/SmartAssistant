@@ -15,7 +15,6 @@ import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.budget.BudgetTracker;
-import com.example.smartassistant.common.intent.WeatherQuerySupport;
 import com.example.smartassistant.common.intent.IntentTagGenerator;
 import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.quality.DomainQualityResult;
@@ -143,7 +142,6 @@ public class RouteFinalizer {
                 ? result.getDomainQuality() : DomainQualityResult.unknown();
         boolean clarification = Boolean.TRUE.equals(result.getClarification())
                 || ClarificationReplyDetector.isRequiredParameterClarification(result.getResult());
-        boolean realTimeWeather = WeatherQuerySupport.isWeatherLookup(question);
         result.setClarification(clarification);
         normalizeRoutingMetadata(result, clarification);
         if (intentTag == null || intentTag.isBlank()) {
@@ -228,7 +226,7 @@ public class RouteFinalizer {
         String requestId = request.getRequestId();
         String reply = result.getResult();
 
-        if (!clarification && !realTimeWeather
+        if (!clarification
                 && agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
             if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
                 learnExperienceAsync(question, agentName, intentTag);
@@ -407,10 +405,6 @@ public class RouteFinalizer {
                 }
             }
             case "general_agent", "router_fallback" -> {
-                if (reply.contains("天气") || reply.contains("气温") || reply.contains("下雨")) {
-                    experienceService.extractToolExperience(question, agentName, intentTag,
-                            "getWeather", "{\"location\": \"" + QuestionExtractor.extractLocation(question) + "\"}", "{location}当前天气为{weather}");
-                }
                 if (reply.contains("新闻") || reply.contains("热点") || reply.contains("头条")) {
                     experienceService.extractToolExperience(question, agentName, intentTag,
                             "getHotNews", "{}", "以下是近期热点新闻");

@@ -7,7 +7,6 @@
 
 package com.example.smartassistant.consumer.client;
 
-import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.consumer.service.cache.RouteSemanticCacheService;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -286,13 +285,8 @@ public class RouterClient {
      * @param userId    用户 ID
      * @param requestId 请求 ID（用于 Redis 存储）
      */
-    public void triggerRoutingDecision(String message, String userId, String requestId) {
-        triggerRoutingDecision(message, userId, requestId, null);
-    }
-
     @Async("taskExecutor")
-    public void triggerRoutingDecision(String message, String userId, String requestId,
-                                       DeviceLocation deviceLocation) {
+    public void triggerRoutingDecision(String message, String userId, String requestId) {
         log.debug("[RouterClient] 触发路由决策: requestId={}, messageLength={}", 
                 requestId, message != null ? message.length() : 0);
 
@@ -309,9 +303,6 @@ public class RouterClient {
             requestBody.put("sessionId", requestId);
             requestBody.put("requestId", requestId);
             requestBody.put("enableRag", false);
-            if (deviceLocation != null && deviceLocation.isUsable()) {
-                requestBody.put("deviceLocation", deviceLocation);
-            }
             applyCachedRouteHint(message, requestBody);
 
             HttpHeaders headers = new HttpHeaders();

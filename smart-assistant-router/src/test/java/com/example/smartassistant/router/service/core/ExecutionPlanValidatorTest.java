@@ -62,6 +62,28 @@ class ExecutionPlanValidatorTest {
     }
 
     @Test
+    void acceptsCandidateEvidenceThroughAnalysisAncestor() {
+        ExecutionPlan.TaskNode discovery = new ExecutionPlan.TaskNode(
+                "discover", ExecutionPlan.Domain.PRODUCT, "DISCOVER_PRODUCTS",
+                "discover products", Map.of(), List.of(), ExecutionPlan.AccessMode.READ,
+                List.of(), null, false, null, ExecutionPlan.MergePolicy.STRUCTURED);
+        ExecutionPlan.TaskNode analysis = new ExecutionPlan.TaskNode(
+                "analysis", ExecutionPlan.Domain.PRODUCT, "ANALYZE_PRODUCT_DATA",
+                "analyze products", Map.of(), List.of("discover"), ExecutionPlan.AccessMode.READ,
+                List.of(), null, false, null, ExecutionPlan.MergePolicy.STRUCTURED);
+        ExecutionPlan.TaskNode recommendation = new ExecutionPlan.TaskNode(
+                "recommend", ExecutionPlan.Domain.PRODUCT, "RECOMMEND_PRODUCT",
+                "recommend product", Map.of(), List.of("analysis"), ExecutionPlan.AccessMode.READ,
+                List.of(), null, false, null, ExecutionPlan.MergePolicy.REPLACE);
+        ExecutionPlan plan = new ExecutionPlan("req", "推荐现在的热门商品", List.of(),
+                List.of(discovery, analysis, recommendation));
+
+        var result = ExecutionPlanValidator.validate(plan);
+
+        assertTrue(result.valid(), () -> result.errors().toString());
+    }
+
+    @Test
     void rejectsBindingSourceThatIsNotADeclaredDependency() {
         ExecutionPlan.TaskNode invalid = new ExecutionPlan.TaskNode(
                 "consumer", ExecutionPlan.Domain.GENERAL, "ANSWER", "consume result",

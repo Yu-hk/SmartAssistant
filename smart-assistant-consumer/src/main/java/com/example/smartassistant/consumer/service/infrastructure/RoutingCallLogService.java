@@ -74,10 +74,24 @@ public class RoutingCallLogService {
                         String responseSummary, Long promptTokens,
                         Long completionTokens, Long totalTokens,
                         String effectivePrompt, ToolUsageCache.ToolUsage toolUsage) {
+        saveLog(userId, sessionId, null, userInput, routedAgent, routeMethod, latencyMs,
+                status, responseSummary, promptTokens, completionTokens, totalTokens,
+                effectivePrompt, toolUsage);
+    }
+
+    /** Persist a turn with its independent workflow execution ID. */
+    @Async("asyncRouteExecutor")
+    public void saveLog(Long userId, String sessionId, String requestId,
+                        String userInput, String routedAgent,
+                        String routeMethod, Long latencyMs, String status,
+                        String responseSummary, Long promptTokens,
+                        Long completionTokens, Long totalTokens,
+                        String effectivePrompt, ToolUsageCache.ToolUsage toolUsage) {
         try {
             RoutingCallLog callLog = new RoutingCallLog();
             callLog.setUserId(userId);
             callLog.setSessionId(sessionId);
+            callLog.setRequestId(requestId);
             callLog.setUserInput(userInput);
             callLog.setRoutedAgent(routedAgent);
             callLog.setRouteMethod(routeMethod);
@@ -91,8 +105,8 @@ public class RoutingCallLogService {
             callLog.setToolCalls(ToolUsageHeaders.encode(toolUsage));
             
             callLogMapper.insert(callLog);
-            log.debug("[RoutingCallLog] 日志保存成功: userId={}, sessionId={}, agent={}",
-                    userId, sessionId, routedAgent);
+            log.debug("[RoutingCallLog] 日志保存成功: userId={}, sessionId={}, requestId={}, agent={}",
+                    userId, sessionId, requestId, routedAgent);
         } catch (Exception e) {
             // ⭐ 优雅降级: 如果表不存在或数据库错误,只记录警告,不影响主流程
             String errorMsg = e.getMessage();

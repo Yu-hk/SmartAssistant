@@ -46,6 +46,6 @@ WHERE NOT EXISTS (SELECT 1 FROM admin_faq WHERE question = '如何查询商品�
 
 INSERT INTO admin_faq (category, question, answer, keywords)
 SELECT 'general', '你们有哪些服务？',
-       '我可以帮助查询订单、商品信息、天气和常见问题。',
+'我可以帮助查询订单、商品信息和常见问题。',
        '服务,功能,帮助'
 WHERE NOT EXISTS (SELECT 1 FROM admin_faq WHERE question = '你们有哪些服务？');

@@ -2,7 +2,7 @@
 # 使用: docker compose -f docker-compose-infra.yml -f docker-compose.ha.yml up -d
 # 停止: docker compose -f docker-compose-infra.yml -f docker-compose.ha.yml down
 #
-# 前提: 基础设施（Redis、Nacos、PG）已通过 docker-compose-infra.yml 启动
+# 前提: 基础设施（Redis、RabbitMQ、Nacos、PG）已通过 docker-compose-infra.yml 启动
 #
 # 架构说明:
 # - 2 个 Nginx（负载均衡器，主备）
@@ -11,7 +11,7 @@
 # - 其他服务单实例
 #
 # Router 高可用原理:
-# - 所有 Router 实例共享同一个 Redis（决策缓存、SSE 事件、AgentEventBus）
+# - 所有 Router 实例共享 Redis 状态，并通过 RabbitMQ 竞争消费工作流恢复命令
 # - Router 通过 Nacos 服务注册，Consumer 使用负载均衡调用
 # - 任意 Router 实例宕机不影响整体服务
 #
@@ -59,17 +59,21 @@ services:
         SERVICE_NAME: smart-assistant-router
     container_name: smart-router-1
     ports:
-      - "8083-1:8083"
+      - "18031:8083"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       - PORT=8083
       - SPRING_REDIS_HOST=redis
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_USERNAME=${RABBITMQ_USERNAME:-smartassistant}
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/a2a_system
       - SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR=nacos:8848
       - SPRING_CLOUD_NACOS_DISCOVERY_USERNAME=${NACOS_USERNAME:-nacos}
       - SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD=${NACOS_PASSWORD}
     depends_on:
       redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
       nacos: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
@@ -88,17 +92,21 @@ services:
         SERVICE_NAME: smart-assistant-router
     container_name: smart-router-2
     ports:
-      - "8083-2:8083"
+      - "18032:8083"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       - PORT=8083
       - SPRING_REDIS_HOST=redis
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_USERNAME=${RABBITMQ_USERNAME:-smartassistant}
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/a2a_system
       - SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR=nacos:8848
       - SPRING_CLOUD_NACOS_DISCOVERY_USERNAME=${NACOS_USERNAME:-nacos}
       - SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD=${NACOS_PASSWORD}
     depends_on:
       redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
       nacos: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
@@ -117,17 +125,21 @@ services:
         SERVICE_NAME: smart-assistant-router
     container_name: smart-router-3
     ports:
-      - "8083-3:8083"
+      - "18033:8083"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       - PORT=8083
       - SPRING_REDIS_HOST=redis
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_USERNAME=${RABBITMQ_USERNAME:-smartassistant}
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/a2a_system
       - SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR=nacos:8848
       - SPRING_CLOUD_NACOS_DISCOVERY_USERNAME=${NACOS_USERNAME:-nacos}
       - SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD=${NACOS_PASSWORD}
     depends_on:
       redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
       nacos: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
@@ -147,7 +159,7 @@ services:
         SERVICE_NAME: smart-assistant-consumer
     container_name: smart-consumer-1
     ports:
-      - "8082-1:8082"
+      - "18021:8082"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       - PORT=8082
@@ -158,8 +170,12 @@ services:
       - SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD=${NACOS_PASSWORD}
       # Consumer 通过 Router 负载均衡入口调用
       - ROUTER_SERVICE_URL=http://nginx-router:8083
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_USERNAME=${RABBITMQ_USERNAME:-smartassistant}
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
     depends_on:
       redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
       nacos: { condition: service_healthy }
     restart: unless-stopped
     networks:
@@ -173,7 +189,7 @@ services:
         SERVICE_NAME: smart-assistant-consumer
     container_name: smart-consumer-2
     ports:
-      - "8082-2:8082"
+      - "18022:8082"
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       - PORT=8082
@@ -183,8 +199,12 @@ services:
       - SPRING_CLOUD_NACOS_DISCOVERY_USERNAME=${NACOS_USERNAME:-nacos}
       - SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD=${NACOS_PASSWORD}
       - ROUTER_SERVICE_URL=http://nginx-router:8083
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_USERNAME=${RABBITMQ_USERNAME:-smartassistant}
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
     depends_on:
       redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
       nacos: { condition: service_healthy }
     restart: unless-stopped
     networks:

@@ -62,7 +62,7 @@ class AdminServiceStorageInitializationTest {
 
         new AdminService(jdbcTemplate, dialect).initializePersistentAdminStorage();
 
-        verify(jdbcTemplate, times(4)).execute(
+        verify(jdbcTemplate, times(5)).execute(
                 startsWith("ALTER TABLE routing_call_log ADD COLUMN"));
         verify(jdbcTemplate, times(2)).execute(
                 startsWith("ALTER TABLE admin_faq ADD COLUMN"));

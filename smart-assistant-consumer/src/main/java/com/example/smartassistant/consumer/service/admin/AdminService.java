@@ -128,6 +128,7 @@ public class AdminService {
         ensureColumn("routing_call_log", "completion_tokens", "BIGINT");
         ensureColumn("routing_call_log", "total_tokens", "BIGINT");
         ensureColumn("routing_call_log", "tool_calls", "TEXT");
+        ensureColumn("routing_call_log", "request_id", "VARCHAR(128)");
     }
 
     private void ensureColumn(String table, String column, String sqlType) throws SQLException {
@@ -456,12 +457,12 @@ public class AdminService {
         String ownership = userId == null ? "user_id IS NULL" : "user_id = ?";
         List<Map<String, Object>> logs = userId == null
                 ? jdbcTemplate.queryForList(
-                        "SELECT id, user_input, llm_received_question, response_summary, routed_agent, status, latency_ms, " +
+                        "SELECT id, request_id, user_input, llm_received_question, response_summary, routed_agent, status, latency_ms, " +
                                 "prompt_tokens, completion_tokens, total_tokens, tool_calls, created_at " +
                                 "FROM routing_call_log WHERE session_id = ? AND " + ownership +
                                 " ORDER BY created_at, id", sessionId)
                 : jdbcTemplate.queryForList(
-                        "SELECT id, user_input, llm_received_question, response_summary, routed_agent, status, latency_ms, " +
+                        "SELECT id, request_id, user_input, llm_received_question, response_summary, routed_agent, status, latency_ms, " +
                                 "prompt_tokens, completion_tokens, total_tokens, tool_calls, created_at " +
                                 "FROM routing_call_log WHERE session_id = ? AND " + ownership +
                                 " ORDER BY created_at, id", sessionId, userId);
@@ -509,6 +510,7 @@ public class AdminService {
         for (Map<String, Object> row : logs) {
             String id = Objects.toString(row.get("id"));
             String createdAt = timestampValue(row.get("created_at"));
+            String requestId = nullableString(row.get("request_id"));
             Long promptTokens = nullableLong(row.get("prompt_tokens"));
             Long completionTokens = nullableLong(row.get("completion_tokens"));
             Long totalTokens = nullableLong(row.get("total_tokens"));
@@ -531,7 +533,7 @@ public class AdminService {
             }
             messages.add(new SessionMessage(
                     id + "-user", "user", Objects.toString(row.get("user_input"), ""),
-                    createdAt, null, null, null, null, null, null,
+                    createdAt, requestId, null, null, null, null, null, null,
                     null, null, List.of()));
             String response = Objects.toString(row.get("response_summary"), "");
             boolean hasInvocationAudit = promptSnapshot != null || toolUsage != null
@@ -540,6 +542,7 @@ public class AdminService {
                 messages.add(new SessionMessage(
                         id + "-assistant", "assistant",
                         response.isBlank() ? "（未记录回复内容）" : response, createdAt,
+                        requestId,
                         Objects.toString(row.get("routed_agent"), "unknown"),
                         Objects.toString(row.get("status"), "UNKNOWN"),
                         nullableLong(row.get("latency_ms")),
@@ -921,7 +924,7 @@ public class AdminService {
                 "请告诉我商品名称或编码，我可以帮您查询商品详情、价格和库存情况。",
                 "商品查询,商品信息,价格");
         seedFaq("general", "你们有哪些服务？",
-                "我可以帮助查询订单、商品信息、天气和常见问题。",
+                "我可以帮助查询订单、商品信息和常见问题。",
                 "服务,功能,帮助");
     }
 
@@ -1286,6 +1289,7 @@ public class AdminService {
             String role,
             String content,
             String createdAt,
+            String requestId,
             String agentName,
             String status,
             Long latencyMs,

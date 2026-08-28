@@ -15,6 +15,7 @@ import com.example.smartassistant.router.service.agent.RouterFallbackAgentServic
 import com.example.smartassistant.router.service.guardrail.EmotionCheckResult;
 import com.example.smartassistant.router.service.trace.AgentFlowTraceStore;
 import com.example.smartassistant.routing.contract.RoutingKeys;
+import com.example.smartassistant.routing.contract.WorkflowOperation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -145,7 +146,7 @@ public class RouteExecutionService {
         }
         if (degLevel == DegradationService.DegradationLevel.LIGHT) {
             log.warn("[Collaborative] 🟡 轻度降级，跳过复杂 DAG");
-            String reply = fallbackAgentService.execute(question, userId, null);
+            String reply = fallbackAgentService.execute(question, userId);
             long elapsed = System.currentTimeMillis() - start;
             log.info("[Collaborative] 降级单 Agent 完成: elapsed={}ms, replyLen={}", elapsed, reply.length());
             return routeFinalizer.applyEmotion(RoutingResult.builder()
@@ -313,16 +314,12 @@ public class RouteExecutionService {
     static String mergeFallbackPlannedResults(List<SubTaskResult> results) {
         if (results == null || results.isEmpty()) return "";
         StringBuilder merged = new StringBuilder();
-        for (SubTaskResult result : results) {
+        for (SubTaskResult result : ResultMerger.applyMergePolicies(results)) {
             if (result == null || !result.isSuccess()
                     || result.getResult() == null || result.getResult().isBlank()) {
                 continue;
             }
             if (!merged.isEmpty()) merged.append("\n\n");
-            String description = result.getDescription();
-            if (description != null && !description.isBlank()) {
-                merged.append("### ").append(description.trim()).append('\n');
-            }
             merged.append(result.getResult().trim());
         }
         return merged.toString();
@@ -395,10 +392,9 @@ public class RouteExecutionService {
                         + "收货人姓名、联系电话、收货地址；用户ID由登录态提供，商品类型可选。"
                         + "如果用户尚未选定商品，要求用户从商品查询结果中选择。";
             }
-            ExecutionPlan.Domain domain = explainOrderPreparation
-                    ? ExecutionPlan.Domain.BUILTIN_ORDER_PREPARATION
-                    : resolveDeclaredDomain(subIntent.get("target_agent"), analysis.getIntentCategory());
-            String agent = domain.agentName();
+            String agent = explainOrderPreparation
+                    ? ExecutionPlan.Domain.BUILTIN_ORDER_PREPARATION.agentName()
+                    : resolveDeclaredAgent(subIntent.get("target_agent"), analysis.getIntentCategory());
             List<String> dependencies = resolveSubIntentDependencies(
                     subIntent.get("depends_on"), dependencyAliases);
             boolean recommendationDerivedOrder = "CREATE_ORDER".equals(operation)
@@ -435,7 +431,7 @@ public class RouteExecutionService {
                     stringMap(subIntent.get("input_bindings")));
 
             nodes.add(new ExecutionPlan.TaskNode(
-                    rawNode.nodeId(), domain, operation, scopedDescription, input,
+                    rawNode.nodeId(), agent, operation, scopedDescription, input,
                     dependencies, accessMode, analysis.getMissingSlots(), idempotencyKey,
                     approvalRequired, criteria, mergePolicy, required,
                     outputSchema, inputBindings));
@@ -490,19 +486,13 @@ public class RouteExecutionService {
                 .collect(java.util.stream.Collectors.joining("\n\n"));
     }
 
-    private static ExecutionPlan.Domain resolveDeclaredDomain(Object targetAgent,
-                                                               String intentCategory) {
-        String declared = Objects.toString(targetAgent, "").trim().toLowerCase(Locale.ROOT);
-        return switch (declared) {
-            case "product" -> ExecutionPlan.Domain.PRODUCT;
-            case "order" -> ExecutionPlan.Domain.ORDER;
-            case "general" -> ExecutionPlan.Domain.GENERAL;
-            default -> switch (Objects.toString(intentCategory, "").trim().toUpperCase(Locale.ROOT)) {
-                case "PRODUCT" -> ExecutionPlan.Domain.PRODUCT;
-                case "ORDER" -> ExecutionPlan.Domain.ORDER;
-                default -> ExecutionPlan.Domain.GENERAL;
-            };
-        };
+    private static String resolveDeclaredAgent(Object targetAgent, String intentCategory) {
+        String declared = AgentDiscoveryService.canonicalAgentName(
+                Objects.toString(targetAgent, ""));
+        if (!declared.isBlank()) return declared;
+        String category = Objects.toString(intentCategory, "").trim();
+        String inferred = AgentDiscoveryService.canonicalAgentName(category);
+        return inferred.isBlank() ? ExecutionPlan.Domain.GENERAL.agentName() : inferred;
     }
 
     private static List<String> resolveSubIntentDependencies(
@@ -551,30 +541,26 @@ public class RouteExecutionService {
     private static String normalizeDeclaredOperation(Object operation, Object targetAgent,
                                                      String intentCategory) {
         String declared = Objects.toString(operation, "").trim().toUpperCase(Locale.ROOT);
-        Set<String> allowed = Set.of("DISCOVER_PRODUCTS", "QUERY_PRODUCT",
-                "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT", "QUERY_ORDER", "QUERY_ORDER_LIST",
-                "QUERY_PAYMENT_PENDING", "CREATE_ORDER",
-                "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER", "SHIP_ORDER",
-                "TRACK_LOGISTICS", "CONFIRM_DELIVERY", "ANSWER",
-                "EXPLAIN_ORDER_REQUIREMENTS", "EXPLAIN_ORDER_LIFECYCLE");
-        if (allowed.contains(declared)) return declared;
-        return switch (resolveDeclaredDomain(targetAgent, intentCategory)) {
-            case PRODUCT -> "QUERY_PRODUCT";
-            case ORDER -> "QUERY_ORDER";
-            case GENERAL -> "ANSWER";
-            case BUILTIN_ORDER_PREPARATION -> "EXPLAIN_ORDER_REQUIREMENTS";
-        };
+        if (WorkflowOperation.fromCode(declared).isPresent()) return declared;
+        String agent = resolveDeclaredAgent(targetAgent, intentCategory);
+        if (ExecutionPlan.Domain.PRODUCT.agentName().equals(agent)) return "QUERY_PRODUCT";
+        if (ExecutionPlan.Domain.ORDER.agentName().equals(agent)) return "QUERY_ORDER";
+        if (ExecutionPlan.Domain.BUILTIN_ORDER_PREPARATION.agentName().equals(agent)) {
+            return "EXPLAIN_ORDER_REQUIREMENTS";
+        }
+        return "ANSWER";
     }
 
     private static boolean isWriteOperation(String operation) {
-        return Set.of("CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER",
-                        "SHIP_ORDER", "CONFIRM_DELIVERY")
-                .contains(operation);
+        return WorkflowOperation.fromCode(operation)
+                .map(WorkflowOperation::isWrite)
+                .orElse(false);
     }
 
     private static boolean requiresApproval(String operation, List<String> riskFlags) {
-        if (Set.of("PAY_ORDER", "REFUND_ORDER", "CANCEL_ORDER", "SHIP_ORDER",
-                "CONFIRM_DELIVERY").contains(operation)) return true;
+        if (WorkflowOperation.fromCode(operation)
+                .map(WorkflowOperation::approvalRequired)
+                .orElse(false)) return true;
         return riskFlags != null && riskFlags.stream().filter(Objects::nonNull)
                 .anyMatch(flag -> flag.contains("二次确认") || flag.contains("人工审批"));
     }
@@ -585,6 +571,12 @@ public class RouteExecutionService {
     }
 
     private static ExecutionPlan.MergePolicy mergePolicy(Object value, String operation) {
+        // Recommendation is the audited, user-facing conclusion of the product pipeline.
+        // Discovery and analysis stay available as structured predecessor evidence but must
+        // not be concatenated into the answer as if they were additional conclusions.
+        if ("RECOMMEND_PRODUCT".equals(operation)) {
+            return ExecutionPlan.MergePolicy.REPLACE;
+        }
         String declared = Objects.toString(value, "").trim().toUpperCase(Locale.ROOT);
         if (!declared.isEmpty()) {
             try {
@@ -689,8 +681,7 @@ public class RouteExecutionService {
         String agentReply;
         DomainQualityResult domainQuality;
         if (isFallbackAgent(agentName)) {
-            agentReply = fallbackAgentService.execute(
-                    agentQuestion, request.getUserId(), request.getDeviceLocation());
+            agentReply = fallbackAgentService.execute(agentQuestion, request.getUserId());
             agentName = RouterFallbackAgentService.AGENT_NAME;
             domainQuality = DomainQualityResult.unknown();
         } else {
@@ -728,14 +719,12 @@ public class RouteExecutionService {
      * Tool Registry-backed local fallback agent, then a static safety reply.
      */
     public RoutingResult inlineFallback(String question, EmotionCheckResult emotion) {
-        return inlineFallback(question, null, null, emotion);
+        return inlineFallback(question, null, emotion);
     }
 
-    public RoutingResult inlineFallback(String question, Long userId,
-                                        com.example.smartassistant.common.location.DeviceLocation deviceLocation,
-                                        EmotionCheckResult emotion) {
+    public RoutingResult inlineFallback(String question, Long userId, EmotionCheckResult emotion) {
         try {
-            String localReply = fallbackAgentService.execute(question, userId, deviceLocation);
+            String localReply = fallbackAgentService.execute(question, userId);
             if (localReply != null && !localReply.isBlank()) {
                 return routeFinalizer.applyEmotion(RoutingResult.builder()
                         .result(localReply).confidence(0.2)

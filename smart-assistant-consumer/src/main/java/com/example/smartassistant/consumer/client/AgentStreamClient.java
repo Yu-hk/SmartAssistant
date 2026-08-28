@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * 从 Redis 动态获取 Agent SSE URL 映射（由 Router AgentDiscoveryService 根据 Nacos 注册信息写入）
  * key: a2a:agent:sse:urls
- * value: {"location_weather": "<a href="http://192.168.0.101:8085/travel/stream/chat">...</a>", ...}
+ * value: {"product": "<a href="http://192.168.0.101:8085/product/stream/chat">...</a>", ...}
  * <p>
  * 服务上下线时自动更新 Redis，无需硬编码任何 agent 名称或地址。
  */

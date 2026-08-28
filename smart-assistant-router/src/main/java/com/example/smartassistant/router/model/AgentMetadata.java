@@ -43,26 +43,8 @@ public class AgentMetadata {
      */
     private String routingExamples;
     
-    /**
-     * 支持的菜系类型（仅美食 Agent）
-     * 例如：川菜,粤菜,鲁菜,火锅,烧烤
-     */
-    private String cuisineTypes;
-    
-    /**
-     * 是否支持位置查询
-     */
-    private Boolean supportLocation = false;
-    
-    /**
-     * 是否支持天气查询
-     */
-    private Boolean supportWeather = false;
-    
-    /**
-     * 是否支持出行规划
-     */
-    private Boolean supportPlanning = false;
+    /** Agent 声明的操作词槽定义（JSON），Router 不维护业务类型表。 */
+    private String slotDefinitions;
     
     /**
      * 优先级（数值越大优先级越高）
@@ -100,7 +82,7 @@ public class AgentMetadata {
      * <p>
      * 设置为 true 时，Agent 的回复将在首次命中时即被缓存，
      * 无需等待成为高频问题（≥2 次）。
-     * 适用于 Product（商品价格/库存）和 General（天气/新闻）等
+     * 适用于 Product（商品价格/库存）和 General（新闻）等
      * 具有稳定、可复用回复模式的场景。
      */
     private Boolean alwaysCacheReply = false;

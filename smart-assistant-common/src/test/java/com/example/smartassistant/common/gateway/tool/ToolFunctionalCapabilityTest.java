@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * {@link ToolFunctionalCapability} 单元测试（T1 新增枚举）。
  * <p>
- * 覆盖 {@code fromValue} / {@code isValid} 的精确匹配语义、枚举词表完整性（32 个常量，
+ * 覆盖 {@code fromValue} / {@code isValid} 的精确匹配语义、枚举词表完整性（31 个常量，
  * 设计与文档 §7.1 一致）以及 Javadoc 声明的 WARN-only 宽松校验语义（未知词不抛异常）。
  * </p>
  */
@@ -87,9 +87,9 @@ class ToolFunctionalCapabilityTest {
     class VocabularyIntegrity {
 
         @Test
-        @DisplayName("枚举常量总数应为 32")
-        void shouldHaveExactly32Constants() {
-            assertEquals(32, ToolFunctionalCapability.values().length);
+        @DisplayName("枚举常量总数应为 31")
+        void shouldHaveExactly31Constants() {
+            assertEquals(31, ToolFunctionalCapability.values().length);
         }
 
         @Test
@@ -101,11 +101,10 @@ class ToolFunctionalCapabilityTest {
             assertEquals("order-refund", ToolFunctionalCapability.ORDER_REFUND.getValue());
             assertEquals("sql-query", ToolFunctionalCapability.SQL_QUERY.getValue());
             assertEquals("knowledge-retrieve", ToolFunctionalCapability.KNOWLEDGE_RETRIEVE.getValue());
-            assertEquals("weather-query", ToolFunctionalCapability.WEATHER_QUERY.getValue());
         }
 
         @Test
-        @DisplayName("全部 32 个常量 value 非空、非空白且互不重复")
+        @DisplayName("全部 31 个常量 value 非空、非空白且互不重复")
         void allValuesNonNullAndDistinct() {
             Set<String> seen = new HashSet<>();
             for (ToolFunctionalCapability cap : ToolFunctionalCapability.values()) {
@@ -114,7 +113,7 @@ class ToolFunctionalCapabilityTest {
                 assertFalse(value.isBlank(), "枚举常量的 value 不应为空串");
                 assertTrue(seen.add(value), "发现重复 value: " + value);
             }
-            assertEquals(32, seen.size());
+            assertEquals(31, seen.size());
         }
     }
 

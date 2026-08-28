@@ -12,13 +12,33 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # === RabbitMQ 工作流恢复消息代理 (AMQP 5672 / 控制台 15672) ===
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    container_name: smart-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-smartassistant}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   # === Nacos 服务注册与发现 (端口 8848/9848) ===
   nacos:
@@ -36,7 +56,7 @@ services:
       - NACOS_AUTH_IDENTITY_VALUE=security
       - NACOS_AUTH_TOKEN=${NACOS_AUTH_TOKEN:-}
       - NACOS_AUTH_USERNAME=${NACOS_USERNAME:-nacos}
-      - NACOS_AUTH_PASSWORD=${NACOS_PASSWORD:-nacos123}
+      - NACOS_AUTH_PASSWORD=${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       - NACOS_CORE_API_COMPATIBILITY_CONSOLE_ENABLED=true
     volumes:
       - nacos-data:/home/nacos/data
@@ -57,7 +77,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-a2a_system}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./docs/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
@@ -121,6 +141,7 @@ services:
 
 volumes:
   redis-data:
+  rabbitmq-data:
   nacos-data:
   postgres-data:
   prometheus-data:

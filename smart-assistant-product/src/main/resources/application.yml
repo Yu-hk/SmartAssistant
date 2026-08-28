@@ -231,6 +231,12 @@ logging:
 
 # ⭐ LightRAG 实体关系抽取配置
 product:
+  catalog:
+    # Production must never fabricate catalog data when PostgreSQL is unavailable.
+    mock-fallback-enabled: ${PRODUCT_MOCK_FALLBACK_ENABLED:false}
+    excluded-code-prefixes: ${PRODUCT_EXCLUDED_CODE_PREFIXES:LOAD-PROD-,E2E-PROD-}
+  graph:
+    refresh-ms: ${PRODUCT_GRAPH_REFRESH_MS:60000}
   recommendation:
     max-reanalysis: ${PRODUCT_RECOMMENDATION_MAX_REANALYSIS:1}
     analysis-max-tokens: ${PRODUCT_ANALYSIS_MAX_TOKENS:900}
@@ -238,6 +244,14 @@ product:
     output-max-tokens: ${PRODUCT_RECOMMENDATION_MAX_TOKENS:700}
     disable-thinking: ${PRODUCT_RECOMMENDATION_DISABLE_THINKING:true}
   rag:
+    # 项目原生 Agentic RAG：按注册能力选库，证据不足时有界补检，不依赖外部知识库应用。
+    agentic:
+      enabled: ${PRODUCT_RAG_AGENTIC_ENABLED:true}
+      max-attempts: ${PRODUCT_RAG_AGENTIC_MAX_ATTEMPTS:2}
+      max-evidence-items: ${PRODUCT_RAG_AGENTIC_MAX_EVIDENCE_ITEMS:8}
+      sufficient-score: ${PRODUCT_RAG_AGENTIC_SUFFICIENT_SCORE:0.5}
+    answer-verification:
+      max-retries: ${PRODUCT_RAG_ANSWER_VERIFICATION_MAX_RETRIES:1}
     lightrag:
       enabled: true            # 查询侧「实体-关系图检索」Handler 开关（并入 RAG Pipeline）
       ingest-seed:
