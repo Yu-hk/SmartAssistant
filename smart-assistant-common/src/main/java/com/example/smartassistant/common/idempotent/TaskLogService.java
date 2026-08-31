@@ -9,25 +9,27 @@ package com.example.smartassistant.common.idempotent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
- * 任务日志服务。
+ * Redis-backed idempotent task execution with leases and fencing tokens.
  *
- * <p>用于 Agent 写入操作的幂等保护。每个写操作关联唯一的 {@code requestId}，
- * 在 Redis 中维护状态机：PENDING → RUNNING → COMPLETED / FAILED。</p>
- *
- * <p>写操作执行前调用 {@link #tryStart(String, String)} 检查是否已执行过，
- * 已完成的直接返回结果，避免重复执行。</p>
- *
- * <p>Redis Key 格式：{@code a2a:task:{requestId}}</p>
- * <p>Redis Value 格式：{@code status|resultJson|timestamp}</p>
+ * <p>Every write operation is claimed atomically. A crashed worker stops owning
+ * the task when its lease expires; a replacement worker can then claim it with a
+ * larger fencing token. Completion from the old worker is rejected, preventing
+ * stale processes from overwriting the recovered result.</p>
  */
 @Service
 @ConditionalOnClass(name = "org.springframework.data.redis.core.StringRedisTemplate")
@@ -35,20 +37,92 @@ public class TaskLogService {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskLogService.class);
 
-    private static final String TASK_KEY_PREFIX = "a2a:task:";
-    private static final long TASK_TTL_HOURS = 72;  // 任务日志保留 72 小时
+    private static final String TASK_KEY_PREFIX = "a2a:task:{";
+    private static final String LEGACY_TASK_KEY_PREFIX = "a2a:task:";
+    private static final long TASK_TTL_MS = Duration.ofHours(72).toMillis();
+    private static final long DEFAULT_LEASE_MS = Duration.ofMinutes(2).toMillis();
+
+    @SuppressWarnings("rawtypes")
+    private static final DefaultRedisScript<List> CLAIM_SCRIPT = script("""
+            local stateType = redis.call('TYPE', KEYS[1])['ok']
+            if stateType == 'string' then
+              local legacy = redis.call('GET', KEYS[1]) or ''
+              if string.sub(legacy, 1, 10) == 'COMPLETED|' then
+                local result = string.match(legacy, '^COMPLETED|(.*)|[^|]*$') or ''
+                return {'COMPLETED', result, '0'}
+              end
+              redis.call('DEL', KEYS[1])
+            elseif stateType == 'hash' then
+              local status = redis.call('HGET', KEYS[1], 'status')
+              if status == 'COMPLETED' then
+                return {'COMPLETED', redis.call('HGET', KEYS[1], 'result') or '',
+                        redis.call('HGET', KEYS[1], 'fencingToken') or '0'}
+              end
+            end
+
+            local leaseOwner = redis.call('GET', KEYS[2])
+            if leaseOwner then
+              return {'BUSY', '', redis.call('HGET', KEYS[1], 'fencingToken') or '0'}
+            end
+
+            local fence = redis.call('INCR', KEYS[3])
+            redis.call('SET', KEYS[2], ARGV[1], 'PX', ARGV[4])
+            redis.call('HSET', KEYS[1],
+                    'status', 'RUNNING',
+                    'taskType', ARGV[2],
+                    'result', '',
+                    'updatedAtEpochMs', ARGV[3],
+                    'ownerToken', ARGV[1],
+                    'fencingToken', tostring(fence),
+                    'leaseUntilEpochMs', tostring(tonumber(ARGV[3]) + tonumber(ARGV[4])))
+            redis.call('PEXPIRE', KEYS[1], ARGV[5])
+            redis.call('PEXPIRE', KEYS[3], ARGV[5])
+            return {'CLAIMED', '', tostring(fence)}
+            """, List.class);
+
+    private static final DefaultRedisScript<Long> TERMINAL_SCRIPT = script("""
+            if redis.call('TYPE', KEYS[1])['ok'] ~= 'hash' then return 0 end
+            if redis.call('GET', KEYS[2]) ~= ARGV[1] then return 0 end
+            if redis.call('HGET', KEYS[1], 'ownerToken') ~= ARGV[1] then return 0 end
+            if redis.call('HGET', KEYS[1], 'fencingToken') ~= ARGV[2] then return 0 end
+            redis.call('HSET', KEYS[1],
+                    'status', ARGV[3],
+                    'result', ARGV[4],
+                    'updatedAtEpochMs', ARGV[5],
+                    'leaseUntilEpochMs', '0')
+            redis.call('DEL', KEYS[2])
+            redis.call('PEXPIRE', KEYS[1], ARGV[6])
+            redis.call('PEXPIRE', KEYS[3], ARGV[6])
+            return 1
+            """, Long.class);
+
+    private static final DefaultRedisScript<Long> RENEW_SCRIPT = script("""
+            if redis.call('GET', KEYS[2]) ~= ARGV[1] then return 0 end
+            if redis.call('HGET', KEYS[1], 'ownerToken') ~= ARGV[1] then return 0 end
+            if redis.call('HGET', KEYS[1], 'fencingToken') ~= ARGV[2] then return 0 end
+            redis.call('PEXPIRE', KEYS[2], ARGV[4])
+            redis.call('HSET', KEYS[1],
+                    'updatedAtEpochMs', ARGV[3],
+                    'leaseUntilEpochMs', tostring(tonumber(ARGV[3]) + tonumber(ARGV[4])))
+            redis.call('PEXPIRE', KEYS[1], ARGV[5])
+            redis.call('PEXPIRE', KEYS[3], ARGV[5])
+            return 1
+            """, Long.class);
 
     private final StringRedisTemplate redisTemplate;
     private final DistributedLock distributedLock;
+    private final long leaseMs;
 
+    @Autowired
     public TaskLogService(StringRedisTemplate redisTemplate, DistributedLock distributedLock) {
-        this.redisTemplate = redisTemplate;
-        this.distributedLock = distributedLock;
+        this(redisTemplate, distributedLock, DEFAULT_LEASE_MS);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 任务状态枚举
-    // ═══════════════════════════════════════════════════════════
+    TaskLogService(StringRedisTemplate redisTemplate, DistributedLock distributedLock, long leaseMs) {
+        this.redisTemplate = redisTemplate;
+        this.distributedLock = distributedLock;
+        this.leaseMs = Math.max(1_000L, leaseMs);
+    }
 
     public enum TaskStatus {
         PENDING, RUNNING, COMPLETED, FAILED;
@@ -58,192 +132,245 @@ public class TaskLogService {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 核心 API
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * 尝试开始一个任务（幂等检查）。
-     *
-     * <p>如果任务已存在且已完成，返回已有结果，不重复执行。</p>
-     * <p>如果任务不存在或处于 PENDING/FAILED 状态，标记为 RUNNING 并返回空 Optional。</p>
-     * <p>如果任务处于 RUNNING 状态（其他实例正在执行），返回空 Optional 表示跳过。</p>
-     *
-     * @param requestId  全局唯一请求 ID
-     * @param taskType   任务类型（如 "order:create"、"order:cancel"）
-     * @return 任务日志（已完成的任务包含结果）
-     */
+    /** Atomically claims a task, returns its completed result, or reports it busy. */
     public TaskLog tryStart(String requestId, String taskType) {
-        if (requestId == null || requestId.isBlank()) {
-            return null;
+        if (requestId == null || requestId.isBlank()) return null;
+        TaskLog legacy = readLegacy(requestId);
+        if (legacy != null && legacy.status == TaskStatus.COMPLETED) return legacy;
+        if (legacy != null) redisTemplate.delete(legacyTaskKey(requestId));
+        String ownerToken = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        List<?> response = redisTemplate.execute(CLAIM_SCRIPT,
+                keys(requestId), ownerToken, safe(taskType), String.valueOf(now),
+                String.valueOf(leaseMs), String.valueOf(TASK_TTL_MS));
+        if (response == null || response.isEmpty()) {
+            throw new IllegalStateException("Atomic task claim returned no result");
         }
 
-        String key = TASK_KEY_PREFIX + requestId;
-        String existing = redisTemplate.opsForValue().get(key);
-
-        if (existing != null) {
-            TaskLog existingLog = TaskLog.fromString(existing);
-            if (existingLog != null) {
-                if (existingLog.status == TaskStatus.COMPLETED) {
-                    LOG.info("[TaskLog] 幂等命中: requestId={}, taskType={}, status=COMPLETED, 直接返回结果",
-                            requestId, taskType);
-                    return existingLog;
-                }
-                if (existingLog.status == TaskStatus.RUNNING) {
-                    LOG.warn("[TaskLog] 任务正在执行中: requestId={}, taskType={}, 跳过重复触发",
-                            requestId, taskType);
-                    return existingLog;  // 正在执行，返回但不重复开始
-                }
-                // FAILED 状态：允许重新执行
-                LOG.info("[TaskLog] 任务之前失败，允许重试: requestId={}, taskType={}", requestId, taskType);
-            }
+        String outcome = String.valueOf(response.getFirst());
+        String result = response.size() > 1 ? emptyToNull(String.valueOf(response.get(1))) : null;
+        long fence = response.size() > 2 ? parseLong(response.get(2)) : 0L;
+        if ("COMPLETED".equals(outcome)) {
+            LOG.info("[TaskLog] 幂等命中: requestId={}, taskType={}, status=COMPLETED",
+                    requestId, taskType);
+            return new TaskLog(requestId, taskType, TaskStatus.COMPLETED, result,
+                    now, null, fence, 0L, false);
+        }
+        if ("BUSY".equals(outcome)) {
+            LOG.info("[TaskLog] 任务租约仍有效: requestId={}, taskType={}", requestId, taskType);
+            return new TaskLog(requestId, taskType, TaskStatus.RUNNING, null,
+                    now, null, fence, 0L, false);
+        }
+        if (!"CLAIMED".equals(outcome)) {
+            throw new IllegalStateException("Unknown atomic task claim result: " + outcome);
         }
 
-        // 新任务或失败任务：标记为 RUNNING
-        TaskLog newLog = new TaskLog(requestId, taskType, TaskStatus.RUNNING, null, LocalDateTime.now());
-        redisTemplate.opsForValue().set(key, newLog.toString(), Duration.ofHours(TASK_TTL_HOURS));
-        LOG.info("[TaskLog] 任务开始: requestId={}, taskType={}", requestId, taskType);
-        return newLog;
+        LOG.info("[TaskLog] 任务领取成功: requestId={}, taskType={}, fencingToken={}",
+                requestId, taskType, fence);
+        return new TaskLog(requestId, taskType, TaskStatus.RUNNING, null,
+                now, ownerToken, fence, now + leaseMs, true);
     }
 
-    /**
-     * 标记任务为已完成。
-     *
-     * @param requestId 请求 ID
-     * @param result    执行结果（用于幂等返回）
-     */
-    public void markCompleted(String requestId, String result) {
-        updateStatus(requestId, TaskStatus.COMPLETED, result);
+    /** Renews the lease of a claimed task. Stale owners cannot renew it. */
+    public boolean renewLease(TaskLog claim) {
+        if (claim == null || !claim.claimed || claim.ownerToken == null) return false;
+        long now = System.currentTimeMillis();
+        Long renewed = redisTemplate.execute(RENEW_SCRIPT, keys(claim.requestId),
+                claim.ownerToken, String.valueOf(claim.fencingToken), String.valueOf(now),
+                String.valueOf(leaseMs), String.valueOf(TASK_TTL_MS));
+        return Long.valueOf(1L).equals(renewed);
     }
 
-    /**
-     * 标记任务为失败。
-     *
-     * @param requestId 请求 ID
-     * @param errorMsg  错误信息
-     */
-    public void markFailed(String requestId, String errorMsg) {
-        updateStatus(requestId, TaskStatus.FAILED, errorMsg);
-    }
-
-    /**
-     * 获取任务日志。
-     */
+    /** Returns the persisted task state, including lease and fencing metadata. */
     public TaskLog get(String requestId) {
         if (requestId == null || requestId.isBlank()) return null;
-        String key = TASK_KEY_PREFIX + requestId;
-        String raw = redisTemplate.opsForValue().get(key);
-        return raw != null ? TaskLog.fromString(raw) : null;
+        String key = taskKey(requestId);
+        var dataType = redisTemplate.type(key);
+        String type = dataType != null ? dataType.code() : "none";
+        if ("string".equals(type)) {
+            String raw = redisTemplate.opsForValue().get(key);
+            return TaskLog.fromLegacyString(requestId, raw);
+        }
+        if (!"hash".equals(type)) return readLegacy(requestId);
+        var values = redisTemplate.<String, String>opsForHash().entries(key);
+        if (values.isEmpty()) return null;
+        TaskStatus status;
+        try {
+            status = TaskStatus.valueOf(values.getOrDefault("status", "FAILED"));
+        } catch (IllegalArgumentException e) {
+            status = TaskStatus.FAILED;
+        }
+        long updatedAt = parseLong(values.get("updatedAtEpochMs"));
+        return new TaskLog(requestId, values.get("taskType"), status,
+                emptyToNull(values.get("result")), updatedAt,
+                emptyToNull(values.get("ownerToken")), parseLong(values.get("fencingToken")),
+                parseLong(values.get("leaseUntilEpochMs")), false);
     }
 
     /**
-     * 带锁的幂等执行：仅在任务未完成时执行 action。
-     *
-     * @param requestId  全局唯一请求 ID
-     * @param taskType   任务类型
-     * @param lockKey    分布式锁 key（如 "order:create:ORD-001"）
-     * @param action     执行动作（返回结果字符串）
-     * @return 任务结果（已完成的直接返回缓存结果）
+     * Executes an action at least once while making its durable business effect idempotent.
+     * A completed result is replayed; an active lease returns {@code null}; an expired lease
+     * is atomically taken over with a larger fencing token.
      */
     public String executeIfNotDone(String requestId, String taskType, String lockKey,
-                                   java.util.function.Supplier<String> action) {
-        // 1. 幂等检查
-        TaskLog log = tryStart(requestId, taskType);
-        if (log == null) return null;
-        if (log.status == TaskStatus.COMPLETED) {
-            return log.result;  // 已有结果，直接返回
-        }
-        if (log.status == TaskStatus.RUNNING && !log.isFresh()) {
-            // 非本实例开始的任务且正在执行 → 跳过
-            return null;
-        }
+                                   Supplier<String> action) {
+        TaskLog claim = tryStart(requestId, taskType);
+        if (claim == null) return null;
+        if (claim.status == TaskStatus.COMPLETED) return claim.result;
+        if (!claim.claimed) return null;
 
-        // 2. 获取分布式锁
-        var lock = distributedLock.getLock(lockKey);
+        var lock = distributedLock.getLock(lockKey, leaseMs);
         if (!lock.tryLock()) {
-            LOG.warn("[TaskLog] 获取分布式锁失败: lockKey={}, requestId={}", lockKey, requestId);
+            markTerminal(claim, TaskStatus.FAILED, "Failed to acquire domain lock");
             return null;
         }
 
         try {
-            // 3. 执行
             String result = action.get();
-            markCompleted(requestId, result);
+            if (!markTerminal(claim, TaskStatus.COMPLETED, result)) {
+                throw new StaleTaskOwnerException(requestId, claim.fencingToken);
+            }
             return result;
-        } catch (Exception e) {
-            markFailed(requestId, e.getMessage());
+        } catch (RuntimeException e) {
+            markTerminal(claim, TaskStatus.FAILED, e.getMessage());
             throw e;
         } finally {
             lock.unlock();
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 内部方法
-    // ═══════════════════════════════════════════════════════════
-
-    private void updateStatus(String requestId, TaskStatus status, String data) {
-        if (requestId == null || requestId.isBlank()) return;
-        String key = TASK_KEY_PREFIX + requestId;
-        TaskLog log = new TaskLog(requestId, null, status, data, LocalDateTime.now());
-        redisTemplate.opsForValue().set(key, log.toString(), Duration.ofHours(TASK_TTL_HOURS));
-        LOG.info("[TaskLog] 任务更新: requestId={}, status={}", requestId, status);
+    private boolean markTerminal(TaskLog claim, TaskStatus status, String result) {
+        if (claim == null || !claim.claimed || claim.ownerToken == null) return false;
+        Long updated = redisTemplate.execute(TERMINAL_SCRIPT, keys(claim.requestId),
+                claim.ownerToken, String.valueOf(claim.fencingToken), status.name(), safe(result),
+                String.valueOf(System.currentTimeMillis()), String.valueOf(TASK_TTL_MS));
+        boolean accepted = Long.valueOf(1L).equals(updated);
+        if (accepted) {
+            LOG.info("[TaskLog] 任务更新: requestId={}, status={}, fencingToken={}",
+                    claim.requestId, status, claim.fencingToken);
+        } else {
+            LOG.warn("[TaskLog] 拒绝过期执行者更新: requestId={}, status={}, fencingToken={}",
+                    claim.requestId, status, claim.fencingToken);
+        }
+        return accepted;
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 任务日志模型
-    // ═══════════════════════════════════════════════════════════
+    private static List<String> keys(String requestId) {
+        String base = taskBase(requestId);
+        return List.of(base + ":state", base + ":lease", base + ":fence");
+    }
 
-    /**
-     * 任务日志记录。
-     */
+    private static String taskKey(String requestId) {
+        return taskBase(requestId) + ":state";
+    }
+
+    private static String taskBase(String requestId) {
+        return TASK_KEY_PREFIX + requestId + "}";
+    }
+
+    private static String legacyTaskKey(String requestId) {
+        return LEGACY_TASK_KEY_PREFIX + requestId;
+    }
+
+    private TaskLog readLegacy(String requestId) {
+        String key = legacyTaskKey(requestId);
+        var dataType = redisTemplate.type(key);
+        if (dataType == null || !"string".equals(dataType.code())) return null;
+        return TaskLog.fromLegacyString(requestId, redisTemplate.opsForValue().get(key));
+    }
+
+    private static String safe(String value) {
+        return value != null ? value : "";
+    }
+
+    private static String emptyToNull(String value) {
+        return value == null || value.isEmpty() || "null".equals(value) ? null : value;
+    }
+
+    private static long parseLong(Object value) {
+        if (value == null) return 0L;
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
+    }
+
+    private static <T> DefaultRedisScript<T> script(String source, Class<T> resultType) {
+        DefaultRedisScript<T> script = new DefaultRedisScript<>();
+        script.setScriptText(source);
+        script.setResultType(resultType);
+        return script;
+    }
+
     public static class TaskLog {
-        final String requestId;
-        final String taskType;
-        final TaskStatus status;
-        final String result;
-        final LocalDateTime timestamp;
+        private static final DateTimeFormatter LEGACY_FMT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
-        private static final DateTimeFormatter FMT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
-        private static final String SEP = "|";
+        private final String requestId;
+        private final String taskType;
+        private final TaskStatus status;
+        private final String result;
+        private final long updatedAtEpochMs;
+        private final String ownerToken;
+        private final long fencingToken;
+        private final long leaseUntilEpochMs;
+        private final boolean claimed;
 
-        TaskLog(String requestId, String taskType, TaskStatus status, String result, LocalDateTime timestamp) {
+        TaskLog(String requestId, String taskType, TaskStatus status, String result,
+                long updatedAtEpochMs, String ownerToken, long fencingToken,
+                long leaseUntilEpochMs, boolean claimed) {
             this.requestId = requestId;
             this.taskType = taskType;
             this.status = status;
             this.result = result;
-            this.timestamp = timestamp;
-        }
-
-        /** 判断是否为本实例刚创建的任务（用于检测并发执行） */
-        boolean isFresh() {
-            return timestamp != null
-                    && Duration.between(timestamp, LocalDateTime.now()).toSeconds() < 5;
+            this.updatedAtEpochMs = updatedAtEpochMs;
+            this.ownerToken = ownerToken;
+            this.fencingToken = fencingToken;
+            this.leaseUntilEpochMs = leaseUntilEpochMs;
+            this.claimed = claimed;
         }
 
         public String getRequestId() { return requestId; }
+        public String getTaskType() { return taskType; }
         public TaskStatus getStatus() { return status; }
         public String getResult() { return result; }
-        public LocalDateTime getTimestamp() { return timestamp; }
-
-        @Override
-        public String toString() {
-            return status.name() + SEP + (result != null ? result : "") + SEP + timestamp.format(FMT);
+        public LocalDateTime getTimestamp() {
+            return LocalDateTime.ofEpochSecond(updatedAtEpochMs / 1_000L,
+                    (int) (updatedAtEpochMs % 1_000L) * 1_000_000, ZoneOffset.UTC);
         }
+        public long getFencingToken() { return fencingToken; }
+        public long getLeaseUntilEpochMs() { return leaseUntilEpochMs; }
+        public boolean isClaimed() { return claimed; }
 
-        static TaskLog fromString(String raw) {
+        static TaskLog fromLegacyString(String requestId, String raw) {
             if (raw == null || raw.isBlank()) return null;
             String[] parts = raw.split("\\|", 3);
-            if (parts.length < 1) return null;
             TaskStatus status;
             try {
                 status = TaskStatus.valueOf(parts[0]);
             } catch (IllegalArgumentException e) {
                 return null;
             }
-            String result = parts.length > 1 ? (parts[1].isEmpty() ? null : parts[1]) : null;
-            LocalDateTime ts = parts.length > 2 ? LocalDateTime.parse(parts[2], FMT) : LocalDateTime.now();
-            return new TaskLog(null, null, status, result, ts);
+            String result = parts.length > 1 ? emptyToNull(parts[1]) : null;
+            long timestamp = System.currentTimeMillis();
+            if (parts.length > 2) {
+                try {
+                    timestamp = LocalDateTime.parse(parts[2], LEGACY_FMT)
+                            .toInstant(ZoneOffset.UTC).toEpochMilli();
+                } catch (RuntimeException ignored) {
+                    // Preserve compatibility with malformed legacy entries.
+                }
+            }
+            return new TaskLog(requestId, null, status, result, timestamp,
+                    null, 0L, 0L, false);
+        }
+    }
+
+    /** Indicates that a worker completed after its lease was lost or superseded. */
+    public static class StaleTaskOwnerException extends IllegalStateException {
+        public StaleTaskOwnerException(String requestId, long fencingToken) {
+            super("Task lease lost before completion: requestId=" + requestId
+                    + ", fencingToken=" + fencingToken);
         }
     }
 }

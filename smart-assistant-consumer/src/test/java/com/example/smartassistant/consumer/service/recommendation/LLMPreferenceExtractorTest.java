@@ -59,4 +59,19 @@ class LLMPreferenceExtractorTest {
         assertNotNull(annotation);
         assertEquals("taskExecutor", annotation.value());
     }
+
+    @Test
+    void fallbackExtractsGenericPreferenceWithoutDomainTypeTable() {
+        ReflectionTestUtils.setField(extractor, "extractionTimeoutMs", 20L);
+        when(aiChatService.buildChatClient(lightModel)
+                .prompt().user(anyString()).call()
+                .entity(LLMPreferenceExtractor.ExtractedPreferences.class))
+                .thenThrow(new IllegalStateException("model unavailable"));
+
+        var result = extractor.extract("我喜欢续航长的平板，不要太重");
+
+        assertEquals(java.util.List.of("续航长的平板"),
+                result.preferenceGroups().get("explicit"));
+        assertEquals(java.util.List.of("太重"), result.negativePreferences());
+    }
 }

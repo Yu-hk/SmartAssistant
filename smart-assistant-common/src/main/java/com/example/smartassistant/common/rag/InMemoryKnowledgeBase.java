@@ -394,10 +394,55 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
      * @param documents 新的文档集合（可为空，表示清空）
      */
     public void replaceAll(java.util.Collection<KnowledgeDocument> documents) {
-        docs.clear();
-        vectors.clear();
-        addDocumentsAndBuildIndexes(documents);
-        log.info("[KnowledgeBase:{}] 内存快照刷新完成: {} 篇文档", name, docs.size());
+        Map<String, KnowledgeDocument> incoming = new LinkedHashMap<>();
+        if (documents != null) {
+            for (KnowledgeDocument document : documents) {
+                if (document != null) incoming.put(document.getId(), document);
+            }
+        }
+
+        // 增量同步：未变化的文档保留已有向量，避免周期刷新重复调用远程 Embedding；
+        // 同时不再先 clear，检索线程在刷新期间始终能读到上一版完整快照。
+        docs.keySet().removeIf(id -> !incoming.containsKey(id));
+        vectors.keySet().removeIf(id -> !incoming.containsKey(id));
+        int updated = 0;
+        for (KnowledgeDocument document : incoming.values()) {
+            KnowledgeDocument current = docs.get(document.getId());
+            if (!sameSnapshotDocument(current, document)) {
+                addDocument(document);
+                updated++;
+            }
+        }
+        rebuildNonVectorIndexes();
+        vectors.keySet().retainAll(docs.keySet());
+        log.info("[KnowledgeBase:{}] 内存快照刷新完成: {} 篇文档, 更新向量={} 篇",
+                name, docs.size(), updated);
+    }
+
+    private static boolean sameSnapshotDocument(KnowledgeDocument left, KnowledgeDocument right) {
+        if (left == right) return true;
+        if (left == null || right == null) return false;
+        return Objects.equals(left.getId(), right.getId())
+                && Objects.equals(left.getTitle(), right.getTitle())
+                && Objects.equals(left.getContent(), right.getContent())
+                && Objects.equals(left.getCategory(), right.getCategory())
+                && Objects.equals(left.getKeywords(), right.getKeywords())
+                && left.getEffectiveAt() == right.getEffectiveAt()
+                && left.getExpireAt() == right.getExpireAt()
+                && Objects.equals(left.getTenantId(), right.getTenantId())
+                && Objects.equals(left.getVersion(), right.getVersion())
+                && Objects.equals(left.getSourceUrl(), right.getSourceUrl())
+                && left.getChunkIndex() == right.getChunkIndex()
+                && Objects.equals(left.getParentDocId(), right.getParentDocId())
+                && left.getAuthorityLevel() == right.getAuthorityLevel()
+                && left.getDocumentStatus() == right.getDocumentStatus()
+                && Objects.equals(left.getIndexVersion(), right.getIndexVersion())
+                && Objects.equals(left.getAuthorizedRoles(), right.getAuthorizedRoles())
+                && Objects.equals(left.getAuthorizedUsers(), right.getAuthorizedUsers())
+                && left.getSecurityLevel() == right.getSecurityLevel()
+                && left.getChunkRole() == right.getChunkRole()
+                && Objects.equals(left.getSourceType(), right.getSourceType())
+                && Objects.equals(left.getRawChecksum(), right.getRawChecksum());
     }
 
     @Override
@@ -566,7 +611,7 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         // 1. 租户隔离
         String docTenant = doc.getTenantId();
         String reqTenant = acl.getTenantId();
-        boolean tenantOk = (docTenant == null || docTenant.isEmpty())
+        boolean tenantOk = isPublicTenant(docTenant)
                 || (reqTenant != null && !reqTenant.isEmpty() && docTenant.equals(reqTenant));
         if (!tenantOk) return false;
 
@@ -589,5 +634,9 @@ public class InMemoryKnowledgeBase implements KnowledgeBase {
         }
 
         return true;
+    }
+
+    private static boolean isPublicTenant(String tenantId) {
+        return tenantId == null || tenantId.isBlank() || "public".equalsIgnoreCase(tenantId);
     }
 }

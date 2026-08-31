@@ -14,7 +14,10 @@ import type {
   AdminStats,
   AdminStatusBreakdown,
   FaqItem,
+  WorkflowRecoveryJob,
+  WorkflowRecoveryStatus,
 } from '../types';
+export type { WorkflowRecoveryJob, WorkflowRecoveryStatus } from '../types';
 
 export interface AdminSessionQuery {
   query?: string;
@@ -44,6 +47,11 @@ export interface AdminFaqImportResult {
   created: number;
   updated: number;
   skipped: number;
+}
+
+export interface AdminWorkflowRecoveryPayload {
+  reason?: string;
+  expectedCheckpointVersion?: number;
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -151,6 +159,7 @@ function normalizeMessage(value: unknown, index: number): AdminSessionMessage {
     role: text(row.role, index % 2 === 0 ? 'user' : 'assistant'),
     content: text(row.content ?? row.message ?? row.userInput ?? row.user_input ?? row.response),
     createdAt: text(row.createdAt ?? row.created_at),
+    requestId: text(row.requestId ?? row.request_id) || null,
     agentName: text(row.agentName ?? row.agent_name ?? row.routedAgent ?? row.routed_agent) || null,
     status: text(row.status) || null,
     latencyMs: nullableNumber(row.latencyMs ?? row.latency_ms),
@@ -208,6 +217,27 @@ function normalizeFaq(value: unknown): FaqItem {
     sourceType: text(row.sourceType ?? row.source_type, 'manual'),
     hitCount: number(row.hitCount ?? row.hit_count),
     createdAt: text(row.createdAt ?? row.created_at),
+    updatedAt: text(row.updatedAt ?? row.updated_at),
+  };
+}
+
+function normalizeWorkflowRecoveryJob(value: unknown): WorkflowRecoveryJob {
+  const row = record(unwrap(value));
+  return {
+    recoveryId: text(row.recoveryId ?? row.recovery_id),
+    requestId: text(row.requestId ?? row.request_id),
+    checkpointUpdatedAtEpochMs: number(
+      row.checkpointUpdatedAtEpochMs ?? row.checkpoint_updated_at_epoch_ms,
+    ),
+    trigger: text(row.trigger),
+    workflowOwnerId: nullableNumber(row.workflowOwnerId ?? row.workflow_owner_id),
+    requestedBy: nullableNumber(row.requestedBy ?? row.requested_by),
+    reason: text(row.reason),
+    status: text(row.status, 'REJECTED_INVALID_COMMAND') as WorkflowRecoveryStatus,
+    attempts: number(row.attempts),
+    lastError: text(row.lastError ?? row.last_error),
+    result: text(row.result),
+    requestedAt: text(row.requestedAt ?? row.requested_at),
     updatedAt: text(row.updatedAt ?? row.updated_at),
   };
 }
@@ -285,6 +315,22 @@ export async function fetchAdminAgentFlow(requestId: string): Promise<AdminAgent
       .filter(edge => edge.from && edge.to) : [],
     message: text(row.message) || undefined,
   };
+}
+
+export async function requestAdminWorkflowRecovery(
+  requestId: string,
+  payload: AdminWorkflowRecoveryPayload = {},
+): Promise<WorkflowRecoveryJob> {
+  return normalizeWorkflowRecoveryJob(await apiClient.post<unknown>(
+    `/admin/workflows/${encodeURIComponent(requestId)}/recovery-requests`,
+    payload,
+  ));
+}
+
+export async function fetchAdminWorkflowRecovery(recoveryId: string): Promise<WorkflowRecoveryJob> {
+  return normalizeWorkflowRecoveryJob(await apiClient.get<unknown>(
+    `/admin/workflows/recoveries/${encodeURIComponent(recoveryId)}`,
+  ));
 }
 
 export async function deleteAdminSession(sessionId: string, userId: number | null): Promise<void> {

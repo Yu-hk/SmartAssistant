@@ -59,8 +59,8 @@ public class QueryRewriteHandler implements RagSearchHandler {
             原始：有什么好吃的推荐
             改写：推荐美食 好吃的东西 必吃推荐
             
-            原始：今天天气怎么样
-            改写：今日天气预报 实时天气情况
+            原始：今天星期几
+            改写：今日日期 星期信息
             
             原始：%s
             改写：

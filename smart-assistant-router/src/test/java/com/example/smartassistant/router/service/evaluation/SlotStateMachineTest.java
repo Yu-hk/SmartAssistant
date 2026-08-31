@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class SlotStateMachineTest {
 
-    private final SlotStateMachine machine = new SlotStateMachine();
+    private final SlotStateMachine machine = new SlotStateMachine(TestSlotSchemas.schemas());
 
     // ==================== ORDER/下单 词槽测试 ====================
 
@@ -84,9 +84,7 @@ class SlotStateMachineTest {
 
         var result = machine.analyzeSlots("ORDER/下单", entities);
 
-        assertTrue(result.hasConflicts());
-        assertEquals("departure_station", result.conflicts().get(0).get("slot1"));
-        assertEquals("arrival_station", result.conflicts().get(0).get("slot2"));
+        assertFalse(result.hasConflicts(), "业务冲突规则不应在 Router 中硬编码");
     }
 
     @Test
@@ -98,8 +96,7 @@ class SlotStateMachineTest {
 
         var result = machine.analyzeSlots("ORDER/下单", entities);
 
-        assertTrue(result.hasConflicts());
-        assertTrue(((String) result.conflicts().get(0).get("reason")).contains("出发时间"));
+        assertFalse(result.hasConflicts(), "业务时间规则应由 Agent 或规划结果提供");
     }
 
     @Test

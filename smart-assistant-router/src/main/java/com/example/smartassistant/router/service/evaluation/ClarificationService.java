@@ -33,26 +33,6 @@ public class ClarificationService {
 
     private static final Logger log = LoggerFactory.getLogger(ClarificationService.class);
 
-    /** 槽位→建议追问问题映射 */
-    private static final Map<String, String> QUESTION_TEMPLATES = new LinkedHashMap<>();
-    static {
-        QUESTION_TEMPLATES.put("order_id", "请问您的订单号是多少？");
-        QUESTION_TEMPLATES.put("departure_station", "请问从哪个站出发？");
-        QUESTION_TEMPLATES.put("arrival_station", "请问到哪个站？");
-        QUESTION_TEMPLATES.put("departure_date", "请问您计划哪天出发？");
-        QUESTION_TEMPLATES.put("departure_time", "请问您希望什么时间段出发？");
-        QUESTION_TEMPLATES.put("passenger", "请问乘车人是谁？（请提供姓名）");
-        QUESTION_TEMPLATES.put("seat_type", "请问您想选什么座位类型？（二等座/一等座/商务座）");
-        QUESTION_TEMPLATES.put("train_type", "请问您想坐高铁还是普通列车？");
-        QUESTION_TEMPLATES.put("ticket_count", "请问需要买几张票？");
-        QUESTION_TEMPLATES.put("price_limit", "请问您的预算大概多少？");
-        QUESTION_TEMPLATES.put("product_name", "请问您想查什么商品？");
-        // 可默认槽位的确认问题
-        QUESTION_TEMPLATES.put("confirm_departure_station", "我查到您常从{value}出发，请问这次还是从那里出发吗？");
-        QUESTION_TEMPLATES.put("confirm_seat_type", "默认查询二等座，需要更改吗？");
-        QUESTION_TEMPLATES.put("confirm_train_type", "默认查询高铁/动车，需要更改吗？");
-    }
-
     /**
      * 生成澄清建议。
      *
@@ -74,12 +54,7 @@ public class ClarificationService {
             );
         }
 
-        // 低风险查询类意图 → 通常不需要追问
-        if (isQueryOnly(intentCategory)) {
-            return ClarificationAdvice.noClarification();
-        }
-
-        return null; // placeholder - will be refined
+        return ClarificationAdvice.noClarification();
     }
 
     /**
@@ -98,13 +73,8 @@ public class ClarificationService {
         // 如果意图不明
         if (intentCategory == null || "UNKNOWN".equals(intentCategory)) {
             return ClarificationAdvice.createIntentClarification(
-                    "您好，请问您需要查询订单、查看商品，还是需要其他帮助？"
+                    "请说明您希望完成的操作，以及必要的对象或约束。"
             );
-        }
-
-        // 查询类意图不需要追问
-        if (isQueryOnly(intentCategory)) {
-            return ClarificationAdvice.noClarification();
         }
 
         // 有冲突 → 先处理冲突
@@ -115,7 +85,8 @@ public class ClarificationService {
                 String slot1 = (String) conflict.get("slot1");
                 String slot2 = (String) conflict.get("slot2");
                 String q = String.format("您的要求有矛盾：%s。请问以哪个为准？（%s 还是 %s）",
-                        reason, getSlotLabel(slot1), getSlotLabel(slot2));
+                        reason, getSlotLabel(slot1, slotAnalysis.slotDefs()),
+                        getSlotLabel(slot2, slotAnalysis.slotDefs()));
                 conflictQuestions.add(q);
             }
             return new ClarificationAdvice(true, "词槽矛盾", conflictQuestions,
@@ -126,7 +97,7 @@ public class ClarificationService {
         if (slotAnalysis.hasMissing()) {
             List<String> questions = new ArrayList<>();
             for (String slot : slotAnalysis.missingSlots()) {
-                questions.add(getQuestion(slot));
+                questions.add(getQuestion(slot, slotAnalysis.slotDefs()));
             }
             return new ClarificationAdvice(true, "信息不完整", questions,
                     slotAnalysis.missingSlots(), slotAnalysis.defaultableSlots());
@@ -136,7 +107,7 @@ public class ClarificationService {
         if (slotAnalysis.hasDefaultable()) {
             List<String> confirmQuestions = new ArrayList<>();
             for (String slot : slotAnalysis.defaultableSlots()) {
-                confirmQuestions.add(getConfirmQuestion(slot, entities));
+                confirmQuestions.add(getConfirmQuestion(slot, entities, slotAnalysis.slotDefs()));
             }
             return new ClarificationAdvice(true, "需要确认默认值", confirmQuestions,
                     Collections.emptyList(), slotAnalysis.defaultableSlots());
@@ -147,47 +118,26 @@ public class ClarificationService {
 
     // ==================== 内部方法 ====================
 
-    private boolean isQueryOnly(String intentCategory) {
-        if (intentCategory == null) return false;
-        String lower = intentCategory.toLowerCase();
-        return lower.contains("查") || lower.contains("query")
-                || lower.contains("search") || lower.contains("get")
-                || intentCategory.equals("GENERAL");
+    private String getSlotLabel(String slotName, List<SlotStateMachine.SlotDef> definitions) {
+        return findDefinition(slotName, definitions).map(SlotStateMachine.SlotDef::description)
+                .filter(label -> !label.isBlank()).orElse(slotName);
     }
 
-    private String getSlotLabel(String slotName) {
-        Map<String, String> labels = new LinkedHashMap<>();
-        labels.put("departure_station", "出发站");
-        labels.put("arrival_station", "到达站");
-        labels.put("departure_date", "出发日期");
-        labels.put("departure_time", "出发时间");
-        labels.put("passenger", "乘车人");
-        labels.put("seat_type", "座位类型");
-        labels.put("order_id", "订单号");
-        labels.put("product_name", "商品名称");
-        labels.put("price_limit", "价格");
-        labels.put("ticket_count", "票数");
-        return labels.getOrDefault(slotName, slotName);
+    private String getQuestion(String slotName, List<SlotStateMachine.SlotDef> definitions) {
+        return findDefinition(slotName, definitions).map(SlotStateMachine.SlotDef::question)
+                .filter(question -> !question.isBlank())
+                .orElse("请提供" + getSlotLabel(slotName, definitions) + "。");
     }
 
-    private String getQuestion(String slotName) {
-        return QUESTION_TEMPLATES.getOrDefault(slotName,
-                "请问您能提供" + getSlotLabel(slotName) + "吗？");
+    private String getConfirmQuestion(String slotName, Map<String, Object> entities,
+                                      List<SlotStateMachine.SlotDef> definitions) {
+        return "将使用默认的" + getSlotLabel(slotName, definitions) + "，需要更改吗？";
     }
 
-    private String getConfirmQuestion(String slotName, Map<String, Object> entities) {
-        // 对出发站等可默认槽位，尝试从上下文提取默认值
-        String template = QUESTION_TEMPLATES.get("confirm_" + slotName);
-        if (template != null && template.contains("{value}")) {
-            // 尝试从 entities 或历史获取默认值
-            String defaultValue = "常用地址";
-            if (entities != null && entities.containsKey("location")) {
-                defaultValue = entities.get("location").toString();
-            }
-            return template.replace("{value}", defaultValue);
-        }
-        return QUESTION_TEMPLATES.getOrDefault("confirm_" + slotName,
-                "默认" + getSlotLabel(slotName) + "，需要更改吗？");
+    private Optional<SlotStateMachine.SlotDef> findDefinition(
+            String slotName, List<SlotStateMachine.SlotDef> definitions) {
+        if (definitions == null) return Optional.empty();
+        return definitions.stream().filter(def -> Objects.equals(slotName, def.name())).findFirst();
     }
 
     // ==================== 内部类 ====================

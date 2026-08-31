@@ -145,6 +145,12 @@
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
+        <!-- Workflow recovery completion notifications -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
         <!-- ⭐ Resilience4j (熔断 + 限流 + 重试) -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>

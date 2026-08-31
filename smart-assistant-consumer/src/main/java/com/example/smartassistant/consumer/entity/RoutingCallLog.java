@@ -39,6 +39,10 @@ public class RoutingCallLog {
     @TableField("session_id")
     private String sessionId;
 
+    /** Independent Router/LangGraph execution ID for this conversation turn. */
+    @TableField("request_id")
+    private String requestId;
+
     /**
      * Authenticated user that owns this conversation log. Null is reserved for
      * legacy/system rows and must never be exposed to ordinary users.

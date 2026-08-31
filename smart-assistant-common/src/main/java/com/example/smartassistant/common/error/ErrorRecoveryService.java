@@ -92,7 +92,6 @@ public class ErrorRecoveryService {
                  SERVICE_NEWS_UNAVAILABLE,
                  SERVICE_SEARCH_UNAVAILABLE,
                  SERVICE_RATE_UNAVAILABLE,
-                 SERVICE_WEATHER_UNAVAILABLE,
                  SERVICE_COUPON_QUERY_FAILED,
                  SERVICE_COUPON_CALC_FAILED,
                  UPDATE_FAILED,
@@ -112,7 +111,6 @@ public class ErrorRecoveryService {
                  ORDER_NOT_FOUND,
                  PRODUCT_NOT_FOUND,
                  LOGISTICS_NOT_FOUND,
-                 WEATHER_NO_DATA,
                  NO_RESULTS ->
                     RecoveryAction.CLARIFY_USER;
 

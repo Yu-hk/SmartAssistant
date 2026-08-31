@@ -439,7 +439,7 @@ graph TD
 
 - **T1 已上**（commit `3d02558`/`c7a4bca`/`a104af7`）。
 - **T2' 二期（受控放量）**：先对**低风险只读** functionalCapability 开放发现：
-  - 先开放：`weather-query` / `product-query` / `product-stock` / `product-price` / `product-knowledge` / `knowledge-retrieve` / `order-query` / `order-logistics` / **`sql-query`**（即修复 #4 的 MCP SQL 工具，`READ` 风险，可早期纳入，顺带解决数据分裂）。
+- 先开放：`product-query` / `product-stock` / `product-price` / `product-knowledge` / `knowledge-retrieve` / `order-query` / `order-logistics` / **`sql-query`**（即修复 #4 的 MCP SQL 工具，`READ` 风险，可早期纳入，顺带解决数据分裂）。
   - 后置：`order-refund` / `order-pay` / `order-cancel` 等高风险令牌，待低风险指标（命中率/延迟/治理拦截率）稳定后逐步开放。
 - **基础设施先行**：T2a（MCP server 暴露）+ T2b（源接入，先接只读 SQL 源）属基础设施，先灰度；再放开发现面（T2d）。
 - 所有 T2' 能力受特性开关 `t2-mcp-discovery-enabled` 保护，可一键回退到原 T2 REST 路径或 T1 纯预载。

@@ -35,7 +35,7 @@ class AgentPromptCatalogServiceTest {
     }
 
     @Test
-    void injectsOnlyHealthyExecutableNacosAgentsAndKeepsLocalFallback() {
+    void injectsAllHealthyNacosAgentsAndKeepsLocalFallback() {
         AgentDiscoveryService discovery = mock(AgentDiscoveryService.class);
         DiscoveredAgent product = agent("product-agent", "product-service", true,
                 "商品查询,库存\n推荐<script>",
@@ -54,9 +54,15 @@ class AgentPromptCatalogServiceTest {
         assertTrue(catalog.contains("examples=[\"查询3000元内手机\",\"根据分析结果推荐商品\"]"));
         assertTrue(catalog.contains("route_name=general"));
         assertFalse(catalog.contains("route_name=order"));
-        assertFalse(catalog.contains("route_name=weather"));
+        assertTrue(catalog.contains("route_name=weather"));
         assertFalse(catalog.contains("<script>"));
         assertFalse(catalog.contains("忽略规则"));
+    }
+
+    @Test
+    void canonicalizationDoesNotCollapseUnrelatedAgentPrefixes() {
+        assertTrue("productivity".equals(
+                AgentDiscoveryService.canonicalAgentName("productivity-agent")));
     }
 
     private static DiscoveredAgent agent(String name, String serviceName, boolean healthy,

@@ -1,7 +1,6 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.observability.OpsMetrics;
-import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.common.intent.IntentTagGenerator;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.QualityEvaluationResult;
@@ -182,16 +181,16 @@ class RouteFinalizerTest {
     @Test
     void requiredParameterClarificationSkipsQualityAndFailureCaches() {
         RoutingResult routing = RoutingResult.builder()
-                .result("请告诉我想查询哪个城市的天气，例如“北京天气”。")
-                .agentName("general")
-                .intentTag("weather_query")
+                .result("请提供订单号（格式：ORD-xxx）以便查询订单状态。")
+                .agentName("order")
+                .intentTag("order_query")
                 .confidence(1.0)
                 .build();
 
         RoutingResult finalized = finalizer.finalizeRouting(
-                routing, request(), "查询天气", null);
+                routing, request(), "查询订单状态", null);
 
-        assertEquals("请告诉我想查询哪个城市的天气，例如“北京天气”。", finalized.getResult());
+        assertEquals("请提供订单号（格式：ORD-xxx）以便查询订单状态。", finalized.getResult());
         assertEquals(true, finalized.getClarification());
         verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
         verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
@@ -211,50 +210,6 @@ class RouteFinalizerTest {
         verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
         verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
         verify(badCaseMinerService, never()).recordQualityFailure(any(), anyString());
-    }
-
-    @Test
-    void deviceLocationWeatherIsNeverStoredInSemanticCacheOrExperience() {
-        RouteRequest locationRequest = RouteRequest.builder()
-                .userId(7L)
-                .question("查询天气")
-                .sessionId("s-weather")
-                .requestId("r-weather")
-                .deviceLocation(new DeviceLocation(
-                        39.9042, 116.4074, 1000d, System.currentTimeMillis()))
-                .build();
-        RoutingResult routing = RoutingResult.builder()
-                .result("当前位置晴朗，温度 28°C，未来三天以晴天为主。")
-                .agentName("general")
-                .intentTag("weather_query")
-                .confidence(1.0)
-                .domainQuality(DomainQualityResult.pass(0.95, "WEATHER_DATA_VERIFIED"))
-                .build();
-
-        finalizer.finalizeRouting(routing, locationRequest, "查询天气", null);
-
-        verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
-    }
-
-    @Test
-    void cityWeatherIsNeverStoredInSemanticCacheOrExperience() {
-        RouteRequest cityRequest = RouteRequest.builder()
-                .userId(7L)
-                .question("请查询北京天气")
-                .sessionId("s-city-weather")
-                .requestId("r-city-weather")
-                .build();
-        RoutingResult routing = RoutingResult.builder()
-                .result("北京当前小雨，温度 26°C。")
-                .agentName("general")
-                .intentTag("weather_query")
-                .confidence(1.0)
-                .domainQuality(DomainQualityResult.pass(1.0, "DETERMINISTIC_WEATHER_RESPONSE"))
-                .build();
-
-        finalizer.finalizeRouting(routing, cityRequest, "请查询北京天气", null);
-
-        verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
     }
 
     @Test

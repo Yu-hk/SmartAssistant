@@ -89,7 +89,7 @@ class DiscoverToolsToolTest {
         // 第一次发现
         tool.discoverTools("sql-query", null, "OR", 20);
         // 第二次发现（不同能力）
-        tool.discoverTools("weather-query", null, "OR", 20);
+        tool.discoverTools("product-query", null, "OR", 20);
 
         // 第三次发现 - 应该被拒绝
         String thirdResult = tool.discoverTools("refund", null, "OR", 20);

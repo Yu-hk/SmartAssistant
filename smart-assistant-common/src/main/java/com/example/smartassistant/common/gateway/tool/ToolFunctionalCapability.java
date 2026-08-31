@@ -31,9 +31,6 @@ public enum ToolFunctionalCapability {
     /** 单位换算 */
     UNIT_CONVERT("unit-convert"),
 
-    /** 天气查询 */
-    WEATHER_QUERY("weather-query"),
-
     /** 图片内容分析 */
     IMAGE_ANALYZE("image-analyze"),
 

@@ -33,7 +33,9 @@ final class ExecutionPlanValidator {
                 continue;
             }
             if (!ids.add(node.nodeId())) errors.add("duplicate node id: " + node.nodeId());
-            if (node.domain() == null) errors.add("node has no domain: " + node.nodeId());
+            if (node.targetAgent() == null || node.targetAgent().isBlank()) {
+                errors.add("node has no target agent: " + node.nodeId());
+            }
             if (node.operation() == null || node.operation().isBlank()) {
                 errors.add("node has no operation: " + node.nodeId());
             }
@@ -88,11 +90,17 @@ final class ExecutionPlanValidator {
     private static boolean dependsOnOperation(ExecutionPlan.TaskNode node,
                                               Map<String, ExecutionPlan.TaskNode> byId,
                                               Set<String> operations) {
-        return node.dependsOn().stream()
-                .map(byId::get)
-                .filter(java.util.Objects::nonNull)
-                .map(ExecutionPlan.TaskNode::operation)
-                .anyMatch(operations::contains);
+        ArrayDeque<String> pending = new ArrayDeque<>(node.dependsOn());
+        Set<String> visited = new HashSet<>();
+        while (!pending.isEmpty()) {
+            String dependencyId = pending.removeFirst();
+            if (!visited.add(dependencyId)) continue;
+            ExecutionPlan.TaskNode dependency = byId.get(dependencyId);
+            if (dependency == null) continue;
+            if (operations.contains(dependency.operation())) return true;
+            pending.addAll(dependency.dependsOn());
+        }
+        return false;
     }
 
     static ValidationResult validateGraph(IntentGraph graph, Set<String> allowedAgents) {

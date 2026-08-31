@@ -153,16 +153,14 @@ public class KnowledgeSeedData {
         docs.add(new KnowledgeDocument("PROD-QUERY-001", "商品查询指南",
                 "用户查询商品信息时，可以提供以下维度的信息：商品名称、品牌、型号、规格参数、"
                 + "价格区间、库存状态、用户评价。"
-                + "使用 queryProductInfo 工具查询商品详情（含规格、参数、评价）。"
-                + "使用 getPrice 工具查询实时价格。"
-                + "使用 checkStock 工具查询库存。",
+                + "系统可查询商品详情（含规格、参数、评价）、实时价格和库存。",
                 "商品查询", "商品信息,查询指南,商品参数", now - 30 * 86400000, now + year));
 
         docs.add(new KnowledgeDocument("PROD-PRICE-001", "价格政策说明",
                 "商品价格由商家设置，平台不干预定价。价格可能随时调整，以下单时价格为准。"
                 + "促销活动期间价格会有优惠，具体以活动规则为准。"
                 + "价格保护：部分商品支持7天价保，购买后7天内降价可申请退差价。"
-                + "使用 getPrice 工具可查询商品的实时价格和促销信息。",
+                + "如需实时价格和促销信息，请先指定具体商品。",
                 "价格政策", "价格,促销,价保,退差价", now - 30 * 86400000, now + year));
 
         docs.add(new KnowledgeDocument("PROD-STOCK-001", "库存状态说明",

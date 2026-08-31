@@ -310,13 +310,13 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
         String aclClause = buildAclClause(acl);
 
         List<Object> params = new ArrayList<>();
-        params.add(vecStr);   // embedding <-> ?
+        params.add(vecStr);   // embedding <=> ? (cosine distance)
         params.add(now);      // effective_at
         params.add(now);      // expire_at
         if (versionFilter) {
             params.add(activeVersion);
         }
-        params.add(vecStr);   // ORDER BY embedding <-> ?
+        params.add(vecStr);   // ORDER BY embedding <=> ?
         params.add(50);       // LIMIT
 
         String sql = "SELECT id, title, content, category, keywords, effective_at, expire_at, "
@@ -324,7 +324,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "authority_level, document_status, security_level, "
                 + "authorized_roles, authorized_users, parent_doc_id, source_type, "
                 + "raw_checksum, ingest_batch_id, index_version, chunk_role, "
-                + "(embedding <-> ?::vector) AS dist "
+                + "(embedding <=> ?::vector) AS dist "
                 + "FROM " + TABLE + " "
                 + "WHERE (effective_at <= 0 OR effective_at <= ?) "
                 + "AND (expire_at <= 0 OR expire_at > ?) "
@@ -332,7 +332,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "AND embedding IS NOT NULL "
                 + aclClause
                 + versionClause
-                + "ORDER BY embedding <-> ?::vector LIMIT ?";
+                + "ORDER BY embedding <=> ?::vector LIMIT ?";
 
         // 精排：BM25 + 时间衰减 + ⭐ 真实余弦距离（dist 由 SQL 计算，随文档一同取回）
         List<DocWithDist> candidates = jdbcTemplate.query(sql,
@@ -345,12 +345,14 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
 
         List<ScoredDoc> scored = candidates.stream()
                 .filter(d -> d.doc.isRetrievable())
+                // 候选门槛必须基于纯余弦相似度；时效性/BM25 只参与候选内排序，
+                // 否则仍在有效期内但临近失效的高相关文档会被综合分误过滤。
+                .filter(d -> realCosineScore(d.dist) >= MIN_SIMILARITY)
                 .map(d -> {
                     double cosSim = realCosineScore(d.dist);
                     double score = composeScore(cosSim, d.doc, query);
                     return new ScoredDoc(d.doc, score);
                 })
-                .filter(sd -> sd.score >= MIN_SIMILARITY)
                 .sorted((a, b) -> Double.compare(b.score, a.score))
                 .limit(k)
                 .collect(Collectors.toList());
@@ -547,9 +549,9 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
 
         String tenantId = acl.getTenantId();
         if (tenantId == null || tenantId.isEmpty()) {
-            sb.append("AND (tenant_id IS NULL OR tenant_id = '') ");
+            sb.append("AND (tenant_id IS NULL OR tenant_id = '' OR LOWER(tenant_id) = 'public') ");
         } else {
-            sb.append("AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = '")
+            sb.append("AND (tenant_id IS NULL OR tenant_id = '' OR LOWER(tenant_id) = 'public' OR tenant_id = '")
               .append(tenantId.replace("'", "''")).append("') ");
         }
 

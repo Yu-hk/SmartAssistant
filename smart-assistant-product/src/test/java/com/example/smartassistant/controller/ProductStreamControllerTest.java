@@ -19,6 +19,9 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -78,7 +81,7 @@ class ProductStreamControllerTest {
         ProductStreamController controller = new ProductStreamController(service);
 
         var response = controller.execute(AgentExecutionRequest.answer(
-                "req-protocol", "1", "推荐办公电脑", null), null);
+                "req-protocol", "1", "推荐办公电脑"), null);
 
         assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
         assertEquals("推荐 A 型号", response.getBody().answer());
@@ -90,7 +93,7 @@ class ProductStreamControllerTest {
         StreamingProductAgentService service = mock(StreamingProductAgentService.class);
         ProductDiscoveryService discovery = mock(ProductDiscoveryService.class);
         when(discovery.supports("查询热门商品")).thenReturn(true);
-        when(discovery.discover("查询热门商品", 3)).thenReturn(
+        when(discovery.discover(eq("查询热门商品"), anyString(), eq(3))).thenReturn(
                 new ProductDiscoveryService.DiscoveryResult(
                         "1. 降噪耳机（SKU-100） — ¥599", 1, true,
                         List.of(new ProductBackend.ProductSummary(
@@ -100,7 +103,7 @@ class ProductStreamControllerTest {
         AgentExecutionRequest request = new AgentExecutionRequest(
                 "1.0", "scene-1", "hot-products", "42", "QUERY_HOT_PRODUCTS",
                 "查询热门商品", Map.of("limit", 3), List.of(), List.of(), null,
-                null, null);
+                null);
 
         var response = controller.execute(request, null);
 
@@ -117,7 +120,7 @@ class ProductStreamControllerTest {
         ProductDiscoveryService discovery = mock(ProductDiscoveryService.class);
         String question = "查询热门商品并判断是否适合视频会议，不要虚构参数";
         when(discovery.supports(question)).thenReturn(true);
-        when(discovery.discover(question, null)).thenReturn(
+        when(discovery.discover(eq(question), anyString(), isNull())).thenReturn(
                 new ProductDiscoveryService.DiscoveryResult(
                         "目录证据不足，不能把热门等同于适合。", 1, true,
                         List.of(new ProductBackend.ProductSummary(
@@ -126,7 +129,7 @@ class ProductStreamControllerTest {
         ProductStreamController controller = new ProductStreamController(service, discovery);
 
         var response = controller.execute(AgentExecutionRequest.answer(
-                "scene-limited", "42", question, null), null);
+                "scene-limited", "42", question), null);
 
         assertEquals("PASS", response.getBody().quality().status());
         assertEquals(List.of("PRODUCT_SCENARIO_EVIDENCE_LIMITED"),
@@ -147,7 +150,7 @@ class ProductStreamControllerTest {
                 "1.0", "scene-analysis", "analyze_product_data", "42",
                 "ANALYZE_PRODUCT_DATA", "分析候选商品与用户预算的匹配度",
                 Map.of(), List.of("discover_products"), List.of(), null,
-                null, null, predecessors, "shopping", 1, "sha256:v1", 0,
+                null, predecessors, "shopping", 1, "sha256:v1", 0,
                 "scene-analysis");
         when(service.analyzeVerifiedContext(
                 org.mockito.ArgumentMatchers.eq("分析候选商品与用户预算的匹配度"),
@@ -163,6 +166,10 @@ class ProductStreamControllerTest {
         assertEquals(List.of("discover_products"), response.getBody().data().get("sourceNodeIds"));
         assertEquals("### 数据分析开始 ###\n【核心结论】SKU-100 符合预算",
                 response.getBody().data().get("analysis"));
+        assertEquals(1, response.getBody().data().get("productCount"));
+        org.assertj.core.api.Assertions.assertThat(
+                (List<?>) response.getBody().data().get("products"))
+                .singleElement().asString().contains("SKU-100");
         verify(service).analyzeVerifiedContext(
                 org.mockito.ArgumentMatchers.eq("分析候选商品与用户预算的匹配度"),
                 org.mockito.ArgumentMatchers.argThat(context ->
@@ -183,7 +190,7 @@ class ProductStreamControllerTest {
                 "1.0", "scene-recommend", "recommend_product", "42",
                 "RECOMMEND_PRODUCT", "核实分析并推荐",
                 Map.of(), List.of("analyze_product_data"), List.of(), null,
-                null, null, predecessors, "shopping", 1, "sha256:v1", 0,
+                null, predecessors, "shopping", 1, "sha256:v1", 0,
                 "scene-recommend");
         when(service.verifyAnalysisAndRecommend(
                 org.mockito.ArgumentMatchers.eq("核实分析并推荐"),
@@ -198,5 +205,72 @@ class ProductStreamControllerTest {
         assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
         assertEquals("推荐 SKU-100，价格 ¥599，库存有货",
                 response.getBody().data().get("recommendation"));
+    }
+
+    @Test
+    void recommendationFallsBackToVerifiedCandidatesWhenModelOnlyRefuses() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        ProductStreamController controller = new ProductStreamController(service);
+        Map<String, AgentNodeOutput> predecessors = Map.of(
+                "discover_products", new AgentNodeOutput(
+                        "discover_products", "product", "SUCCEEDED", "发现候选", Map.of(
+                        "products", List.of(
+                                Map.of("code", "SKU-100", "name", "降噪耳机",
+                                        "price", 599, "stock", "有货", "popularity", 3),
+                                Map.of("code", "SKU-200", "name", "会议耳机",
+                                        "price", 799, "stock", "有货", "popularity", 3)))),
+                "analyze_product_data", new AgentNodeOutput(
+                        "analyze_product_data", "product", "SUCCEEDED",
+                        "现有数据无法选出唯一商品", Map.of(
+                        "analysis", "两个候选近期订单数相同，缺少口碑数据")));
+        AgentExecutionRequest request = new AgentExecutionRequest(
+                "1.0", "scene-fallback", "recommend_product", "42",
+                "RECOMMEND_PRODUCT", "推荐现在的热门商品", Map.of(),
+                List.of("discover_products", "analyze_product_data"), List.of(), null,
+                null, predecessors, "shopping", 1, "sha256:v1", 0,
+                "scene-fallback");
+        when(service.verifyAnalysisAndRecommend(
+                org.mockito.ArgumentMatchers.eq("推荐现在的热门商品"),
+                org.mockito.ArgumentMatchers.contains("SKU-100"),
+                org.mockito.ArgumentMatchers.eq("scene-fallback")))
+                .thenReturn(DomainAgentResponse.of(
+                        "数据不足，暂时无法推荐。",
+                        DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED")));
+
+        var response = controller.execute(request, null);
+
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
+        assertEquals("WARN", response.getBody().quality().status());
+        String answer = response.getBody().answer();
+        org.assertj.core.api.Assertions.assertThat(answer)
+                .contains("SKU-100", "SKU-200", "近期订单数均为 3")
+                .doesNotContain("数据不足，暂时无法推荐");
+        assertEquals(answer, response.getBody().data().get("recommendation"));
+    }
+
+    @Test
+    void passesStructuredCategoryAndUsesCandidatePoolForTabletDiscovery() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        ProductDiscoveryService discovery = mock(ProductDiscoveryService.class);
+        String rawQuestion = "我想买一部平板电脑，帮我推荐一款热门的&#x20;";
+        String normalized = "我想买一部平板电脑，帮我推荐一款热门的";
+        when(discovery.discover(normalized, "平板电脑", 1)).thenReturn(
+                new ProductDiscoveryService.DiscoveryResult(
+                        "近期热门平板电脑：iPad Pro M4", 1, true,
+                        List.of(new ProductBackend.ProductSummary(
+                                "IPAD-PRO-M4", "iPad Pro M4", new BigDecimal("9499"),
+                                "充足", "M4 芯片", 3, "平板电脑")), false, "平板电脑"));
+        ProductStreamController controller = new ProductStreamController(service, discovery);
+        AgentExecutionRequest request = new AgentExecutionRequest(
+                "1.0", "scene-tablet", "discover_products", "42",
+                "DISCOVER_PRODUCTS", rawQuestion,
+                Map.of("product_category", "平板电脑", "limit", 1),
+                List.of(), List.of(), null, null);
+
+        var response = controller.execute(request, null);
+
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
+        assertEquals("平板电脑", response.getBody().data().get("category"));
+        verify(discovery).discover(normalized, "平板电脑", 1);
     }
 }

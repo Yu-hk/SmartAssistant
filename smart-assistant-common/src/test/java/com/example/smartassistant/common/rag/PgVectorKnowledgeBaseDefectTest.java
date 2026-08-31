@@ -65,7 +65,7 @@ class PgVectorKnowledgeBaseDefectTest {
 
     @Test
     void cosineScoreIsOneMinusDistance() {
-        // 缺陷#2 修复：相似度 = 1 - 余弦距离（pgvector <-> 返回余弦距离，范围 [0,2]）
+        // 缺陷#2 修复：相似度 = 1 - 余弦距离（pgvector <=> 返回余弦距离，范围 [0,2]）
         assertEquals(1.0, PgVectorKnowledgeBase.realCosineScore(0.0), 1e-9);
         assertEquals(0.5, PgVectorKnowledgeBase.realCosineScore(0.5), 1e-9);
         assertEquals(0.0, PgVectorKnowledgeBase.realCosineScore(1.0), 1e-9);

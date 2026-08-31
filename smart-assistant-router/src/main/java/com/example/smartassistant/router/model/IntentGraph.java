@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.router.model;
 
+import com.example.smartassistant.routing.contract.WorkflowOperation;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -18,7 +20,7 @@ import com.example.smartassistant.router.model.SubTaskResult;
  * 将用户的多意图问题拆解为依赖感知的有向无环图（DAG），
  * 支持：
  * <ul>
- *   <li>无依赖节点并行执行（如"查天气"+"查新闻"互不依赖，可同时进行）</li>
+ *   <li>无依赖节点并行执行（如“查商品库存”+“查历史订单”互不依赖，可同时进行）</li>
  *   <li>有依赖节点顺序执行且共享上下文（如"先查景点，再推荐景点附近餐厅"）</li>
  *   <li>死锁检测：循环依赖或不可达节点自动跳过</li>
  * </ul>
@@ -447,12 +449,10 @@ public class IntentGraph {
 
         private static String inferAccessMode(String operation, boolean approvalRequired) {
             if (approvalRequired) return "WRITE";
-            String normalized = operation == null ? "" : operation.trim().toUpperCase(Locale.ROOT);
-            return switch (normalized) {
-                case "CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "PAY_ORDER",
-                        "SHIP_ORDER", "CONFIRM_DELIVERY" -> "WRITE";
-                default -> "READ";
-            };
+            return WorkflowOperation.fromCode(operation)
+                    .filter(WorkflowOperation::isWrite)
+                    .map(ignored -> "WRITE")
+                    .orElse("READ");
         }
 
         @Override

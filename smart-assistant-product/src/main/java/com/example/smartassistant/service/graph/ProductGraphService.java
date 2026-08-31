@@ -3,6 +3,7 @@ package com.example.smartassistant.service.graph;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import jakarta.annotation.PostConstruct;
 import java.util.*;
@@ -89,83 +90,55 @@ public class ProductGraphService {
 
     // ==================== 初始化 ====================
 
-    @PostConstruct
-    public void init() {
-        log.info("[ProductGraph] 初始化商品知识图谱...");
-        buildDefaultGraph();
-        log.info("[ProductGraph] 初始化完成: 节点={}, 边={}",
-                adjacencyList.size(),
-                adjacencyList.values().stream().mapToInt(List::size).sum());
+    private final ProductGraphSource graphSource;
+
+    public ProductGraphService(ProductGraphSource graphSource) {
+        this.graphSource = graphSource;
     }
 
-    /**
-     * 构建默认商品关系图（基于 InMemoryProductBackend 的 3 个商品扩展）。
-     */
-    private void buildDefaultGraph() {
-        // ===== 节点定义 =====
-        addNode("IPHONE-15-PRO", "iPhone 15 Pro", "智能手机", "Apple");
-        addNode("IPHONE-16-PRO", "iPhone 16 Pro", "智能手机", "Apple");
-        addNode("IPHONE-SE-4", "iPhone SE 4", "智能手机", "Apple");
-        addNode("SAMSUNG-S24", "Galaxy S24 Ultra", "智能手机", "Samsung");
-        addNode("HUAWEI-P70", "华为 P70 Pro", "智能手机", "Huawei");
-        addNode("AIRPODS-PRO", "AirPods Pro（第二代）", "耳机", "Apple");
-        addNode("AIRPODS-4", "AirPods 4", "耳机", "Apple");
-        addNode("SONY-WF1000XM5", "Sony WF-1000XM5", "耳机", "Sony");
-        addNode("MACBOOK-AIR-M3", "MacBook Air M3", "笔记本", "Apple");
-        addNode("MACBOOK-PRO-M4", "MacBook Pro M4", "笔记本", "Apple");
-        addNode("MAC-MINI-M4", "Mac mini M4", "台式机", "Apple");
-        addNode("IPAD-PRO-M4", "iPad Pro M4", "平板", "Apple");
-        addNode("APPLE-WATCH-U2", "Apple Watch Ultra 2", "手表", "Apple");
-        addNode("MAGIC-MOUSE", "Magic Mouse", "配件", "Apple");
-        addNode("MAGIC-KEYBOARD", "Magic Keyboard", "配件", "Apple");
+    @PostConstruct
+    public void init() {
+        refresh();
+    }
 
-        // ===== 边定义 =====
-
-        // SAME_CATEGORY 同类
-        addEdge("IPHONE-15-PRO", "IPHONE-16-PRO", RelationType.SAME_CATEGORY, 0.95);
-        addEdge("IPHONE-15-PRO", "IPHONE-SE-4", RelationType.SAME_CATEGORY, 0.70);
-        addEdge("IPHONE-15-PRO", "SAMSUNG-S24", RelationType.SAME_CATEGORY, 0.60);
-        addEdge("IPHONE-15-PRO", "HUAWEI-P70", RelationType.SAME_CATEGORY, 0.50);
-        addEdge("AIRPODS-PRO", "AIRPODS-4", RelationType.SAME_CATEGORY, 0.80);
-        addEdge("MACBOOK-AIR-M3", "MACBOOK-PRO-M4", RelationType.SAME_CATEGORY, 0.85);
-
-        // ALTERNATIVE 替代
-        addEdge("AIRPODS-PRO", "SONY-WF1000XM5", RelationType.ALTERNATIVE, 0.75);
-        addEdge("MACBOOK-AIR-M3", "MAC-MINI-M4", RelationType.ALTERNATIVE, 0.30);  // 弱替代
-        addEdge("AIRPODS-4", "SONY-WF1000XM5", RelationType.ALTERNATIVE, 0.65);
-
-        // ACCESSORY 配件
-        addEdge("IPHONE-15-PRO", "AIRPODS-PRO", RelationType.ACCESSORY, 0.85);
-        addEdge("IPHONE-15-PRO", "MAGIC-MOUSE", RelationType.ACCESSORY, 0.20);
-        addEdge("MACBOOK-AIR-M3", "MAGIC-MOUSE", RelationType.ACCESSORY, 0.60);
-        addEdge("MACBOOK-AIR-M3", "MAGIC-KEYBOARD", RelationType.ACCESSORY, 0.70);
-        addEdge("IPAD-PRO-M4", "MAGIC-KEYBOARD", RelationType.ACCESSORY, 0.80);
-
-        // UPGRADE 升级
-        addEdge("IPHONE-15-PRO", "IPHONE-16-PRO", RelationType.UPGRADE, 0.90);
-        addEdge("MACBOOK-AIR-M3", "MACBOOK-PRO-M4", RelationType.UPGRADE, 0.50);
-
-        // COMPLEMENT 互补
-        addEdge("IPHONE-15-PRO", "APPLE-WATCH-U2", RelationType.COMPLEMENT, 0.70);
-        addEdge("MACBOOK-AIR-M3", "IPAD-PRO-M4", RelationType.COMPLEMENT, 0.45);
-
-        log.info("[ProductGraph] 默认关系图构建完成");
+    @Scheduled(fixedDelayString = "${product.graph.refresh-ms:60000}")
+    public synchronized void refresh() {
+        ProductGraphSource.GraphSnapshot snapshot = graphSource.load();
+        Map<String, String> nextNames = new HashMap<>();
+        Map<String, String> nextCategories = new HashMap<>();
+        Map<String, String> nextBrands = new HashMap<>();
+        Map<String, List<Edge>> nextAdjacency = new HashMap<>();
+        for (ProductGraphSource.ProductNode node : snapshot.nodes()) {
+            nextNames.put(node.code(), node.name());
+            nextCategories.put(node.code(), node.category());
+            nextBrands.put(node.code(), node.brand());
+            nextAdjacency.put(node.code(), new ArrayList<>());
+        }
+        for (ProductGraphSource.ProductRelation relation : snapshot.relations()) {
+            if (!nextAdjacency.containsKey(relation.sourceCode())
+                    || !nextAdjacency.containsKey(relation.targetCode())) continue;
+            try {
+                RelationType type = RelationType.valueOf(relation.relationType().toUpperCase(Locale.ROOT));
+                addEdge(nextAdjacency, relation.sourceCode(), relation.targetCode(), type, relation.weight());
+            } catch (IllegalArgumentException ignored) {
+                log.warn("[ProductGraph] 忽略未知关系类型: {}", relation.relationType());
+            }
+        }
+        productNames.clear(); productNames.putAll(nextNames);
+        productCategory.clear(); productCategory.putAll(nextCategories);
+        productBrand.clear(); productBrand.putAll(nextBrands);
+        adjacencyList.clear(); adjacencyList.putAll(nextAdjacency);
+        log.info("[ProductGraph] 实时图刷新完成: 节点={}, 边={}", getNodeCount(), getEdgeCount());
     }
 
     // ==================== 节点/边操作 ====================
 
-    private void addNode(String code, String name, String category, String brand) {
-        productNames.put(code, name);
-        productCategory.put(code, category);
-        productBrand.put(code, brand);
-        adjacencyList.putIfAbsent(code, new ArrayList<>());
-    }
-
-    private void addEdge(String from, String to, RelationType type, double weight) {
-        adjacencyList.computeIfAbsent(from, k -> new ArrayList<>())
+    private static void addEdge(Map<String, List<Edge>> graph,
+                                String from, String to, RelationType type, double weight) {
+        graph.computeIfAbsent(from, k -> new ArrayList<>())
                 .add(new Edge(to, type, weight));
         // 无向图（加反向边，但反向时类型和权重保持一致）
-        adjacencyList.computeIfAbsent(to, k -> new ArrayList<>())
+        graph.computeIfAbsent(to, k -> new ArrayList<>())
                 .add(new Edge(from, type, weight * 0.9));
     }
 

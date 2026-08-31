@@ -77,6 +77,10 @@ export function useSessions() {
           content: m.content,
           model: m.model,
           intent: m.intent || undefined,
+          requestId: m.requestId || m.request_id || undefined,
+          deliveryStatus: m.status === 'FAILED' || m.status === 'TIMEOUT' ? 'failed' : 'completed',
+          recoverable: Boolean(m.requestId || m.request_id)
+            && (m.status === 'FAILED' || m.status === 'TIMEOUT'),
           timestamp: new Date(m.created_at),
           toolCalls: m.tool_calls || undefined,
         }));

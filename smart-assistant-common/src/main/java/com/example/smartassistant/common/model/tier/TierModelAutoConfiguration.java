@@ -51,9 +51,9 @@ public class TierModelAutoConfiguration {
     public TierModelRegistry tierModelRegistry(ChatModel chatModel,
                                                TieredModelRouterProperties props) {
         Map<ModelTier, TierModelRegistry.TierModelEntry> m = new EnumMap<>(ModelTier.class);
-        m.put(ModelTier.LIGHT, entry(chatModel, props.getLight()));
-        m.put(ModelTier.STANDARD, entry(chatModel, props.getStandard()));
-        m.put(ModelTier.HEAVY, entry(chatModel, props.getHeavy()));
+        m.put(ModelTier.LIGHT, entry(chatModel, props.getLight(), ModelTier.LIGHT));
+        m.put(ModelTier.STANDARD, entry(chatModel, props.getStandard(), ModelTier.STANDARD));
+        m.put(ModelTier.HEAVY, entry(chatModel, props.getHeavy(), ModelTier.HEAVY));
         return new TierModelRegistry(m);
     }
 
@@ -88,10 +88,17 @@ public class TierModelAutoConfiguration {
     }
 
     private TierModelRegistry.TierModelEntry entry(ChatModel chatModel,
-                                                   TieredModelRouterProperties.TierConfig cfg) {
+                                                   TieredModelRouterProperties.TierConfig cfg,
+                                                   ModelTier tier) {
         ChatOptions options = providerOptions(chatModel, cfg.getModel(), cfg.getTemperature());
+        String modelName = cfg.getModel();
+        if (modelName == null || modelName.isBlank()) {
+            ChatOptions defaults = chatModel.getDefaultOptions();
+            modelName = defaults != null && defaults.getModel() != null
+                    ? defaults.getModel() : tier.getCode();
+        }
         return new TierModelRegistry.TierModelEntry(
-                new DelegatingOptionsChatModel(chatModel, options), cfg.getModel());
+                new DelegatingOptionsChatModel(chatModel, options), modelName);
     }
 
     /**
@@ -102,6 +109,9 @@ public class TierModelAutoConfiguration {
     private ChatOptions providerOptions(ChatModel chatModel, String model, double temperature) {
         ChatOptions defaults = chatModel.getDefaultOptions();
         ChatOptions.Builder<?> builder = defaults != null ? defaults.mutate() : ChatOptions.builder();
-        return builder.model(model).temperature(temperature).build();
+        if (model != null && !model.isBlank()) {
+            builder.model(model);
+        }
+        return builder.temperature(temperature).build();
     }
 }

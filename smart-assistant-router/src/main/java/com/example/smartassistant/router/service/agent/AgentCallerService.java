@@ -13,7 +13,6 @@ import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.TokenUsageHeaders;
 import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageHeaders;
-import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.common.quality.DomainQualityHeaders;
 import com.example.smartassistant.common.quality.DomainQualityResult;
@@ -22,7 +21,6 @@ import com.example.smartassistant.common.scheduler.AgentTask;
 import com.example.smartassistant.common.scheduler.AgentTaskFactory;
 import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.RouteDecision;
-import com.example.smartassistant.router.service.extraction.KeywordExtractionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
@@ -91,13 +89,6 @@ public class AgentCallerService {
     // ⭐ P4 调度服务（可选：降级走同步 HTTP）
     private AgentSchedulerService schedulerService;
 
-    /** 保留 3 参构造以兼容既有直接 new 的单元测试（标题抽取降级为空） */
-    public AgentCallerService(AgentDiscoveryService agentDiscoveryService,
-                             KeywordExtractionService keywordExtractionService,
-                             AgentVersionNegotiator versionNegotiator) {
-        this(agentDiscoveryService, versionNegotiator, null, null);
-    }
-
     /** 完整构造（Spring 注入用）：注入结构化抽取所需的 AiChatService 与轻量模型 */
     @Autowired
     public AgentCallerService(AgentDiscoveryService agentDiscoveryService,
@@ -150,12 +141,6 @@ public class AgentCallerService {
     /** Calls an Agent without discarding its domain quality headers. */
     public AgentCallResult callAgentDetailed(String agentName, String question, Long userId, String requestId) {
         return callAgentWithContextDetailed(agentName, question, userId, null, requestId);
-    }
-
-    /** Calls an Agent with optional request-scoped device location context. */
-    public AgentCallResult callAgentDetailed(String agentName, String question, Long userId, String requestId,
-                                             DeviceLocation deviceLocation) {
-        return callAgentWithContextDetailed(agentName, question, userId, null, requestId, deviceLocation);
     }
 
     public AgentCallResult callAgentAndExtractTitles(String agentName, String question, Long userId) {
@@ -351,15 +336,9 @@ public class AgentCallerService {
     /** HTTP Agent call retaining the domain quality decision carried in response headers. */
     public AgentCallResult callAgentWithContextDetailed(String agentName, String question, Long userId,
                                                         RouteDecision.ExtractedContext context, String requestId) {
-        return callAgentWithContextDetailed(agentName, question, userId, context, requestId, null);
-    }
-
-    public AgentCallResult callAgentWithContextDetailed(String agentName, String question, Long userId,
-                                                        RouteDecision.ExtractedContext context, String requestId,
-                                                        DeviceLocation deviceLocation) {
         AgentExecutionRequest protocolRequest = AgentExecutionRequest.answer(
                 requestId, userId != null ? String.valueOf(userId) : null,
-                question, deviceLocation);
+                question);
         return callAgentProtocolDetailed(agentName, protocolRequest, context);
     }
 
@@ -367,11 +346,10 @@ public class AgentCallerService {
                                                        AgentExecutionRequest protocolRequest,
                                                        RouteDecision.ExtractedContext context) {
         if (protocolRequest == null) {
-            protocolRequest = AgentExecutionRequest.answer(null, null, "", null);
+            protocolRequest = AgentExecutionRequest.answer(null, null, "");
         }
         String question = protocolRequest != null ? protocolRequest.question() : "";
         String requestId = protocolRequest != null ? protocolRequest.executionId() : null;
-        DeviceLocation deviceLocation = protocolRequest != null ? protocolRequest.deviceLocation() : null;
         Long userId = null;
         if (protocolRequest != null && protocolRequest.userId() != null) {
             try {
@@ -413,16 +391,6 @@ public class AgentCallerService {
 
             log.info("[AgentCaller] HTTP 直调 URL: {}", processUri);
 
-            if (!"general".equals(canonicalName) && protocolRequest.deviceLocation() != null) {
-                protocolRequest = new AgentExecutionRequest(
-                        protocolRequest.protocolVersion(), protocolRequest.executionId(), protocolRequest.nodeId(),
-                        protocolRequest.userId(), protocolRequest.operation(), protocolRequest.question(),
-                        protocolRequest.input(), protocolRequest.contextRefs(), protocolRequest.constraints(),
-                        protocolRequest.deadlineEpochMs(), protocolRequest.idempotencyKey(), null,
-                        protocolRequest.predecessorOutputs(), protocolRequest.workflowKey(),
-                        protocolRequest.workflowVersion(), protocolRequest.workflowChecksum(),
-                        protocolRequest.attempt(), protocolRequest.traceId());
-            }
             String jsonBody = objectMapper.writeValueAsString(protocolRequest);
 
             HttpHeaders headers = new HttpHeaders();
@@ -652,12 +620,14 @@ public class AgentCallerService {
         if (response.contains("[reasoning]")) {
             response = response.replaceAll("(?s)\\[reasoning].*?\\[/reasoning]", "");
         }
+        // OpenAI-compatible reasoning endpoints commonly use XML-style tags.
+        response = response.replaceAll("(?is)<think(?:ing)?>.*?</think(?:ing)?>", "");
 
         if (response.length() < original.length()) {
             log.info("[AgentCaller] 清理思考过程，长度: {} -> {}", original.length(), response.length());
         }
 
-        return response;
+        return response.trim();
     }
 
     /**

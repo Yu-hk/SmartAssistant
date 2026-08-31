@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
  *
  * <p>参考文章三段式路由中的「复杂度评估」：
  * <ul>
- *   <li>简单查询（SIMPLE）：常规问答、查订单状态、天气查询等单步任务</li>
+ *   <li>简单查询（SIMPLE）：常规问答、查订单状态等单步任务</li>
  *   <li>中等查询（MEDIUM）：需要多步推理、参数提取、纠错等</li>
  *   <li>复杂查询（COMPLEX）：退款投诉、跨模块协作、多意图、情感分析</li>
  * </ul>
@@ -48,7 +48,7 @@ public class QueryComplexityClassifier {
             Pattern.compile("(?i)(查|查询|看|找|搜|搜一下|看看)"),
             Pattern.compile("(?i)(订单|物流|快递|商品|价格|库存)"),
             Pattern.compile("(?i)(多少|哪里|什么|谁|什么时候|几点)"),
-            Pattern.compile("(?i)(天气|时间|日期|今天|明天|昨天)"),
+            Pattern.compile("(?i)(时间|日期|今天|明天|昨天)"),
             Pattern.compile("(?i)(计算|转换|换算|多少.*钱)")
     );
 

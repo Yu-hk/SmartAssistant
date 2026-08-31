@@ -7,7 +7,6 @@
 
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.location.DeviceLocation;
 import com.example.smartassistant.common.sse.SseEvent;
 import com.example.smartassistant.common.sse.SseEventBus;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
@@ -17,6 +16,7 @@ import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLog
 import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
 import com.example.smartassistant.consumer.service.infrastructure.ToolUsageExtractor;
 import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.common.util.UserQuestionNormalizer;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
@@ -98,7 +98,7 @@ public class StreamChatController {
             HttpServletResponse response) {
 
         streamChatInternal(message, requestId, sessionId, showThinking, priority,
-                lastEventId, null, response);
+                lastEventId, response);
     }
 
     private void streamChatInternal(
@@ -108,8 +108,9 @@ public class StreamChatController {
             boolean showThinking,
             int priority,
             String lastEventId,
-            DeviceLocation deviceLocation,
             HttpServletResponse response) {
+
+        message = UserQuestionNormalizer.normalize(message);
 
         long startedAt = System.currentTimeMillis();
 
@@ -131,12 +132,12 @@ public class StreamChatController {
         // 获取路由决策
         RedisEventCursor progressCursor = new RedisEventCursor();
         Map<String, Object> decision = getRoutingDecision(
-                requestId, sessionId, message, deviceLocation, bus, progressCursor);
+                requestId, sessionId, message, bus, progressCursor);
         if (decision == null || (!decision.containsKey("result")
                 && !decision.containsKey("workflowStatus")
                 && !decision.containsKey("agentName"))) {
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                    message, "unknown", null, startedAt, "FAILED");
+                    decisionKey, message, "unknown", null, startedAt, "FAILED");
             bus.sendError("路由决策获取失败，请稍后重试");
             return;
         }
@@ -149,11 +150,12 @@ public class StreamChatController {
         ToolUsageCache.ToolUsage toolUsage = ToolUsageExtractor.extract(decision);
         Double confidence = (Double) decision.getOrDefault("confidence", 0.0);
         logger.info("[StreamChat] 路由: agentName={}, confidence={}", agentName, confidence);
-        // 对齐前端 useChat 期望的 init 事件（带 sessionId/intent），保证消息块正确挂载
+        // init 同时返回稳定会话 ID 与本轮独立执行 ID，禁止将二者混用。
         try {
             String initJson = objectMapper.writeValueAsString(Map.of(
                     "type", "init",
-                    "sessionId", decisionKey != null ? decisionKey : "",
+                    "sessionId", effectiveSessionId(sessionId, decisionKey),
+                    "requestId", decisionKey != null ? decisionKey : "",
                     "intent", decision.getOrDefault("intentTag", "unknown")));
             bus.send(SseEvent.raw("init", initJson));
         } catch (Exception ignored) {
@@ -176,16 +178,17 @@ public class StreamChatController {
                 responsePayload.put("executionMode", executionMode);
                 responsePayload.put("participatingAgents", participatingAgents);
                 responsePayload.put("workflowStatus", workflowStatus);
-                responsePayload.put("sessionId", decisionKey != null ? decisionKey : "");
+                responsePayload.put("sessionId", effectiveSessionId(sessionId, decisionKey));
+                responsePayload.put("requestId", decisionKey != null ? decisionKey : "");
                 String responseJson = objectMapper.writeValueAsString(responsePayload);
                 bus.send(SseEvent.raw("response", responseJson));
                 injectTokenUsageEvent(bus, tokenUsage);
                 bus.sendDone();
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                        message, agentName, result, startedAt, "SUCCESS", tokenUsage, toolUsage);
+                        decisionKey, message, agentName, result, startedAt, "SUCCESS", tokenUsage, toolUsage);
             } catch (Exception e) {
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                        message, agentName, null, startedAt, "FAILED");
+                        decisionKey, message, agentName, null, startedAt, "FAILED");
                 logger.error("[StreamChat] 路由结果序列化失败: {}", e.getMessage());
                 bus.sendError("响应生成失败，请稍后重试");
             } finally {
@@ -201,7 +204,7 @@ public class StreamChatController {
                 injectTokenUsageEvent(bus, tokenUsage);
                 bus.sendDone();
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                        message, agentName, null, startedAt, "SUCCESS", tokenUsage, toolUsage);
+                        decisionKey, message, agentName, null, startedAt, "SUCCESS", tokenUsage, toolUsage);
                 return;
             }
             Long eventCount = redisTemplate.opsForList().size(eventsKey);
@@ -211,7 +214,7 @@ public class StreamChatController {
                 injectTokenUsageEvent(bus, tokenUsage);
                 bus.sendDone();
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                        message, agentName, null, startedAt, forwarded ? "SUCCESS" : "FAILED",
+                        decisionKey, message, agentName, null, startedAt, forwarded ? "SUCCESS" : "FAILED",
                         tokenUsage, toolUsage);
                 return;
             }
@@ -220,13 +223,13 @@ public class StreamChatController {
         // 流式支持检查
         if (agentName == null || agentName.isBlank()) {
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                    message, null, null, startedAt, "FAILED");
+                    decisionKey, message, null, null, startedAt, "FAILED");
             bus.sendError("路由结果缺少可直接调用的业务 Agent");
             return;
         }
         if (!agentStreamClient.isStreamingSupported(agentName)) {
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                    message, agentName, null, startedAt, "FAILED");
+                    decisionKey, message, agentName, null, startedAt, "FAILED");
             bus.sendError("Agent 不支持流式响应");
             return;
         }
@@ -235,7 +238,7 @@ public class StreamChatController {
         if (decisionKey != null && !decisionKey.isBlank()) {
             if (!handleQueue(decisionKey, priority, bus)) {
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                        message, agentName, null, startedAt, "FAILED");
+                        decisionKey, message, agentName, null, startedAt, "FAILED");
                 return;
             }
         }
@@ -254,7 +257,7 @@ public class StreamChatController {
             injectTokenUsageEvent(bus, combinedUsage);
             bus.sendDone();
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                    message, agentName, null, startedAt,
+                    decisionKey, message, agentName, null, startedAt,
                     forwardResult.success() ? "SUCCESS" : "FAILED", combinedUsage, toolUsage);
         } finally {
             if (decisionKey != null && !decisionKey.isBlank()) {
@@ -293,13 +296,8 @@ public class StreamChatController {
                 ? (Boolean) request.get("showThinking") : true;
         int priority = request.containsKey("priority")
                 ? ((Number) request.get("priority")).intValue() : RequestQueueService.PRIORITY_NORMAL;
-        DeviceLocation deviceLocation = DeviceLocation.from(request.get("deviceLocation"));
-        if (deviceLocation != null && !deviceLocation.isUsable()) {
-            logger.info("[StreamChat] 忽略无效、过期或精度不足的设备位置");
-            deviceLocation = null;
-        }
         streamChatInternal(message, requestId, sessionId, showThinking, priority,
-                null, deviceLocation, response);
+                null, response);
     }
 
     @PostMapping("/chat/cancel")
@@ -328,7 +326,7 @@ public class StreamChatController {
     }
 
     private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message,
-                                                   DeviceLocation deviceLocation, SseEventBus bus,
+                                                   SseEventBus bus,
                                                    RedisEventCursor progressCursor) {
         // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
@@ -338,7 +336,7 @@ public class StreamChatController {
         }
         // ⚠️ 先触发路由决策写入 Redis（修复原"只等待、不触发"导致永久失败的问题）
         try {
-            routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey, deviceLocation);
+            routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey);
         } catch (Exception e) {
             logger.warn("[StreamChat] 触发路由决策异常(将尝试等待已有决策): {}", e.getMessage());
         }
@@ -424,23 +422,23 @@ public class StreamChatController {
         }
     }
 
-    private void persistStreamLog(String rawUserId, String sessionId, String message,
-                                  String agentName, String responseSummary,
-                                  long startedAt, String status) {
-        persistStreamLog(rawUserId, sessionId, message, agentName, responseSummary,
+    private void persistStreamLog(String rawUserId, String sessionId, String requestId, String message,
+                                 String agentName, String responseSummary,
+                                 long startedAt, String status) {
+        persistStreamLog(rawUserId, sessionId, requestId, message, agentName, responseSummary,
                 startedAt, status, TokenUsageExtractor.TokenUsage.unknown());
     }
 
-    private void persistStreamLog(String rawUserId, String sessionId, String message,
-                                  String agentName, String responseSummary,
-                                  long startedAt, String status,
-                                  TokenUsageExtractor.TokenUsage tokenUsage) {
-        persistStreamLog(rawUserId, sessionId, message, agentName, responseSummary,
+    private void persistStreamLog(String rawUserId, String sessionId, String requestId, String message,
+                                 String agentName, String responseSummary,
+                                 long startedAt, String status,
+                                 TokenUsageExtractor.TokenUsage tokenUsage) {
+        persistStreamLog(rawUserId, sessionId, requestId, message, agentName, responseSummary,
                 startedAt, status, tokenUsage, null);
     }
 
-    private void persistStreamLog(String rawUserId, String sessionId, String message,
-                                  String agentName, String responseSummary,
+    private void persistStreamLog(String rawUserId, String sessionId, String requestId, String message,
+                                 String agentName, String responseSummary,
                                   long startedAt, String status,
                                   TokenUsageExtractor.TokenUsage tokenUsage,
                                   ToolUsageCache.ToolUsage toolUsage) {
@@ -455,6 +453,7 @@ public class StreamChatController {
         routingCallLogService.saveLog(
                 userId,
                 sessionId,
+                requestId,
                 message,
                 agentName == null || agentName.isBlank() ? "unknown" : agentName,
                 "STREAM_ROUTER_SERVICE",

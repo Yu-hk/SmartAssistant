@@ -117,39 +117,12 @@ public class IntentGuidedQueryRewriter {
             subQueries.add(question);
         }
 
-        StringBuilder rewritten = new StringBuilder();
-        rewritten.append("[用户原始请求]\n").append(question);
-
-        if (subQueries.size() > 1) {
-            rewritten.append("\n\n[已识别子任务]");
-            for (int i = 0; i < subQueries.size(); i++) {
-                rewritten.append("\n").append(i + 1).append(". ").append(subQueries.get(i));
-            }
-        }
-
-        if (analysis.getActionConstraints() != null && !analysis.getActionConstraints().isEmpty()) {
-            rewritten.append("\n\n[用户操作约束]");
-            for (String constraint : analysis.getActionConstraints()) {
-                rewritten.append("\n- ").append(constraint);
-            }
-        }
-
-        if (analysis.isNeedsClarification()) {
-            rewritten.append("\n\n[执行边界]\n")
-                    .append("存在尚未补齐的信息。先完成可独立执行的查询或分析任务；")
-                    .append("不得调用创建订单、支付、退款、取消等会改变数据或状态的工具。")
-                    .append("在返回查询结果后，再向用户询问下游操作缺少的信息。");
-            if (analysis.getMissingSlots() != null && !analysis.getMissingSlots().isEmpty()) {
-                rewritten.append("\n缺失信息：").append(String.join("、", analysis.getMissingSlots()));
-            }
-            if (analysis.getClarificationQuestions() != null
-                    && !analysis.getClarificationQuestions().isEmpty()) {
-                rewritten.append("\n建议追问：")
-                        .append(String.join("；", analysis.getClarificationQuestions()));
-            }
-        }
-
-        return new RewriteResult(rewritten.toString(), "decomposition", subQueries);
+        // Keep the user-facing query and the execution plan in separate channels. Subtasks,
+        // missing slots and safety constraints already live in TaskAnalysisResult and are
+        // transported as typed graph metadata. Serializing them into the query leaks internal
+        // planning into Agent answers and also makes every downstream product node look like
+        // the same discovery request.
+        return new RewriteResult(question, "decomposition", List.copyOf(subQueries));
     }
 
     /**

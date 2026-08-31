@@ -24,11 +24,11 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 
 /**
- * DeepSeek 模型推理服务。
+ * Tier-aware model inference service.
  * <p>
- * 意图拆解按当前用户问题长度选择模型：短请求使用低延迟的
- * {@code deepseek-v4-flash}，长请求使用推理能力更强的
- * {@code deepseek-v4-pro}。调用仍由 {@link AgentLLMGateway}
+ * Intent decomposition selects the configured LIGHT or HEAVY tier by question
+ * length. Concrete provider and model names come from the tier registry.
+ * Calls remain managed by {@link AgentLLMGateway}
  * 统一管理超时、重试和熔断。
  * </p>
  */
@@ -66,11 +66,11 @@ public class ModelRoutingService {
             this.lightIntentModel = registry.modelName(ModelTier.LIGHT);
             this.heavyIntentModel = registry.modelName(ModelTier.HEAVY);
         } else {
-            this.lightIntentModel = "deepseek-v4-flash";
-            this.heavyIntentModel = "deepseek-v4-flash";
-            log.warn("[ModelRouting] TierModelRegistry 不可用，意图分析暂统一使用 deepseek-v4-flash");
+            this.lightIntentModel = planningClient.modelName();
+            this.heavyIntentModel = planningClient.modelName();
+            log.warn("[ModelRouting] TierModelRegistry 不可用，意图分析使用规划客户端的配置模型");
         }
-        log.info("[ModelRouting] DeepSeek 意图模型就绪: short={}, long={}",
+        log.info("[ModelRouting] 意图模型就绪: short={}, long={}",
                 lightIntentModel, heavyIntentModel);
     }
 
@@ -86,7 +86,7 @@ public class ModelRoutingService {
                 selectedModel, systemPrompt, userMessage, timeoutMs);
 
         if (!result.success()) {
-            throw new RuntimeException("DeepSeek intent analysis failed: " + result.errorMessage());
+            throw new RuntimeException("Intent analysis model failed: " + result.errorMessage());
         }
         int chars = codePointLength(currentQuestion);
         log.info("[ModelRouting] 意图拆解完成: chars={}, tier={}, model={}, elapsed={}ms",
@@ -121,7 +121,7 @@ public class ModelRoutingService {
     }
 
     /**
-     * 调用默认 DeepSeek Chat 模型。
+     * 调用当前配置的轻量 Chat 模型。
      * <p>
      * 用于非意图分析场景，保留兼容入口。
      * </p>
@@ -139,7 +139,7 @@ public class ModelRoutingService {
                     }
                     return builder.call().content();
                 },
-                "deepseek-v4-flash",
+                lightIntentModel,
                 config);
 
         if (result.success()) {
@@ -149,7 +149,7 @@ public class ModelRoutingService {
         }
 
         log.error("[ModelRouting] 推理失败: {}", result.errorMessage());
-        throw new RuntimeException("DeepSeek model API call failed: " + result.errorMessage());
+        throw new RuntimeException("Model API call failed: " + result.errorMessage());
     }
 
     /**

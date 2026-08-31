@@ -920,10 +920,7 @@ public class ExperienceService {
      * 查找兜底 Agent
      */
     private String findFallbackAgent(String primaryAgent) {
-        return switch (primaryAgent) {
-            case "order_agent", "product_agent", "general_agent", "general" -> "router_fallback";
-            default -> "router_fallback";
-        };
+        return "router_fallback";
     }
 
     /**

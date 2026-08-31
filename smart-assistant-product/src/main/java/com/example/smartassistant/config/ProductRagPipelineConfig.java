@@ -15,6 +15,8 @@ import com.example.smartassistant.common.rag.pipeline.EmbeddingScorer;
 import com.example.smartassistant.common.rag.pipeline.MetricsCollectorHandler;
 import com.example.smartassistant.common.rag.pipeline.QueryRewriteHandler;
 import com.example.smartassistant.common.rag.pipeline.RerankHandler;
+import com.example.smartassistant.service.search.LlmSupplementalQueryPlanner;
+import com.example.smartassistant.service.search.SupplementalQueryPlanner;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +27,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 /**
  * Product 模块 RAG Pipeline 配置。
@@ -32,6 +35,7 @@ import org.springframework.context.annotation.Configuration;
  * <p>注册查询重写和重排序 Handler。</p>
  */
 @Configuration
+@EnableConfigurationProperties(NativeRagProperties.class)
 public class ProductRagPipelineConfig {
 
     private static final Logger log = LoggerFactory.getLogger(ProductRagPipelineConfig.class);
@@ -84,6 +88,14 @@ public class ProductRagPipelineConfig {
                 return "";
             }
         }, queryRewriteEnabled);
+    }
+
+    /** Bounded evidence-gap planner for the project-native Agentic RAG loop. */
+    @Bean
+    @ConditionalOnProperty(name = "product.rag.agentic.enabled", havingValue = "true", matchIfMissing = true)
+    public SupplementalQueryPlanner supplementalQueryPlanner(
+            @Qualifier("openAiChatModel") ChatModel chatModel) {
+        return new LlmSupplementalQueryPlanner(ChatClient.create(chatModel));
     }
 
     /**

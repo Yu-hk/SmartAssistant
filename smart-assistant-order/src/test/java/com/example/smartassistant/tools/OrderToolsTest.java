@@ -195,6 +195,21 @@ class OrderToolsTest {
     }
 
     @Test
+    @DisplayName("createOrder should replay the committed order after worker recovery")
+    void should_replayCommittedOrder_when_taskLeaseIsRecovered() {
+        OrderDTO committed = createOrderDTO("ORD-RECOVERED", S_PENDING_PAY,
+                new BigDecimal("8999.00"));
+        when(orderData.findOrderByRequestId(anyString())).thenReturn(committed);
+
+        String result = orderTools.createOrder(1L, "iPhone 15 Pro", new BigDecimal("8999.00"),
+                "张三", "13800138000", "北京市朝阳区", null);
+
+        assertTrue(result.contains("ORD-RECOVERED"));
+        assertTrue(result.contains("订单创建成功"));
+        verify(orderData, never()).insertOrder(any(OrderDTO.class));
+    }
+
+    @Test
     @DisplayName("createOrder should detect duplicate request and return warning")
     void should_returnWarning_when_duplicateCreateRequest() {
         Long userId = 1L;

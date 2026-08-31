@@ -148,9 +148,7 @@ public class IntentEvaluationService {
 
         // 3. 词槽状态：填充/缺失/冲突
         SlotStateMachine.SlotAnalysisResult slotAnalysis =
-                slotStateMachine.analyzeSlots(
-                        llmResult.getIntentCategory(),
-                        llmResult.getEntities());
+                slotStateMachine.analyzeSlots(llmResult);
 
         if (!slotAnalysis.filledSlots().isEmpty()) {
             llmResult.setFilledSlots(slotAnalysis.filledSlots());

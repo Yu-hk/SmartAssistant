@@ -26,22 +26,11 @@ public class HotAgentPool implements InitializingBean, DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(HotAgentPool.class);
 
-    /** 预热 Agent 列表：Agent 名称 → 优先级 */
-    private static final Map<String, Integer> HOT_AGENTS = new LinkedHashMap<>();
-
-    /** Agent 级并发上限 */
-    private static final int DEFAULT_MAX_CONCURRENCY = 4;
-
-    static {
-        HOT_AGENTS.put("order", 20);      // 最高优先级
-        HOT_AGENTS.put("product", 15);    // 高优先级
-        HOT_AGENTS.put("general", 10);    // 中优先级
-        HOT_AGENTS.put("recommend", 10);  // 中优先级
-    }
-
     private final AgentTaskQueue taskQueue;
     private final Function<AgentTask, String> taskExecutor;
     private final int workerCount;
+    private final int maxConcurrencyPerAgent;
+    private final Map<String, Integer> hotAgents;
 
     /** 每个 Agent 的并发限流器 */
     private final Map<String, Semaphore> agentConcurrencyLimiters = new ConcurrentHashMap<>();
@@ -56,31 +45,37 @@ public class HotAgentPool implements InitializingBean, DisposableBean {
 
     public HotAgentPool(AgentTaskQueue taskQueue,
                         Function<AgentTask, String> taskExecutor,
-                        int workerCount) {
+                        int workerCount,
+                        int maxConcurrencyPerAgent,
+                        Map<String, Integer> hotAgents) {
         this.taskQueue = taskQueue;
         this.taskExecutor = taskExecutor;
         this.workerCount = workerCount > 0 ? workerCount : Runtime.getRuntime().availableProcessors();
+        this.maxConcurrencyPerAgent = Math.max(1, maxConcurrencyPerAgent);
+        this.hotAgents = hotAgents == null
+                ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(hotAgents));
     }
 
     /**
      * 获取 Agent 优先级。
      */
     public int getPriority(String agentName) {
-        return HOT_AGENTS.getOrDefault(agentName, 5);
+        return hotAgents.getOrDefault(agentName, 5);
     }
 
     /**
      * 判断 Agent 是否为 Hot Agent。
      */
     public boolean isHotAgent(String agentName) {
-        return HOT_AGENTS.containsKey(agentName);
+        return hotAgents.containsKey(agentName);
     }
 
     /**
      * 获取 Hot Agent 列表。
      */
     public Set<String> getHotAgentNames() {
-        return HOT_AGENTS.keySet();
+        return hotAgents.keySet();
     }
 
     @Override
@@ -101,8 +96,8 @@ public class HotAgentPool implements InitializingBean, DisposableBean {
         running = true;
 
         // 初始化各 Agent 的并发限流器
-        for (String agent : HOT_AGENTS.keySet()) {
-            agentConcurrencyLimiters.put(agent, new Semaphore(DEFAULT_MAX_CONCURRENCY));
+        for (String agent : hotAgents.keySet()) {
+            agentConcurrencyLimiters.put(agent, new Semaphore(maxConcurrencyPerAgent));
             agentQueues.put(agent, new PriorityBlockingQueue<>(
                     100, (a, b) -> Integer.compare(b.getPriority(), a.getPriority())));
         }
@@ -127,7 +122,7 @@ public class HotAgentPool implements InitializingBean, DisposableBean {
         scheduler.scheduleWithFixedDelay(this::dispatchTasks, 1, 1, TimeUnit.SECONDS);
 
         log.info("[HotAgentPool] 启动完成: hotAgents={}, workers={}",
-                HOT_AGENTS.keySet(), workerCount);
+                hotAgents.keySet(), workerCount);
     }
 
     /**
@@ -165,6 +160,8 @@ public class HotAgentPool implements InitializingBean, DisposableBean {
                             k -> new PriorityBlockingQueue<>(100,
                                     (a, b) -> Integer.compare(b.getPriority(), a.getPriority())));
                 }
+                agentConcurrencyLimiters.computeIfAbsent(agentName,
+                        ignored -> new Semaphore(maxConcurrencyPerAgent));
 
                 agentQueue.offer(task);
                 log.debug("[HotAgentPool] 分发任务: taskId={}, agent={}, priority={}",
@@ -231,19 +228,17 @@ public class HotAgentPool implements InitializingBean, DisposableBean {
         long deadline = System.currentTimeMillis() + timeoutMs;
 
         while (System.currentTimeMillis() < deadline) {
-            // 按 HOT_AGENTS 顺序遍历（Order > Product > General）
-            for (Map.Entry<String, Integer> entry : HOT_AGENTS.entrySet()) {
+            // Configured hot agents lead; newly discovered agents are still eligible.
+            List<Map.Entry<String, PriorityBlockingQueue<AgentTask>>> queues =
+                    new ArrayList<>(agentQueues.entrySet());
+            queues.sort(Comparator
+                    .<Map.Entry<String, PriorityBlockingQueue<AgentTask>>>comparingInt(
+                            entry -> hotAgents.getOrDefault(entry.getKey(), 0))
+                    .reversed());
+            for (Map.Entry<String, PriorityBlockingQueue<AgentTask>> entry : queues) {
                 PriorityBlockingQueue<AgentTask> queue = agentQueues.get(entry.getKey());
                 if (queue != null && !queue.isEmpty()) {
                     AgentTask task = queue.poll();
-                    if (task != null) return task;
-                }
-            }
-
-            // 检查其他 Agent 队列
-            for (Map.Entry<String, PriorityBlockingQueue<AgentTask>> entry : agentQueues.entrySet()) {
-                if (!HOT_AGENTS.containsKey(entry.getKey())) {
-                    AgentTask task = entry.getValue().poll();
                     if (task != null) return task;
                 }
             }

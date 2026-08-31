@@ -1,7 +1,4 @@
 const CAPABILITY_LABELS: Record<string, string> = {
-  queryweather: '天气查询',
-  getweather: '天气查询',
-  weather: '天气查询',
   searchweb: '联网搜索',
   websearch: '联网搜索',
   webfetch: '网页读取',
@@ -54,7 +51,6 @@ export function getToolCapabilityLabel(toolName?: string): string {
 }
 
 function inferCapability(name: string): string {
-  if (name.includes('weather')) return '天气查询';
   if (name.includes('search') || name.includes('web')) return '联网搜索';
   if (name.includes('order')) return '订单服务';
   if (name.includes('product') || name.includes('stock') || name.includes('price')) return '商品服务';

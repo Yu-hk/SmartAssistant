@@ -53,7 +53,6 @@ class ChatConsumerServiceTest {
                 .getDeclaredMethod("isPreferenceWorthyRequest", String.class);
         method.setAccessible(true);
 
-        assertFalse((Boolean) method.invoke(chatConsumerService, "北京今天天气怎么样"));
         assertFalse((Boolean) method.invoke(chatConsumerService, "你好"));
         assertFalse((Boolean) method.invoke(chatConsumerService, "什么是递归算法"));
         assertFalse((Boolean) method.invoke(chatConsumerService, new Object[]{null}));

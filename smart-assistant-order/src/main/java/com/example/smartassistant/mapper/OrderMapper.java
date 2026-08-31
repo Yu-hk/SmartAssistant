@@ -28,11 +28,29 @@ public interface OrderMapper extends BaseMapper<OrderEntity> {
     @Select("SELECT * FROM orders WHERE order_id = #{orderId}")
     OrderEntity findByOrderId(@Param("orderId") String orderId);
 
+    /** Find the business result of an earlier idempotent create request. */
+    @Select("SELECT * FROM orders WHERE request_id = #{requestId}")
+    OrderEntity findByRequestId(@Param("requestId") String requestId);
+
     /**
      * 根据用户ID查询所有订单
      */
     @Select("SELECT * FROM orders WHERE user_id = #{userId} ORDER BY created_at DESC")
     List<OrderEntity> findByUserId(@Param("userId") Long userId);
+
+    /** Query orders containing the same product name. */
+    @Select("SELECT * FROM orders WHERE UPPER(product_name) = UPPER(#{productName}) ORDER BY created_at DESC")
+    List<OrderEntity> findByProductName(@Param("productName") String productName);
+
+    /** Resolve purchased product codes from the live product catalog. */
+    @Select("""
+            SELECT DISTINCT p.product_code
+              FROM orders o
+              JOIN products p ON UPPER(p.product_name) = UPPER(o.product_name)
+             WHERE o.user_id = #{userId}
+             ORDER BY p.product_code
+            """)
+    List<String> findPurchasedProductCodes(@Param("userId") Long userId);
 
     /**
      * 查询所有订单
