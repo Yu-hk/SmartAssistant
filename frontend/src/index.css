@@ -1151,6 +1151,45 @@ body {
   text-decoration: none;
 }
 
+.dingtalk-qr-dialog {
+  width: min(100%, 390px);
+  text-align: center;
+}
+.dingtalk-qr-dialog h3 { margin-right: 0; }
+.dingtalk-qr-description { margin: 0 0 16px; }
+.dingtalk-qr-frame {
+  position: relative;
+  width: 302px;
+  height: 302px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--nova-border);
+  border-radius: 14px;
+  background: #fff;
+}
+.dingtalk-qr-container,
+.dingtalk-qr-container iframe {
+  width: 300px !important;
+  height: 300px !important;
+  border: 0;
+}
+.dingtalk-qr-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #64748b;
+  font-size: 13px;
+  background: #fff;
+}
+.dingtalk-qr-status {
+  min-height: 24px;
+  margin: 14px 0 0 !important;
+  text-align: center;
+}
+.dingtalk-qr-status.error { color: #dc2626; }
+.dingtalk-qr-dialog .login-dialog-action { margin-top: 12px; }
+
 @media (max-width: 820px) {
   .login-page { grid-template-columns: 1fr; }
   .login-intro { display: none; }
@@ -1162,6 +1201,15 @@ body {
   .login-channels { flex-direction: column; gap: 8px; }
   .login-channel { flex: none; width: 100%; }
   .login-panel { align-items: flex-start; }
+  .dingtalk-qr-frame {
+    width: min(302px, calc(100vw - 96px));
+    height: min(302px, calc(100vw - 96px));
+  }
+  .dingtalk-qr-container,
+  .dingtalk-qr-container iframe {
+    max-width: 100%;
+    max-height: 100%;
+  }
 }
 
 /* 工作台右栏 — 窄屏自动隐藏 */

@@ -124,7 +124,7 @@ jwt:
 # 白名单配置 (无需认证的路径)
 gateway:
   security:
-    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/api/auth/login,/api/auth/register,/api/auth/refresh,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/health,/actuator/info,/assistant/api/router/agents/**
+    white-list: /assistant/api/auth/login,/assistant/api/auth/register,/assistant/api/auth/refresh,/assistant/api/auth/oauth/**,/api/auth/login,/api/auth/register,/api/auth/refresh,/api/auth/oauth/**,/assistant/api/gateway/token/**,/assistant/api/public/**,/actuator/health,/actuator/info,/assistant/api/router/agents/**
   
   # 限流配置
   rate-limit:

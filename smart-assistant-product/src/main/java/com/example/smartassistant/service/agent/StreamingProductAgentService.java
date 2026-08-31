@@ -478,21 +478,31 @@ public class StreamingProductAgentService {
 
             if (!audit.valid()) {
                 return DomainAgentResponse.of(
-                        "分析结果经 Pro 核实仍未通过，已停止推荐。问题："
-                                + String.join("；", audit.issues()),
+                        "当前商品数据不足以形成可靠推荐，请补充可比较的销量、规格、口碑或使用偏好。",
                         DomainQualityResult.fail("PRODUCT_ANALYSIS_AUDIT_REJECTED"));
             }
 
             String recommendationPrompt = promptManager.renderVerifiedProductRecommendation(
                     question,
-                    workingContext + "\n\n[Pro 核实结果]\n分析事实核实通过")
-                    + "\n\n请压缩在450个中文字符以内，保留商品编码、名称、价格、库存、"
-                    + "三维依据和数据限制。";
-            String recommendation = callBoundedModel(
+                    workingContext + "\n\n[Pro 核实结果]\n分析事实核实通过");
+            String rawRecommendation = callBoundedModel(
                     recommendationModel, tierModelRegistry.modelName(ModelTier.HEAVY),
                     recommendationPrompt, recommendationMaxTokens);
+            String recommendation = parseRecommendationConclusion(rawRecommendation);
+            if (recommendation == null) {
+                log.warn("[StreamingProductAgent] Pro 推荐结论格式无效，执行一次 JSON 定向重试: raw={}",
+                        truncateForLog(rawRecommendation, 240));
+                rawRecommendation = callBoundedModel(
+                        recommendationModel,
+                        tierModelRegistry.modelName(ModelTier.HEAVY),
+                        recommendationPrompt
+                                + "\n\n上一次输出未能解析。只输出包含 conclusion 的单个 JSON 对象，"
+                                + "conclusion 只写最终结论，不得包含标题、分析过程、候选清单或解释。",
+                        recommendationMaxTokens);
+                recommendation = parseRecommendationConclusion(rawRecommendation);
+            }
             if (recommendation == null || recommendation.isBlank()) {
-                return DomainAgentResponse.of("Pro 推荐结果为空。",
+                return DomainAgentResponse.of("暂时无法生成可靠的商品推荐结论，请稍后重试。",
                         DomainQualityResult.fail("EMPTY_VERIFIED_RECOMMENDATION"));
             }
 
@@ -500,7 +510,7 @@ public class StreamingProductAgentService {
                     faithfulnessGuard.check(recommendation, workingContext);
             if (verdict.hallucination()) {
                 return DomainAgentResponse.of(
-                        "Pro 推荐结果与已核实数据仍存在事实偏差，已停止下单。\n" + verdict.message(),
+                        "当前商品数据不足以形成可靠推荐，请补充可核实的商品信息后重试。",
                         DomainQualityResult.fail("UNSUPPORTED_VERIFIED_RECOMMENDATION"));
             }
             String reason = revisionCount > 0
@@ -512,7 +522,7 @@ public class StreamingProductAgentService {
         } catch (Exception error) {
             log.error("[StreamingProductAgent] Pro 推荐核实失败: requestId={}, error={}",
                     rid, error.getMessage(), error);
-            return DomainAgentResponse.of("推荐核实失败：" + error.getMessage(),
+            return DomainAgentResponse.of("暂时无法生成可靠的商品推荐结论，请稍后重试。",
                     DomainQualityResult.fail("PRODUCT_RECOMMENDATION_AUDIT_ERROR"));
         }
     }
@@ -584,7 +594,7 @@ public class StreamingProductAgentService {
         if (raw == null || raw.isBlank()) {
             return null;
         }
-        Map<String, Object> data = firstAuditObject(raw);
+        Map<String, Object> data = firstJsonObjectContaining(raw, "valid");
         if (data == null || !data.containsKey("valid")) return null;
         boolean valid = Boolean.TRUE.equals(data.get("valid"))
                 || "true".equalsIgnoreCase(String.valueOf(data.get("valid")));
@@ -600,8 +610,16 @@ public class StreamingProductAgentService {
         return new AnalysisAudit(valid, List.copyOf(issues), instruction);
     }
 
-    /** Extracts the first balanced, parseable JSON object that contains an audit decision. */
-    private Map<String, Object> firstAuditObject(String raw) {
+    /** Extracts a public conclusion while discarding any surrounding model commentary. */
+    private String parseRecommendationConclusion(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        Map<String, Object> data = firstJsonObjectContaining(raw, "conclusion");
+        if (data == null || data.get("conclusion") == null) return null;
+        String conclusion = stripInternalThinking(String.valueOf(data.get("conclusion"))).strip();
+        return conclusion.isBlank() ? null : conclusion;
+    }
+
+    private Map<String, Object> firstJsonObjectContaining(String raw, String requiredKey) {
         int start = -1;
         int depth = 0;
         boolean inString = false;
@@ -630,7 +648,7 @@ public class StreamingProductAgentService {
                         Map<String, Object> candidate = objectMapper.readValue(
                                 raw.substring(start, index + 1),
                                 new TypeReference<Map<String, Object>>() { });
-                        if (candidate.containsKey("valid")) return candidate;
+                        if (candidate.containsKey(requiredKey)) return candidate;
                     } catch (Exception ignored) {
                         // Continue scanning in case the model emitted another valid object.
                     }
