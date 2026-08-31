@@ -25,6 +25,25 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 第三方登录身份映射；平台身份与本地 users 解耦，禁止按未验证邮箱自动合并。
+CREATE TABLE IF NOT EXISTS user_external_identities (
+    id           BIGSERIAL PRIMARY KEY,
+    user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider     VARCHAR(20) NOT NULL,
+    subject      VARCHAR(191) NOT NULL,
+    union_id     VARCHAR(191),
+    display_name VARCHAR(200),
+    avatar_url   TEXT,
+    email        VARCHAR(255),
+    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_external_identity_subject UNIQUE (provider, subject)
+);
+CREATE INDEX IF NOT EXISTS idx_external_identity_user_id
+    ON user_external_identities(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_external_identity_union_id
+    ON user_external_identities(provider, union_id) WHERE union_id IS NOT NULL;
+
 -- ══════════════════════════════════════════════════════════════
 -- 2. 用户会话表 (UserSession.java)
 --    smart-assistant-user 模块 / MyBatis Plus @TableName("user_sessions")

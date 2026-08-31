@@ -82,7 +82,7 @@ interface ApiEnvelope<T> {
 let refreshPromise: Promise<boolean> | null = null;
 
 function canRefresh(endpoint: string) {
-  return !['/auth/login', '/auth/register', '/auth/refresh'].includes(endpoint);
+  return !['/auth/login', '/auth/register', '/auth/refresh', '/auth/oauth/exchange'].includes(endpoint);
 }
 
 function readErrorMessage(body: string): string | null {

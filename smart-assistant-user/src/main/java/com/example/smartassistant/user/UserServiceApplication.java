@@ -14,14 +14,18 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 
 @Slf4j
 @SpringBootApplication
 @EnableDiscoveryClient
-@ComponentScan({
+@ComponentScan(basePackages = {
         "com.example.smartassistant.user",
         "com.example.smartassistant.common"
-})
+}, excludeFilters = @ComponentScan.Filter(
+        type = FilterType.REGEX,
+        pattern = "com\\.example\\.smartassistant\\.common\\.rag\\..*"
+))
 @MapperScan("com.example.smartassistant.user.mapper")
 public class UserServiceApplication {
 

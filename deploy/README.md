@@ -97,6 +97,16 @@ vim .env
 | `NACOS_PASSWORD` | Nacos 密码 | ✅ |
 | `JWT_SECRET` | JWT 签名密钥（建议 256 位随机字符串） | ✅ |
 
+### 第三方登录配置
+
+微信、钉钉、飞书登录默认关闭。先在各平台创建网页应用并登记回调地址，再在 `deploy/.env` 中填写对应的 `CLIENT_ID`、`CLIENT_SECRET`，最后把该渠道的 `OAUTH_*_ENABLED` 改为 `true`：
+
+- 微信：`https://xiaoyuai.cloud/api/auth/oauth/wechat/callback`
+- 钉钉：`https://xiaoyuai.cloud/api/auth/oauth/dingtalk/callback`
+- 飞书：`https://xiaoyuai.cloud/api/auth/oauth/feishu/callback`
+
+已有数据库部署前需执行 `docs/database/migrations/20260828_add_user_external_identities.sql`；新建数据库会由 `schema.sql` 自动创建身份表。平台密钥只放在服务器的 `deploy/.env`，不得提交到仓库。
+
 ### 5. 启动服务
 
 ```bash

@@ -1,6 +1,16 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { login, register, saveAuth } from '../api/auth';
+import {
+  exchangeOAuthTicket,
+  getOAuthAuthorizeUrl,
+  getOAuthProviders,
+  login,
+  register,
+  saveAuth,
+  type OAuthProviderId,
+  type OAuthProviderStatus,
+} from '../api/auth';
+import { DingTalkQrLoginDialog } from '../components/DingTalkQrLoginDialog';
 import {
   Activity,
   AtSign,
@@ -16,6 +26,8 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+  const oauthTicket = searchParams.get('oauth_ticket');
+  const oauthError = searchParams.get('oauth_error');
   const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
   const [mode, setMode] = useState<'login' | 'register'>('login');
 
@@ -38,6 +50,49 @@ export function LoginPage() {
   );
   const [loading, setLoading] = useState(false);
   const [helpDialog, setHelpDialog] = useState<'forgot' | 'terms' | null>(null);
+  const [dingtalkQrOpen, setDingtalkQrOpen] = useState(false);
+  const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([
+    { id: 'wechat', name: '微信', enabled: false },
+    { id: 'dingtalk', name: '钉钉', enabled: false },
+    { id: 'feishu', name: '飞书', enabled: false },
+  ]);
+
+  useEffect(() => {
+    let active = true;
+    getOAuthProviders()
+      .then(providers => { if (active) setOAuthProviders(providers); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (oauthError) {
+      setError(oauthError);
+      return;
+    }
+    if (!oauthTicket) return;
+    let active = true;
+    setLoading(true);
+    exchangeOAuthTicket(oauthTicket)
+      .then(({ auth, remember: shouldRemember, returnTo }) => {
+        if (!active) return;
+        saveAuth(auth, shouldRemember);
+        const isAdmin = auth.role === 'ROLE_ADMIN';
+        const permittedReturnTo = returnTo
+          && (isAdmin ? returnTo.startsWith('/admin') : !returnTo.startsWith('/admin'))
+          ? returnTo
+          : undefined;
+        navigate(permittedReturnTo || (isAdmin ? '/admin/overview' : '/'), { replace: true });
+      })
+      .catch(err => {
+        if (active) {
+          window.history.replaceState({}, '', '/login');
+          setError(err instanceof Error ? err.message : '第三方登录失败，请重试');
+        }
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [navigate, oauthError, oauthTicket]);
 
   const switchMode = (next: 'login' | 'register') => {
     setMode(next);
@@ -89,20 +144,25 @@ export function LoginPage() {
     setHelpDialog('forgot');
   };
 
-  const beginSso = (provider: '企业微信' | '钉钉' | '飞书', url?: string) => {
+  const beginSso = (provider: OAuthProviderStatus) => {
     setError('');
-    if (url) {
-      window.location.assign(url);
+    if (!provider.enabled) {
+      setError(`${provider.name}登录尚未配置，请联系系统管理员`);
       return;
     }
-    setError(`${provider}登录尚未配置，请联系系统管理员`);
+    const requestedPath = (location.state as { from?: string } | null)?.from || '/';
+    if (provider.id === 'dingtalk') {
+      setDingtalkQrOpen(true);
+      return;
+    }
+    window.location.assign(getOAuthAuthorizeUrl(provider.id, requestedPath, remember));
   };
 
-  const enterpriseChannels = [
-    { name: '企业微信' as const, url: env.VITE_SSO_WECOM_URL, color: '#2ecc71' },
-    { name: '钉钉' as const, url: env.VITE_SSO_DINGTALK_URL, color: '#3370ff' },
-    { name: '飞书' as const, url: env.VITE_SSO_FEISHU_URL, color: '#00d6b9' },
-  ];
+  const requestedPath = (location.state as { from?: string } | null)?.from || '/';
+
+  const channelColors: Record<OAuthProviderId, string> = {
+    wechat: '#2ecc71', dingtalk: '#3370ff', feishu: '#00d6b9',
+  };
 
   return (
     <div className="login-page">
@@ -236,21 +296,21 @@ export function LoginPage() {
                   {loading ? '正在处理…' : '登 录'}
                 </button>
 
-                <div className="login-divider"><span>企业账号登录</span></div>
+                <div className="login-divider"><span>第三方账号登录</span></div>
 
                 <div className="login-channels">
-                  {enterpriseChannels.map(channel => (
+                  {oauthProviders.map(channel => (
                     <button
                       type="button"
                       className="login-channel"
                       key={channel.name}
-                      disabled={!channel.url}
-                      title={channel.url ? `使用${channel.name}登录` : `${channel.name}尚未开通`}
-                      onClick={() => beginSso(channel.name, channel.url)}
+                      disabled={!channel.enabled || loading}
+                      title={channel.enabled ? `使用${channel.name}登录` : `${channel.name}尚未开通`}
+                      onClick={() => beginSso(channel)}
                     >
-                      <span className="lc-dot" style={{ background: channel.color }} />
+                      <span className="lc-dot" style={{ background: channelColors[channel.id] }} />
                       <span>{channel.name}</span>
-                      {!channel.url && <small>未开通</small>}
+                      {!channel.enabled && <small>未开通</small>}
                     </button>
                   ))}
                 </div>
@@ -390,6 +450,13 @@ export function LoginPage() {
           </section>
         </div>
       )}
+
+      <DingTalkQrLoginDialog
+        open={dingtalkQrOpen}
+        returnTo={requestedPath}
+        remember={remember}
+        onClose={() => setDingtalkQrOpen(false)}
+      />
     </div>
   );
 }

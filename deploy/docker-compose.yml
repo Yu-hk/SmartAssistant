@@ -203,8 +203,22 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://xiaoyuai.cloud,https://www.xiaoyuai.cloud}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
+      OAUTH_PUBLIC_BASE_URL: ${OAUTH_PUBLIC_BASE_URL:-https://xiaoyuai.cloud}
+      OAUTH_FRONTEND_BASE_URL: ${OAUTH_FRONTEND_BASE_URL:-https://xiaoyuai.cloud}
+      OAUTH_WECHAT_ENABLED: ${OAUTH_WECHAT_ENABLED:-false}
+      OAUTH_WECHAT_CLIENT_ID: ${OAUTH_WECHAT_CLIENT_ID:-}
+      OAUTH_WECHAT_CLIENT_SECRET: ${OAUTH_WECHAT_CLIENT_SECRET:-}
+      OAUTH_DINGTALK_ENABLED: ${OAUTH_DINGTALK_ENABLED:-false}
+      OAUTH_DINGTALK_CLIENT_ID: ${OAUTH_DINGTALK_CLIENT_ID:-}
+      OAUTH_DINGTALK_CLIENT_SECRET: ${OAUTH_DINGTALK_CLIENT_SECRET:-}
+      OAUTH_FEISHU_ENABLED: ${OAUTH_FEISHU_ENABLED:-false}
+      OAUTH_FEISHU_CLIENT_ID: ${OAUTH_FEISHU_CLIENT_ID:-}
+      OAUTH_FEISHU_CLIENT_SECRET: ${OAUTH_FEISHU_CLIENT_SECRET:-}
       # Docker 环境覆盖
+      SPRING_DATA_REDIS_HOST: smart-redis
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
@@ -217,6 +231,8 @@ services:
       nacos:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
