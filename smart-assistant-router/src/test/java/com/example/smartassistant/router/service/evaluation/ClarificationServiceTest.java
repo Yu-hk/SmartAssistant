@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ClarificationServiceTest {
 
     private final ClarificationService service = new ClarificationService();
-    private final SlotStateMachine slotMachine = new SlotStateMachine();
+    private final SlotStateMachine slotMachine = new SlotStateMachine(TestSlotSchemas.schemas());
 
     // ==================== 意图不明 ====================
 
@@ -86,7 +86,11 @@ class ClarificationServiceTest {
         entities.put("departure_station", "杭州东站");
         entities.put("arrival_station", "杭州东站");
 
-        var slotResult = slotMachine.analyzeSlots("ORDER/下单", entities);
+        var slotResult = new SlotStateMachine.SlotAnalysisResult(
+                java.util.List.of(), java.util.List.of(), java.util.List.of(),
+                java.util.List.of(Map.of("reason", "两个字段不能相同",
+                        "slot1", "departure_station", "slot2", "arrival_station")),
+                TestSlotSchemas.schemas().get("ORDER/下单"));
         var advice = service.generateFromSlotAnalysis("ORDER/下单", entities, slotResult);
 
         assertTrue(advice.needsClarification());

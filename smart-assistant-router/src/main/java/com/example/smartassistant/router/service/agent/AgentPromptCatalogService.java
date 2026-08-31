@@ -10,7 +10,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -22,7 +21,6 @@ import java.util.regex.Pattern;
 @Service
 public class AgentPromptCatalogService {
 
-    private static final Set<String> EXECUTABLE_ROUTES = Set.of("product", "order", "general");
     private static final Pattern UNSAFE_METADATA = Pattern.compile("[^\\p{L}\\p{N} _.,:/+\\-]");
     private static final Pattern PROMPT_INSTRUCTION = Pattern.compile(
             "(?i)(忽略|绕过|覆盖).{0,8}(规则|指令|提示)|system\\s*prompt|previous\\s+instructions?");
@@ -46,7 +44,7 @@ public class AgentPromptCatalogService {
             cachedAgents.stream()
                     .filter(agent -> agent != null && Boolean.TRUE.equals(agent.getHealthy()))
                     .map(this::toCatalogEntry)
-                    .filter(entry -> entry != null && EXECUTABLE_ROUTES.contains(entry.routeName()))
+                    .filter(entry -> entry != null)
                     .sorted(Comparator.comparingInt(CatalogEntry::priority).reversed()
                             .thenComparing(CatalogEntry::routeName)
                             .thenComparing(CatalogEntry::serviceName))

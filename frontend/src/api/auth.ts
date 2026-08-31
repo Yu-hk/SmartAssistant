@@ -19,6 +19,33 @@ interface ApiEnvelope<T> {
   error?: { detail?: string };
 }
 
+export type OAuthProviderId = 'wechat' | 'dingtalk' | 'feishu';
+
+export interface OAuthProviderStatus {
+  id: OAuthProviderId;
+  name: string;
+  enabled: boolean;
+}
+
+export interface DingTalkFrameConfig {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  scope: string;
+  responseType: string;
+  prompt: string;
+}
+
+interface OAuthTicketPayload {
+  auth: AuthUser;
+  returnTo: string;
+  remember: boolean;
+}
+
+// React StrictMode 会在开发环境重复执行 effect；同一票据必须复用同一个请求，
+// 否则第二次请求会把“一次性票据已使用”误报成登录失败。
+const oauthTicketExchanges = new Map<string, Promise<OAuthTicketPayload>>();
+
 async function authenticate(
   endpoint: '/auth/login' | '/auth/register',
   body: Record<string, string | undefined>,
@@ -35,6 +62,52 @@ export const login = (username: string, password: string) =>
 
 export const register = (username: string, password: string, email: string) =>
   authenticate('/auth/register', { username, password, email: email || undefined });
+
+export async function getOAuthProviders(): Promise<OAuthProviderStatus[]> {
+  const response = await apiClient.get<ApiEnvelope<OAuthProviderStatus[]>>('/auth/oauth/providers');
+  return response.code === 0 && Array.isArray(response.data) ? response.data : [];
+}
+
+export function getOAuthAuthorizeUrl(
+  provider: OAuthProviderId,
+  returnTo: string,
+  remember: boolean,
+) {
+  const query = new URLSearchParams({ returnTo, remember: String(remember) });
+  return `/api/auth/oauth/${provider}/authorize?${query.toString()}`;
+}
+
+export async function getDingTalkFrameConfig(
+  returnTo: string,
+  remember: boolean,
+): Promise<DingTalkFrameConfig> {
+  const query = new URLSearchParams({ returnTo, remember: String(remember) });
+  const response = await apiClient.get<ApiEnvelope<DingTalkFrameConfig>>(
+    `/auth/oauth/dingtalk/frame-config?${query.toString()}`,
+  );
+  if (response.code !== 0 || !response.data?.clientId || !response.data?.state) {
+    throw new Error(response.error?.detail || response.message || '无法初始化钉钉扫码登录');
+  }
+  return response.data;
+}
+
+export async function exchangeOAuthTicket(ticket: string): Promise<OAuthTicketPayload> {
+  const active = oauthTicketExchanges.get(ticket);
+  if (active) return active;
+  const exchange = apiClient.post<ApiEnvelope<OAuthTicketPayload>>('/auth/oauth/exchange', { ticket })
+    .then(response => {
+      if (response.code !== 0 || !response.data?.auth?.token) {
+        throw new Error(response.error?.detail || response.message || '第三方登录失败');
+      }
+      return response.data;
+    });
+  oauthTicketExchanges.set(ticket, exchange);
+  exchange.then(
+    () => oauthTicketExchanges.delete(ticket),
+    () => oauthTicketExchanges.delete(ticket),
+  );
+  return exchange;
+}
 
 export async function getCurrentUser(): Promise<AuthProfile> {
   const response = await apiClient.get<ApiEnvelope<AuthProfile>>('/auth/me');

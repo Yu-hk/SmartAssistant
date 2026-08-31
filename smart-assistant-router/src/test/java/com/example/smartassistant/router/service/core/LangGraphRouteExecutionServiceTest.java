@@ -145,6 +145,25 @@ class LangGraphRouteExecutionServiceTest {
     }
 
     @Test
+    void interruptedResumeNeverGrantsPendingApproval() {
+        IntentGraph graph = new IntentGraph("pay", List.of(
+                new IntentGraph.IntentNode("pay", "支付订单", "order", List.of(),
+                        null, List.of(), true)));
+
+        service.execute(graph, 1L, null, "interrupt-cannot-approve");
+
+        assertThat(service.resumeInterrupted(1L, "interrupt-cannot-approve"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.getSystemNodeType())
+                            .isEqualTo(SubTaskResult.SystemNodeType.APPROVAL);
+                    assertThat(result.getTaskId()).isEqualTo("pay:approval");
+                });
+        verify(nodeExecutor, never()).execute(any(), anyMap(), any(), any(), any(), any(),
+                any(), any(), any(), any());
+    }
+
+    @Test
     void restoresGraphFromCheckpointAndResumesThroughAuthenticatedEntryPoint() {
         IntentGraph.IntentNode approval = new IntentGraph.IntentNode(
                 "pay", "支付订单", "order", List.of(), null, List.of(), true);

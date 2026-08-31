@@ -25,7 +25,7 @@ public record ExecutionPlan(
     public IntentGraph toIntentGraph() {
         List<IntentGraph.IntentNode> graphNodes = nodes.stream()
                 .map(node -> new IntentGraph.IntentNode(
-                        node.nodeId(), node.description(), node.domain().agentName(),
+                        node.nodeId(), node.description(), node.targetAgent(),
                         node.dependsOn(), node.successCriteria(), List.of(),
                         node.approvalRequired(), node.operation(), node.input(),
                         globalConstraints, node.idempotencyKey(), node.accessMode().name(),
@@ -37,7 +37,7 @@ public record ExecutionPlan(
 
     public record TaskNode(
             String nodeId,
-            Domain domain,
+            String targetAgent,
             String operation,
             String description,
             Map<String, Object> input,
@@ -52,18 +52,34 @@ public record ExecutionPlan(
             String outputSchema,
             Map<String, String> inputBindings) {
 
-        /** Compatibility constructor used by existing planner and workflow callers. */
+        /** Compatibility constructor used by callers that still reference a built-in domain. */
         public TaskNode(
                 String nodeId, Domain domain, String operation, String description,
                 Map<String, Object> input, List<String> dependsOn, AccessMode accessMode,
                 List<String> requiredSlots, String idempotencyKey, boolean approvalRequired,
                 String successCriteria, MergePolicy mergePolicy) {
-            this(nodeId, domain, operation, description, input, dependsOn, accessMode,
+            this(nodeId, domain != null ? domain.agentName() : null,
+                    operation, description, input, dependsOn, accessMode,
                     requiredSlots, idempotencyKey, approvalRequired, successCriteria,
                     mergePolicy, true, null, Map.of());
         }
 
+        /** Full compatibility constructor for the pre-dynamic-Agent record shape. */
+        public TaskNode(
+                String nodeId, Domain domain, String operation, String description,
+                Map<String, Object> input, List<String> dependsOn, AccessMode accessMode,
+                List<String> requiredSlots, String idempotencyKey, boolean approvalRequired,
+                String successCriteria, MergePolicy mergePolicy, boolean required,
+                String outputSchema, Map<String, String> inputBindings) {
+            this(nodeId, domain != null ? domain.agentName() : null,
+                    operation, description, input, dependsOn, accessMode,
+                    requiredSlots, idempotencyKey, approvalRequired, successCriteria,
+                    mergePolicy, required, outputSchema, inputBindings);
+        }
+
         public TaskNode {
+            targetAgent = targetAgent == null || targetAgent.isBlank()
+                    ? null : targetAgent.trim();
             // Entity maps legitimately contain null values for absent slots; Map.copyOf rejects
             // those values, so keep a defensive unmodifiable LinkedHashMap instead.
             input = input != null
@@ -76,6 +92,11 @@ public record ExecutionPlan(
                     ? null : outputSchema.trim();
             inputBindings = inputBindings != null
                     ? Collections.unmodifiableMap(new LinkedHashMap<>(inputBindings)) : Map.of();
+        }
+
+        /** Built-in domain view retained for source compatibility; dynamic Agents return null. */
+        public Domain domain() {
+            return Domain.fromAgentName(targetAgent);
         }
     }
 
@@ -93,6 +114,14 @@ public record ExecutionPlan(
 
         public String agentName() {
             return agentName;
+        }
+
+        public static Domain fromAgentName(String agentName) {
+            if (agentName == null || agentName.isBlank()) return null;
+            for (Domain domain : values()) {
+                if (domain.agentName.equalsIgnoreCase(agentName.trim())) return domain;
+            }
+            return null;
         }
     }
 

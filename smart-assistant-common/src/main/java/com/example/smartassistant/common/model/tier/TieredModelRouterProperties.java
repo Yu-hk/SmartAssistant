@@ -15,15 +15,15 @@ import java.util.Map;
 /**
  * G3 Tier 多模型路由配置属性，绑定前缀 {@code tier}。
  *
- * <p>每档可独立配置模型名与温度。默认使用 DeepSeek V4：轻量与标准档走 Flash，
- * 重量档走 Pro。{@code intent-overrides} 支持按意图强制升档。</p>
+ * <p>每档可独立配置模型名与温度。模型名为空时继承供应商 ChatModel
+ * 的默认值，公共模块不绑定任何供应商。{@code intent-overrides} 支持按意图强制升档。</p>
  */
 @ConfigurationProperties(prefix = "tier")
 public class TieredModelRouterProperties {
 
-    private TierConfig light = new TierConfig("deepseek-v4-flash", 0.1);
-    private TierConfig standard = new TierConfig("deepseek-v4-flash", 0.3);
-    private TierConfig heavy = new TierConfig("deepseek-v4-pro", 0.2);
+    private TierConfig light = new TierConfig(null, 0.1);
+    private TierConfig standard = new TierConfig(null, 0.3);
+    private TierConfig heavy = new TierConfig(null, 0.2);
 
     /** 意图 → 强制档位（如退款投诉类意图强制 HEAVY）。 */
     private Map<String, ModelTier> intentOverrides = new HashMap<>();

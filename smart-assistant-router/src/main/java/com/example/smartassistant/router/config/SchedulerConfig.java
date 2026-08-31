@@ -42,6 +42,12 @@ public class SchedulerConfig {
     @Value("${router.scheduler.poll-timeout:1}")
     private long pollTimeoutSeconds;
 
+    @Value("${router.scheduler.hot-agents:}")
+    private String hotAgents;
+
+    @Value("${router.scheduler.max-concurrency-per-agent:4}")
+    private int maxConcurrencyPerAgent;
+
     /**
      * Redis 任务队列。
      */
@@ -86,7 +92,28 @@ public class SchedulerConfig {
         return new HotAgentPool(
                 taskQueue,
                 task -> executeQueuedTask(task, agentCallerService),
-                workerCount);
+                workerCount,
+                maxConcurrencyPerAgent,
+                parseAgentPriorities(hotAgents));
+    }
+
+    static Map<String, Integer> parseAgentPriorities(String configured) {
+        Map<String, Integer> priorities = new LinkedHashMap<>();
+        if (configured == null || configured.isBlank()) {
+            return priorities;
+        }
+        for (String entry : configured.split(",")) {
+            String[] pair = entry.trim().split(":", 2);
+            if (pair.length != 2 || pair[0].isBlank()) {
+                continue;
+            }
+            try {
+                priorities.put(pair[0].trim(), Integer.parseInt(pair[1].trim()));
+            } catch (NumberFormatException ignored) {
+                log.warn("[SchedulerConfig] 忽略无效 Hot Agent 优先级: {}", entry);
+            }
+        }
+        return priorities;
     }
 
     private String executeQueuedTask(com.example.smartassistant.common.scheduler.AgentTask task,

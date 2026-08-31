@@ -235,6 +235,13 @@ public class AuthService {
         return sessionService.getActiveSessions(userId);
     }
 
+    /** Issues the same local session used by password login after an external identity is verified. */
+    public AuthResponse issueForUser(User user, String ipAddress, String userAgent) {
+        AuthResponse response = generateAuthResponse(user);
+        createAccessSession(user, response, ipAddress, userAgent);
+        return response;
+    }
+
     private AuthResponse generateAuthResponse(User user) {
         String role = normalizeRole(user.getRole());
         String accessToken = jwtService.generateToken(user.getId(), user.getUsername(), role);

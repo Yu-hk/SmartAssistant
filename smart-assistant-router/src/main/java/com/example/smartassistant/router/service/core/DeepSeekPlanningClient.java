@@ -28,9 +28,12 @@ public class DeepSeekPlanningClient {
             ObjectMapper objectMapper,
             @Value("${spring.ai.deepseek.api-key:${DEEPSEEK_API_KEY:}}") String apiKey,
             @Value("${spring.ai.deepseek.base-url:${DEEPSEEK_BASE_URL:https://api.deepseek.com}}") String baseUrl,
-            @Value("${router.light-model.name:${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}}") String model) {
+            @Value("${router.light-model.name:${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:}}}") String model) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("DeepSeek API key is required for task planning");
+        }
+        if (model == null || model.isBlank()) {
+            throw new IllegalStateException("A task-planning model name is required");
         }
         this.objectMapper = objectMapper;
         this.model = model;
@@ -44,6 +47,10 @@ public class DeepSeekPlanningClient {
     public String complete(String prompt, int maxTokens) {
         Map<String, Object> request = requestBody(model, prompt, maxTokens);
         return complete(request);
+    }
+
+    public String modelName() {
+        return model;
     }
 
     /**

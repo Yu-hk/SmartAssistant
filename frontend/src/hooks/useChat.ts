@@ -1,16 +1,18 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Message, ToolCall, PermissionRequest, Session, ContentBlock, FaqItem, normalizeIntentType } from '../types';
+import {
+  Message,
+  ToolCall,
+  PermissionRequest,
+  Session,
+  ContentBlock,
+  FaqItem,
+  WorkflowRecoveryJob,
+  WorkflowRecoveryStatus,
+  normalizeIntentType,
+} from '../types';
 import { sessions as sessionApi } from '../api';
 import { authenticatedFetch } from '../api/client';
-import {
-  DeviceLocationContext,
-  getCurrentDeviceLocation,
-  needsDeviceLocation,
-} from '../utils/deviceLocation';
-
-const LOCATION_ENABLED_KEY = 'smart-assistant-location-weather-enabled';
-export type LocationStatus = 'off' | 'ready' | 'denied' | 'unavailable';
 
 interface UseChatOptions {
   currentSession: Session | undefined;
@@ -31,15 +33,15 @@ export function useChat(options: UseChatOptions) {
   // ⭐ 排队状态
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [queueEstimatedWait, setQueueEstimatedWait] = useState<number | null>(null);
-  const [locationEnabled, setLocationEnabledState] = useState(
-    () => localStorage.getItem(LOCATION_ENABLED_KEY) === 'true',
-  );
-  const [locationStatus, setLocationStatus] = useState<LocationStatus>(
-    () => localStorage.getItem(LOCATION_ENABLED_KEY) === 'true' ? 'ready' : 'off',
-  );
 
   // ⭐ 当前流式请求的取消控制器（用于停止生成）
   const streamAbortRef = useRef<AbortController | null>(null);
+  const recoveryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => () => {
+    recoveryTimersRef.current.forEach(timer => clearTimeout(timer));
+    recoveryTimersRef.current.clear();
+  }, []);
 
   const sendMessage = useCallback(async (
     messageContent: string,
@@ -52,6 +54,7 @@ export function useChat(options: UseChatOptions) {
 
     const tempUserMessageId = uuidv4();
     const tempAssistantMessageId = uuidv4();
+    const workflowRequestId = uuidv4();
 
     const userMessage: Message = {
       id: tempUserMessageId,
@@ -68,6 +71,8 @@ export function useChat(options: UseChatOptions) {
       timestamp: new Date(),
       isStreaming: true,
       contentBlocks: [],
+      requestId: workflowRequestId,
+      deliveryStatus: 'streaming',
     };
 
     // 如果没有会话，本地生成 sessionId 直接开聊（微服务未提供会话创建端点，dev/demo 模式）
@@ -110,19 +115,9 @@ export function useChat(options: UseChatOptions) {
 
     // ⭐ 使用 fetch 读取 SSE，以便携带 Bearer Token
     try {
-      let deviceLocation: DeviceLocationContext | undefined;
-      if (locationEnabled && needsDeviceLocation(messageContent)) {
-        try {
-          deviceLocation = await getCurrentDeviceLocation();
-          setLocationStatus('ready');
-        } catch (error) {
-          const positionError = error as Partial<GeolocationPositionError> | null;
-          const permissionDenied = positionError?.code === 1;
-          setLocationStatus(permissionDenied ? 'denied' : 'unavailable');
-        }
-      }
       await streamWithFetch(
-        messageContent, sessionId!, selectedModel, tempAssistantMessageId, deviceLocation,
+        messageContent, sessionId!, workflowRequestId, selectedModel,
+        tempAssistantMessageId,
       );
     } catch (error) {
       console.error('Chat error:', error);
@@ -132,7 +127,13 @@ export function useChat(options: UseChatOptions) {
             ...s,
             messages: s.messages.map(m =>
               m.id === tempAssistantMessageId
-                ? { ...m, content: '⚠️ 发生错误，请重试', isStreaming: false }
+                ? {
+                  ...m,
+                  content: '⚠️ 发生错误，请重试',
+                  isStreaming: false,
+                  deliveryStatus: 'failed',
+                  recoverable: Boolean(m.requestId),
+                }
                 : m
             ),
           };
@@ -142,15 +143,15 @@ export function useChat(options: UseChatOptions) {
     } finally {
       setIsLoading(false);
     }
-  }, [currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId, isLoading, locationEnabled]);
+  }, [currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId, isLoading]);
 
   /** 使用 fetch 读取 SSE；原生 EventSource 无法附带 Authorization 请求头。 */
   const streamWithFetch = useCallback(async (
     message: string,
     sessionId: string,
+    requestId: string,
     model: string,
     assistantMessageId: string,
-    deviceLocation?: DeviceLocationContext,
   ): Promise<void> => {
     let fullContent = '';
     let currentToolCalls: ToolCall[] = [];
@@ -218,6 +219,10 @@ export function useChat(options: UseChatOptions) {
             if (data.faqSuggestions?.length) {
               setFaqSuggestions(data.faqSuggestions);
             }
+            updateAssistantMessage(current => ({
+              ...current,
+              requestId: data.requestId || requestId,
+            }));
             if (realAssistantMessageId !== assistantMessageId) {
               setSessions(prev => prev.map(s => {
                 if (s.id === realSessionId) {
@@ -297,7 +302,12 @@ export function useChat(options: UseChatOptions) {
 
           } else if (data.type === 'done') {
             isDone = true;
-            updateAssistantMessage(current => ({ ...current, isStreaming: false }));
+            updateAssistantMessage(current => ({
+              ...current,
+              isStreaming: false,
+              deliveryStatus: 'completed',
+              recoverable: false,
+            }));
 
           } else if (data.type === 'permission_request') {
             setPermissionRequest({
@@ -315,6 +325,8 @@ export function useChat(options: UseChatOptions) {
               ...current,
               content: `⚠️ ${data.content || data.message}`,
               isStreaming: false,
+              deliveryStatus: 'failed',
+              recoverable: Boolean(current.requestId),
             }));
           } else if (data.type === 'timeout') {
             isDone = true;
@@ -322,6 +334,8 @@ export function useChat(options: UseChatOptions) {
               ...current,
               content: `⚠️ ${data.content || '请求超时，请稍后重试'}`,
               isStreaming: false,
+              deliveryStatus: 'failed',
+              recoverable: Boolean(current.requestId),
             }));
           }
 
@@ -367,8 +381,8 @@ export function useChat(options: UseChatOptions) {
         body: JSON.stringify({
           message,
           sessionId,
+          requestId,
           model,
-          ...(deviceLocation ? { deviceLocation } : {}),
         }),
         signal: controller.signal,
       });
@@ -409,7 +423,12 @@ export function useChat(options: UseChatOptions) {
       }
     } catch (error) {
       if (controller.signal.aborted) {
-        updateAssistantMessage(current => ({ ...current, isStreaming: false }));
+        updateAssistantMessage(current => ({
+          ...current,
+          isStreaming: false,
+          deliveryStatus: 'stopped',
+          recoverable: false,
+        }));
         return;
       }
       throw error;
@@ -431,11 +450,78 @@ export function useChat(options: UseChatOptions) {
     setPermissionRequest(null);
   }, [permissionRequest]);
 
-  const setLocationEnabled = useCallback((enabled: boolean) => {
-    setLocationEnabledState(enabled);
-    localStorage.setItem(LOCATION_ENABLED_KEY, String(enabled));
-    setLocationStatus(enabled ? 'ready' : 'off');
-  }, []);
+  const updateRecoveredMessage = useCallback((messageId: string, job: WorkflowRecoveryJob) => {
+    setSessions(prev => prev.map(session => ({
+      ...session,
+      messages: session.messages.map(message => {
+        if (message.id !== messageId) return message;
+        const succeeded = job.status === 'SUCCEEDED';
+        const result = job.result?.trim();
+        return {
+          ...message,
+          content: succeeded
+            ? result || '工作流已恢复完成，但没有返回可展示的结果。'
+            : message.content,
+          contentBlocks: succeeded && result ? [{ type: 'text', text: result }] : message.contentBlocks,
+          isStreaming: false,
+          deliveryStatus: succeeded ? 'completed' : message.deliveryStatus,
+          recoverable: succeeded ? false : !ACTIVE_RECOVERY_STATUSES.has(job.status),
+          recoveryStatus: job.status,
+          recoveryError: job.lastError || undefined,
+        };
+      }),
+    })));
+  }, [setSessions]);
+
+  const handleRecoverMessage = useCallback(async (messageId: string, requestId: string) => {
+    const previousTimer = recoveryTimersRef.current.get(messageId);
+    if (previousTimer) clearTimeout(previousTimer);
+
+    setSessions(prev => prev.map(session => ({
+      ...session,
+      messages: session.messages.map(message => message.id === messageId
+        ? { ...message, recoveryStatus: 'REQUESTED', recoveryError: undefined }
+        : message),
+    })));
+
+    const schedulePoll = (recoveryId: string) => {
+      const timer = setTimeout(async () => {
+        try {
+          const latest = await sessionApi.fetchWorkflowRecovery(recoveryId);
+          updateRecoveredMessage(messageId, latest);
+          if (ACTIVE_RECOVERY_STATUSES.has(latest.status)) schedulePoll(recoveryId);
+          else recoveryTimersRef.current.delete(messageId);
+        } catch (error) {
+          setSessions(prev => prev.map(session => ({
+            ...session,
+            messages: session.messages.map(message => message.id === messageId
+              ? { ...message, recoveryError: recoveryErrorMessage(error) }
+              : message),
+          })));
+          schedulePoll(recoveryId);
+        }
+      }, 2000);
+      recoveryTimersRef.current.set(messageId, timer);
+    };
+
+    try {
+      const job = await sessionApi.requestWorkflowRecovery(requestId);
+      updateRecoveredMessage(messageId, job);
+      if (ACTIVE_RECOVERY_STATUSES.has(job.status)) schedulePoll(job.recoveryId);
+    } catch (error) {
+      setSessions(prev => prev.map(session => ({
+        ...session,
+        messages: session.messages.map(message => message.id === messageId
+          ? {
+            ...message,
+            recoveryStatus: undefined,
+            recoveryError: recoveryErrorMessage(error),
+            recoverable: true,
+          }
+          : message),
+      })));
+    }
+  }, [setSessions, updateRecoveredMessage]);
 
   /**
    * ⭐ 停止生成：中止 fetch 流式连接，真正取消后端请求。
@@ -472,12 +558,32 @@ export function useChat(options: UseChatOptions) {
     faqSuggestions,
     queuePosition,
     queueEstimatedWait,
-    locationEnabled,
-    locationStatus,
-    setLocationEnabled,
     sendMessage,
     handleStop,
     handlePermissionAllow,
     handlePermissionDeny,
+    handleRecoverMessage,
   };
+}
+
+const ACTIVE_RECOVERY_STATUSES = new Set<WorkflowRecoveryStatus>([
+  'REQUESTED', 'QUEUED', 'RECOVERING', 'RETRY_SCHEDULED',
+]);
+
+function recoveryErrorMessage(error: unknown): string {
+  const fallback = error instanceof Error ? error.message : '恢复失败，请稍后重试';
+  const body = (error as { body?: string } | null)?.body;
+  if (!body) return fallback;
+  try {
+    const code = (JSON.parse(body) as { code?: string }).code;
+    return ({
+      CHECKPOINT_NOT_FOUND: '恢复检查点不存在或已经过期。',
+      FORBIDDEN: '没有权限恢复这次回答。',
+      APPROVAL_REQUIRED: '该任务正在等待确认，请先完成确认。',
+      ACTIVE_EXECUTION: '任务仍在执行，请稍后再试。',
+      CHECKPOINT_VERSION_CONFLICT: '任务状态已经更新，请刷新后重试。',
+    } as Record<string, string>)[code || ''] || fallback;
+  } catch {
+    return fallback;
+  }
 }

@@ -22,7 +22,7 @@ class AgentCallerProductUriTest {
 
     @Test
     void parsesTypedProtocolResponseAndKeepsLegacyFallbackUri() {
-        AgentCallerService service = new AgentCallerService(null, null, null);
+        AgentCallerService service = new AgentCallerService(null, null, null, null);
         AgentExecutionResponse response = ReflectionTestUtils.invokeMethod(
                 service, "parseProtocolResponse",
                 "{\"protocolVersion\":\"1.0\",\"status\":\"SUCCEEDED\","

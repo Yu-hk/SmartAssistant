@@ -40,20 +40,39 @@ public class ImageTools implements RegistryTool {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final String dashscopeApiKey;
+    private final String visionModel;
+    private final String imageModel;
+    private final String chatUrl;
+    private final String imageTaskUrl;
+    private final String taskStatusUrl;
+    private final Duration requestTimeout;
+    private final long pollTimeoutMs;
+    private final long pollIntervalMs;
 
-    private static final String VL_MODEL = "qwen-vl-max";
-    private static final String WANX_MODEL = "wanx-image-generation-v1";
-
-    private static final String DASHSCOPE_CHAT_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
-    private static final String WANX_TASK_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis";
-    private static final String DASHSCOPE_TASK_URL = "https://dashscope.aliyuncs.com/api/v1/tasks/";
-
-    public ImageTools(@Value("${spring.ai.dashscope.api-key:}") String dashscopeApiKey) {
+    public ImageTools(
+            @Value("${spring.ai.dashscope.api-key:}") String dashscopeApiKey,
+            @Value("${tools.image.vision-model:${IMAGE_VISION_MODEL:}}") String visionModel,
+            @Value("${tools.image.generation-model:${IMAGE_GENERATION_MODEL:}}") String imageModel,
+            @Value("${tools.image.chat-url:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}") String chatUrl,
+            @Value("${tools.image.generation-url:https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis}") String imageTaskUrl,
+            @Value("${tools.image.task-status-url:https://dashscope.aliyuncs.com/api/v1/tasks/}") String taskStatusUrl,
+            @Value("${tools.image.connect-timeout-ms:10000}") long connectTimeoutMs,
+            @Value("${tools.image.request-timeout-ms:30000}") long requestTimeoutMs,
+            @Value("${tools.image.poll-timeout-ms:60000}") long pollTimeoutMs,
+            @Value("${tools.image.poll-interval-ms:2000}") long pollIntervalMs) {
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
+                .connectTimeout(Duration.ofMillis(Math.max(1L, connectTimeoutMs)))
                 .build();
         this.objectMapper = new ObjectMapper();
         this.dashscopeApiKey = dashscopeApiKey;
+        this.visionModel = visionModel;
+        this.imageModel = imageModel;
+        this.chatUrl = chatUrl;
+        this.imageTaskUrl = imageTaskUrl;
+        this.taskStatusUrl = taskStatusUrl.endsWith("/") ? taskStatusUrl : taskStatusUrl + "/";
+        this.requestTimeout = Duration.ofMillis(Math.max(1L, requestTimeoutMs));
+        this.pollTimeoutMs = Math.max(1L, pollTimeoutMs);
+        this.pollIntervalMs = Math.max(1L, pollIntervalMs);
     }
 
     @Tool(description = "分析图片内容，根据用户的问题回答图片中的信息。支持图片URL和base64数据URI。"
@@ -73,7 +92,7 @@ public class ImageTools implements RegistryTool {
 
         try {
             ObjectNode requestBody = objectMapper.createObjectNode();
-            requestBody.put("model", VL_MODEL);
+            requestBody.put("model", visionModel);
 
             ArrayNode messages = requestBody.putArray("messages");
             ObjectNode userMsg = messages.addObject();
@@ -99,10 +118,10 @@ public class ImageTools implements RegistryTool {
             String jsonBody = objectMapper.writeValueAsString(requestBody);
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(DASHSCOPE_CHAT_URL))
+                    .uri(URI.create(chatUrl))
                     .header("Authorization", "Bearer " + dashscopeApiKey)
                     .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(30))
+                    .timeout(requestTimeout)
                     .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                     .build();
 
@@ -152,7 +171,7 @@ public class ImageTools implements RegistryTool {
 
         try {
             ObjectNode requestBody = objectMapper.createObjectNode();
-            requestBody.put("model", WANX_MODEL);
+            requestBody.put("model", imageModel);
 
             ObjectNode input = requestBody.putObject("input");
             input.put("prompt", prompt);
@@ -164,10 +183,10 @@ public class ImageTools implements RegistryTool {
             String jsonBody = objectMapper.writeValueAsString(requestBody);
 
             HttpRequest createRequest = HttpRequest.newBuilder()
-                    .uri(URI.create(WANX_TASK_URL))
+                    .uri(URI.create(imageTaskUrl))
                     .header("Authorization", "Bearer " + dashscopeApiKey)
                     .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(30))
+                    .timeout(requestTimeout)
                     .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                     .build();
 
@@ -207,16 +226,13 @@ public class ImageTools implements RegistryTool {
 
     private String pollTaskResult(String taskId) throws Exception {
         long start = System.currentTimeMillis();
-        long timeout = 60 * 1000L;
-        int pollInterval = 2000;
-
-        while (System.currentTimeMillis() - start < timeout) {
-            Thread.sleep(pollInterval);
+        while (System.currentTimeMillis() - start < pollTimeoutMs) {
+            Thread.sleep(pollIntervalMs);
 
             HttpRequest pollRequest = HttpRequest.newBuilder()
-                    .uri(URI.create(DASHSCOPE_TASK_URL + taskId))
+                    .uri(URI.create(taskStatusUrl + taskId))
                     .header("Authorization", "Bearer " + dashscopeApiKey)
-                    .timeout(Duration.ofSeconds(10))
+                    .timeout(requestTimeout)
                     .GET()
                     .build();
 

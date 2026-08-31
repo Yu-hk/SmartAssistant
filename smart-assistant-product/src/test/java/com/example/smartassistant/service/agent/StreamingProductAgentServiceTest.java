@@ -40,6 +40,13 @@ import static org.mockito.Mockito.*;
  */
 class StreamingProductAgentServiceTest {
 
+    @Test
+    void normalizesMergedEvidenceAndDocumentCitation() {
+        assertEquals("结论。[E1][CID:PROD-PRICE-001]",
+                StreamingProductAgentService.normalizePublicRagAnswer(
+                        "结论。[E1-CID:PROD-PRICE-001]"));
+    }
+
     private SmartReActAgent agent;
     private ProductRagService ragService;
     private StreamingProductAgentService service;
@@ -106,12 +113,15 @@ class StreamingProductAgentServiceTest {
                 "### 数据分析开始 ###\n【核心结论】AIRPODS-PRO，¥1999，库存充足"));
         when(pro.call(any(Prompt.class))).thenReturn(
                 chatResponse("{\"valid\":true,\"issues\":[],\"correction_instruction\":\"\"}"),
-                chatResponse("### 推荐核实完成 ###\n推荐 AIRPODS-PRO（AirPods Pro（第二代）），"
-                        + "价格 ¥1999，库存充足，请确认后下单。"));
+                chatResponse("### 内部核实内容 ###\n销量、性价比和口碑分析已完成。\n"
+                        + "{\"conclusion\":\"推荐 AIRPODS-PRO（AirPods Pro（第二代）），"
+                        + "价格 ¥1999，库存充足。\"}"));
 
         String result = discoveryService.execute("推荐几款热门商品", "req-p-analysis");
 
-        assertTrue(result.startsWith("### 推荐核实完成 ###"));
+        assertEquals("推荐 AIRPODS-PRO（AirPods Pro（第二代）），价格 ¥1999，库存充足。", result);
+        assertFalse(result.contains("内部核实"));
+        assertFalse(result.contains("销量、性价比"));
         verifyNoInteractions(ragService);
         org.mockito.ArgumentCaptor<Prompt> directAnalysisPrompt =
                 org.mockito.ArgumentCaptor.forClass(Prompt.class);
@@ -120,7 +130,11 @@ class StreamingProductAgentServiceTest {
         assertTrue(directAnalysisPrompt.getValue().getContents().contains("AirPods Pro"));
         assertTrue(directAnalysisPrompt.getValue().getContents().contains("【核心结论】"));
         assertEquals(900, directAnalysisPrompt.getValue().getOptions().getMaxTokens());
-        verify(pro, times(2)).call(any(Prompt.class));
+        org.mockito.ArgumentCaptor<Prompt> directRecommendationPrompts =
+                org.mockito.ArgumentCaptor.forClass(Prompt.class);
+        verify(pro, times(2)).call(directRecommendationPrompts.capture());
+        assertTrue(directRecommendationPrompts.getAllValues().get(1).getContents()
+                .contains("\"conclusion\""));
         verify(agent, never()).execute(anyString());
     }
 
@@ -135,12 +149,45 @@ class StreamingProductAgentServiceTest {
 
         assertNotNull(result);
         verify(agent, times(1)).execute(argThat(msg ->
-                msg.contains("系统已检索到以下商品信息") && msg.contains("iPhone 15")));
+                msg.contains("系统已检索到以下商品证据")
+                        && msg.contains("iPhone 15")
+                        && msg.contains("不得展示分析过程")));
 
         var trace = recorder.findByRequestId("req-p-ok");
         assertNotNull(trace);
         assertFalse(trace.isRejected());
         assertEquals("OK", trace.lastStageOf(RagStage.GENERATION).status());
+    }
+
+    @Test
+    @DisplayName("忠实度失败：应只修正一次并隐藏思考过程")
+    void faithfulnessFailure_shouldReviseOnceAndHideThinking() {
+        when(ragService.retrieveWithQualityResult(anyString()))
+                .thenReturn(RetrievalQualityResult.highQuality(
+                        "【商品检索证据】\n[E1] [CID:PROD-1] 商品支持一年保修", 0.9));
+        when(agent.execute(anyString())).thenReturn(
+                "<think>内部推理</think>商品支持三年保修",
+                "<thinking>重新核对</thinking>商品支持一年保修 [E1] [CID:PROD-1]");
+        com.example.smartassistant.common.rag.eval.FaithfulnessGuard guard =
+                mock(com.example.smartassistant.common.rag.eval.FaithfulnessGuard.class);
+        when(guard.check(contains("三年保修"), anyString())).thenReturn(
+                new com.example.smartassistant.common.rag.eval.FaithfulnessGuard.FaithfulnessVerdict(
+                        true, true, 0.8, List.of(), "风险提示"));
+        when(guard.check(contains("一年保修"), anyString())).thenReturn(
+                new com.example.smartassistant.common.rag.eval.FaithfulnessGuard.FaithfulnessVerdict(
+                        true, false, 0.0, List.of(), null));
+        service.setFaithfulnessGuard(guard);
+
+        String result = service.execute("保修多久", "req-p-faithfulness-retry");
+
+        assertTrue(result.contains("一年保修"));
+        assertTrue(result.contains("[E1]"));
+        assertFalse(result.contains("think"));
+        assertFalse(result.contains("内部推理"));
+        org.mockito.ArgumentCaptor<String> prompts = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(agent, times(2)).execute(prompts.capture());
+        assertTrue(prompts.getAllValues().get(1).contains("答案事实校验未通过"));
+        assertTrue(prompts.getAllValues().get(1).contains("只输出最终答案"));
     }
 
     @Test
@@ -206,8 +253,8 @@ class StreamingProductAgentServiceTest {
                 chatResponse("{\"valid\":false,\"issues\":[\"错误声称支持会议\"],"
                         + "\"correction_instruction\":\"删除无证据的会议适配结论\"}"),
                 chatResponse("{\"valid\":true,\"issues\":[],\"correction_instruction\":\"\"}"),
-                chatResponse("### 推荐核实完成 ###\n推荐 SKU-100，价格 ¥599，库存有货；"
-                        + "现有数据不支持会议适配结论，请确认后再下单。"));
+                chatResponse("{\"conclusion\":\"当前证据不足以确认会议适配性，"
+                        + "暂不推荐唯一商品；请补充麦克风和并发人数要求。\"}"));
         StreamingProductAgentService dualModelService = dualModelService(flash, pro);
         dualModelService.setMaxReanalysis(1);
 
@@ -216,7 +263,8 @@ class StreamingProductAgentServiceTest {
                 "候选：SKU-100，价格 ¥599，库存有货。\n分析：SKU-100 完全支持会议。",
                 "req-pro-audit");
 
-        assertTrue(result.answer().startsWith("### 推荐核实完成 ###"));
+        assertEquals("当前证据不足以确认会议适配性，暂不推荐唯一商品；请补充麦克风和并发人数要求。",
+                result.answer());
         assertTrue(result.quality().getReasonCodes().contains(
                 "PRODUCT_RECOMMENDATION_PRO_VERIFIED_AFTER_REANALYSIS"));
         org.mockito.ArgumentCaptor<Prompt> correctionPrompt =
@@ -237,8 +285,8 @@ class StreamingProductAgentServiceTest {
                 chatResponse("分析内容没有问题，可以继续推荐。"),
                 chatResponse("```json\n{\"valid\":true,\"issues\":[],"
                         + "\"correction_instruction\":\"\"}\n```"),
-                chatResponse("### 推荐核实完成 ###\n推荐 XIAOMI-15（小米 15 Pro），"
-                        + "价格 ¥5299，库存充足，规格含徕卡光学；请确认后下单。"));
+                chatResponse("{\"conclusion\":\"推荐 XIAOMI-15（小米 15 Pro），"
+                        + "价格 ¥5299，库存充足，符合6000元预算和拍照偏好。\"}"));
         StreamingProductAgentService dualModelService = dualModelService(flash, pro);
 
         var result = dualModelService.verifyAnalysisAndRecommend(
@@ -247,13 +295,39 @@ class StreamingProductAgentServiceTest {
                         + "\n分析：预算满足，拍照偏好有徕卡光学规格证据。",
                 "req-pro-format-retry");
 
-        assertTrue(result.answer().startsWith("### 推荐核实完成 ###"));
+        assertEquals("推荐 XIAOMI-15（小米 15 Pro），价格 ¥5299，库存充足，符合6000元预算和拍照偏好。",
+                result.answer());
         assertTrue(result.quality().isPass());
         verify(flash, never()).call(any(Prompt.class));
         org.mockito.ArgumentCaptor<Prompt> prompts =
                 org.mockito.ArgumentCaptor.forClass(Prompt.class);
         verify(pro, times(3)).call(prompts.capture());
         assertTrue(prompts.getAllValues().get(1).getContents().contains("上一次输出未能解析"));
+    }
+
+    @Test
+    @DisplayName("推荐节点：最终模型输出额外内容时只返回 conclusion")
+    void recommendationNode_shouldRetryAndExposeConclusionOnly() {
+        org.springframework.ai.chat.model.ChatModel flash =
+                mock(org.springframework.ai.chat.model.ChatModel.class);
+        org.springframework.ai.chat.model.ChatModel pro =
+                mock(org.springframework.ai.chat.model.ChatModel.class);
+        when(pro.call(any(Prompt.class))).thenReturn(
+                chatResponse("{\"valid\":true,\"issues\":[],\"correction_instruction\":\"\"}"),
+                chatResponse("推荐核实完成，以下是详细分析……"),
+                chatResponse("分析过程不应显示。\n{\"conclusion\":\"当前缺少口碑数据，暂不推荐唯一商品。\"}"));
+        StreamingProductAgentService dualModelService = dualModelService(flash, pro);
+
+        var result = dualModelService.verifyAnalysisAndRecommend(
+                "推荐热门商品", "候选商品销量相同，缺少口碑数据。", "req-pro-conclusion-only");
+
+        assertEquals("当前缺少口碑数据，暂不推荐唯一商品。", result.answer());
+        assertFalse(result.answer().contains("分析过程"));
+        org.mockito.ArgumentCaptor<Prompt> prompts =
+                org.mockito.ArgumentCaptor.forClass(Prompt.class);
+        verify(pro, times(3)).call(prompts.capture());
+        assertTrue(prompts.getAllValues().get(2).getContents().contains("只输出包含 conclusion"));
+        verify(flash, never()).call(any(Prompt.class));
     }
 
     private StreamingProductAgentService dualModelService(

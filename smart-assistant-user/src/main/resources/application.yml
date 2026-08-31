@@ -74,6 +74,25 @@ jwt:
 session:
   ttl-days: 7  # Session 有效期（天）
 
+# 第三方登录。平台密钥只允许通过环境变量注入，禁止写入仓库。
+oauth:
+  public-base-url: ${OAUTH_PUBLIC_BASE_URL:http://localhost:8081}
+  frontend-base-url: ${OAUTH_FRONTEND_BASE_URL:http://localhost:5173}
+  state-ttl: 5m
+  ticket-ttl: 60s
+  wechat:
+    enabled: ${OAUTH_WECHAT_ENABLED:false}
+    client-id: ${OAUTH_WECHAT_CLIENT_ID:}
+    client-secret: ${OAUTH_WECHAT_CLIENT_SECRET:}
+  dingtalk:
+    enabled: ${OAUTH_DINGTALK_ENABLED:false}
+    client-id: ${OAUTH_DINGTALK_CLIENT_ID:}
+    client-secret: ${OAUTH_DINGTALK_CLIENT_SECRET:}
+  feishu:
+    enabled: ${OAUTH_FEISHU_ENABLED:false}
+    client-id: ${OAUTH_FEISHU_CLIENT_ID:}
+    client-secret: ${OAUTH_FEISHU_CLIENT_SECRET:}
+
 # Actuator + Prometheus + Tracing 配置
 management:
   endpoints:

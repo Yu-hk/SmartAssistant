@@ -23,7 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -43,64 +42,15 @@ public class UserProfileService {
     private final LLMPreferenceExtractor llmExtractor;
     private final MemoryVersionStore memoryVersionStore;
 
-    // 偏好关键词模式
-    private static final Map<String, Pattern> PREFERENCE_PATTERNS = new HashMap<>();
-
-    static {
-        PREFERENCE_PATTERNS.put("food_spicy", Pattern.compile("(辣|麻辣|香辣|酸辣|微辣)"));
-        PREFERENCE_PATTERNS.put("food_light", Pattern.compile("(清淡|清蒸|少油|少盐)"));
-        PREFERENCE_PATTERNS.put("food_sweet", Pattern.compile("(甜|甜品|糖水)"));
-        PREFERENCE_PATTERNS.put("travel_nature", Pattern.compile("(自然|山水|风景|户外|徒步)"));
-        PREFERENCE_PATTERNS.put("travel_culture", Pattern.compile("(文化|历史|古迹|博物馆)"));
-        PREFERENCE_PATTERNS.put("travel_relax", Pattern.compile("(休闲|度假|放松|温泉)"));
-        PREFERENCE_PATTERNS.put("budget_low", Pattern.compile("(便宜|经济|实惠|性价比)"));
-        PREFERENCE_PATTERNS.put("budget_high", Pattern.compile("(高端|豪华|精品|五星)"));
-        PREFERENCE_PATTERNS.put("diet_vegetarian", Pattern.compile("(素食|素菜|不吃肉)"));
-        PREFERENCE_PATTERNS.put("diet_halal", Pattern.compile("(清真|回族)"));
-    }
-
     public UserProfileService(LLMPreferenceExtractor llmExtractor, MemoryVersionStore memoryVersionStore) {
         this.llmExtractor = llmExtractor;
         this.memoryVersionStore = memoryVersionStore;
     }
 
-    // ==================== 冷启动默认画像 ====================
-
-    /**
-     * 群体画像冷启动默认值。
-     * 新用户第一次使用时，用此兜底偏好填充画像，
-     * 让 Prompt 中有基础上下文，避免回复完全无个性化。
-     * 随着用户真实行为积累，真实偏好会逐步覆盖这些默认值（权重=1）。
-     */
-    private static final String[]   DEFAULT_FOOD_PREFS         = {"清淡", "辣"};
-    private static final String[]   DEFAULT_TRAVEL_PREFS       = {"自然风光", "人文历史"};
-    private static final String     DEFAULT_BUDGET_RANGE       = "经济实惠";
-    private static final String[]   DEFAULT_DIETARY            = {};
-    private static final Map<String, Integer> DEFAULT_WEIGHTS  = Map.of(
-            "清淡", 1, "辣", 1, "自然风光", 1, "人文历史", 1
-    );
-
-    /**
-     * 用群体画像默认值填充空白画像（仅首次加载时触发）。
-     * 不覆盖已有字段，确保真实偏好优先。
-     */
+    /** Initializes empty containers only; cold start must not invent user preferences. */
     private UserProfile applyDefaultProfile(UserProfile profile) {
-        if (profile.getFoodPreferencesArray() == null || profile.getFoodPreferencesArray().length == 0) {
-            profile.setFoodPreferencesArray(DEFAULT_FOOD_PREFS.clone());
-        }
-        if (profile.getTravelPreferencesArray() == null || profile.getTravelPreferencesArray().length == 0) {
-            profile.setTravelPreferencesArray(DEFAULT_TRAVEL_PREFS.clone());
-        }
-        if (profile.getBudgetRange() == null || profile.getBudgetRange().isBlank()) {
-            profile.setBudgetRange(DEFAULT_BUDGET_RANGE);
-        }
-        if (profile.getDietaryRestrictionsArray() == null) {
-            profile.setDietaryRestrictionsArray(DEFAULT_DIETARY.clone());
-        }
-        // 只补充缺失的权重，不覆盖已有真实权重
-        Map<String, Integer> weights = profile.getPreferenceWeightsMap();
-        DEFAULT_WEIGHTS.forEach(weights::putIfAbsent);
-        profile.setPreferenceWeightsMap(weights);
+        profile.setPreferenceGroupsMap(profile.getPreferenceGroupsMap());
+        profile.setPreferenceWeightsMap(profile.getPreferenceWeightsMap());
         return profile;
     }
 
@@ -134,47 +84,32 @@ public class UserProfileService {
                 location = llmPrefs.location();
             }
 
-            Set<String> foodPrefs = new HashSet<>(llmPrefs.foodPreferences());
-            Set<String> travelPrefs = new HashSet<>(llmPrefs.travelPreferences());
-            String budget = convertBudget(llmPrefs.budget());
-            List<String> dietaryRestrictions = llmPrefs.dietaryRestrictions();
-
-            if (foodPrefs.isEmpty()) foodPrefs = extractPreferences(question, "food_");
-            if (travelPrefs.isEmpty()) travelPrefs = extractPreferences(question, "travel_");
-            if (budget == null) budget = extractBudget(question);
-            if (dietaryRestrictions.isEmpty()) dietaryRestrictions = extractDietaryRestrictions(question);
+            Map<String, List<String>> preferenceGroups = llmPrefs.preferenceGroups();
+            List<String> negativePreferences = llmPrefs.negativePreferences();
+            String budget = llmPrefs.budget();
 
             // 更新地点权重
             if (location != null && !location.isBlank()) {
                 updateLocationWeight(profile, location);
             }
 
-            // 合并美食偏好带权重
-            mergePreferences(profile, foodPrefs, "food");
-
-            // 合并旅行偏好
-            Set<String> travelSet = new HashSet<>(travelPrefs);
-            if (profile.getTravelPreferencesArray() != null) {
-                travelSet.addAll(Arrays.asList(profile.getTravelPreferencesArray()));
+            mergePreferenceGroups(profile, preferenceGroups);
+            if (negativePreferences != null && !negativePreferences.isEmpty()) {
+                mergePreferenceGroups(profile, Map.of("negative", negativePreferences));
             }
-            profile.setTravelPreferencesArray(travelSet.toArray(new String[0]));
 
             if (budget != null) profile.setBudgetRange(budget);
-            if (!dietaryRestrictions.isEmpty()) {
-                Set<String> dietSet = new HashSet<>(dietaryRestrictions);
-                if (profile.getDietaryRestrictionsArray() != null) {
-                    dietSet.addAll(Arrays.asList(profile.getDietaryRestrictionsArray()));
-                }
-                profile.setDietaryRestrictionsArray(dietSet.toArray(new String[0]));
-            }
 
             // ⭐ P4-B 版本化记忆：关键偏好以「来源分级」写入版本化记忆库，
             //    用户改主意时按 优先级(EXPLICIT>FACT>INFERRED) + 时间 留存历史版本（不物理删除）
             if (memoryVersionStore != null) {
-                for (String f : foodPrefs) recordMemory(userId, "FOOD_PREF", f, "偏好", MemorySource.INFERRED);
-                for (String t : travelPrefs) recordMemory(userId, "TRAVEL_PREF", t, "偏好", MemorySource.INFERRED);
+                preferenceGroups.forEach((group, values) -> values.forEach(value ->
+                        recordMemory(userId, "PREFERENCE", group, value, MemorySource.INFERRED)));
+                for (String value : negativePreferences) {
+                    recordMemory(userId, "PREFERENCE_NEGATIVE", "negative", value,
+                            MemorySource.EXPLICIT);
+                }
                 if (budget != null) recordMemory(userId, "BUDGET", "预算范围", budget, MemorySource.EXPLICIT);
-                for (String d : dietaryRestrictions) recordMemory(userId, "DIETARY", d, "限制", MemorySource.EXPLICIT);
                 if (location != null) recordMemory(userId, "LOCATION", location, "常用地点", MemorySource.INFERRED);
             }
 
@@ -216,22 +151,14 @@ public class UserProfileService {
             prompt.append("- 常用地点: ").append(String.join(", ", prefLocs)).append("\n");
         }
 
-        String[] foodPrefs = profile.getFoodPreferencesArray();
-        if (foodPrefs != null && foodPrefs.length > 0) {
-            Map<String, Integer> weights = profile.getPreferenceWeightsMap();
-            prompt.append("- 美食偏好: ").append(buildWeightedPreferenceString(foodPrefs, weights)).append("\n");
-        }
-
-        String[] travelPrefs = profile.getTravelPreferencesArray();
-        if (travelPrefs != null && travelPrefs.length > 0) {
-            Map<String, Integer> weights = profile.getPreferenceWeightsMap();
-            prompt.append("- 旅行偏好: ").append(buildWeightedPreferenceString(travelPrefs, weights)).append("\n");
-        }
-
-        String[] dietRes = profile.getDietaryRestrictionsArray();
-        if (dietRes != null && dietRes.length > 0) {
-            prompt.append("- 饮食限制: ").append(String.join(", ", dietRes)).append("\n");
-        }
+        Map<String, Integer> weights = profile.getPreferenceWeightsMap();
+        collectPreferenceGroups(profile).forEach((group, values) -> {
+            if (values != null && !values.isEmpty()) {
+                prompt.append("- ").append(group).append(": ")
+                        .append(buildWeightedPreferenceString(values.toArray(String[]::new), weights))
+                        .append("\n");
+            }
+        });
 
         if (profile.getBudgetRange() != null) {
             prompt.append("- 预算范围: ").append(profile.getBudgetRange()).append("\n");
@@ -312,24 +239,36 @@ public class UserProfileService {
 
     // ==================== 偏好提取 ====================
 
-    private void mergePreferences(UserProfile profile, Set<String> newPrefs, String type) {
-        Set<String> merged = new HashSet<>(newPrefs);
-        String[] existing = "food".equals(type)
-                ? profile.getFoodPreferencesArray()
-                : profile.getTravelPreferencesArray();
-        if (existing != null) merged.addAll(Arrays.asList(existing));
-        if ("food".equals(type)) {
-            profile.setFoodPreferencesArray(merged.toArray(new String[0]));
-        } else {
-            profile.setTravelPreferencesArray(merged.toArray(new String[0]));
-        }
-
-        // 加权
+    private void mergePreferenceGroups(UserProfile profile,
+                                       Map<String, List<String>> newGroups) {
+        if (newGroups == null || newGroups.isEmpty()) return;
+        Map<String, List<String>> groups = new LinkedHashMap<>(profile.getPreferenceGroupsMap());
         Map<String, Integer> weights = profile.getPreferenceWeightsMap();
-        for (String pref : newPrefs) {
-            weights.merge(pref, 1, Integer::sum);
-        }
+        newGroups.forEach((group, values) -> {
+            if (group == null || group.isBlank() || values == null) return;
+            LinkedHashSet<String> merged = new LinkedHashSet<>(
+                    groups.getOrDefault(group, List.of()));
+            values.stream().filter(value -> value != null && !value.isBlank()).forEach(value -> {
+                merged.add(value);
+                weights.merge(value, 1, Integer::sum);
+            });
+            if (!merged.isEmpty()) groups.put(group, List.copyOf(merged));
+        });
+        profile.setPreferenceGroupsMap(groups);
         profile.setPreferenceWeightsMap(weights);
+    }
+
+    /** Reads new generic groups and folds legacy files into compatibility groups. */
+    private Map<String, List<String>> collectPreferenceGroups(UserProfile profile) {
+        Map<String, List<String>> groups = new LinkedHashMap<>(profile.getPreferenceGroupsMap());
+        addLegacyGroup(groups, "legacy.food", profile.getFoodPreferencesArray());
+        addLegacyGroup(groups, "legacy.travel", profile.getTravelPreferencesArray());
+        addLegacyGroup(groups, "legacy.dietary", profile.getDietaryRestrictionsArray());
+        return groups;
+    }
+
+    private void addLegacyGroup(Map<String, List<String>> groups, String name, String[] values) {
+        if (values != null && values.length > 0) groups.putIfAbsent(name, List.of(values));
     }
 
     private void updateLocationWeight(UserProfile profile, String location) {
@@ -342,54 +281,6 @@ public class UserProfileService {
         } catch (IOException e) {
             log.warn("[UserProfile] 序列化附加偏好失败: {}", e.getMessage());
         }
-    }
-
-    private Set<String> extractPreferences(String text, String prefix) {
-        Set<String> prefs = new HashSet<>();
-        for (Map.Entry<String, Pattern> entry : PREFERENCE_PATTERNS.entrySet()) {
-            if (entry.getKey().startsWith(prefix) && entry.getValue().matcher(text).find()) {
-                String label = switch (entry.getKey()) {
-                    case "food_spicy" -> "辣";
-                    case "food_light" -> "清淡";
-                    case "food_sweet" -> "甜";
-                    case "travel_nature" -> "自然风光";
-                    case "travel_culture" -> "人文历史";
-                    case "travel_relax" -> "休闲度假";
-                    default -> entry.getKey().replace(prefix, "");
-                };
-                prefs.add(label);
-            }
-        }
-        return prefs;
-    }
-
-    private String extractBudget(String text) {
-        for (Map.Entry<String, Pattern> entry : PREFERENCE_PATTERNS.entrySet()) {
-            if (entry.getKey().startsWith("budget_") && entry.getValue().matcher(text).find()) {
-                return entry.getKey().equals("budget_low") ? "经济实惠" : "高端消费";
-            }
-        }
-        return null;
-    }
-
-    private List<String> extractDietaryRestrictions(String text) {
-        List<String> restrictions = new ArrayList<>();
-        for (Map.Entry<String, Pattern> entry : PREFERENCE_PATTERNS.entrySet()) {
-            if (entry.getKey().startsWith("diet_") && entry.getValue().matcher(text).find()) {
-                restrictions.add(entry.getKey().equals("diet_vegetarian") ? "素食" : "清真");
-            }
-        }
-        return restrictions;
-    }
-
-    private String convertBudget(String llmBudget) {
-        if (llmBudget == null) return null;
-        return switch (llmBudget.toLowerCase()) {
-            case "low", "cheap", "经济" -> "经济实惠";
-            case "medium", "中等" -> "中等";
-            case "high", "luxury", "高端" -> "高端消费";
-            default -> llmBudget;
-        };
     }
 
     private String buildWeightedPreferenceString(String[] prefs, Map<String, Integer> weights) {

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS products (
     product_name    VARCHAR(200) NOT NULL,
     price           DECIMAL(10,2) NOT NULL,
     stock           VARCHAR(20) NOT NULL DEFAULT '充足',
+    category        VARCHAR(50) NOT NULL DEFAULT '其他',
     spec            TEXT,
     colors          VARCHAR(200),
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP

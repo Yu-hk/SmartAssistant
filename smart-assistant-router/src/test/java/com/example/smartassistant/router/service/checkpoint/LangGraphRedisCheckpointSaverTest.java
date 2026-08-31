@@ -51,9 +51,14 @@ class LangGraphRedisCheckpointSaverTest {
         saver.put(stored, updated);
         assertThat(saver.get(stored)).get()
                 .extracting(Checkpoint::getNextNodeId).isEqualTo("c");
+        assertThat(saver.findStale(System.currentTimeMillis(), 10))
+                .extracting(LangGraphRedisCheckpointSaver.StaleCheckpoint::threadId)
+                .containsExactly("thread-1");
+        assertThat(saver.lastUpdated("thread-1")).isPresent();
 
         saver.release(config);
         assertThat(saver.get(config)).isEmpty();
+        assertThat(saver.findStale(System.currentTimeMillis(), 10)).isEmpty();
     }
 
     @Configuration(proxyBeanMethods = false)

@@ -84,7 +84,7 @@ public class RouteDecision {
         private String location;
         
         /**
-         * 用户意图（如：美食推荐、天气查询）
+     * 用户意图（如：商品推荐、订单查询）
          */
         private String intent;
         

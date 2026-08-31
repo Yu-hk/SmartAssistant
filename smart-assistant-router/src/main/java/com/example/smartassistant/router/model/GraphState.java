@@ -31,9 +31,9 @@ import java.util.*;
  * // messages = ["第一条结果", "第二条结果"]
  *
  * // 覆盖共享数据（类似不指定归纳函数）
- * state.set("weather", "晴天");
- * state.set("weather", "多云");
- * // weather = "多云"（覆盖）
+ * state.set("orderStatus", "待支付");
+ * state.set("orderStatus", "已支付");
+ * // orderStatus = "已支付"（覆盖）
  * }</pre>
  *
  * @author Yu-hk

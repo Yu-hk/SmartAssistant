@@ -501,6 +501,7 @@ CREATE MATERIALIZED VIEW public.mv_city_attraction_stats AS
 CREATE TABLE public.routing_call_log (
     id bigint NOT NULL,
     session_id character varying(100),
+    request_id character varying(128),
     user_id bigint,
     user_input text NOT NULL,
     routed_agent character varying(100),
@@ -1390,6 +1391,8 @@ CREATE INDEX idx_routing_call_log_routed_agent ON public.routing_call_log USING 
 
 CREATE INDEX idx_routing_call_log_session_id ON public.routing_call_log USING btree (session_id);
 
+CREATE INDEX idx_routing_call_log_request_id ON public.routing_call_log USING btree (request_id);
+
 
 --
 -- Name: idx_routing_call_log_user_created; Type: INDEX; Schema: public; Owner: -
@@ -1566,5 +1569,97 @@ ALTER TABLE ONLY public.user_coupons
 CREATE INDEX idx_user_coupons_user_id ON public.user_coupons USING btree (user_id);
 
 CREATE INDEX idx_user_coupons_expire_at ON public.user_coupons USING btree (expire_at);
+
+-- Durable workflow recovery requests. Keep this definition aligned with
+-- migrations/20260827_add_workflow_recovery_jobs.sql for fresh installations.
+CREATE TABLE IF NOT EXISTS public.workflow_recovery_jobs (
+    recovery_id varchar(64) PRIMARY KEY,
+    request_id varchar(128) NOT NULL,
+    checkpoint_updated_at_epoch_ms bigint NOT NULL,
+    trigger varchar(24) NOT NULL CHECK (trigger IN (
+        'AUTO_STALE', 'USER_MANUAL', 'ADMIN_MANUAL', 'STARTUP_REPAIR'
+    )),
+    workflow_owner_id bigint NOT NULL,
+    requested_by bigint,
+    reason varchar(512),
+    status varchar(32) NOT NULL CHECK (status IN (
+        'REQUESTED', 'QUEUED', 'RECOVERING', 'RETRY_SCHEDULED', 'SUCCEEDED',
+        'DEAD_LETTERED', 'SKIPPED_ACTIVE', 'SKIPPED_APPROVAL',
+        'SKIPPED_SUPERSEDED', 'SKIPPED_DUPLICATE', 'REJECTED_INVALID_COMMAND'
+    )),
+    attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    last_error text,
+    result text,
+    notification_pending boolean NOT NULL DEFAULT false,
+    notification_published_at timestamp without time zone,
+    requested_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_recovery_jobs_request
+    ON public.workflow_recovery_jobs (request_id, requested_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_recovery_jobs_status
+    ON public.workflow_recovery_jobs (status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_recovery_notification_outbox
+    ON public.workflow_recovery_jobs (notification_pending, updated_at)
+    WHERE notification_pending = true;
+
+-- Durable user notification inbox. See
+-- migrations/20260827_add_user_notifications.sql for existing installations.
+CREATE TABLE IF NOT EXISTS public.user_notifications (
+    id varchar(64) PRIMARY KEY,
+    event_id varchar(64) NOT NULL UNIQUE,
+    user_id bigint NOT NULL,
+    type varchar(64) NOT NULL,
+    title varchar(200) NOT NULL,
+    content text,
+    session_id varchar(100),
+    request_id varchar(128),
+    status varchar(20) NOT NULL DEFAULT 'UNREAD'
+        CHECK (status IN ('UNREAD', 'READ')),
+    created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    read_at timestamp without time zone
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_inbox
+    ON public.user_notifications (user_id, status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_request
+    ON public.user_notifications (request_id);
+
+-- External OAuth identities. Existing installations use
+-- migrations/20260828_add_user_external_identities.sql.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'public.users'::regclass AND contype = 'p'
+    ) THEN
+        ALTER TABLE public.users ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.user_external_identities (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    provider VARCHAR(20) NOT NULL,
+    subject VARCHAR(191) NOT NULL,
+    union_id VARCHAR(191),
+    display_name VARCHAR(200),
+    avatar_url TEXT,
+    email VARCHAR(255),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT uk_external_identity_subject UNIQUE (provider, subject)
+);
+
+CREATE INDEX IF NOT EXISTS idx_external_identity_user_id
+    ON public.user_external_identities(user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_external_identity_union_id
+    ON public.user_external_identities(provider, union_id)
+    WHERE union_id IS NOT NULL;
 
 

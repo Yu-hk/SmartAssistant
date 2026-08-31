@@ -68,4 +68,19 @@ class RoutingCallLogServiceTest {
         assertEquals(1, decoded.calls().size());
         assertEquals("queryWeather", decoded.calls().getFirst().name());
     }
+
+    @Test
+    void persistsIndependentWorkflowRequestId() {
+        RoutingCallLogService service = new RoutingCallLogService(mapper);
+
+        service.saveLog(
+                9L, "session-b", "request-turn-2", "查询天气", "weather_service",
+                "ROUTER_SERVICE", 88L, "SUCCESS", "晴",
+                10L, 2L, 12L, "查询天气", null);
+
+        ArgumentCaptor<RoutingCallLog> captor = ArgumentCaptor.forClass(RoutingCallLog.class);
+        verify(mapper).insert(captor.capture());
+        assertEquals("session-b", captor.getValue().getSessionId());
+        assertEquals("request-turn-2", captor.getValue().getRequestId());
+    }
 }

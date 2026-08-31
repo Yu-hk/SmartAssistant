@@ -57,9 +57,9 @@ class AgentCallerTitleExtractionTest {
     }
 
     @Test
-    @DisplayName("未注入 AiChatService（3 参构造）时降级为 EMPTY，不抛异常")
+    @DisplayName("未注入 AiChatService 时降级为 EMPTY，不抛异常")
     void shouldFallbackWhenNoAiChatService() {
-        AgentCallerService service = new AgentCallerService(null, null, null);
+        AgentCallerService service = new AgentCallerService(null, null, null, null);
         AgentCallerService.ExtractedTitles actual = service.extractTitles("任意回复");
         assertSame(AgentCallerService.ExtractedTitles.EMPTY, actual);
     }

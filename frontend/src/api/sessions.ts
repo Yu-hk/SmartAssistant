@@ -2,7 +2,7 @@
  * 会话（Session）相关 API
  */
 import { apiClient } from './client';
-import type { Session, FaqItem } from '../types';
+import type { Session, FaqItem, WorkflowRecoveryJob } from '../types';
 
 export interface ChatRequest {
   message: string;
@@ -62,6 +62,20 @@ export async function allowPermission(requestId: string): Promise<void> {
 /** 权限确认（拒绝） */
 export async function denyPermission(requestId: string): Promise<void> {
   return apiClient.post('/permission-response', { requestId, action: 'deny' });
+}
+
+/** Submit recovery for one workflow owned by the authenticated user. */
+export async function requestWorkflowRecovery(requestId: string): Promise<WorkflowRecoveryJob> {
+  return apiClient.post<WorkflowRecoveryJob>(
+    `/router/workflows/${encodeURIComponent(requestId)}/recovery-requests`,
+  );
+}
+
+/** Query an owned asynchronous recovery request. */
+export async function fetchWorkflowRecovery(recoveryId: string): Promise<WorkflowRecoveryJob> {
+  return apiClient.get<WorkflowRecoveryJob>(
+    `/router/workflows/recovery-requests/${encodeURIComponent(recoveryId)}`,
+  );
 }
 
 /** 获取 FAQ 列表 */

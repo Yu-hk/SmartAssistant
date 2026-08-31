@@ -15,6 +15,25 @@ import static org.junit.jupiter.api.Assertions.*;
 class RouteExecutionPreplannedGraphTest {
 
     @Test
+    void carriesStructuredProductCategoryIntoDiscoveryNodeInput() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setIntentCategory("PRODUCT");
+        analysis.setEntities(Map.of("product_category", "平板电脑"));
+        analysis.setSubIntents(List.of(Map.of(
+                "id", "discover_products",
+                "intent", "PRODUCT_DISCOVERY",
+                "description", "查询热门平板电脑候选",
+                "target_agent", "product",
+                "operation", "DISCOVER_PRODUCTS")));
+
+        var plan = RouteExecutionService.buildExecutionPlan(
+                "我想买一部平板电脑，帮我推荐一款热门的", analysis, "req-tablet");
+
+        assertNotNull(plan);
+        assertEquals("平板电脑", plan.nodes().getFirst().input().get("product_category"));
+    }
+
+    @Test
     void buildsMultiIntentGraphWithoutASecondPlannerCall() {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setIntentCategory("COMPLEX");
@@ -391,6 +410,8 @@ class RouteExecutionPreplannedGraphTest {
         assertEquals(List.of("discover_products"), plan.nodes().get(1).dependsOn());
         assertEquals(List.of("discover_products", "analyze_product_data"),
                 plan.nodes().get(2).dependsOn());
+        assertEquals(com.example.smartassistant.router.model.ExecutionPlan.MergePolicy.REPLACE,
+                plan.nodes().get(2).mergePolicy());
         assertEquals(List.of("recommend_product"), plan.nodes().get(3).dependsOn());
         assertEquals(com.example.smartassistant.router.model.ExecutionPlan.AccessMode.WRITE,
                 plan.nodes().get(3).accessMode());
@@ -536,9 +557,9 @@ class RouteExecutionPreplannedGraphTest {
 
         String merged = RouteExecutionService.mergeFallbackPlannedResults(List.of(product, order));
 
-        assertTrue(merged.contains("### 查询热门商品"));
+        assertFalse(merged.contains("### 查询热门商品"));
         assertTrue(merged.contains("目录证据不足"));
-        assertTrue(merged.contains("### 说明订单操作"));
+        assertFalse(merged.contains("### 说明订单操作"));
         assertTrue(merged.contains("申请售后"));
     }
 }

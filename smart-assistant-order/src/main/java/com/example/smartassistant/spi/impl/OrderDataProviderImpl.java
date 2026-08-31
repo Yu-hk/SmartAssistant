@@ -71,6 +71,13 @@ public class OrderDataProviderImpl implements OrderDataProvider {
     }
 
     @Override
+    public OrderDTO findOrderByRequestId(String requestId) {
+        if (requestId == null || requestId.isBlank()) return null;
+        OrderEntity entity = orderMapper.findByRequestId(requestId);
+        return entity == null ? null : toOrderDTO(entity);
+    }
+
+    @Override
     public List<Map<String, Object>> queryOrdersByUserId(Long userId, String status,
                                                          int limit, int offset) {
         if (userId == null) {

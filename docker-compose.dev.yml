@@ -38,6 +38,28 @@ services:
     networks:
       - smart-network
 
+  # === RabbitMQ 工作流恢复消息代理 ===
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    container_name: smart-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-smartassistant}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-rabbit123}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - smart-network
+
   # === PostgreSQL 数据库 ===
   postgres:
     image: postgres:16
@@ -86,5 +108,6 @@ networks:
 
 volumes:
   redis-data:
+  rabbitmq-data:
   postgres-data:
   nacos-data:

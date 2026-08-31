@@ -5,10 +5,12 @@ import '@tdesign-react/chat/es/style/index.js';
 import { useTheme } from './hooks/useTheme';
 import { useSessions } from './hooks/useSessions';
 import { useChat } from './hooks/useChat';
+import { useNotifications } from './hooks/useNotifications';
 
 import { CustomerSidebar } from './components/CustomerSidebar';
 import { SessionInsightPanel } from './components/SessionInsightPanel';
 import { CustomerChatPage } from './pages/CustomerChatPage';
+import { RecoveryNotificationCenter } from './components/RecoveryNotificationCenter';
 import { AdminApp } from './admin/AdminApp';
 import { LoginPage } from './pages/LoginPage';
 import {
@@ -123,13 +125,14 @@ function CustomerApp() {
     fetchSessions, deleteSession, createSession, closeSession, rateSession,
   } = useSessions();
 
+  const { notifications, markRead: markNotificationRead } = useNotifications({ setSessions });
+
   const {
     isLoading, inputValue, setInputValue,
     permissionRequest, faqSuggestions,
     sendMessage, handleStop,
-    handlePermissionAllow, handlePermissionDeny,
+    handlePermissionAllow, handlePermissionDeny, handleRecoverMessage,
     queuePosition, queueEstimatedWait,
-    locationEnabled, locationStatus, setLocationEnabled,
   } = useChat({
     currentSession,
     currentSessionId,
@@ -264,15 +267,13 @@ function CustomerApp() {
               faqSuggestions={faqSuggestions}
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
-              locationEnabled={locationEnabled}
-              locationStatus={locationStatus}
               onSendMessage={sendMessage}
               onStop={handleStop}
               onInputChange={setInputValue}
               onPermissionAllow={handlePermissionAllow}
               onPermissionDeny={handlePermissionDeny}
+              onRecoverMessage={handleRecoverMessage}
               onRateSession={handleRateSession}
-              onLocationEnabledChange={setLocationEnabled}
               userName={authUser?.username}
             />
         </>
@@ -283,6 +284,15 @@ function CustomerApp() {
         currentSession={currentSession}
         onCloseSession={handleCloseSession}
         onRateSession={handleRateSession}
+      />
+
+      <RecoveryNotificationCenter
+        notifications={notifications}
+        onOpen={notification => {
+          void markNotificationRead(notification.id);
+          if (notification.sessionId) navigate(`/chat/${notification.sessionId}`);
+        }}
+        onDismiss={notificationId => { void markNotificationRead(notificationId); }}
       />
 
     </div>

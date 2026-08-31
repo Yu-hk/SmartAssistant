@@ -1,7 +1,5 @@
 package com.example.smartassistant.common.agent.protocol;
 
-import com.example.smartassistant.common.location.DeviceLocation;
-
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,7 +18,6 @@ public record AgentExecutionRequest(
         List<String> constraints,
         Long deadlineEpochMs,
         String idempotencyKey,
-        DeviceLocation deviceLocation,
         Map<String, AgentNodeOutput> predecessorOutputs,
         String workflowKey,
         Integer workflowVersion,
@@ -49,19 +46,18 @@ public record AgentExecutionRequest(
             String protocolVersion, String executionId, String nodeId, String userId,
             String operation, String question, Map<String, Object> input,
             List<String> contextRefs, List<String> constraints, Long deadlineEpochMs,
-            String idempotencyKey, DeviceLocation deviceLocation) {
+            String idempotencyKey) {
         this(protocolVersion, executionId, nodeId, userId, operation, question, input,
-                contextRefs, constraints, deadlineEpochMs, idempotencyKey, deviceLocation,
+                contextRefs, constraints, deadlineEpochMs, idempotencyKey,
                 Map.of(), null, null, null, 0, executionId);
     }
 
     public static AgentExecutionRequest answer(String executionId, String userId,
-                                               String question, DeviceLocation deviceLocation) {
+                                               String question) {
         String safeQuestion = question == null ? "" : question;
         return new AgentExecutionRequest(
                 CURRENT_VERSION, executionId, null, userId, "ANSWER", safeQuestion,
-                Map.of("question", safeQuestion), List.of(), List.of(), null, null,
-                deviceLocation);
+                Map.of("question", safeQuestion), List.of(), List.of(), null, null);
     }
 
     /** Legacy map used by domain services during the compatibility window. */
@@ -70,7 +66,6 @@ public record AgentExecutionRequest(
         request.put("question", question);
         if (userId != null) request.put("userId", userId);
         if (executionId != null) request.put("requestId", executionId);
-        if (deviceLocation != null) request.put("deviceLocation", deviceLocation);
         return request;
     }
 }

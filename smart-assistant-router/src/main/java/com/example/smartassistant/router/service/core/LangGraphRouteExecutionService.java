@@ -6,6 +6,7 @@ import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.checkpoint.LangGraphRedisCheckpointSaver;
+import com.example.smartassistant.router.service.recovery.WorkflowExecutionLeaseService;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import org.bsc.langgraph4j.CompileConfig;
 import org.bsc.langgraph4j.CompiledGraph;
@@ -19,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -35,6 +37,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.bsc.langgraph4j.GraphDefinition.END;
@@ -74,6 +77,7 @@ public class LangGraphRouteExecutionService {
     private final LangGraphRedisCheckpointSaver checkpointSaver;
     private final Executor parallelExecutor;
     private final ConcurrentHashMap<String, ExecutionContext> contexts = new ConcurrentHashMap<>();
+    private WorkflowExecutionLeaseService executionLeaseService;
 
     @Value("${router.graph.max-replans:1}")
     private int maxReplans;
@@ -86,6 +90,11 @@ public class LangGraphRouteExecutionService {
         this.taskPlannerService = taskPlannerService;
         this.checkpointSaver = checkpointSaver;
         this.parallelExecutor = parallelExecutor;
+    }
+
+    @Autowired(required = false)
+    void setExecutionLeaseService(WorkflowExecutionLeaseService executionLeaseService) {
+        this.executionLeaseService = executionLeaseService;
     }
 
     public List<SubTaskResult> execute(IntentGraph graph, Long userId,
@@ -103,7 +112,8 @@ public class LangGraphRouteExecutionService {
         ExecutionContext context = new ExecutionContext(graph, userId, eventsKey, requestId);
         contexts.put(contextId, context);
         try {
-            return runWithReplans(contextId, threadId, graph, false);
+            return withExecutionLease(threadId,
+                    () -> runWithReplans(contextId, threadId, graph, false));
         } catch (RuntimeException e) {
             throw new IllegalStateException("LangGraph4j Router execution failed", e);
         } finally {
@@ -126,14 +136,22 @@ public class LangGraphRouteExecutionService {
     /** Resumes a graph that was paused by a native interruptBefore approval node. */
     public List<SubTaskResult> resumeApproved(IntentGraph graph, Long userId,
                                               String eventsKey, String requestId) {
+        return resumeGraph(graph, userId, eventsKey, requestId, true,
+                "LangGraph4j approved execution failed");
+    }
+
+    private List<SubTaskResult> resumeGraph(IntentGraph graph, Long userId,
+                                            String eventsKey, String requestId,
+                                            boolean approvalGranted, String failureMessage) {
         Objects.requireNonNull(requestId, "requestId is required to resume an approved graph");
         String contextId = UUID.randomUUID().toString();
         ExecutionContext context = new ExecutionContext(graph, userId, eventsKey, requestId);
         contexts.put(contextId, context);
         try {
-            return runWithReplans(contextId, requestId, graph, true);
+            return withExecutionLease(requestId,
+                    () -> runWithReplans(contextId, requestId, graph, approvalGranted));
         } catch (RuntimeException e) {
-            throw new IllegalStateException("LangGraph4j approved execution failed", e);
+            throw new IllegalStateException(failureMessage, e);
         } finally {
             contexts.remove(contextId);
         }
@@ -144,18 +162,56 @@ public class LangGraphRouteExecutionService {
      * The authenticated user must match the checkpoint owner before a write node can resume.
      */
     public List<SubTaskResult> resumeApproved(Long authenticatedUserId, String requestId) {
+        ResumeState state = loadResumeState(authenticatedUserId, requestId, "Approval");
+        return resumeApproved(state.graph(), authenticatedUserId, state.eventsKey(), requestId);
+    }
+
+    /**
+     * Resumes an interrupted graph without granting approval to pending write nodes.
+     * The last durable node boundary is restored and an in-flight node may be replayed;
+     * business-side idempotency must therefore use the node idempotency key.
+     */
+    public List<SubTaskResult> resumeInterrupted(Long authenticatedUserId, String requestId) {
+        ResumeState state = loadResumeState(authenticatedUserId, requestId, "Execution");
+        return resumeGraph(state.graph(), authenticatedUserId, state.eventsKey(), requestId,
+                false, "LangGraph4j interrupted execution recovery failed");
+    }
+
+    /** Lightweight metadata used by the recovery scanner; it never executes the graph. */
+    public java.util.Optional<AutomaticRecoveryCandidate> automaticRecoveryCandidate(String requestId) {
+        if (requestId == null || requestId.isBlank()) return java.util.Optional.empty();
+        RunnableConfig config = RunnableConfig.builder().threadId(requestId).build();
+        var checkpoint = checkpointSaver.get(config);
+        if (checkpoint.isEmpty()) return java.util.Optional.empty();
+        Map<String, Object> state = checkpoint.orElseThrow().getState();
+        IntentGraph graph = graphFromState(state.get(GRAPH_SPEC));
+        Set<String> completed = new HashSet<>(stringList(state.get(COMPLETED_IDS)));
+        boolean pendingApproval = graph.getAllNodes().stream()
+                .anyMatch(node -> node.isHumanApprovalRequired() && !completed.contains(node.getId()));
+        return java.util.Optional.of(new AutomaticRecoveryCandidate(
+                longValue(state.get(USER_ID)), pendingApproval));
+    }
+
+    private <T> T withExecutionLease(String requestId, Supplier<T> action) {
+        if (executionLeaseService == null) return action.get();
+        return executionLeaseService.executeWithLease(requestId, action);
+    }
+
+    private ResumeState loadResumeState(Long authenticatedUserId, String requestId,
+                                        String checkpointType) {
         Objects.requireNonNull(authenticatedUserId, "authenticated user id is required");
-        Objects.requireNonNull(requestId, "requestId is required to resume an approved graph");
+        Objects.requireNonNull(requestId, "requestId is required to resume a graph");
         RunnableConfig config = RunnableConfig.builder().threadId(requestId).build();
         var checkpoint = checkpointSaver.get(config)
-                .orElseThrow(() -> new IllegalArgumentException("Approval checkpoint does not exist or has expired"));
+                .orElseThrow(() -> new IllegalArgumentException(
+                        checkpointType + " checkpoint does not exist or has expired"));
         Long ownerId = longValue(checkpoint.getState().get(USER_ID));
         if (!authenticatedUserId.equals(ownerId)) {
-            throw new SecurityException("Approval checkpoint does not belong to the authenticated user");
+            throw new SecurityException("Checkpoint does not belong to the authenticated user");
         }
         IntentGraph graph = graphFromState(checkpoint.getState().get(GRAPH_SPEC));
         String eventsKey = nullableString(checkpoint.getState().get(EVENTS_KEY));
-        return resumeApproved(graph, authenticatedUserId, eventsKey, requestId);
+        return new ResumeState(graph, eventsKey);
     }
 
     private List<SubTaskResult> runGraph(String contextId, String threadId,
@@ -184,11 +240,11 @@ public class LangGraphRouteExecutionService {
         if (output != null && !output.isEND()) {
             context.pausedForApproval = true;
             addApprovalPrompt(context, graph);
-        } else if (output != null && output.isEND() && hasApproval(graph)) {
+        } else if (output != null && output.isEND()) {
             try {
                 checkpointSaver.release(runnableConfig);
             } catch (Exception e) {
-                log.warn("[LangGraph4j] release approval checkpoint failed: {}", e.getMessage());
+                log.warn("[LangGraph4j] release completed checkpoint failed: {}", e.getMessage());
             }
         }
         return context.orderedResults();
@@ -801,6 +857,10 @@ public class LangGraphRouteExecutionService {
 
     private record DynamicWorkflow(CompiledGraph<RouterGraphState> workflow,
                                    Set<String> parallelSources) {}
+
+    private record ResumeState(IntentGraph graph, String eventsKey) {}
+
+    public record AutomaticRecoveryCandidate(Long userId, boolean pendingApproval) {}
 
     private static final class ExecutionContext {
         final IntentGraph graph;

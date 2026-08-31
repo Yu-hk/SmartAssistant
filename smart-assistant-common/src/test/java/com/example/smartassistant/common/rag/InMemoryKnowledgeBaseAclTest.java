@@ -74,6 +74,14 @@ class InMemoryKnowledgeBaseAclTest {
         assertFalse(idsContain(publicHits, "d-t2"));
     }
 
+    @Test
+    void publicContextSeesLiteralPublicTenantDocuments() {
+        kb.addDocument(doc("public-doc", "public", 0, Set.of(), Set.of()));
+
+        assertTrue(idsContain(kb.search("任意", 5, AclContext.PUBLIC), "public-doc"));
+        assertTrue(idsContain(kb.search("任意", 5, AclContext.fromMdc()), "public-doc"));
+    }
+
     // ───────────── 2. 安全等级 ─────────────
 
     @Test

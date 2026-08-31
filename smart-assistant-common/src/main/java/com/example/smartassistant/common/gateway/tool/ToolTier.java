@@ -7,7 +7,7 @@ package com.example.smartassistant.common.gateway.tool;
  * <ul>
  *   <li>{@link #CORE} — agent 内部领域逻辑，由各 agent 自有、常驻、不依赖中心 Registry，
  *       且不可被中心置为 DISABLED。默认层。</li>
- *   <li>{@link #SHARED} — 跨 agent 共享基建（如天气、图片、DataGif 等通用工具），
+ *   <li>{@link #SHARED} — 跨 agent 共享基建（如图片、DataGif 等通用工具），
  *       由中心 Registry 统一治理，但被多个 agent 复用，不应下放到单 agent 自管。</li>
  *   <li>{@link #EXTENSION} — 插件 / 第三方 / 动态加载 / 实验性工具，由中心 Registry
  *       全量治理（status / approval / rateLimit / compat / deprecation / health）。</li>

@@ -114,6 +114,7 @@ public class NacosMetadataConfigurer {
             if (meta.containsKey("capabilities")) metadata.put("capabilities", String.valueOf(meta.get("capabilities")));
             if (meta.containsKey("agent-type")) metadata.put("agent-type", String.valueOf(meta.get("agent-type")));
             if (meta.containsKey("routing-examples")) metadata.put("routing-examples", String.valueOf(meta.get("routing-examples")));
+            if (meta.containsKey("slot-definitions")) metadata.put("slot-definitions", String.valueOf(meta.get("slot-definitions")));
 
             // 重新注册
             nacosRegistry.deregister(registration);

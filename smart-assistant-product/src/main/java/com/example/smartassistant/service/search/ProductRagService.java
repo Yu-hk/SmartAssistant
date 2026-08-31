@@ -10,11 +10,15 @@ package com.example.smartassistant.service.search;
 import com.example.smartassistant.common.rag.RetrievalQualityResult;
 import com.example.smartassistant.common.rag.pipeline.RagSearchContext;
 import com.example.smartassistant.common.rag.pipeline.RagSearchPipeline;
+import com.example.smartassistant.config.NativeRagProperties;
 import com.example.smartassistant.spi.ProductBackend;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -43,12 +47,37 @@ public class ProductRagService {
     private static final Logger log = LoggerFactory.getLogger(ProductRagService.class);
 
     private final RagSearchPipeline pipeline;
-    private final ProductBackend productBackend;
+    private final KnowledgeScopeSelector scopeSelector;
+    private final SupplementalQueryPlanner supplementalQueryPlanner;
+    private final NativeRagProperties properties;
 
+    /** Backward-compatible constructor used by focused tests and embedded consumers. */
     public ProductRagService(RagSearchPipeline pipeline,
                              ProductBackend productBackend) {
+        this(pipeline,
+                (agentName, skills, query) -> new KnowledgeScopeSelector.KnowledgeScope(
+                        List.of(com.example.smartassistant.common.rag.KnowledgeSeedData.PRODUCT_KB),
+                        "product-default"),
+                (SupplementalQueryPlanner) null,
+                new NativeRagProperties());
+    }
+
+    @Autowired
+    public ProductRagService(RagSearchPipeline pipeline,
+                             KnowledgeScopeSelector scopeSelector,
+                             ObjectProvider<SupplementalQueryPlanner> plannerProvider,
+                             NativeRagProperties properties) {
+        this(pipeline, scopeSelector, plannerProvider.getIfAvailable(), properties);
+    }
+
+    ProductRagService(RagSearchPipeline pipeline,
+                      KnowledgeScopeSelector scopeSelector,
+                      SupplementalQueryPlanner supplementalQueryPlanner,
+                      NativeRagProperties properties) {
         this.pipeline = pipeline;
-        this.productBackend = productBackend;
+        this.scopeSelector = scopeSelector;
+        this.supplementalQueryPlanner = supplementalQueryPlanner;
+        this.properties = properties;
     }
 
     /**
@@ -103,10 +132,33 @@ public class ProductRagService {
             return RetrievalQualityResult.noData("空查询");
         }
 
-        // 执行 Pipeline
-        RagSearchContext ctx = new RagSearchContext(query);
-        ctx.setQualityThreshold(0.30);
-        ctx = pipeline.execute(ctx);
+        KnowledgeScopeSelector.KnowledgeScope scope = scopeSelector.select(
+                "product", List.of("product-search", "product-recommendation"), query);
+        Attempt best = null;
+        String currentQuery = query.strip();
+        int attemptsExecuted = 0;
+        int maxAttempts = properties.isEnabled() && supplementalQueryPlanner != null
+                ? properties.getMaxAttempts() : 1;
+
+        for (int attemptNo = 1; attemptNo <= maxAttempts; attemptNo++) {
+            attemptsExecuted = attemptNo;
+            RagSearchContext context = executeAttempt(currentQuery, query, scope, attemptNo);
+            Attempt candidate = new Attempt(currentQuery, context);
+            if (best == null || isBetter(candidate.context(), best.context())) {
+                best = candidate;
+            }
+            if (hasSufficientEvidence(context) || attemptNo >= maxAttempts) {
+                break;
+            }
+            String supplement = supplementalQueryPlanner.plan(
+                    query, currentQuery, evidenceSummary(context), attemptNo + 1);
+            if (supplement == null || supplement.isBlank() || supplement.equalsIgnoreCase(currentQuery)) {
+                break;
+            }
+            currentQuery = supplement.strip();
+        }
+
+        RagSearchContext ctx = best != null ? best.context() : executeAttempt(query, query, scope, 1);
 
         // 从 Pipeline 结果构建返回
         List<RagSearchContext.RankedItem> fused = ctx.getFusedResults();
@@ -120,14 +172,9 @@ public class ProductRagService {
 
         boolean highQuality = qualityScore >= ctx.getQualityThreshold();
 
-        // 格式化输出
-        StringBuilder sb = new StringBuilder("【商品检索结果】\n");
-        int rank = 1;
-        for (RagSearchContext.RankedItem item : fused) {
-            sb.append(rank).append(". ").append(item.getContent()).append("\n");
-            rank++;
-        }
-        String content = sb.toString().trim();
+        EvidenceContextFormatter.FormattedEvidence evidence = EvidenceContextFormatter.format(
+                fused, scope.knowledgeBases(), attemptsExecuted, properties.getMaxEvidenceItems());
+        String content = evidence.content();
 
         if (!highQuality) {
             log.warn("[ProductRAG] ⚠️ 检索质量低: query={}, qualityScore={}, threshold={}, 耗时={}ms",
@@ -146,6 +193,52 @@ public class ProductRagService {
                 activePaths, fused.size(), ctx.getElapsedMs());
 
         return RetrievalQualityResult.highQuality(content, qualityScore);
+    }
+
+    private RagSearchContext executeAttempt(String retrievalQuery,
+                                            String originalUserQuery,
+                                            KnowledgeScopeSelector.KnowledgeScope scope,
+                                            int attemptNo) {
+        RagSearchContext context = new RagSearchContext(retrievalQuery);
+        context.setQualityThreshold(0.30);
+        context.setAttribute("rag.originalUserQuery", originalUserQuery);
+        context.setAttribute("rag.knowledgeBases", scope.knowledgeBases());
+        context.setAttribute("rag.scopeReason", scope.reason());
+        context.setAttribute("rag.attempt", attemptNo);
+        return pipeline.execute(context);
+    }
+
+    private boolean hasSufficientEvidence(RagSearchContext context) {
+        return context != null
+                && context.getFusedResults() != null
+                && !context.getFusedResults().isEmpty()
+                && context.getQualityScore() >= properties.getSufficientScore();
+    }
+
+    private static boolean isBetter(RagSearchContext candidate, RagSearchContext current) {
+        boolean candidateHasEvidence = candidate != null && !candidate.getFusedResults().isEmpty();
+        boolean currentHasEvidence = current != null && !current.getFusedResults().isEmpty();
+        if (candidateHasEvidence != currentHasEvidence) return candidateHasEvidence;
+        if (candidate == null) return false;
+        if (current == null) return true;
+        int scoreCompare = Double.compare(candidate.getQualityScore(), current.getQualityScore());
+        if (scoreCompare != 0) return scoreCompare > 0;
+        return candidate.getFusedResults().size() > current.getFusedResults().size();
+    }
+
+    private static String evidenceSummary(RagSearchContext context) {
+        if (context == null || context.getFusedResults().isEmpty()) return "首轮未召回任何证据";
+        List<String> summaries = new ArrayList<>();
+        for (int i = 0; i < Math.min(3, context.getFusedResults().size()); i++) {
+            String content = context.getFusedResults().get(i).getContent();
+            if (content != null && !content.isBlank()) {
+                summaries.add(content.length() > 300 ? content.substring(0, 300) : content);
+            }
+        }
+        return String.join("\n", summaries);
+    }
+
+    private record Attempt(String query, RagSearchContext context) {
     }
 
     /**
