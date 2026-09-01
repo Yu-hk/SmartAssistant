@@ -8,6 +8,7 @@
 package com.example.smartassistant.common.tool;
 
 import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.common.security.PiiPolicyEngine;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -53,6 +54,7 @@ public class ToolLogAspect {
 
     /** Micrometer 指标注册表 */
     private final MeterRegistry meterRegistry;
+    private final PiiPolicyEngine piiPolicyEngine;
 
     /** 工具调用计数器缓存：toolName → Counter */
     private final ConcurrentHashMap<String, Counter> toolCallCounters = new ConcurrentHashMap<>();
@@ -66,8 +68,15 @@ public class ToolLogAspect {
     /** ⭐ 工具错误类型计数器缓存：toolName_errorType → Counter */
     private final ConcurrentHashMap<String, Counter> toolErrorTypeCounters = new ConcurrentHashMap<>();
 
-    public ToolLogAspect(@Autowired(required = false) MeterRegistry meterRegistry) {
+    public ToolLogAspect(MeterRegistry meterRegistry) {
+        this(meterRegistry, PiiPolicyEngine.shared());
+    }
+
+    @Autowired
+    public ToolLogAspect(@Autowired(required = false) MeterRegistry meterRegistry,
+                         @Autowired(required = false) PiiPolicyEngine piiPolicyEngine) {
         this.meterRegistry = meterRegistry;
+        this.piiPolicyEngine = piiPolicyEngine != null ? piiPolicyEngine : PiiPolicyEngine.shared();
     }
 
     /**
@@ -77,7 +86,7 @@ public class ToolLogAspect {
     public Object logToolCall(ProceedingJoinPoint joinPoint) throws Throwable {
         String methodName = joinPoint.getSignature().getName();
         String requestId = ToolLogContext.getRequestId();
-        String params = truncate(formatParams(joinPoint.getArgs()), MAX_PARAM_LENGTH);
+        String params = truncate(piiPolicyEngine.sanitize(formatParams(joinPoint.getArgs())), MAX_PARAM_LENGTH);
 
         // 记录工具调用次数
         recordToolCall(methodName);
@@ -86,7 +95,7 @@ public class ToolLogAspect {
         try {
             Object result = joinPoint.proceed();
             long duration = System.currentTimeMillis() - start;
-            String resultStr = truncate(String.valueOf(result), MAX_RESULT_LENGTH);
+            String resultStr = truncate(piiPolicyEngine.sanitize(String.valueOf(result)), MAX_RESULT_LENGTH);
 
             log.info("[Tool] method={} requestId={} params={} result={} duration={}ms",
                     methodName,
@@ -106,7 +115,7 @@ public class ToolLogAspect {
                     methodName,
                     requestId != null ? requestId : "-",
                     params,
-                    ex.getMessage(),
+                    piiPolicyEngine.sanitize(ex.getMessage()),
                     duration);
 
             // 记录工具错误

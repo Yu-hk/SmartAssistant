@@ -6,6 +6,7 @@
  */
 package com.example.smartassistant.common.rag.multimodal;
 
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -56,7 +57,7 @@ public class OllamaVisionImageCaptioner implements ImageCaptioner {
     public OllamaVisionImageCaptioner(ChatModel chatModel, String prompt) {
         this.chatModel = chatModel;
         this.prompt = (prompt != null && !prompt.isBlank()) ? prompt : DEFAULT_PROMPT;
-        this.client = chatModel != null ? ChatClient.builder(chatModel).build() : null;
+        this.client = chatModel != null ? AiChatService.governedDefaults().buildChatClient(chatModel) : null;
     }
 
     @Override

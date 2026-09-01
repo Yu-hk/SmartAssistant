@@ -8,44 +8,41 @@
 package com.example.smartassistant.common.memory;
 
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 基于内存的 {@link ChatMemory} 实现（默认实现，零外部依赖）。
+ * 基于 Spring AI {@link MessageWindowChatMemory} 的内存会话适配器。
  *
- * <p>有界环形缓冲：超过 {@code maxMessages} 时淘汰最旧消息，避免无限增长。
+ * <p>有界窗口、消息淘汰等通用语义交给 Spring AI 原生中间件；
+ * 本类仅保留项目原有 {@link ChatMemory} API 以避免破坏上层调用。
  * 适用于单实例、开发期或会话量较小的场景；生产多实例部署应扩展为 Redis 等分布式实现。</p>
  */
 public class InMemoryChatMemory implements ChatMemory {
 
-    private final Map<String, List<Message>> store = new ConcurrentHashMap<>();
-    private final int maxMessages;
+    private final org.springframework.ai.chat.memory.ChatMemory delegate;
 
     public InMemoryChatMemory() {
         this(100);
     }
 
     public InMemoryChatMemory(int maxMessages) {
-        this.maxMessages = Math.max(1, maxMessages);
+        this.delegate = MessageWindowChatMemory.builder()
+                .maxMessages(Math.max(1, maxMessages))
+                .build();
     }
 
     @Override
     public void add(String conversationId, Message message) {
         if (conversationId == null || message == null) return;
-        List<Message> list = store.computeIfAbsent(conversationId, k -> new ArrayList<>());
-        list.add(message);
-        while (list.size() > maxMessages) {
-            list.remove(0);
-        }
+        delegate.add(conversationId, message);
     }
 
     @Override
     public List<Message> get(String conversationId, int lastN) {
-        List<Message> list = store.getOrDefault(conversationId, List.of());
+        if (conversationId == null) return List.of();
+        List<Message> list = delegate.get(conversationId);
         if (lastN <= 0 || lastN >= list.size()) {
             return List.copyOf(list);
         }
@@ -54,6 +51,6 @@ public class InMemoryChatMemory implements ChatMemory {
 
     @Override
     public void clear(String conversationId) {
-        store.remove(conversationId);
+        if (conversationId != null) delegate.clear(conversationId);
     }
 }
