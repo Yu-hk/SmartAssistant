@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- ───────────────────────── knowledge_docs ─────────────────────────
 -- 向量维度由运行时 BGE 模型动态决定（bge-large-zh-v1.5 = 1024）。
 -- 这里使用 vector(1024) 作为默认占位；若实际模型维度不同，
--- PgVectorKnowledgeBase.initSchema() 会在应用启动时按模型维度重建/迁移。
+-- PgVectorKnowledgeBase.initSchema() 会在应用启动时保留文档并按模型维度重置派生向量。
 CREATE TABLE IF NOT EXISTS knowledge_docs (
     id               VARCHAR(128) PRIMARY KEY,
     title            TEXT        NOT NULL,

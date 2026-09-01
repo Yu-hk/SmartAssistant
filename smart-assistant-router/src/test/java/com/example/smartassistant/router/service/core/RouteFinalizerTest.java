@@ -54,6 +54,7 @@ class RouteFinalizerTest {
         ReflectionTestUtils.setField(finalizer, "qualityThreshold", 0.6);
         ReflectionTestUtils.setField(finalizer, "qualityFailClosed", true);
         ReflectionTestUtils.setField(finalizer, "qualityFailureMessage", "安全降级回复");
+        ReflectionTestUtils.setField(finalizer, "experienceLearningEnabled", false);
         ReflectionTestUtils.setField(finalizer, "badCaseMinerService", badCaseMinerService);
     }
 
@@ -143,6 +144,7 @@ class RouteFinalizerTest {
 
         verify(reflectionService, never()).evaluate(anyString(), anyString(), anyString(), anyString(), anyLong());
         verify(qualityEvaluationService, never()).evaluate(anyString(), anyString(), anyDouble());
+        verify(experienceService, never()).extractCommonExperience(anyString(), anyString(), anyString());
     }
 
     @Test

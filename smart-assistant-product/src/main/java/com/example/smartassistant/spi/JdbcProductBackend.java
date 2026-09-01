@@ -24,7 +24,7 @@ import java.util.Locale;
 public class JdbcProductBackend implements ProductBackend {
 
     private static final Logger log = LoggerFactory.getLogger(JdbcProductBackend.class);
-    private static final int SEARCH_LIMIT = 10;
+    private static final int SEARCH_LIMIT = 20;
     private static final String PRODUCTION_CATALOG_FILTER = """
             UPPER(p.product_code) NOT LIKE 'LOAD-PROD-%'
             AND UPPER(p.product_code) NOT LIKE 'E2E-PROD-%'
@@ -36,6 +36,14 @@ public class JdbcProductBackend implements ProductBackend {
             """;
     private static final String DISCOVERY_CATEGORY =
             "COALESCE(to_jsonb(p)->>'category', '')";
+    private static final String DISCOVERY_SALES =
+            "COALESCE(NULLIF(to_jsonb(p)->>'sales_30d', '')::BIGINT, 0)";
+    private static final String DISCOVERY_MARKET_PRICE =
+            "NULLIF(to_jsonb(p)->>'market_price', '')::NUMERIC";
+    private static final String DISCOVERY_RATING =
+            "NULLIF(to_jsonb(p)->>'rating', '')::NUMERIC";
+    private static final String DISCOVERY_REVIEW_COUNT =
+            "COALESCE(NULLIF(to_jsonb(p)->>'review_count', '')::BIGINT, 0)";
 
     private final JdbcTemplate jdbcTemplate;
     private final ProductBackend fallback;
@@ -115,20 +123,22 @@ public class JdbcProductBackend implements ProductBackend {
         String like = "%" + query + "%";
         List<ProductRecord> products;
         try {
-            products = jdbcTemplate.query(SELECT_COLUMNS + """
+            String sql = (SELECT_COLUMNS + """
                             WHERE (UPPER(product_code) LIKE ?
                                OR UPPER(product_name) LIKE ?
                                OR UPPER(COALESCE(spec, '')) LIKE ?
                                OR ? LIKE '%' || UPPER(product_code) || '%'
                                OR ? LIKE '%' || UPPER(product_name) || '%')
-                              AND """ + PRODUCTION_CATALOG_FILTER + """
+                              AND __PRODUCTION_CATALOG_FILTER__
                             ORDER BY CASE
                                 WHEN UPPER(product_code) = ? THEN 0
                                 WHEN UPPER(product_name) = ? THEN 1
                                 ELSE 2
                             END, product_code
                             LIMIT ?
-                            """, this::mapProduct,
+                            """).replace("__PRODUCTION_CATALOG_FILTER__",
+                            PRODUCTION_CATALOG_FILTER);
+            products = jdbcTemplate.query(sql, this::mapProduct,
                     like, like, like, query, query, query, query, SEARCH_LIMIT);
         } catch (RuntimeException e) {
             log.warn("[JdbcProduct] 商品搜索失败，降级到内存目录: {}", e.getMessage());
@@ -182,27 +192,34 @@ public class JdbcProductBackend implements ProductBackend {
         }
         int safeLimit = Math.max(1, Math.min(safeCriteria.limit(), SEARCH_LIMIT));
         String category = normalize(safeCriteria.category());
-        String categoryLike = "%" + category + "%";
+        BigDecimal maxPrice = safeCriteria.maxPrice();
+        boolean inStockOnly = safeCriteria.inStockOnly();
         try {
             String sql = ("""
                     SELECT p.product_code, p.product_name, p.price, p.stock, p.spec,
                            %s AS category,
-                           COUNT(o.order_id) AS popularity
+                           %s AS market_price,
+                           %s + COALESCE(o.order_count, 0) AS popularity,
+                           %s AS rating,
+                           %s AS review_count
                       FROM products p
-                      LEFT JOIN orders o
-                        ON UPPER(o.product_name) = UPPER(p.product_name)
+                      LEFT JOIN (
+                          SELECT UPPER(product_name) AS product_key, COUNT(*) AS order_count
+                            FROM orders
+                           WHERE COALESCE(status, '') NOT IN ('已取消', '退款中', '已退款')
+                           GROUP BY UPPER(product_name)
+                     ) o ON o.product_key = UPPER(p.product_name)
                      WHERE %s
-                       AND (? = '' OR UPPER(%s) LIKE ?
-                            OR UPPER(p.product_name) LIKE ?
-                            OR UPPER(COALESCE(p.spec, '')) LIKE ?)
-                     GROUP BY p.product_code, p.product_name, p.price, p.stock, p.spec,
-                              %s
-                     ORDER BY COUNT(o.order_id) DESC,
+                           AND (CAST(? AS TEXT) = '' OR UPPER(%s) = CAST(? AS TEXT))
+                           AND (CAST(? AS NUMERIC) IS NULL OR p.price <= CAST(? AS NUMERIC))
+                           AND (CAST(? AS BOOLEAN) = FALSE OR COALESCE(p.stock, '') NOT IN ('缺货', '无货', '售罄'))
+                     ORDER BY popularity DESC,
                               CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
                               p.product_code
-                     LIMIT ?
-                    """).formatted(DISCOVERY_CATEGORY, PRODUCTION_CATALOG_FILTER,
-                    DISCOVERY_CATEGORY, DISCOVERY_CATEGORY);
+                         LIMIT CAST(? AS INTEGER)
+                    """).formatted(DISCOVERY_CATEGORY, DISCOVERY_MARKET_PRICE,
+                    DISCOVERY_SALES, DISCOVERY_RATING, DISCOVERY_REVIEW_COUNT,
+                    PRODUCTION_CATALOG_FILTER, DISCOVERY_CATEGORY);
             return jdbcTemplate.query(sql, (rs, rowNum) -> new ProductSummary(
                     rs.getString("product_code"),
                     rs.getString("product_name"),
@@ -210,8 +227,11 @@ public class JdbcProductBackend implements ProductBackend {
                     rs.getString("stock"),
                     rs.getString("spec"),
                     rs.getLong("popularity"),
-                    rs.getString("category")),
-                    category, categoryLike, categoryLike, categoryLike, safeLimit);
+                    rs.getString("category"),
+                    rs.getBigDecimal("market_price"),
+                    rs.getBigDecimal("rating"),
+                    rs.getLong("review_count")),
+                    category, category, maxPrice, maxPrice, inStockOnly, safeLimit);
         } catch (RuntimeException e) {
             log.warn("[JdbcProduct] 热度统计查询失败，尝试读取实时商品目录: {}", e.getMessage());
             return listCatalogProducts(safeCriteria);
@@ -221,26 +241,35 @@ public class JdbcProductBackend implements ProductBackend {
     private List<ProductSummary> listCatalogProducts(ProductDiscoveryCriteria criteria) {
         int limit = Math.max(1, Math.min(criteria.limit(), SEARCH_LIMIT));
         String category = normalize(criteria.category());
-        String categoryLike = "%" + category + "%";
+        BigDecimal maxPrice = criteria.maxPrice();
+        boolean inStockOnly = criteria.inStockOnly();
         try {
             String sql = ("""
                     SELECT p.product_code, p.product_name, p.price, p.stock, p.spec,
-                           %s AS category
-                      FROM products p
+                           %s AS category,
+                           %s AS market_price,
+                           %s AS popularity,
+                           %s AS rating,
+                           %s AS review_count
+                     FROM products p
                      WHERE %s
-                       AND (? = '' OR UPPER(%s) LIKE ?
-                            OR UPPER(p.product_name) LIKE ?
-                            OR UPPER(COALESCE(p.spec, '')) LIKE ?)
-                     ORDER BY CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
+                           AND (CAST(? AS TEXT) = '' OR UPPER(%s) = CAST(? AS TEXT))
+                           AND (CAST(? AS NUMERIC) IS NULL OR p.price <= CAST(? AS NUMERIC))
+                           AND (CAST(? AS BOOLEAN) = FALSE OR COALESCE(p.stock, '') NOT IN ('缺货', '无货', '售罄'))
+                     ORDER BY popularity DESC,
+                              CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
                               p.product_code
-                     LIMIT ?
-                    """).formatted(DISCOVERY_CATEGORY, PRODUCTION_CATALOG_FILTER,
-                    DISCOVERY_CATEGORY);
+                         LIMIT CAST(? AS INTEGER)
+                    """).formatted(DISCOVERY_CATEGORY, DISCOVERY_MARKET_PRICE,
+                    DISCOVERY_SALES, DISCOVERY_RATING, DISCOVERY_REVIEW_COUNT,
+                    PRODUCTION_CATALOG_FILTER, DISCOVERY_CATEGORY);
             return jdbcTemplate.query(sql, (rs, rowNum) -> new ProductSummary(
                     rs.getString("product_code"), rs.getString("product_name"),
                     rs.getBigDecimal("price"), rs.getString("stock"),
-                    rs.getString("spec"), 0L, rs.getString("category")),
-                    category, categoryLike, categoryLike, categoryLike, limit);
+                    rs.getString("spec"), rs.getLong("popularity"),
+                    rs.getString("category"), rs.getBigDecimal("market_price"),
+                    rs.getBigDecimal("rating"), rs.getLong("review_count")),
+                    category, category, maxPrice, maxPrice, inStockOnly, limit);
         } catch (RuntimeException e) {
             log.warn("[JdbcProduct] 实时商品目录查询失败，降级到内存目录: {}", e.getMessage());
             return fallback.listPopularProducts(criteria);

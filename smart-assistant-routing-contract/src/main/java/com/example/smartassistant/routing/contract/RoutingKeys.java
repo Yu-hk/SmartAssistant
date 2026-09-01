@@ -8,6 +8,8 @@ public final class RoutingKeys {
     public static final String SSE_EVENTS_PREFIX = "routing:sse:events:";
     public static final String SSE_STREAM_PREFIX = "routing:sse:stream:";
     public static final String EXECUTION_GRAPH_PREFIX = "routing:execution-graph:";
+    public static final String CANCELLATION_PREFIX = "routing:cancellation:";
+    public static final String EXECUTION_OWNER_PREFIX = "routing:execution-owner:";
 
     private RoutingKeys() {
     }
@@ -34,6 +36,14 @@ public final class RoutingKeys {
 
     public static String executionGraph(String requestId) {
         return EXECUTION_GRAPH_PREFIX + requireRequestId(requestId);
+    }
+
+    public static String cancellation(String requestId) {
+        return CANCELLATION_PREFIX + requireRequestId(requestId);
+    }
+
+    public static String executionOwner(String requestId) {
+        return EXECUTION_OWNER_PREFIX + requireRequestId(requestId);
     }
 
     private static String requireRequestId(String requestId) {

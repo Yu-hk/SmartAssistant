@@ -59,12 +59,11 @@ class TaskAnalysisPromptTest {
         assertTrue(prompt.contains("task_steps"));
         assertTrue(prompt.contains("execution_order"));
         assertTrue(prompt.contains("flowchart"));
-        assertTrue(prompt.contains("SHIP_ORDER"));
-        assertTrue(prompt.contains("TRACK_LOGISTICS"));
-        assertTrue(prompt.contains("CONFIRM_DELIVERY"));
-        assertTrue(prompt.contains("DISCOVER_PRODUCTS"));
-        assertTrue(prompt.contains("ANALYZE_PRODUCT_DATA"));
-        assertTrue(prompt.contains("RECOMMEND_PRODUCT"));
+        assertTrue(prompt.contains("{{WORKFLOW_OPERATION_CATALOG}}"));
+        assertTrue(prompt.contains("operation 仅允许"));
+        assertTrue(prompt.contains("DISCOVER_PRODUCTS 输出 data.products"));
+        assertTrue(prompt.contains("ANALYZE_PRODUCT_DATA 输出 data.analysis"));
+        assertTrue(prompt.contains("RECOMMEND_PRODUCT 输出 data.recommendation"));
         assertTrue(prompt.contains("仅输出一个合法 JSON 对象"));
         assertTrue(prompt.contains("从 Nacos 的健康实例缓存中发现 Agent"));
         assertTrue(prompt.contains("{{NACOS_AGENT_CATALOG}}"));

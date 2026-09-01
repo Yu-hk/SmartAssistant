@@ -72,6 +72,13 @@ public class OrderIntentService {
             return IntentType.OTHER;
         }
 
+        // 清晰的“我的订单/订单列表”属于已认证用户的只读数据查询。
+        // 该场景无需依赖模型，且必须和“准备创建订单/立即下单”等写操作严格分离。
+        if (isReadOnlyOrderListQuery(message)) {
+            log.info("[OrderIntent] 确定性识别只读订单列表查询: message={}", message);
+            return IntentType.QUERY_ORDER;
+        }
+
         if (isOrderPreparationGuidance(message)) {
             log.info("[OrderIntent] 确定性识别下单前资料说明: message={}", message);
             return IntentType.ORDER_PREPARATION_GUIDANCE;
@@ -102,9 +109,57 @@ public class OrderIntentService {
             log.info("[OrderIntent] 识别结果: message={}, intent={}", message, intent);
             return intent;
         } catch (Exception e) {
-            log.warn("[OrderIntent] 识别失败，默认 OTHER: {}", e.getMessage());
+            IntentType fallback = detectSafeReadOnlyFallback(message);
+            if (fallback != IntentType.OTHER) {
+                log.warn("[OrderIntent] 模型识别失败，降级到只读意图 {}: {}",
+                        fallback, e.getMessage());
+                return fallback;
+            }
+            log.warn("[OrderIntent] 识别失败，保持 OTHER（禁止降级触发写操作）: {}", e.getMessage());
             return IntentType.OTHER;
         }
+    }
+
+    /**
+     * 模型不可用时只允许降级识别可验证的读操作。创建、支付、取消、退款、
+     * 发货和确认收货一律保持 OTHER，避免分类故障转化为业务写入。
+     */
+    static IntentType detectSafeReadOnlyFallback(String message) {
+        if (isReadOnlyOrderListQuery(message)) return IntentType.QUERY_ORDER;
+        if (message == null || message.isBlank() || hasWriteOperation(message)) {
+            return IntentType.OTHER;
+        }
+        if (ORDER_ID.matcher(message).find()) {
+            if (containsAny(message, List.of("查物流", "查询物流", "查看物流", "物流信息", "物流轨迹"))) {
+                return IntentType.TRACK_LOGISTICS;
+            }
+            if (containsAny(message, List.of("查询", "查看", "看看", "状态", "详情", "订单信息"))) {
+                return IntentType.QUERY_ORDER;
+            }
+        }
+        return IntentType.OTHER;
+    }
+
+    static boolean isReadOnlyOrderListQuery(String message) {
+        if (message == null || message.isBlank() || hasWriteOperation(message)) return false;
+        String normalized = message.replaceAll("[\\s，,。.!！?？]", "");
+        boolean readVerb = containsAny(normalized, List.of(
+                "查看", "查询", "列出", "显示", "看看", "有哪些", "有没有"));
+        boolean ownedOrderScope = containsAny(normalized, List.of(
+                "我的订单", "本人订单", "订单列表", "订单记录", "历史订单", "已有订单"))
+                || (normalized.contains("我") && normalized.contains("订单"));
+        return ownedOrderScope && (readVerb
+                || normalized.equals("我的订单") || normalized.equals("订单列表"));
+    }
+
+    private static boolean hasWriteOperation(String message) {
+        return containsAny(message, List.of(
+                "帮我下单", "替我下单", "我要下单", "立即下单", "现在下单", "直接下单", "创建订单",
+                "确认支付", "立即支付", "支付订单", "帮我支付",
+                "帮我取消", "替我取消", "我要取消", "立即取消", "取消订单",
+                "帮我退款", "我要退款", "办理退款", "发起退款", "申请退款",
+                "帮我退货", "我要退货", "办理退货", "发起退货", "申请退货",
+                "帮我发货", "立即发货", "执行发货", "确认收货"));
     }
 
     /**

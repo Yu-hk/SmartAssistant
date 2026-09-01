@@ -16,9 +16,8 @@ interface CustomerSidebarProps {
 }
 
 /**
- * 智能体团队 — 当前为 UI 展示用静态列表（贴合「多智能体客服」主题）。
+ * 面向用户的服务快捷入口。入口只表达业务目标，不暗示某个内部 Agent 在线。
  * 色板与设计系统语义色对齐：蓝系为主，语义色区分领域。
- * TODO: 接入运行时智能体注册表后，改为从后端拉取在线状态与归属。
  */
 const AGENT_TEAM: { name: string; glyph: string; color: string }[] = [
   { name: '售前顾问', glyph: '售', color: '#2563eb' },
@@ -63,17 +62,16 @@ export function CustomerSidebar({
           display: 'flex', alignItems: 'center', gap: '11px',
           marginBottom: '14px',
         }}>
-          {/* 品牌 Logo — 罗盘渐变 */}
-          <div style={{
-            width: '38px', height: '38px', borderRadius: '11px',
-            background: 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '17px', fontWeight: 800, color: 'white',
-            flexShrink: 0,
-            boxShadow: 'var(--nova-shadow-md)',
-          }}>
-            智
-          </div>
+          {/* 品牌 Logo — 多智能体协同图标 */}
+          <img
+            src="/icons/app-icon.svg"
+            alt="智服 SmartAssistant 图标"
+            style={{
+              width: '38px', height: '38px', borderRadius: '11px',
+              flexShrink: 0,
+              boxShadow: 'var(--nova-shadow-md)',
+            }}
+          />
           <div>
             <div style={{
               fontSize: '14px', fontWeight: 700,
@@ -86,7 +84,7 @@ export function CustomerSidebar({
               fontSize: '10px', color: 'var(--nova-secondary)',
               fontWeight: 500, letterSpacing: '0.04em',
             }}>
-              多智能体客服工作台
+              智能服务助手
             </div>
           </div>
           <button
@@ -121,9 +119,9 @@ export function CustomerSidebar({
         </button>
       </div>
 
-      {/* 可滚动区域：智能体团队 + 我的会话 */}
+      {/* 可滚动区域：服务入口 + 我的会话 */}
       <div style={{ flex: 1, overflow: 'auto', padding: '12px 10px' }}>
-        {/* 智能体团队 */}
+        {/* 服务快捷入口 */}
         <div style={{
           fontSize: '11px', fontWeight: 600,
           color: 'var(--nova-text-tertiary)',
@@ -139,7 +137,7 @@ export function CustomerSidebar({
               key={agent.name}
               className="glass-hover"
               onClick={() => onSelectAgent(agent.name)}
-              aria-label={`与${agent.name}开始对话`}
+              aria-label={`使用${agent.name}服务`}
               style={{
                 width: '100%',
                 display: 'flex', alignItems: 'center', gap: '10px',
@@ -148,7 +146,7 @@ export function CustomerSidebar({
                 background: 'transparent', fontFamily: 'inherit', textAlign: 'left',
               }}
             >
-              {/* Agent 图标 */}
+              {/* 服务图标 */}
               <div style={{
                 width: '30px', height: '30px', borderRadius: '9px',
                 flexShrink: 0,

@@ -6,7 +6,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import 'tdesign-react/esm/style/index.js';
 import './index.css';
 
-document.title = '智能客服 Agent';
+document.title = '智服 SmartAssistant';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

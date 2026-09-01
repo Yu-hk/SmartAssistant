@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -82,6 +83,27 @@ class ProductDiscoveryServiceTest {
     }
 
     @Test
+    void exposesSalesPriceAndReputationEvidenceForPopularProducts() {
+        ProductBackend backend = new InMemoryProductBackend() {
+            @Override
+            public List<ProductSummary> listPopularProducts(ProductDiscoveryCriteria criteria) {
+                return List.of(new ProductSummary("ROBOT-01", "扫拖机器人",
+                        new BigDecimal("2999"), "充足", "自动集尘", 1680L,
+                        "智能家居", new BigDecimal("3499"), new BigDecimal("4.8"), 7350L));
+            }
+        };
+
+        ProductDiscoveryService.DiscoveryResult result =
+                new ProductDiscoveryService(backend).discover("热门商品", 5);
+
+        assertThat(result.popularityBased()).isTrue();
+        assertThat(result.answer())
+                .contains("近30天站内销量：1680")
+                .contains("参考价：¥3499")
+                .contains("评分：4.8/5（7350条评价）");
+    }
+
+    @Test
     void scenarioSpecificDiscoveryStatesEvidenceBoundary() {
         ProductDiscoveryService.DiscoveryResult result = service.discover(
                 "查询适合十五人办公室和视频会议使用的热门商品，并比较适用场景", 3);
@@ -92,5 +114,73 @@ class ProductDiscoveryServiceTest {
                 .contains("场景适配：现有目录证据不足")
                 .contains("摄像头、麦克风")
                 .contains("不应把上述候选表述为最终推荐");
+    }
+
+    @Test
+    void appliesBudgetAndCategoryAsHardCandidateConstraints() {
+        AtomicReference<ProductBackend.ProductDiscoveryCriteria> receivedCriteria =
+                new AtomicReference<>();
+        ProductBackend backend = new InMemoryProductBackend() {
+            @Override
+            public List<String> listProductCategories() {
+                return List.of("手机");
+            }
+
+            @Override
+            public List<ProductSummary> listPopularProducts(ProductDiscoveryCriteria criteria) {
+                receivedCriteria.set(criteria);
+                return List.of(
+                        new ProductSummary("PHONE-PRO", "旗舰手机",
+                                new BigDecimal("8999"), "充足", "旗舰芯片", 99, "手机"),
+                        new ProductSummary("PHONE-LITE", "高性价比手机",
+                                new BigDecimal("3999"), "充足", "长续航", 80, "手机"));
+            }
+        };
+        ProductDiscoveryService constrainedService = new ProductDiscoveryService(backend);
+
+        ProductDiscoveryService.DiscoveryResult result = constrainedService.discover(
+                "我预算5000元，优先性价比，只看手机", 5);
+
+        assertThat(constrainedService.supports("我预算5000元，优先性价比，只看手机")).isTrue();
+        assertThat(receivedCriteria.get().category()).isEqualTo("手机");
+        assertThat(receivedCriteria.get().maxPrice()).isEqualByComparingTo("5000");
+        assertThat(result.products()).extracting(ProductBackend.ProductSummary::code)
+                .containsExactly("PHONE-LITE");
+        assertThat(result.answer()).contains("高性价比手机").doesNotContain("旗舰手机");
+    }
+
+    @Test
+    void explainsWhenNoProductSatisfiesHardBudget() {
+        ProductDiscoveryService.DiscoveryResult result = service.discover(
+                "预算1000元以内，只看手机", 5);
+
+        assertThat(result.productCount()).isZero();
+        assertThat(result.answer()).contains("手机", "不超过1000元", "调整预算或品类");
+    }
+
+    @Test
+    void appliesExplicitStockAvailabilityAsHardConstraint() {
+        ProductBackend backend = new InMemoryProductBackend() {
+            @Override
+            public List<String> listProductCategories() {
+                return List.of("手机");
+            }
+
+            @Override
+            public List<ProductSummary> listPopularProducts(ProductDiscoveryCriteria criteria) {
+                assertThat(criteria.inStockOnly()).isTrue();
+                return List.of(
+                        new ProductSummary("SOLD-OUT", "缺货手机",
+                                new BigDecimal("2999"), "售罄", "", 100, "手机"),
+                        new ProductSummary("IN-STOCK", "现货手机",
+                                new BigDecimal("3999"), "充足", "", 80, "手机"));
+            }
+        };
+
+        ProductDiscoveryService.DiscoveryResult result =
+                new ProductDiscoveryService(backend).discover("只看有货手机，预算5000元", 5);
+
+        assertThat(result.products()).extracting(ProductBackend.ProductSummary::code)
+                .containsExactly("IN-STOCK");
     }
 }

@@ -7,6 +7,8 @@ import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.IntentGraph;
 import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
+import com.example.smartassistant.router.service.taskanalysis.IntentDef;
+import com.example.smartassistant.router.service.taskanalysis.IntentRetriever;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,6 +42,7 @@ public class TaskPlannerService {
     private final AgentDiscoveryService agentDiscovery;
     private final AgentLLMGateway llmGateway;
     private final DeepSeekPlanningClient planningClient;
+    private final IntentRetriever intentRetriever;
 
     @Value("${router.task-planner.timeout-ms:35000}")
     private long plannerTimeoutMs = 35_000L;
@@ -49,10 +52,12 @@ public class TaskPlannerService {
 
     public TaskPlannerService(AgentDiscoveryService agentDiscovery,
                                AgentLLMGateway llmGateway,
-                               DeepSeekPlanningClient planningClient) {
+                               DeepSeekPlanningClient planningClient,
+                               IntentRetriever intentRetriever) {
         this.agentDiscovery = agentDiscovery;
         this.llmGateway = llmGateway;
         this.planningClient = planningClient;
+        this.intentRetriever = intentRetriever;
     }
 
     /**
@@ -74,10 +79,10 @@ public class TaskPlannerService {
         String agentList = buildCompactAgentList();
         if (agentList.isEmpty()) {
             log.warn("[TaskPlanner] 无可用 Agent，使用整句");
-            return createSingleNodeGraph(question, findFallbackAgent());
+            return createSingleNodeGraph(question, findFallbackAgent(question));
         }
 
-        String fallback = findFallbackAgent();
+        String fallback = findFallbackAgent(question);
         String prompt = String.format("""
                 直接输出任务分配结果，不要解释、不要展示思考过程。
                 可用助理（只能从中选择）：
@@ -146,10 +151,10 @@ public class TaskPlannerService {
         String agentList = buildAgentList();
         if (agentList.isEmpty()) {
             log.warn("[TaskPlanner] 无可用 Agent，使用整句");
-            return List.of(new SubTask("t1", question, findFallbackAgent()));
+            return List.of(new SubTask("t1", question, findFallbackAgent(question)));
         }
 
-        String fallback = findFallbackAgent();
+        String fallback = findFallbackAgent(question);
         String prompt = String.format("""
                 将用户的问题分配给最合适的助理。
 
@@ -169,12 +174,12 @@ public class TaskPlannerService {
             List<SubTask> tasks = parseTasks(response);
             if (tasks.isEmpty()) {
                 log.warn("[TaskPlanner] LLM 返回格式异常，使用整句。响应: {}", response);
-                return List.of(new SubTask("t1", question, findFallbackAgent()));
+                return List.of(new SubTask("t1", question, fallback));
             }
             return tasks;
         } catch (Exception e) {
             log.warn("[TaskPlanner] LLM 分解失败: {}", e.getMessage());
-            return List.of(new SubTask("t1", question, findFallbackAgent()));
+            return List.of(new SubTask("t1", question, fallback));
         }
     }
 
@@ -278,7 +283,7 @@ public class TaskPlannerService {
             return null;
         }
 
-        String fallback = findFallbackAgent();
+        String fallback = findFallbackAgent(replanContext);
         String prompt = String.format("""
                 以下是一个多步骤任务执行过程中的状态。某个子任务执行失败，
                 需要你重新规划该失败任务及后续未执行的任务。
@@ -381,9 +386,42 @@ public class TaskPlannerService {
      * 动态查找兜底 Agent（metadata.priority 最高即数值最大的）。
      * 无兜底时返回 null，由调用方处理。
      */
-    private String findFallbackAgent() {
-        DiscoveredAgent fallback = agentDiscovery.findFallbackAgent();
+    private String findFallbackAgent(String question) {
+        try {
+            List<IntentDef> candidates = intentRetriever.retrieve(question, 1);
+            if (!candidates.isEmpty()) {
+                String semanticAgent = candidates.getFirst().name();
+                String registeredAgent = resolveHealthyAgentName(semanticAgent);
+                if (registeredAgent != null) {
+                    log.info("[TaskPlanner] 模型不可用时按注册能力语义降级: semantic={}, agent={}",
+                            semanticAgent, registeredAgent);
+                    return registeredAgent;
+                }
+            }
+        } catch (RuntimeException error) {
+            log.warn("[TaskPlanner] 注册能力语义降级失败: {}", error.getMessage());
+        }
+
+        DiscoveredAgent fallback = agentDiscovery.getCachedAgents().stream()
+                .filter(agent -> agent != null && Boolean.TRUE.equals(agent.getHealthy()))
+                .filter(agent -> agent.getAgentName() != null && agent.getMetadata() != null)
+                .filter(agent -> agent.getMetadata().getAgentType() != null
+                        && !agent.getMetadata().getAgentType().isBlank())
+                .max(Comparator.comparingInt(agent -> agent.getMetadata().getPriority()))
+                .orElse(null);
         return fallback != null ? fallback.getAgentName() : null;
+    }
+
+    private String resolveHealthyAgentName(String candidate) {
+        String canonicalCandidate = AgentDiscoveryService.canonicalAgentName(candidate);
+        return agentDiscovery.getCachedAgents().stream()
+                .filter(agent -> agent != null && Boolean.TRUE.equals(agent.getHealthy()))
+                .filter(agent -> agent.getAgentName() != null)
+                .filter(agent -> AgentDiscoveryService.canonicalAgentName(agent.getAgentName())
+                        .equals(canonicalCandidate))
+                .map(DiscoveredAgent::getAgentName)
+                .findFirst()
+                .orElse(null);
     }
 
     /**

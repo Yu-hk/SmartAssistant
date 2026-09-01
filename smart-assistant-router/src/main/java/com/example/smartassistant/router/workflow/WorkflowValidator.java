@@ -12,6 +12,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Optional;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /** Performs deterministic validation before a workflow can be published. */
@@ -21,6 +23,28 @@ public class WorkflowValidator {
     private static final int MAX_NODES = 32;
     private static final int MAX_GRAPH_ITERATIONS = 16;
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,63}");
+    private static final Pattern SAFE_SCHEMA_ID =
+            Pattern.compile("[a-z][a-z0-9._-]{0,63}\\.v[1-9][0-9]*");
+    private static final Pattern INDEX_SUFFIX = Pattern.compile("\\[[0-9]+]$");
+    private static final Map<String, Set<String>> OUTPUT_SCHEMA_FIELDS = Map.ofEntries(
+            Map.entry("product-discovery.v1", Set.of(
+                    "products", "productCount", "popularityBased", "scenarioEvidenceLimited", "category")),
+            Map.entry("products.v1", Set.of(
+                    "products", "productCount", "popularityBased", "scenarioEvidenceLimited", "category")),
+            Map.entry("product-analysis.v1", Set.of(
+                    "operation", "sourceNodeIds", "analysis", "products", "productCount")),
+            Map.entry("analysis.v1", Set.of(
+                    "operation", "sourceNodeIds", "analysis", "products", "productCount")),
+            Map.entry("product-recommendation.v1", Set.of(
+                    "operation", "sourceNodeIds", "recommendation", "products", "productCount")),
+            Map.entry("recommendation.v1", Set.of(
+                    "operation", "sourceNodeIds", "recommendation", "products", "productCount")),
+            Map.entry("order.v1", Set.of(
+                    "operation", "orderId", "productCode", "productName", "quantity", "amount",
+                    "status", "paymentMethod", "orders", "count", "limit", "offset", "hasMore",
+                    "statusFilter", "actionType", "pendingApprovalExists", "approvalStatus",
+                    "trackingNo", "companyName", "logisticsStatus", "logisticsDetail",
+                    "logisticsTime", "verified", "criteriaSatisfied")));
 
     public WorkflowValidationResult validate(WorkflowDefinition definition, Set<String> allowedAgents) {
         List<WorkflowValidationResult.Violation> violations = new ArrayList<>();
@@ -71,6 +95,8 @@ public class WorkflowValidator {
                     && !allowedAgents.contains(node.targetAgent())) {
                 add(violations, "UNKNOWN_AGENT", path + ".targetAgent", node.targetAgent());
             }
+            validateOperation(node, path, violations);
+            validateOutputSchema(node.outputSchema(), path + ".outputSchema", violations);
             if (node.type() == WorkflowDefinition.NodeType.HUMAN_APPROVAL
                     && !node.humanApprovalRequired()) {
                 add(violations, "APPROVAL_FLAG_REQUIRED", path + ".humanApprovalRequired",
@@ -100,6 +126,7 @@ public class WorkflowValidator {
         }
 
         validateReferences(definition, ids, violations);
+        validateBindingContracts(definition, violations);
         validateDag(dependencies, ids, rerouteSources, violations);
         long roots = dependencies.entrySet().stream()
                 .filter(entry -> entry.getValue() == null || entry.getValue().isEmpty()).count();
@@ -209,6 +236,98 @@ public class WorkflowValidator {
                         path + ".inputBindings." + target, error.getMessage());
             }
         });
+    }
+
+    private static void validateOperation(
+            WorkflowDefinition.WorkflowNode node, String path,
+            List<WorkflowValidationResult.Violation> violations) {
+        if (blank(node.operation())) {
+            add(violations, "OPERATION_REQUIRED", path + ".operation", "operation is required");
+            return;
+        }
+        Optional<WorkflowOperation> operation = WorkflowOperation.fromCode(node.operation());
+        if (operation.isEmpty()) {
+            add(violations, "UNKNOWN_OPERATION", path + ".operation", node.operation());
+            return;
+        }
+        WorkflowOperation.Domain agentDomain = knownAgentDomain(node.targetAgent());
+        if (agentDomain != null && agentDomain != operation.orElseThrow().domain()) {
+            add(violations, "AGENT_OPERATION_MISMATCH", path + ".operation",
+                    node.targetAgent() + " cannot execute " + operation.orElseThrow().code());
+        }
+        if (operation.orElseThrow().approvalRequired() && !node.humanApprovalRequired()) {
+            add(violations, "APPROVAL_REQUIRED", path + ".humanApprovalRequired",
+                    operation.orElseThrow().code() + " requires human approval");
+        }
+    }
+
+    private static WorkflowOperation.Domain knownAgentDomain(String targetAgent) {
+        if (blank(targetAgent)) return null;
+        String normalized = targetAgent.trim().toLowerCase(Locale.ROOT);
+        if (normalized.contains("product")) return WorkflowOperation.Domain.PRODUCT;
+        if (normalized.contains("order") || normalized.contains("logistics")) {
+            return WorkflowOperation.Domain.ORDER;
+        }
+        if (normalized.contains("general") || normalized.contains("fallback")) {
+            return WorkflowOperation.Domain.GENERAL;
+        }
+        return null;
+    }
+
+    private static void validateOutputSchema(
+            String outputSchema, String path,
+            List<WorkflowValidationResult.Violation> violations) {
+        if (blank(outputSchema)) return;
+        if (!SAFE_SCHEMA_ID.matcher(outputSchema).matches()) {
+            add(violations, "INVALID_OUTPUT_SCHEMA", path,
+                    "output schema id must match " + SAFE_SCHEMA_ID.pattern());
+        }
+    }
+
+    /** Ensures DATA bindings can be proven against the source node's declared contract. */
+    private static void validateBindingContracts(
+            WorkflowDefinition definition,
+            List<WorkflowValidationResult.Violation> violations) {
+        Map<String, WorkflowDefinition.WorkflowNode> nodesById = new HashMap<>();
+        for (WorkflowDefinition.WorkflowNode node : definition.nodes()) {
+            if (node != null && !blank(node.id())) nodesById.putIfAbsent(node.id(), node);
+        }
+        for (int i = 0; i < definition.nodes().size(); i++) {
+            WorkflowDefinition.WorkflowNode node = definition.nodes().get(i);
+            if (node == null) continue;
+            int nodeIndex = i;
+            node.inputBindings().forEach((target, expression) -> {
+                InputBindingExpression.Parsed binding;
+                try {
+                    binding = InputBindingExpression.parse(expression);
+                } catch (IllegalArgumentException ignored) {
+                    return;
+                }
+                if (binding.section() != InputBindingExpression.Section.DATA
+                        || !node.dependsOn().contains(binding.sourceNodeId())) return;
+                WorkflowDefinition.WorkflowNode source = nodesById.get(binding.sourceNodeId());
+                if (source == null) return;
+                String bindingPath = "nodes[" + nodeIndex + "].inputBindings." + target;
+                if (blank(source.outputSchema())) {
+                    add(violations, "MISSING_OUTPUT_SCHEMA_FOR_BINDING", bindingPath,
+                            "source node " + source.id() + " must declare outputSchema");
+                    return;
+                }
+                Set<String> fields = OUTPUT_SCHEMA_FIELDS.get(source.outputSchema());
+                if (fields == null) {
+                    add(violations, "UNKNOWN_OUTPUT_SCHEMA", bindingPath,
+                            "source schema is not registered: " + source.outputSchema());
+                    return;
+                }
+                if (binding.dataPath().isEmpty()) return;
+                String rootField = INDEX_SUFFIX.matcher(binding.dataPath().getFirst())
+                        .replaceFirst("");
+                if (!fields.contains(rootField)) {
+                    add(violations, "UNKNOWN_BINDING_FIELD", bindingPath,
+                            source.outputSchema() + " does not declare field " + rootField);
+                }
+            });
+        }
     }
 
     private static boolean isPrivateAddress(String host) {

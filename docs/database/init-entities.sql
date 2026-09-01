@@ -254,6 +254,12 @@ CREATE TABLE IF NOT EXISTS products (
     category        VARCHAR(50) NOT NULL DEFAULT '其他',
     spec            TEXT,
     color           VARCHAR(200),
+    market_price    DECIMAL(10,2),
+    sales_30d       BIGINT NOT NULL DEFAULT 0,
+    rating          DECIMAL(2,1),
+    review_count    BIGINT NOT NULL DEFAULT 0,
+    metrics_source  VARCHAR(32) NOT NULL DEFAULT 'catalog',
+    metrics_updated_at TIMESTAMP,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_products_code ON products(product_code);

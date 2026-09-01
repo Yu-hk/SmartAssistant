@@ -4,7 +4,10 @@ import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.router.service.core.RouterService;
+import com.example.smartassistant.router.service.core.WorkflowCancellationService;
 import com.example.smartassistant.router.service.tool.RoutingToolChecker;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -53,6 +56,26 @@ class RouterControllerIdentityTest {
                 () -> controller(routerService).route(null, request));
 
         assertEquals(401, error.getStatusCode().value());
+        verifyNoInteractions(routerService);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void returnsCancelledWithoutExecutingRouterWhenCancelWinsRegistrationRace() {
+        RouterService routerService = mock(RouterService.class);
+        ObjectProvider<StringRedisTemplate> provider = mock(ObjectProvider.class);
+        WorkflowCancellationService cancellationService = new WorkflowCancellationService(provider);
+        cancellationService.requestCancellation("cancel-before-route", 42L);
+        RouterController controller = controller(routerService);
+        controller.setCancellationService(cancellationService);
+
+        var response = controller.route(42L, RouteRequest.builder()
+                .question("查询商品")
+                .requestId("cancel-before-route")
+                .build());
+
+        assertEquals(RoutingResult.WorkflowStatus.CANCELLED,
+                response.getData().getWorkflowStatus());
         verifyNoInteractions(routerService);
     }
 

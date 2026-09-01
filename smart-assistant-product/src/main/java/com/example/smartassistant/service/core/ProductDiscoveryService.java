@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Deterministic product discovery for generic catalog and popularity queries. */
 @Service
@@ -14,6 +16,12 @@ public class ProductDiscoveryService {
 
     private static final int DEFAULT_LIMIT = 5;
     private static final int MAX_LIMIT = 10;
+    private static final int HARD_CONSTRAINT_CANDIDATE_LIMIT = 20;
+    private static final Pattern BUDGET_PREFIX_PATTERN = Pattern.compile(
+            "(?:预算(?:不超过|不高于|控制在|在)?|最高|最多|不超过|不高于|控制在)"
+                    + "\\s*[¥￥]?\\s*(\\d+(?:\\.\\d+)?)\\s*(万|千|[kK])?\\s*元?");
+    private static final Pattern BUDGET_SUFFIX_PATTERN = Pattern.compile(
+            "[¥￥]?\\s*(\\d+(?:\\.\\d+)?)\\s*(万|千|[kK])?\\s*元?\\s*(?:以内|以下|之内)");
 
     private final ProductBackend productBackend;
 
@@ -41,6 +49,9 @@ public class ProductDiscoveryService {
         boolean popularityRequest = normalized.contains("热门")
                 || normalized.contains("热销") || normalized.contains("畅销")
                 || normalized.contains("排行");
+        boolean hardConstraintRequest = extractMaxBudget(normalized) != null
+                || normalized.contains("只看") || normalized.contains("仅看")
+                || normalized.contains("限定");
         return normalized.contains("热门商品")
                 || normalized.contains("热销商品")
                 || normalized.contains("畅销商品")
@@ -50,7 +61,8 @@ public class ProductDiscoveryService {
                 || normalized.contains("有哪些商品")
                 || normalized.contains("商品列表")
                 || normalized.matches(".*推荐(?:一些|一款|几款|几个|点)?商品.*")
-                || (categoryRequest && (popularityRequest || normalized.contains("推荐")));
+                || (categoryRequest && (popularityRequest || normalized.contains("推荐")
+                        || hardConstraintRequest));
     }
 
     public DiscoveryResult discover(String query, Integer requestedLimit) {
@@ -66,12 +78,28 @@ public class ProductDiscoveryService {
         int requested = requestedLimit == null
                 ? DEFAULT_LIMIT
                 : Math.max(1, Math.min(requestedLimit, MAX_LIMIT));
-        int candidateLimit = category.isBlank() ? requested : Math.max(DEFAULT_LIMIT, requested);
-        List<ProductBackend.ProductSummary> products = productBackend.listPopularProducts(
-                new ProductBackend.ProductDiscoveryCriteria(category, normalizedQuery, candidateLimit));
-        if (products == null || products.isEmpty()) {
+        BigDecimal maxBudget = extractMaxBudget(normalizedQuery);
+        boolean inStockOnly = asksForAvailableStock(normalizedQuery);
+        int candidateLimit = maxBudget != null
+                ? HARD_CONSTRAINT_CANDIDATE_LIMIT
+                : category.isBlank() ? requested : Math.max(DEFAULT_LIMIT, requested);
+        List<ProductBackend.ProductSummary> discoveredProducts = productBackend.listPopularProducts(
+                new ProductBackend.ProductDiscoveryCriteria(
+                        category, normalizedQuery, maxBudget, inStockOnly, candidateLimit));
+        List<ProductBackend.ProductSummary> products = discoveredProducts == null
+                ? List.of()
+                : discoveredProducts.stream()
+                .filter(product -> maxBudget == null
+                        || (product.price() != null && product.price().compareTo(maxBudget) <= 0))
+                .filter(product -> !inStockOnly || isAvailableStock(product.stock()))
+                .limit(requested)
+                .toList();
+        if (products.isEmpty()) {
             String scope = category.isBlank() ? "商品" : category;
-            return new DiscoveryResult("当前暂无可推荐的" + scope + "，请调整条件或稍后再试。",
+            String constraint = maxBudget == null ? ""
+                    : "且价格不超过" + formatPrice(maxBudget).replace("¥", "") + "元";
+            return new DiscoveryResult("当前暂无符合“" + scope + constraint
+                    + "”条件的可售商品，请调整预算或品类后再试。",
                     0, false, List.of(), false, category);
         }
 
@@ -84,7 +112,7 @@ public class ProductDiscoveryService {
                     .append("因此不能把热度直接等同于适合该办公或会议场景：\n");
         } else if (asksForPopularity && hasPopularityData) {
             answer.append("近期热门").append(category.isBlank() ? "商品" : category)
-                    .append("（按订单热度排序）：\n");
+                    .append("（按站内近30天热度排序）：\n");
         } else if (asksForPopularity) {
             answer.append("当前推荐").append(category.isBlank() ? "商品" : category)
                     .append("（暂无足够销量数据，按可售状态展示）：\n");
@@ -99,7 +127,17 @@ public class ProductDiscoveryService {
                     .append(" — ").append(formatPrice(product.price()))
                     .append("，库存：").append(value(product.stock(), "未知"));
             if (hasPopularityData && product.popularity() > 0) {
-                answer.append("，近期订单：").append(product.popularity());
+                answer.append("，近30天站内销量：").append(product.popularity());
+            }
+            if (product.marketPrice() != null && product.marketPrice().compareTo(product.price()) > 0) {
+                answer.append("，参考价：").append(formatPrice(product.marketPrice()));
+            }
+            if (product.rating() != null && product.rating().signum() > 0) {
+                answer.append("，评分：").append(product.rating().stripTrailingZeros().toPlainString())
+                        .append("/5");
+                if (product.reviewCount() > 0) {
+                    answer.append("（").append(product.reviewCount()).append("条评价）");
+                }
             }
             if (scenarioEvidenceLimited) {
                 answer.append("，场景适配：现有目录证据不足，需核实规格和实际需求");
@@ -155,6 +193,41 @@ public class ProductDiscoveryService {
                                List<ProductBackend.ProductSummary> products,
                                boolean scenarioEvidenceLimited) {
             this(answer, productCount, popularityBased, products, scenarioEvidenceLimited, "");
+        }
+    }
+
+    private static boolean asksForAvailableStock(String query) {
+        if (query == null || query.isBlank()) return false;
+        String normalized = query.replaceAll("\\s+", "");
+        return normalized.contains("只看有货") || normalized.contains("仅看有货")
+                || normalized.contains("现货") || normalized.contains("库存充足")
+                || normalized.contains("可以立即下单");
+    }
+
+    private static boolean isAvailableStock(String stock) {
+        if (stock == null || stock.isBlank()) return false;
+        return !stock.contains("缺货") && !stock.contains("无货") && !stock.contains("售罄");
+    }
+
+    static BigDecimal extractMaxBudget(String query) {
+        if (query == null || query.isBlank()) return null;
+        String normalized = query.replace(",", "").replace("，", "");
+        BigDecimal value = extractBudget(BUDGET_PREFIX_PATTERN.matcher(normalized));
+        return value != null ? value : extractBudget(BUDGET_SUFFIX_PATTERN.matcher(normalized));
+    }
+
+    private static BigDecimal extractBudget(Matcher matcher) {
+        if (!matcher.find()) return null;
+        try {
+            BigDecimal value = new BigDecimal(matcher.group(1));
+            String unit = matcher.group(2);
+            if ("万".equals(unit)) value = value.multiply(BigDecimal.valueOf(10_000));
+            if ("千".equals(unit) || "k".equalsIgnoreCase(unit)) {
+                value = value.multiply(BigDecimal.valueOf(1_000));
+            }
+            return value.signum() > 0 ? value : null;
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 

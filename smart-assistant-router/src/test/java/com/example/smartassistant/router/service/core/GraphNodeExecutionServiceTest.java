@@ -432,6 +432,25 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
+    void resolvesIndexedOrderListBindingAcrossSnakeAndCamelCaseContracts() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "query_logistics", "查询最近订单物流", "order", List.of("query_recent_orders"),
+                null, List.of(), false, "TRACK_LOGISTICS", Map.of(), List.of(), null,
+                true, ExecutionPlan.MergePolicy.APPEND, null,
+                Map.of("order_id",
+                        "$.nodes.query_recent_orders.data.orders[0].order_id"));
+        SubTaskResult predecessor = new SubTaskResult(
+                "query_recent_orders", "查询最近订单", "order", "找到一笔订单", true);
+        predecessor.setStructuredData(Map.of("orders", List.of(
+                Map.of("orderId", "BULK-0002", "productName", "测试商品"))));
+
+        Map<String, Object> resolved = GraphNodeExecutionService.resolveInput(
+                node, Map.of("query_recent_orders", predecessor));
+
+        assertThat(resolved).containsEntry("order_id", "BULK-0002");
+    }
+
+    @Test
     void rejectsBindingThatBypassesDeclaredDependencies() {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "order", "创建订单", "order", List.of("recommend"), null, List.of(),
