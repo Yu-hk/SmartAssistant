@@ -30,6 +30,7 @@ public class TracingFilter extends OncePerRequestFilter {
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
     private static final String THREAD_ID_HEADER = "X-Thread-Id";
+    private static final String SESSION_ID_HEADER = "X-Session-Id";
     
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -42,6 +43,7 @@ public class TracingFilter extends OncePerRequestFilter {
             String traceId = request.getHeader(TRACE_ID_HEADER);
             String requestId = request.getHeader(REQUEST_ID_HEADER);
             String threadId = request.getHeader(THREAD_ID_HEADER);
+            String sessionId = request.getHeader(SESSION_ID_HEADER);
             
             // 设置到 MDC
             if (traceId != null && !traceId.isEmpty()) {
@@ -52,6 +54,9 @@ public class TracingFilter extends OncePerRequestFilter {
             }
             if (threadId != null && !threadId.isEmpty()) {
                 MDC.put("threadId", threadId);
+            }
+            if (sessionId != null && !sessionId.isEmpty()) {
+                MDC.put("sessionId", sessionId);
             }
             
             // 继续过滤链

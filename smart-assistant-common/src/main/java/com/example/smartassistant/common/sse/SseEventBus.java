@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.sse;
 
+import com.example.smartassistant.common.security.PiiPolicyEngine;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Metrics;
 import jakarta.servlet.http.HttpServletResponse;
@@ -66,6 +67,7 @@ public class SseEventBus {
     private final String redisKey;
     private final RedisZSetCache redisCache;
     private final long idleTimeoutMs;
+    private final PiiPolicyEngine piiPolicyEngine;
     private long seqNo = 1;
     private volatile boolean closed = false;
 
@@ -79,7 +81,7 @@ public class SseEventBus {
     private ScheduledFuture<?> heartbeatFuture;
 
     public SseEventBus(HttpServletResponse response, String requestId, RedisZSetCache redisCache) {
-        this(response, requestId, redisCache, DEFAULT_IDLE_TIMEOUT_MS);
+        this(response, requestId, redisCache, DEFAULT_IDLE_TIMEOUT_MS, PiiPolicyEngine.shared());
     }
 
     /**
@@ -90,10 +92,16 @@ public class SseEventBus {
      */
     public SseEventBus(HttpServletResponse response, String requestId, RedisZSetCache redisCache,
                        long idleTimeoutMs) {
+        this(response, requestId, redisCache, idleTimeoutMs, PiiPolicyEngine.shared());
+    }
+
+    public SseEventBus(HttpServletResponse response, String requestId, RedisZSetCache redisCache,
+                       long idleTimeoutMs, PiiPolicyEngine piiPolicyEngine) {
         this.response = response;
         this.redisKey = requestId != null ? SSE_BUFFER_PREFIX + requestId : null;
         this.redisCache = redisCache;
         this.idleTimeoutMs = idleTimeoutMs > 0 ? idleTimeoutMs : DEFAULT_IDLE_TIMEOUT_MS;
+        this.piiPolicyEngine = piiPolicyEngine != null ? piiPolicyEngine : PiiPolicyEngine.shared();
         initResponse();
         startHeartbeat();
     }
@@ -175,10 +183,11 @@ public class SseEventBus {
         try {
             String idLine = "id: " + seqNo + "\n";
             response.getOutputStream().write(idLine.getBytes(StandardCharsets.UTF_8));
-            response.getOutputStream().write(event.render().getBytes(StandardCharsets.UTF_8));
+            String rendered = piiPolicyEngine.mask(event.render());
+            response.getOutputStream().write(rendered.getBytes(StandardCharsets.UTF_8));
             response.getOutputStream().flush();
 
-            cacheEvent(event);
+            cacheEvent(rendered);
             seqNo++;
             lastActivityTime.set(System.currentTimeMillis());
         } catch (Exception e) {
@@ -390,7 +399,7 @@ public class SseEventBus {
         }
     }
 
-    private void cacheEvent(SseEvent event) {
+    private void cacheEvent(String renderedEvent) {
         if (redisKey == null || redisCache == null) return;
         if (eventsCached >= MAX_EVENTS_PER_BUFFER) {
             if (eventsCached == MAX_EVENTS_PER_BUFFER) {
@@ -401,7 +410,7 @@ public class SseEventBus {
             return;
         }
         try {
-            String data = extractData(event.render());
+            String data = extractData(renderedEvent);
             if (data != null) {
                 redisCache.add(redisKey, data, seqNo);
                 redisCache.expire(redisKey, SSE_BUFFER_TTL_SECONDS, TimeUnit.SECONDS);

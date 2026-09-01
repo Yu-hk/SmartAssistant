@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.common.agent;
 
+import com.example.smartassistant.common.rag.advisor.SummarizationAdvisor;
+
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.error.AgentException;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
@@ -203,7 +205,7 @@ public class SmartReActAgent {
     /** ⭐ 对话摘要持久化存储（可选） */
     private ConversationSummaryStore summaryStore;
     /** ⭐ 上下文压缩器 */
-    private ContextCompressor contextCompressor;
+    private SummarizationAdvisor contextCompressor;
     /** ⭐ 工具执行器（延迟初始化） */
     private volatile AgentToolExecutor agentToolExecutor;
 
@@ -711,7 +713,7 @@ public class SmartReActAgent {
                 }
                 if (compressed == null) {
                     if (contextCompressor == null) {
-                        contextCompressor = new ContextCompressor(chatModel, profile, summaryStore, summaryChain);
+                        contextCompressor = new SummarizationAdvisor(chatModel, profile, summaryStore, summaryChain);
                     }
                     compressed = contextCompressor.compress(messages);
                 }
@@ -993,7 +995,7 @@ public class SmartReActAgent {
                     && messages.size() > compressThreshold - 3) {
                 List<Message> snapshot = new ArrayList<>(messages);
                 if (contextCompressor == null) {
-                    contextCompressor = new ContextCompressor(chatModel, profile, summaryStore, summaryChain);
+                    contextCompressor = new SummarizationAdvisor(chatModel, profile, summaryStore, summaryChain);
                 }
                 precomputedCompactFuture = CompletableFuture.supplyAsync(() -> contextCompressor.compress(snapshot));
             }

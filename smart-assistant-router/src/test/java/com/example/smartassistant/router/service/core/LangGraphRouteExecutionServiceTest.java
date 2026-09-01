@@ -6,9 +6,12 @@ import com.example.smartassistant.router.model.HandoffCommand;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.service.checkpoint.LangGraphRedisCheckpointSaver;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -36,14 +39,21 @@ class LangGraphRouteExecutionServiceTest {
     private TaskPlannerService planner;
     private ExecutorService parallelExecutor;
     private LangGraphRouteExecutionService service;
+    private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
         nodeExecutor = mock(GraphNodeExecutionService.class);
         planner = mock(TaskPlannerService.class);
         parallelExecutor = Executors.newFixedThreadPool(4);
+        meterRegistry = new SimpleMeterRegistry();
+        @SuppressWarnings("unchecked")
+        ObjectProvider<StringRedisTemplate> redisProvider = mock(ObjectProvider.class);
+        when(redisProvider.getIfAvailable()).thenReturn(null);
+        LangGraphNodeLifecycleMiddleware middleware = new LangGraphNodeLifecycleMiddleware(
+                new WorkflowCancellationService(redisProvider), meterRegistry);
         service = new LangGraphRouteExecutionService(nodeExecutor, planner,
-                new LangGraphRedisCheckpointSaver(null), parallelExecutor);
+                new LangGraphRedisCheckpointSaver(null), parallelExecutor, middleware);
         ReflectionTestUtils.setField(service, "maxReplans", 1);
     }
 
@@ -64,6 +74,8 @@ class LangGraphRouteExecutionServiceTest {
                 .containsExactly(expected);
         verify(nodeExecutor).execute(any(), anyMap(), any(), eq(7L), eq("events"), eq("request"),
                 any(), any(), any(), eq("query"));
+        assertThat(meterRegistry.get(LangGraphNodeLifecycleMiddleware.LATENCY_METRIC)
+                .timer().count()).isPositive();
     }
 
     @Test

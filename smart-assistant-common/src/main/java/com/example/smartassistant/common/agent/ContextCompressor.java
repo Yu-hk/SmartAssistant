@@ -8,12 +8,16 @@
 package com.example.smartassistant.common.agent;
 
 import com.example.smartassistant.common.memory.ConversationSummaryStore;
+import com.example.smartassistant.common.governance.CallLimitProperties;
+import com.example.smartassistant.common.governance.InvocationBudgetRegistry;
+import com.example.smartassistant.common.rag.advisor.ModelCallLimitAdvisor;
+import com.example.smartassistant.common.rag.advisor.PiiAdvisor;
+import com.example.smartassistant.common.security.PiiPolicyEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.*;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.chat.client.ChatClient;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +31,7 @@ import java.util.List;
  * @author Yu-hk
  * @since 2026-07-13
  */
+@Deprecated(since = "2.0.1", forRemoval = false)
 public class ContextCompressor {
 
     private static final Logger log = LoggerFactory.getLogger(ContextCompressor.class);
@@ -56,7 +61,7 @@ public class ContextCompressor {
     private static final int MAX_SUMMARY_INPUT_CHARS = 6_000;
     private static final int COMPRESS_MIN_SIZE = 6;
 
-    private final ChatModel chatModel;
+    private final ChatClient summaryClient;
     private final ReActProfile profile;
     private final ConversationSummaryStore summaryStore;
     private final List<String> summaryChain;
@@ -64,7 +69,11 @@ public class ContextCompressor {
 
     public ContextCompressor(ChatModel chatModel, ReActProfile profile,
                              ConversationSummaryStore summaryStore, List<String> summaryChain) {
-        this.chatModel = chatModel;
+        this.summaryClient = ChatClient.builder(chatModel)
+                .defaultAdvisors(
+                        new PiiAdvisor(PiiPolicyEngine.shared()),
+                        new ModelCallLimitAdvisor(InvocationBudgetRegistry.shared(), new CallLimitProperties()))
+                .build();
         this.profile = profile;
         this.summaryStore = summaryStore;
         this.summaryChain = summaryChain;
@@ -123,9 +132,9 @@ public class ContextCompressor {
 
         String summary;
         try {
-            ChatResponse summaryResponse = chatModel.call(new Prompt(
-                    SUMMARY_PROMPT + "\n\n【对话内容】\n" + inputForSummary));
-            summary = summaryResponse.getResult().getOutput().getText();
+            summary = summaryClient.prompt()
+                    .user(SUMMARY_PROMPT + "\n\n【对话内容】\n" + inputForSummary)
+                    .call().content();
             if (summary == null || summary.isBlank()) {
                 log.warn("[Compressor] 摘要生成为空");
                 return messages;

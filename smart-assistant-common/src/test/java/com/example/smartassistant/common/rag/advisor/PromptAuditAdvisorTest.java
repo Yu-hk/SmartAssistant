@@ -9,6 +9,7 @@ package com.example.smartassistant.common.rag.advisor;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,5 +33,11 @@ class PromptAuditAdvisorTest {
     @DisplayName("Order 为 100")
     void testOrder() {
         assertEquals(100, advisor.getOrder());
+    }
+
+    @Test
+    @DisplayName("审计 Advisor 复用 Spring AI 原生 SimpleLoggerAdvisor")
+    void delegatesToSpringAiLoggerMiddleware() {
+        assertInstanceOf(SimpleLoggerAdvisor.class, advisor);
     }
 }

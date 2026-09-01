@@ -1,19 +1,33 @@
 package com.example.smartassistant.common.gateway.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.gateway.tool.ToolStatus;
 import com.example.smartassistant.common.gateway.tool.hook.ToolExecutionHook;
 import com.example.smartassistant.common.gateway.tool.hook.ToolHookContext;
+import com.example.smartassistant.common.governance.CallBudgetExceededException;
+import com.example.smartassistant.common.governance.CallLimitProperties;
+import com.example.smartassistant.common.governance.InvocationBudgetRegistry;
+import com.example.smartassistant.common.governance.InvocationIdentity;
+import com.example.smartassistant.common.security.PiiPolicyEngine;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiterConfig;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
+import io.github.resilience4j.timelimiter.TimeLimiter;
+import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * P0 统一工具执行网关。
@@ -48,19 +62,33 @@ public class ToolGateway {
 
     /** 执行钩子链（按 @Order 排序，Spring 自动注入） */
     private final List<ToolExecutionHook> hooks;
+    private final InvocationBudgetRegistry budgetRegistry;
+    private final CallLimitProperties callLimitProperties;
+    private final PiiPolicyEngine piiPolicyEngine;
 
-    // 熔断器：按工具名隔离
+    // Resilience4j 中间件：按工具名隔离
     private final Map<String, CircuitBreaker> circuitBreakers = new ConcurrentHashMap<>();
-
-    // 限流器：按工具名隔离
     private final Map<String, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
+    private final ExecutorService toolExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     // 幂等缓存：IdempotencyKey → 结果
     private final Map<String, String> idempotencyCache = new ConcurrentHashMap<>();
 
     public ToolGateway(ToolRegistry toolRegistry, List<ToolExecutionHook> hooks) {
+        this(toolRegistry, hooks, InvocationBudgetRegistry.shared(),
+                new CallLimitProperties(), PiiPolicyEngine.shared());
+    }
+
+    @Autowired
+    public ToolGateway(ToolRegistry toolRegistry, List<ToolExecutionHook> hooks,
+                       InvocationBudgetRegistry budgetRegistry,
+                       CallLimitProperties callLimitProperties,
+                       PiiPolicyEngine piiPolicyEngine) {
         this.toolRegistry = toolRegistry;
         this.hooks = hooks != null ? hooks : List.of();
+        this.budgetRegistry = budgetRegistry;
+        this.callLimitProperties = callLimitProperties;
+        this.piiPolicyEngine = piiPolicyEngine;
     }
 
     /**
@@ -168,27 +196,33 @@ public class ToolGateway {
             }
         }
 
-        // 3. 熔断检查
-        if (toolFailureCount(toolName) >= 3) {
-            throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
-                    "熔断已打开: tool=" + toolName);
-        }
-
-        // 4. 限流检查
-        if (def.getRateLimit() > 0) {
-            RateLimiter limiter = rateLimiters.computeIfAbsent(toolName, k -> new RateLimiter(def.getRateLimit()));
-            if (!limiter.tryAcquire()) {
-                throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
-                        "限流: tool=" + toolName + ", limit=" + def.getRateLimit() + "/s");
-            }
-        }
-
-        // 5. 执行（带超时）
+        // 2.5 请求级 + 会话级预算；幂等命中不消耗真实工具执行预算。
         try {
-            FutureTask<String> task = new FutureTask<>(executor::execute);
-            Thread thread = Thread.ofVirtual().start(task);
+            CallLimitProperties.Tool limits = callLimitProperties.getTool();
+            budgetRegistry.acquireTool(InvocationIdentity.resolve(Map.of()),
+                    limits.getMaxPerRequest(), limits.getMaxPerSession());
+        } catch (CallBudgetExceededException ex) {
+            throw new ToolExecutionException(toolName, AgentErrorCode.SYSTEM_BUDGET_EXCEEDED,
+                    "工具调用预算已用尽: " + ex.getMessage());
+        }
 
-            String result = task.get(def.getTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        CircuitBreaker circuitBreaker = circuitBreakers.computeIfAbsent(toolName, this::newCircuitBreaker);
+        RateLimiter rateLimiter = def.getRateLimit() > 0 ? rateLimiter(toolName, def.getRateLimit()) : null;
+        TimeLimiter timeLimiter = TimeLimiter.of(TimeLimiterConfig.custom()
+                .timeoutDuration(def.getTimeout())
+                .cancelRunningFuture(true)
+                .build());
+
+        // 3~5. Resilience4j 统一执行熔断、限流和超时；领域鉴权/审批/幂等仍由 ToolGateway 负责。
+        try {
+            Callable<String> call = () -> timeLimiter.executeFutureSupplier(
+                    () -> toolExecutor.submit(executor::execute));
+            // 限流器放在熔断器外层：本地限流拒绝不是下游故障，不应污染熔断统计。
+            call = CircuitBreaker.decorateCallable(circuitBreaker, call);
+            if (rateLimiter != null) {
+                call = RateLimiter.decorateCallable(rateLimiter, call);
+            }
+            String result = piiPolicyEngine.mask(call.call());
             long elapsed = System.currentTimeMillis() - start;
 
             // 6. 审计日志
@@ -207,30 +241,37 @@ public class ToolGateway {
                 idempotencyCache.put(idempotencyKey, processedResult);
             }
 
-            // 8. 熔断恢复
-            recordSuccess(toolName);
-
-            // 9. 调用计数递增（原子操作）
+            // 8. 调用计数递增（原子操作）
             def.incrementAndGetUseCount();
 
             return processedResult;
 
-        } catch (TimeoutException e) {
-            recordFailure(toolName);
+        } catch (RequestNotPermitted e) {
             context.setElapsedMs(System.currentTimeMillis() - start);
             for (ToolExecutionHook hook : hooks) {
                 hook.onError(context, e);
             }
             throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
-                    "工具超时: " + def.getTimeout());
+                    "限流: tool=" + toolName + ", limit=" + def.getRateLimit() + "/s");
+        } catch (CallNotPermittedException e) {
+            context.setElapsedMs(System.currentTimeMillis() - start);
+            for (ToolExecutionHook hook : hooks) {
+                hook.onError(context, e);
+            }
+            throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
+                    "熔断已打开: tool=" + toolName);
         } catch (Exception e) {
-            recordFailure(toolName);
+            Throwable cause = unwrap(e);
             context.setElapsedMs(System.currentTimeMillis() - start);
             for (ToolExecutionHook hook : hooks) {
-                hook.onError(context, e);
+                hook.onError(context, cause instanceof Exception ex ? ex : e);
+            }
+            if (cause instanceof TimeoutException) {
+                throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
+                        "工具超时: " + def.getTimeout());
             }
             throw new ToolExecutionException(toolName, AgentErrorCode.TOOL_EXECUTION_FAILED,
-                    "工具执行失败: " + e.getMessage());
+                    "工具执行失败: " + cause.getMessage());
         }
     }
 
@@ -240,56 +281,52 @@ public class ToolGateway {
         String execute() throws Exception;
     }
 
-    // ==================== 熔断器 ====================
+    // ==================== Resilience4j 中间件工厂 ====================
 
-    private static class CircuitBreaker {
-        final AtomicLong failureCount = new AtomicLong(0);
-        volatile boolean open = false;
+    private CircuitBreaker newCircuitBreaker(String toolName) {
+        CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .slidingWindowSize(3)
+                .minimumNumberOfCalls(3)
+                .failureRateThreshold(100.0f)
+                .waitDurationInOpenState(Duration.ofSeconds(30))
+                .permittedNumberOfCallsInHalfOpenState(1)
+                .automaticTransitionFromOpenToHalfOpenEnabled(true)
+                .build();
+        CircuitBreaker breaker = CircuitBreaker.of("tool-" + toolName, config);
+        breaker.getEventPublisher().onStateTransition(event ->
+                log.warn("[ToolGateway] 工具熔断状态变化: tool={}, transition={}",
+                        toolName, event.getStateTransition()));
+        return breaker;
     }
 
-    private long toolFailureCount(String toolName) {
-        CircuitBreaker cb = circuitBreakers.get(toolName);
-        return cb != null && cb.open ? 999 : 0;
-    }
-
-    private void recordSuccess(String toolName) {
-        circuitBreakers.remove(toolName);
-    }
-
-    private void recordFailure(String toolName) {
-        CircuitBreaker cb = circuitBreakers.computeIfAbsent(toolName, k -> new CircuitBreaker());
-        long count = cb.failureCount.incrementAndGet();
-        if (count >= 3) {
-            cb.open = true;
-            log.warn("[ToolGateway] 🔒 工具熔断: tool={}, failures={}", toolName, count);
-        }
-    }
-
-    // ==================== 限流器 ====================
-
-    private static class RateLimiter {
-        private final int permitsPerSecond;
-        private long lastRefillTime = System.nanoTime();
-        private double availablePermits;
-
-        RateLimiter(int permitsPerSecond) {
-            this.permitsPerSecond = permitsPerSecond;
-            this.availablePermits = permitsPerSecond;
-        }
-
-        synchronized boolean tryAcquire() {
-            long now = System.nanoTime();
-            double elapsed = (now - lastRefillTime) / 1_000_000_000.0;
-            availablePermits = Math.min(permitsPerSecond,
-                    availablePermits + elapsed * permitsPerSecond);
-            lastRefillTime = now;
-
-            if (availablePermits >= 1) {
-                availablePermits--;
-                return true;
+    private RateLimiter rateLimiter(String toolName, int permitsPerSecond) {
+        return rateLimiters.compute(toolName, (name, existing) -> {
+            if (existing != null
+                    && existing.getRateLimiterConfig().getLimitForPeriod() == permitsPerSecond) {
+                return existing;
             }
-            return false;
+            RateLimiterConfig config = RateLimiterConfig.custom()
+                    .limitForPeriod(permitsPerSecond)
+                    .limitRefreshPeriod(Duration.ofSeconds(1))
+                    .timeoutDuration(Duration.ZERO)
+                    .build();
+            return RateLimiter.of("tool-" + toolName, config);
+        });
+    }
+
+    private static Throwable unwrap(Throwable throwable) {
+        Throwable current = throwable;
+        while ((current instanceof CompletionException || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
         }
+        return current;
+    }
+
+    @PreDestroy
+    void shutdownExecutor() {
+        toolExecutor.shutdownNow();
     }
 
     /** 清空幂等缓存 */

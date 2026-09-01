@@ -3,7 +3,9 @@ package com.example.smartassistant.common.gateway.llm;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,5 +35,32 @@ class AgentLLMGatewayTest {
         assertTrue(result.errorMessage().contains("timeout after 30ms"));
         assertTrue(wallMs < 180, "网关超时后不应等待底层任务自然结束: " + wallMs + "ms");
         assertTrue(result.elapsedMs() >= 20 && result.elapsedMs() < 180);
+    }
+
+    @Test
+    void circuitBreakerShouldOpenAfterFiveFailedBusinessCalls() {
+        AgentLLMGateway gateway = new AgentLLMGateway();
+        LLMCallConfig config = new LLMCallConfig(null, 128, Duration.ofSeconds(1), 0, 0.1, true);
+        AtomicInteger executions = new AtomicInteger();
+
+        for (int i = 0; i < 5; i++) {
+            LLMCallResult result = gateway.call(() -> {
+                executions.incrementAndGet();
+                throw new IllegalStateException("down");
+            }, "broken-model", config);
+            assertFalse(result.success());
+        }
+
+        assertTrue(gateway.isCircuitOpen("broken-model"));
+        LLMCallResult rejected = gateway.call(() -> {
+            executions.incrementAndGet();
+            return "should-not-run";
+        }, "broken-model", config);
+        assertFalse(rejected.success());
+        assertTrue(rejected.errorMessage().contains("circuit_breaker_open"));
+        assertEquals(5, executions.get());
+
+        gateway.resetCircuitBreaker("broken-model");
+        assertFalse(gateway.isCircuitOpen("broken-model"));
     }
 }

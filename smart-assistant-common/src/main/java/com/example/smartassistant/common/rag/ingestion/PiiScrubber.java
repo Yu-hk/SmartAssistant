@@ -6,7 +6,7 @@
  */
 package com.example.smartassistant.common.rag.ingestion;
 
-import java.util.regex.Pattern;
+import com.example.smartassistant.common.security.PiiPolicyEngine;
 
 /**
  * 入库前 PII 脱敏器——对标字节 RAG 七连问第二问「清洗 pipeline·PII 脱敏」。
@@ -30,26 +30,10 @@ import java.util.regex.Pattern;
  * </ul>
  */
 public class PiiScrubber {
+    private final PiiPolicyEngine engine;
 
-    /** 手机号（中国大陆 11 位，前后非数字边界） */
-    private static final Pattern PHONE = Pattern.compile("(?<![0-9])1[3-9]\\d{9}(?![0-9])");
-
-    /** 身份证号（18 位含 X 校验位，或 15 位） */
-    private static final Pattern ID_CARD = Pattern.compile(
-            "(?<![0-9])\\d{17}[\\dXx](?![0-9])|(?<![0-9])\\d{15}(?![0-9])");
-
-    /** 邮箱 */
-    private static final Pattern EMAIL = Pattern.compile(
-            "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
-
-    /** 内部 IP（RFC1918 私有网段） */
-    private static final Pattern INTERNAL_IP = Pattern.compile(
-            "(?<![0-9])(?:10\\.\\d{1,3}|192\\.168|172\\.(?:1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3})(?![0-9])");
-
-    /** 工号（保留前缀标签） */
-    private static final Pattern EMP_ID = Pattern.compile(
-            "(工号|员工编号|employee[_\\s]?id)[:：]?\\s*([A-Za-z0-9]{4,})",
-            Pattern.CASE_INSENSITIVE);
+    public PiiScrubber() { this(PiiPolicyEngine.shared()); }
+    public PiiScrubber(PiiPolicyEngine engine) { this.engine = engine; }
 
     /**
      * 脱敏文本：将识别到的 PII 替换为占位标记。
@@ -58,26 +42,13 @@ public class PiiScrubber {
      * @return 脱敏后文本；null/空原样返回
      */
     public String scrub(String text) {
-        if (text == null || text.isBlank()) {
-            return text;
-        }
-        String t = PHONE.matcher(text).replaceAll("[PHONE]");
-        t = ID_CARD.matcher(t).replaceAll("[ID_CARD]");
-        t = EMAIL.matcher(t).replaceAll("[EMAIL]");
-        t = INTERNAL_IP.matcher(t).replaceAll("[INTERNAL_IP]");
-        t = EMP_ID.matcher(t).replaceAll("$1[EMP_ID]");
-        return t;
+        return engine.sanitize(text);
     }
 
     /**
      * 判断文本是否包含 PII（供入库审核门禁使用）。
      */
     public boolean containsPii(String text) {
-        if (text == null || text.isBlank()) return false;
-        return PHONE.matcher(text).find()
-                || ID_CARD.matcher(text).find()
-                || EMAIL.matcher(text).find()
-                || INTERNAL_IP.matcher(text).find()
-                || EMP_ID.matcher(text).find();
+        return engine.containsPii(text);
     }
 }
