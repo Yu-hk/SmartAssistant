@@ -1,0 +1,14 @@
+{
+  "name": "智服 SmartAssistant · 多智能体客服工作台",
+  "short_name": "智服",
+  "description": "多智能体协同的智能客服工作台",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "/icons/app-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/app-icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/app-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
