@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
-import '@tdesign-react/chat/es/style/index.js';
 
 import { useTheme } from './hooks/useTheme';
 import { useSessions } from './hooks/useSessions';
@@ -11,7 +10,6 @@ import { CustomerSidebar } from './components/CustomerSidebar';
 import { SessionInsightPanel } from './components/SessionInsightPanel';
 import { CustomerChatPage } from './pages/CustomerChatPage';
 import { RecoveryNotificationCenter } from './components/RecoveryNotificationCenter';
-import { AdminApp } from './admin/AdminApp';
 import { LoginPage } from './pages/LoginPage';
 import {
   clearAuth,
@@ -21,6 +19,10 @@ import {
   logout,
 } from './api/auth';
 import { LogOut, Menu, MessageSquareText, ShieldCheck, UserRound } from 'lucide-react';
+
+const AdminApp = lazy(() => import('./admin/AdminApp').then(module => ({
+  default: module.AdminApp,
+})));
 
 // ===================================================
 // 主应用
@@ -36,7 +38,13 @@ function App() {
       } />
       <Route path="/" element={<AuthRoute audience="customer"><CustomerApp /></AuthRoute>} />
       <Route path="/chat/:sessionId" element={<AuthRoute audience="customer"><CustomerApp /></AuthRoute>} />
-      <Route path="/admin/*" element={<AuthRoute audience="admin"><AdminApp /></AuthRoute>} />
+      <Route path="/admin/*" element={
+        <AuthRoute audience="admin">
+          <Suspense fallback={<div className="auth-loading" role="status">正在加载管理页面…</div>}>
+            <AdminApp />
+          </Suspense>
+        </AuthRoute>
+      } />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -83,7 +91,7 @@ function AuthRoute({
   if (state === 'checking') {
     return (
       <div className="auth-loading" role="status" aria-live="polite">
-        <span className="auth-loading-mark">智</span>
+        <img className="auth-loading-mark" src="/icons/app-icon.svg" alt="" />
         <span>正在验证登录状态…</span>
       </div>
     );
@@ -119,7 +127,7 @@ function CustomerApp() {
 
   const { theme, toggleTheme } = useTheme();
   const {
-    sessions, setSessions,
+    sessions, setSessions, sessionActionError, setSessionActionError,
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, deleteSession, createSession, closeSession, rateSession,
@@ -132,7 +140,7 @@ function CustomerApp() {
     permissionRequest, faqSuggestions,
     sendMessage, handleStop,
     handlePermissionAllow, handlePermissionDeny, handleRecoverMessage,
-    queuePosition, queueEstimatedWait,
+    queuePosition, queueEstimatedWait, progressMessage,
   } = useChat({
     currentSession,
     currentSessionId,
@@ -159,9 +167,9 @@ function CustomerApp() {
     navigate(`/chat/${sessionId}`);
   }, [createSession, navigate, setInputValue]);
 
-  const handleSelectAgent = useCallback((agentName: string) => {
-    const sessionId = createSession(`与${agentName}的新对话`);
-    setInputValue(`${agentName}，请协助我处理：`);
+  const handleSelectAgent = useCallback((serviceName: string) => {
+    const sessionId = createSession(`${serviceName}咨询`);
+    setInputValue(`我需要${serviceName}：`);
     setSidebarOpen(false);
     navigate(`/chat/${sessionId}`);
   }, [createSession, navigate, setInputValue]);
@@ -225,10 +233,10 @@ function CustomerApp() {
               </button>
               <div className="header-context-icon"><MessageSquareText size={18} /></div>
               <div className="header-context">
-                <strong>{currentSession ? currentSession.title : '多智能体客服工作台'}</strong>
-                <span>{currentSession ? '当前接待会话' : '描述客户问题，智能体团队自动分流处理'}</span>
+                <strong>{currentSession ? currentSession.title : '智能服务助手'}</strong>
+                <span>{currentSession ? '当前服务会话' : '描述需要处理的事情，系统会安排合适的服务能力'}</span>
               </div>
-              <div className="header-capability"><ShieldCheck size={14} /> 多智能体协同</div>
+              <div className="header-capability"><ShieldCheck size={14} /> 安全协同处理</div>
               <div className="header-actions">
                 <div className="header-user">
                   <span className="header-avatar"><UserRound size={15} /></span>
@@ -267,6 +275,7 @@ function CustomerApp() {
               faqSuggestions={faqSuggestions}
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
+              progressMessage={progressMessage}
               onSendMessage={sendMessage}
               onStop={handleStop}
               onInputChange={setInputValue}
@@ -276,6 +285,12 @@ function CustomerApp() {
               onRateSession={handleRateSession}
               userName={authUser?.username}
             />
+            {sessionActionError && (
+              <div className="session-action-error" role="alert">
+                <span>{sessionActionError}</span>
+                <button type="button" onClick={() => setSessionActionError(null)}>关闭</button>
+              </div>
+            )}
         </>
       </main>
 

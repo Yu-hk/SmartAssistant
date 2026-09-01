@@ -91,8 +91,8 @@ export function SessionInsightPanel({
               </div>
             )}
             <div className="insight-kv">
-              <span>接待智能体</span>
-              <strong>{currentSession.agent_name || '智能路由中'}</strong>
+              <span>处理能力</span>
+              <strong>{currentSession.agent_name || '正在识别需求'}</strong>
             </div>
             <div className="insight-kv">
               <span>创建时间</span>
@@ -200,7 +200,7 @@ export function SessionInsightPanel({
                 </div>
                 <div className="insight-kv">
                   <span><UserRound size={12} style={{ verticalAlign: '-2px' }} /> 接待人</span>
-                  <strong>多智能体团队</strong>
+                  <strong>智能服务助手</strong>
                 </div>
               </>
             )}

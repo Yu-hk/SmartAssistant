@@ -1,8 +1,8 @@
 import { Loading } from 'tdesign-react';
-import { ChatMarkdown } from '@tdesign-react/chat';
 import { Message, Model, PermissionRequest, ContentBlock, SessionStatus } from '../types';
 import { ToolCallsCollapse } from './ToolCallsCollapse';
 import { InlinePermissionCard } from './InlinePermissionCard';
+import { SafeMarkdown } from './SafeMarkdown';
 import { RefreshCw } from 'lucide-react';
 
 interface ChatMessagesProps {
@@ -14,6 +14,7 @@ interface ChatMessagesProps {
   onPermissionDeny?: () => void;
   queuePosition?: number | null;
   queueEstimatedWait?: number | null;
+  progressMessage?: string;
   sessionStatus?: SessionStatus;
   satisfaction?: number | null;
   onRateSession?: (score: number) => void;
@@ -30,6 +31,7 @@ export function ChatMessages({
   onPermissionDeny,
   queuePosition,
   queueEstimatedWait,
+  progressMessage,
   sessionStatus,
   satisfaction,
   onRateSession,
@@ -60,6 +62,16 @@ export function ChatMessages({
       .trim() || name;
   };
 
+  const formatServiceName = (value: string) => {
+    const normalized = value.toLowerCase();
+    if (normalized.includes('product')) return '商品服务';
+    if (normalized.includes('order') || normalized.includes('logistics')) return '订单服务';
+    if (normalized.includes('knowledge') || normalized.includes('rag')) return '知识服务';
+    if (normalized.includes('general') || normalized.includes('fallback')
+        || normalized.includes('orchestrator')) return '智能助手';
+    return value.replace(/[_-]+/g, ' ').trim();
+  };
+
   const renderContentBlock = (block: ContentBlock, index: number, isStreaming?: boolean, isLast?: boolean) => {
     if (block.type === 'text') {
       return (
@@ -76,7 +88,7 @@ export function ChatMessages({
           }}
         >
           <div className="chat-markdown">
-            <ChatMarkdown content={block.text} />
+            <SafeMarkdown content={block.text} />
           </div>
           {isStreaming && isLast && (
             <span className="cursor-blink">|</span>
@@ -123,7 +135,7 @@ export function ChatMessages({
             }}
           >
             <div className="chat-markdown">
-              <ChatMarkdown content={message.content} />
+              <SafeMarkdown content={message.content} />
             </div>
             {message.isStreaming && (
               <span className="cursor-blink">|</span>
@@ -173,7 +185,7 @@ export function ChatMessages({
           </div>
 
           <div className={`flex flex-col gap-2 ${message.role === 'user' ? 'items-end' : ''}`} style={{ maxWidth: '80%' }}>
-            {/* 智能体归属标签（优先展示归属智能体，否则回退模型名） */}
+            {/* 面向用户展示业务服务名称；内部编排节点名称不得泄漏。 */}
             {message.role === 'assistant' && (agentName || message.model) && (
               <span style={{
                 fontSize: '11px',
@@ -190,7 +202,7 @@ export function ChatMessages({
                   display: 'inline-block',
                   boxShadow: '0 0 6px var(--nova-accent)',
                 }} />
-                {agentName || formatModelName(message.model!)}
+                {agentName ? formatServiceName(agentName) : formatModelName(message.model!)}
               </span>
             )}
             
@@ -327,7 +339,7 @@ export function ChatMessages({
                 <span style={{ fontSize: '13px', color: 'var(--nova-text-secondary)' }}>
                   {queuePosition
                     ? `⏳ 排队中，前面还有 ${queuePosition} 人` + (queueEstimatedWait ? `，预计等待 ${Math.ceil(queueEstimatedWait / 1000)} 秒` : '')
-                    : '思考中...'}
+                    : progressMessage || '正在处理…'}
                 </span>
               </div>
             )}

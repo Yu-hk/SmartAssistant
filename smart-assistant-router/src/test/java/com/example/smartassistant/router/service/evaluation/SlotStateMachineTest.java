@@ -24,6 +24,19 @@ class SlotStateMachineTest {
 
     private final SlotStateMachine machine = new SlotStateMachine(TestSlotSchemas.schemas());
 
+    @Test
+    void parsesCompactNacosSchemaWithoutLosingRiskOrPriority() {
+        var schemas = SlotStateMachine.parseCompactSchemas(
+                "CREATE_ORDER=product_name|商品名称|1|0|0|1,recipient_name|收货人姓名|1|0|1|2"
+                        + ";PAY_ORDER=order_id|订单号|1|0|1|1");
+
+        assertEquals(2, schemas.get("CREATE_ORDER").size());
+        assertEquals("recipient_name", schemas.get("CREATE_ORDER").get(1).name());
+        assertTrue(schemas.get("CREATE_ORDER").get(1).highRisk());
+        assertEquals(2, schemas.get("CREATE_ORDER").get(1).askPriority());
+        assertEquals("order_id", schemas.get("PAY_ORDER").getFirst().name());
+    }
+
     // ==================== ORDER/下单 词槽测试 ====================
 
     @Test

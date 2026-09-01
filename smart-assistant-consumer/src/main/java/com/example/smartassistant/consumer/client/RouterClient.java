@@ -30,6 +30,9 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.time.Duration;
+import java.nio.charset.StandardCharsets;
+import org.springframework.web.util.UriUtils;
 
 /**
  * Router Client - 调用 Router Service
@@ -237,6 +240,18 @@ public class RouterClient {
                 if (onPoll != null) {
                     onPoll.run();
                 }
+                String cancellation = redisTemplate.opsForValue().get(
+                        RoutingKeys.cancellation(requestId));
+                if (cancellation != null) {
+                    log.info("[RouterClient] 检测到用户取消: requestId={}", requestId);
+                    redisTemplate.delete(decisionKey);
+                    redisTemplate.delete(notifyKey);
+                    return Map.of(
+                            "requestId", requestId,
+                            "cancelled", true,
+                            "workflowStatus", "CANCELLED",
+                            "result", "");
+                }
                 String notifyResult = redisTemplate.opsForList().leftPop(notifyKey);
                 String value = redisTemplate.opsForValue().get(decisionKey);
                 if (value != null) {
@@ -319,7 +334,10 @@ public class RouterClient {
             // 发送请求触发决策（route 端点同步返回，内部已写入 Redis 决策）
             ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                saveRouteHint(message, unwrapRouterResponse(response.getBody()));
+                Map<String, Object> payload = unwrapRouterResponse(response.getBody());
+                if (!"CANCELLED".equals(payload.get("workflowStatus"))) {
+                    saveRouteHint(message, payload);
+                }
             }
             log.debug("[RouterClient] Router 决策请求已发送: requestId={}", requestId);
 
@@ -354,6 +372,41 @@ public class RouterClient {
             return parsed;
         } catch (NumberFormatException | NullPointerException e) {
             throw new IllegalArgumentException("Missing or invalid authenticated user ID", e);
+        }
+    }
+
+    /**
+     * Persists a cross-instance cancellation signal before asking Router to interrupt local workers.
+     * The Redis write makes a cancel issued during Router registration races reliable.
+     */
+    public boolean cancelRouting(String requestId, String userId) {
+        if (requestId == null || requestId.isBlank()) return false;
+        long authenticatedUserId = requireAuthenticatedUserId(userId);
+        if (redisTemplate != null) {
+            try {
+                redisTemplate.opsForValue().set(
+                        RoutingKeys.cancellation(requestId),
+                        Long.toString(authenticatedUserId),
+                        Duration.ofMinutes(2));
+            } catch (Exception error) {
+                log.warn("[RouterClient] 写入取消标记失败，将继续通知 Router: requestId={}, error={}",
+                        requestId, error.getMessage());
+            }
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-User-Id", Long.toString(authenticatedUserId));
+            String encodedRequestId = UriUtils.encodePathSegment(requestId, StandardCharsets.UTF_8);
+            String url = routerServiceUrl + "/api/router/requests/" + encodedRequestId + "/cancel";
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    url, HttpMethod.POST, new HttpEntity<>(headers), Map.class);
+            return response.getStatusCode().is2xxSuccessful();
+        } catch (Exception error) {
+            // Redis remains the source of truth even if the target instance cannot be reached.
+            log.warn("[RouterClient] Router 取消通知失败: requestId={}, error={}",
+                    requestId, error.getMessage());
+            return false;
         }
     }
 }

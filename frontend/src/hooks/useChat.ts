@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { v4 as uuidv4 } from 'uuid';
 import {
   Message,
   ToolCall,
@@ -33,9 +32,11 @@ export function useChat(options: UseChatOptions) {
   // ⭐ 排队状态
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [queueEstimatedWait, setQueueEstimatedWait] = useState<number | null>(null);
+  const [progressMessage, setProgressMessage] = useState('');
 
   // ⭐ 当前流式请求的取消控制器（用于停止生成）
   const streamAbortRef = useRef<AbortController | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
   const recoveryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => () => {
@@ -52,9 +53,9 @@ export function useChat(options: UseChatOptions) {
 
     let sessionId = sessionIdOverride || currentSessionId;
 
-    const tempUserMessageId = uuidv4();
-    const tempAssistantMessageId = uuidv4();
-    const workflowRequestId = uuidv4();
+    const tempUserMessageId = crypto.randomUUID();
+    const tempAssistantMessageId = crypto.randomUUID();
+    const workflowRequestId = crypto.randomUUID();
 
     const userMessage: Message = {
       id: tempUserMessageId,
@@ -77,9 +78,10 @@ export function useChat(options: UseChatOptions) {
 
     // 如果没有会话，本地生成 sessionId 直接开聊（微服务未提供会话创建端点，dev/demo 模式）
     if (!sessionId) {
-      sessionId = uuidv4();
+      const newSessionId = crypto.randomUUID();
+      sessionId = newSessionId;
       const newSession: Session = {
-        id: sessionId,
+        id: newSessionId,
         title: messageContent.slice(0, 30),
         model: selectedModel,
         intent: 'unknown',
@@ -92,8 +94,8 @@ export function useChat(options: UseChatOptions) {
         messages: [userMessage, assistantMessage],
       };
       setSessions(prev => [newSession, ...prev]);
-      setCurrentSessionId(sessionId);
-      onNavigate?.(`/chat/${sessionId}`);
+      setCurrentSessionId(newSessionId);
+      onNavigate?.(`/chat/${newSessionId}`);
     } else {
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
@@ -112,6 +114,8 @@ export function useChat(options: UseChatOptions) {
     // ⭐ 清除排队状态
     setQueuePosition(null);
     setQueueEstimatedWait(null);
+    setProgressMessage('正在连接服务…');
+    activeRequestIdRef.current = workflowRequestId;
 
     // ⭐ 使用 fetch 读取 SSE，以便携带 Bearer Token
     try {
@@ -142,6 +146,10 @@ export function useChat(options: UseChatOptions) {
       }));
     } finally {
       setIsLoading(false);
+      setProgressMessage('');
+      if (activeRequestIdRef.current === workflowRequestId) {
+        activeRequestIdRef.current = null;
+      }
     }
   }, [currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId, isLoading]);
 
@@ -206,6 +214,8 @@ export function useChat(options: UseChatOptions) {
             : { ...parsed, type: parsed.type || event.type };
 
           if (data.type === 'init') {
+            activeRequestIdRef.current = data.requestId || requestId;
+            setProgressMessage('会话已建立，正在分析问题…');
             realSessionId = data.sessionId || sessionId;
             realAssistantMessageId = data.assistantMessageId || assistantMessageId;
             const normalizedIntent = normalizeIntentType(data.intent);
@@ -242,6 +252,7 @@ export function useChat(options: UseChatOptions) {
               ? data.content
               : typeof data.message === 'string' ? data.message : '';
             if (!chunk) return;
+            setProgressMessage('');
             fullContent += chunk;
             currentTextBlock += chunk;
             const lastBlock = contentBlocks[contentBlocks.length - 1];
@@ -258,8 +269,9 @@ export function useChat(options: UseChatOptions) {
             }));
 
           } else if (data.type === 'tool') {
+            setProgressMessage('正在查询业务数据…');
             currentTextBlock = '';
-            const toolCall: ToolCall = { id: data.id || uuidv4(), name: data.name, input: data.input, status: 'running' };
+            const toolCall: ToolCall = { id: data.id || crypto.randomUUID(), name: data.name, input: data.input, status: 'running' };
             currentToolCalls.push(toolCall);
             contentBlocks.push({ type: 'tool_use', toolCall });
             setSessions(prev => prev.map(s => {
@@ -277,6 +289,7 @@ export function useChat(options: UseChatOptions) {
             }));
 
           } else if (data.type === 'tool_result') {
+            setProgressMessage('查询完成，正在核实结果…');
             const idx = data.toolId
               ? currentToolCalls.findIndex(t => t.id === data.toolId)
               : currentToolCalls.length - 1;
@@ -302,6 +315,7 @@ export function useChat(options: UseChatOptions) {
 
           } else if (data.type === 'done') {
             isDone = true;
+            setProgressMessage('');
             updateAssistantMessage(current => ({
               ...current,
               isStreaming: false,
@@ -321,6 +335,7 @@ export function useChat(options: UseChatOptions) {
 
           } else if (data.type === 'error') {
             isDone = true;
+            setProgressMessage('');
             updateAssistantMessage(current => ({
               ...current,
               content: `⚠️ ${data.content || data.message}`,
@@ -330,6 +345,7 @@ export function useChat(options: UseChatOptions) {
             }));
           } else if (data.type === 'timeout') {
             isDone = true;
+            setProgressMessage('');
             updateAssistantMessage(current => ({
               ...current,
               content: `⚠️ ${data.content || '请求超时，请稍后重试'}`,
@@ -341,18 +357,24 @@ export function useChat(options: UseChatOptions) {
 
           // ⭐ 排队事件
           if (data.type === 'queued') {
+            setProgressMessage('请求已进入队列…');
             setQueuePosition(data.position);
             setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
           } else if (data.type === 'queue_position') {
+            setProgressMessage('请求正在排队…');
             setQueuePosition(data.position);
             setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
           } else if (data.type === 'processing') {
+            setProgressMessage('已开始处理，正在匹配业务能力…');
             setQueuePosition(null);
             setQueueEstimatedWait(null);
           } else if (data.type === 'timeout') {
             setQueuePosition(null);
             setQueueEstimatedWait(null);
           }
+
+          const stageMessage = workflowStageMessage(data.type);
+          if (stageMessage) setProgressMessage(stageMessage);
         } catch { /* ignore invalid JSON */ }
       };
 
@@ -423,6 +445,7 @@ export function useChat(options: UseChatOptions) {
       }
     } catch (error) {
       if (controller.signal.aborted) {
+        setProgressMessage('');
         updateAssistantMessage(current => ({
           ...current,
           isStreaming: false,
@@ -435,7 +458,8 @@ export function useChat(options: UseChatOptions) {
     } finally {
       if (streamAbortRef.current === controller) streamAbortRef.current = null;
     }
-  }, [setSessions, setFaqSuggestions, setPermissionRequest, setQueuePosition, setQueueEstimatedWait]);
+  }, [setSessions, setFaqSuggestions, setPermissionRequest, setQueuePosition,
+    setQueueEstimatedWait, setProgressMessage]);
 
   // 权限处理
   const handlePermissionAllow = useCallback(async () => {
@@ -533,22 +557,27 @@ export function useChat(options: UseChatOptions) {
    * </p>
    */
   const handleStop = useCallback(() => {
+    const activeRequestId = activeRequestIdRef.current;
     // 中止 fetch，触发后端断开检测
     if (streamAbortRef.current) {
       streamAbortRef.current.abort();
       streamAbortRef.current = null;
     }
-    // 通知后端释放 LLM 槽位（冗余保障），并保持与主请求一致的鉴权方式
-    void authenticatedFetch('/api/math/stream/chat/cancel', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ requestId: currentSessionId }),
-      keepalive: true,
-    }).catch(() => undefined);
+    // 使用当前工作流 requestId 通知后端取消；sessionId 不能代替执行 ID。
+    if (activeRequestId) {
+      void authenticatedFetch('/api/math/stream/chat/cancel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ requestId: activeRequestId }),
+        keepalive: true,
+      }).catch(() => undefined);
+    }
+    activeRequestIdRef.current = null;
+    setProgressMessage('');
     setIsLoading(false);
-  }, [currentSessionId]);
+  }, []);
 
   return {
     isLoading,
@@ -558,12 +587,34 @@ export function useChat(options: UseChatOptions) {
     faqSuggestions,
     queuePosition,
     queueEstimatedWait,
+    progressMessage,
     sendMessage,
     handleStop,
     handlePermissionAllow,
     handlePermissionDeny,
     handleRecoverMessage,
   };
+}
+
+function workflowStageMessage(type: unknown): string | null {
+  switch (String(type ?? '')) {
+    case 'waiting':
+      return '正在分析问题并规划处理步骤…';
+    case 'routed':
+      return '已识别需求，正在调用相应服务…';
+    case 'node_started':
+      return '正在执行业务查询…';
+    case 'node_completed':
+      return '业务数据已返回，正在核实结果…';
+    case 'node_quality_degraded':
+      return '正在补充核实信息…';
+    case 'node_evidence_limited':
+      return '现有证据有限，正在整理可靠结论…';
+    case 'summarizing':
+      return '正在整理最终答复…';
+    default:
+      return null;
+  }
 }
 
 const ACTIVE_RECOVERY_STATUSES = new Set<WorkflowRecoveryStatus>([

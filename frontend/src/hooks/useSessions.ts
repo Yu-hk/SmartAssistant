@@ -1,12 +1,67 @@
 import { useState, useEffect, useCallback } from 'react';
-import { v4 as uuidv4 } from 'uuid';
-import { Session, Message, IntentType } from '../types';
+import { Session, Message, SessionStatus, normalizeIntentType } from '../types';
 import { sessions as sessionApi } from '../api';
 import { ApiError } from '../api/client';
+
+function normalizeSessionStatus(value: unknown): SessionStatus {
+  const status = String(value ?? '').trim().toUpperCase();
+  if (['CLOSED', 'CLOSE', 'ENDED', 'TERMINATED'].includes(status)) return 'closed';
+  if (['HUMAN_TRANSFER', 'TRANSFERRED', 'HANDOFF', 'HUMAN_HANDOFF'].includes(status)) {
+    return 'human_transfer';
+  }
+  // SUCCESS/FAILED/TIMEOUT describe the latest workflow turn, not session lifecycle.
+  return 'active';
+}
+
+function normalizeSatisfaction(value: unknown): number | null {
+  const score = Number(value);
+  return Number.isFinite(score) && score >= 1 && score <= 5 ? score : null;
+}
+
+function normalizeDate(value: unknown): Date {
+  const date = value ? new Date(String(value)) : new Date();
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function normalizeSession(raw: any): Session {
+  return {
+    id: raw.id ?? raw.sessionId ?? raw.session_id,
+    title: raw.title || '未命名对话',
+    model: raw.model || raw.modelName || raw.model_name || 'deepseek-v4-flash',
+    sdk_session_id: raw.sdkSessionId ?? raw.sdk_session_id ?? null,
+    intent: normalizeIntentType(raw.intent),
+    status: normalizeSessionStatus(raw.status),
+    satisfaction: normalizeSatisfaction(raw.satisfaction),
+    satisfaction_comment: raw.satisfactionComment ?? raw.satisfaction_comment ?? null,
+    user_name: raw.userName ?? raw.user_name ?? raw.username ?? '用户',
+    agent_name: raw.agentName ?? raw.agent_name ?? null,
+    messageCount: Number(raw.messageCount ?? raw.message_count ?? 0),
+    createdAt: normalizeDate(raw.createdAt ?? raw.created_at),
+    messages: [],
+  };
+}
+
+function normalizeMessage(raw: any): Message {
+  const requestId = raw.requestId ?? raw.request_id ?? undefined;
+  const status = String(raw.status ?? '').toUpperCase();
+  return {
+    id: raw.id,
+    role: raw.role,
+    content: raw.content,
+    model: raw.model,
+    intent: raw.intent ? normalizeIntentType(raw.intent) : undefined,
+    requestId,
+    deliveryStatus: status === 'FAILED' || status === 'TIMEOUT' ? 'failed' : 'completed',
+    recoverable: Boolean(requestId) && (status === 'FAILED' || status === 'TIMEOUT'),
+    timestamp: normalizeDate(raw.createdAt ?? raw.created_at),
+    toolCalls: raw.toolCalls ?? raw.tool_calls ?? undefined,
+  };
+}
 
 export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [sessionActionError, setSessionActionError] = useState<string | null>(null);
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
@@ -16,21 +71,7 @@ export function useSessions() {
       // 兼容 API 返回 { sessions: [...] } 或直接返回数组
       const sessionList = Array.isArray(data) ? data : (data as any).sessions || [];
       if (sessionList.length > 0) {
-        const loaded: Session[] = sessionList.map((s: any) => ({
-          id: s.id,
-          title: s.title,
-          model: s.model,
-          sdk_session_id: s.sdk_session_id || null,
-          intent: (s.intent || 'unknown') as IntentType,
-          status: s.status || 'active',
-          satisfaction: s.satisfaction ?? null,
-          satisfaction_comment: s.satisfaction_comment ?? null,
-          user_name: s.user_name || '访客',
-          agent_name: s.agent_name || null,
-          messageCount: s.messageCount || s.message_count || 0,
-          createdAt: new Date(s.created_at),
-          messages: [],
-        }));
+        const loaded: Session[] = sessionList.map(normalizeSession);
         setSessions(prev => {
           const remoteIds = new Set(loaded.map(session => session.id));
           const localOnly = prev.filter(session => !remoteIds.has(session.id));
@@ -47,7 +88,7 @@ export function useSessions() {
   }, []);
 
   const createSession = useCallback((title = '新对话'): string => {
-    const sessionId = uuidv4();
+    const sessionId = crypto.randomUUID();
     const session: Session = {
       id: sessionId,
       title,
@@ -69,32 +110,23 @@ export function useSessions() {
   const loadSessionMessages = useCallback(async (sessionId: string) => {
     try {
       const data = await sessionApi.fetchSession(sessionId);
-      const msgs = (data as any).messages || [];
-      if (msgs.length > 0) {
-        const messages: Message[] = msgs.map((m: any) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          model: m.model,
-          intent: m.intent || undefined,
-          requestId: m.requestId || m.request_id || undefined,
-          deliveryStatus: m.status === 'FAILED' || m.status === 'TIMEOUT' ? 'failed' : 'completed',
-          recoverable: Boolean(m.requestId || m.request_id)
-            && (m.status === 'FAILED' || m.status === 'TIMEOUT'),
-          timestamp: new Date(m.created_at),
-          toolCalls: m.tool_calls || undefined,
-        }));
-        setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, messages } : s));
-      }
-      const sessionData = (data as any).session;
+      const payload = data as any;
+      const msgs = Array.isArray(payload.messages) ? payload.messages : [];
+      const messages: Message[] = msgs.map(normalizeMessage);
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, messages } : s));
+
+      // The customer endpoint returns the session fields at top level, while older
+      // deployments wrapped them in { session, messages }.
+      const sessionData = payload.session ?? payload;
       if (sessionData) {
         setSessions(prev => prev.map(s => {
           if (s.id === sessionId) {
+            const normalized = normalizeSession(sessionData);
             return {
               ...s,
-              intent: sessionData.intent || s.intent,
-              status: sessionData.status || s.status,
-              satisfaction: sessionData.satisfaction ?? s.satisfaction,
+              ...normalized,
+              id: s.id,
+              messages: s.messages,
             };
           }
           return s;
@@ -132,24 +164,37 @@ export function useSessions() {
   }, [sessions, currentSessionId]);
 
   const closeSession = useCallback(async (sessionId: string) => {
-    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'closed' } : s));
+    setSessionActionError(null);
     try {
       await sessionApi.closeSession(sessionId);
     } catch (e) {
-      // 本地会话可以正常结束；远端会话失败时保留前端终态并记录错误供排查。
-      if (!(e instanceof ApiError) || e.status !== 404) console.error(e);
+      // A local unsaved session can still be closed. Other failures must not be
+      // rendered as a successful close.
+      if (!(e instanceof ApiError) || e.status !== 404) {
+        console.error(e);
+        setSessionActionError('关闭对话失败，请稍后重试。');
+        return false;
+      }
     }
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'closed' } : s));
+    return true;
   }, []);
 
   const rateSession = useCallback(async (sessionId: string, score: number) => {
-    setSessions(prev => prev.map(s => s.id === sessionId
-      ? { ...s, satisfaction: score, status: 'closed' }
-      : s));
+    setSessionActionError(null);
     try {
       await sessionApi.rateSession(sessionId, score);
     } catch (e) {
-      if (!(e instanceof ApiError) || e.status !== 404) console.error(e);
+      if (!(e instanceof ApiError) || e.status !== 404) {
+        console.error(e);
+        setSessionActionError('评价提交失败，请稍后重试。');
+        return false;
+      }
     }
+    setSessions(prev => prev.map(s => s.id === sessionId
+      ? { ...s, satisfaction: score, status: 'closed' }
+      : s));
+    return true;
   }, []);
 
   const updateSessionModel = useCallback((sessionId: string, modelId: string) => {
@@ -174,7 +219,7 @@ export function useSessions() {
   }, [currentSessionId, sessions, loadSessionMessages]);
 
   return {
-    sessions, setSessions,
+    sessions, setSessions, sessionActionError, setSessionActionError,
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, loadSessionMessages, createSession,

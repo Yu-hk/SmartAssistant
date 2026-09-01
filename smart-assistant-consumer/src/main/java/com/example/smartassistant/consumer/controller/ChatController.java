@@ -103,7 +103,8 @@ public class ChatController {
         
         String sessionId = request.getOrDefault("sessionId", null);
         
-        log.info("收到对话请求: userId={}, role={}, message={}", userId, role, message);
+        log.info("收到对话请求: userId={}, role={}, messageLength={}",
+                userId, role, message != null ? message.length() : 0);
         
         // ⭐ 提取 requestId 供后续流程使用
         String requestId = request.getOrDefault("requestId", null);

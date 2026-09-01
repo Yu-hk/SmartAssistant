@@ -278,6 +278,15 @@ public class OrderAgentController {
             // ⭐ G4 运营指标：记录一次订单域应答（无答案率分母）
             opsMetrics.recordAnswer("order", intent.getLabel());
 
+            // Router 的统一协议通常会直接进入确定性快速路径；兼容入口收到
+            // 清晰的订单/物流只读查询时也必须复用同一路径，避免再次依赖
+            // RAG 或生成模型。读取由订单域校验 userId/订单归属，写操作不在此降级。
+            DomainAgentResponse deterministicRead = executeDeterministicRead(
+                    intent, question, request.get("userId"), requestId);
+            if (deterministicRead != null) {
+                return deterministicRead;
+            }
+
             // Step 2: 上下文协调器 + RAG 预检索（含质量评估）
             String userId = request.get("userId");
             List<String> extras = new ArrayList<>();
@@ -414,5 +423,32 @@ public class OrderAgentController {
             return DomainAgentResponse.of("❌ 处理失败: " + e.getMessage(),
                     DomainQualityResult.fail("ORDER_EXECUTION_ERROR"));
         }
+    }
+
+    private DomainAgentResponse executeDeterministicRead(
+            IntentType intent, String question, String userId, String requestId) {
+        if (deterministicExecutionService == null) return null;
+        String operation = switch (intent) {
+            case QUERY_ORDER -> "QUERY_ORDER";
+            case TRACK_LOGISTICS -> "TRACK_LOGISTICS";
+            default -> null;
+        };
+        if (operation == null || !deterministicExecutionService.supports(operation)) return null;
+
+        AgentExecutionRequest deterministicRequest = new AgentExecutionRequest(
+                AgentExecutionRequest.CURRENT_VERSION, requestId, "legacy-read", userId,
+                operation, question, Map.of(), List.of(), List.of(), null, null);
+        AgentExecutionResponse result = deterministicExecutionService.execute(deterministicRequest);
+        DomainQualityResult quality = result.quality() != null
+                ? result.quality().toDomainQuality()
+                : DomainQualityResult.unknown();
+        if (result.status() == AgentExecutionResponse.Status.SUCCEEDED) {
+            log.info("[OrderFastPath] 兼容入口只读查询完成: operation={}, requestId={}",
+                    operation, requestId);
+            return DomainAgentResponse.of(result.answer(), quality);
+        }
+        String message = result.error() != null
+                ? result.error().message() : "订单查询失败，请稍后重试。";
+        return DomainAgentResponse.of(message, quality);
     }
 }

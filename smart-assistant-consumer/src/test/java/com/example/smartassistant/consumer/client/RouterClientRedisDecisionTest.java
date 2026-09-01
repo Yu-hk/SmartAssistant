@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.ArgumentMatchers.startsWith;
 
 @ExtendWith(MockitoExtension.class)
 class RouterClientRedisDecisionTest {
@@ -29,8 +31,9 @@ class RouterClientRedisDecisionTest {
 
     @BeforeEach
     void setUp() {
-        when(redisTemplate.opsForList()).thenReturn(listOperations);
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        lenient().when(redisTemplate.opsForList()).thenReturn(listOperations);
+        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        lenient().when(valueOperations.get(startsWith("routing:cancellation:"))).thenReturn(null);
         routerClient = new RouterClient(redisTemplate, new ObjectMapper(), 3000, 120000);
     }
 
@@ -78,5 +81,18 @@ class RouterClientRedisDecisionTest {
         assertNotNull(decision);
         assertEquals("order", decision.get("agentName"));
         assertEquals(1, polls.get());
+    }
+
+    @Test
+    void cancellationSignalWinsOverAStaleDecision() {
+        String requestId = "req-cancelled";
+        when(valueOperations.get("routing:cancellation:" + requestId)).thenReturn("42");
+
+        Map<String, Object> decision = routerClient.waitForDecisionFromRedis(requestId, 1000);
+
+        assertNotNull(decision);
+        assertEquals(true, decision.get("cancelled"));
+        assertEquals("CANCELLED", decision.get("workflowStatus"));
+        verify(redisTemplate).delete("a2a:route:full-decision:" + requestId);
     }
 }

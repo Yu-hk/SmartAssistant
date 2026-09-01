@@ -69,7 +69,7 @@ class WorkflowPublishServiceTest {
         return new WorkflowDefinition(1, "commerce", null, 0, List.of(
                 new WorkflowDefinition.WorkflowNode(
                         "lookup", WorkflowDefinition.NodeType.AGENT, "lookup products", "product",
-                        "QUERY", Map.of(), List.of(), List.of(), "has result", false,
+                        "QUERY_PRODUCT", Map.of(), List.of(), List.of(), "has result", false,
                         List.of(), null)), Map.of());
     }
 

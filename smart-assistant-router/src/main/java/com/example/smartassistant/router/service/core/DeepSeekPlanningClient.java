@@ -28,7 +28,7 @@ public class DeepSeekPlanningClient {
             ObjectMapper objectMapper,
             @Value("${spring.ai.deepseek.api-key:${DEEPSEEK_API_KEY:}}") String apiKey,
             @Value("${spring.ai.deepseek.base-url:${DEEPSEEK_BASE_URL:https://api.deepseek.com}}") String baseUrl,
-            @Value("${router.light-model.name:${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:}}}") String model) {
+            @Value("${router.light-model.name:${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}}}") String model) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("DeepSeek API key is required for task planning");
         }

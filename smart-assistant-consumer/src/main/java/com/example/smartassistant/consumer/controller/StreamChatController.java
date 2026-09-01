@@ -133,6 +133,17 @@ public class StreamChatController {
         RedisEventCursor progressCursor = new RedisEventCursor();
         Map<String, Object> decision = getRoutingDecision(
                 requestId, sessionId, message, bus, progressCursor);
+        if (decision != null && Boolean.TRUE.equals(decision.get("cancelled"))) {
+            persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                    decisionKey, message, "unknown", null, startedAt, "CANCELLED");
+            try {
+                bus.send(SseEvent.raw("cancelled", objectMapper.writeValueAsString(Map.of(
+                        "type", "cancelled", "requestId", decisionKey))));
+            } catch (Exception ignored) {
+            }
+            logger.info("[StreamChat] 取消已传播到执行链路: requestId={}", decisionKey);
+            return;
+        }
         if (decision == null || (!decision.containsKey("result")
                 && !decision.containsKey("workflowStatus")
                 && !decision.containsKey("agentName"))) {
@@ -305,7 +316,9 @@ public class StreamChatController {
         String requestId = request.get("requestId");
         if (requestId != null && !requestId.isBlank()) {
             requestQueueService.complete(requestId);
-            logger.info("[StreamChat] 用户取消: requestId={}", requestId);
+            boolean routerNotified = routerClient.cancelRouting(requestId, resolveUserId());
+            logger.info("[StreamChat] 用户取消: requestId={}, routerNotified={}",
+                    requestId, routerNotified);
         }
     }
 

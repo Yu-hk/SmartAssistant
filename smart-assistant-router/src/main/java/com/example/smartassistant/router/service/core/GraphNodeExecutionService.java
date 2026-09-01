@@ -53,6 +53,9 @@ public class GraphNodeExecutionService {
     @Autowired(required = false)
     private AgentMessageDispatcher agentMessageDispatcher;
 
+    @Autowired(required = false)
+    private WorkflowCancellationService cancellationService;
+
     @Value("${router.graph.max-criteria-corrections:1}")
     private int maxCriteriaCorrections;
 
@@ -86,6 +89,22 @@ public class GraphNodeExecutionService {
     }
 
     public SubTaskResult execute(IntentNode node,
+                          Map<String, SubTaskResult> completed,
+                          ConcurrentHashMap<String, Integer> breakerFailures,
+                          Long userId, String eventsKey, String requestId,
+                          String workflowKey, Integer workflowVersion, String workflowChecksum,
+                          String originalQuestion) {
+        WorkflowCancellationService.Registration registration = cancellationService != null
+                && requestId != null && !requestId.isBlank() && userId != null && userId > 0
+                ? cancellationService.register(requestId, userId)
+                : () -> { };
+        try (registration) {
+            return executeRegistered(node, completed, breakerFailures, userId, eventsKey, requestId,
+                    workflowKey, workflowVersion, workflowChecksum, originalQuestion);
+        }
+    }
+
+    private SubTaskResult executeRegistered(IntentNode node,
                           Map<String, SubTaskResult> completed,
                           ConcurrentHashMap<String, Integer> breakerFailures,
                           Long userId, String eventsKey, String requestId,
@@ -131,6 +150,7 @@ public class GraphNodeExecutionService {
         int corrections = 0;
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
+                checkCancellation(requestId, userId);
                 if (isFallbackTarget(targetAgent)) {
                     String text = fallbackAgentService.execute(enrichedDescription, userId);
                     if (text != null && !text.isBlank()) {
@@ -266,7 +286,10 @@ public class GraphNodeExecutionService {
                                 ? "node_quality_degraded" : "node_completed",
                         "节点[" + node.getDescription() + "]执行完成", targetAgent);
                 return result;
+            } catch (WorkflowCancelledException cancelled) {
+                throw cancelled;
             } catch (Exception ex) {
+                checkCancellation(requestId, userId);
                 SubTaskResult.ErrorType type = classifyException(ex);
                 if (type == SubTaskResult.ErrorType.RETRYABLE_FAILED && attempt < maxRetries) {
                     backoff(attempt);
@@ -317,6 +340,16 @@ public class GraphNodeExecutionService {
 
     void setAgentMessageDispatcher(AgentMessageDispatcher agentMessageDispatcher) {
         this.agentMessageDispatcher = agentMessageDispatcher;
+    }
+
+    void setCancellationService(WorkflowCancellationService cancellationService) {
+        this.cancellationService = cancellationService;
+    }
+
+    private void checkCancellation(String requestId, Long userId) {
+        if (cancellationService != null) {
+            cancellationService.throwIfCancellationRequested(requestId, userId);
+        }
     }
 
     private SubTaskResult recordFailure(IntentNode node,
@@ -440,16 +473,80 @@ public class GraphNodeExecutionService {
             return source.getResult();
         }
 
-        Object value = source.getStructuredData();
-        int index = 0;
-        while (index < binding.dataPath().size() && value instanceof Map<?, ?> map) {
-            String field = binding.dataPath().get(index++);
-            value = map.get(field);
+        return resolveDataPath(source.getStructuredData(), binding.dataPath());
+    }
+
+    /**
+     * Resolves the constrained workflow data path while tolerating the two shapes emitted by
+     * domain contracts: Java/JSON camelCase fields and planner-generated snake_case fields.
+     * List selectors are deliberately limited to a non-negative numeric index (for example
+     * {@code orders[0]}); arbitrary JSONPath evaluation is not supported.
+     */
+    private static Object resolveDataPath(Object root, List<String> path) {
+        Object value = root;
+        for (String segment : path) {
+            value = resolveDataPathSegment(value, segment);
+            if (value == null) return null;
+        }
+        return value;
+    }
+
+    private static Object resolveDataPathSegment(Object current, String segment) {
+        if (segment == null || segment.isBlank()) return null;
+        int bracket = segment.indexOf('[');
+        String field = bracket >= 0 ? segment.substring(0, bracket) : segment;
+        Object value = current;
+        if (!field.isEmpty()) {
+            if (!(value instanceof Map<?, ?> map)) return null;
+            value = compatibleMapValue(map, field);
             if (value == null && "product_ids".equals(field)) {
-                value = productIdsFromCatalog(map.get("products"));
+                value = productIdsFromCatalog(compatibleMapValue(map, "products"));
             }
         }
-        return index == binding.dataPath().size() ? value : null;
+
+        int cursor = bracket;
+        while (cursor >= 0) {
+            int close = segment.indexOf(']', cursor + 1);
+            if (close < 0 || close == cursor + 1) return null;
+            String rawIndex = segment.substring(cursor + 1, close);
+            int index;
+            try {
+                index = Integer.parseInt(rawIndex);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+            if (index < 0) return null;
+            if (value instanceof List<?> list) {
+                if (index >= list.size()) return null;
+                value = list.get(index);
+            } else if (value != null && value.getClass().isArray()) {
+                if (index >= java.lang.reflect.Array.getLength(value)) return null;
+                value = java.lang.reflect.Array.get(value, index);
+            } else {
+                return null;
+            }
+            cursor = close + 1 < segment.length() ? segment.indexOf('[', close + 1) : -1;
+            if (cursor < 0 && close + 1 != segment.length()) return null;
+        }
+        return value;
+    }
+
+    private static Object compatibleMapValue(Map<?, ?> map, String requestedField) {
+        Object direct = map.get(requestedField);
+        if (direct != null || map.containsKey(requestedField)) return direct;
+        String normalized = normalizeContractField(requestedField);
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            if (entry.getKey() != null
+                    && normalized.equals(normalizeContractField(entry.getKey().toString()))) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private static String normalizeContractField(String field) {
+        return field == null ? "" : field.replace("_", "")
+                .replace("-", "").toLowerCase(java.util.Locale.ROOT);
     }
 
     /**

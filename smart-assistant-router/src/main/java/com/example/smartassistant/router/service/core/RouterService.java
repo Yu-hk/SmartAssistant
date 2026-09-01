@@ -143,8 +143,7 @@ public class RouterService {
 
         long routeStart = System.nanoTime();
         try {
-            // Step 0: 经验匹配（优先级最高，在语义缓存之上）
-            // ⭐ 经验匹配可直接跳过 LLM 推理，命中 TOOL 经验时甚至直接执行工具
+            // Step 0: 安全与资源边界检查。旧关键词/经验路由已退出主链。
             String question = request.getQuestion();
 
             // ⭐ P1 确定性护栏：检查高风险关键词（退款/退货/投诉等）
