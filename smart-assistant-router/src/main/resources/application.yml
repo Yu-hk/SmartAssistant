@@ -135,13 +135,13 @@ tool-registry:
 # 模型名仅由环境配置，Router/Common 不绑定具体供应商。
 tier:
   light:
-    model: ${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:}}
+    model: ${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}}
     temperature: 0.1
   standard:
-    model: ${MODEL_STANDARD:${DEEPSEEK_STANDARD_MODEL:}}
+    model: ${MODEL_STANDARD:${DEEPSEEK_STANDARD_MODEL:deepseek-v4-flash}}
     temperature: 0.3
   heavy:
-    model: ${MODEL_HEAVY:${DEEPSEEK_REASONING_MODEL:}}
+    model: ${MODEL_HEAVY:${DEEPSEEK_REASONING_MODEL:deepseek-v4-pro}}
     temperature: 0.2
   # 意图维度覆盖：命中这些意图标签时强制升档到指定 tier（绕过复杂度分类）
   intent-overrides:
@@ -173,6 +173,10 @@ nacos:
 
 # Router 配置
 router:
+  # 旧经验库不再参与路由，默认停止自动提取和向量写入。
+  # 仅兼容部署需要导出历史经验时才显式开启。
+  experience-learning:
+    enabled: ${ROUTER_EXPERIENCE_LEARNING_ENABLED:false}
   task-analysis:
     enabled: true
     # 当前用户原始提问达到该长度时使用 V4 Pro，否则使用 V4 Flash。

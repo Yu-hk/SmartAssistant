@@ -11,6 +11,8 @@ import com.example.smartassistant.router.model.RouteRequest;
 import com.example.smartassistant.router.model.RouteResponse;
 import com.example.smartassistant.router.model.RoutingResult;
 import com.example.smartassistant.router.service.core.RouterService;
+import com.example.smartassistant.router.service.core.WorkflowCancellationService;
+import com.example.smartassistant.router.service.core.WorkflowCancelledException;
 import com.example.smartassistant.router.service.tool.RoutingToolChecker;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,6 +44,9 @@ public class RouterController {
     private final RoutingToolChecker routingToolChecker;
     private final ExecutionTraceStore executionTraceStore;
 
+    @Autowired(required = false)
+    private WorkflowCancellationService cancellationService;
+
     public RouterController(RouterService routerService,
                            DistributedTracingService tracingService,
                            RoutingToolChecker routingToolChecker,
@@ -64,12 +69,19 @@ public class RouterController {
         if (requestId == null || requestId.isBlank()) {
             requestId = extractRequestId(request.getQuestion());
         }
+        if (requestId != null && !requestId.isBlank()) {
+            request.setRequestId(requestId);
+        }
         String threadId = extractThreadId(request.getQuestion());
 
         tracingService.startTrace(requestId, threadId);
         ToolUsageCache.start(requestId);
         ToolLogContext.setRequestId(requestId);
-        try {
+        try (WorkflowCancellationService.Registration cancellationRegistration =
+                     cancellationService != null && requestId != null && !requestId.isBlank()
+                             ? cancellationService.register(requestId, authenticatedUserId)
+                             : () -> { }) {
+            checkCancellation(requestId, authenticatedUserId);
             tracingService.injectToLog("收到路由请求: userId=" + request.getUserId());
 
             log.info("[Router API] 收到路由请求: userId={}, question={}, requestId={}",
@@ -78,6 +90,7 @@ public class RouterController {
             long startTime = System.currentTimeMillis();
 
             RoutingResult routingResult = routerService.route(request);
+            checkCancellation(requestId, authenticatedUserId);
             routerService.recordConversation(request, routingResult);
             TokenUsageCache.TokenUsage tokenUsage = TokenUsageCache.consume(requestId);
             ToolUsageCache.ToolUsage toolUsage = ToolUsageCache.consume(requestId);
@@ -104,11 +117,50 @@ public class RouterController {
             log.info("[Router API] 路由完成: latency={}ms, resultLength={}, agent={}",
                     latency, routingResult.getResult() != null ? routingResult.getResult().length() : 0,
                     routingResult.getAgentName());
-
+            return ApiResponse.success(response);
+        } catch (WorkflowCancelledException cancelled) {
+            // Clear the interrupt flag before returning the servlet thread to its pool.
+            Thread.interrupted();
+            TokenUsageCache.consume(requestId);
+            ToolUsageCache.consume(requestId);
+            log.info("[Router API] 用户已取消工作流: requestId={}, userId={}",
+                    requestId, authenticatedUserId);
+            RouteResponse response = RouteResponse.builder()
+                    .executionMode(RoutingResult.ExecutionMode.BUILTIN)
+                    .participatingAgents(List.of())
+                    .workflowStatus(RoutingResult.WorkflowStatus.CANCELLED)
+                    .result("")
+                    .confidence(1.0)
+                    .routingMethod("USER_CANCELLED")
+                    .build();
             return ApiResponse.success(response);
         } finally {
+            if (cancellationService != null) {
+                cancellationService.complete(requestId, authenticatedUserId);
+            }
             ToolLogContext.clear();
             tracingService.endTrace();
+        }
+    }
+
+    /** Cancels an in-flight route owned by the authenticated user. */
+    @PostMapping("/requests/{requestId}/cancel")
+    public ApiResponse<Map<String, Object>> cancelRoute(
+            @RequestHeader("X-User-Id") Long authenticatedUserId,
+            @PathVariable("requestId") String requestId) {
+        requireAuthenticatedUser(authenticatedUserId);
+        if (cancellationService == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Workflow cancellation is unavailable");
+        }
+        try {
+            boolean interrupted = cancellationService.requestCancellation(requestId, authenticatedUserId);
+            return ApiResponse.success(Map.of(
+                    "requestId", requestId,
+                    "cancelled", true,
+                    "activeExecutionInterrupted", interrupted));
+        } catch (SecurityException error) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, error.getMessage());
         }
     }
 
@@ -285,15 +337,29 @@ public class RouterController {
 
     /** Binds the gateway-authenticated identity and rejects body spoofing. */
     private void bindAuthenticatedUser(RouteRequest request, Long authenticatedUserId) {
-        if (authenticatedUserId == null || authenticatedUserId <= 0) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing authenticated user identity");
-        }
+        requireAuthenticatedUser(authenticatedUserId);
         if (request.getUserId() != null && !authenticatedUserId.equals(request.getUserId())) {
             log.warn("[Router API] rejected mismatched identity: headerUserId={}, bodyUserId={}",
                     authenticatedUserId, request.getUserId());
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Request user does not match authenticated user");
         }
         request.setUserId(authenticatedUserId);
+    }
+
+    private void requireAuthenticatedUser(Long authenticatedUserId) {
+        if (authenticatedUserId == null || authenticatedUserId <= 0) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing authenticated user identity");
+        }
+    }
+
+    private void checkCancellation(String requestId, Long userId) {
+        if (cancellationService != null) {
+            cancellationService.throwIfCancellationRequested(requestId, userId);
+        }
+    }
+
+    void setCancellationService(WorkflowCancellationService cancellationService) {
+        this.cancellationService = cancellationService;
     }
 
     private String truncate(String str) {

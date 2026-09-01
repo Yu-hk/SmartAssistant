@@ -19,6 +19,9 @@ management:
       "http.client.requests": false   # 抑制重复的 HTTP client span
 
 otel:
+  sdk:
+    # 生产环境没有 OTLP Collector 时默认禁用，显式设置 false 后才启用 Langfuse/OTLP 导出。
+    disabled: ${OTEL_SDK_DISABLED:true}
   instrumentation:
     spring-webmvc:
       enabled: false                  # 抑制重复的 OTel HTTP server span

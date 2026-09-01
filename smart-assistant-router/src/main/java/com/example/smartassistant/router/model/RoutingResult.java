@@ -108,6 +108,7 @@ public class RoutingResult {
         AWAITING_APPROVAL,
         CLARIFICATION,
         DEGRADED,
+        CANCELLED,
         FAILED
     }
 

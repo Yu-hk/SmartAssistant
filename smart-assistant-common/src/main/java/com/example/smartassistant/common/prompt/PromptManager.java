@@ -189,6 +189,13 @@ public class PromptManager {
                 .replace("{{context}}", safePromptValue(context, "未提供已核实分析结果"));
     }
 
+    /** 渲染 Pro 单次完成事实核实与最终推荐的结构化 Prompt。 */
+    public String renderProductAuditAndRecommendation(String query, String context) {
+        return load("prompts/analysis/product-audit-recommendation.txt")
+                .replace("{{query}}", safePromptValue(query, "未提供具体推荐目标"))
+                .replace("{{context}}", safePromptValue(context, "未提供候选商品或分析结果"));
+    }
+
     private static String safePromptValue(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
     }

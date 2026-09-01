@@ -43,7 +43,7 @@ import java.util.concurrent.RejectedExecutionException;
  * 路由后处理服务。
  * <p>
  * 从 RouterService 拆出，负责路由决策后的最终处理链路：
- * 反思器 → 质量评估 → 缓存写入 → 经验提取 → 事件发布 → Bad Case 挖掘。
+ * 反思器 → 质量评估 → 事件发布 → Bad Case 挖掘。
  * </p>
  *
  * @author Yu-hk
@@ -73,6 +73,13 @@ public class RouteFinalizer {
 
     @Value("${router.quality-evaluation.failure-message:抱歉，我暂时无法可靠地回答这个问题。请补充更多信息或稍后重试。}")
     private String qualityFailureMessage;
+
+    /**
+     * 旧经验库已退出路由决策。自动学习默认关闭，仅为仍需导出历史经验的
+     * 兼容部署保留显式开关，防止正常请求继续写入废弃向量表。
+     */
+    @Value("${router.experience-learning.enabled:false}")
+    private boolean experienceLearningEnabled;
 
     @Autowired(required = false)
     private ExecutionTraceStore executionTraceStore;
@@ -130,7 +137,7 @@ public class RouteFinalizer {
 
     /**
      * ⭐⭐ 路由后处理公共方法：
-     * 反思器质量评分 → LLM质量评估 → 路由经验提取 → 事件发布 → Bad Case 挖掘。
+     * 反思器质量评分 → LLM质量评估 → 事件发布 → Bad Case 挖掘。
      */
     public RoutingResult finalizeRouting(RoutingResult result, RouteRequest request,
                                           String executionQuestion, EmotionCheckResult emotion) {
@@ -226,7 +233,7 @@ public class RouteFinalizer {
         String requestId = request.getRequestId();
         String reply = result.getResult();
 
-        if (!clarification
+        if (experienceLearningEnabled && !clarification
                 && agentName != null && !"none".equals(agentName) && !agentName.isBlank()) {
             if (!Boolean.TRUE.equals(result.getFromCache()) && qualityPassed) {
                 learnExperienceAsync(question, agentName, intentTag);

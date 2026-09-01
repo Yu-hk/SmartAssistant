@@ -108,6 +108,12 @@
             <artifactId>mcp-json-jackson2</artifactId>
             <version>0.18.3</version>
         </dependency>
+        <!-- Spring AI 2 MCP server auto-configuration uses the Jackson 3 mapper. -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-json-jackson3</artifactId>
+            <version>2.0.0</version>
+        </dependency>
 
         <!-- ⭐ Spring AI Tool（ToolCallback / MethodToolCallbackProvider — 由 spring-ai-model 传递引入）
              spring-ai-tool 在 2.0.0 中为非独立 artifact，不需显式声明 -->

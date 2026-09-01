@@ -168,6 +168,7 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     networks:
       - smart-network
     depends_on:
@@ -225,6 +226,7 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     networks:
       - smart-network
     depends_on:
@@ -263,6 +265,7 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      CONSUMER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-v4-flash}
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-smartassistant}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must be set}
       SPRING_RABBITMQ_HOST: smart-rabbitmq
@@ -276,6 +279,7 @@ services:
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     networks:
       - smart-network
     depends_on:
@@ -318,7 +322,9 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      ROUTER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-v4-flash}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1}
       TOOL_REGISTRY_URL: http://smart-tool-registry:8088
       EMBEDDING_SERVICE_URL: http://smart-embedding:8091
       # Docker 环境覆盖
@@ -328,6 +334,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     networks:
       - smart-network
     depends_on:
@@ -366,6 +373,7 @@ services:
     environment:
       PORT: 8088
       TOOL_REGISTRY_URL: http://smart-tool-registry:8088
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     networks:
       - smart-network
     healthcheck:
@@ -397,6 +405,8 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      ORDER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-v4-flash}
+      SPRING_JACKSON_DESERIALIZATION_FAIL_ON_NULL_FOR_PRIMITIVES: "false"
       EMBEDDING_SERVICE_URL: http://smart-embedding:8091
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
@@ -405,6 +415,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     networks:
       - smart-network
     depends_on:
@@ -443,18 +454,24 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?DASHSCOPE_API_KEY must be set}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1}
       MODEL_API_BASE_URL: ${MODEL_API_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      MODEL_API_KEY: ${MODEL_API_KEY:?MODEL_API_KEY must be set}
       PRODUCT_CHAT_MODEL: ${PRODUCT_CHAT_MODEL:-qwen3.7-flash}
       PRODUCT_ANALYSIS_MODEL: ${PRODUCT_ANALYSIS_MODEL:-qwen3.7-flash}
       PRODUCT_STANDARD_MODEL: ${PRODUCT_STANDARD_MODEL:-qwen3.7-flash}
       PRODUCT_RECOMMENDATION_MODEL: ${PRODUCT_RECOMMENDATION_MODEL:-qwen3.7-plus}
+      SPRING_JACKSON_DESERIALIZATION_FAIL_ON_NULL_FOR_PRIMITIVES: "false"
       PRODUCT_RAG_AGENTIC_ENABLED: ${PRODUCT_RAG_AGENTIC_ENABLED:-true}
       PRODUCT_RAG_AGENTIC_MAX_ATTEMPTS: ${PRODUCT_RAG_AGENTIC_MAX_ATTEMPTS:-2}
       PRODUCT_RAG_AGENTIC_MAX_EVIDENCE_ITEMS: ${PRODUCT_RAG_AGENTIC_MAX_EVIDENCE_ITEMS:-8}
       PRODUCT_RAG_AGENTIC_SUFFICIENT_SCORE: ${PRODUCT_RAG_AGENTIC_SUFFICIENT_SCORE:-0.5}
       PRODUCT_RAG_ANSWER_VERIFICATION_MAX_RETRIES: ${PRODUCT_RAG_ANSWER_VERIFICATION_MAX_RETRIES:-1}
       EMBEDDING_SERVICE_URL: http://smart-embedding:8091
+      DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
+      DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       # Docker 环境覆盖
       SPRING_DATA_REDIS_HOST: smart-redis
       SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
@@ -462,6 +479,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
       MANAGEMENT_TRACING_ZIPKIN_TRACING_ENDPOINT: http://smart-zipkin:9411/api/v2/spans
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     networks:
       - smart-network
     depends_on:

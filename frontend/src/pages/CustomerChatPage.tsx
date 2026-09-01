@@ -28,6 +28,7 @@ interface CustomerChatPageProps {
   faqSuggestions: FaqItem[];
   queuePosition: number | null;
   queueEstimatedWait: number | null;
+  progressMessage: string;
   onSendMessage: (message: string, sessionIdOverride?: string, onNavigate?: (path: string) => void) => void;
   onStop: () => void;
   onInputChange: (value: string) => void;
@@ -48,7 +49,7 @@ const CAPABILITIES = [
   { icon: PackageSearch, title: '订单助手', desc: '查订单、跟物流、处理售后', tone: 'cyan', prompt: '请帮我查询订单：' },
   { icon: ShoppingBag, title: '商品顾问', desc: '商品咨询、参数对比与推荐', tone: 'amber', prompt: '请帮我推荐或对比商品：' },
   { icon: BookOpenText, title: '知识检索', desc: '检索资料、文档问答与总结', tone: 'emerald', prompt: '请从知识库中查找并总结：' },
-  { icon: Workflow, title: '智能路由', desc: '识别客户意图并分流到合适能力', tone: 'indigo', prompt: '请分析并安排合适的智能体处理：' },
+  { icon: Workflow, title: '综合协助', desc: '识别需求并安排合适的处理步骤', tone: 'indigo', prompt: '请帮我处理：' },
 ];
 
 function getGreeting() {
@@ -68,6 +69,7 @@ export function CustomerChatPage({
   faqSuggestions,
   queuePosition,
   queueEstimatedWait,
+  progressMessage,
   onSendMessage,
   onStop,
   onInputChange,
@@ -122,11 +124,11 @@ export function CustomerChatPage({
         {!hasMessages ? (
           <section className="assistant-home" aria-labelledby="home-title">
             <div className="home-hero">
-              <div className="home-eyebrow"><Sparkles size={15} /> 多智能体客服工作台</div>
+              <div className="home-eyebrow"><Sparkles size={15} /> 智能服务助手</div>
               <h1 id="home-title">{getGreeting()}{userName ? `，${userName}` : ''}</h1>
               <p>{isClosed
                 ? '该会话已结束，请从左侧新建会话后继续。'
-                : '输入客户问题或选择下方服务能力，智能体团队将识别意图并自动分流处理。'}</p>
+                : '直接描述需要处理的事情，或从下方选择服务入口；系统会自动安排后续步骤。'}</p>
             </div>
 
             <div className="home-stats" aria-label="接待概览">
@@ -240,6 +242,7 @@ export function CustomerChatPage({
               onRecoverMessage={onRecoverMessage}
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
+              progressMessage={progressMessage}
               sessionStatus={currentSession?.status}
               satisfaction={currentSession?.satisfaction}
               onRateSession={onRateSession}

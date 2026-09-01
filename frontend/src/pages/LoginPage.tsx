@@ -168,20 +168,20 @@ export function LoginPage() {
     <div className="login-page">
       {/* ===== 左侧品牌叙事 ===== */}
       <section className="login-intro">
-        <div className="login-brand"><span>智</span> 智服 SmartAssistant</div>
-        <div className="login-kicker">MULTI-AGENT CUSTOMER SERVICE</div>
-        <h1>让每个客户问题，<br />都有 <span className="accent">智能体接力</span> 解决</h1>
+        <div className="login-brand"><img src="/icons/app-icon.svg" alt="" /> 智服 SmartAssistant</div>
+        <div className="login-kicker">INTELLIGENT CUSTOMER SERVICE</div>
+        <h1>让每个服务问题，<br />都有 <span className="accent">清晰步骤</span> 解决</h1>
         <p>
-          售前、订单、技术支持、投诉处理多智能体协同作业，按业务意图精准路由，
-          全渠道接入，让服务又快又准。
+          覆盖售前、订单、技术支持和投诉处理，自动理解需求并协同完成，
+          全渠道接入，让服务更快、更准确。
         </p>
 
         <div className="login-values">
           <div className="login-value">
             <div className="lv-icon lv1"><Users size={18} /></div>
             <div>
-              <div className="lv-t">智能体团队协同</div>
-              <div className="lv-d">按意图自动路由，多智能体并行处理复杂工单</div>
+              <div className="lv-t">专业能力协同</div>
+              <div className="lv-d">自动拆分复杂问题，并行完成可独立处理的步骤</div>
             </div>
           </div>
           <div className="login-value">
@@ -219,7 +219,7 @@ export function LoginPage() {
       {/* ===== 右侧登录 / 注册卡片 ===== */}
       <section className="login-panel glass">
         <div className="login-card">
-          <div className="login-mobile-brand"><span>智</span> 智服 SmartAssistant</div>
+          <div className="login-mobile-brand"><img src="/icons/app-icon.svg" alt="" /> 智服 SmartAssistant</div>
 
           <div className="login-tabs">
             <button
