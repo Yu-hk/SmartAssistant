@@ -1,1 +1,3 @@
-org.springframework.boot.env.EnvironmentPostProcessor=com.example.smartassistant.common.dotenv.DotenvEnvironmentPostProcessor
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.example.smartassistant.common.dotenv.DotenvEnvironmentPostProcessor,\
+com.example.smartassistant.common.governance.ToolCallLimitEnvironmentPostProcessor

@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.common.observability;
 
+import com.example.smartassistant.common.security.PiiPolicyEngine;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationFilter;
@@ -33,6 +34,12 @@ import java.util.List;
  */
 @Component
 public class ChatModelCompletionContentObservationFilter implements ObservationFilter {
+
+    private final PiiPolicyEngine piiPolicyEngine;
+
+    public ChatModelCompletionContentObservationFilter(PiiPolicyEngine piiPolicyEngine) {
+        this.piiPolicyEngine = piiPolicyEngine;
+    }
 
     @Override
     public Observation.Context map(Observation.Context context) {
@@ -76,6 +83,7 @@ public class ChatModelCompletionContentObservationFilter implements ObservationF
         }
         return ctx.getRequest().getInstructions().stream()
                 .map(Content::getText)
+                .map(piiPolicyEngine::sanitize)
                 .toList();
     }
 
@@ -87,6 +95,7 @@ public class ChatModelCompletionContentObservationFilter implements ObservationF
         return ctx.getResponse().getResults().stream()
                 .filter(g -> g.getOutput() != null && StringUtils.hasText(g.getOutput().getText()))
                 .map(g -> g.getOutput().getText())
+                .map(piiPolicyEngine::sanitize)
                 .toList();
     }
 }

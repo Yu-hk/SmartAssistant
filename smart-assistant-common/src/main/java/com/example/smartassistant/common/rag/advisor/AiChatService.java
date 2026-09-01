@@ -7,6 +7,9 @@
 
 package com.example.smartassistant.common.rag.advisor;
 
+import com.example.smartassistant.common.governance.CallLimitProperties;
+import com.example.smartassistant.common.governance.InvocationBudgetRegistry;
+import com.example.smartassistant.common.security.PiiPolicyEngine;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 
@@ -23,11 +26,21 @@ import org.springframework.ai.chat.model.ChatModel;
  */
 public class AiChatService {
 
+    /** Managed fallback for non-Spring construction sites and compatibility tests. */
+    public static AiChatService governedDefaults() {
+        PiiPolicyEngine pii = PiiPolicyEngine.shared();
+        return new AiChatService(null, null, null, null, null,
+                new ModelCallLimitAdvisor(InvocationBudgetRegistry.shared(), new CallLimitProperties()),
+                new PiiAdvisor(pii));
+    }
+
     private final SafeGuardAdvisor safeGuardAdvisor;
     private final TokenUsageAdvisor tokenUsageAdvisor;
     private final ThinkingCollectorAdvisor thinkingCollectorAdvisor;
     private final PromptAuditAdvisor promptAuditAdvisor;
     private final PostGenerationComplianceAdvisor postGenerationComplianceAdvisor;
+    private final ModelCallLimitAdvisor modelCallLimitAdvisor;
+    private final PiiAdvisor piiAdvisor;
 
     /**
      * 全参构造（含生成后合规 Advisor）。由 {@code AdvisorChainAutoConfiguration} 使用。
@@ -38,11 +51,25 @@ public class AiChatService {
             ThinkingCollectorAdvisor thinkingCollectorAdvisor,
             PromptAuditAdvisor promptAuditAdvisor,
             PostGenerationComplianceAdvisor postGenerationComplianceAdvisor) {
+        this(safeGuardAdvisor, tokenUsageAdvisor, thinkingCollectorAdvisor, promptAuditAdvisor,
+                postGenerationComplianceAdvisor, null, null);
+    }
+
+    public AiChatService(
+            SafeGuardAdvisor safeGuardAdvisor,
+            TokenUsageAdvisor tokenUsageAdvisor,
+            ThinkingCollectorAdvisor thinkingCollectorAdvisor,
+            PromptAuditAdvisor promptAuditAdvisor,
+            PostGenerationComplianceAdvisor postGenerationComplianceAdvisor,
+            ModelCallLimitAdvisor modelCallLimitAdvisor,
+            PiiAdvisor piiAdvisor) {
         this.safeGuardAdvisor = safeGuardAdvisor;
         this.tokenUsageAdvisor = tokenUsageAdvisor;
         this.thinkingCollectorAdvisor = thinkingCollectorAdvisor;
         this.promptAuditAdvisor = promptAuditAdvisor;
         this.postGenerationComplianceAdvisor = postGenerationComplianceAdvisor;
+        this.modelCallLimitAdvisor = modelCallLimitAdvisor;
+        this.piiAdvisor = piiAdvisor;
     }
 
     /**
@@ -65,6 +92,8 @@ public class AiChatService {
     /** 将 Advisor 链应用到已有 Builder（便于业务模块附加工具 / 系统提示） */
     public ChatClient.Builder applyAdvisors(ChatClient.Builder builder) {
         if (safeGuardAdvisor != null) builder.defaultAdvisors(safeGuardAdvisor);
+        if (piiAdvisor != null) builder.defaultAdvisors(piiAdvisor);
+        if (modelCallLimitAdvisor != null) builder.defaultAdvisors(modelCallLimitAdvisor);
         if (tokenUsageAdvisor != null) builder.defaultAdvisors(tokenUsageAdvisor);
         if (thinkingCollectorAdvisor != null) builder.defaultAdvisors(thinkingCollectorAdvisor);
         if (promptAuditAdvisor != null) builder.defaultAdvisors(promptAuditAdvisor);

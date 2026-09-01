@@ -9,10 +9,15 @@ package com.example.smartassistant.common.rag.advisor;
 
 import com.example.smartassistant.common.audit.AiAuditEvent;
 import com.example.smartassistant.common.audit.AiAuditStore;
+import com.example.smartassistant.common.governance.CallLimitProperties;
+import com.example.smartassistant.common.governance.InvocationBudgetRegistry;
+import com.example.smartassistant.common.security.PiiPolicyEngine;
 import com.example.smartassistant.common.tool.AiToolRegistry;
+import org.springframework.ai.chat.client.ChatClientBuilderCustomizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.context.annotation.Bean;
@@ -35,6 +40,7 @@ import org.springframework.context.annotation.Configuration;
  * 各模块可通过 {@code advisor.*.enabled=false} 按需关闭。</p>
  */
 @Configuration
+@EnableConfigurationProperties(CallLimitProperties.class)
 public class AdvisorChainAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(AdvisorChainAutoConfiguration.class);
@@ -48,9 +54,37 @@ public class AdvisorChainAutoConfiguration {
 
     @Bean
     @ConditionalOnProperty(name = "advisor.prompt-audit.enabled", havingValue = "true")
-    public PromptAuditAdvisor promptAuditAdvisor() {
+    public PromptAuditAdvisor promptAuditAdvisor(PiiPolicyEngine piiPolicyEngine) {
         log.info("[AdvisorChain] 注册 PromptAuditAdvisor (Order=100)");
-        return new PromptAuditAdvisor();
+        return new PromptAuditAdvisor(piiPolicyEngine);
+    }
+
+    @Bean
+    public PiiPolicyEngine piiPolicyEngine() {
+        return PiiPolicyEngine.shared();
+    }
+
+    @Bean
+    public InvocationBudgetRegistry invocationBudgetRegistry() {
+        return InvocationBudgetRegistry.shared();
+    }
+
+    @Bean
+    public PiiAdvisor piiAdvisor(PiiPolicyEngine engine) {
+        return new PiiAdvisor(engine);
+    }
+
+    @Bean
+    public ModelCallLimitAdvisor modelCallLimitAdvisor(InvocationBudgetRegistry registry,
+                                                        CallLimitProperties properties) {
+        return new ModelCallLimitAdvisor(registry, properties);
+    }
+
+    /** Mandatory policies for every Spring Boot managed ChatClient.Builder. */
+    @Bean
+    public ChatClientBuilderCustomizer governanceChatClientBuilderCustomizer(
+            PiiAdvisor piiAdvisor, ModelCallLimitAdvisor modelCallLimitAdvisor) {
+        return builder -> builder.defaultAdvisors(piiAdvisor, modelCallLimitAdvisor);
     }
 
     @Bean
@@ -96,9 +130,11 @@ public class AdvisorChainAutoConfiguration {
             @org.springframework.beans.factory.annotation.Autowired(required = false) TokenUsageAdvisor tokenUsageAdvisor,
             @org.springframework.beans.factory.annotation.Autowired(required = false) ThinkingCollectorAdvisor thinkingCollectorAdvisor,
             @org.springframework.beans.factory.annotation.Autowired(required = false) PromptAuditAdvisor promptAuditAdvisor,
-            @org.springframework.beans.factory.annotation.Autowired(required = false) PostGenerationComplianceAdvisor postGenerationComplianceAdvisor) {
+            @org.springframework.beans.factory.annotation.Autowired(required = false) PostGenerationComplianceAdvisor postGenerationComplianceAdvisor,
+            ModelCallLimitAdvisor modelCallLimitAdvisor,
+            PiiAdvisor piiAdvisor) {
         return new AiChatService(safeGuardAdvisor, tokenUsageAdvisor, thinkingCollectorAdvisor,
-                promptAuditAdvisor, postGenerationComplianceAdvisor);
+                promptAuditAdvisor, postGenerationComplianceAdvisor, modelCallLimitAdvisor, piiAdvisor);
     }
 
     /** 工具注册聚合器 — 收敛工具对象 → ToolCallback 列表的构建样板 */
