@@ -130,6 +130,22 @@ class StreamChatControllerPersistenceTest {
     }
 
     @Test
+    void cancelPropagatesToRouterUsingAuthenticatedOwner() {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+        when(routerClient.cancelRouting("request-cancel", "42")).thenReturn(true);
+        StreamChatController controller = new StreamChatController(
+                routerClient, agentStreamClient, requestQueueService,
+                routingCallLogService, null);
+
+        controller.cancelChat(Map.of("requestId", "request-cancel"));
+
+        verify(requestQueueService).complete("request-cancel");
+        verify(routerClient).cancelRouting("request-cancel", "42");
+    }
+
+    @Test
     void directAgentStreamCombinesUsageAndOwnsSingleTerminalEvent() throws Exception {
         MockHttpServletRequest servletRequest = new MockHttpServletRequest();
         servletRequest.addHeader("X-User-Id", "42");

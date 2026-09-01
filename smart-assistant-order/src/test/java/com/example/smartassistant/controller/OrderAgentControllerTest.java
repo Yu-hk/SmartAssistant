@@ -222,4 +222,30 @@ class OrderAgentControllerTest {
         verifyNoInteractions(intentService, ragService);
         verify(agent, never()).execute(anyString());
     }
+
+    @Test
+    @DisplayName("兼容入口订单列表：应复用确定性只读路径并跳过 RAG 和 Agent")
+    void legacyOrderList_shouldUseDeterministicReadPath() {
+        OrderDeterministicExecutionService deterministic =
+                mock(OrderDeterministicExecutionService.class);
+        OrderAgentController fastController = new OrderAgentController(
+                agent, intentService, ragService, mock(MemoryExtractor.class), orchestrator,
+                new OrderDomainQualityValidator(), deterministic);
+        when(intentService.detect("查看我的订单列表")).thenReturn(IntentType.QUERY_ORDER);
+        when(deterministic.supports("QUERY_ORDER")).thenReturn(true);
+        when(deterministic.execute(any(AgentExecutionRequest.class))).thenReturn(
+                AgentExecutionResponse.success("当前没有查询到你的订单。",
+                        Map.of("operation", "QUERY_ORDER_LIST", "count", 0, "verified", true),
+                        DomainQualityResult.pass(1.0, "DETERMINISTIC_ORDER_LIST_QUERY")));
+
+        var response = fastController.processQuestionWithQuality(Map.of(
+                "question", "查看我的订单列表", "userId", "1050", "requestId", "req-list"));
+
+        assertEquals("当前没有查询到你的订单。", response.answer());
+        assertTrue(response.quality().isPass());
+        verify(deterministic).execute(argThat(request ->
+                "QUERY_ORDER".equals(request.operation()) && "1050".equals(request.userId())));
+        verifyNoInteractions(ragService);
+        verify(agent, never()).execute(anyString());
+    }
 }

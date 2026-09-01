@@ -166,6 +166,9 @@ public class SlotStateMachine {
         if (rawSchema == null || rawSchema.isBlank()) return Map.of();
         return parsedSchemaCache.computeIfAbsent(rawSchema, value -> {
             try {
+                if (!value.stripLeading().startsWith("{")) {
+                    return parseCompactSchemas(value);
+                }
                 return objectMapper.readValue(value, SLOT_SCHEMA_TYPE);
             } catch (Exception error) {
                 log.warn("[SlotStateMachine] Ignore invalid Agent slot-definitions: {}",
@@ -173,6 +176,41 @@ public class SlotStateMachine {
                 return Map.of();
             }
         });
+    }
+
+    /**
+     * Parses the compact schema format used in Nacos metadata, whose complete value
+     * is limited to 1024 characters. JSON remains supported for other registries.
+     */
+    static Map<String, List<SlotDef>> parseCompactSchemas(String value) {
+        if (value == null || value.isBlank()) return Map.of();
+        Map<String, List<SlotDef>> schemas = new LinkedHashMap<>();
+        for (String operationEntry : value.split(";")) {
+            String[] operationParts = operationEntry.split("=", 2);
+            if (operationParts.length != 2 || operationParts[0].isBlank()) continue;
+            List<SlotDef> definitions = new ArrayList<>();
+            for (String slotEntry : operationParts[1].split(",")) {
+                String[] fields = slotEntry.split("\\|", -1);
+                if (fields.length < 6 || fields[0].isBlank()) continue;
+                int priority;
+                try {
+                    priority = Integer.parseInt(fields[5]);
+                } catch (NumberFormatException ignored) {
+                    continue;
+                }
+                definitions.add(new SlotDef(fields[0], fields[1], flag(fields[2]),
+                        flag(fields[3]), flag(fields[4]), priority,
+                        fields.length > 6 && !fields[6].isBlank() ? fields[6] : null));
+            }
+            if (!definitions.isEmpty()) {
+                schemas.put(operationParts[0], List.copyOf(definitions));
+            }
+        }
+        return Map.copyOf(schemas);
+    }
+
+    private static boolean flag(String value) {
+        return "1".equals(value) || Boolean.parseBoolean(value);
     }
 
     private static void indexByName(Map<String, SlotDef> target, List<SlotDef> definitions) {

@@ -55,6 +55,11 @@ class JdbcProductBackendTest {
         assertThat(backend.searchProduct("请问 MacBook Air M3 还有货吗"))
                 .contains("MacBook Air M3")
                 .contains("¥8999");
+        ArgumentCaptor<String> searchSql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(searchSql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(searchSql.getValue())
+                .contains("AND UPPER(p.product_code)")
+                .doesNotContain("ANDUPPER");
         assertThat(backend.queryProductInfo("MACBOOK-AIR-M3"))
                 .contains("商品编码：MACBOOK-AIR-M3")
                 .contains("颜色：午夜色");
@@ -80,6 +85,9 @@ class JdbcProductBackendTest {
         ResultSet row = productRow();
         when(row.getLong("popularity")).thenReturn(7L);
         when(row.getString("category")).thenReturn("笔记本电脑");
+        when(row.getBigDecimal("market_price")).thenReturn(new BigDecimal("9999.00"));
+        when(row.getBigDecimal("rating")).thenReturn(new BigDecimal("4.8"));
+        when(row.getLong("review_count")).thenReturn(1280L);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
                 .thenAnswer(invocation -> {
                     RowMapper<Object> mapper = invocation.getArgument(1);
@@ -94,6 +102,9 @@ class JdbcProductBackendTest {
                     assertThat(product.name()).isEqualTo("MacBook Air M3");
                     assertThat(product.popularity()).isEqualTo(7L);
                     assertThat(product.category()).isEqualTo("笔记本电脑");
+                    assertThat(product.marketPrice()).isEqualByComparingTo("9999.00");
+                    assertThat(product.rating()).isEqualByComparingTo("4.8");
+                    assertThat(product.reviewCount()).isEqualTo(1280L);
                 });
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
@@ -102,6 +113,13 @@ class JdbcProductBackendTest {
                 .contains("LOAD-PROD-%")
                 .contains("E2E-PROD-%")
                 .contains("category")
+                .contains("sales_30d")
+                .contains("review_count")
+                .contains("UPPER(COALESCE(to_jsonb(p)->>'category', '')) = CAST(? AS TEXT)")
+                .contains("CAST(? AS NUMERIC) IS NULL")
+                .contains("p.price <= CAST(? AS NUMERIC)")
+                .contains("CAST(? AS BOOLEAN) = FALSE")
+                .contains("LIMIT CAST(? AS INTEGER)")
                 .doesNotContain("WHEREUPPER");
     }
 
@@ -128,6 +146,35 @@ class JdbcProductBackendTest {
                     assertThat(product.name()).isEqualTo("MacBook Air M3");
                     assertThat(product.popularity()).isZero();
                 });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void pushesBudgetCategoryAndStockConstraintsIntoSql() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ResultSet row = productRow();
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    RowMapper<Object> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(row, 0));
+                });
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc, new InMemoryProductBackend());
+
+        backend.listPopularProducts(new ProductBackend.ProductDiscoveryCriteria(
+                "笔记本电脑", "预算9000元，只看有货", new BigDecimal("9000"), true, 5));
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), arguments.capture());
+        assertThat(sql.getValue())
+                .contains("UPPER(COALESCE(to_jsonb(p)->>'category', '')) = CAST(? AS TEXT)")
+                .contains("CAST(? AS NUMERIC) IS NULL")
+                .contains("p.price <= CAST(? AS NUMERIC)")
+                .contains("CAST(? AS BOOLEAN) = FALSE")
+                .contains("p.stock")
+                .contains("'售罄'");
+        assertThat(arguments.getValue())
+                .contains("笔记本电脑", new BigDecimal("9000"), true, 5);
     }
 
     private static ResultSet productRow() throws Exception {

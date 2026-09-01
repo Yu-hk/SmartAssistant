@@ -122,6 +122,7 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                 + "embedding vector(" + dimensions + "),"
                 + "created_at BIGINT NOT NULL"
                 + ")");
+        alignEmbeddingDimension();
         try {
             jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_embedding_hnsw"
                     + " ON " + TABLE + " USING hnsw (embedding vector_cosine_ops)");
@@ -164,6 +165,37 @@ public class PgVectorKnowledgeBase implements KnowledgeBase {
                     + " ADD COLUMN IF NOT EXISTS chunk_role VARCHAR(16) DEFAULT 'STANDALONE'");
         } catch (Exception e) {
             log.warn("[PgVectorKB:{}] 摄入列迁移失败（可忽略，可能已存在）: {}", name, e.getMessage());
+        }
+    }
+
+    /**
+     * Aligns an already-created pgvector column with the embedding model used by this process.
+     * PostgreSQL's {@code CREATE TABLE IF NOT EXISTS} cannot change a previous vector typmod,
+     * so a model switch would otherwise make every upsert fail. Old vectors cannot be converted
+     * across dimensions; only the derived embedding values are cleared while document source data
+     * is retained and can be rebuilt by the normal seed/reindex flow.
+     */
+    private void alignEmbeddingDimension() {
+        try {
+            Integer storedDimensions = jdbcTemplate.queryForObject(
+                    "SELECT a.atttypmod FROM pg_attribute a "
+                            + "JOIN pg_class c ON a.attrelid = c.oid "
+                            + "JOIN pg_namespace n ON c.relnamespace = n.oid "
+                            + "WHERE n.nspname = current_schema() AND c.relname = '" + TABLE + "' "
+                            + "AND a.attname = 'embedding' AND NOT a.attisdropped",
+                    Integer.class);
+            if (storedDimensions == null || storedDimensions <= 0
+                    || storedDimensions == dimensions) {
+                return;
+            }
+            log.warn("[PgVectorKB:{}] 检测到向量维度变化 {} -> {}，保留文档并重置派生向量",
+                    name, storedDimensions, dimensions);
+            jdbcTemplate.execute("DROP INDEX IF EXISTS idx_knowledge_embedding_hnsw");
+            jdbcTemplate.execute("ALTER TABLE " + TABLE
+                    + " ALTER COLUMN embedding TYPE vector(" + dimensions + ")"
+                    + " USING NULL::vector(" + dimensions + ")");
+        } catch (Exception error) {
+            log.warn("[PgVectorKB:{}] 向量维度自检/迁移失败: {}", name, error.getMessage());
         }
     }
 

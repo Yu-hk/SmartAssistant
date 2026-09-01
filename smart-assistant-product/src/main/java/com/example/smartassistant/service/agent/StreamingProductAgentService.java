@@ -37,6 +37,8 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Product 流式 Agent 服务。
@@ -84,6 +86,9 @@ public class StreamingProductAgentService {
 
     @Value("${product.recommendation.disable-thinking:true}")
     private boolean disableRecommendationThinking = true;
+
+    @Value("${spring.ai.openai.base-url:}")
+    private String modelApiBaseUrl = "";
 
     @Value("${product.rag.answer-verification.max-retries:1}")
     private int ragAnswerVerificationMaxRetries = 1;
@@ -169,7 +174,8 @@ public class StreamingProductAgentService {
         // ⭐ G4 运营指标：记录一次商品域应答（无答案率分母）
         opsMetrics.recordAnswer("product", "product");
         try {
-            log.info("[StreamingProductAgent] 执行推理: {}, requestId={}", userMessage, rid);
+            log.info("[StreamingProductAgent] 执行推理: requestId={}, messageLength={}",
+                    rid, userMessage != null ? userMessage.length() : 0);
 
             // Generic catalog/popularity questions are deterministic data queries, not RAG questions.
             // Handle them before RAG so an empty semantic retrieval cannot reject a valid discovery request.
@@ -197,9 +203,15 @@ public class StreamingProductAgentService {
                                     discovery.answer() + "\n\n[Flash 分析结果]\n" + analysis.answer(),
                                     rid + ":recommendation");
                             if (!recommendation.quality().isFail()) {
-                                answer = recommendation.answer();
-                                generatedQuality = recommendation.quality();
-                                analysisApplied = true;
+                                if (isPopularityRequest(userMessage)
+                                        && isRecommendationDeferral(recommendation.answer())) {
+                                    log.info("[StreamingProductAgent] 热门请求的模型结论要求补充条件，"
+                                            + "回退站内排行榜: requestId={}", rid);
+                                } else {
+                                    answer = recommendation.answer();
+                                    generatedQuality = recommendation.quality();
+                                    analysisApplied = true;
+                                }
                                 generationStatus = StageSpan.STATUS_OK;
                             }
                         }
@@ -348,6 +360,23 @@ public class StreamingProductAgentService {
         }
     }
 
+    private static boolean isPopularityRequest(String message) {
+        if (message == null || message.isBlank()) return false;
+        String normalized = message.replaceAll("\\s+", "");
+        return normalized.contains("热门") || normalized.contains("热销")
+                || normalized.contains("畅销") || normalized.contains("排行");
+    }
+
+    private static boolean isRecommendationDeferral(String answer) {
+        if (answer == null || answer.isBlank()) return true;
+        return answer.contains("无法形成唯一推荐")
+                || answer.contains("无法可靠推荐")
+                || answer.contains("暂不推荐唯一商品")
+                || answer.contains("不能推荐唯一商品")
+                || answer.contains("需要补充用户")
+                || answer.contains("需补充用户");
+    }
+
     static String normalizePublicRagAnswer(String answer) {
         if (answer == null || answer.isBlank()) return answer;
         return answer.replaceAll("\\[E(\\d+)-CID:([^\\]]+)]", "[E$1][CID:$2]");
@@ -454,7 +483,7 @@ public class StreamingProductAgentService {
         String workingContext = verifiedContext;
         int revisionCount = 0;
         try {
-            AnalysisAudit audit = auditAnalysis(recommendationModel, question, workingContext);
+            AnalysisAudit audit = auditAndRecommend(recommendationModel, question, workingContext);
             while (!audit.valid() && revisionCount < Math.max(0, maxReanalysis)) {
                 revisionCount++;
                 String correctionPrompt = promptManager.renderDataAnalysisExpert(
@@ -473,7 +502,7 @@ public class StreamingProductAgentService {
                             DomainQualityResult.fail("EMPTY_REANALYSIS_RESULT"));
                 }
                 workingContext = verifiedContext + "\n\n[Flash 修正后的分析]\n" + revisedAnalysis;
-                audit = auditAnalysis(recommendationModel, question, workingContext);
+                audit = auditAndRecommend(recommendationModel, question, workingContext);
             }
 
             if (!audit.valid()) {
@@ -482,36 +511,17 @@ public class StreamingProductAgentService {
                         DomainQualityResult.fail("PRODUCT_ANALYSIS_AUDIT_REJECTED"));
             }
 
-            String recommendationPrompt = promptManager.renderVerifiedProductRecommendation(
-                    question,
-                    workingContext + "\n\n[Pro 核实结果]\n分析事实核实通过");
-            String rawRecommendation = callBoundedModel(
-                    recommendationModel, tierModelRegistry.modelName(ModelTier.HEAVY),
-                    recommendationPrompt, recommendationMaxTokens);
-            String recommendation = parseRecommendationConclusion(rawRecommendation);
-            if (recommendation == null) {
-                log.warn("[StreamingProductAgent] Pro 推荐结论格式无效，执行一次 JSON 定向重试: raw={}",
-                        truncateForLog(rawRecommendation, 240));
-                rawRecommendation = callBoundedModel(
-                        recommendationModel,
-                        tierModelRegistry.modelName(ModelTier.HEAVY),
-                        recommendationPrompt
-                                + "\n\n上一次输出未能解析。只输出包含 conclusion 的单个 JSON 对象，"
-                                + "conclusion 只写最终结论，不得包含标题、分析过程、候选清单或解释。",
-                        recommendationMaxTokens);
-                recommendation = parseRecommendationConclusion(rawRecommendation);
-            }
+            String recommendation = audit.conclusion();
             if (recommendation == null || recommendation.isBlank()) {
-                return DomainAgentResponse.of("暂时无法生成可靠的商品推荐结论，请稍后重试。",
-                        DomainQualityResult.fail("EMPTY_VERIFIED_RECOMMENDATION"));
+                return deterministicVerifiedFallback(
+                        verifiedContext, "EMPTY_VERIFIED_RECOMMENDATION");
             }
 
             FaithfulnessGuard.FaithfulnessVerdict verdict =
                     faithfulnessGuard.check(recommendation, workingContext);
             if (verdict.hallucination()) {
-                return DomainAgentResponse.of(
-                        "当前商品数据不足以形成可靠推荐，请补充可核实的商品信息后重试。",
-                        DomainQualityResult.fail("UNSUPPORTED_VERIFIED_RECOMMENDATION"));
+                return deterministicVerifiedFallback(
+                        verifiedContext, "UNSUPPORTED_VERIFIED_RECOMMENDATION");
             }
             String reason = revisionCount > 0
                     ? "PRODUCT_RECOMMENDATION_PRO_VERIFIED_AFTER_REANALYSIS"
@@ -520,11 +530,50 @@ public class StreamingProductAgentService {
                     rid, revisionCount);
             return DomainAgentResponse.of(recommendation, DomainQualityResult.pass(1.0, reason));
         } catch (Exception error) {
-            log.error("[StreamingProductAgent] Pro 推荐核实失败: requestId={}, error={}",
-                    rid, error.getMessage(), error);
-            return DomainAgentResponse.of("暂时无法生成可靠的商品推荐结论，请稍后重试。",
-                    DomainQualityResult.fail("PRODUCT_RECOMMENDATION_AUDIT_ERROR"));
+            if (error instanceof IllegalStateException) {
+                log.warn("[StreamingProductAgent] Pro 推荐核实格式异常，回退已验证候选: "
+                        + "requestId={}, error={}", rid, error.getMessage());
+            } else {
+                log.error("[StreamingProductAgent] Pro 推荐核实失败: requestId={}, error={}",
+                        rid, error.getMessage(), error);
+            }
+            return deterministicVerifiedFallback(
+                    verifiedContext, "PRODUCT_RECOMMENDATION_AUDIT_ERROR");
         }
+    }
+
+    /**
+     * Model formatting failures must not discard already verified catalog facts. This fallback
+     * exposes one concise candidate from predecessor output and never invents missing attributes.
+     */
+    private DomainAgentResponse deterministicVerifiedFallback(String verifiedContext, String reason) {
+        String candidate = firstVerifiedCandidate(verifiedContext);
+        if (candidate == null) {
+            return DomainAgentResponse.of(
+                    "当前商品数据不足以形成可靠推荐，请补充可核实的商品信息后重试。",
+                    DomainQualityResult.fail(reason));
+        }
+        return DomainAgentResponse.of(
+                "根据当前可核实的商品数据，优先考虑" + candidate + "。",
+                DomainQualityResult.warn(0.75,
+                        "PRODUCT_DETERMINISTIC_VERIFIED_FALLBACK", reason));
+    }
+
+    private static String firstVerifiedCandidate(String context) {
+        if (context == null || context.isBlank()) return null;
+        for (String line : context.split("\\R")) {
+            String trimmed = line.trim();
+            if (trimmed.matches("\\d+\\.\\s+.+")
+                    && (trimmed.contains("¥") || trimmed.contains("价格"))) {
+                return trimmed.replaceFirst("^\\d+\\.\\s*", "")
+                        .replaceFirst("[。；;]+$", "");
+            }
+        }
+        Matcher matcher = Pattern.compile("(?:候选|商品)[:：]\\s*([^\\r\\n]+)")
+                .matcher(context);
+        if (!matcher.find()) return null;
+        String value = matcher.group(1).trim().replaceFirst("[。；;]+$", "");
+        return value.isBlank() ? null : value;
     }
 
     private boolean hasDistinctAnalysisAndRecommendationModels() {
@@ -538,34 +587,39 @@ public class StreamingProductAgentService {
         return light != null && heavy != null && !light.equalsIgnoreCase(heavy);
     }
 
-    private AnalysisAudit auditAnalysis(ChatModel recommendationModel,
-                                        String question, String context) throws Exception {
-        String auditPrompt = promptManager.renderProductAnalysisAudit(question, context);
+    private AnalysisAudit auditAndRecommend(ChatModel recommendationModel,
+                                            String question, String context) throws Exception {
+        String auditPrompt = promptManager.renderProductAuditAndRecommendation(question, context);
         String raw = callBoundedModel(
                 recommendationModel,
                 tierModelRegistry.modelName(ModelTier.HEAVY),
                 auditPrompt,
-                auditMaxTokens);
+                Math.max(auditMaxTokens, recommendationMaxTokens));
         AnalysisAudit parsed = parseAudit(raw);
-        if (parsed != null) return parsed;
+        if (isCompleteReview(parsed)) return parsed;
 
         // Formatting failure is not a factual rejection. Ask the same Pro model once
         // to repeat the audit in the required schema instead of sending the whole
         // recommendation node (or the Flash analysis) through an expensive retry.
-        log.warn("[StreamingProductAgent] Pro 核实结果格式无效，执行一次 JSON 定向重试: raw={}",
+        log.warn("[StreamingProductAgent] Pro 核实推荐结果格式无效，执行一次 JSON 定向重试: raw={}",
                 truncateForLog(raw, 240));
         String retryPrompt = auditPrompt
                 + "\n\n上一次输出未能解析为规定 JSON。请重新完成同一核实任务，"
-                + "只输出包含 valid、issues、correction_instruction 的单个 JSON 对象；"
+                + "只输出包含 valid、issues、correction_instruction、conclusion 的单个 JSON 对象；"
                 + "不要输出 Markdown、解释或其他文字。";
         String retriedRaw = callBoundedModel(
                 recommendationModel,
                 tierModelRegistry.modelName(ModelTier.HEAVY),
                 retryPrompt,
-                auditMaxTokens);
+                Math.max(auditMaxTokens, recommendationMaxTokens));
         parsed = parseAudit(retriedRaw);
-        if (parsed != null) return parsed;
-        throw new IllegalStateException("Pro 核实模型连续两次未返回合法 JSON");
+        if (isCompleteReview(parsed)) return parsed;
+        throw new IllegalStateException("Pro 核实推荐模型连续两次未返回完整合法 JSON");
+    }
+
+    private static boolean isCompleteReview(AnalysisAudit review) {
+        return review != null && (!review.valid()
+                || (review.conclusion() != null && !review.conclusion().isBlank()));
     }
 
     /**
@@ -576,11 +630,13 @@ public class StreamingProductAgentService {
                                     String prompt, int maxTokens) {
         OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder()
                 // Spring AI 2.0 defaults a fresh OpenAI options object to gpt-5-mini;
-                // explicitly retain the tier-selected Qwen model on this bounded request.
+                // explicitly retain the tier-selected model on this bounded request.
                 .model(modelName)
                 .maxTokens(Math.max(64, maxTokens));
-        if (disableRecommendationThinking) {
-            builder.extraBody(Map.of("enable_thinking", false));
+        Map<String, Object> thinkingOptions = thinkingExtraBody(
+                disableRecommendationThinking, modelApiBaseUrl);
+        if (!thinkingOptions.isEmpty()) {
+            builder.extraBody(thinkingOptions);
         }
         ChatResponse response = model.call(new Prompt(prompt, builder.build()));
         if (response == null || response.getResult() == null
@@ -588,6 +644,16 @@ public class StreamingProductAgentService {
             return null;
         }
         return response.getResult().getOutput().getText();
+    }
+
+    static Map<String, Object> thinkingExtraBody(boolean disabled, String baseUrl) {
+        if (!disabled) return Map.of();
+        String normalizedBaseUrl = baseUrl == null
+                ? "" : baseUrl.toLowerCase(java.util.Locale.ROOT);
+        if (normalizedBaseUrl.contains("deepseek")) {
+            return Map.of("thinking", Map.of("type", "disabled"));
+        }
+        return Map.of("enable_thinking", false);
     }
 
     private AnalysisAudit parseAudit(String raw) {
@@ -605,18 +671,11 @@ public class StreamingProductAgentService {
                     .forEach(issues::add);
         }
         String instruction = String.valueOf(data.getOrDefault("correction_instruction", ""));
+        String conclusion = data.get("conclusion") == null ? ""
+                : stripInternalThinking(String.valueOf(data.get("conclusion"))).strip();
         if (!valid && issues.isEmpty()) issues.add("Pro 核实未通过但未返回问题明细");
         if (!valid && instruction.isBlank()) instruction = String.join("；", issues);
-        return new AnalysisAudit(valid, List.copyOf(issues), instruction);
-    }
-
-    /** Extracts a public conclusion while discarding any surrounding model commentary. */
-    private String parseRecommendationConclusion(String raw) {
-        if (raw == null || raw.isBlank()) return null;
-        Map<String, Object> data = firstJsonObjectContaining(raw, "conclusion");
-        if (data == null || data.get("conclusion") == null) return null;
-        String conclusion = stripInternalThinking(String.valueOf(data.get("conclusion"))).strip();
-        return conclusion.isBlank() ? null : conclusion;
+        return new AnalysisAudit(valid, List.copyOf(issues), instruction, conclusion);
     }
 
     private Map<String, Object> firstJsonObjectContaining(String raw, String requiredKey) {
@@ -667,9 +726,5 @@ public class StreamingProductAgentService {
     }
 
     private record AnalysisAudit(boolean valid, List<String> issues,
-                                 String correctionInstruction) {
-        static AnalysisAudit rejected(String issue) {
-            return new AnalysisAudit(false, List.of(issue), issue);
-        }
-    }
+                                 String correctionInstruction, String conclusion) {}
 }

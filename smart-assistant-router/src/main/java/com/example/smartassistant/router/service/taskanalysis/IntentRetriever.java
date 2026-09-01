@@ -29,8 +29,6 @@ import java.util.Map;
 public class IntentRetriever {
 
     private static final Logger log = LoggerFactory.getLogger(IntentRetriever.class);
-    private static final double KEYWORD_WEIGHT = 0.3;
-
     private final BgeOnnxEmbeddingService embeddingService;
     private final AgentDiscoveryService agentDiscoveryService;
     private volatile Map<String, float[]> intentEmbeddings = Map.of();
@@ -53,9 +51,7 @@ public class IntentRetriever {
         if (intents.isEmpty()) return List.of();
         int limit = Math.max(1, Math.min(topK, intents.size()));
         ensureEmbeddings(intents);
-        return intentEmbeddings.isEmpty()
-                ? retrieveByKeyword(question, intents, limit)
-                : retrieveByVector(question, intents, limit);
+        return intentEmbeddings.isEmpty() ? List.of() : retrieveByVector(question, intents, limit);
     }
 
     public String buildIntentSection(List<IntentDef> intents) {
@@ -83,6 +79,9 @@ public class IntentRetriever {
         Map<String, IntentDef> definitions = new LinkedHashMap<>();
         agents.stream()
                 .filter(agent -> agent != null && Boolean.TRUE.equals(agent.getHealthy()))
+                .filter(agent -> agent.getMetadata() != null)
+                .filter(agent -> agent.getMetadata().getAgentType() != null
+                        && !agent.getMetadata().getAgentType().isBlank())
                 .sorted(Comparator.comparing(agent -> value(agent.getServiceName())))
                 .map(this::toIntentDefinition)
                 .filter(intent -> intent != null && !intent.id().isBlank())
@@ -130,7 +129,7 @@ public class IntentRetriever {
             log.info("[IntentRetriever] 动态 Agent 能力向量已刷新: {} 个", refreshed.size());
         } catch (Exception error) {
             intentEmbeddings = Map.of();
-            log.warn("[IntentRetriever] Agent 能力向量失败，降级为注册关键词匹配: {}",
+            log.warn("[IntentRetriever] Agent 能力向量失败，停止语义检索: {}",
                     error.getMessage());
         }
     }
@@ -141,24 +140,13 @@ public class IntentRetriever {
             requireUsableVector(query, "用户问题");
             return intents.stream()
                     .map(intent -> new ScoredIntent(intent,
-                            cosineSimilarity(query, intentEmbeddings.get(intent.id()))
-                                    + KEYWORD_WEIGHT * keywordHitRate(question, intent.keywords())))
+                            cosineSimilarity(query, intentEmbeddings.get(intent.id()))))
                     .sorted(Comparator.comparingDouble(ScoredIntent::score).reversed())
                     .limit(limit).map(ScoredIntent::intent).toList();
         } catch (Exception error) {
-            log.warn("[IntentRetriever] 向量检索失败，降级注册关键词: {}", error.getMessage());
-            return retrieveByKeyword(question, intents, limit);
+            log.warn("[IntentRetriever] 向量检索失败，停止语义检索: {}", error.getMessage());
+            return List.of();
         }
-    }
-
-    private static List<IntentDef> retrieveByKeyword(
-            String question, List<IntentDef> intents, int limit) {
-        return intents.stream()
-                .map(intent -> new ScoredIntent(intent,
-                        keywordHitRate(question, intent.keywords())))
-                .filter(scored -> scored.score() > 0)
-                .sorted(Comparator.comparingDouble(ScoredIntent::score).reversed())
-                .limit(limit).map(ScoredIntent::intent).toList();
     }
 
     private static List<String> normalizedValues(String[] values) {
@@ -172,16 +160,7 @@ public class IntentRetriever {
 
     private static String toEmbedText(IntentDef intent) {
         return intent.id() + "：" + intent.name() + "。" + intent.description()
-                + "关键词：" + String.join("、", intent.keywords());
-    }
-
-    private static double keywordHitRate(String question, List<String> keywords) {
-        if (keywords == null || keywords.isEmpty()) return 0;
-        String normalized = question.toLowerCase(Locale.ROOT);
-        long hits = keywords.stream()
-                .filter(keyword -> normalized.contains(keyword.toLowerCase(Locale.ROOT)))
-                .count();
-        return (double) hits / keywords.size();
+                + "。" + intent.examples() + "。" + intent.relevantTools();
     }
 
     private static double cosineSimilarity(float[] left, float[] right) {

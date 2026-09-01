@@ -74,22 +74,42 @@ public interface ProductBackend {
      * Implementations must not silently drop a non-empty category constraint.
      */
     default List<ProductSummary> listPopularProducts(ProductDiscoveryCriteria criteria) {
-        if (criteria == null || criteria.category().isBlank()) {
-            return listPopularProducts(criteria != null ? criteria.limit() : 5);
-        }
-        String category = criteria.category().toLowerCase();
-        return listPopularProducts(Math.max(criteria.limit(), 20)).stream()
-                .filter(product -> product.category().toLowerCase().contains(category)
+        ProductDiscoveryCriteria safe = criteria != null
+                ? criteria : new ProductDiscoveryCriteria("", "", 5);
+        String category = safe.category().toLowerCase();
+        return listPopularProducts(Math.max(safe.limit(), 20)).stream()
+                .filter(product -> category.isBlank()
+                        || product.category().toLowerCase().contains(category)
                         || product.name().toLowerCase().contains(category)
                         || product.spec().toLowerCase().contains(category))
-                .limit(criteria.limit())
+                .filter(product -> safe.maxPrice() == null
+                        || (product.price() != null && product.price().compareTo(safe.maxPrice()) <= 0))
+                .filter(product -> !safe.inStockOnly() || isAvailableStock(product.stock()))
+                .limit(safe.limit())
                 .toList();
     }
 
-    record ProductDiscoveryCriteria(String category, String keyword, int limit) {
+    private static boolean isAvailableStock(String stock) {
+        if (stock == null || stock.isBlank()) return false;
+        String normalized = stock.trim();
+        return !normalized.contains("缺货") && !normalized.contains("无货")
+                && !normalized.contains("售罄");
+    }
+
+    record ProductDiscoveryCriteria(
+            String category,
+            String keyword,
+            BigDecimal maxPrice,
+            boolean inStockOnly,
+            int limit) {
+        public ProductDiscoveryCriteria(String category, String keyword, int limit) {
+            this(category, keyword, null, false, limit);
+        }
+
         public ProductDiscoveryCriteria {
             category = category == null ? "" : category.trim();
             keyword = keyword == null ? "" : keyword.trim();
+            maxPrice = maxPrice != null && maxPrice.signum() > 0 ? maxPrice : null;
             limit = Math.max(1, Math.min(limit, 20));
         }
     }
@@ -101,7 +121,10 @@ public interface ProductBackend {
             String stock,
             String spec,
             long popularity,
-            String category
+            String category,
+            BigDecimal marketPrice,
+            BigDecimal rating,
+            long reviewCount
     ) {
         public ProductSummary {
             code = code == null ? "" : code;
@@ -109,12 +132,19 @@ public interface ProductBackend {
             stock = stock == null ? "" : stock;
             spec = spec == null ? "" : spec;
             category = category == null ? "" : category;
+            reviewCount = Math.max(0, reviewCount);
         }
 
         /** Compatibility constructor for integrations that have not exposed category yet. */
         public ProductSummary(String code, String name, BigDecimal price, String stock,
                               String spec, long popularity) {
-            this(code, name, price, stock, spec, popularity, "");
+            this(code, name, price, stock, spec, popularity, "", null, null, 0);
+        }
+
+        /** Compatibility constructor for integrations that expose category only. */
+        public ProductSummary(String code, String name, BigDecimal price, String stock,
+                              String spec, long popularity, String category) {
+            this(code, name, price, stock, spec, popularity, category, null, null, 0);
         }
     }
 }

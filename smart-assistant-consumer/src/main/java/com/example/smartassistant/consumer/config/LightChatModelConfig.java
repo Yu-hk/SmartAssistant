@@ -42,7 +42,7 @@ public class LightChatModelConfig {
     @Qualifier("lightChatModel")
     public ChatModel lightChatModel(
             DeepSeekChatModel deepSeekChatModel,
-            @Value("${consumer.light-model.name:${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:}}}") String model,
+            @Value("${consumer.light-model.name:${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}}}") String model,
             @Value("${consumer.light-model.temperature:0.1}") double temperature) {
 
         var lightOptions = DeepSeekChatOptions.builder()

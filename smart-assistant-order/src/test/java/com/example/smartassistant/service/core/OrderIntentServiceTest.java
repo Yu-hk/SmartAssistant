@@ -15,6 +15,39 @@ import static org.mockito.Mockito.when;
 class OrderIntentServiceTest {
 
     @Test
+    void explicitOrderListIsReadOnlyWithoutCallingLlm() {
+        AiChatService aiChatService = mock(AiChatService.class);
+        OrderIntentService service = new OrderIntentService(
+                aiChatService, mock(ChatModel.class), mock(PromptManager.class));
+
+        assertEquals(OrderIntentService.IntentType.QUERY_ORDER,
+                service.detect("查看我的订单列表"));
+        assertEquals(OrderIntentService.IntentType.QUERY_ORDER,
+                service.detect("查询我已有的历史订单"));
+        verifyNoInteractions(aiChatService);
+    }
+
+    @Test
+    void modelFailureFallsBackOnlyToSafeReads() {
+        AiChatService aiChatService = mock(AiChatService.class);
+        PromptManager promptManager = mock(PromptManager.class);
+        when(promptManager.orderIntentClassifier()).thenReturn("classify");
+        when(aiChatService.entity(any(), anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("model unavailable"));
+        OrderIntentService service = new OrderIntentService(
+                aiChatService, mock(ChatModel.class), promptManager);
+
+        assertEquals(OrderIntentService.IntentType.QUERY_ORDER,
+                service.detect("查看订单 ORD-1001 的状态"));
+        assertEquals(OrderIntentService.IntentType.TRACK_LOGISTICS,
+                service.detect("查询订单 ORD-1001 的物流轨迹"));
+        assertEquals(OrderIntentService.IntentType.OTHER,
+                service.detect("帮我创建订单并立即支付"));
+        assertEquals(OrderIntentService.IntentType.OTHER,
+                service.detect("取消订单 ORD-1001"));
+    }
+
+    @Test
     void refundConditionsAreClassifiedAsPolicyWithoutCallingLlm() {
         AiChatService aiChatService = mock(AiChatService.class);
         OrderIntentService service = new OrderIntentService(

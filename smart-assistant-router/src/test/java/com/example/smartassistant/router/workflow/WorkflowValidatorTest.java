@@ -18,7 +18,7 @@ class WorkflowValidatorTest {
     @Test
     void acceptsSafeVersionOneWorkflow() {
         WorkflowDefinition definition = workflow(List.of(
-                node("search", "product", "QUERY", List.of(), false, null, List.of()),
+                node("search", "product", "QUERY_PRODUCT", List.of(), false, null, List.of()),
                 node("order", "order", "CREATE_ORDER", List.of("search"), true,
                         "order-${requestId}", List.of())));
 
@@ -47,8 +47,8 @@ class WorkflowValidatorTest {
         var condition = new WorkflowDefinition.ConditionalEdge(
                 "search", IntentGraph.ConditionType.RESULT_FAILED, null, "search");
         WorkflowDefinition definition = new WorkflowDefinition(1, "retry", null, 0,
-                List.of(node("search", "product", "QUERY", List.of(), false, null, List.of()),
-                        node("retry", "product", "QUERY", List.of("search"), false, null,
+                List.of(node("search", "product", "QUERY_PRODUCT", List.of(), false, null, List.of()),
+                        node("retry", "product", "QUERY_PRODUCT", List.of("search"), false, null,
                                 List.of(condition))), Map.of());
 
         var result = validator.validate(definition, Set.of("product"));
@@ -59,8 +59,8 @@ class WorkflowValidatorTest {
 
     @Test
     void acceptsBindingFromDeclaredDependency() {
-        WorkflowDefinition.WorkflowNode source = node(
-                "analysis", "product", "ANALYZE_PRODUCT_DATA", List.of(), false, null, List.of());
+        WorkflowDefinition.WorkflowNode source = nodeWithSchema(
+                "analysis", "product", "ANALYZE_PRODUCT_DATA", "product-analysis.v1");
         WorkflowDefinition.WorkflowNode consumer = new WorkflowDefinition.WorkflowNode(
                 "recommend", WorkflowDefinition.NodeType.AGENT, "recommend", "product",
                 "RECOMMEND_PRODUCT", Map.of(), List.of("analysis"), List.of(),
@@ -90,8 +90,8 @@ class WorkflowValidatorTest {
 
     @Test
     void rejectsBindingExpressionNotSupportedByRuntime() {
-        WorkflowDefinition.WorkflowNode source = node(
-                "analysis", "product", "ANALYZE_PRODUCT_DATA", List.of(), false, null, List.of());
+        WorkflowDefinition.WorkflowNode source = nodeWithSchema(
+                "analysis", "product", "ANALYZE_PRODUCT_DATA", "product-analysis.v1");
         WorkflowDefinition.WorkflowNode consumer = new WorkflowDefinition.WorkflowNode(
                 "recommend", WorkflowDefinition.NodeType.AGENT, "recommend", "product",
                 "RECOMMEND_PRODUCT", Map.of(), List.of("analysis"), List.of(),
@@ -103,6 +103,55 @@ class WorkflowValidatorTest {
 
         assertFalse(result.valid());
         assertTrue(has(result, "INVALID_INPUT_BINDING"));
+    }
+
+    @Test
+    void rejectsDataBindingWhenSourceDoesNotDeclareOutputSchema() {
+        WorkflowDefinition.WorkflowNode source = node(
+                "analysis", "product", "ANALYZE_PRODUCT_DATA", List.of(), false, null, List.of());
+        WorkflowDefinition.WorkflowNode consumer = new WorkflowDefinition.WorkflowNode(
+                "recommend", WorkflowDefinition.NodeType.AGENT, "recommend", "product",
+                "RECOMMEND_PRODUCT", Map.of(), List.of("analysis"), List.of(),
+                "has sku", false, List.of(), null, true,
+                ExecutionPlan.MergePolicy.STRUCTURED, "product-recommendation.v1",
+                Map.of("analysis", "$.nodes.analysis.data.analysis"));
+
+        var result = validator.validate(workflow(List.of(source, consumer)), Set.of("product"));
+
+        assertFalse(result.valid());
+        assertTrue(has(result, "MISSING_OUTPUT_SCHEMA_FOR_BINDING"));
+    }
+
+    @Test
+    void rejectsBindingFieldNotDeclaredBySourceSchema() {
+        WorkflowDefinition.WorkflowNode source = nodeWithSchema(
+                "analysis", "product", "ANALYZE_PRODUCT_DATA", "product-analysis.v1");
+        WorkflowDefinition.WorkflowNode consumer = new WorkflowDefinition.WorkflowNode(
+                "recommend", WorkflowDefinition.NodeType.AGENT, "recommend", "product",
+                "RECOMMEND_PRODUCT", Map.of(), List.of("analysis"), List.of(),
+                "has sku", false, List.of(), null, true,
+                ExecutionPlan.MergePolicy.STRUCTURED, "product-recommendation.v1",
+                Map.of("ids", "$.nodes.analysis.data.product_ids"));
+
+        var result = validator.validate(workflow(List.of(source, consumer)), Set.of("product"));
+
+        assertFalse(result.valid());
+        assertTrue(has(result, "UNKNOWN_BINDING_FIELD"));
+    }
+
+    @Test
+    void rejectsUnknownOperationAndKnownAgentDomainMismatch() {
+        WorkflowDefinition.WorkflowNode unknown = node(
+                "unknown", "product", "QUERY", List.of(), false, null, List.of());
+        WorkflowDefinition.WorkflowNode mismatch = node(
+                "mismatch", "order", "QUERY_PRODUCT", List.of(), false, null, List.of());
+
+        var result = validator.validate(workflow(List.of(unknown, mismatch)),
+                Set.of("product", "order"));
+
+        assertFalse(result.valid());
+        assertTrue(has(result, "UNKNOWN_OPERATION"));
+        assertTrue(has(result, "AGENT_OPERATION_MISMATCH"));
     }
 
     private static boolean has(WorkflowValidationResult result, String code) {
@@ -121,5 +170,14 @@ class WorkflowValidatorTest {
                 approval ? WorkflowDefinition.NodeType.HUMAN_APPROVAL : WorkflowDefinition.NodeType.AGENT,
                 "execute " + id, agent, operation, Map.of(), dependencies, conditions,
                 "non-empty result", approval, List.of(), idempotencyKey);
+    }
+
+    private static WorkflowDefinition.WorkflowNode nodeWithSchema(
+            String id, String agent, String operation, String outputSchema) {
+        return new WorkflowDefinition.WorkflowNode(
+                id, WorkflowDefinition.NodeType.AGENT, "execute " + id, agent,
+                operation, Map.of(), List.of(), List.of(), "non-empty result",
+                false, List.of(), null, true, ExecutionPlan.MergePolicy.STRUCTURED,
+                outputSchema, Map.of());
     }
 }

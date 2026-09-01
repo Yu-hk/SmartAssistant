@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -61,6 +62,19 @@ class PgVectorKnowledgeBaseDefectTest {
         assertTrue(ddl.contains("embedding vector(1536)"),
                 "建表维度应来自 BgeEmbeddingModel.dimensions()(1536)，而非硬编码 384");
         assertFalse(ddl.contains("vector(384)"), "不应写死 384 维");
+    }
+
+    @Test
+    void existingVectorColumnIsRealignedWhenEmbeddingModelDimensionChanges() {
+        when(bge.dimensions()).thenReturn(512);
+        when(jdbc.queryForObject(anyString(), eq(Integer.class))).thenReturn(1024);
+
+        new PgVectorKnowledgeBase("kb", bge, jdbc, null, null);
+
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(jdbc, atLeastOnce()).execute(captor.capture());
+        assertTrue(captor.getAllValues().stream().anyMatch(sql -> sql.contains(
+                "ALTER COLUMN embedding TYPE vector(512) USING NULL::vector(512)")));
     }
 
     @Test

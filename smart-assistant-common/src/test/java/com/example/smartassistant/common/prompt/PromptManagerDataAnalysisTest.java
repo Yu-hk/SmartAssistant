@@ -48,10 +48,13 @@ class PromptManagerDataAnalysisTest {
                 .contains("SKU-100，¥599")
                 .doesNotContain("{{query}}", "{{context}}");
         assertThat(recommendation)
-                .contains("### 推荐核实完成 ###")
+                .contains("\"conclusion\"")
+                .contains("只输出一个合法 JSON 对象")
                 .contains("销售量、性价比、口碑")
                 .contains("没有明确用户偏好时不得虚构偏好")
                 .contains("只负责推荐，不得创建订单")
+                .contains("分析依据、核实过程、候选清单、维度评分和审计记录只用于内部判断")
+                .doesNotContain("### 推荐核实完成 ###")
                 .doesNotContain("{{query}}", "{{context}}");
     }
 

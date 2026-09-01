@@ -1,11 +1,18 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { getAuthUser } from '../api/auth';
 import { useTheme } from '../hooks/useTheme';
-import { AdminConversationsPage } from './AdminConversationsPage';
-import { AdminKnowledgePage } from './AdminKnowledgePage';
 import { AdminLayout } from './AdminLayout';
-import { AdminOverviewPage } from './AdminOverviewPage';
+
+const AdminOverviewPage = lazy(() => import('./AdminOverviewPage').then(module => ({
+  default: module.AdminOverviewPage,
+})));
+const AdminConversationsPage = lazy(() => import('./AdminConversationsPage').then(module => ({
+  default: module.AdminConversationsPage,
+})));
+const AdminKnowledgePage = lazy(() => import('./AdminKnowledgePage').then(module => ({
+  default: module.AdminKnowledgePage,
+})));
 
 /**
  * Independent administrator application.
@@ -25,13 +32,15 @@ export function AdminApp() {
       onRefresh={() => setRefreshVersion(version => version + 1)}
       onToggleTheme={toggleTheme}
     >
-      <Routes>
-        <Route index element={<Navigate to="overview" replace />} />
-        <Route path="overview" element={<AdminOverviewPage refreshVersion={refreshVersion} />} />
+      <Suspense fallback={<div className="admin-loading" role="status">正在加载管理数据…</div>}>
+        <Routes>
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<AdminOverviewPage refreshVersion={refreshVersion} />} />
         <Route path="conversations" element={<AdminConversationsPage refreshVersion={refreshVersion} />} />
         <Route path="knowledge" element={<AdminKnowledgePage refreshVersion={refreshVersion} />} />
         <Route path="*" element={<Navigate to="overview" replace />} />
-      </Routes>
+        </Routes>
+      </Suspense>
     </AdminLayout>
   );
 }
