@@ -7,6 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.consumer.service.data.HybridDataQueryService;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
@@ -36,9 +37,10 @@ public class DataQueryController {
 
     public DataQueryController(
             HybridDataQueryService hybridDataQueryService,
-            @Qualifier("lightChatModel") ChatModel lightModel) {
+            @Qualifier("lightChatModel") ChatModel lightModel,
+            AiChatService aiChatService) {
         this.hybridDataQueryService = hybridDataQueryService;
-        this.chatClient = ChatClient.create(lightModel);
+        this.chatClient = aiChatService.buildChatClient(lightModel);
     }
 
     /**

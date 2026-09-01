@@ -126,7 +126,9 @@ public class RouterClient {
             String threadId = MDC.get("threadId");
             if (traceId != null) headers.set("X-Trace-Id", traceId);
             if (mdcRequestId != null) headers.set("X-Request-Id", mdcRequestId);
+            else if (requestId != null && !requestId.isBlank()) headers.set("X-Request-Id", requestId);
             if (threadId != null) headers.set("X-Thread-Id", threadId);
+            if (sessionId != null && !sessionId.isBlank()) headers.set("X-Session-Id", sessionId);
 
             // 传递 JWT Token
             try {

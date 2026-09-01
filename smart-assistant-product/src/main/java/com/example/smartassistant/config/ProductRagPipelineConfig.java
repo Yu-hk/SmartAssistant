@@ -15,6 +15,7 @@ import com.example.smartassistant.common.rag.pipeline.EmbeddingScorer;
 import com.example.smartassistant.common.rag.pipeline.MetricsCollectorHandler;
 import com.example.smartassistant.common.rag.pipeline.QueryRewriteHandler;
 import com.example.smartassistant.common.rag.pipeline.RerankHandler;
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.service.search.LlmSupplementalQueryPlanner;
 import com.example.smartassistant.service.search.SupplementalQueryPlanner;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -71,10 +72,11 @@ public class ProductRagPipelineConfig {
     @Bean
     @ConditionalOnProperty(name = "product.rag.query-rewrite.enabled", havingValue = "true", matchIfMissing = true)
     public QueryRewriteHandler queryRewriteHandler(
-            @Qualifier("openAiChatModel") ChatModel chatModel) {
+            @Qualifier("openAiChatModel") ChatModel chatModel,
+            AiChatService aiChatService) {
         log.info("[ProductRagPipeline] 注册 QueryRewriteHandler（openAiChatModel）");
 
-        ChatClient chatClient = ChatClient.create(chatModel);
+        ChatClient chatClient = aiChatService.buildChatClient(chatModel);
 
         return new QueryRewriteHandler(prompt -> {
             try {
@@ -94,8 +96,9 @@ public class ProductRagPipelineConfig {
     @Bean
     @ConditionalOnProperty(name = "product.rag.agentic.enabled", havingValue = "true", matchIfMissing = true)
     public SupplementalQueryPlanner supplementalQueryPlanner(
-            @Qualifier("openAiChatModel") ChatModel chatModel) {
-        return new LlmSupplementalQueryPlanner(ChatClient.create(chatModel));
+            @Qualifier("openAiChatModel") ChatModel chatModel,
+            AiChatService aiChatService) {
+        return new LlmSupplementalQueryPlanner(aiChatService.buildChatClient(chatModel));
     }
 
     /**

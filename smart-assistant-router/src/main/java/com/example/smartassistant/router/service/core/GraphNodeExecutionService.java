@@ -94,14 +94,8 @@ public class GraphNodeExecutionService {
                           Long userId, String eventsKey, String requestId,
                           String workflowKey, Integer workflowVersion, String workflowChecksum,
                           String originalQuestion) {
-        WorkflowCancellationService.Registration registration = cancellationService != null
-                && requestId != null && !requestId.isBlank() && userId != null && userId > 0
-                ? cancellationService.register(requestId, userId)
-                : () -> { };
-        try (registration) {
-            return executeRegistered(node, completed, breakerFailures, userId, eventsKey, requestId,
-                    workflowKey, workflowVersion, workflowChecksum, originalQuestion);
-        }
+        return executeRegistered(node, completed, breakerFailures, userId, eventsKey, requestId,
+                workflowKey, workflowVersion, workflowChecksum, originalQuestion);
     }
 
     private SubTaskResult executeRegistered(IntentNode node,

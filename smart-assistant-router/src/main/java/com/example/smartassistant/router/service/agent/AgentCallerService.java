@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -397,6 +398,10 @@ public class AgentCallerService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             if (requestId != null && !requestId.isBlank()) {
                 headers.set("X-Request-Id", requestId);
+            }
+            String sessionId = MDC.get("sessionId");
+            if (sessionId != null && !sessionId.isBlank()) {
+                headers.set("X-Session-Id", sessionId);
             }
             headers.set("X-Agent-Protocol-Version", AgentExecutionRequest.CURRENT_VERSION);
 

@@ -5,7 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
-import java.util.regex.Pattern;
+import com.example.smartassistant.common.security.PiiPolicyEngine;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * 脱敏 Hook（@Order(30)）。
@@ -30,17 +31,14 @@ public class SanitizeHook implements ToolExecutionHook {
 
     private static final Logger log = LoggerFactory.getLogger(SanitizeHook.class);
 
-    /** 手机号：3位 + 4位 + 4位 = 11位 */
-    private static final Pattern PHONE_PATTERN =
-            Pattern.compile("(?<!\\d)(\\d{3})\\d{4}(\\d{4})(?!\\d)");
+    private final PiiPolicyEngine piiPolicyEngine;
 
-    /** 身份证号：6位 + 8位 + 4位 = 18位 */
-    private static final Pattern ID_CARD_PATTERN =
-            Pattern.compile("(?<!\\d)(\\d{6})\\d{8}(\\d{4})(?!\\d)");
+    public SanitizeHook() { this(PiiPolicyEngine.shared()); }
 
-    /** 银行卡号：4位 + 8~11位 + 4位 = 16~19位 */
-    private static final Pattern BANK_CARD_PATTERN =
-            Pattern.compile("(?<!\\d)(\\d{4})\\d{8,11}(\\d{4})(?!\\d)");
+    @Autowired
+    public SanitizeHook(PiiPolicyEngine piiPolicyEngine) {
+        this.piiPolicyEngine = piiPolicyEngine;
+    }
 
     @Override
     public void preExecute(ToolHookContext context) {
@@ -53,10 +51,7 @@ public class SanitizeHook implements ToolExecutionHook {
             return result;
         }
 
-        String sanitized = result;
-        sanitized = PHONE_PATTERN.matcher(sanitized).replaceAll("$1****$2");
-        sanitized = ID_CARD_PATTERN.matcher(sanitized).replaceAll("$1********$2");
-        sanitized = BANK_CARD_PATTERN.matcher(sanitized).replaceAll("$1****$2");
+        String sanitized = piiPolicyEngine.mask(result);
 
         if (!sanitized.equals(result)) {
             log.info("[SanitizeHook] 脱敏处理: tool={}, masked=true", context.getToolName());

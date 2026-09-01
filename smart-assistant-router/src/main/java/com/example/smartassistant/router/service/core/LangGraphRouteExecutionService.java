@@ -56,9 +56,9 @@ public class LangGraphRouteExecutionService {
     private static final Logger log = LoggerFactory.getLogger(LangGraphRouteExecutionService.class);
     private static final String CONTEXT_ID = "contextId";
     private static final String GRAPH_SPEC = "graphSpec";
-    private static final String USER_ID = "userId";
+    static final String USER_ID = "userId";
     private static final String EVENTS_KEY = "eventsKey";
-    private static final String REQUEST_ID = "requestId";
+    static final String REQUEST_ID = "requestId";
     private static final String RESULTS = "results";
     private static final String COMPLETED_IDS = "completedIds";
     private static final String PHASE = "phase";
@@ -78,18 +78,29 @@ public class LangGraphRouteExecutionService {
     private final Executor parallelExecutor;
     private final ConcurrentHashMap<String, ExecutionContext> contexts = new ConcurrentHashMap<>();
     private WorkflowExecutionLeaseService executionLeaseService;
+    private final LangGraphNodeLifecycleMiddleware nodeLifecycleMiddleware;
 
     @Value("${router.graph.max-replans:1}")
     private int maxReplans;
 
+    @Autowired
     public LangGraphRouteExecutionService(GraphNodeExecutionService nodeExecutor,
                                           TaskPlannerService taskPlannerService,
                                           LangGraphRedisCheckpointSaver checkpointSaver,
-                                          @Qualifier("routerParallelAgentExecutor") Executor parallelExecutor) {
+                                          @Qualifier("routerParallelAgentExecutor") Executor parallelExecutor,
+                                          LangGraphNodeLifecycleMiddleware nodeLifecycleMiddleware) {
         this.nodeExecutor = nodeExecutor;
         this.taskPlannerService = taskPlannerService;
         this.checkpointSaver = checkpointSaver;
         this.parallelExecutor = parallelExecutor;
+        this.nodeLifecycleMiddleware = nodeLifecycleMiddleware;
+    }
+
+    LangGraphRouteExecutionService(GraphNodeExecutionService nodeExecutor,
+                                   TaskPlannerService taskPlannerService,
+                                   LangGraphRedisCheckpointSaver checkpointSaver,
+                                   Executor parallelExecutor) {
+        this(nodeExecutor, taskPlannerService, checkpointSaver, parallelExecutor, null);
     }
 
     @Autowired(required = false)
@@ -358,6 +369,9 @@ public class LangGraphRouteExecutionService {
             channels.put(PHASE, Channels.base(() -> ""));
             StateGraph<RouterGraphState> stateGraph = new StateGraph<>(
                     channels, RouterGraphState::new);
+            if (nodeLifecycleMiddleware != null) {
+                stateGraph.addWrapCallNodeHook(nodeLifecycleMiddleware);
+            }
             stateGraph.addNode(VALIDATE, node_async((state, config) -> Map.of(PHASE, VALIDATE)));
             stateGraph.addNode(COMPLETE, node_async((state, config) -> Map.of(PHASE, COMPLETE)));
             stateGraph.addNode(REJECT, node_async((state, config) -> Map.of(PHASE, REJECT)));

@@ -1,17 +1,26 @@
 package com.example.smartassistant.common.gateway.llm;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.core.IntervalFunction;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
+import io.github.resilience4j.timelimiter.TimeLimiter;
+import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.Objects;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * P0 统一 LLM 调用网关。
  * <p>
  * 提供统一的超时控制、重试机制、熔断保护，不依赖具体 LLM SDK（ChatClient 无关）。
+ * 弹性策略委托给 Resilience4j，网关只保留项目级返回契约和日志语义。
  * 调用方传入 {@link LLMExecutor} 回调即可。
  * </p>
  *
@@ -34,7 +43,7 @@ public class AgentLLMGateway {
 
     // ==================== 熔断器 ====================
 
-    private final ConcurrentHashMap<String, CircuitBreakerState> circuitBreakers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CircuitBreaker> circuitBreakers = new ConcurrentHashMap<>();
 
     private static final int CB_FAILURE_THRESHOLD = 5;
     private static final Duration CB_RECOVERY_TIMEOUT = Duration.ofSeconds(30);
@@ -56,75 +65,52 @@ public class AgentLLMGateway {
 
         String key = modelKey != null ? modelKey : "default";
 
-        // 1. 熔断检查
-        if (config.enableCircuitBreaker() && isCircuitBroken(key)) {
-            log.warn("[LLMGateway] ⛔ 熔断器已打开: model={}", key);
-            return LLMCallResult.failure("circuit_breaker_open: " + key, 0);
-        }
+        CircuitBreaker circuitBreaker = config.enableCircuitBreaker()
+                ? circuitBreakers.computeIfAbsent(key, this::newCircuitBreaker)
+                : null;
+        Retry retry = newRetry(key, config);
+        TimeLimiter timeLimiter = TimeLimiter.of(TimeLimiterConfig.custom()
+                .timeoutDuration(config.timeout())
+                .cancelRunningFuture(true)
+                .build());
 
-        // 2. 重试循环
         long overallStart = System.currentTimeMillis();
-        Exception lastException = null;
-        for (int attempt = 0; attempt <= config.maxRetries(); attempt++) {
-            if (attempt > 0) {
-                long delayMs = (long) Math.pow(2, attempt) * 200;
-                log.warn("[LLMGateway] 重试({}/{}): {}ms后重试", attempt, config.maxRetries(), delayMs);
-                try { Thread.sleep(delayMs); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            Callable<String> singleAttempt = () -> timeLimiter.executeFutureSupplier(
+                    () -> executor.submit(modelCall::execute));
+            Callable<String> decorated = Retry.decorateCallable(retry, singleAttempt);
+            if (circuitBreaker != null) {
+                // 熔断器位于重试器外层：一次业务调用只有在全部尝试失败后才计为一次失败。
+                decorated = CircuitBreaker.decorateCallable(circuitBreaker, decorated);
             }
 
-            long start = System.currentTimeMillis();
-            ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-            Future<String> future = null;
-            try {
-                future = executor.submit(() -> {
-                    try {
-                        return modelCall.execute();
-                    } catch (Exception e) {
-                        throw new CompletionException(e);
-                    }
-                });
-
-                String content = future.get(config.timeout().toMillis(), TimeUnit.MILLISECONDS);
-                long elapsed = System.currentTimeMillis() - start;
-
-                if (content != null) {
-                    if (config.enableCircuitBreaker()) recordSuccess(key);
-                    return LLMCallResult.success(content, elapsed);
+            String content = decorated.call();
+            long elapsed = System.currentTimeMillis() - overallStart;
+            return content != null
+                    ? LLMCallResult.success(content, elapsed)
+                    : LLMCallResult.failure("empty response", elapsed);
+        } catch (Exception e) {
+            Throwable cause = unwrap(e);
+            String errorMsg;
+            if (cause instanceof TimeoutException) {
+                errorMsg = "timeout after " + config.timeout().toMillis() + "ms";
+            } else if (cause instanceof CallNotPermittedException) {
+                errorMsg = "circuit_breaker_open: " + key;
+            } else {
+                errorMsg = cause.getMessage();
+                if (errorMsg == null || errorMsg.isBlank()) {
+                    errorMsg = cause.getClass().getSimpleName();
                 }
-            } catch (TimeoutException e) {
-                lastException = e;
-                log.warn("[LLMGateway] ⏱ 超时(attempt={}): timeout={}", attempt, config.timeout());
-            } catch (Exception e) {
-                lastException = e;
-                log.warn("[LLMGateway] ❌ 调用失败(attempt={}): {}", attempt,
-                        e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
-            } finally {
-                // ExecutorService.close() 会等待未响应中断的网络任务自然结束，导致配置的
-                // timeout 形同虚设。这里取消任务并立即关闭执行器，让调用方按预算返回。
-                if (future != null && !future.isDone()) {
-                    future.cancel(true);
-                }
-                executor.shutdownNow();
             }
+            long elapsed = System.currentTimeMillis() - overallStart;
+            log.error("[LLMGateway] ❌ 调用彻底失败: model={}, error={}, maxRetries={}",
+                    key, errorMsg, config.maxRetries());
+            return LLMCallResult.failure(errorMsg, elapsed);
+        } finally {
+            // TimeLimiter 会取消 Future；shutdownNow 确保不等待不响应中断的底层网络任务。
+            executor.shutdownNow();
         }
-
-        // 3. 全部重试失败
-        if (config.enableCircuitBreaker()) recordFailure(key);
-        String errorMsg;
-        if (lastException instanceof TimeoutException) {
-            errorMsg = "timeout after " + config.timeout().toMillis() + "ms";
-        } else if (lastException != null) {
-            errorMsg = lastException.getCause() != null
-                    ? lastException.getCause().getMessage()
-                    : lastException.getMessage();
-            if (errorMsg == null || errorMsg.isBlank()) errorMsg = lastException.getClass().getSimpleName();
-        } else {
-            errorMsg = "unknown";
-        }
-        long elapsed = System.currentTimeMillis() - overallStart;
-        log.error("[LLMGateway] ❌ 调用彻底失败: error={}, maxRetries={}", errorMsg, config.maxRetries());
-        return LLMCallResult.failure(errorMsg, elapsed);
     }
 
     // ==================== 函数式接口 ====================
@@ -134,46 +120,58 @@ public class AgentLLMGateway {
         String execute() throws Exception;
     }
 
-    // ==================== 熔断器实现 ====================
+    // ==================== Resilience4j 中间件配置 ====================
 
-    private static class CircuitBreakerState {
-        final AtomicInteger failureCount = new AtomicInteger(0);
-        volatile boolean open = false;
-        volatile long lastFailureTime = 0;
+    private CircuitBreaker newCircuitBreaker(String modelKey) {
+        CircuitBreakerConfig cbConfig = CircuitBreakerConfig.custom()
+                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .slidingWindowSize(CB_FAILURE_THRESHOLD)
+                .minimumNumberOfCalls(CB_FAILURE_THRESHOLD)
+                .failureRateThreshold(100.0f)
+                .waitDurationInOpenState(CB_RECOVERY_TIMEOUT)
+                .permittedNumberOfCallsInHalfOpenState(1)
+                .automaticTransitionFromOpenToHalfOpenEnabled(true)
+                .build();
+        CircuitBreaker breaker = CircuitBreaker.of("llm-" + modelKey, cbConfig);
+        breaker.getEventPublisher().onStateTransition(event ->
+                log.warn("[LLMGateway] 熔断状态变化: model={}, transition={}",
+                        modelKey, event.getStateTransition()));
+        return breaker;
     }
 
-    private boolean isCircuitBroken(String modelKey) {
-        CircuitBreakerState state = circuitBreakers.get(modelKey);
-        if (state == null || !state.open) return false;
-        if (System.currentTimeMillis() - state.lastFailureTime > CB_RECOVERY_TIMEOUT.toMillis()) {
-            state.open = false;
-            state.failureCount.set(0);
-            return false;
+    private Retry newRetry(String modelKey, LLMCallConfig config) {
+        RetryConfig retryConfig = RetryConfig.custom()
+                .maxAttempts(config.maxRetries() + 1)
+                .intervalFunction(IntervalFunction.ofExponentialBackoff(400L, 2.0))
+                .retryOnResult(Objects::isNull)
+                .build();
+        Retry retry = Retry.of("llm-" + modelKey, retryConfig);
+        retry.getEventPublisher().onRetry(event ->
+                log.warn("[LLMGateway] 重试({}/{}): model={}, lastError={}",
+                        event.getNumberOfRetryAttempts(), config.maxRetries(), modelKey,
+                        event.getLastThrowable() != null
+                                ? event.getLastThrowable().getMessage() : "empty response"));
+        return retry;
+    }
+
+    private static Throwable unwrap(Throwable throwable) {
+        Throwable current = throwable;
+        while ((current instanceof CompletionException || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
         }
-        return true;
-    }
-
-    private void recordSuccess(String modelKey) {
-        CircuitBreakerState state = circuitBreakers.get(modelKey);
-        if (state != null) { state.failureCount.set(0); state.open = false; }
-    }
-
-    private void recordFailure(String modelKey) {
-        CircuitBreakerState state = circuitBreakers.computeIfAbsent(modelKey, k -> new CircuitBreakerState());
-        int count = state.failureCount.incrementAndGet();
-        state.lastFailureTime = System.currentTimeMillis();
-        if (count >= CB_FAILURE_THRESHOLD) {
-            state.open = true;
-            log.warn("[LLMGateway] 🔒 熔断器已触发: model={}, failures={}", modelKey, count);
-        }
+        return current;
     }
 
     public boolean isCircuitOpen(String modelKey) {
-        CircuitBreakerState state = circuitBreakers.get(modelKey);
-        return state != null && state.open;
+        CircuitBreaker breaker = circuitBreakers.get(modelKey);
+        if (breaker == null) return false;
+        return breaker.getState() == CircuitBreaker.State.OPEN
+                || breaker.getState() == CircuitBreaker.State.FORCED_OPEN;
     }
 
     public void resetCircuitBreaker(String modelKey) {
-        circuitBreakers.remove(modelKey);
+        CircuitBreaker breaker = circuitBreakers.remove(modelKey);
+        if (breaker != null) breaker.reset();
     }
 }

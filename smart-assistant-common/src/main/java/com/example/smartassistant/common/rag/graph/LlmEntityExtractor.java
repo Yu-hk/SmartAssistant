@@ -42,7 +42,7 @@ public class LlmEntityExtractor implements EntityExtractor {
     private final AiChatService aiChatService;
 
     public LlmEntityExtractor(ChatModel chatModel) {
-        this(chatModel, null);
+        this(chatModel, AiChatService.governedDefaults());
     }
 
     public LlmEntityExtractor(ChatModel chatModel, AiChatService aiChatService) {
@@ -91,9 +91,8 @@ public class LlmEntityExtractor implements EntityExtractor {
         if (aiChatService != null) {
             return aiChatService.entity(chatModel, system, text, ExtractionSchema.class);
         }
-        // 退化路径：无 advisor 链时直接用裸 ChatClient 结构化输出
-        return ChatClient.create(chatModel)
-                .prompt().system(system).user(text).call().entity(ExtractionSchema.class);
+        return AiChatService.governedDefaults()
+                .entity(chatModel, system, text, ExtractionSchema.class);
     }
 
     private List<EntityNode> toNodes(List<EntityDto> dtos, String docId, String kbName) {
