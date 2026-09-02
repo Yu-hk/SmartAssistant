@@ -210,6 +210,25 @@ public class PromptManager {
         return load("prompts/consumer/hybrid-query.txt");
     }
 
+    /** 加载用户洞察与消费心理分析 Prompt。 */
+    public String userProfileAnalysis() {
+        return load("prompts/consumer/user-profile-analysis.txt");
+    }
+
+    /** 渲染用户画像分析 Prompt，输入只作为待分析数据。 */
+    public String renderUserProfileAnalysis(String conversationHistory) {
+        return renderUserProfileAnalysis("当前没有已保存画像。", conversationHistory);
+    }
+
+    /** 渲染带当前画像快照的增量用户画像分析 Prompt。 */
+    public String renderUserProfileAnalysis(String currentProfile, String conversationHistory) {
+        return userProfileAnalysis()
+                .replace("{{current_profile}}",
+                        safePromptValue(currentProfile, "当前没有已保存画像。"))
+                .replace("{{conversation_history}}",
+                        safePromptValue(conversationHistory, "当前没有可分析的对话原文。"));
+    }
+
     /** 加载对话摘要压缩 Prompt */
     public String summaryCompression() {
         return load("prompts/common/summary-compression.txt");

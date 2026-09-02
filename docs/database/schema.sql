@@ -397,7 +397,7 @@ CREATE TABLE public.conversation_feedback (
 CREATE TABLE public.conversation_session_state (
     user_id bigint NOT NULL,
     session_id character varying(100) NOT NULL,
-    status character varying(20) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    status character varying(20) DEFAULT 'ACTIVE_IDLE'::character varying NOT NULL,
     closed_at timestamp without time zone,
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     PRIMARY KEY (user_id, session_id)
@@ -405,6 +405,14 @@ CREATE TABLE public.conversation_session_state (
 
 CREATE INDEX idx_conversation_session_state_status
     ON public.conversation_session_state USING btree (status, updated_at);
+
+CREATE UNIQUE INDEX uk_conversation_one_active_per_user
+    ON public.conversation_session_state USING btree (user_id)
+    WHERE ((status)::text = ANY ((ARRAY['ACTIVE_IDLE'::character varying, 'ACTIVE_RUNNING'::character varying])::text[]));
+
+CREATE INDEX idx_conversation_suspended_fifo
+    ON public.conversation_session_state USING btree (user_id, updated_at)
+    WHERE ((status)::text = 'SUSPENDED'::text);
 
 
 --
@@ -1661,5 +1669,58 @@ CREATE INDEX IF NOT EXISTS idx_external_identity_user_id
 CREATE UNIQUE INDEX IF NOT EXISTS uk_external_identity_union_id
     ON public.user_external_identities(provider, union_id)
     WHERE union_id IS NOT NULL;
+
+-- Versioned e-commerce user profile snapshot. Existing installations use
+-- migrations/20260902_add_ecommerce_user_profiles.sql.
+CREATE TABLE IF NOT EXISTS public.user_profile_snapshot (
+    user_id BIGINT PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    profile_version BIGINT NOT NULL DEFAULT 1 CHECK (profile_version > 0),
+    schema_version VARCHAR(64) NOT NULL,
+    report JSONB NOT NULL,
+    reliable BOOLEAN NOT NULL DEFAULT FALSE,
+    purchase_stage VARCHAR(32),
+    purchase_intent_score SMALLINT CHECK (
+        purchase_intent_score IS NULL OR purchase_intent_score BETWEEN 0 AND 100
+    ),
+    churn_risk VARCHAR(16),
+    source_max_message_id BIGINT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_profile_snapshot_stage
+    ON public.user_profile_snapshot (purchase_stage, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_profile_snapshot_churn
+    ON public.user_profile_snapshot (churn_risk, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_profile_snapshot_report_gin
+    ON public.user_profile_snapshot USING GIN (report);
+
+-- Immutable audit trail for every material profile create/update operation.
+CREATE TABLE IF NOT EXISTS public.user_profile_change_log (
+    event_id VARCHAR(36) PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    request_id VARCHAR(128),
+    base_version BIGINT NOT NULL CHECK (base_version >= 0),
+    new_version BIGINT NOT NULL CHECK (new_version > 0),
+    action VARCHAR(16) NOT NULL CHECK (action IN ('CREATE', 'UPDATE')),
+    changed_fields JSONB NOT NULL DEFAULT '[]'::JSONB,
+    removed_fields JSONB NOT NULL DEFAULT '[]'::JSONB,
+    reason TEXT,
+    evidence_refs JSONB NOT NULL DEFAULT '[]'::JSONB,
+    model_name VARCHAR(128),
+    prompt_version VARCHAR(32) NOT NULL,
+    before_hash VARCHAR(64),
+    after_hash VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_profile_change_log_user
+    ON public.user_profile_change_log (user_id, new_version DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_user_profile_change_log_request
+    ON public.user_profile_change_log (user_id, request_id)
+    WHERE request_id IS NOT NULL;
 
 

@@ -15,6 +15,8 @@ import com.example.smartassistant.consumer.service.core.RequestQueueService;
 import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
 import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
 import com.example.smartassistant.consumer.service.infrastructure.ToolUsageExtractor;
+import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
+import com.example.smartassistant.consumer.service.session.ConversationGateService;
 import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.util.UserQuestionNormalizer;
 import com.example.smartassistant.routing.contract.RoutingKeys;
@@ -61,6 +63,12 @@ public class StreamChatController {
     private final RequestQueueService requestQueueService;
     private final RoutingCallLogService routingCallLogService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired(required = false)
+    private UserProfileService userProfileService;
+
+    @Autowired(required = false)
+    private ConversationGateService conversationGateService;
 
     @Value("${router.service.decision-timeout-ms:60000}")
     private long decisionTimeoutMs = 60_000L;
@@ -110,6 +118,45 @@ public class StreamChatController {
             String lastEventId,
             HttpServletResponse response) {
 
+        String normalizedMessage = UserQuestionNormalizer.normalize(message);
+        String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
+        String effectiveSessionId = effectiveSessionId(sessionId, decisionKey);
+        ConversationGateService.GateDecision lease = null;
+
+        if (conversationGateService != null) {
+            if (decisionKey == null || decisionKey.isBlank()
+                    || effectiveSessionId == null || effectiveSessionId.isBlank()) {
+                createBus(response, requestId, normalizedMessage).sendError("会话或请求标识不能为空");
+                return;
+            }
+            lease = conversationGateService.acquire(
+                    resolveUserId(), effectiveSessionId, decisionKey);
+            if (!lease.acquired()) {
+                sendGateEvent(lease, response, requestId, normalizedMessage, lastEventId);
+                return;
+            }
+        }
+
+        try (ConversationGateService.Heartbeat ignored = conversationGateService != null && lease != null
+                ? conversationGateService.heartbeat(lease) : () -> { }) {
+            executeStreamChat(normalizedMessage, requestId, sessionId, showThinking, priority,
+                    lastEventId, response);
+        } finally {
+            if (conversationGateService != null && lease != null) {
+                conversationGateService.release(lease);
+            }
+        }
+    }
+
+    private void executeStreamChat(
+            String message,
+            String requestId,
+            String sessionId,
+            boolean showThinking,
+            int priority,
+            String lastEventId,
+            HttpServletResponse response) {
+
         message = UserQuestionNormalizer.normalize(message);
 
         long startedAt = System.currentTimeMillis();
@@ -119,6 +166,8 @@ public class StreamChatController {
 
         // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
+
+        prefetchUserProfile(message, decisionKey);
 
         SseEventBus bus = createBus(response, requestId, message);
 
@@ -247,7 +296,7 @@ public class StreamChatController {
 
         // 排队
         if (decisionKey != null && !decisionKey.isBlank()) {
-            if (!handleQueue(decisionKey, priority, bus)) {
+            if (!handleQueue(decisionKey, effectiveSessionId(sessionId, decisionKey), priority, bus)) {
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                         decisionKey, message, agentName, null, startedAt, "FAILED");
                 return;
@@ -316,9 +365,63 @@ public class StreamChatController {
         String requestId = request.get("requestId");
         if (requestId != null && !requestId.isBlank()) {
             requestQueueService.complete(requestId);
-            boolean routerNotified = routerClient.cancelRouting(requestId, resolveUserId());
-            logger.info("[StreamChat] 用户取消: requestId={}, routerNotified={}",
-                    requestId, routerNotified);
+            String userId = resolveUserId();
+            boolean leaseReleased = conversationGateService != null
+                    && conversationGateService.releaseByRequest(userId, requestId);
+            boolean routerNotified = routerClient.cancelRouting(requestId, userId);
+            logger.info("[StreamChat] 用户取消: requestId={}, routerNotified={}, leaseReleased={}",
+                    requestId, routerNotified, leaseReleased);
+        }
+    }
+
+    private void sendGateEvent(ConversationGateService.GateDecision decision,
+                               HttpServletResponse response,
+                               String requestId,
+                               String message,
+                               String lastEventId) {
+        SseEventBus bus = createBus(response, requestId, message);
+        try {
+            if (decision.status() == ConversationGateService.GateStatus.REATTACHED
+                    && lastEventId != null && !lastEventId.isBlank()) {
+                try {
+                    if (bus.resume(Long.parseLong(lastEventId))) return;
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            String type = switch (decision.status()) {
+                case SESSION_SUSPENDED -> "conversation_suspended";
+                case REQUEST_BLOCKED -> "request_blocked";
+                case REATTACHED -> "request_in_progress";
+                case UNAVAILABLE -> "conversation_gate_unavailable";
+                default -> "conversation_gate_rejected";
+            };
+            String reason = switch (decision.status()) {
+                case SESSION_SUSPENDED -> "USER_HAS_ACTIVE_CONVERSATION";
+                case REQUEST_BLOCKED -> "SESSION_HAS_RUNNING_REQUEST";
+                case REATTACHED -> "REQUEST_ALREADY_RUNNING";
+                case UNAVAILABLE -> "CONVERSATION_GATE_UNAVAILABLE";
+                default -> "CONVERSATION_GATE_REJECTED";
+            };
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("type", type);
+            payload.put("sessionId", decision.sessionId());
+            payload.put("requestId", decision.requestId());
+            payload.put("activeSessionId", Objects.toString(decision.activeSessionId(), ""));
+            payload.put("queuePosition", decision.queuePosition());
+            payload.put("reason", reason);
+            payload.put("message", switch (decision.status()) {
+                case SESSION_SUSPENDED -> "当前账号正在使用其他对话，本对话已暂停并保留上下文";
+                case REQUEST_BLOCKED -> "当前对话已有请求正在处理，请等待完成后再发送";
+                case REATTACHED -> "该请求仍在处理中，请等待原请求完成";
+                default -> "会话状态服务暂不可用，请稍后重试";
+            });
+            bus.send(SseEvent.raw(type, objectMapper.writeValueAsString(payload)));
+            bus.sendDone();
+        } catch (Exception error) {
+            logger.warn("[StreamChat] 发送会话门禁事件失败: {}", error.getMessage());
+            bus.sendError("会话状态处理失败，请稍后重试");
+        } finally {
+            bus.close();
         }
     }
 
@@ -379,8 +482,18 @@ public class StreamChatController {
         throw new IllegalStateException("Missing authenticated user identity");
     }
 
-    private boolean handleQueue(String requestId, int priority, SseEventBus bus) {
-        var slotResult = requestQueueService.tryAcquireWithQueue(requestId, null, priority);
+    private void prefetchUserProfile(String message, String requestId) {
+        if (userProfileService == null || requestId == null || requestId.isBlank()) return;
+        String rawUserId = resolveUserId();
+        try {
+            userProfileService.prefetchForRequest(Long.valueOf(rawUserId), message, requestId);
+        } catch (NumberFormatException ignored) {
+            logger.debug("[StreamChat] 非数字用户跳过画像预取: userId={}", rawUserId);
+        }
+    }
+
+    private boolean handleQueue(String requestId, String sessionId, int priority, SseEventBus bus) {
+        var slotResult = requestQueueService.tryAcquireWithQueue(requestId, sessionId, priority);
         switch (slotResult) {
             case QUEUE_FULL:
                 bus.sendError("系统繁忙，请稍后再试");
@@ -478,6 +591,15 @@ public class StreamChatController {
                 tokenUsage.totalTokens(),
                 message,
                 toolUsage);
+        if ("SUCCESS".equals(status) && userProfileService != null
+                && userId != null && requestId != null && !requestId.isBlank()) {
+            try {
+                userProfileService.commitAfterSuccessfulTurn(userId, requestId);
+            } catch (RuntimeException error) {
+                logger.error("[StreamChat] 调度画像提交失败: requestId={}, error={}",
+                        requestId, error.getMessage());
+            }
+        }
     }
 
     private String effectiveSessionId(String requestedSessionId, String decisionKey) {

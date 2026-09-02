@@ -6,6 +6,7 @@ import { ApiError } from '../api/client';
 function normalizeSessionStatus(value: unknown): SessionStatus {
   const status = String(value ?? '').trim().toUpperCase();
   if (['CLOSED', 'CLOSE', 'ENDED', 'TERMINATED'].includes(status)) return 'closed';
+  if (['SUSPENDED', 'FROZEN'].includes(status)) return 'suspended';
   if (['HUMAN_TRANSFER', 'TRANSFERRED', 'HANDOFF', 'HUMAN_HANDOFF'].includes(status)) {
     return 'human_transfer';
   }
@@ -165,8 +166,10 @@ export function useSessions() {
 
   const closeSession = useCallback(async (sessionId: string) => {
     setSessionActionError(null);
+    let activatedSessionId = '';
     try {
-      await sessionApi.closeSession(sessionId);
+      const result = await sessionApi.closeSession(sessionId);
+      activatedSessionId = result.activatedSessionId || '';
     } catch (e) {
       // A local unsaved session can still be closed. Other failures must not be
       // rendered as a successful close.
@@ -176,7 +179,11 @@ export function useSessions() {
         return false;
       }
     }
-    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'closed' } : s));
+    setSessions(prev => prev.map(s => {
+      if (s.id === sessionId) return { ...s, status: 'closed' };
+      if (activatedSessionId && s.id === activatedSessionId) return { ...s, status: 'active' };
+      return s;
+    }));
     return true;
   }, []);
 

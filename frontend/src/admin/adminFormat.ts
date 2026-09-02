@@ -11,6 +11,7 @@ export function formatStatus(value?: string | null): string {
   const status = (value || '').trim().toLowerCase();
   if (['success', 'completed', 'resolved'].includes(status)) return '处理成功';
   if (status === 'closed') return '已结束';
+  if (['suspended', 'frozen'].includes(status)) return '已暂停';
   if (['active', 'running', 'processing', 'pending'].includes(status)) return '处理中';
   if (status.includes('partial')) return '已回复 · 待关注';
   if (status === 'timeout' || status.includes('timedout')) return '处理超时';

@@ -29,12 +29,14 @@ const AGENT_TEAM: { name: string; glyph: string; color: string }[] = [
 
 const STATUS_COLORS: Record<string, string> = {
   active: 'var(--nova-success)',
+  suspended: 'var(--nova-warm)',
   human_transfer: 'var(--nova-warm)',
   closed: 'var(--nova-text-tertiary)',
 };
 
 const STATUS_LABELS: Record<string, string> = {
   active: '进行中',
+  suspended: '已暂停',
   human_transfer: '转人工',
   closed: '已结束',
 };

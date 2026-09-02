@@ -10,6 +10,7 @@ import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentMessageDispatcher;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,6 +44,7 @@ class GraphNodeExecutionServiceTest {
     @Mock AgentHeartbeatService heartbeatService;
     @Mock RouterFallbackAgentService fallbackAgentService;
     @Mock AgentMessageDispatcher agentMessageDispatcher;
+    @Mock UserProfileContextAwaiter userProfileContextAwaiter;
 
     private GraphNodeExecutionService service;
 
@@ -50,6 +52,7 @@ class GraphNodeExecutionServiceTest {
     void setUp() {
         service = new GraphNodeExecutionService(agentCallerService, reflectionService,
                 degradationService, heartbeatService, fallbackAgentService);
+        service.setUserProfileContextAwaiter(userProfileContextAwaiter);
         ReflectionTestUtils.setField(service, "maxCriteriaCorrections", 1);
     }
 
@@ -210,6 +213,54 @@ class GraphNodeExecutionServiceTest {
                 .doesNotContain("[用户原始请求]", "[当前节点任务]", "[执行边界]");
         assertThat(request.getValue().input()).containsEntry(
                 "_taskDescription", "从候选中选择符合预算和拍照偏好的商品");
+    }
+
+    @Test
+    void productProtocolNodeWaitsForAndReceivesUserProfile() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "recommend-profile", "根据用户偏好推荐商品", "product",
+                List.of(), null, List.of(), false, "RECOMMEND_PRODUCT",
+                Map.of(), List.of("READ_ONLY"), null);
+        when(userProfileContextAwaiter.await("request-profile"))
+                .thenReturn("【用户历史信息】\n- 预算范围: 5000元");
+        when(agentCallerService.callAgentAndExtractTitles(
+                eq("product"), any(AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult(
+                        "推荐 SKU-100", List.of(), Map.of(),
+                        DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED")));
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                42L, null, "request-profile", null, null, null, "推荐热门商品");
+
+        assertThat(result.isSuccess()).isTrue();
+        ArgumentCaptor<AgentExecutionRequest> request =
+                ArgumentCaptor.forClass(AgentExecutionRequest.class);
+        verify(agentCallerService).callAgentAndExtractTitles(eq("product"), request.capture());
+        assertThat(request.getValue().input()).containsEntry(
+                RoutingKeys.USER_PROFILE_INPUT, "【用户历史信息】\n- 预算范围: 5000元");
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(
+                userProfileContextAwaiter, agentCallerService);
+        order.verify(userProfileContextAwaiter).await("request-profile");
+        order.verify(agentCallerService).callAgentAndExtractTitles(
+                eq("product"), any(AgentExecutionRequest.class));
+    }
+
+    @Test
+    void profileFailurePreventsProductCall() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "recommend-profile", "根据用户偏好推荐商品", "product",
+                List.of(), null, List.of(), false, "RECOMMEND_PRODUCT",
+                Map.of(), List.of("READ_ONLY"), null);
+        when(userProfileContextAwaiter.await("request-profile"))
+                .thenThrow(new IllegalStateException("profile timeout"));
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                42L, null, "request-profile");
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getErrorType()).isEqualTo(SubTaskResult.ErrorType.FATAL_FAILED);
+        verify(agentCallerService, never()).callAgentAndExtractTitles(
+                eq("product"), any(AgentExecutionRequest.class));
     }
 
     @Test
