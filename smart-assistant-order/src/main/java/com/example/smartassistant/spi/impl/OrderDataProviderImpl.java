@@ -163,6 +163,17 @@ public class OrderDataProviderImpl implements OrderDataProvider {
         return orderRefundMapper.insert(entity);
     }
 
+    @Override
+    public int insertAfterSalesRequest(String requestId, String orderId, Long userId,
+                                       String requestType, String reason) {
+        return jdbcTemplate.update("""
+                INSERT INTO order_after_sales
+                    (request_id, order_id, user_id, request_type, reason, status)
+                VALUES (?, ?, ?, ?, ?, 'pending')
+                ON CONFLICT (request_id) DO NOTHING
+                """, requestId, orderId, userId, requestType, reason);
+    }
+
     // ========== Approval ==========
 
     @Override
@@ -277,7 +288,8 @@ public class OrderDataProviderImpl implements OrderDataProvider {
 
     @Override
     public List<String> getAllowedTables() {
-        return List.of("orders", "order_refunds", "order_logistics", "user_coupons", "approval_records");
+        return List.of("orders", "order_refunds", "order_logistics", "order_after_sales",
+                "user_coupons", "approval_records");
     }
 
     // ========== Mapping Methods ==========

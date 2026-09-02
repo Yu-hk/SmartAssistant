@@ -42,11 +42,19 @@ class ConversationGateServiceTest {
     }
 
     @Test
-    void closePromotesOldestSuspendedSession() {
+    void closeDoesNotSelectAnotherSession() {
         ConversationGateService.CloseDecision decision =
-                ConversationGateService.CloseDecision.parse("CLOSED|session-next");
+                ConversationGateService.CloseDecision.parse("CLOSED|");
 
         assertEquals(ConversationGateService.CloseStatus.CLOSED, decision.status());
-        assertEquals("session-next", decision.activatedSessionId());
+    }
+
+    @Test
+    void parsesExplicitResumeConflict() {
+        ConversationGateService.ResumeDecision decision =
+                ConversationGateService.ResumeDecision.parse("CONFLICT|session-active");
+
+        assertEquals(ConversationGateService.ResumeStatus.CONFLICT, decision.status());
+        assertEquals("session-active", decision.activeSessionId());
     }
 }

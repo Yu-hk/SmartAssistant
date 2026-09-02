@@ -147,11 +147,21 @@ class AdminControllerSessionAuthorizationTest {
     void runningConversationCannotBeClosedUntilGenerationStops() {
         when(conversationGateService.close("7", "session-a"))
                 .thenReturn(new ConversationGateService.CloseDecision(
-                        ConversationGateService.CloseStatus.BUSY, null));
+                        ConversationGateService.CloseStatus.BUSY));
 
         assertEquals(HttpStatus.CONFLICT,
                 controller.closeSession("session-a", 7L).getStatusCode());
 
         verify(adminService, never()).closeSession("session-a", 7L);
+    }
+
+    @Test
+    void suspendedConversationRequiresAnExplicitConflictFreeResume() {
+        when(conversationGateService.resume("7", "session-b"))
+                .thenReturn(new ConversationGateService.ResumeDecision(
+                        ConversationGateService.ResumeStatus.CONFLICT, "session-a"));
+
+        assertEquals(HttpStatus.CONFLICT,
+                controller.resumeSession("session-b", 7L).getStatusCode());
     }
 }

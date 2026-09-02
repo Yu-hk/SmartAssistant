@@ -113,7 +113,8 @@ public class GraphNodeExecutionService {
 
         if (RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT.equals(targetAgent)) {
             SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(), null,
-                    RouteExecutionService.builtInOrderPreparationReply(), true, List.of(), Map.of());
+                    RouteExecutionService.builtInOrderPreparationReply(node.getDescription()),
+                    true, List.of(), Map.of());
             result.setSystemNodeType(SubTaskResult.SystemNodeType.ORDER_PREPARATION);
             result.setDomainQuality(
                     com.example.smartassistant.common.quality.DomainQualityResult.pass(

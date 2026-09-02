@@ -166,10 +166,8 @@ export function useSessions() {
 
   const closeSession = useCallback(async (sessionId: string) => {
     setSessionActionError(null);
-    let activatedSessionId = '';
     try {
-      const result = await sessionApi.closeSession(sessionId);
-      activatedSessionId = result.activatedSessionId || '';
+      await sessionApi.closeSession(sessionId);
     } catch (e) {
       // A local unsaved session can still be closed. Other failures must not be
       // rendered as a successful close.
@@ -181,9 +179,25 @@ export function useSessions() {
     }
     setSessions(prev => prev.map(s => {
       if (s.id === sessionId) return { ...s, status: 'closed' };
-      if (activatedSessionId && s.id === activatedSessionId) return { ...s, status: 'active' };
       return s;
     }));
+    return true;
+  }, []);
+
+  const resumeSession = useCallback(async (sessionId: string) => {
+    setSessionActionError(null);
+    try {
+      await sessionApi.resumeSession(sessionId);
+    } catch (e) {
+      console.error(e);
+      setSessionActionError(e instanceof ApiError
+        ? e.message
+        : '恢复会话失败，请稍后重试。');
+      return false;
+    }
+    setSessions(prev => prev.map(s => s.id === sessionId
+      ? { ...s, status: 'active' }
+      : s));
     return true;
   }, []);
 
@@ -230,7 +244,7 @@ export function useSessions() {
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, loadSessionMessages, createSession,
-    deleteSession, closeSession, rateSession,
+    deleteSession, closeSession, resumeSession, rateSession,
     updateSessionModel, updateSession, updateSessionMessages,
   };
 }

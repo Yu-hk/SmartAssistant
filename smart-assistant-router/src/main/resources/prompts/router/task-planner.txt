@@ -14,6 +14,9 @@
 - depends_on 只能引用当前 sub_intents 中已定义的节点；无依赖时输出空数组。
 - input_bindings 只能读取 depends_on 中声明的节点，格式为“目标字段”:“$.nodes.节点ID.data.字段路径”；没有结构化传值时输出空对象。
 - 商品链路使用稳定协议字段：DISCOVER_PRODUCTS 输出 data.products，ANALYZE_PRODUCT_DATA 输出 data.analysis，RECOMMEND_PRODUCT 输出 data.recommendation；不得臆造 product_ids 等字段。
+- 订单链路采用“Agent 收集和校验参数 → 确定性工作流执行”的边界：CREATE_ORDER、CANCEL_ORDER、REFUND_ORDER、APPLY_AFTER_SALES 的最终节点必须是 WRITE 且 human_approval_required=true；信息不足时只生成澄清，不得提前生成写节点。
+- CREATE_ORDER 至少需要 product_name、amount、recipient_name、recipient_phone、shipping_address；CANCEL_ORDER/REFUND_ORDER 至少需要 order_id、reason；APPLY_AFTER_SALES 至少需要 order_id、after_sales_type、reason。
+- TRACK_LOGISTICS 是确定性只读流程，信息齐全后直接执行，不需要人工确认；不得因为它属于订单域而误标为 WRITE。
 - 用户明确商品品类时写入 entities.product_category；“推荐一款”表示最终返回 1 款，不得把发现候选数限制为 1，品类发现默认召回至少 5 个候选供分析核实。
 - required=true 表示节点失败后不能生成完整结论；仅补充性节点才可设置 false。
 - merge_policy：普通解释用 APPEND，结构化事实用 STRUCTURED，经过核实且应覆盖旧结论的节点用 REPLACE。
@@ -39,6 +42,12 @@
     "product_category": null,
     "date": null,
     "amount": null,
+    "recipient_name": null,
+    "recipient_phone": null,
+    "shipping_address": null,
+    "reason": null,
+    "after_sales_type": null,
+    "tracking_number": null,
     "location": null,
     "currency": null
   },

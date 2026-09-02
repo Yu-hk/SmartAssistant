@@ -130,7 +130,7 @@ function CustomerApp() {
     sessions, setSessions, sessionActionError, setSessionActionError,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, deleteSession, createSession, closeSession, rateSession,
+    fetchSessions, deleteSession, createSession, closeSession, resumeSession, rateSession,
   } = useSessions();
 
   const { notifications, markRead: markNotificationRead } = useNotifications({ setSessions });
@@ -196,6 +196,15 @@ function CustomerApp() {
     void closeSession(currentSessionId);
   }, [closeSession, currentSession?.status, currentSessionId]);
 
+  const handleResumeSession = useCallback(async (sessionId: string) => {
+    const resumed = await resumeSession(sessionId);
+    if (!resumed) return;
+    setCurrentSessionId(sessionId);
+    setInputValue('');
+    setSidebarOpen(false);
+    navigate(`/chat/${sessionId}`);
+  }, [navigate, resumeSession, setCurrentSessionId, setInputValue]);
+
   return (
     <div className="workbench-shell relative z-10">
       <CustomerSidebar
@@ -205,6 +214,7 @@ function CustomerApp() {
         onNewChat={handleNewChat}
         onSelectSession={handleSelectSession}
         onDeleteSession={handleDeleteSession}
+        onResumeSession={sessionId => { void handleResumeSession(sessionId); }}
         onSelectAgent={handleSelectAgent}
         onToggleTheme={toggleTheme}
         isOpen={sidebarOpen}

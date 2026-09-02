@@ -246,11 +246,41 @@ public class AdminController {
         return adminService.closeSession(id, userId)
                 ? ResponseEntity.ok(Map.of(
                         "success", true,
-                        "status", "CLOSED",
-                        "activatedSessionId", gateDecision != null
-                                && gateDecision.activatedSessionId() != null
-                                ? gateDecision.activatedSessionId() : ""))
+                        "status", "CLOSED"))
                 : ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/sessions/{id}/resume")
+    public ResponseEntity<?> resumeSession(
+            @PathVariable String id,
+            @RequestHeader("X-User-Id") Long userId) {
+        if (conversationGateService == null) {
+            return ResponseEntity.status(503).body(Map.of(
+                    "success", false,
+                    "status", "UNAVAILABLE",
+                    "message", "会话状态服务暂不可用"));
+        }
+        ConversationGateService.ResumeDecision decision =
+                conversationGateService.resume(userId.toString(), id);
+        return switch (decision.status()) {
+            case RESUMED, ALREADY_ACTIVE -> ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "status", "ACTIVE",
+                    "sessionId", id));
+            case CONFLICT -> ResponseEntity.status(409).body(Map.of(
+                    "success", false,
+                    "status", "CONFLICT",
+                    "activeSessionId", decision.activeSessionId() == null ? "" : decision.activeSessionId(),
+                    "message", "已有进行中的会话，请先结束后再恢复"));
+            case NOT_SUSPENDED -> ResponseEntity.status(409).body(Map.of(
+                    "success", false,
+                    "status", "NOT_SUSPENDED",
+                    "message", "该会话当前不可恢复"));
+            case UNAVAILABLE -> ResponseEntity.status(503).body(Map.of(
+                    "success", false,
+                    "status", "UNAVAILABLE",
+                    "message", "会话状态服务暂不可用"));
+        };
     }
 
     // ==================== Protected compatibility aliases ====================

@@ -315,7 +315,7 @@ export function ChatMessages({
                   background: 'var(--nova-bg-component)',
                   fontSize: '12px',
                 }}>
-                  该会话已暂停，上下文已保留；关闭当前活跃对话后即可继续。
+                  该会话已暂停，上下文已保留；请从左侧暂停列表中主动恢复。
                 </div>
               )}
 

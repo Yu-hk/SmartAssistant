@@ -385,12 +385,19 @@ public class RouteExecutionService {
 
             String operation = normalizeDeclaredOperation(subIntent.get("operation"),
                     subIntent.get("target_agent"), analysis.getIntentCategory());
+            boolean incompleteOrderMutation = analysis.isNeedsClarification()
+                    && Set.of("CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER", "APPLY_AFTER_SALES")
+                    .contains(operation);
             boolean explainOrderPreparation = "EXPLAIN_ORDER_REQUIREMENTS".equals(operation)
-                    || (analysis.isNeedsClarification() && "CREATE_ORDER".equals(operation));
+                    || incompleteOrderMutation;
             if (explainOrderPreparation) {
-                description = "说明后续下单所需信息（只说明，不执行）：明确列出具体商品及金额、"
-                        + "收货人姓名、联系电话、收货地址；用户ID由登录态提供，商品类型可选。"
-                        + "如果用户尚未选定商品，要求用户从商品查询结果中选择。";
+                description = incompleteOrderMutation
+                        ? "执行" + operation + "前还需要补充："
+                                + String.join("、", analysis.getMissingSlots())
+                                + "。只追问缺失信息，本次不得执行任何写操作。"
+                        : "说明后续下单所需信息（只说明，不执行）：明确列出具体商品及金额、"
+                                + "收货人姓名、联系电话、收货地址；用户ID由登录态提供，商品类型可选。"
+                                + "如果用户尚未选定商品，要求用户从商品查询结果中选择。";
             }
             String agent = explainOrderPreparation
                     ? ExecutionPlan.Domain.BUILTIN_ORDER_PREPARATION.agentName()
@@ -720,6 +727,18 @@ public class RouteExecutionService {
      */
     public RoutingResult inlineFallback(String question, EmotionCheckResult emotion) {
         return inlineFallback(question, null, emotion);
+    }
+
+    static String builtInOrderPreparationReply(String description) {
+        if (description == null || description.isBlank()) {
+            return builtInOrderPreparationReply();
+        }
+        int marker = description.indexOf("前还需要补充：");
+        int start = marker >= 0 ? description.lastIndexOf("执行", marker) : -1;
+        if (start < 0) return builtInOrderPreparationReply();
+        int end = description.indexOf('\n', marker);
+        String prompt = description.substring(start, end >= 0 ? end : description.length()).trim();
+        return prompt + "\n信息补齐后，系统会展示最终操作摘要；只有你明确确认后才会提交。";
     }
 
     public RoutingResult inlineFallback(String question, Long userId, EmotionCheckResult emotion) {
