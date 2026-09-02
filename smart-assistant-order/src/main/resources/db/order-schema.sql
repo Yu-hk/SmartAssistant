@@ -155,7 +155,29 @@ COMMENT ON COLUMN approval_records.status IS '状态: pending=待确认, confirm
 CREATE INDEX IF NOT EXISTS idx_approval_order_action ON approval_records(order_id, action_type);
 
 -- -----------------------------
--- 5. 更新 seed_data 中的现有数据
+-- 5. 售后申请表
+--    通用承载退货、换货、维修等售后请求；最终业务处理由后续审核流程完成
+-- -----------------------------
+CREATE TABLE IF NOT EXISTS order_after_sales (
+    id              BIGSERIAL PRIMARY KEY,
+    request_id      VARCHAR(128) NOT NULL UNIQUE,
+    order_id        VARCHAR(50) NOT NULL REFERENCES orders(order_id),
+    user_id         BIGINT NOT NULL,
+    request_type    VARCHAR(30) NOT NULL,
+    reason          TEXT NOT NULL,
+    status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_after_sales_status CHECK (
+        status IN ('pending', 'processing', 'approved', 'rejected', 'completed', 'cancelled')
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_after_sales_order_id ON order_after_sales(order_id);
+CREATE INDEX IF NOT EXISTS idx_after_sales_user_id ON order_after_sales(user_id);
+
+-- -----------------------------
+-- 6. 更新 seed_data 中的现有数据
 --    为已有的 orders 补充 product_type, delivered_date 和新字段
 -- -----------------------------
 UPDATE orders SET product_type = '电子产品',   delivered_date = NULL,
@@ -175,7 +197,7 @@ UPDATE orders SET product_type = '电子产品',   delivered_date = NULL,
     payment_method='微信支付' WHERE order_id = 'ORD-2024005';
 
 -- -----------------------------
--- 6. 物流轨迹示例数据
+-- 7. 物流轨迹示例数据
 -- -----------------------------
 INSERT INTO order_logistics (tracking_no, order_id, carrier, status, trajectory)
 VALUES
@@ -208,8 +230,9 @@ VALUES
 -- 注意：ORD-2024002 和 ORD-2024005 暂无物流信息
 
 -- -----------------------------
--- 7. 更新序列
+-- 8. 更新序列
 -- -----------------------------
 SELECT setval('order_refunds_id_seq', COALESCE((SELECT MAX(id) FROM order_refunds), 1));
 SELECT setval('order_logistics_id_seq', COALESCE((SELECT MAX(id) FROM order_logistics), 1));
 SELECT setval('approval_records_id_seq', COALESCE((SELECT MAX(id) FROM approval_records), 1));
+SELECT setval('order_after_sales_id_seq', COALESCE((SELECT MAX(id) FROM order_after_sales), 1));

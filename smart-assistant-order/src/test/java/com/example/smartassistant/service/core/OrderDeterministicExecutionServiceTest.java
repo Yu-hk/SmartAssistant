@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
@@ -195,6 +196,90 @@ class OrderDeterministicExecutionServiceTest {
         assertThat(response.answer()).contains("顺丰速运", "SF-BULK-000002", "杭州", "运输中")
                 .contains("预计送达时间：暂无可靠数据");
         assertThat(response.quality().status()).isEqualTo("PASS");
+    }
+
+    @Test
+    void createOrderCommitsTypedFieldsWithoutEnteringAgentToolLoop() {
+        AtomicReference<OrderDTO> inserted = new AtomicReference<>();
+        when(orderData.findOrderByRequestId("req-1:query:create"))
+                .thenAnswer(ignored -> inserted.get());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            inserted.set(invocation.getArgument(0));
+            return null;
+        }).when(orderData).insertOrder(org.mockito.ArgumentMatchers.any(OrderDTO.class));
+
+        AgentExecutionResponse response = service.execute(request(
+                "CREATE_ORDER", "按已核对的信息下单", Map.of(
+                        "product_name", "Aurora 无线降噪耳机",
+                        "amount", "1299.00",
+                        "recipient_name", "测试用户",
+                        "recipient_phone", "13800000000",
+                        "shipping_address", "杭州市测试路1号")));
+
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        assertThat(response.data()).containsEntry("operation", "CREATE_ORDER")
+                .containsEntry("verified", true)
+                .containsEntry("criteriaSatisfied", true);
+        assertThat(inserted.get().getUserId()).isEqualTo(1050L);
+        assertThat(inserted.get().getStatus()).isEqualTo("待付款");
+    }
+
+    @Test
+    void createOrderRejectsIncompleteAgentHandoff() {
+        AgentExecutionResponse response = service.execute(request(
+                "CREATE_ORDER", "下单", Map.of("product_name", "耳机")));
+
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.FAILED);
+        assertThat(response.error().code()).isEqualTo("ORDER_INFORMATION_INCOMPLETE");
+        assertThat(response.error().message()).contains("成交金额", "收货人姓名", "联系电话", "收货地址");
+        verify(orderData, never()).insertOrder(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void cancelOrderUsesStateMachineAndOwnershipBeforeMutation() {
+        OrderDTO order = order("待付款");
+        when(orderData.findOrderByOrderId("ORD-1001")).thenReturn(order);
+        when(orderData.updateOrderById(order)).thenReturn(1);
+
+        AgentExecutionResponse response = service.execute(request(
+                "CANCEL_ORDER", "取消 ORD-1001", Map.of(
+                        "order_id", "ORD-1001", "reason", "重复购买")));
+
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        assertThat(order.getStatus()).isEqualTo("已取消");
+        verify(orderData).updateOrderById(order);
+    }
+
+    @Test
+    void refundOrderCreatesPendingRequestOnlyAfterApprovedWorkflowNodeRuns() {
+        OrderDTO order = order("已发货");
+        when(orderData.findOrderByOrderId("ORD-1001")).thenReturn(order);
+
+        AgentExecutionResponse response = service.execute(request(
+                "REFUND_ORDER", "退回 ORD-1001", Map.of(
+                        "order_id", "ORD-1001", "reason", "商品破损")));
+
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        verify(orderData).insertRefund(org.mockito.ArgumentMatchers.argThat(refund ->
+                "pending".equals(refund.getStatus()) && "商品破损".equals(refund.getReason())));
+        verify(orderData).updateStatusByOrderId("ORD-1001", "退款中");
+    }
+
+    @Test
+    void afterSalesPersistsGenericRequestWithoutChangingOrderStatus() {
+        OrderDTO order = order("已签收");
+        when(orderData.findOrderByOrderId("ORD-1001")).thenReturn(order);
+
+        AgentExecutionResponse response = service.execute(request(
+                "APPLY_AFTER_SALES", "申请换货", Map.of(
+                        "order_id", "ORD-1001", "after_sales_type", "换货",
+                        "reason", "尺寸不合适")));
+
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        verify(orderData).insertAfterSalesRequest(
+                "req-1:query:after-sales", "ORD-1001", 1050L, "换货", "尺寸不合适");
+        verify(orderData, never()).updateStatusByOrderId(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
     }
 
     private static AgentExecutionRequest request(String operation, String question,
