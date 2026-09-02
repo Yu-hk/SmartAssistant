@@ -115,16 +115,32 @@ public class ConversationGateService {
             end
             if redis.call('EXISTS', KEYS[2]) == 1 then return 'BUSY|' .. active end
             redis.call('DEL', KEYS[1])
-            redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', ARGV[3])
-            local nextSession = redis.call('ZRANGE', KEYS[3], 0, 0)[1]
-            if nextSession then
-              redis.call('ZREM', KEYS[3], nextSession)
-              redis.call('HDEL', KEYS[4], nextSession)
-              redis.call('SET', KEYS[1], nextSession, 'PX', ARGV[2])
-              return 'CLOSED|' .. nextSession
-            end
             return 'CLOSED|'
             """, String.class);
+
+    private static final DefaultRedisScript<String> RESUME_SCRIPT = new DefaultRedisScript<>("""
+            local active = redis.call('GET', KEYS[1])
+            if active then
+              if active == ARGV[1] then
+                redis.call('PEXPIRE', KEYS[1], ARGV[2])
+                return 'ALREADY_ACTIVE|' .. active
+              end
+              return 'CONFLICT|' .. active
+            end
+            redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+            redis.call('ZREM', KEYS[2], ARGV[1])
+            redis.call('HDEL', KEYS[3], ARGV[1])
+            return 'RESUMED|' .. ARGV[1]
+            """, String.class);
+
+    private static final DefaultRedisScript<Long> ROLLBACK_RESUME_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+            redis.call('DEL', KEYS[1])
+            redis.call('ZADD', KEYS[2], ARGV[2], ARGV[1])
+            redis.call('PEXPIRE', KEYS[2], ARGV[3])
+            redis.call('PEXPIRE', KEYS[3], ARGV[3])
+            return 1
+            """, Long.class);
 
     private final StringRedisTemplate redisTemplate;
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(
@@ -261,17 +277,66 @@ public class ConversationGateService {
                     CLOSE_SCRIPT,
                     List.of(activeKey(userId), runningKey(userId, sessionId), suspendedKey(userId),
                             suspendedDetailsKey(userId)),
-                    sessionId, Long.toString(activeTtl.toMillis()),
-                    Long.toString(System.currentTimeMillis() - suspendedTtl.toMillis()));
+                    sessionId);
             CloseDecision decision = CloseDecision.parse(result);
             if (decision.status() == CloseStatus.CLOSED && stateStore != null) {
-                stateStore.closed(userId, sessionId, decision.activatedSessionId());
+                stateStore.closed(userId, sessionId);
             }
             return decision;
         } catch (RuntimeException error) {
             log.error("[ConversationGate] close failed: userId={}, sessionId={}, error={}",
                     userId, sessionId, error.getMessage());
-            return new CloseDecision(CloseStatus.UNAVAILABLE, null);
+            return new CloseDecision(CloseStatus.UNAVAILABLE);
+        }
+    }
+
+    /**
+     * Explicitly restores a suspended session. The Redis script is the concurrency
+     * boundary, while the durable state check prevents restoring another user's or
+     * an already closed session.
+     */
+    public ResumeDecision resume(String userId, String sessionId) {
+        requireText(userId, "userId");
+        requireText(sessionId, "sessionId");
+        if (stateStore == null) {
+            return new ResumeDecision(ResumeStatus.UNAVAILABLE, null);
+        }
+        try {
+            if (!stateStore.isSuspended(userId, sessionId)) {
+                return new ResumeDecision(ResumeStatus.NOT_SUSPENDED, null);
+            }
+            String result = redisTemplate.execute(
+                    RESUME_SCRIPT,
+                    List.of(activeKey(userId), suspendedKey(userId), suspendedDetailsKey(userId)),
+                    sessionId, Long.toString(activeTtl.toMillis()));
+            ResumeDecision decision = ResumeDecision.parse(result);
+            if (decision.status() == ResumeStatus.RESUMED
+                    || decision.status() == ResumeStatus.ALREADY_ACTIVE) {
+                try {
+                    stateStore.resumed(userId, sessionId);
+                } catch (RuntimeException durableStateError) {
+                    rollbackResume(userId, sessionId);
+                    throw durableStateError;
+                }
+            }
+            return decision;
+        } catch (RuntimeException error) {
+            log.error("[ConversationGate] resume failed: userId={}, sessionId={}, error={}",
+                    userId, sessionId, error.getMessage());
+            return new ResumeDecision(ResumeStatus.UNAVAILABLE, null);
+        }
+    }
+
+    private void rollbackResume(String userId, String sessionId) {
+        try {
+            redisTemplate.execute(
+                    ROLLBACK_RESUME_SCRIPT,
+                    List.of(activeKey(userId), suspendedKey(userId), suspendedDetailsKey(userId)),
+                    sessionId, Long.toString(System.currentTimeMillis()),
+                    Long.toString(suspendedTtl.toMillis()));
+        } catch (RuntimeException rollbackError) {
+            log.error("[ConversationGate] resume rollback failed: userId={}, sessionId={}, error={}",
+                    userId, sessionId, rollbackError.getMessage());
         }
     }
 
@@ -326,21 +391,38 @@ public class ConversationGateService {
 
     public enum CloseStatus { CLOSED, BUSY, NOT_ACTIVE, UNAVAILABLE }
 
+    public enum ResumeStatus { RESUMED, ALREADY_ACTIVE, CONFLICT, NOT_SUSPENDED, UNAVAILABLE }
+
     @FunctionalInterface
     public interface Heartbeat extends AutoCloseable {
         @Override
         void close();
     }
 
-    public record CloseDecision(CloseStatus status, String activatedSessionId) {
+    public record CloseDecision(CloseStatus status) {
         static CloseDecision parse(String value) {
-            if (value == null || value.isBlank()) return new CloseDecision(CloseStatus.UNAVAILABLE, null);
+            if (value == null || value.isBlank()) return new CloseDecision(CloseStatus.UNAVAILABLE);
             String[] parts = value.split("\\|", -1);
             try {
-                return new CloseDecision(CloseStatus.valueOf(parts[0]),
+                return new CloseDecision(CloseStatus.valueOf(parts[0]));
+            } catch (IllegalArgumentException ignored) {
+                return new CloseDecision(CloseStatus.UNAVAILABLE);
+            }
+        }
+    }
+
+    public record ResumeDecision(ResumeStatus status, String activeSessionId) {
+        static ResumeDecision parse(String value) {
+            if (value == null || value.isBlank()) {
+                return new ResumeDecision(ResumeStatus.UNAVAILABLE, null);
+            }
+            String[] parts = value.split("\\|", -1);
+            try {
+                return new ResumeDecision(
+                        ResumeStatus.valueOf(parts[0]),
                         parts.length > 1 && !parts[1].isBlank() ? parts[1] : null);
             } catch (IllegalArgumentException ignored) {
-                return new CloseDecision(CloseStatus.UNAVAILABLE, null);
+                return new ResumeDecision(ResumeStatus.UNAVAILABLE, null);
             }
         }
     }

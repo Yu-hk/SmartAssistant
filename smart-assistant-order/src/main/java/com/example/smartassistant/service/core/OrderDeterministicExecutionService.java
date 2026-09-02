@@ -2,33 +2,42 @@ package com.example.smartassistant.service.core;
 
 import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
+import com.example.smartassistant.common.idempotent.TaskLogService;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.order.OrderStatus;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
 import com.example.smartassistant.common.tool.spi.dto.OrderDTO;
+import com.example.smartassistant.common.tool.spi.dto.RefundDTO;
 import com.example.smartassistant.service.ApprovalService;
 import com.example.smartassistant.routing.contract.WorkflowOperation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Executes deterministic, read-only order workflow nodes without entering the ReAct loop.
+ * Executes deterministic order workflow nodes without entering the ReAct loop.
  *
  * <p>The Router already sends a typed {@code operation} and structured {@code input}. For
- * factual reads, invoking an intent classifier and a multi-turn tool-selection model adds
- * latency without adding business value. This service keeps write operations on the existing
- * approval-protected Agent path and only short-circuits operations whose result can be verified
- * directly from the order domain.</p>
+ * factual reads and approved state changes, invoking another intent classifier and allowing a
+ * model to select mutation tools adds risk without business value. The Router gathers typed
+ * parameters first and pauses every write node for human approval; this service then enforces
+ * ownership, state-machine preconditions and idempotency before committing the final step.</p>
  */
 @Service
 public class OrderDeterministicExecutionService {
@@ -38,13 +47,21 @@ public class OrderDeterministicExecutionService {
             WorkflowOperation.QUERY_ORDER.code(),
             WorkflowOperation.QUERY_ORDER_LIST.code(),
             WorkflowOperation.QUERY_PAYMENT_PENDING.code(),
+            WorkflowOperation.CREATE_ORDER.code(),
+            WorkflowOperation.CANCEL_ORDER.code(),
+            WorkflowOperation.REFUND_ORDER.code(),
+            WorkflowOperation.APPLY_AFTER_SALES.code(),
             WorkflowOperation.TRACK_LOGISTICS.code());
+    private static final AtomicLong ORDER_ID_COUNTER = new AtomicLong();
     private static final Pattern ORDER_ID = Pattern.compile(
             "(?i)\\b(?:ORD|BULK)-[A-Z0-9-]+\\b");
     private static final Pattern TRAJECTORY_ENTRY = Pattern.compile("\\{([^}]*)}");
 
     private final OrderDataProvider orderData;
     private final ApprovalService approvalService;
+
+    @Autowired(required = false)
+    private TaskLogService taskLogService;
 
     public OrderDeterministicExecutionService(OrderDataProvider orderData,
                                               ApprovalService approvalService) {
@@ -56,8 +73,12 @@ public class OrderDeterministicExecutionService {
         return SUPPORTED.contains(normalizeOperation(operation));
     }
 
+    @Transactional
     public AgentExecutionResponse execute(AgentExecutionRequest request) {
         String operation = normalizeOperation(request.operation());
+        if (WorkflowOperation.CREATE_ORDER.code().equals(operation)) {
+            return createOrder(request);
+        }
         String orderId = resolveOrderId(request);
         if ("QUERY_ORDER_LIST".equals(operation)
                 || ("QUERY_ORDER".equals(operation) && orderId == null)) {
@@ -84,9 +105,149 @@ public class OrderDeterministicExecutionService {
             case "QUERY_ORDER" -> queryOrder(request, order);
             case "QUERY_PAYMENT_PENDING" -> queryPendingPayment(order);
             case "TRACK_LOGISTICS" -> trackLogistics(order);
+            case "CANCEL_ORDER" -> cancelOrder(request, order);
+            case "REFUND_ORDER" -> refundOrder(request, order);
+            case "APPLY_AFTER_SALES" -> applyAfterSales(request, order);
             default -> AgentExecutionResponse.failure(
                     "UNSUPPORTED_ORDER_OPERATION", "不支持的订单快速操作: " + operation, false);
         };
+    }
+
+    private AgentExecutionResponse createOrder(AgentExecutionRequest request) {
+        Long userId = parseUserId(request.userId());
+        if (userId == null) {
+            return AgentExecutionResponse.failure(
+                    "USER_ID_REQUIRED", "登录后才能创建订单", false);
+        }
+        String productName = stringInput(request.input(), "product_name", "productName");
+        BigDecimal amount = decimalInput(request.input(), "amount", "price");
+        String contactName = stringInput(request.input(),
+                "recipient_name", "contact_name", "contactName");
+        String contactPhone = stringInput(request.input(),
+                "recipient_phone", "contact_phone", "contactPhone");
+        String shippingAddress = stringInput(request.input(),
+                "shipping_address", "shippingAddress", "address");
+        String productType = stringInput(request.input(), "product_type", "productType");
+        List<String> missing = missingFields(
+                "商品名称", productName,
+                "成交金额", amount,
+                "收货人姓名", contactName,
+                "联系电话", contactPhone,
+                "收货地址", shippingAddress);
+        if (!missing.isEmpty()) {
+            return missingFieldsFailure(missing);
+        }
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return AgentExecutionResponse.failure(
+                    "INVALID_ORDER_AMOUNT", "成交金额必须大于 0", false);
+        }
+
+        String durableRequestId = durableRequestId(request, "create");
+        String result = executeIdempotently(durableRequestId, "order:create",
+                "order:create:" + userId + ":" + durableRequestId, () -> {
+                    OrderDTO existing = orderData.findOrderByRequestId(durableRequestId);
+                    if (existing != null) return "订单已存在：" + existing.getOrderId();
+                    String orderId = "ORD-" + System.currentTimeMillis()
+                            + String.format("%04d", ORDER_ID_COUNTER.incrementAndGet() % 10_000);
+                    OrderDTO order = OrderDTO.builder()
+                            .orderId(orderId).userId(userId).productName(productName)
+                            .amount(amount).status(OrderStatus.PENDING_PAYMENT.value())
+                            .productType(productType != null ? productType : "其他")
+                            .contactName(contactName).contactPhone(contactPhone)
+                            .shippingAddress(shippingAddress).carrier("").trackingNo("")
+                            .requestId(durableRequestId).createdAt(LocalDateTime.now())
+                            .updatedAt(LocalDateTime.now()).build();
+                    orderData.insertOrder(order);
+                    return "订单创建成功：" + orderId;
+                });
+        if (result == null) return busyFailure();
+        OrderDTO created = orderData.findOrderByRequestId(durableRequestId);
+        Map<String, Object> data = created != null ? baseOrderData(created) : new LinkedHashMap<>();
+        data.put("operation", WorkflowOperation.CREATE_ORDER.code());
+        data.put("requestId", durableRequestId);
+        data.put("verified", true);
+        data.put("criteriaSatisfied", true);
+        return AgentExecutionResponse.success(result, data,
+                DomainQualityResult.pass(1.0, "DETERMINISTIC_ORDER_CREATE"));
+    }
+
+    private AgentExecutionResponse cancelOrder(AgentExecutionRequest request, OrderDTO order) {
+        String reason = stringInput(request.input(), "reason", "cancel_reason", "cancelReason");
+        if (reason == null) return missingFieldsFailure(List.of("退单原因"));
+        if (!OrderStatus.from(order.getStatus())
+                .map(status -> status.canTransitionTo(OrderStatus.CANCELLED)).orElse(false)) {
+            return AgentExecutionResponse.failure("INVALID_ORDER_STATUS",
+                    "订单 " + order.getOrderId() + " 当前状态为「" + order.getStatus()
+                            + "」，不能执行取消", false);
+        }
+        String result = executeIdempotently(durableRequestId(request, "cancel"),
+                "order:cancel", "order:cancel:" + order.getOrderId(), () -> {
+                    order.setStatus(OrderStatus.CANCELLED.value());
+                    order.setUpdatedAt(LocalDateTime.now());
+                    if (orderData.updateOrderById(order) == 0) {
+                        throw new IllegalStateException("订单状态更新失败");
+                    }
+                    return "订单 " + order.getOrderId() + " 已取消。原因：" + reason;
+                });
+        return writeResult(result, WorkflowOperation.CANCEL_ORDER, order, null);
+    }
+
+    private AgentExecutionResponse refundOrder(AgentExecutionRequest request, OrderDTO order) {
+        String reason = stringInput(request.input(), "reason", "refund_reason", "refundReason");
+        if (reason == null) return missingFieldsFailure(List.of("退款原因"));
+        if (!OrderStatus.from(order.getStatus())
+                .map(status -> status.canTransitionTo(OrderStatus.REFUNDING)).orElse(false)) {
+            return AgentExecutionResponse.failure("INVALID_ORDER_STATUS",
+                    "订单 " + order.getOrderId() + " 当前状态为「" + order.getStatus()
+                            + "」，不能申请退款", false);
+        }
+        String result = executeIdempotently(durableRequestId(request, "refund"),
+                "order:refund", "order:refund:" + order.getOrderId(), () -> {
+                    orderData.insertRefund(RefundDTO.builder()
+                            .orderId(order.getOrderId()).amount(order.getAmount())
+                            .reason(reason).status("pending")
+                            .createTime(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build());
+                    orderData.updateStatusByOrderId(order.getOrderId(), OrderStatus.REFUNDING.value());
+                    order.setStatus(OrderStatus.REFUNDING.value());
+                    return "订单 " + order.getOrderId() + " 的退款申请已提交，当前状态：退款中。";
+                });
+        return writeResult(result, WorkflowOperation.REFUND_ORDER, order, null);
+    }
+
+    private AgentExecutionResponse applyAfterSales(AgentExecutionRequest request, OrderDTO order) {
+        String requestType = stringInput(request.input(),
+                "after_sales_type", "request_type", "afterSalesType");
+        String reason = stringInput(request.input(), "reason", "after_sales_reason", "afterSalesReason");
+        List<String> missing = missingFields(
+                "售后类型", requestType,
+                "售后原因", reason);
+        if (!missing.isEmpty()) return missingFieldsFailure(missing);
+        if (OrderStatus.CANCELLED.matches(order.getStatus())) {
+            return AgentExecutionResponse.failure("INVALID_ORDER_STATUS",
+                    "已取消订单不能申请售后", false);
+        }
+        String requestId = durableRequestId(request, "after-sales");
+        String result = executeIdempotently(requestId, "order:after-sales",
+                "order:after-sales:" + order.getOrderId(), () -> {
+                    orderData.insertAfterSalesRequest(requestId, order.getOrderId(),
+                            order.getUserId(), requestType, reason);
+                    return "订单 " + order.getOrderId() + " 的" + requestType
+                            + "售后申请已提交，当前状态：待处理。";
+                });
+        return writeResult(result, WorkflowOperation.APPLY_AFTER_SALES, order,
+                Map.of("afterSalesType", requestType, "afterSalesRequestId", requestId));
+    }
+
+    private AgentExecutionResponse writeResult(String result, WorkflowOperation operation,
+                                                OrderDTO order, Map<String, Object> extra) {
+        if (result == null) return busyFailure();
+        Map<String, Object> data = baseOrderData(order);
+        data.put("operation", operation.code());
+        if (extra != null) data.putAll(extra);
+        data.put("verified", true);
+        data.put("criteriaSatisfied", true);
+        return AgentExecutionResponse.success(result, data,
+                DomainQualityResult.pass(1.0, "DETERMINISTIC_" + operation.code()));
     }
 
     private AgentExecutionResponse queryOrderList(AgentExecutionRequest request) {
@@ -301,6 +462,71 @@ public class OrderDeterministicExecutionService {
         if (value == null || value.isBlank()) return null;
         try {
             return Long.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String executeIdempotently(String requestId, String taskType, String lockKey,
+                                       Supplier<String> action) {
+        return taskLogService != null
+                ? taskLogService.executeIfNotDone(requestId, taskType, lockKey, action)
+                : action.get();
+    }
+
+    private static String durableRequestId(AgentExecutionRequest request, String action) {
+        String supplied = request.idempotencyKey();
+        if (supplied != null && !supplied.isBlank()) return boundedRequestId(supplied);
+        String execution = request.executionId() != null && !request.executionId().isBlank()
+                ? request.executionId() : UUID.randomUUID().toString();
+        String node = request.nodeId() != null && !request.nodeId().isBlank()
+                ? request.nodeId() : action;
+        return boundedRequestId(execution + ":" + node + ":" + action);
+    }
+
+    private static String boundedRequestId(String value) {
+        if (value.length() <= 64) return value;
+        return "workflow-" + UUID.nameUUIDFromBytes(
+                value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private static AgentExecutionResponse busyFailure() {
+        return AgentExecutionResponse.failure(
+                "ORDER_WORKFLOW_BUSY", "该订单操作正在处理中，请稍后查询结果", true);
+    }
+
+    private static AgentExecutionResponse missingFieldsFailure(List<String> fields) {
+        return AgentExecutionResponse.failure("ORDER_INFORMATION_INCOMPLETE",
+                "还需要提供：" + String.join("、", fields), false);
+    }
+
+    private static List<String> missingFields(Object... nameValues) {
+        List<String> missing = new java.util.ArrayList<>();
+        for (int index = 0; index + 1 < nameValues.length; index += 2) {
+            Object value = nameValues[index + 1];
+            if (value == null || value.toString().isBlank()) {
+                missing.add(String.valueOf(nameValues[index]));
+            }
+        }
+        return missing;
+    }
+
+    private static String stringInput(Map<String, Object> input, String... keys) {
+        for (String key : keys) {
+            Object value = input.get(key);
+            if (value != null && !value.toString().isBlank()
+                    && !"null".equalsIgnoreCase(value.toString())) {
+                return value.toString().trim();
+            }
+        }
+        return null;
+    }
+
+    private static BigDecimal decimalInput(Map<String, Object> input, String... keys) {
+        String value = stringInput(input, keys);
+        if (value == null) return null;
+        try {
+            return new BigDecimal(value.replace("¥", "").replace(",", "").trim());
         } catch (NumberFormatException ignored) {
             return null;
         }

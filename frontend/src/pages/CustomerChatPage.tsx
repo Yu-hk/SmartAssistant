@@ -130,7 +130,7 @@ export function CustomerChatPage({
               <p>{isClosed
                 ? '该会话已结束，请从左侧新建会话后继续。'
                 : isSuspended
-                  ? '该会话已暂停且上下文已保留；关闭当前活跃对话后即可继续。'
+                  ? '该会话已暂停且上下文已保留；请从左侧暂停列表中主动恢复。'
                   : '直接描述需要处理的事情，或从下方选择服务入口；系统会自动安排后续步骤。'}</p>
             </div>
 
@@ -159,7 +159,7 @@ export function CustomerChatPage({
               isLoading={isLoading}
               disabled={isClosed || isSuspended}
               disabledMessage={isSuspended
-                ? '该会话已暂停，关闭当前活跃对话后即可继续'
+                ? '该会话已暂停，请从左侧暂停列表中选择恢复'
                 : undefined}
               onSend={handleSend}
               onStop={onStop}
@@ -264,7 +264,7 @@ export function CustomerChatPage({
           isLoading={isLoading}
           disabled={currentSession?.status === 'closed' || currentSession?.status === 'suspended'}
           disabledMessage={currentSession?.status === 'suspended'
-            ? '该会话已暂停，关闭当前活跃对话后即可继续'
+            ? '该会话已暂停，请从左侧暂停列表中选择恢复'
             : undefined}
           onSend={handleSend}
           onStop={onStop}

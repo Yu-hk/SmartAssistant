@@ -9,6 +9,7 @@ interface CustomerSidebarProps {
   onNewChat: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
+  onResumeSession: (id: string) => void;
   onSelectAgent: (name: string) => void;
   onToggleTheme: () => void;
   isOpen?: boolean;
@@ -43,9 +44,12 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function CustomerSidebar({
   sessions, currentSessionId, theme,
-  onNewChat, onSelectSession, onDeleteSession, onSelectAgent, onToggleTheme,
+  onNewChat, onSelectSession, onDeleteSession, onResumeSession, onSelectAgent, onToggleTheme,
   isOpen = false, onClose,
 }: CustomerSidebarProps) {
+  const suspendedSessions = sessions.filter(session => session.status === 'suspended');
+  const regularSessions = sessions.filter(session => session.status !== 'suspended');
+
   return (
     <aside className={`customer-sidebar glass ${isOpen ? 'is-open' : ''}`} style={{
       flexShrink: 0,
@@ -209,8 +213,8 @@ export function CustomerSidebar({
               点击「新建会话」开始咨询
             </span>
           </div>
-        ) : (
-          sessions.map(session => (
+        ) : regularSessions.length > 0 ? (
+          regularSessions.map(session => (
             <SessionItem
               key={session.id}
               session={session}
@@ -219,6 +223,52 @@ export function CustomerSidebar({
               onDelete={() => onDeleteSession(session.id)}
             />
           ))
+        ) : null}
+
+        {suspendedSessions.length > 0 && (
+          <section aria-label="已暂停的对话" style={{ marginTop: '16px' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '0 6px 8px',
+              color: 'var(--nova-text-tertiary)',
+            }}>
+              <span style={{
+                fontSize: '11px', fontWeight: 600,
+                letterSpacing: '0.08em', textTransform: 'uppercase',
+              }}>
+                已暂停的对话
+              </span>
+              <span style={{
+                minWidth: '20px', padding: '1px 6px', borderRadius: '999px',
+                textAlign: 'center', fontSize: '10px',
+                color: 'var(--nova-warm)', background: 'var(--nova-bg-component)',
+              }}>
+                {suspendedSessions.length}
+              </span>
+            </div>
+            <div style={{
+              padding: '5px', borderRadius: '12px',
+              border: '1px solid var(--nova-border)',
+              background: 'var(--nova-bg-component)',
+            }}>
+              {suspendedSessions.map(session => (
+                <SessionItem
+                  key={session.id}
+                  session={session}
+                  isActive={session.id === currentSessionId}
+                  onSelect={() => onSelectSession(session.id)}
+                  onDelete={() => onDeleteSession(session.id)}
+                  onResume={() => onResumeSession(session.id)}
+                />
+              ))}
+            </div>
+            <p style={{
+              margin: '7px 7px 0', fontSize: '10px', lineHeight: 1.5,
+              color: 'var(--nova-text-tertiary)',
+            }}>
+              上下文已保留；结束当前会话后，可选择任意一条恢复。
+            </p>
+          </section>
         )}
       </div>
 
@@ -257,11 +307,12 @@ export function CustomerSidebar({
 // ===================================================
 // 单条会话项 — 科技感卡片
 // ===================================================
-function SessionItem({ session, isActive, onSelect, onDelete }: {
+function SessionItem({ session, isActive, onSelect, onDelete, onResume }: {
   session: Session;
   isActive: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  onResume?: () => void;
 }) {
   const [showDel, setShowDel] = React.useState(false);
   const intentColor = INTENT_COLORS[session.intent] || 'var(--nova-text-tertiary)';
@@ -367,6 +418,21 @@ function SessionItem({ session, isActive, onSelect, onDelete }: {
         }}>
           ● {STATUS_LABELS[session.status] || session.status}
         </span>
+        {onResume && (
+          <button
+            type="button"
+            onClick={event => { event.stopPropagation(); onResume(); }}
+            style={{
+              marginLeft: 'auto', padding: '3px 8px', borderRadius: '999px',
+              border: '1px solid var(--nova-accent-glow)',
+              color: 'var(--nova-accent)', background: 'var(--nova-accent-light)',
+              fontFamily: 'inherit', fontSize: '10px', fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            恢复会话
+          </button>
+        )}
       </div>
     </div>
   );

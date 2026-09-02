@@ -5,6 +5,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 /** Durable lifecycle mirror and database-level exclusivity backstop. */
 @Service
@@ -37,16 +40,32 @@ public class ConversationGateStateStore {
                 numericUserId, sessionId);
     }
 
-    public void closed(String userId, String sessionId, String activatedSessionId) {
+    public void closed(String userId, String sessionId) {
         Long numericUserId = numericUserId(userId);
         if (numericUserId == null) return;
         jdbcTemplate.update("UPDATE conversation_session_state " +
                         "SET status = 'CLOSED', closed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP " +
                         "WHERE user_id = ? AND session_id = ?",
                 numericUserId, sessionId);
-        if (activatedSessionId != null && !activatedSessionId.isBlank()) {
-            activate(numericUserId, activatedSessionId, "ACTIVE_IDLE");
+    }
+
+    public boolean isSuspended(String userId, String sessionId) {
+        Long numericUserId = numericUserId(userId);
+        if (numericUserId == null) return false;
+        List<String> statuses = jdbcTemplate.queryForList(
+                "SELECT status FROM conversation_session_state WHERE user_id = ? AND session_id = ?",
+                String.class, numericUserId, sessionId);
+        return statuses.stream().anyMatch(status ->
+                "SUSPENDED".equalsIgnoreCase(status) || "FROZEN".equalsIgnoreCase(status));
+    }
+
+    @Transactional
+    public void resumed(String userId, String sessionId) {
+        Long numericUserId = numericUserId(userId);
+        if (numericUserId == null) {
+            throw new IllegalArgumentException("userId must be numeric");
         }
+        activate(numericUserId, sessionId, "ACTIVE_IDLE");
     }
 
     private void activate(Long userId, String sessionId, String status) {

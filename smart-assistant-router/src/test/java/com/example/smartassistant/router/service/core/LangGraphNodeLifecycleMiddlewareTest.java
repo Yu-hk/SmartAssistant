@@ -3,6 +3,7 @@ package com.example.smartassistant.router.service.core;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.bsc.langgraph4j.RunnableConfig;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -19,6 +20,16 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class LangGraphNodeLifecycleMiddlewareTest {
+
+    @Test
+    void supportsClassBasedProxyUsedByServiceInterceptors() {
+        LangGraphNodeLifecycleMiddleware middleware = new LangGraphNodeLifecycleMiddleware(
+                cancellationService(), new SimpleMeterRegistry());
+        ProxyFactory proxyFactory = new ProxyFactory(middleware);
+        proxyFactory.setProxyTargetClass(true);
+
+        assertInstanceOf(LangGraphNodeLifecycleMiddleware.class, proxyFactory.getProxy());
+    }
 
     @Test
     void wrapsNodeWithNativeTelemetryAndReleasesCancellationRegistration() {

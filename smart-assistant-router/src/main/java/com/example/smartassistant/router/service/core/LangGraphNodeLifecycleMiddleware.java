@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
  * implementations, including nodes dispatched on parallel executors.</p>
  */
 @Component
-public final class LangGraphNodeLifecycleMiddleware
+public class LangGraphNodeLifecycleMiddleware
         implements NodeHook.WrapCall<LangGraphRouteExecutionService.RouterGraphState> {
 
     static final String LATENCY_METRIC = "smart_assistant_workflow_node_duration";
