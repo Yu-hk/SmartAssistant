@@ -10,7 +10,8 @@ class WorkflowOperationTest {
     @Test
     void exposesCanonicalAccessAndApprovalMetadata() {
         assertTrue(WorkflowOperation.CREATE_ORDER.isWrite());
-        assertFalse(WorkflowOperation.CREATE_ORDER.approvalRequired());
+        assertTrue(WorkflowOperation.CREATE_ORDER.approvalRequired());
+        assertTrue(WorkflowOperation.APPLY_AFTER_SALES.approvalRequired());
         assertFalse(WorkflowOperation.QUERY_ORDER_LIST.isWrite());
         assertTrue(WorkflowOperation.fromCode("recommend_product").isPresent());
     }

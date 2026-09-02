@@ -445,6 +445,25 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
+    void incompleteOrderMutationAsksOnlyForMissingFieldsAndDoesNotCallAgent() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "prepare-refund",
+                "仅执行这个子任务：执行REFUND_ORDER前还需要补充：退款原因。只追问缺失信息，本次不得执行任何写操作。\n不得违反操作约束。",
+                RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT, List.of());
+
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "request");
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getResult()).contains("执行REFUND_ORDER前还需要补充：退款原因")
+                .contains("只有你明确确认后才会提交")
+                .doesNotContain("收货人姓名");
+        verify(agentCallerService, never()).callAgentAndExtractTitles(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void derivesLegacyProductIdsBindingFromCanonicalProductCatalog() {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "analysis", "分析商品", "product", List.of("discover_products"), null,

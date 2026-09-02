@@ -65,6 +65,10 @@ public interface OrderDataProvider {
     /** Insert a new refund record. Returns number of rows affected. */
     int insertRefund(RefundDTO refund);
 
+    /** Insert a generic after-sales request after workflow approval. */
+    int insertAfterSalesRequest(String requestId, String orderId, Long userId,
+                                String requestType, String reason);
+
     // ========== Approval ==========
 
     /** Create an approval record for an action on an order. */

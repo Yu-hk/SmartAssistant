@@ -39,9 +39,17 @@ export async function deleteSession(sessionId: string): Promise<void> {
 export async function closeSession(sessionId: string): Promise<{
   success: boolean;
   status: string;
-  activatedSessionId?: string;
 }> {
   return apiClient.post(`/sessions/${sessionId}/close`, {});
+}
+
+/** 由用户主动恢复一条已暂停的会话 */
+export async function resumeSession(sessionId: string): Promise<{
+  success: boolean;
+  status: string;
+  sessionId: string;
+}> {
+  return apiClient.post(`/sessions/${sessionId}/resume`, {});
 }
 
 /** 提交满意度并结束会话 */
