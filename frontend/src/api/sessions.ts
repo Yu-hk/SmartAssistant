@@ -36,7 +36,11 @@ export async function deleteSession(sessionId: string): Promise<void> {
 }
 
 /** 主动结束会话（无需评分） */
-export async function closeSession(sessionId: string): Promise<void> {
+export async function closeSession(sessionId: string): Promise<{
+  success: boolean;
+  status: string;
+  activatedSessionId?: string;
+}> {
   return apiClient.post(`/sessions/${sessionId}/close`, {});
 }
 

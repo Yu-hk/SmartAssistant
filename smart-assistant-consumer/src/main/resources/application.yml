@@ -30,6 +30,16 @@ spring:
     port: ${SPRING_RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:smartassistant}
     password: ${RABBITMQ_PASSWORD:}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+      retry:
+        enabled: true
+        initial-interval: 1s
+        max-attempts: 5
+        multiplier: 2
+        max-interval: 8s
     listener:
       simple:
         default-requeue-rejected: false
@@ -205,10 +215,25 @@ router:
     heavy-question-chars: 160        # 与 Router 模型分档阈值保持一致
     sse-idle-grace-ms: 30000         # SSE 通道晚于路由预算关闭，避免长任务仍执行时断流
 
-# 用户画像是旁路增强：模型提取超时后降级到规则，不占用主对话预算
+# 用户画像与路由规划并行；模型失败时返回空画像，Product 执行前等待最终状态。
 preference:
   extraction:
     timeout-ms: 8000
+  analysis:
+    max-history-turns: ${PREFERENCE_ANALYSIS_MAX_HISTORY_TURNS:20}
+    max-history-chars: ${PREFERENCE_ANALYSIS_MAX_HISTORY_CHARS:12000}
+  prefetch:
+    ttl-seconds: 120
+  commit:
+    exchange: ${USER_PROFILE_COMMIT_EXCHANGE:smartassistant.profile}
+    queue: ${USER_PROFILE_COMMIT_QUEUE:smartassistant.user-profile.commit}
+    routing-key: ${USER_PROFILE_COMMIT_ROUTING_KEY:profile.commit}
+    dead-letter-exchange: ${USER_PROFILE_COMMIT_DLX:smartassistant.profile.dlx}
+    dead-letter-queue: ${USER_PROFILE_COMMIT_DLQ:smartassistant.user-profile.commit.dlq}
+    dead-letter-routing-key: ${USER_PROFILE_COMMIT_DLQ_ROUTING_KEY:profile.commit.dead}
+    confirm-timeout-ms: ${USER_PROFILE_COMMIT_CONFIRM_TIMEOUT_MS:5000}
+    wait-timeout-ms: ${USER_PROFILE_COMMIT_WAIT_TIMEOUT_MS:15000}
+    poll-interval-ms: ${USER_PROFILE_COMMIT_POLL_INTERVAL_MS:50}
 
 workflow:
   recovery:
@@ -345,6 +370,11 @@ session:
   enabled: true  # 是否启用 Redis Session 验证（设为 false 可跳过 Redis）
   db-storage-enabled: true  # ⭐ 启用数据库存储（JSONB 问题已修复）
   timeout-ms: 1800000  # ⭐ 会话超时时间（毫秒），默认 30 分钟
+  exclusive:
+    active-ttl: ${CONVERSATION_ACTIVE_TTL:30m}
+    request-ttl: ${CONVERSATION_REQUEST_TTL:5m}
+    suspended-ttl: ${CONVERSATION_SUSPENDED_TTL:10m}
+    fail-closed: ${CONVERSATION_GATE_FAIL_CLOSED:true}
 
 # CORS 跨域配置
 cors:

@@ -168,6 +168,7 @@ export function useChat(options: UseChatOptions) {
     let realSessionId: string = sessionId;
     let realAssistantMessageId = assistantMessageId;
     let isDone = false;
+    let isGateStopped = false;
 
     const updateAssistantMessage = (updater: (message: Message) => Message) => {
       setSessions(prev => prev.map(current => {
@@ -222,7 +223,13 @@ export function useChat(options: UseChatOptions) {
             if (normalizedIntent !== 'unknown') {
               setSessions(prev => prev.map(s =>
                 s.id === realSessionId || s.id === sessionId
-                  ? { ...s, intent: normalizedIntent }
+                  ? { ...s, intent: normalizedIntent, status: 'active' }
+                  : s
+              ));
+            } else {
+              setSessions(prev => prev.map(s =>
+                s.id === realSessionId || s.id === sessionId
+                  ? { ...s, status: 'active' }
                   : s
               ));
             }
@@ -319,7 +326,58 @@ export function useChat(options: UseChatOptions) {
             updateAssistantMessage(current => ({
               ...current,
               isStreaming: false,
-              deliveryStatus: 'completed',
+              deliveryStatus: isGateStopped ? 'stopped' : 'completed',
+              recoverable: false,
+            }));
+
+          } else if (data.type === 'conversation_suspended' || data.type === 'conversation_frozen') {
+            isGateStopped = true;
+            setProgressMessage('');
+            setQueuePosition(data.queuePosition || null);
+            setQueueEstimatedWait(null);
+            updateAssistantMessage(current => ({
+              ...current,
+              content: '当前账号正在使用其他对话。本对话已暂停，上下文会保留；关闭当前活跃对话后可继续。',
+              isStreaming: false,
+              deliveryStatus: 'stopped',
+              recoverable: false,
+            }));
+            setSessions(prev => prev.map(session =>
+              session.id === realSessionId || session.id === sessionId
+                ? { ...session, status: 'suspended' }
+                : session
+            ));
+
+          } else if (data.type === 'request_blocked') {
+            isGateStopped = true;
+            setProgressMessage('');
+            updateAssistantMessage(current => ({
+              ...current,
+              content: '当前对话仍有一条请求正在处理，请等待完成后再发送。',
+              isStreaming: false,
+              deliveryStatus: 'stopped',
+              recoverable: false,
+            }));
+
+          } else if (data.type === 'request_in_progress') {
+            isGateStopped = true;
+            setProgressMessage('原请求仍在处理中…');
+            updateAssistantMessage(current => ({
+              ...current,
+              content: '这条请求仍在处理中，请等待原请求完成。',
+              isStreaming: false,
+              deliveryStatus: 'stopped',
+              recoverable: false,
+            }));
+
+          } else if (data.type === 'conversation_gate_unavailable') {
+            isDone = true;
+            setProgressMessage('');
+            updateAssistantMessage(current => ({
+              ...current,
+              content: '⚠️ 会话状态服务暂不可用，请稍后重试。',
+              isStreaming: false,
+              deliveryStatus: 'failed',
               recoverable: false,
             }));
 

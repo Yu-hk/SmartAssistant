@@ -11,6 +11,7 @@ import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.service.agent.StreamingProductAgentService;
 import com.example.smartassistant.service.core.ProductDiscoveryService;
 import com.example.smartassistant.spi.ProductBackend;
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -176,6 +177,34 @@ class ProductStreamControllerTest {
                         context.contains("SKU-100") && context.contains("结构化数据")
                                 && !context.contains("候选商品：")),
                 org.mockito.ArgumentMatchers.eq("scene-analysis"));
+    }
+
+    @Test
+    void analysisNodeConsumesUserProfileInjectedByRouter() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        ProductStreamController controller = new ProductStreamController(service);
+        AgentExecutionRequest request = new AgentExecutionRequest(
+                "1.0", "scene-profile", "analyze_product_data", "42",
+                "ANALYZE_PRODUCT_DATA", "分析候选商品",
+                Map.of(RoutingKeys.USER_PROFILE_INPUT,
+                        "【用户历史信息】\n- 预算范围: 5000元\n- 用途: 摄影"),
+                List.of(), List.of(), null, null, Map.of(),
+                "shopping", 1, "sha256:v1", 0, "scene-profile");
+        when(service.analyzeVerifiedContext(eq("分析候选商品"),
+                org.mockito.ArgumentMatchers.contains("预算范围: 5000元"),
+                eq("scene-profile")))
+                .thenReturn(DomainAgentResponse.of("按预算完成分析",
+                        DomainQualityResult.pass(1.0, "VERIFIED_PRODUCT_ANALYSIS")));
+
+        var response = controller.execute(request, null);
+
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, response.getBody().status());
+        verify(service).analyzeVerifiedContext(eq("分析候选商品"),
+                org.mockito.ArgumentMatchers.argThat(context ->
+                        context.contains("[用户画像]")
+                                && context.contains("预算范围: 5000元")
+                                && context.contains("用途: 摄影")),
+                eq("scene-profile"));
     }
 
     @Test

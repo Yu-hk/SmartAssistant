@@ -107,13 +107,8 @@ public class ChatConsumerService {
         
         log.info("[Consumer] 收到请求: userId={}, userIdLong={}, question={}", userId, userIdLong, question);
 
-        // Step 1: 更新用户画像（仅对有偏好价值的请求）⭐
-        if (userIdLong != null && isPreferenceWorthyRequest(question)) {
-            userProfileService.extractAndUpdatePreferencesAsync(userIdLong, question, null);
-            log.debug("[Consumer] 用户画像更新已提交到后台: userId={}", userIdLong);
-        } else if (userIdLong != null) {
-            log.debug("[Consumer] 跳过画像提取（无偏好价值）: userId={}, question={}", userIdLong, question);
-        }
+        // Step 1: 异步预取画像。Router 可并行规划，但 Product 节点执行前必须等待该 requestId。
+        userProfileService.prefetchForRequest(userIdLong, question, traceReqId);
 
         // Step 2: 用户画像始终留在 Consumer；Router 只接收任务与 Consumer 的路由提示。
         log.info("[Consumer] 转发请求到 Router Service (纯文本question), questionLength={}", question.length());
@@ -139,6 +134,7 @@ public class ChatConsumerService {
 
         // Step 4: 记录调用日志
         long latencyMs = System.currentTimeMillis() - startTime;
+        String finalStatus = responseStatus(routeResponse);
         routingCallLogService.saveLog(
                 userIdLong,
                 threadId,
@@ -146,7 +142,7 @@ public class ChatConsumerService {
                 effectiveAgent(routedAgent, intentTag),
                 "ROUTER_SERVICE",
                 latencyMs,
-                responseStatus(routeResponse),
+                finalStatus,
                 response,
                 tokenUsage.promptTokens(),
                 tokenUsage.completionTokens(),
@@ -154,6 +150,9 @@ public class ChatConsumerService {
                 question,
                 toolUsage
         );
+        if ("SUCCESS".equals(finalStatus) && userIdLong != null) {
+            scheduleProfileCommit(userIdLong, traceReqId);
+        }
 
         log.info("[Consumer] 总耗时: {} ms, 响应长度: {} 字符", latencyMs, response.length());
         
@@ -177,6 +176,9 @@ public class ChatConsumerService {
         tracingService.injectToLog("收到请求(含session): userId=" + maskingService.maskUsername(userId != null ? userId : "anonymous"));
 
         log.info("[Consumer] 收到请求(含session): userId={}, sessionId={}, question={}", userId, sessionId, question);
+
+        // 尽早启动画像预取，与情感分析和 Router 任务拆解并行。
+        userProfileService.prefetchForRequest(userIdLong, originalQuestion, traceReqId);
 
         // ⭐ Step 0.5: 情感分析 — 检测用户情绪并影响回复策略
         var sentimentResult = sentimentAnalysisService.analyze(question, effectiveSessionId);
@@ -213,11 +215,6 @@ public class ChatConsumerService {
             log.info("[Consumer] 注入情感上下文: question='{}'", question);
         }
 
-        // Step 1: 更新用户画像
-        if (userIdLong != null && isPreferenceWorthyRequest(question)) {
-            userProfileService.extractAndUpdatePreferencesAsync(userIdLong, question, null);
-        }
-
         // Step 2: 用户画像始终留在 Consumer；Router 只接收任务与 Consumer 的路由提示。
         log.info("[Consumer] 转发请求到 Router Service(含session), questionLength={}", question.length());
         Map<String, Object> response = new java.util.HashMap<>(routerClient.callRouterRaw(
@@ -237,6 +234,7 @@ public class ChatConsumerService {
 
         // Step 4: 记录调用日志
         long latencyMs = System.currentTimeMillis() - startTime;
+        String finalStatus = responseStatus(response);
         routingCallLogService.saveLog(
                 userIdLong,
                 effectiveSessionId,
@@ -244,7 +242,7 @@ public class ChatConsumerService {
                 effectiveAgent(routedAgent, intentTag),
                 "ROUTER_SERVICE",
                 latencyMs,
-                responseStatus(response),
+                finalStatus,
                 Objects.toString(response.get("result"), ""),
                 tokenUsage.promptTokens(),
                 tokenUsage.completionTokens(),
@@ -252,6 +250,9 @@ public class ChatConsumerService {
                 question,
                 toolUsage
         );
+        if ("SUCCESS".equals(finalStatus) && userIdLong != null) {
+            scheduleProfileCommit(userIdLong, traceReqId);
+        }
 
         log.info("[Consumer] 总耗时: {} ms, 响应包含 suggestions={}", latencyMs, response.containsKey("suggestions"));
 
@@ -326,24 +327,16 @@ public class ChatConsumerService {
      * @return true = 值得提取偏好；false = 跳过
      */
     private boolean isPreferenceWorthyRequest(String question) {
-        if (question == null || question.isBlank()) {
-            return false;
-        }
-        String lower = question.toLowerCase().trim();
+        return UserProfileService.isPreferenceWorthyRequest(question);
+    }
 
-        // 通用问候/闲聊 - 无任何偏好信息
-        String[] greetingKeywords = { "你好", "hello", "hi ", "嗨", "谢谢", "感谢", "再见", "拜拜", "早上好", "晚上好", "下午好" };
-        for (String kw : greetingKeywords) {
-            if (lower.contains(kw)) return false;
+    private void scheduleProfileCommit(Long userId, String requestId) {
+        try {
+            userProfileService.commitAfterSuccessfulTurn(userId, requestId);
+        } catch (RuntimeException error) {
+            log.error("[Consumer] 调度画像提交失败: requestId={}, error={}",
+                    requestId, error.getMessage());
         }
-
-        // 纯知识问答 - 不含个人偏好
-        String[] knowledgeKeywords = { "什么是", "怎么", "如何", "为什么", "是什么", "解释", "帮我查", "帮我搜" };
-        for (String kw : knowledgeKeywords) {
-            if (lower.contains(kw)) return false;
-        }
-
-        return true;
     }
 
 }
