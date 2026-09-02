@@ -5,7 +5,7 @@
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
 
 export type IntentType = 'refund' | 'order' | 'product' | 'tech' | 'general' | 'unknown';
-export type SessionStatus = 'active' | 'human_transfer' | 'closed';
+export type SessionStatus = 'active' | 'suspended' | 'human_transfer' | 'closed';
 
 export type WorkflowRecoveryStatus =
   | 'REQUESTED'

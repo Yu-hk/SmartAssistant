@@ -1,5 +1,6 @@
 package com.example.smartassistant.consumer.service.recommendation;
 
+import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -9,7 +10,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,21 +19,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-/** Extracts extensible user preferences without compiling domain types into the Consumer. */
+/** Produces and incrementally updates an evidence-bound e-commerce user profile. */
 @Service
 public class LLMPreferenceExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(LLMPreferenceExtractor.class);
-    private static final Pattern POSITIVE_EXPRESSION = Pattern.compile(
-            "(?:喜欢|偏好|倾向于?|经常|习惯于?)([^，。！？,;；]{1,32})");
-    private static final Pattern NEGATIVE_EXPRESSION = Pattern.compile(
-            "(?:不喜欢|讨厌|厌烦|厌恶|不要|拒绝|排斥)([^，。！？,;；]{1,32})");
 
     private final AiChatService aiChatService;
     private final ChatModel lightModel;
+    private final PromptManager promptManager;
     private final ExecutorService extractionExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     @Value("${preference.extraction.timeout-ms:8000}")
@@ -41,76 +36,61 @@ public class LLMPreferenceExtractor {
 
     public LLMPreferenceExtractor(AiChatService aiChatService,
                                   @Qualifier("lightChatModel") ChatModel lightModel,
-                                  com.example.smartassistant.common.tokenizer.ChineseTokenizer ignoredTokenizer) {
+                                  com.example.smartassistant.common.tokenizer.ChineseTokenizer ignoredTokenizer,
+                                  PromptManager promptManager) {
         this.aiChatService = aiChatService;
         this.lightModel = lightModel;
+        this.promptManager = promptManager;
     }
 
-    public ExtractedPreferences extract(String question) {
-        if (question == null || question.isBlank()) return ExtractedPreferences.empty();
-        Future<ExtractedPreferences> extraction = extractionExecutor.submit(
-                () -> extractWithLlm(question));
+    public UserInsightReport extract(String latestUserMessage) {
+        return extract("当前没有已保存画像。", latestUserMessage, latestUserMessage);
+    }
+
+    public UserInsightReport extract(String conversationHistory, String latestUserMessage) {
+        return extract("当前没有已保存画像。", conversationHistory, latestUserMessage);
+    }
+
+    public UserInsightReport extract(String currentProfile, String conversationHistory,
+                                     String latestUserMessage) {
+        if (latestUserMessage == null || latestUserMessage.isBlank()) {
+            return UserInsightReport.empty("当前没有可分析的用户消息");
+        }
+        String analysisInput = conversationHistory == null || conversationHistory.isBlank()
+                ? latestUserMessage : conversationHistory;
+        Future<UserInsightReport> extraction = extractionExecutor.submit(
+                () -> extractWithLlm(currentProfile, analysisInput));
         try {
-            ExtractedPreferences result = extraction.get(extractionTimeoutMs, TimeUnit.MILLISECONDS);
-            return result != null ? result.normalized() : fallbackExtraction(question);
+            UserInsightReport result = extraction.get(extractionTimeoutMs, TimeUnit.MILLISECONDS);
+            return result != null ? result.normalized()
+                    : UserInsightReport.empty("模型未返回用户画像");
         } catch (TimeoutException error) {
             extraction.cancel(true);
-            log.warn("[PreferenceExtraction] model timeout after {}ms; using generic fallback",
-                    extractionTimeoutMs);
-            return fallbackExtraction(question);
+            log.warn("[UserInsight] model timeout after {}ms", extractionTimeoutMs);
+            return UserInsightReport.empty("用户画像分析超时");
         } catch (InterruptedException error) {
             extraction.cancel(true);
             Thread.currentThread().interrupt();
-            return fallbackExtraction(question);
+            return UserInsightReport.empty("用户画像分析被中断");
         } catch (ExecutionException error) {
-            log.warn("[PreferenceExtraction] model failed; using generic fallback: {}",
+            log.warn("[UserInsight] model failed: {}",
                     error.getCause() != null ? error.getCause().getMessage() : error.getMessage());
-            return fallbackExtraction(question);
+            return UserInsightReport.empty("用户画像模型调用失败");
         }
     }
 
-    private ExtractedPreferences extractWithLlm(String question) {
+    private UserInsightReport extractWithLlm(String currentProfile, String conversationHistory) {
         return aiChatService.buildChatClient(lightModel).prompt()
-                .user(buildExtractionPrompt(question)).call()
-                .entity(ExtractedPreferences.class);
+                .user(buildExtractionPrompt(currentProfile, conversationHistory)).call()
+                .entity(UserInsightReport.class);
     }
 
-    private String buildExtractionPrompt(String question) {
-        return """
-                从用户文本中提取可扩展的用户偏好，只输出合法 JSON。
-                不使用预设业务分类；preferenceGroups 的 key 应从文本语义概括为简短维度名，
-                value 是该维度下明确表达的正向偏好。只有“喜欢、偏好、经常、习惯”等
-                明确偏好表达才记录；普通查询条件不能当作长期偏好。
-                negativePreferences 仅记录“不喜欢、讨厌、不要、排斥”等明确负向表达。
-                purpose 使用简短场景名称，不得从固定枚举中猜测；无法判断则为 null。
-                location、budget、time 未提及均为 null。
-
-                输出结构：
-                {"location":null,"purpose":null,
-                 "preferenceGroups":{"动态维度名":["偏好值"]},
-                 "negativePreferences":[],"budget":null,"time":null}
-
-                用户文本：%s
-                """.formatted(question);
+    private String buildExtractionPrompt(String conversationHistory) {
+        return buildExtractionPrompt("当前没有已保存画像。", conversationHistory);
     }
 
-    /** Fallback extracts only explicit positive/negative spans and invents no domain type. */
-    private ExtractedPreferences fallbackExtraction(String question) {
-        List<String> positives = matches(question, POSITIVE_EXPRESSION);
-        List<String> negatives = matches(question, NEGATIVE_EXPRESSION);
-        Map<String, List<String>> groups = positives.isEmpty()
-                ? Map.of() : Map.of("explicit", positives);
-        return new ExtractedPreferences(null, null, groups, negatives, null, null);
-    }
-
-    private static List<String> matches(String text, Pattern pattern) {
-        List<String> values = new ArrayList<>();
-        Matcher matcher = pattern.matcher(text);
-        while (matcher.find()) {
-            String value = matcher.group(1).trim();
-            if (!value.isBlank() && !values.contains(value)) values.add(value);
-        }
-        return List.copyOf(values);
+    private String buildExtractionPrompt(String currentProfile, String conversationHistory) {
+        return promptManager.renderUserProfileAnalysis(currentProfile, conversationHistory);
     }
 
     @PreDestroy
@@ -118,33 +98,169 @@ public class LLMPreferenceExtractor {
         extractionExecutor.shutdownNow();
     }
 
-    public record ExtractedPreferences(
-            String location,
-            String purpose,
-            Map<String, List<String>> preferenceGroups,
-            List<String> negativePreferences,
-            String budget,
-            String time) {
+    public record UserInsightReport(
+            ProfileUpdate profileUpdate,
+            Map<String, InsightDimension> insightDimensions,
+            List<RiskFinding> riskFindings,
+            Map<String, Integer> radarScores,
+            List<String> topDrivers,
+            List<String> topBarriers,
+            CommerceAssessment commerceAssessment,
+            List<ConversionStrategy> conversionStrategies) {
 
-        public ExtractedPreferences normalized() {
-            Map<String, List<String>> safeGroups = new LinkedHashMap<>();
-            if (preferenceGroups != null) {
-                preferenceGroups.forEach((key, values) -> {
-                    if (key != null && !key.isBlank() && values != null) {
-                        List<String> safeValues = values.stream()
-                                .filter(value -> value != null && !value.isBlank()).distinct().toList();
-                        if (!safeValues.isEmpty()) safeGroups.put(key.trim(), safeValues);
+        public UserInsightReport normalized() {
+            Map<String, InsightDimension> dimensions = new LinkedHashMap<>();
+            if (insightDimensions != null) {
+                insightDimensions.forEach((key, value) -> {
+                    if (key != null && !key.isBlank() && value != null) {
+                        dimensions.put(key.trim(), value.normalized());
                     }
                 });
             }
-            List<String> negatives = negativePreferences == null ? List.of()
-                    : negativePreferences.stream()
-                            .filter(value -> value != null && !value.isBlank()).distinct().toList();
-            return new ExtractedPreferences(location, purpose, safeGroups, negatives, budget, time);
+            List<RiskFinding> risks = riskFindings == null ? List.of()
+                    : riskFindings.stream().filter(java.util.Objects::nonNull)
+                            .map(RiskFinding::normalized)
+                            .filter(risk -> !risk.description().isBlank() && !risk.evidence().isEmpty())
+                            .toList();
+            Map<String, Integer> scores = normalizeScores(radarScores);
+            List<ConversionStrategy> strategies = conversionStrategies == null ? List.of()
+                    : conversionStrategies.stream().filter(java.util.Objects::nonNull)
+                            .map(ConversionStrategy::normalized)
+                            .filter(strategy -> !strategy.action().isBlank())
+                            .limit(8).toList();
+            return new UserInsightReport(
+                    profileUpdate == null ? ProfileUpdate.keep("模型未说明画像更新动作")
+                            : profileUpdate.normalized(),
+                    Map.copyOf(dimensions), risks, scores,
+                    cleanStrings(topDrivers, 3), cleanStrings(topBarriers, 3),
+                    commerceAssessment == null ? CommerceAssessment.empty("画像评估信息不足")
+                            : commerceAssessment.normalized(),
+                    strategies);
         }
 
-        public static ExtractedPreferences empty() {
-            return new ExtractedPreferences(null, null, Map.of(), List.of(), null, null);
+        public static UserInsightReport empty(String limitation) {
+            return new UserInsightReport(ProfileUpdate.keep(limitation), Map.of(), List.of(),
+                    Map.of(), List.of(), List.of(), CommerceAssessment.empty(limitation), List.of());
         }
+    }
+
+    public record ProfileUpdate(String action, List<String> changedFields,
+                                List<String> removedFields, String reason,
+                                List<String> evidence) {
+        ProfileUpdate normalized() {
+            String safeAction = switch (action == null ? "" : action.trim().toUpperCase()) {
+                case "CREATE" -> "CREATE";
+                case "UPDATE" -> "UPDATE";
+                default -> "KEEP";
+            };
+            List<String> changed = cleanStrings(changedFields, 32);
+            List<String> removed = cleanStrings(removedFields, 32);
+            if ("UPDATE".equals(safeAction) && changed.isEmpty() && removed.isEmpty()) {
+                safeAction = "KEEP";
+            }
+            if ("KEEP".equals(safeAction)) {
+                changed = List.of();
+                removed = List.of();
+            }
+            return new ProfileUpdate(safeAction, changed, removed,
+                    reason == null ? "" : reason.trim(), cleanStrings(evidence, 12));
+        }
+
+        static ProfileUpdate keep(String reason) {
+            return new ProfileUpdate("KEEP", List.of(), List.of(), reason, List.of());
+        }
+    }
+
+    public record InsightDimension(String summary, List<String> evidence, String confidence) {
+        InsightDimension normalized() {
+            List<String> safeEvidence = cleanStrings(evidence, 12);
+            return new InsightDimension(summary == null ? "" : summary.trim(), safeEvidence,
+                    normalizeConfidence(confidence, safeEvidence.size()));
+        }
+    }
+
+    public record RiskFinding(String type, String description,
+                              List<String> evidence, String confidence) {
+        RiskFinding normalized() {
+            List<String> safeEvidence = cleanStrings(evidence, 12);
+            return new RiskFinding(type == null ? "潜在误判" : type.trim(),
+                    description == null ? "" : description.trim(), safeEvidence,
+                    normalizeConfidence(confidence, safeEvidence.size()));
+        }
+    }
+
+    public record CommerceAssessment(
+            boolean reliable,
+            String purchaseStage,
+            String decisionStyle,
+            String priceSensitivity,
+            Integer purchaseIntentScore,
+            String churnRisk,
+            List<String> primaryConcerns,
+            String bestInterventionTiming,
+            boolean informationOverloadRisk,
+            List<String> fatigueSignals,
+            List<String> limitations) {
+
+        CommerceAssessment normalized() {
+            Integer score = purchaseIntentScore != null
+                    && purchaseIntentScore >= 0 && purchaseIntentScore <= 100
+                    ? purchaseIntentScore : null;
+            return new CommerceAssessment(reliable,
+                    safeText(purchaseStage, "信息不足"), safeText(decisionStyle, ""),
+                    safeText(priceSensitivity, ""), score, safeText(churnRisk, "未知"),
+                    cleanStrings(primaryConcerns, 8), safeText(bestInterventionTiming, ""),
+                    informationOverloadRisk, cleanStrings(fatigueSignals, 8),
+                    cleanStrings(limitations, 8));
+        }
+
+        static CommerceAssessment empty(String limitation) {
+            return new CommerceAssessment(false, "信息不足", "", "", null, "未知",
+                    List.of(), "", false, List.of(), List.of(limitation));
+        }
+    }
+
+    public record ConversionStrategy(String painPoint, String direction, String action,
+                                     String expectedEffect, String priority) {
+        ConversionStrategy normalized() {
+            String safePriority = "高".equals(priority) || "中".equals(priority) ? priority : "低";
+            return new ConversionStrategy(safeText(painPoint, ""), safeText(direction, ""),
+                    safeText(action, ""), safeText(expectedEffect, ""), safePriority);
+        }
+    }
+
+    private static Map<String, Integer> normalizeScores(Map<String, Integer> rawScores) {
+        Map<String, Integer> scores = new LinkedHashMap<>();
+        if (rawScores != null) {
+            rawScores.forEach((key, value) -> {
+                if (key != null && !key.isBlank() && value != null && value >= 1 && value <= 10) {
+                    scores.put(key.trim(), value);
+                }
+            });
+        }
+        if (scores.size() > 1
+                && (scores.values().stream().allMatch(score -> score > 7)
+                    || scores.values().stream().allMatch(score -> score < 4))) {
+            scores.clear();
+        }
+        return Map.copyOf(scores);
+    }
+
+    private static List<String> cleanStrings(List<String> values, int limit) {
+        if (values == null) return List.of();
+        return values.stream().filter(java.util.Objects::nonNull)
+                .map(String::trim).filter(value -> !value.isBlank())
+                .distinct().limit(limit).toList();
+    }
+
+    private static String normalizeConfidence(String confidence, int evidenceCount) {
+        if ("高".equals(confidence)) {
+            return evidenceCount >= 2 ? "高" : evidenceCount > 0 ? "中" : "低";
+        }
+        return "中".equals(confidence) && evidenceCount > 0 ? "中" : "低";
+    }
+
+    private static String safeText(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 }

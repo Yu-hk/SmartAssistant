@@ -10,6 +10,15 @@ public final class RoutingKeys {
     public static final String EXECUTION_GRAPH_PREFIX = "routing:execution-graph:";
     public static final String CANCELLATION_PREFIX = "routing:cancellation:";
     public static final String EXECUTION_OWNER_PREFIX = "routing:execution-owner:";
+    public static final String USER_PROFILE_CONTEXT_PREFIX = "routing:user-profile-context:";
+    public static final String USER_PROFILE_CANDIDATE_PREFIX = "routing:user-profile-candidate:";
+
+    /** Request-scoped profile hand-off states shared by Consumer and Router. */
+    public static final String USER_PROFILE_PENDING = "PENDING";
+    public static final String USER_PROFILE_EMPTY = "EMPTY";
+    public static final String USER_PROFILE_FAILED = "FAILED";
+    public static final String USER_PROFILE_READY_PREFIX = "READY\n";
+    public static final String USER_PROFILE_INPUT = "userProfile";
 
     private RoutingKeys() {
     }
@@ -45,6 +54,15 @@ public final class RoutingKeys {
     public static String executionOwner(String requestId) {
         return EXECUTION_OWNER_PREFIX + requireRequestId(requestId);
     }
+
+    public static String userProfileContext(String requestId) {
+        return USER_PROFILE_CONTEXT_PREFIX + requireRequestId(requestId);
+    }
+
+    public static String userProfileCandidate(String requestId) {
+        return USER_PROFILE_CANDIDATE_PREFIX + requireRequestId(requestId);
+    }
+
 
     private static String requireRequestId(String requestId) {
         if (requestId == null || requestId.isBlank()) {

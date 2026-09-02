@@ -8,6 +8,8 @@ import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;
 import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
+import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
+import com.example.smartassistant.consumer.service.session.ConversationGateService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,6 +19,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
@@ -43,6 +46,8 @@ class StreamChatControllerPersistenceTest {
     @Mock private AgentStreamClient agentStreamClient;
     @Mock private RequestQueueService requestQueueService;
     @Mock private RoutingCallLogService routingCallLogService;
+    @Mock private UserProfileService userProfileService;
+    @Mock private ConversationGateService conversationGateService;
 
     @AfterEach
     void clearRequestContext() {
@@ -67,6 +72,7 @@ class StreamChatControllerPersistenceTest {
         StreamChatController controller = new StreamChatController(
                 routerClient, agentStreamClient, requestQueueService,
                 routingCallLogService, null);
+        ReflectionTestUtils.setField(controller, "userProfileService", userProfileService);
 
         controller.streamChatPost(Map.of(
                 "message", "查询热门商品",
@@ -75,6 +81,9 @@ class StreamChatControllerPersistenceTest {
 
         verify(routerClient).triggerRoutingDecision(
                 eq("查询热门商品"), eq("42"), eq("request-1"));
+        verify(userProfileService).prefetchForRequest(
+                42L, "查询热门商品", "request-1");
+        verify(userProfileService).commitAfterSuccessfulTurn(42L, "request-1");
         verify(routingCallLogService).saveLog(
                 eq(42L), eq("session-a"), eq("request-1"), eq("查询热门商品"), eq("product_service"),
                 eq("STREAM_ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("当前有 3 个热门商品"),
@@ -127,6 +136,64 @@ class StreamChatControllerPersistenceTest {
         assertEquals(120_000L, controller.decisionTimeoutFor(longQuestion));
         assertEquals(90_000L, controller.sseIdleTimeoutFor("查询天气"));
         assertEquals(150_000L, controller.sseIdleTimeoutFor(longQuestion));
+    }
+
+    @Test
+    void suspendsSecondSessionBeforeProfileOrRouterWorkStarts() throws Exception {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+        when(conversationGateService.acquire("42", "session-b", "request-b"))
+                .thenReturn(new ConversationGateService.GateDecision(
+                        ConversationGateService.GateStatus.SESSION_SUSPENDED,
+                        "42", "session-b", "request-b", "session-a", 1, null));
+        StreamChatController controller = new StreamChatController(
+                routerClient, agentStreamClient, requestQueueService,
+                routingCallLogService, null);
+        ReflectionTestUtils.setField(controller, "userProfileService", userProfileService);
+        ReflectionTestUtils.setField(controller, "conversationGateService", conversationGateService);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.streamChatPost(Map.of(
+                "message", "查询商品",
+                "requestId", "request-b",
+                "sessionId", "session-b"), response);
+
+        String rendered = response.getContentAsString();
+        assertTrue(rendered.contains("conversation_suspended"));
+        assertTrue(rendered.contains("USER_HAS_ACTIVE_CONVERSATION"));
+        assertTrue(rendered.contains("session-a"));
+        verify(userProfileService, never()).prefetchForRequest(any(), any(), any());
+        verify(routerClient, never()).triggerRoutingDecision(any(), any(), any());
+    }
+
+    @Test
+    void blocksDuplicateTurnWithoutSuspendingCurrentSession() throws Exception {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+        when(conversationGateService.acquire("42", "session-a", "request-b"))
+                .thenReturn(new ConversationGateService.GateDecision(
+                        ConversationGateService.GateStatus.REQUEST_BLOCKED,
+                        "42", "session-a", "request-b", "session-a", 1, null));
+        StreamChatController controller = new StreamChatController(
+                routerClient, agentStreamClient, requestQueueService,
+                routingCallLogService, null);
+        ReflectionTestUtils.setField(controller, "userProfileService", userProfileService);
+        ReflectionTestUtils.setField(controller, "conversationGateService", conversationGateService);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.streamChatPost(Map.of(
+                "message", "再次查询商品",
+                "requestId", "request-b",
+                "sessionId", "session-a"), response);
+
+        String rendered = response.getContentAsString();
+        assertTrue(rendered.contains("request_blocked"));
+        assertTrue(rendered.contains("SESSION_HAS_RUNNING_REQUEST"));
+        assertFalse(rendered.contains("conversation_suspended"));
+        verify(userProfileService, never()).prefetchForRequest(any(), any(), any());
+        verify(routerClient, never()).triggerRoutingDecision(any(), any(), any());
     }
 
     @Test
@@ -184,7 +251,7 @@ class StreamChatControllerPersistenceTest {
             when(agentStreamClient.isStreamingSupported("product_service")).thenReturn(true);
             when(agentStreamClient.getStreamUrl("product_service"))
                     .thenReturn("http://127.0.0.1:" + upstream.getAddress().getPort() + "/stream");
-            when(requestQueueService.tryAcquireWithQueue("session-only", null, 5))
+            when(requestQueueService.tryAcquireWithQueue("session-only", "session-only", 5))
                     .thenReturn(RequestQueueService.SlotResult.ACQUIRED);
 
             StreamChatController controller = new StreamChatController(

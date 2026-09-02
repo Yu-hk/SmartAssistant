@@ -5,12 +5,14 @@
 package com.example.smartassistant.consumer.controller;
 
 import com.example.smartassistant.consumer.service.admin.AdminService;
+import com.example.smartassistant.consumer.service.session.ConversationGateService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -19,6 +21,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,11 +30,15 @@ class AdminControllerSessionAuthorizationTest {
     @Mock
     private AdminService adminService;
 
+    @Mock
+    private ConversationGateService conversationGateService;
+
     private AdminController controller;
 
     @BeforeEach
     void setUp() {
         controller = new AdminController(adminService, null);
+        ReflectionTestUtils.setField(controller, "conversationGateService", conversationGateService);
     }
 
     @Test
@@ -134,5 +141,17 @@ class AdminControllerSessionAuthorizationTest {
                 controller.importAdminFaqs("ROLE_ADMIN", request).getStatusCode());
         verify(adminService).importFaqs(
                 request.sourceName(), request.sourceType(), request.overwrite(), request.items());
+    }
+
+    @Test
+    void runningConversationCannotBeClosedUntilGenerationStops() {
+        when(conversationGateService.close("7", "session-a"))
+                .thenReturn(new ConversationGateService.CloseDecision(
+                        ConversationGateService.CloseStatus.BUSY, null));
+
+        assertEquals(HttpStatus.CONFLICT,
+                controller.closeSession("session-a", 7L).getStatusCode());
+
+        verify(adminService, never()).closeSession("session-a", 7L);
     }
 }

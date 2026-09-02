@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -54,9 +55,11 @@ public class RequestQueueService {
 
     // ⭐ requestId → 等待中的请求（用于查询位置和取消）
     private final Map<String, QueuedRequest> requestMap = new ConcurrentHashMap<>();
+    private final Set<String> acquiredRequests = ConcurrentHashMap.newKeySet();
 
     // ⭐ L2: 会话级并发控制 — 每 sessionId 当前并发请求数
     private final ConcurrentHashMap<String, AtomicInteger> sessionConcurrency = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> requestSessions = new ConcurrentHashMap<>();
 
     // ⭐ L2: 每 session 最大并发数
     @Value("${queue.session-max-concurrency:1}")
@@ -110,10 +113,12 @@ public class RequestQueueService {
                 log.warn("[Queue] ❌ 会话并发超限: sessionId={}, max={}", sessionId, sessionMaxConcurrency);
                 return SlotResult.QUEUE_FULL; // 同一会话已有请求在处理
             }
+            requestSessions.put(requestId, sessionId);
         }
 
         // 1. 先尝试非阻塞获取槽位
         if (slots.tryAcquire()) {
+            acquiredRequests.add(requestId);
             log.debug("[Queue] ✅ 立即获取槽位: requestId={}", requestId);
             return SlotResult.ACQUIRED;
         }
@@ -122,6 +127,7 @@ public class RequestQueueService {
         if (waitingQueue.size() >= config.getMaxQueueSize()) {
             // L2: 释放之前加上的会话槽位
             if (sessionId != null && !sessionId.isBlank()) releaseSessionSlot(sessionId);
+            requestSessions.remove(requestId);
             log.warn("[Queue] ❌ 队列已满: requestId={}, queueSize={}", requestId, waitingQueue.size());
             return SlotResult.QUEUE_FULL;
         }
@@ -130,7 +136,7 @@ public class RequestQueueService {
         QueuedRequest queued = new QueuedRequest(requestId, sessionId, priority, System.currentTimeMillis());
         // ⭐ 二次检查（在加锁期间可能槽位被释放）
         if (slots.tryAcquire()) {
-            if (sessionId != null && !sessionId.isBlank()) releaseSessionSlot(sessionId);
+            acquiredRequests.add(requestId);
             log.debug("[Queue] ✅ 二次检查获取槽位成功: requestId={}", requestId);
             return SlotResult.ACQUIRED;
         }
@@ -159,6 +165,8 @@ public class RequestQueueService {
         try {
             boolean acquired = slots.tryAcquire(config.getQueueTimeoutMs(), TimeUnit.MILLISECONDS);
             if (acquired) {
+                acquiredRequests.add(requestId);
+                waitingQueue.remove(queued);
                 log.info("[Queue] ✅ 槽位获取成功(排队后): requestId={}, waitedMs={}",
                         requestId, System.currentTimeMillis() - queued.enqueueTime);
                 requestMap.remove(requestId);
@@ -181,10 +189,12 @@ public class RequestQueueService {
      */
     public void complete(String requestId) {
         QueuedRequest queued = requestMap.remove(requestId);
-        if (queued != null && queued.sessionId != null) {
-            releaseSessionSlot(queued.sessionId);
+        if (queued != null) waitingQueue.remove(queued);
+        String sessionId = requestSessions.remove(requestId);
+        if (sessionId != null) releaseSessionSlot(sessionId);
+        if (acquiredRequests.remove(requestId)) {
+            slots.release();
         }
-        slots.release();
         log.debug("[Queue] 释放槽位(已排队={})", waitingQueue.size());
     }
 
@@ -225,11 +235,12 @@ public class RequestQueueService {
         for (QueuedRequest q : waitingQueue) {
             if (q.requestId.equals(requestId)) {
                 waitingQueue.remove(q);
-                if (q.sessionId != null) releaseSessionSlot(q.sessionId);
                 break;
             }
         }
         requestMap.remove(requestId);
+        String sessionId = requestSessions.remove(requestId);
+        if (sessionId != null) releaseSessionSlot(sessionId);
     }
 
     /**

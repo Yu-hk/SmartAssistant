@@ -19,6 +19,7 @@ import com.example.smartassistant.common.quality.DomainQualityHeaders;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.common.util.UserQuestionNormalizer;
 import com.example.smartassistant.routing.contract.WorkflowOperation;
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.example.smartassistant.service.agent.StreamingProductAgentService;
 import com.example.smartassistant.service.core.ProductDiscoveryService;
 import lombok.extern.slf4j.Slf4j;
@@ -208,7 +209,7 @@ public class ProductStreamController {
             Integer limit = integerInput(request, "candidateLimit", "candidate_limit", "limit");
             String category = textInput(request, "product_category", "category", "product_name");
             ProductDiscoveryService.DiscoveryResult discovery =
-                    productDiscoveryService.discover(question, category, limit);
+                    productDiscoveryService.discover(withUserProfile(question, request), category, limit);
             DomainAgentResponse response = DomainAgentResponse.of(
                     discovery.answer(), discovery.productCount() > 0
                     ? discovery.scenarioEvidenceLimited()
@@ -229,7 +230,7 @@ public class ProductStreamController {
         }
         ToolUsageCache.start(requestId);
         DomainAgentResponse response = streamingAgentService.executeWithQuality(
-                question, requestId);
+                withUserProfile(question, request), requestId);
         ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(DomainQualityHeaders.STATUS, response.quality().getStatus().name())
                 .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().getScore()))
@@ -286,6 +287,10 @@ public class ProductStreamController {
 
     private static String buildVerifiedContext(AgentExecutionRequest request) {
         StringBuilder context = new StringBuilder();
+        String userProfile = textInput(request, RoutingKeys.USER_PROFILE_INPUT);
+        if (!userProfile.isBlank()) {
+            context.append("[用户画像]\n").append(userProfile.trim()).append("\n\n");
+        }
         request.predecessorOutputs().forEach((nodeId, output) -> {
             context.append("[上游节点 ").append(nodeId).append("]\n");
             if (output.data() != null && !output.data().isEmpty()) {
@@ -301,6 +306,12 @@ public class ProductStreamController {
             context.append('\n');
         });
         return context.toString().trim();
+    }
+
+    private static String withUserProfile(String question, AgentExecutionRequest request) {
+        String userProfile = textInput(request, RoutingKeys.USER_PROFILE_INPUT);
+        if (userProfile.isBlank()) return question;
+        return question + "\n\n[用户画像]\n" + userProfile;
     }
 
     /**

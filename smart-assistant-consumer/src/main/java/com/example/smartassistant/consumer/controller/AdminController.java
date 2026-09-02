@@ -9,6 +9,7 @@ package com.example.smartassistant.consumer.controller;
 
 import com.example.smartassistant.common.db.PermissionBridgeService;
 import com.example.smartassistant.consumer.service.admin.AdminService;
+import com.example.smartassistant.consumer.service.session.ConversationGateService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,9 @@ public class AdminController {
 
     private final AdminService adminService;
     private final PermissionBridgeService permissionBridgeService;
+
+    @Autowired(required = false)
+    private ConversationGateService conversationGateService;
 
     public AdminController(
             AdminService adminService,
@@ -225,8 +229,27 @@ public class AdminController {
     public ResponseEntity<?> closeSession(
             @PathVariable String id,
             @RequestHeader("X-User-Id") Long userId) {
+        ConversationGateService.CloseDecision gateDecision = conversationGateService == null
+                ? null : conversationGateService.close(userId.toString(), id);
+        if (gateDecision != null && gateDecision.status() == ConversationGateService.CloseStatus.BUSY) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "success", false,
+                    "status", "BUSY",
+                    "message", "当前对话仍有请求正在处理，请先停止生成"));
+        }
+        if (gateDecision != null && gateDecision.status() == ConversationGateService.CloseStatus.UNAVAILABLE) {
+            return ResponseEntity.status(503).body(Map.of(
+                    "success", false,
+                    "status", "UNAVAILABLE",
+                    "message", "会话状态服务暂不可用"));
+        }
         return adminService.closeSession(id, userId)
-                ? ResponseEntity.ok(Map.of("success", true, "status", "CLOSED"))
+                ? ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "status", "CLOSED",
+                        "activatedSessionId", gateDecision != null
+                                && gateDecision.activatedSessionId() != null
+                                ? gateDecision.activatedSessionId() : ""))
                 : ResponseEntity.notFound().build();
     }
 
