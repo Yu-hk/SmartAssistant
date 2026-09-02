@@ -8,6 +8,7 @@ import com.example.smartassistant.router.model.IntentGraph.IntentNode;
 import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.service.agent.AgentCallResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.agent.AgentMessageDispatcher;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
@@ -55,6 +56,9 @@ public class GraphNodeExecutionService {
 
     @Autowired(required = false)
     private WorkflowCancellationService cancellationService;
+
+    @Autowired(required = false)
+    private UserProfileContextAwaiter userProfileContextAwaiter;
 
     @Value("${router.graph.max-criteria-corrections:1}")
     private int maxCriteriaCorrections;
@@ -139,7 +143,27 @@ public class GraphNodeExecutionService {
             resolvedInput = new LinkedHashMap<>(resolvedInput);
             resolvedInput.putIfAbsent("_taskDescription", node.getDescription());
         }
+        String userProfile = null;
+        if (isProductTarget(targetAgent) && userProfileContextAwaiter != null) {
+            try {
+                userProfile = userProfileContextAwaiter.await(requestId);
+                if (userProfile != null && !userProfile.isBlank() && hasProtocolMetadata(node)) {
+                    resolvedInput = new LinkedHashMap<>(resolvedInput);
+                    resolvedInput.put(RoutingKeys.USER_PROFILE_INPUT, userProfile);
+                }
+            } catch (IllegalStateException error) {
+                log.error("[GraphNode] Product 执行前用户画像未就绪: nodeId={}, requestId={}, error={}",
+                        node.getId(), requestId, error.getMessage());
+                progress(eventsKey, "node_profile_failed",
+                        "节点[" + node.getDescription() + "]等待用户画像失败", targetAgent);
+                return recordFailure(node, breakerFailures, requestId,
+                        truncate(error.getMessage(), 100), SubTaskResult.ErrorType.FATAL_FAILED);
+            }
+        }
         String enrichedDescription = enrich(node, completed, originalQuestion);
+        if (userProfile != null && !userProfile.isBlank() && !hasProtocolMetadata(node)) {
+            enrichedDescription = enrichedDescription + "\n\n" + userProfile;
+        }
         int maxRetries = 3;
         int corrections = 0;
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
@@ -336,8 +360,16 @@ public class GraphNodeExecutionService {
         this.agentMessageDispatcher = agentMessageDispatcher;
     }
 
+    private static boolean isProductTarget(String agentName) {
+        return "product".equals(AgentDiscoveryService.canonicalAgentName(agentName));
+    }
+
     void setCancellationService(WorkflowCancellationService cancellationService) {
         this.cancellationService = cancellationService;
+    }
+
+    void setUserProfileContextAwaiter(UserProfileContextAwaiter userProfileContextAwaiter) {
+        this.userProfileContextAwaiter = userProfileContextAwaiter;
     }
 
     private void checkCancellation(String requestId, Long userId) {

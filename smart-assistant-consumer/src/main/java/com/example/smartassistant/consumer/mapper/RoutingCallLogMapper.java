@@ -30,6 +30,10 @@ public interface RoutingCallLogMapper extends BaseMapper<RoutingCallLog> {
      * 按会话 ID 查询
      */
     List<RoutingCallLog> findBySessionIdOrderByCreatedAtDesc(@Param("sessionId") String sessionId);
+
+    /** 查询指定用户最近的原始对话，用于证据约束的画像分析。 */
+    List<RoutingCallLog> findRecentByUserId(@Param("userId") Long userId,
+                                            @Param("limit") int limit);
     
     /**
      * 按时间范围查询

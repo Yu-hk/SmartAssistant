@@ -109,6 +109,7 @@ export function CustomerChatPage({
 
   const hasMessages = currentSession && currentSession.messages.length > 0;
   const isClosed = currentSession?.status === 'closed';
+  const isSuspended = currentSession?.status === 'suspended';
 
   const homeStats = {
     total: sessions.length,
@@ -128,7 +129,9 @@ export function CustomerChatPage({
               <h1 id="home-title">{getGreeting()}{userName ? `，${userName}` : ''}</h1>
               <p>{isClosed
                 ? '该会话已结束，请从左侧新建会话后继续。'
-                : '直接描述需要处理的事情，或从下方选择服务入口；系统会自动安排后续步骤。'}</p>
+                : isSuspended
+                  ? '该会话已暂停且上下文已保留；关闭当前活跃对话后即可继续。'
+                  : '直接描述需要处理的事情，或从下方选择服务入口；系统会自动安排后续步骤。'}</p>
             </div>
 
             <div className="home-stats" aria-label="接待概览">
@@ -154,7 +157,10 @@ export function CustomerChatPage({
               variant="home"
               inputValue={inputValue}
               isLoading={isLoading}
-              disabled={isClosed}
+              disabled={isClosed || isSuspended}
+              disabledMessage={isSuspended
+                ? '该会话已暂停，关闭当前活跃对话后即可继续'
+                : undefined}
               onSend={handleSend}
               onStop={onStop}
               onChange={onInputChange}
@@ -173,7 +179,7 @@ export function CustomerChatPage({
                     key={item.title}
                     className={`home-capability-card tone-${item.tone} animate-fade-in-up`}
                     onClick={() => onInputChange(item.prompt)}
-                    disabled={isClosed}
+                    disabled={isClosed || isSuspended}
                     aria-label={`使用${item.title}`}
                     style={{ animationDelay: `${idx * 0.06}s` }}
                   >
@@ -194,7 +200,7 @@ export function CustomerChatPage({
                 {QUICK_QUESTIONS.map(q => {
                   const Icon = q.icon;
                   return (
-                    <button type="button" key={q.text} disabled={isClosed} onClick={() => handleSend(q.text)}>
+                    <button type="button" key={q.text} disabled={isClosed || isSuspended} onClick={() => handleSend(q.text)}>
                       <Icon size={14} /> {q.text}
                     </button>
                   );
@@ -256,7 +262,10 @@ export function CustomerChatPage({
         <CustomerChatInput
           inputValue={inputValue}
           isLoading={isLoading}
-          disabled={currentSession?.status === 'closed'}
+          disabled={currentSession?.status === 'closed' || currentSession?.status === 'suspended'}
+          disabledMessage={currentSession?.status === 'suspended'
+            ? '该会话已暂停，关闭当前活跃对话后即可继续'
+            : undefined}
           onSend={handleSend}
           onStop={onStop}
           onChange={onInputChange}
@@ -275,6 +284,7 @@ interface CustomerChatInputProps {
   inputValue: string;
   isLoading: boolean;
   disabled?: boolean;
+  disabledMessage?: string;
   onSend: (msg: string) => void;
   onStop: () => void;
   onChange: (val: string) => void;
@@ -285,6 +295,7 @@ function CustomerChatInput({
   inputValue,
   isLoading,
   disabled,
+  disabledMessage,
   onSend,
   onStop,
   onChange,
@@ -318,7 +329,9 @@ function CustomerChatInput({
           onKeyDown={handleKeyDown}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholder={disabled ? '本次会话已结束，请开启新对话' : '输入你的问题或业务需求...（Enter 发送）'}
+          placeholder={disabled
+            ? disabledMessage || '本次会话已结束，请开启新对话'
+            : '输入你的问题或业务需求...（Enter 发送）'}
           disabled={disabled || isLoading}
           rows={1}
           autoFocus={variant === 'home'}

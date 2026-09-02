@@ -121,6 +121,7 @@ export function AdminConversationsPage({ refreshVersion }: { refreshVersion: num
             <option value="">全部状态</option>
             <option value="SUCCESS">处理成功</option>
             <option value="CLOSED">已结束</option>
+            <option value="SUSPENDED">已暂停</option>
             <option value="PARTIAL_SUCCESS">已回复 · 待关注</option>
             <option value="FAILED">处理失败</option>
             <option value="TIMEOUT">处理超时</option>

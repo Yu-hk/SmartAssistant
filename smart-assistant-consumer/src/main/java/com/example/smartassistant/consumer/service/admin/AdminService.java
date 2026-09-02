@@ -72,7 +72,7 @@ public class AdminService {
             jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS conversation_session_state (" +
                     "user_id BIGINT NOT NULL, " +
                     "session_id VARCHAR(100) NOT NULL, " +
-                    "status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE', " +
+                    "status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE_IDLE', " +
                     "closed_at TIMESTAMP NULL, " +
                     "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
                     "PRIMARY KEY (user_id, session_id))");
@@ -1170,6 +1170,7 @@ public class AdminService {
     private static String displayStatusSql(String stateAlias, String logAlias) {
         return "CASE " +
                 "WHEN UPPER(COALESCE(" + stateAlias + ".status, '')) = 'CLOSED' THEN 'CLOSED' " +
+                "WHEN UPPER(COALESCE(" + stateAlias + ".status, '')) IN ('SUSPENDED', 'FROZEN') THEN 'SUSPENDED' " +
                 "WHEN LOWER(COALESCE(" + logAlias + ".routed_agent, '')) " +
                 "IN ('human', 'human_service', 'human-service') THEN 'HUMAN_TRANSFER' " +
                 "WHEN UPPER(COALESCE(" + logAlias + ".status, '')) " +
@@ -1181,6 +1182,10 @@ public class AdminService {
             String lifecycleStatus, String agentName, String callStatus) {
         if ("CLOSED".equalsIgnoreCase(lifecycleStatus)) {
             return "CLOSED";
+        }
+        if ("SUSPENDED".equalsIgnoreCase(lifecycleStatus)
+                || "FROZEN".equalsIgnoreCase(lifecycleStatus)) {
+            return "SUSPENDED";
         }
         String normalizedAgent = agentName == null ? "" : agentName.toLowerCase(Locale.ROOT);
         if (normalizedAgent.equals("human")

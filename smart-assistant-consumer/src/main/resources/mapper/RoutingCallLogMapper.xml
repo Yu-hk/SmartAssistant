@@ -12,6 +12,17 @@
         SELECT * FROM routing_call_log WHERE session_id = #{sessionId} ORDER BY created_at DESC
     </select>
 
+    <!-- 按用户隔离读取最近原始对话；调用方会恢复为时间正序 -->
+    <select id="findRecentByUserId" resultType="com.example.smartassistant.consumer.entity.RoutingCallLog">
+        SELECT id, user_id, user_input, created_at
+        FROM routing_call_log
+        WHERE user_id = #{userId}
+          AND user_input IS NOT NULL
+          AND user_input &lt;&gt; ''
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
     <!-- 按时间范围查询 -->
     <select id="findByCreatedAtBetweenOrderByCreatedAtDesc" resultType="com.example.smartassistant.consumer.entity.RoutingCallLog">
         SELECT * FROM routing_call_log 

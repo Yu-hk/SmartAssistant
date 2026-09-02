@@ -7,27 +7,32 @@
 
 package com.example.smartassistant.consumer.service.recommendation;
 
+import com.example.smartassistant.consumer.entity.RoutingCallLog;
 import com.example.smartassistant.consumer.entity.UserProfile;
-import com.example.smartassistant.consumer.service.memory.MemorySource;
-import com.example.smartassistant.consumer.service.memory.MemoryVersionStore;
+import com.example.smartassistant.consumer.mapper.RoutingCallLogMapper;
+import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.Collectors;
 
 /**
- * 用户画像服务（文件存储版）
- * 偏好存入 data/users/{userId}/preferences.json
+ * 电商用户画像服务。
+ * PostgreSQL 保存版本化完整快照和不可变变更事件；Redis 承载请求级安全投影和短生命周期提交候选。
  */
 @Service
 public class UserProfileService {
@@ -36,22 +41,41 @@ public class UserProfileService {
     private static final ObjectMapper objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule());
 
-    @Value("${app.data.dir:data/users}")
-    private String basePath;
+    @Value("${preference.prefetch.ttl-seconds:120}")
+    private long prefetchTtlSeconds;
+
+    @Value("${preference.analysis.max-history-turns:20}")
+    private int maxHistoryTurns;
+
+    @Value("${preference.analysis.max-history-chars:12000}")
+    private int maxHistoryChars;
+
+    @Value("${preference.commit.wait-timeout-ms:15000}")
+    private long commitWaitTimeoutMs;
+
+    @Value("${preference.commit.poll-interval-ms:50}")
+    private long commitPollIntervalMs;
+
+    @Autowired(required = false)
+    private StringRedisTemplate redisTemplate;
+
+    @Autowired(required = false)
+    private RoutingCallLogMapper routingCallLogMapper;
+
+    @Autowired(required = false)
+    @Qualifier("taskExecutor")
+    private Executor profileExecutor;
 
     private final LLMPreferenceExtractor llmExtractor;
-    private final MemoryVersionStore memoryVersionStore;
+    private final UserProfileSnapshotStore profileStore;
+    private final UserProfileCommitPublisher commitPublisher;
 
-    public UserProfileService(LLMPreferenceExtractor llmExtractor, MemoryVersionStore memoryVersionStore) {
+    public UserProfileService(LLMPreferenceExtractor llmExtractor,
+                              UserProfileSnapshotStore profileStore,
+                              UserProfileCommitPublisher commitPublisher) {
         this.llmExtractor = llmExtractor;
-        this.memoryVersionStore = memoryVersionStore;
-    }
-
-    /** Initializes empty containers only; cold start must not invent user preferences. */
-    private UserProfile applyDefaultProfile(UserProfile profile) {
-        profile.setPreferenceGroupsMap(profile.getPreferenceGroupsMap());
-        profile.setPreferenceWeightsMap(profile.getPreferenceWeightsMap());
-        return profile;
+        this.profileStore = profileStore;
+        this.commitPublisher = commitPublisher;
     }
 
     // ==================== 写入 ====================
@@ -61,62 +85,12 @@ public class UserProfileService {
      */
     public void extractAndUpdatePreferences(Long userId, String question, String extractedLocation) {
         if (userId == null || question == null) return;
-
         try {
-            UserProfile profile = loadProfile(userId);
-            if (profile == null) {
-                profile = new UserProfile();
-                profile.setUserId(userId);
-                profile.setTotalQueries(0);
-                // ⭐ 新用户：注入群体画像冷启动默认值
-                profile = applyDefaultProfile(profile);
-                log.info("[UserProfile] 新用户冷启动，注入默认画像: userId={}", userId);
-            }
-
-            profile.setTotalQueries(profile.getTotalQueries() + 1);
-            profile.setLastQueryAt(LocalDateTime.now());
-
-            // LLM 提取偏好
-            LLMPreferenceExtractor.ExtractedPreferences llmPrefs = llmExtractor.extract(question);
-
-            String location = extractedLocation;
-            if ((location == null || location.isBlank()) && llmPrefs.location() != null) {
-                location = llmPrefs.location();
-            }
-
-            Map<String, List<String>> preferenceGroups = llmPrefs.preferenceGroups();
-            List<String> negativePreferences = llmPrefs.negativePreferences();
-            String budget = llmPrefs.budget();
-
-            // 更新地点权重
-            if (location != null && !location.isBlank()) {
-                updateLocationWeight(profile, location);
-            }
-
-            mergePreferenceGroups(profile, preferenceGroups);
-            if (negativePreferences != null && !negativePreferences.isEmpty()) {
-                mergePreferenceGroups(profile, Map.of("negative", negativePreferences));
-            }
-
-            if (budget != null) profile.setBudgetRange(budget);
-
-            // ⭐ P4-B 版本化记忆：关键偏好以「来源分级」写入版本化记忆库，
-            //    用户改主意时按 优先级(EXPLICIT>FACT>INFERRED) + 时间 留存历史版本（不物理删除）
-            if (memoryVersionStore != null) {
-                preferenceGroups.forEach((group, values) -> values.forEach(value ->
-                        recordMemory(userId, "PREFERENCE", group, value, MemorySource.INFERRED)));
-                for (String value : negativePreferences) {
-                    recordMemory(userId, "PREFERENCE_NEGATIVE", "negative", value,
-                            MemorySource.EXPLICIT);
-                }
-                if (budget != null) recordMemory(userId, "BUDGET", "预算范围", budget, MemorySource.EXPLICIT);
-                if (location != null) recordMemory(userId, "LOCATION", location, "常用地点", MemorySource.INFERRED);
-            }
-
-            saveProfile(profile);
-
+            commitCandidate(analyzeCandidate(userId, question, null));
         } catch (Exception e) {
-            log.warn("[UserProfile] 更新偏好失败: userId={}, error={}", userId, e.getMessage());
+            log.error("[UserProfile] 数据库画像更新失败: userId={}, error={}", userId, e.getMessage());
+            throw e instanceof RuntimeException runtime ? runtime
+                    : new IllegalStateException("Unable to persist user profile", e);
         }
     }
 
@@ -128,6 +102,225 @@ public class UserProfileService {
         extractAndUpdatePreferences(userId, question, extractedLocation);
     }
 
+    /**
+     * Starts request-scoped profile preparation without delaying Router planning.
+     * Consumer writes {@code PENDING} before scheduling so Router can reliably
+     * establish a barrier immediately before the first Product node.
+     */
+    public CompletableFuture<String> prefetchForRequest(
+            Long userId, String question, String requestId) {
+        if (userId == null || requestId == null || requestId.isBlank()) {
+            return CompletableFuture.completedFuture("");
+        }
+
+        String key = RoutingKeys.userProfileContext(requestId);
+        if (redisTemplate != null) {
+            try {
+                redisTemplate.opsForValue().set(key, RoutingKeys.USER_PROFILE_PENDING,
+                        Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
+            } catch (Exception error) {
+                throw new IllegalStateException(
+                        "Unable to establish the user-profile coordination barrier", error);
+            }
+        } else {
+            throw new IllegalStateException(
+                    "User-profile coordination requires Redis before routing request " + requestId);
+        }
+
+        Executor executor = profileExecutor != null ? profileExecutor : Runnable::run;
+        try {
+            return CompletableFuture
+                    .supplyAsync(() -> prepareProfile(userId, question, requestId), executor)
+                    .whenComplete((prepared, error) ->
+                            publishPrefetchResult(requestId, key, prepared, error))
+                    .thenApply(PreparedProfile::projection);
+        } catch (RejectedExecutionException error) {
+            publishPrefetchResult(requestId, key, null, error);
+            return CompletableFuture.failedFuture(error);
+        }
+    }
+
+    private PreparedProfile prepareProfile(Long userId, String question, String requestId) {
+        if (question != null && !question.isBlank()) {
+            PreparedProfileCandidate candidate = analyzeCandidate(userId, question, requestId);
+            return new PreparedProfile(
+                    buildUserProfilePrompt(writeJson(candidate.report())), candidate);
+        }
+        return new PreparedProfile(buildUserProfilePrompt(userId), null);
+    }
+
+    private PreparedProfileCandidate analyzeCandidate(
+            Long userId, String question, String requestId) {
+        ProfileConversationContext context = buildConversationContext(userId, question);
+        Optional<UserProfileSnapshotStore.Snapshot> current = profileStore.load(userId);
+        long expectedVersion = current.map(UserProfileSnapshotStore.Snapshot::profileVersion)
+                .orElse(0L);
+        String currentProfile = current.map(UserProfileSnapshotStore.Snapshot::reportJson)
+                .orElse("当前没有已保存画像。");
+        LLMPreferenceExtractor.UserInsightReport report =
+                llmExtractor.extract(currentProfile, context.text(), question);
+        return new PreparedProfileCandidate(
+                userId, requestId, expectedVersion, report, question,
+                context.sourceMaxMessageId(), context.messageIds());
+    }
+
+    private UserProfileSnapshotStore.Snapshot commitCandidate(
+            PreparedProfileCandidate candidate) {
+        LLMPreferenceExtractor.UserInsightReport report = candidate.report();
+        long expectedVersion = candidate.expectedVersion();
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                return profileStore.save(candidate.userId(), candidate.requestId(),
+                        expectedVersion, report, candidate.sourceMaxMessageId(),
+                        candidate.evidenceMessageIds());
+            } catch (UserProfileSnapshotStore.OptimisticProfileUpdateException conflict) {
+                if (attempt == 1) throw conflict;
+                Optional<UserProfileSnapshotStore.Snapshot> current =
+                        profileStore.load(candidate.userId());
+                expectedVersion = current.map(UserProfileSnapshotStore.Snapshot::profileVersion)
+                        .orElse(0L);
+                String currentProfile = current
+                        .map(UserProfileSnapshotStore.Snapshot::reportJson)
+                        .orElse("当前没有已保存画像。");
+                report = llmExtractor.extract(currentProfile,
+                        "[当前用户消息]\n" + candidate.latestUserMessage(),
+                        candidate.latestUserMessage());
+                log.info("[UserProfile] 提交时画像版本冲突，已基于最新快照重新分析: userId={}",
+                        candidate.userId());
+            }
+        }
+        throw new IllegalStateException("User profile update exhausted retries");
+    }
+
+    private void publishPrefetchResult(String requestId, String key,
+                                       PreparedProfile prepared, Throwable error) {
+        if (redisTemplate == null) return;
+        try {
+            String state;
+            if (error != null) {
+                state = RoutingKeys.USER_PROFILE_FAILED;
+            } else if (prepared == null || prepared.projection().isBlank()) {
+                state = RoutingKeys.USER_PROFILE_EMPTY;
+            } else {
+                if (prepared.candidate() != null) {
+                    redisTemplate.opsForValue().set(
+                            RoutingKeys.userProfileCandidate(requestId),
+                            writeJson(prepared.candidate()),
+                            Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
+                }
+                state = RoutingKeys.USER_PROFILE_READY_PREFIX + prepared.projection();
+            }
+            redisTemplate.opsForValue().set(key, state,
+                    Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
+        } catch (Exception publishError) {
+            log.error("[UserProfile] 发布画像预取结果失败: key={}, error={}",
+                    key, publishError.getMessage());
+            try {
+                redisTemplate.opsForValue().set(key, RoutingKeys.USER_PROFILE_FAILED,
+                        Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** Emits a durable commit command after a turn has completed successfully. */
+    @Async("taskExecutor")
+    public void commitAfterSuccessfulTurn(Long userId, String requestId) {
+        if (userId == null || requestId == null || requestId.isBlank()) return;
+        try {
+            PreparedProfileCandidate candidate = awaitPreparedCandidate(userId, requestId);
+            if (candidate == null) return;
+            commitPublisher.publish(candidate);
+            redisTemplate.delete(RoutingKeys.userProfileCandidate(requestId));
+        } catch (Exception error) {
+            log.error("[UserProfile] 发布画像提交事件失败: userId={}, requestId={}, error={}",
+                    userId, requestId, error.getMessage());
+        }
+    }
+
+    /** RabbitMQ entry point: persist the prepared candidate, never the assistant response. */
+    public void commitPreparedProfile(PreparedProfileCandidate candidate) {
+        if (candidate == null || candidate.userId() == null
+                || candidate.requestId() == null || candidate.requestId().isBlank()) {
+            throw new IllegalArgumentException("Prepared user profile is incomplete");
+        }
+        if (profileStore.isRequestApplied(candidate.userId(), candidate.requestId())) return;
+        commitCandidate(candidate);
+    }
+
+    private PreparedProfileCandidate awaitPreparedCandidate(Long userId, String requestId) {
+        if (redisTemplate == null) {
+            throw new IllegalStateException("User-profile commit publishing requires Redis");
+        }
+        long deadline = System.currentTimeMillis() + Math.max(1L, commitWaitTimeoutMs);
+        while (true) {
+            String candidateJson = redisTemplate.opsForValue().get(
+                    RoutingKeys.userProfileCandidate(requestId));
+            if (candidateJson != null && !candidateJson.isBlank()) {
+                PreparedProfileCandidate candidate = readCandidate(candidateJson);
+                if (!Objects.equals(userId, candidate.userId())
+                        || !Objects.equals(requestId, candidate.requestId())) {
+                    throw new IllegalStateException("Prepared user profile identity mismatch");
+                }
+                return candidate;
+            }
+            String state = redisTemplate.opsForValue().get(
+                    RoutingKeys.userProfileContext(requestId));
+            if (RoutingKeys.USER_PROFILE_FAILED.equals(state)
+                    || RoutingKeys.USER_PROFILE_EMPTY.equals(state)) {
+                return null;
+            }
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0L) {
+                throw new IllegalStateException(
+                        "Prepared user profile was not ready before commit timeout");
+            }
+            try {
+                Thread.sleep(Math.min(Math.max(1L, commitPollIntervalMs), remaining));
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "Interrupted while waiting to publish user profile", error);
+            }
+        }
+    }
+
+    private PreparedProfileCandidate readCandidate(String json) {
+        try {
+            return objectMapper.readValue(json, PreparedProfileCandidate.class);
+        } catch (IOException error) {
+            throw new IllegalStateException("Unable to read prepared user profile", error);
+        }
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (IOException error) {
+            throw new IllegalStateException("Unable to serialize prepared user profile", error);
+        }
+    }
+
+    /** Returns true only when the request contains durable preference evidence. */
+    public static boolean isPreferenceWorthyRequest(String question) {
+        if (question == null || question.isBlank()) return false;
+        String lower = question.toLowerCase().trim();
+        String[] greetingKeywords = {
+                "你好", "hello", "hi ", "嗨", "谢谢", "感谢", "再见", "拜拜",
+                "早上好", "晚上好", "下午好"
+        };
+        for (String keyword : greetingKeywords) {
+            if (lower.contains(keyword)) return false;
+        }
+        String[] knowledgeKeywords = {
+                "什么是", "怎么", "如何", "为什么", "是什么", "解释", "帮我查", "帮我搜"
+        };
+        for (String keyword : knowledgeKeywords) {
+            if (lower.contains(keyword)) return false;
+        }
+        return true;
+    }
+
     // ==================== 读取 ====================
 
     /**
@@ -136,35 +329,26 @@ public class UserProfileService {
      */
     public String buildUserProfilePrompt(Long userId) {
         if (userId == null) return "";
-        UserProfile profile = loadProfile(userId);
-        if (profile == null) {
-            // 冷启动：用默认画像生成 Prompt，但不持久化（由 extractAndUpdatePreferences 写入）
-            profile = applyDefaultProfile(new UserProfile());
-            log.debug("[UserProfile] 冷启动 Prompt 生成: userId={}", userId);
-        }
+        return profileStore.load(userId)
+                .map(snapshot -> buildUserProfilePrompt(snapshot.reportJson()))
+                .orElse("【电商用户洞察】\n- 当前没有可靠画像\n");
+    }
 
+    @SuppressWarnings("unchecked")
+    private String buildUserProfilePrompt(String reportJson) {
+        Map<String, Object> report;
+        try {
+            report = objectMapper.readValue(reportJson, LinkedHashMap.class);
+        } catch (IOException error) {
+            throw new IllegalStateException("Unable to read stored user profile", error);
+        }
         StringBuilder prompt = new StringBuilder();
-        prompt.append("【用户历史信息】\n");
-
-        String[] prefLocs = profile.getPreferredLocationsArray();
-        if (prefLocs != null && prefLocs.length > 0) {
-            prompt.append("- 常用地点: ").append(String.join(", ", prefLocs)).append("\n");
-        }
-
-        Map<String, Integer> weights = profile.getPreferenceWeightsMap();
-        collectPreferenceGroups(profile).forEach((group, values) -> {
-            if (values != null && !values.isEmpty()) {
-                prompt.append("- ").append(group).append(": ")
-                        .append(buildWeightedPreferenceString(values.toArray(String[]::new), weights))
-                        .append("\n");
-            }
-        });
-
-        if (profile.getBudgetRange() != null) {
-            prompt.append("- 预算范围: ").append(profile.getBudgetRange()).append("\n");
-        }
-        prompt.append("- 历史查询: ").append(profile.getTotalQueries()).append("次\n");
-
+        prompt.append("【电商用户洞察】\n");
+        appendAssessment(prompt, report.get("commerceAssessment"));
+        appendList(prompt, "核心驱动", report.get("topDrivers"));
+        appendList(prompt, "核心阻碍", report.get("topBarriers"));
+        appendDimension(prompt, "购买动机", report.get("insightDimensions"), "purchaseMotivation");
+        appendDimension(prompt, "价值偏好", report.get("insightDimensions"), "valuePreference");
         return prompt.toString();
     }
 
@@ -172,130 +356,102 @@ public class UserProfileService {
      * 获取用户画像（给其他服务使用）
      */
     public UserProfile getProfile(Long userId) {
-        return loadProfile(userId);
+        return profileStore.load(userId).map(snapshot -> {
+            UserProfile profile = new UserProfile();
+            profile.setUserId(userId);
+            profile.setAdditionalPreferences("{\"insightAnalysis\":" + snapshot.reportJson() + "}");
+            return profile;
+        }).orElse(null);
     }
 
     /**
      * 更新意图分布
      */
     public void updateIntentDistribution(Long userId, String routedAgent) {
-        if (userId == null || routedAgent == null) return;
+        // 电商画像只保存新 Prompt 的结构化结果，旧意图计数不再写入画像。
+    }
 
-        try {
-            UserProfile profile = loadProfile(userId);
-            if (profile == null) return;
+    private void appendAssessment(StringBuilder prompt, Object rawAssessment) {
+        if (!(rawAssessment instanceof Map<?, ?> assessment)) return;
+        appendValue(prompt, "画像可靠", assessment.get("reliable"));
+        appendValue(prompt, "购买阶段", assessment.get("purchaseStage"));
+        appendValue(prompt, "决策风格", assessment.get("decisionStyle"));
+        appendValue(prompt, "价格敏感度", assessment.get("priceSensitivity"));
+        appendValue(prompt, "购买意愿", assessment.get("purchaseIntentScore"));
+        appendValue(prompt, "流失风险", assessment.get("churnRisk"));
+        appendList(prompt, "主要顾虑", assessment.get("primaryConcerns"));
+    }
 
-            String intentTag = routedAgent.replace("_chat", "").replace("_", "");
-            Map<String, Integer> distribution = profile.getIntentDistribution();
-            distribution.merge(intentTag, 1, Integer::sum);
-            profile.setIntentDistribution(distribution);
+    private void appendDimension(StringBuilder prompt, String label,
+                                 Object rawDimensions, String dimensionKey) {
+        if (!(rawDimensions instanceof Map<?, ?> dimensions)) return;
+        Object rawDimension = dimensions.get(dimensionKey);
+        if (!(rawDimension instanceof Map<?, ?> dimension)) return;
+        appendValue(prompt, label, dimension.get("summary"));
+    }
 
-            saveProfile(profile);
+    private void appendList(StringBuilder prompt, String label, Object rawValues) {
+        if (!(rawValues instanceof Collection<?> values) || values.isEmpty()) return;
+        String joined = values.stream().filter(Objects::nonNull).map(Object::toString)
+                .filter(value -> !value.isBlank()).collect(Collectors.joining("、"));
+        if (!joined.isBlank()) prompt.append("- ").append(label).append(": ").append(joined).append("\n");
+    }
 
-        } catch (Exception e) {
-            log.warn("[UserProfile] 更新意图分布失败: {}", e.getMessage());
+    private void appendValue(StringBuilder prompt, String label, Object value) {
+        if (value == null || value.toString().isBlank()) return;
+        prompt.append("- ").append(label).append(": ").append(value).append("\n");
+    }
+
+    private ProfileConversationContext buildConversationContext(Long userId, String currentQuestion) {
+        List<RoutingCallLog> history = List.of();
+        if (routingCallLogMapper != null) {
+            try {
+                history = routingCallLogMapper.findRecentByUserId(
+                        userId, Math.max(1, Math.min(maxHistoryTurns, 100)));
+            } catch (Exception error) {
+                log.warn("[UserProfile] 读取历史对话失败，降级分析当前消息: userId={}, error={}",
+                        userId, error.getMessage());
+            }
         }
-    }
 
-    // ==================== 文件 I/O ====================
-
-    private Path profilePath(Long userId) {
-        return Paths.get(basePath, String.valueOf(userId), "preferences.json");
-    }
-
-    private UserProfile loadProfile(Long userId) {
-        Path path = profilePath(userId);
-        if (!Files.exists(path)) return null;
-        try {
-            String json = Files.readString(path, StandardCharsets.UTF_8);
-            return objectMapper.readValue(json, UserProfile.class);
-        } catch (IOException e) {
-            log.warn("[UserProfile] 加载失败: userId={}, error={}", userId, e.getMessage());
-            return null;
+        List<RoutingCallLog> chronological = history == null
+                ? new ArrayList<>() : new ArrayList<>(history);
+        Collections.reverse(chronological);
+        StringBuilder context = new StringBuilder();
+        context.append("[对话统计]\n用户消息轮数: ")
+                .append(chronological.size() + 1).append("\n\n");
+        int turn = 1;
+        for (RoutingCallLog item : chronological) {
+            if (item == null || item.getUserInput() == null || item.getUserInput().isBlank()) continue;
+            context.append("[历史用户消息 ").append(turn++).append("]\n")
+                    .append(item.getUserInput().trim()).append("\n\n");
         }
+        context.append("[当前用户消息]\n").append(currentQuestion.trim());
+
+        int maxChars = Math.max(1000, maxHistoryChars);
+        String text = context.length() <= maxChars ? context.toString()
+                : "[较早历史已截断]\n" + context.substring(context.length() - maxChars);
+        List<Long> messageIds = chronological.stream().map(RoutingCallLog::getId)
+                .filter(Objects::nonNull).distinct().toList();
+        Long sourceMaxMessageId = messageIds.stream().max(Long::compareTo).orElse(null);
+        return new ProfileConversationContext(text, sourceMaxMessageId, messageIds);
     }
 
-    /**
-     * ⭐ P4-B 版本化记忆写入（异常安全，失败仅记录调试日志不影响主流程）。
-     */
-    private void recordMemory(Long userId, String category, String key, String value, MemorySource source) {
-        try {
-            memoryVersionStore.add(userId, category, key, value, source);
-        } catch (Exception e) {
-            log.debug("[UserProfile] 版本化记忆写入跳过: userId={}, key={}, error={}", userId, key, e.getMessage());
-        }
+    private record ProfileConversationContext(String text, Long sourceMaxMessageId,
+                                              List<Long> messageIds) {
     }
 
-    private void saveProfile(UserProfile profile) {        try {
-            Path dir = Paths.get(basePath, String.valueOf(profile.getUserId()));
-            Files.createDirectories(dir);
-            profile.setUpdatedAt(LocalDateTime.now());
-            String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(profile);
-            Files.writeString(profilePath(profile.getUserId()), json, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.warn("[UserProfile] 保存失败: userId={}, error={}", profile.getUserId(), e.getMessage());
-        }
+    private record PreparedProfile(String projection, PreparedProfileCandidate candidate) {
     }
 
-    // ==================== 偏好提取 ====================
-
-    private void mergePreferenceGroups(UserProfile profile,
-                                       Map<String, List<String>> newGroups) {
-        if (newGroups == null || newGroups.isEmpty()) return;
-        Map<String, List<String>> groups = new LinkedHashMap<>(profile.getPreferenceGroupsMap());
-        Map<String, Integer> weights = profile.getPreferenceWeightsMap();
-        newGroups.forEach((group, values) -> {
-            if (group == null || group.isBlank() || values == null) return;
-            LinkedHashSet<String> merged = new LinkedHashSet<>(
-                    groups.getOrDefault(group, List.of()));
-            values.stream().filter(value -> value != null && !value.isBlank()).forEach(value -> {
-                merged.add(value);
-                weights.merge(value, 1, Integer::sum);
-            });
-            if (!merged.isEmpty()) groups.put(group, List.copyOf(merged));
-        });
-        profile.setPreferenceGroupsMap(groups);
-        profile.setPreferenceWeightsMap(weights);
+    public record PreparedProfileCandidate(
+            Long userId,
+            String requestId,
+            long expectedVersion,
+            LLMPreferenceExtractor.UserInsightReport report,
+            String latestUserMessage,
+            Long sourceMaxMessageId,
+            List<Long> evidenceMessageIds) {
     }
 
-    /** Reads new generic groups and folds legacy files into compatibility groups. */
-    private Map<String, List<String>> collectPreferenceGroups(UserProfile profile) {
-        Map<String, List<String>> groups = new LinkedHashMap<>(profile.getPreferenceGroupsMap());
-        addLegacyGroup(groups, "legacy.food", profile.getFoodPreferencesArray());
-        addLegacyGroup(groups, "legacy.travel", profile.getTravelPreferencesArray());
-        addLegacyGroup(groups, "legacy.dietary", profile.getDietaryRestrictionsArray());
-        return groups;
-    }
-
-    private void addLegacyGroup(Map<String, List<String>> groups, String name, String[] values) {
-        if (values != null && values.length > 0) groups.putIfAbsent(name, List.of(values));
-    }
-
-    private void updateLocationWeight(UserProfile profile, String location) {
-        Map<String, Object> additional = parseAdditionalPrefs(profile.getAdditionalPreferences());
-        @SuppressWarnings("unchecked")
-        Map<String, Integer> locationWeights = (Map<String, Integer>) additional.computeIfAbsent("location_weights", k -> new HashMap<String, Integer>());
-        locationWeights.merge(location, 1, Integer::sum);
-        try {
-            profile.setAdditionalPreferences(objectMapper.writeValueAsString(additional));
-        } catch (IOException e) {
-            log.warn("[UserProfile] 序列化附加偏好失败: {}", e.getMessage());
-        }
-    }
-
-    private String buildWeightedPreferenceString(String[] prefs, Map<String, Integer> weights) {
-        return Arrays.stream(prefs)
-                .map(p -> p + "(" + weights.getOrDefault(p, 1) + ")")
-                .collect(Collectors.joining(", "));
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> parseAdditionalPrefs(String json) {
-        if (json == null || json.isBlank()) return new HashMap<>();
-        try {
-            return objectMapper.readValue(json, HashMap.class);
-        } catch (IOException e) {
-            return new HashMap<>();
-        }
-    }
 }

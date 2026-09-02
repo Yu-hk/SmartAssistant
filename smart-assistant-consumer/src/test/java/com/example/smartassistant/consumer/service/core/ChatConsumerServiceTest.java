@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -79,6 +80,7 @@ class ChatConsumerServiceTest {
                 eq(42L), eq("thread-42"), eq("北京天气"), eq("weather_service"),
                 eq("ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("今天晴朗"),
                 eq(40L), eq(10L), eq(50L), eq("北京天气"), isNull());
+        verify(userProfileService).commitAfterSuccessfulTurn(42L, "request-1");
     }
 
     @Test
@@ -105,6 +107,7 @@ class ChatConsumerServiceTest {
                 eq(42L), eq("session-a"), eq("北京天气"), eq("weather_service"),
                 eq("ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("今天晴朗"),
                 eq(60L), eq(15L), eq(75L), eq("北京天气"), isNull());
+        verify(userProfileService).commitAfterSuccessfulTurn(42L, "request-2");
     }
 
     @Test
@@ -154,6 +157,7 @@ class ChatConsumerServiceTest {
                 eq("请提供订单号（格式：ORD-xxx）以便查询退款信息。"),
                 eq((Long) null), eq((Long) null), eq((Long) null),
                 eq("查询退款进度"), isNull());
+        verify(userProfileService, never()).commitAfterSuccessfulTurn(42L, "request-refund");
     }
 
     @Test
@@ -198,5 +202,6 @@ class ChatConsumerServiceTest {
                 eq("SENTIMENT_HANDOFF"), anyLong(), eq("SUCCESS"),
                 eq("正在为您转接人工客服"), eq(0L), eq(0L), eq(0L), eq("我要投诉"),
                 argThat(usage -> usage.complete() && usage.calls().isEmpty()));
+        verify(userProfileService, never()).commitAfterSuccessfulTurn(42L, "request-3");
     }
 }
