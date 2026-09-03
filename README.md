@@ -14,7 +14,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 ## 运行时架构
 
-<details>
+<details open>
 <summary align="right" title="展开架构图"><kbd>↔</kbd></summary>
 
 <p align="center">
