@@ -1,16 +1,54 @@
 # SmartAssistant
 
-SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体对话系统。系统通过网关统一接入用户请求，由 Consumer 持有用户画像与语义路由缓存，Router 只完成意图识别、任务分发与协调，再调用订单、商品、推荐等业务服务；分配失败时由 Router 内置的 Tool Registry 兜底 Agent 处理。
+SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体对话系统。系统通过 Gateway 统一接入请求，由 Consumer 管理对话上下文、用户画像与语义路由缓存，Router 负责意图识别、任务分发和 Agent 协调，再调用订单、商品等领域服务；常规 Agent 无法处理时，由 Tool Registry 与 Tool Runtime 提供工具发现和通用兜底能力。
 
 ## 主要能力
 
 - 用户登录、权限控制与会话隔离
 - 多轮对话、历史会话管理和人工关闭会话
 - 多 Agent 路由与任务编排
-- 订单、商品、推荐服务，以及 Router 内置的通用兜底能力
+- 订单、商品与推荐能力，以及基于 Tool Registry / Runtime 的通用兜底
 - RAG 文档解析、向量检索、重排序与评测门禁
 - Tool Registry 与 MCP 兼容的工具发现
 - Prometheus、Grafana、Loki 和 Jaeger 可观测性配置
+
+## 运行时架构
+
+```mermaid
+flowchart LR
+    User[用户 / 浏览器] --> Frontend[React 前端<br/>Vite :5173]
+    Frontend -->|HTTPS /api| Gateway[API Gateway<br/>:8081]
+
+    Gateway -->|认证与用户 API| UserService[User Service<br/>JWT · 权限 :8086]
+    Gateway -->|聊天与运营 API| Consumer[Consumer Service<br/>对话 · 画像 :8082]
+    Consumer -->|POST /api/router/route| Router[Router Service<br/>意图 · 编排 :8083]
+
+    Router -->|Agent 分派| Domain[业务 Agent 服务<br/>Order :8085 · Product :8084]
+    Router -.->|工具发现 / 兜底| Tools[Tool Registry / Runtime<br/>MCP · 安全执行 :8088]
+    Router -.->|Spring AI 推理| AIRag[AI / RAG<br/>Embedding · LLM]
+
+    Domain -->|SQL · 向量检索| Database[(PostgreSQL / pgvector)]
+    Consumer -.->|会话 / 语义缓存| Redis[(Redis)]
+    Router -.->|检查点| Redis
+    Router -.->|工作流恢复| RabbitMQ[[RabbitMQ]]
+
+    Nacos[Nacos<br/>服务注册与发现] -.-> Gateway
+    Nacos -.-> Consumer
+    Nacos -.-> Router
+```
+
+主请求路径是 `React → Gateway → Consumer → Router → 业务 Agent → 数据存储`：
+
+1. 前端统一通过 Gateway 访问认证、对话和运营接口。
+2. Consumer 维护会话上下文、用户画像和语义缓存，并把路由请求交给 Router。
+3. Router 完成意图识别与 Agent 编排，将任务分派到订单、商品服务或工具兜底链路。
+4. PostgreSQL/pgvector 保存业务与向量数据；Redis 和 RabbitMQ 分别承载缓存、检查点与工作流恢复。
+5. Nacos 提供服务注册发现，监控配置覆盖 Prometheus、Grafana、Loki 与链路追踪。
+
+更完整的源码证据、节点搜索和交互查看能力见：
+
+- [交互式 Archify 架构图](docs/architecture/smartassistant-runtime.architecture.html)
+- [可复现的架构规范](docs/architecture/smartassistant-runtime.architecture.json)
 
 ## 项目结构
 
@@ -27,7 +65,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 | `smart-assistant-routing-contract/` | Router/Consumer 共享的路由通信契约 |
 | `smart-assistant-embedding-service/` | Embedding 服务 |
 | `smart-assistant-common/` | 公共模型、RAG、评测与基础组件 |
-| `frontend/` | React/Vite 前端与本地 BFF |
+| `frontend/` | React/Vite 前端；开发环境通过 Vite 代理访问 Gateway |
 | `docs/` | 架构、设计、运维和评测文档 |
 | `deploy/` | 生产部署配置 |
 | `monitoring/` | 可观测性配置 |
@@ -112,6 +150,8 @@ GitHub Actions 会执行：
 
 ## 文档
 
+- [交互式运行时架构图](docs/architecture/smartassistant-runtime.architecture.html)
+- [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
 - [系统设计](docs/system_design.md)
 - [架构演进路线](docs/architecture-roadmap.md)
 - [RAG 生产化设计](docs/rag-production/ARCHITECTURE.md)
