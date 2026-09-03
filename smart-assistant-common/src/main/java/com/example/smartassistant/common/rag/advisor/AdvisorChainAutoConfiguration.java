@@ -17,7 +17,6 @@ import org.springframework.ai.chat.client.ChatClientBuilderCustomizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.context.annotation.Bean;
@@ -40,7 +39,6 @@ import org.springframework.context.annotation.Configuration;
  * 各模块可通过 {@code advisor.*.enabled=false} 按需关闭。</p>
  */
 @Configuration
-@EnableConfigurationProperties(CallLimitProperties.class)
 public class AdvisorChainAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(AdvisorChainAutoConfiguration.class);
@@ -57,16 +55,6 @@ public class AdvisorChainAutoConfiguration {
     public PromptAuditAdvisor promptAuditAdvisor(PiiPolicyEngine piiPolicyEngine) {
         log.info("[AdvisorChain] 注册 PromptAuditAdvisor (Order=100)");
         return new PromptAuditAdvisor(piiPolicyEngine);
-    }
-
-    @Bean
-    public PiiPolicyEngine piiPolicyEngine() {
-        return PiiPolicyEngine.shared();
-    }
-
-    @Bean
-    public InvocationBudgetRegistry invocationBudgetRegistry() {
-        return InvocationBudgetRegistry.shared();
     }
 
     @Bean
