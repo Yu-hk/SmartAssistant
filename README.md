@@ -14,41 +14,19 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 ## 运行时架构
 
-```mermaid
-flowchart LR
-    User[用户 / 浏览器] --> Frontend[React 前端<br/>Vite :5173]
-    Frontend -->|HTTPS /api| Gateway[API Gateway<br/>:8081]
+<div align="right"><a href="docs/architecture/smartassistant-runtime.architecture.html" title="打开交互式架构图"><kbd>↔</kbd></a></div>
 
-    Gateway -->|认证与用户 API| UserService[User Service<br/>JWT · 权限 :8086]
-    Gateway -->|聊天与运营 API| Consumer[Consumer Service<br/>对话 · 画像 :8082]
-    Consumer -->|POST /api/router/route| Router[Router Service<br/>意图 · 编排 :8083]
-
-    Router -->|Agent 分派| Domain[业务 Agent 服务<br/>Order :8085 · Product :8084]
-    Router -.->|工具发现 / 兜底| Tools[Tool Registry / Runtime<br/>MCP · 安全执行 :8088]
-    Router -.->|Spring AI 推理| AIRag[AI / RAG<br/>Embedding · LLM]
-
-    Domain -->|SQL · 向量检索| Database[(PostgreSQL / pgvector)]
-    Consumer -.->|会话 / 语义缓存| Redis[(Redis)]
-    Router -.->|检查点| Redis
-    Router -.->|工作流恢复| RabbitMQ[[RabbitMQ]]
-
-    Nacos[Nacos<br/>服务注册与发现] -.-> Gateway
-    Nacos -.-> Consumer
-    Nacos -.-> Router
-```
+![SmartAssistant 高层运行时架构](docs/architecture/smartassistant-runtime.svg)
 
 主请求路径是 `React → Gateway → Consumer → Router → 业务 Agent → 数据存储`：
 
 1. 前端统一通过 Gateway 访问认证、对话和运营接口。
 2. Consumer 维护会话上下文、用户画像和语义缓存，并把路由请求交给 Router。
 3. Router 完成意图识别与 Agent 编排，将任务分派到订单、商品服务或工具兜底链路。
-4. PostgreSQL/pgvector 保存业务与向量数据；Redis 和 RabbitMQ 分别承载缓存、检查点与工作流恢复。
-5. Nacos 提供服务注册发现，监控配置覆盖 Prometheus、Grafana、Loki 与链路追踪。
-
-更完整的源码证据、节点搜索和交互查看能力见：
-
-- [交互式 Archify 架构图](docs/architecture/smartassistant-runtime.architecture.html)
-- [可复现的架构规范](docs/architecture/smartassistant-runtime.architecture.json)
+4. Product 依次完成候选查询、销量/性价比/口碑分析与推荐核实，核实失败时触发一次重新分析。
+5. Order 由 Agent 补齐业务参数并请求用户二次确认，再交给确定性工作流执行下单、支付、退单、物流或售后操作。
+6. PostgreSQL/pgvector 保存业务与向量数据；Redis 和 RabbitMQ 分别承载缓存、检查点与工作流恢复。
+7. Nacos 提供服务注册发现，监控配置覆盖 Prometheus、Grafana、Loki 与链路追踪。
 
 ## 项目结构
 
