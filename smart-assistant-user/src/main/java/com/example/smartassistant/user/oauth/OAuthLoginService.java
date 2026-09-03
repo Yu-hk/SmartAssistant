@@ -61,6 +61,19 @@ public class OAuthLoginService {
                 "consent");
     }
 
+    public FeishuFrameConfig feishuFrameConfig(String returnTo, boolean remember) {
+        OAuthProperties.Provider config = properties.provider(OAuthProvider.FEISHU);
+        if (!config.isEnabled() || config.getClientId() == null || config.getClientId().isBlank()) {
+            throw new ServiceException(503, "OAUTH_NOT_CONFIGURED", "飞书登录尚未配置");
+        }
+        String state = createState(OAuthProvider.FEISHU, returnTo, remember);
+        URI authorizationUri = providerGateway.authorizationUri(
+                OAuthProvider.FEISHU,
+                state,
+                callbackUri(OAuthProvider.FEISHU));
+        return new FeishuFrameConfig(authorizationUri.toString(), state);
+    }
+
     public URI callback(OAuthProvider provider, String code, String state, String ipAddress, String userAgent) {
         StatePayload payload = consume(STATE_PREFIX + state, StatePayload.class, "授权状态无效或已过期");
         if (!provider.id().equals(payload.provider())) throw badRequest("授权渠道与登录请求不匹配");
@@ -133,6 +146,7 @@ public class OAuthLoginService {
     public record ProviderStatus(String id, String name, boolean enabled) {}
     public record DingTalkFrameConfig(String clientId, String redirectUri, String state,
                                       String scope, String responseType, String prompt) {}
+    public record FeishuFrameConfig(String authorizationUri, String state) {}
     public record StatePayload(String provider, String returnTo, boolean remember) {}
     public record TicketPayload(AuthResponse auth, String returnTo, boolean remember) {}
 }

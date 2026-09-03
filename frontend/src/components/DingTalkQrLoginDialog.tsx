@@ -160,7 +160,7 @@ export function DingTalkQrLoginDialog({
   return (
     <div className="login-dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section
-        className="login-dialog dingtalk-qr-dialog glass-card"
+        className="login-dialog oauth-qr-dialog glass-card"
         role="dialog"
         aria-modal="true"
         aria-labelledby="dingtalk-qr-title"
@@ -168,12 +168,12 @@ export function DingTalkQrLoginDialog({
       >
         <button type="button" className="login-dialog-close" aria-label="关闭" onClick={onClose}>×</button>
         <h3 id="dingtalk-qr-title">钉钉扫码登录</h3>
-        <p className="dingtalk-qr-description">扫码后在钉钉中确认，本页面会自动完成登录。</p>
-        <div className={`dingtalk-qr-frame ${status}`} aria-busy={status === 'loading'}>
-          <div id={containerId} className="dingtalk-qr-container" />
-          {status === 'loading' && <div className="dingtalk-qr-placeholder">二维码加载中…</div>}
+        <p className="oauth-qr-description">扫码后在钉钉中确认，本页面会自动完成登录。</p>
+        <div className={`oauth-qr-frame ${status}`} aria-busy={status === 'loading'}>
+          <div id={containerId} className="oauth-qr-container" />
+          {status === 'loading' && <div className="oauth-qr-placeholder">二维码加载中…</div>}
         </div>
-        <p className={`dingtalk-qr-status ${status}`} role={status === 'error' ? 'alert' : 'status'}>
+        <p className={`oauth-qr-status ${status}`} role={status === 'error' ? 'alert' : 'status'}>
           {message}
         </p>
         {status === 'error' && (

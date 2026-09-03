@@ -28,14 +28,9 @@ const AdminApp = lazy(() => import('./admin/AdminApp').then(module => ({
 // 主应用
 // ===================================================
 function App() {
-  const location = useLocation();
   return (
     <Routes>
-      <Route path="/login" element={
-        getAuthToken()
-          ? <Navigate to={getAuthUser()?.role === 'ROLE_ADMIN' ? '/admin/overview' : '/'} replace />
-          : <LoginPage />
-      } />
+      <Route path="/login" element={<LoginRoute />} />
       <Route path="/" element={<AuthRoute audience="customer"><CustomerApp /></AuthRoute>} />
       <Route path="/chat/:sessionId" element={<AuthRoute audience="customer"><CustomerApp /></AuthRoute>} />
       <Route path="/admin/*" element={
@@ -48,6 +43,72 @@ function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+function LoginRoute() {
+  const [state, setState] = useState<'checking' | 'login' | 'authenticated' | 'verificationFailed'>(
+    () => getAuthToken() ? 'checking' : 'login',
+  );
+  const [authenticatedRole, setAuthenticatedRole] = useState(getAuthUser()?.role);
+  const [verificationAttempt, setVerificationAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    if (!getAuthToken()) {
+      setState('login');
+      return () => { active = false; };
+    }
+
+    setState('checking');
+    getCurrentUser()
+      .then(profile => {
+        if (!active) return;
+        setAuthenticatedRole(profile.role);
+        setState('authenticated');
+      })
+      .catch(() => {
+        if (!active) return;
+        // 401/刷新失败时 apiClient 已清理失效凭据，此时直接展示登录页。
+        // 网络或服务暂时异常时保留有效凭据，让用户选择重试或切换账号。
+        setState(getAuthToken() ? 'verificationFailed' : 'login');
+      });
+
+    return () => { active = false; };
+  }, [verificationAttempt]);
+
+  if (state === 'checking') {
+    return (
+      <div className="auth-loading" role="status" aria-live="polite">
+        <img className="auth-loading-mark" src="/icons/app-icon.svg" alt="" />
+        <span>正在验证登录状态…</span>
+      </div>
+    );
+  }
+  if (state === 'authenticated') {
+    return <Navigate to={authenticatedRole === 'ROLE_ADMIN' ? '/admin/overview' : '/'} replace />;
+  }
+  if (state === 'verificationFailed') {
+    return (
+      <div className="auth-loading" role="alert">
+        <span>暂时无法验证已有登录状态，请重试或使用其他账号登录。</span>
+        <button
+          type="button"
+          className="header-text-button"
+          onClick={() => setVerificationAttempt(value => value + 1)}
+        >
+          重新验证
+        </button>
+        <button
+          type="button"
+          className="header-text-button"
+          onClick={() => { clearAuth(); setState('login'); }}
+        >
+          使用其他账号
+        </button>
+      </div>
+    );
+  }
+  return <LoginPage />;
 }
 
 function AuthRoute({
