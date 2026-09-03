@@ -43,6 +43,13 @@ public class OAuthController {
         return ApiResponse.success(oauthLoginService.dingtalkFrameConfig(returnTo, remember));
     }
 
+    @GetMapping("/feishu/frame-config")
+    public ApiResponse<OAuthLoginService.FeishuFrameConfig> feishuFrameConfig(
+            @RequestParam(defaultValue = "/") String returnTo,
+            @RequestParam(defaultValue = "true") boolean remember) {
+        return ApiResponse.success(oauthLoginService.feishuFrameConfig(returnTo, remember));
+    }
+
     @GetMapping("/{provider}/authorize")
     public ResponseEntity<Void> authorize(@PathVariable String provider,
                                           @RequestParam(defaultValue = "/") String returnTo,
