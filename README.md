@@ -14,9 +14,14 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 ## 运行时架构
 
-<div align="right"><a href="docs/architecture/smartassistant-runtime.architecture.html" title="打开交互式架构图"><kbd>↔</kbd></a></div>
+<details>
+<summary align="right" title="展开架构图"><kbd>↔</kbd></summary>
 
-![SmartAssistant 高层运行时架构](docs/architecture/smartassistant-runtime.svg)
+<p align="center">
+  <img src="docs/architecture/smartassistant-runtime.svg" alt="SmartAssistant 高层运行时架构" width="100%">
+</p>
+
+</details>
 
 主请求路径是 `React → Gateway → Consumer → Router → 业务 Agent → 数据存储`：
 
