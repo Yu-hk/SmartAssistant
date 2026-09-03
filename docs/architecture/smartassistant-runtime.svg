@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="720" viewBox="0 0 1500 720" role="img" aria-labelledby="title desc">
+  <title id="title">SmartAssistant 高层运行时架构与领域执行流程</title>
+  <desc id="desc">展示从用户、前端、网关、Consumer 到 Router 的主请求链路，以及 Product 的候选查询、三维分析与核实推荐流程，Order 的信息收集、二次确认与确定性工作流。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#475569"/>
+    </marker>
+    <style>
+      .canvas { fill: #fff; }
+      .cluster { fill: #fbfaff; stroke: #8b5cf6; stroke-width: 1.5; rx: 12; }
+      .cluster.order { fill: #f8fbff; stroke: #3b82f6; }
+      .cluster-title { fill: #172033; font: 700 16px "Microsoft YaHei", "Noto Sans SC", sans-serif; }
+      .node rect { fill: #f7f5ff; stroke: #8b5cf6; stroke-width: 1.4; rx: 6; }
+      .node.order rect { fill: #f2f7ff; stroke: #3b82f6; }
+      .node.infra rect { fill: #f8fafc; stroke: #94a3b8; }
+      .primary { fill: #172033; font: 600 13px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+      .secondary { fill: #475569; font: 11px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+      .edge { fill: none; stroke: #475569; stroke-width: 1.4; marker-end: url(#arrow); }
+      .edge.product { stroke: #7c3aed; }
+      .edge.order { stroke: #2563eb; }
+      .edge.dashed { stroke: #64748b; stroke-dasharray: 5 5; }
+      .label rect { fill: #fff; opacity: .96; rx: 3; }
+      .label text { fill: #334155; font: 11px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect class="canvas" width="1500" height="720"/>
+
+  <!-- 领域边界先绘制，确保流程箭头显示在边界之上 -->
+  <rect class="cluster" x="950" y="50" width="520" height="220"/>
+  <text class="cluster-title" x="970" y="82">Product Service · 商品查询与推荐</text>
+  <rect class="cluster order" x="950" y="320" width="520" height="280"/>
+  <text class="cluster-title" x="970" y="352">Order Service · 订单确定性工作流</text>
+
+  <!-- 主请求链路 -->
+  <path class="edge" d="M140 315 H175"/>
+  <path class="edge" d="M305 315 H345"/>
+  <path class="edge" d="M485 315 H525"/>
+  <path class="edge" d="M685 315 H730"/>
+  <path class="edge product" d="M890 300 C920 300 920 160 950 160"/>
+  <path class="edge order" d="M890 330 C920 330 920 430 950 430"/>
+
+  <!-- 认证、模型、工具与基础设施 -->
+  <path class="edge" d="M415 280 V155"/>
+  <path class="edge dashed" d="M810 280 V155"/>
+  <path class="edge dashed" d="M810 350 V455"/>
+  <path class="edge dashed" d="M415 610 V350"/>
+  <path class="edge dashed" d="M605 610 C625 520 640 430 605 350"/>
+  <path class="edge dashed" d="M810 610 V525"/>
+
+  <!-- Product 执行流程 -->
+  <path class="edge product" d="M1065 150 H1080"/>
+  <path class="edge product" d="M1200 150 H1215"/>
+  <path class="edge product" d="M1335 150 H1350"/>
+  <path class="edge product dashed" d="M1410 185 C1410 235 1275 235 1275 185"/>
+  <path class="edge dashed" d="M1140 115 V30 H1480 V670 H1380"/>
+
+  <!-- Order 执行流程 -->
+  <path class="edge order" d="M1065 425 H1080"/>
+  <path class="edge order" d="M1200 425 H1215"/>
+  <path class="edge order" d="M1335 425 H1350"/>
+  <path class="edge order" d="M1410 460 V505 H1285"/>
+  <path class="edge dashed" d="M1285 565 V640"/>
+
+  <!-- 路径标签 -->
+  <g class="label" transform="translate(325 294)"><rect x="-30" y="-12" width="60" height="20"/><text y="3">HTTPS</text></g>
+  <g class="label" transform="translate(505 294)"><rect x="-33" y="-12" width="66" height="20"/><text y="3">认证/对话</text></g>
+  <g class="label" transform="translate(708 294)"><rect x="-34" y="-12" width="68" height="20"/><text y="3">Route API</text></g>
+  <g class="label" transform="translate(920 220)"><rect x="-34" y="-12" width="68" height="20"/><text y="3">商品意图</text></g>
+  <g class="label" transform="translate(920 377)"><rect x="-34" y="-12" width="68" height="20"/><text y="3">订单意图</text></g>
+  <g class="label" transform="translate(1345 220)"><rect x="-42" y="-12" width="84" height="20"/><text y="3">不一致则重析</text></g>
+
+  <!-- 主链路节点 -->
+  <g class="node" transform="translate(25 280)"><rect width="115" height="70"/><text class="primary" x="57.5" y="31">用户</text><text class="secondary" x="57.5" y="51">浏览器</text></g>
+  <g class="node" transform="translate(175 280)"><rect width="130" height="70"/><text class="primary" x="65" y="31">React 前端</text><text class="secondary" x="65" y="51">Vite :5173</text></g>
+  <g class="node" transform="translate(345 280)"><rect width="140" height="70"/><text class="primary" x="70" y="31">API Gateway</text><text class="secondary" x="70" y="51">统一接入 :8081</text></g>
+  <g class="node" transform="translate(525 280)"><rect width="160" height="70"/><text class="primary" x="80" y="31">Consumer Service</text><text class="secondary" x="80" y="51">对话 · 画像 :8082</text></g>
+  <g class="node" transform="translate(730 280)"><rect width="160" height="70"/><text class="primary" x="80" y="31">Router Service</text><text class="secondary" x="80" y="51">意图 · 编排 :8083</text></g>
+
+  <!-- 辅助服务 -->
+  <g class="node infra" transform="translate(345 85)"><rect width="140" height="70"/><text class="primary" x="70" y="31">User Service</text><text class="secondary" x="70" y="51">JWT · 权限 :8086</text></g>
+  <g class="node infra" transform="translate(730 85)"><rect width="160" height="70"/><text class="primary" x="80" y="31">AI / RAG</text><text class="secondary" x="80" y="51">Embedding · LLM</text></g>
+  <g class="node infra" transform="translate(730 455)"><rect width="160" height="70"/><text class="primary" x="80" y="31">Tool Registry</text><text class="secondary" x="80" y="51">发现 · 安全执行</text></g>
+  <g class="node infra" transform="translate(345 610)"><rect width="140" height="70"/><text class="primary" x="70" y="31">Nacos</text><text class="secondary" x="70" y="51">服务注册发现</text></g>
+  <g class="node infra" transform="translate(530 610)"><rect width="150" height="70"/><text class="primary" x="75" y="31">Redis</text><text class="secondary" x="75" y="51">会话 · 语义缓存</text></g>
+  <g class="node infra" transform="translate(730 610)"><rect width="160" height="70"/><text class="primary" x="80" y="31">RabbitMQ</text><text class="secondary" x="80" y="51">检查点 · 流程恢复</text></g>
+
+  <!-- Product 领域 -->
+  <g class="node" transform="translate(970 115)"><rect width="95" height="70"/><text class="primary" x="47.5" y="31">Product</text><text class="secondary" x="47.5" y="51">Agent</text></g>
+  <g class="node" transform="translate(1080 115)"><rect width="120" height="70"/><text class="primary" x="60" y="31">候选查询</text><text class="secondary" x="60" y="51">库存 · 价格</text></g>
+  <g class="node" transform="translate(1215 115)"><rect width="120" height="70"/><text class="primary" x="60" y="27">三维分析</text><text class="secondary" x="60" y="46">销量 · 性价比</text><text class="secondary" x="60" y="62">口碑 + 用户偏好</text></g>
+  <g class="node" transform="translate(1350 115)"><rect width="100" height="70"/><text class="primary" x="50" y="27">核实推荐</text><text class="secondary" x="50" y="46">事实校验</text><text class="secondary" x="50" y="62">输出结论</text></g>
+
+  <!-- Order 领域 -->
+  <g class="node order" transform="translate(970 390)"><rect width="95" height="70"/><text class="primary" x="47.5" y="31">Order</text><text class="secondary" x="47.5" y="51">Agent</text></g>
+  <g class="node order" transform="translate(1080 390)"><rect width="120" height="70"/><text class="primary" x="60" y="31">补齐信息</text><text class="secondary" x="60" y="51">参数 · 槽位</text></g>
+  <g class="node order" transform="translate(1215 390)"><rect width="120" height="70"/><text class="primary" x="60" y="31">用户二次确认</text><text class="secondary" x="60" y="51">写操作门禁</text></g>
+  <g class="node order" transform="translate(1350 390)"><rect width="100" height="70"/><text class="primary" x="50" y="31">确定性执行</text><text class="secondary" x="50" y="51">幂等 · 审批</text></g>
+  <g class="node order" transform="translate(1165 505)"><rect width="240" height="60"/><text class="primary" x="120" y="27">创建订单 · 支付 · 退单</text><text class="secondary" x="120" y="46">物流查询 · 售后申请 · 状态流转</text></g>
+
+  <g class="node infra" transform="translate(1200 640)"><rect width="180" height="60"/><text class="primary" x="90" y="27">PostgreSQL / pgvector</text><text class="secondary" x="90" y="46">商品 · 订单 · 向量数据</text></g>
+</svg>
