@@ -1,26 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="720" viewBox="0 0 1500 720" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1540" height="760" viewBox="-20 -20 1540 760" role="img" aria-labelledby="title desc">
   <title id="title">SmartAssistant 高层运行时架构与领域执行流程</title>
   <desc id="desc">展示从用户、前端、网关、Consumer 到 Router 的主请求链路，以及 Product 的候选查询、三维分析与核实推荐流程，Order 的信息收集、二次确认与确定性工作流。</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 Z" fill="#475569"/>
     </marker>
     <style>
       .canvas { fill: #fff; }
-      .cluster { fill: #fbfaff; stroke: #8b5cf6; stroke-width: 1.5; rx: 12; }
+      .cluster { fill: #fbfaff; stroke: #8b5cf6; stroke-width: 1.8; rx: 12; }
       .cluster.order { fill: #f8fbff; stroke: #3b82f6; }
-      .cluster-title { fill: #172033; font: 700 16px "Microsoft YaHei", "Noto Sans SC", sans-serif; }
-      .node rect { fill: #f7f5ff; stroke: #8b5cf6; stroke-width: 1.4; rx: 6; }
+      .cluster-title { fill: #172033; font: 700 18px "Microsoft YaHei", "Noto Sans SC", sans-serif; }
+      .node rect { fill: #f7f5ff; stroke: #8b5cf6; stroke-width: 1.6; rx: 6; }
       .node.order rect { fill: #f2f7ff; stroke: #3b82f6; }
       .node.infra rect { fill: #f8fafc; stroke: #94a3b8; }
-      .primary { fill: #172033; font: 600 13px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
-      .secondary { fill: #475569; font: 11px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
-      .edge { fill: none; stroke: #475569; stroke-width: 1.4; marker-end: url(#arrow); }
+      .primary { fill: #172033; font: 600 15px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+      .secondary { fill: #475569; font: 12px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+      .edge { fill: none; stroke: #475569; stroke-width: 1.6; marker-end: url(#arrow); }
       .edge.product { stroke: #7c3aed; }
       .edge.order { stroke: #2563eb; }
       .edge.dashed { stroke: #64748b; stroke-dasharray: 5 5; }
       .label rect { fill: #fff; opacity: .96; rx: 3; }
-      .label text { fill: #334155; font: 11px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+      .label text { fill: #334155; font: 12px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
     </style>
   </defs>
 
@@ -63,12 +63,12 @@
   <path class="edge dashed" d="M1285 565 V640"/>
 
   <!-- 路径标签 -->
-  <g class="label" transform="translate(325 294)"><rect x="-30" y="-12" width="60" height="20"/><text y="3">HTTPS</text></g>
-  <g class="label" transform="translate(505 294)"><rect x="-33" y="-12" width="66" height="20"/><text y="3">认证/对话</text></g>
-  <g class="label" transform="translate(708 294)"><rect x="-34" y="-12" width="68" height="20"/><text y="3">Route API</text></g>
-  <g class="label" transform="translate(920 220)"><rect x="-34" y="-12" width="68" height="20"/><text y="3">商品意图</text></g>
-  <g class="label" transform="translate(920 377)"><rect x="-34" y="-12" width="68" height="20"/><text y="3">订单意图</text></g>
-  <g class="label" transform="translate(1345 220)"><rect x="-42" y="-12" width="84" height="20"/><text y="3">不一致则重析</text></g>
+  <g class="label" transform="translate(325 260)"><rect x="-33" y="-12" width="66" height="20"/><text y="3">HTTPS</text></g>
+  <g class="label" transform="translate(505 260)"><rect x="-37" y="-12" width="74" height="20"/><text y="3">认证/对话</text></g>
+  <g class="label" transform="translate(708 260)"><rect x="-38" y="-12" width="76" height="20"/><text y="3">Route API</text></g>
+  <g class="label" transform="translate(920 220)"><rect x="-38" y="-12" width="76" height="20"/><text y="3">商品意图</text></g>
+  <g class="label" transform="translate(920 377)"><rect x="-38" y="-12" width="76" height="20"/><text y="3">订单意图</text></g>
+  <g class="label" transform="translate(1345 220)"><rect x="-47" y="-12" width="94" height="20"/><text y="3">不一致则重析</text></g>
 
   <!-- 主链路节点 -->
   <g class="node" transform="translate(25 280)"><rect width="115" height="70"/><text class="primary" x="57.5" y="31">用户</text><text class="secondary" x="57.5" y="51">浏览器</text></g>
