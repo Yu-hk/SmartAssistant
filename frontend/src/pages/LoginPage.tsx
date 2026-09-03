@@ -11,12 +11,14 @@ import {
   type OAuthProviderStatus,
 } from '../api/auth';
 import { DingTalkQrLoginDialog } from '../components/DingTalkQrLoginDialog';
+import { FeishuQrLoginDialog } from '../components/FeishuQrLoginDialog';
 import {
   Activity,
   AtSign,
   Building2,
   KeyRound,
   Mail,
+  RefreshCw,
   ShieldCheck,
   Users,
   Wifi,
@@ -51,6 +53,10 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [helpDialog, setHelpDialog] = useState<'forgot' | 'terms' | null>(null);
   const [dingtalkQrOpen, setDingtalkQrOpen] = useState(false);
+  const [feishuQrOpen, setFeishuQrOpen] = useState(false);
+  const [oauthLoading, setOAuthLoading] = useState(true);
+  const [oauthLoadError, setOAuthLoadError] = useState('');
+  const [oauthReloadKey, setOAuthReloadKey] = useState(0);
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([
     { id: 'wechat', name: '微信', enabled: false },
     { id: 'dingtalk', name: '钉钉', enabled: false },
@@ -59,11 +65,24 @@ export function LoginPage() {
 
   useEffect(() => {
     let active = true;
+    setOAuthLoading(true);
+    setOAuthLoadError('');
     getOAuthProviders()
-      .then(providers => { if (active) setOAuthProviders(providers); })
-      .catch(() => undefined);
+      .then(providers => {
+        if (!active) return;
+        setOAuthProviders(providers);
+      })
+      .catch(err => {
+        if (!active) return;
+        setOAuthLoadError(
+          err instanceof Error
+            ? `第三方登录状态加载失败：${err.message}`
+            : '第三方登录状态加载失败，请稍后重试',
+        );
+      })
+      .finally(() => { if (active) setOAuthLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [oauthReloadKey]);
 
   useEffect(() => {
     if (oauthError) {
@@ -153,6 +172,10 @@ export function LoginPage() {
     const requestedPath = (location.state as { from?: string } | null)?.from || '/';
     if (provider.id === 'dingtalk') {
       setDingtalkQrOpen(true);
+      return;
+    }
+    if (provider.id === 'feishu') {
+      setFeishuQrOpen(true);
       return;
     }
     window.location.assign(getOAuthAuthorizeUrl(provider.id, requestedPath, remember));
@@ -304,16 +327,36 @@ export function LoginPage() {
                       type="button"
                       className="login-channel"
                       key={channel.name}
-                      disabled={!channel.enabled || loading}
-                      title={channel.enabled ? `使用${channel.name}登录` : `${channel.name}尚未开通`}
+                      disabled={oauthLoading || Boolean(oauthLoadError) || !channel.enabled || loading}
+                      title={oauthLoading
+                        ? '正在检测登录渠道'
+                        : oauthLoadError
+                          ? '登录渠道状态暂时不可用'
+                          : channel.enabled ? `使用${channel.name}登录` : `${channel.name}尚未开通`}
                       onClick={() => beginSso(channel)}
                     >
                       <span className="lc-dot" style={{ background: channelColors[channel.id] }} />
                       <span>{channel.name}</span>
-                      {!channel.enabled && <small>未开通</small>}
+                      {oauthLoading
+                        ? <small>检测中</small>
+                        : oauthLoadError
+                          ? <small>状态未知</small>
+                          : !channel.enabled && <small>未开通</small>}
                     </button>
                   ))}
                 </div>
+                {oauthLoadError && (
+                  <div className="login-channel-status" role="alert">
+                    <span>{oauthLoadError}</span>
+                    <button
+                      type="button"
+                      disabled={oauthLoading}
+                      onClick={() => setOAuthReloadKey(value => value + 1)}
+                    >
+                      <RefreshCw size={12} /> 重新检测
+                    </button>
+                  </div>
+                )}
                 <p className="login-channel-note">
                   <Building2 size={13} /> 企业登录需管理员配置平台凭据与安全回调。
                 </p>
@@ -456,6 +499,12 @@ export function LoginPage() {
         returnTo={requestedPath}
         remember={remember}
         onClose={() => setDingtalkQrOpen(false)}
+      />
+      <FeishuQrLoginDialog
+        open={feishuQrOpen}
+        returnTo={requestedPath}
+        remember={remember}
+        onClose={() => setFeishuQrOpen(false)}
       />
     </div>
   );

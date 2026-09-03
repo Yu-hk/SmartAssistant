@@ -14,6 +14,7 @@ import io.micrometer.observation.ObservationFilter;
 import org.springframework.ai.chat.observation.ChatModelObservationContext;
 import org.springframework.ai.content.Content;
 import org.springframework.ai.observation.ObservabilityHelper;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -37,8 +38,8 @@ public class ChatModelCompletionContentObservationFilter implements ObservationF
 
     private final PiiPolicyEngine piiPolicyEngine;
 
-    public ChatModelCompletionContentObservationFilter(PiiPolicyEngine piiPolicyEngine) {
-        this.piiPolicyEngine = piiPolicyEngine;
+    public ChatModelCompletionContentObservationFilter(ObjectProvider<PiiPolicyEngine> piiPolicyEngineProvider) {
+        this.piiPolicyEngine = piiPolicyEngineProvider.getIfAvailable(PiiPolicyEngine::shared);
     }
 
     @Override

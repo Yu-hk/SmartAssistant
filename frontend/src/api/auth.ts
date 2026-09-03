@@ -36,6 +36,11 @@ export interface DingTalkFrameConfig {
   prompt: string;
 }
 
+export interface FeishuFrameConfig {
+  authorizationUri: string;
+  state: string;
+}
+
 interface OAuthTicketPayload {
   auth: AuthUser;
   returnTo: string;
@@ -65,7 +70,13 @@ export const register = (username: string, password: string, email: string) =>
 
 export async function getOAuthProviders(): Promise<OAuthProviderStatus[]> {
   const response = await apiClient.get<ApiEnvelope<OAuthProviderStatus[]>>('/auth/oauth/providers');
-  return response.code === 0 && Array.isArray(response.data) ? response.data : [];
+  if (response.code !== 0) {
+    throw new Error(response.error?.detail || response.message || '无法获取第三方登录渠道状态');
+  }
+  if (!Array.isArray(response.data) || response.data.length === 0) {
+    throw new Error('第三方登录渠道状态返回异常');
+  }
+  return response.data;
 }
 
 export function getOAuthAuthorizeUrl(
@@ -87,6 +98,20 @@ export async function getDingTalkFrameConfig(
   );
   if (response.code !== 0 || !response.data?.clientId || !response.data?.state) {
     throw new Error(response.error?.detail || response.message || '无法初始化钉钉扫码登录');
+  }
+  return response.data;
+}
+
+export async function getFeishuFrameConfig(
+  returnTo: string,
+  remember: boolean,
+): Promise<FeishuFrameConfig> {
+  const query = new URLSearchParams({ returnTo, remember: String(remember) });
+  const response = await apiClient.get<ApiEnvelope<FeishuFrameConfig>>(
+    `/auth/oauth/feishu/frame-config?${query.toString()}`,
+  );
+  if (response.code !== 0 || !response.data?.authorizationUri || !response.data?.state) {
+    throw new Error(response.error?.detail || response.message || '无法初始化飞书扫码登录');
   }
   return response.data;
 }

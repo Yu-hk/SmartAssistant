@@ -7,6 +7,8 @@
 
 package com.example.smartassistant.common.rag.advisor;
 
+import com.example.smartassistant.common.governance.GovernanceInfrastructureConfiguration;
+import com.example.smartassistant.common.security.PiiPolicyConfiguration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -31,6 +33,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AdvisorChainAutoConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withUserConfiguration(PiiPolicyConfiguration.class)
+            .withUserConfiguration(GovernanceInfrastructureConfiguration.class)
             .withConfiguration(AutoConfigurations.of(AdvisorChainAutoConfiguration.class));
 
     @Test

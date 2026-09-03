@@ -39,6 +39,9 @@ class OAuthLoginServiceTest {
         properties.getDingtalk().setEnabled(true);
         properties.getDingtalk().setClientId("ding-test-client");
         properties.getDingtalk().setClientSecret("ding-test-secret");
+        properties.getFeishu().setEnabled(true);
+        properties.getFeishu().setClientId("feishu-test-client");
+        properties.getFeishu().setClientSecret("feishu-test-secret");
         when(redis.opsForValue()).thenReturn(values);
         service = new OAuthLoginService(properties, gateway, accountService, redis, new ObjectMapper());
     }
@@ -76,6 +79,26 @@ class OAuthLoginServiceTest {
         assertEquals("openid", config.scope());
         assertEquals("code", config.responseType());
         assertEquals("consent", config.prompt());
+        verify(values).set(
+                org.mockito.ArgumentMatchers.eq("oauth:state:" + config.state()),
+                org.mockito.ArgumentMatchers.contains("\"returnTo\":\"/\""),
+                org.mockito.ArgumentMatchers.eq(Duration.ofMinutes(5)));
+    }
+
+    @Test
+    void feishuFrameConfigStoresStateAndReturnsTrustedAuthorizationUri() {
+        when(gateway.authorizationUri(
+                org.mockito.ArgumentMatchers.eq(OAuthProvider.FEISHU),
+                anyString(),
+                org.mockito.ArgumentMatchers.eq("https://xiaoyuai.cloud/api/auth/oauth/feishu/callback")))
+                .thenAnswer(invocation -> URI.create(
+                        "https://accounts.feishu.cn/open-apis/authen/v1/authorize?state="
+                                + invocation.getArgument(1, String.class)));
+
+        OAuthLoginService.FeishuFrameConfig config = service.feishuFrameConfig("//evil.example", false);
+
+        assertEquals("https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=" + config.state(),
+                config.authorizationUri());
         verify(values).set(
                 org.mockito.ArgumentMatchers.eq("oauth:state:" + config.state()),
                 org.mockito.ArgumentMatchers.contains("\"returnTo\":\"/\""),
