@@ -9,7 +9,6 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.ListToolsResult;
-import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,9 +50,10 @@ class McpRegistryDiscoveryClientTest {
         Tool tool = Tool.builder()
                 .name("consumer.executeQuery")
                 .description("查询消费者")
-                .inputSchema(new McpSchema.JsonSchema(
-                        "object", Map.of("q", Map.of("type", "string")),
-                        List.of(), null, null, null))
+                .inputSchema(Map.of(
+                        "type", "object",
+                        "properties", Map.of("q", Map.of("type", "string")),
+                        "required", List.of()))
                 .annotations(new ToolAnnotations(null, false, null, null, null, null))
                 .meta(Map.of(
                         "x-functional-capabilities", List.of("sql-query"),

@@ -391,13 +391,16 @@ public class RouteExecutionService {
             boolean explainOrderPreparation = "EXPLAIN_ORDER_REQUIREMENTS".equals(operation)
                     || incompleteOrderMutation;
             if (explainOrderPreparation) {
-                description = incompleteOrderMutation
-                        ? "执行" + operation + "前还需要补充："
-                                + String.join("、", analysis.getMissingSlots())
-                                + "。只追问缺失信息，本次不得执行任何写操作。"
-                        : "说明后续下单所需信息（只说明，不执行）：明确列出具体商品及金额、"
-                                + "收货人姓名、联系电话、收货地址；用户ID由登录态提供，商品类型可选。"
-                                + "如果用户尚未选定商品，要求用户从商品查询结果中选择。";
+                if (incompleteOrderMutation && analysis.getMissingSlots() != null
+                        && !analysis.getMissingSlots().isEmpty()) {
+                    description = "执行" + operation + "前还需要补充："
+                            + String.join("、", analysis.getMissingSlots())
+                            + "。只追问缺失信息，本次不得执行任何写操作。";
+                } else {
+                    description = "说明后续下单所需信息（只说明，不执行）：明确列出具体商品及金额、"
+                            + "收货人姓名、联系电话、收货地址；用户ID由登录态提供，商品类型可选。"
+                            + "如果用户尚未选定商品，要求用户从商品查询结果中选择。";
+                }
             }
             String agent = explainOrderPreparation
                     ? ExecutionPlan.Domain.BUILTIN_ORDER_PREPARATION.agentName()

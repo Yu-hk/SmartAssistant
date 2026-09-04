@@ -7,6 +7,7 @@ import org.springframework.ai.embedding.Embedding;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.EmbeddingRequest;
 import org.springframework.ai.embedding.EmbeddingResponse;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.ParameterizedTypeReference;
@@ -32,13 +33,14 @@ public class EmbeddingClient implements EmbeddingModel {
     private static final Logger log = LoggerFactory.getLogger(EmbeddingClient.class);
 
     private final RestClient restClient;
-    private final String serviceUrl;
 
     private volatile Integer cachedDimensions;
 
-    public EmbeddingClient(@Value("${embedding.service.url}") String serviceUrl) {
-        this.serviceUrl = serviceUrl;
-        this.restClient = RestClient.builder()
+    public EmbeddingClient(ObjectProvider<RestClient.Builder> restClientBuilderProvider,
+                           @Value("${embedding.service.url}") String serviceUrl) {
+        RestClient.Builder restClientBuilder = restClientBuilderProvider
+                .getIfAvailable(RestClient::builder);
+        this.restClient = restClientBuilder
                 .baseUrl(serviceUrl)
                 .build();
         log.info("[EmbeddingClient] 初始化，远程服务地址: {}", serviceUrl);

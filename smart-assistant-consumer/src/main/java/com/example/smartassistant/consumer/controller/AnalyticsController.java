@@ -7,7 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.db.DatabaseDialect;
+import com.example.smartassistant.consumer.infrastructure.db.DatabaseDialect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;

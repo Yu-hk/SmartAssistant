@@ -1,6 +1,6 @@
 package com.example.smartassistant.service.graph;
 
-import com.example.smartassistant.common.order.OrderStatus;
+import com.example.smartassistant.order.model.OrderStatus;
 
 import com.example.smartassistant.entity.OrderEntity;
 import com.example.smartassistant.mapper.OrderMapper;

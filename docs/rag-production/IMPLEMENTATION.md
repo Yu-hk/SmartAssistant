@@ -111,7 +111,7 @@
 | common 全量测试（内存） | `mvn -pl smart-assistant-common test` | ✅ BUILD SUCCESS |
 | product 全量测试（内存） | reactor `common,product test` | ✅ BUILD SUCCESS |
 | GoldenSuite | EvalGateTest / Default / Trial | ✅ RAG 4/4 通过，门禁行为符合设计 |
-| Advisor 链路 | AdvisorChain/AdvisorRuntime/AiChatServiceEntity/PromptAudit/SafeGuard/TokenUsage/ThinkingCollector | ✅ 全部 0 error / 0 failure |
+| Advisor 链路 | AdvisorChain/AdvisorRuntime/AiChatServiceEntity/PromptAudit/SafeGuard/TokenUsage/Micrometer Observation | ✅ 全部 0 error / 0 failure |
 | router 测试 | `mvn -pl smart-assistant-router test` | ⚠️ 7 个预存失败（RouterServiceEndToEndTest，与本次改造无关，未改动） |
 
 ---

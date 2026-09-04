@@ -7,7 +7,6 @@
 
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.db.PermissionBridgeService;
 import com.example.smartassistant.consumer.service.admin.AdminService;
 import com.example.smartassistant.consumer.service.session.ConversationGateService;
 import org.slf4j.Logger;
@@ -44,16 +43,12 @@ public class AdminController {
     private static final String ADMIN_ROLE = "ROLE_ADMIN";
 
     private final AdminService adminService;
-    private final PermissionBridgeService permissionBridgeService;
 
     @Autowired(required = false)
     private ConversationGateService conversationGateService;
 
-    public AdminController(
-            AdminService adminService,
-            @Autowired(required = false) PermissionBridgeService permissionBridgeService) {
+    public AdminController(AdminService adminService) {
         this.adminService = adminService;
-        this.permissionBridgeService = permissionBridgeService;
     }
 
     // ==================== New admin contract ====================
@@ -347,26 +342,6 @@ public class AdminController {
         if (!isAdmin(role)) return forbidden();
         log.info("[Admin] Environment configuration received: keys={}", config.keySet());
         return ResponseEntity.ok(Map.of("success", true));
-    }
-
-    // ==================== User permission bridge ====================
-
-    @PostMapping("/permission-response")
-    public ResponseEntity<?> permissionResponse(@RequestBody Map<String, String> body) {
-        String requestId = body.get("requestId");
-        String behavior = body.getOrDefault("behavior", body.get("action"));
-        if (requestId == null || behavior == null) {
-            return badRequest("requestId and behavior are required");
-        }
-        if (permissionBridgeService == null) {
-            return ResponseEntity.ok(Map.of(
-                    "success", false, "error", "permission bridge is not enabled"));
-        }
-        boolean success = permissionBridgeService.respondToRequest(requestId, behavior);
-        return success
-                ? ResponseEntity.ok(Map.of("success", true))
-                : ResponseEntity.ok(Map.of(
-                        "success", false, "error", "request does not exist or has expired"));
     }
 
     private boolean isAdmin(String role) {

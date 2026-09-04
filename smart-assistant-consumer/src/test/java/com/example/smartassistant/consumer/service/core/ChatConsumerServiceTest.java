@@ -5,7 +5,7 @@
 package com.example.smartassistant.consumer.service.core;
 
 import com.example.smartassistant.common.memory.EntityProfileService;
-import com.example.smartassistant.common.sentiment.SentimentAnalysisService;
+import com.example.smartassistant.consumer.service.sentiment.SentimentAnalysisService;
 import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.infrastructure.DataMaskingService;

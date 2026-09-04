@@ -14,6 +14,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.util.List;
 
@@ -71,6 +72,23 @@ public class RoutingResult {
      */
     @Builder.Default
     private Boolean adminOperation = false;
+
+    /** Internal finalizer decision; never exposed through the Router API. */
+    @JsonIgnore
+    @Builder.Default
+    private Boolean qualityAccepted = false;
+
+    /** Route-authoritative cache scope consumed by Consumer after this request completes. */
+    @Builder.Default
+    private String semanticCacheCategory = "NONE";
+
+    /** Whether the product answer depends on fast-changing popularity/ranking data. */
+    @Builder.Default
+    private Boolean semanticCacheVolatileProduct = false;
+
+    /** True only after the allowlist and final response quality gates both pass. */
+    @Builder.Default
+    private Boolean semanticCacheEligible = false;
 
     /** Valid intermediate response asking the user for required parameters. */
     @Builder.Default

@@ -77,7 +77,7 @@ class McpToolRegistryAdapterTest {
 
         Tool tool = adapter.toMcpTool(def);
         assertNotNull(tool.inputSchema());
-        assertEquals("object", tool.inputSchema().type());
+        assertEquals("object", tool.inputSchema().get("type"));
     }
 
     @Test
@@ -90,7 +90,8 @@ class McpToolRegistryAdapterTest {
                 .build();
 
         Tool tool = adapter.toMcpTool(def);
-        Map<String, Object> props = tool.inputSchema().properties();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> props = (Map<String, Object>) tool.inputSchema().get("properties");
         assertNotNull(props);
         assertTrue(props.containsKey("id"));
     }

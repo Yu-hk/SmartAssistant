@@ -13,8 +13,8 @@ import java.time.Instant;
  * AI 调用审计事件 — 记录每次生产环境 LLM 调用的完整链路信息。
  *
  * <p>由 {@code TokenUsageAdvisor}（调用成功/失败）与 {@code SafeGuardAdvisor}（调用被拦截）发布，
- * 经 {@code ApplicationEventPublisher} 派发，由 {@code AiAuditStore} 落库，
- * 补齐"每次生产 AI 调用"的可观测闭环（此前仅有分散日志 + 离线评测报告）。</p>
+ * 经 {@code ApplicationEventPublisher} 派发并写入结构化审计日志；
+ * 指标与链路数据由 Micrometer Observation 后端持久化。</p>
  *
  * <p>字段设计对标 Spring AI 2.0 工程化样本中的 {@code AiAuditEvent}：
  * 模型 / token 用量 / 耗时 / 用户输入摘要 / 结果类型，全部结构化、可检索。</p>

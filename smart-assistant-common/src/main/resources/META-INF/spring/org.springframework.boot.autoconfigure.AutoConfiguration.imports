@@ -1,3 +1,9 @@
 com.example.smartassistant.common.json.Jackson2CompatibilityAutoConfiguration
+com.example.smartassistant.common.security.PiiPolicyConfiguration
+com.example.smartassistant.common.governance.GovernanceInfrastructureConfiguration
+com.example.smartassistant.common.agent.ReActProfileAutoConfiguration
+com.example.smartassistant.common.skill.SkillPackageAutoConfiguration
+com.example.smartassistant.common.rag.advisor.AdvisorChainAutoConfiguration
 com.example.smartassistant.common.tool.client.ToolRegistryAutoConfiguration
+com.example.smartassistant.common.gateway.tool.mcp.McpDiscoveryAutoConfiguration
 com.example.smartassistant.common.model.tier.TierModelAutoConfiguration

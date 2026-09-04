@@ -1,6 +1,6 @@
 # SmartAssistant
 
-SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体对话系统。系统通过 Gateway 统一接入请求，由 Consumer 管理对话上下文、用户画像与语义路由缓存，Router 负责意图识别、任务分发和 Agent 协调，再调用订单、商品等领域服务；常规 Agent 无法处理时，由 Tool Registry 与 Tool Runtime 提供工具发现和通用兜底能力。
+SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体对话系统。系统通过 Gateway 统一接入请求，由 Consumer 管理对话上下文、用户画像和前置语义答案缓存，Router 负责意图识别、任务分发和 Agent 协调，再调用订单、商品等领域服务；常规 Agent 无法处理时，由 Tool Registry 与 Tool Runtime 提供工具发现和通用兜底能力。
 
 ## 主要能力
 
@@ -21,11 +21,13 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 主请求路径是 `React → Gateway → Consumer → Router → 业务 Agent → 数据存储`：
 
 1. 前端统一通过 Gateway 访问认证、对话和运营接口。
-2. Consumer 维护会话上下文、用户画像和语义缓存，并把路由请求交给 Router。
+2. Consumer 维护会话上下文和用户画像，并把路由请求交给 Router。
 3. Router 完成意图识别与 Agent 编排，将任务分派到订单、商品服务或工具兜底链路。
 4. Product 依次完成候选查询、销量/性价比/口碑分析与推荐核实，核实失败时触发一次重新分析。
 5. Order 由 Agent 补齐业务参数并请求用户二次确认，再交给确定性工作流执行下单、支付、退单、物流或售后操作。
 6. PostgreSQL/pgvector 保存业务与向量数据；Redis 和 RabbitMQ 分别承载缓存、检查点与工作流恢复。
+
+语义答案缓存只覆盖短时效商品咨询和文档绑定的业务咨询，其他场景不进入缓存；完整边界见 [语义答案缓存策略](docs/semantic-cache-policy.md)。
 7. Nacos 提供服务注册发现，监控配置覆盖 Prometheus、Grafana、Loki 与链路追踪。
 
 ## 项目结构
@@ -34,7 +36,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 | --- | --- |
 | `smart-assistant-gateway/` | API 网关，默认端口 8081 |
 | `smart-assistant-router/` | 意图识别、任务分发、Agent 协调与最终兜底 |
-| `smart-assistant-consumer/` | 对话、用户画像、语义路由缓存、反馈与运营接口 |
+| `smart-assistant-consumer/` | 对话、用户画像、反馈与运营接口 |
 | `smart-assistant-user/` | 用户、认证与权限 |
 | `smart-assistant-order/` | 订单查询与订单工具 |
 | `smart-assistant-product/` | 商品检索、商品知识库与推荐 |

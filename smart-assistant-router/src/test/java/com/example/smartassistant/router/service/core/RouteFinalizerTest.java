@@ -1,7 +1,7 @@
 package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.observability.OpsMetrics;
-import com.example.smartassistant.common.intent.IntentTagGenerator;
+import com.example.smartassistant.router.service.intent.IntentTagGenerator;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.QualityEvaluationResult;
 import com.example.smartassistant.router.model.ReflectionResult;

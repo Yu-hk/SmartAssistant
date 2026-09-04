@@ -20,8 +20,7 @@
 | `RegistryController` / `RegistryService` | `smart-assistant-tool-registry/...` | `/api/tools` 查询**已支持** `capabilities`（OR 语义）过滤；`RegistryService.query(tags,status,namespace,capabilities)` 已实现 `hasAnyCapability`（OR）。`/api/tools/register` 注册端点。`/api/tools/call/record` 已有调用记录模式。 |
 | Agent 配置 | `OrderAgentConfig` / `ProductAgentConfig` / `GeneralAgentConfig` | init 时 `toolProvider.getToolCallbacks(toolTag)`，`toolTag` 为静态单值（`ORDER`/`PRODUCT`/`GENERAL`）。逻辑：CORE 永远加载 + 该 tag 的 SHARED/EXTENSION 过滤后加载。定时 `refreshTools` 热刷新。 |
 | `ToolGateway` / `ToolGatewayToolCallback` | `.../gateway/tool/*` | P0 统一治理链：status 拦截、审批钩子、scope/tag 鉴权、熔断、限流、超时、幂等、审计。所有经 Provider 返回的工具回调都经 `ToolGatewayToolCallback` 包裹接入。 |
-| `SmartReActAgent` | `smart-assistant-common/.../agent/SmartReActAgent.java` | `presetTools` 为初始工具集；`execute()` 每轮基于 `effectiveTools` 注入模型（chatClient 路径每轮重读 `effectiveTools`）。可选 `ToolGroupManager` 已有 `enableGroup/disableGroup` **元工具**模式（可借鉴）。 |
-| `ToolGroupManager` | `.../tool/ToolGroupManager.java` | 分组 + 按需激活 + 元工具（运行期自主切换组），是「LLM 运行期自主切换工具面」的先例。 |
+| `SmartReActAgent` | `smart-assistant-common/.../agent/SmartReActAgent.java` | `presetTools` 为初始工具集；`execute()` 每轮合并 Registry 动态发现工具并注入模型。 |
 
 ### 0.2 设计目标与分层
 
@@ -201,7 +200,7 @@ sequenceDiagram
 
 ### 3.1 `discover_tools` 元工具契约
 
-**定位**：所有 Agent 都有的 **CORE 元工具**（与 `ToolGroupManager.enableGroup` 同模式），始终在预载集中，不被治理禁用。
+**定位**：所有 Agent 都有的 **CORE 元工具**，始终在预载集中，不被治理禁用。
 
 **输入**
 
@@ -235,7 +234,7 @@ sequenceDiagram
 **`SmartReActAgent` 需新增（设计，不实现）**：
 - 字段 `List<ToolCallback> dynamicTools`（会话级，可变）。
 - `registerDiscoveredTool(ToolCallback... tcs)`：去重加入 `dynamicTools`（同名覆盖）。
-- `effectiveTools` 计算改为 `base(=presetTools 或 ToolGroup active) + dynamicTools`；`injectToolsToModel`/`spec.tools` 使用合并后列表。
+- `effectiveTools` 计算为 `presetTools + dynamicTools`；同名动态工具覆盖预置工具，`spec.tools` 每轮使用合并后列表。
 - 配套：`getDiscoveredCapabilityHistory()` 供护栏去重。
 
 ### 3.2 Registry 能力搜索端点

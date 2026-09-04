@@ -26,7 +26,7 @@ class SummarizationAdvisorTest {
     @Test
     void participatesInAdvisorChainWithoutCompressingShortHistory() {
         SummarizationAdvisor advisor = new SummarizationAdvisor(
-                mock(ChatModel.class), ReActProfile.DEFAULT, null, new ArrayList<>());
+                mock(ChatModel.class), ReActProfile.DEFAULT, new ArrayList<>());
         CallAdvisorChain chain = mock(CallAdvisorChain.class);
         when(chain.nextCall(any())).thenReturn(new ChatClientResponse(null, Map.of()));
         Prompt prompt = new Prompt(List.of(new SystemMessage("system"), new UserMessage("hello")));
