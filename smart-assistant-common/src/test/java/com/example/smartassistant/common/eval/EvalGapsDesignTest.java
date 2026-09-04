@@ -18,6 +18,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
 
 import java.util.List;
 import java.util.Map;
@@ -201,6 +202,7 @@ class EvalGapsDesignTest {
     }
 
     private static void stubModel(ChatModel cm, String json) {
+        when(cm.getOptions()).thenReturn(ToolCallingChatOptions.builder().build());
         AssistantMessage am = AssistantMessage.builder()
                 .content(json)
                 .properties(Map.of())

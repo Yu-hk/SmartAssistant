@@ -54,6 +54,11 @@ public class RoutingDecisionPublisher {
             decision.put("confidence", routingResult.getConfidence());
             decision.put("result", routingResult.getResult());
             decision.put("intentTag", routingResult.getIntentTag());
+            decision.put("semanticCacheCategory", routingResult.getSemanticCacheCategory());
+            decision.put("semanticCacheVolatileProduct",
+                    Boolean.TRUE.equals(routingResult.getSemanticCacheVolatileProduct()));
+            decision.put("semanticCacheEligible",
+                    Boolean.TRUE.equals(routingResult.getSemanticCacheEligible()));
             decision.put("timestamp", System.currentTimeMillis());
             if (tokenUsage != null) {
                 if (tokenUsage.promptTokens() != null) decision.put("promptTokens", tokenUsage.promptTokens());

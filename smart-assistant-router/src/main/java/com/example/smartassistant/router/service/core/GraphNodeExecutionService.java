@@ -12,6 +12,7 @@ import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.agent.AgentMessageDispatcher;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
+import com.example.smartassistant.router.service.cache.ProductNodeResultCache;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +60,9 @@ public class GraphNodeExecutionService {
 
     @Autowired(required = false)
     private UserProfileContextAwaiter userProfileContextAwaiter;
+
+    @Autowired(required = false)
+    private ProductNodeResultCache productNodeResultCache;
 
     @Value("${router.graph.max-criteria-corrections:1}")
     private int maxCriteriaCorrections;
@@ -164,6 +168,15 @@ public class GraphNodeExecutionService {
         String enrichedDescription = enrich(node, completed, originalQuestion);
         if (userProfile != null && !userProfile.isBlank() && !hasProtocolMetadata(node)) {
             enrichedDescription = enrichedDescription + "\n\n" + userProfile;
+        }
+        if (productNodeResultCache != null) {
+            SubTaskResult cached = productNodeResultCache.find(
+                    node, userId, resolvedInput, userProfile, completed);
+            if (cached != null) {
+                progress(eventsKey, "node_cache_hit",
+                        "节点[" + node.getDescription() + "]命中短期商品缓存", targetAgent);
+                return cached;
+            }
         }
         int maxRetries = 3;
         int corrections = 0;
@@ -300,6 +313,10 @@ public class GraphNodeExecutionService {
                         targetAgent, text, true, response.getRealTitles(), response.getTagsByTitle());
                 result.setDomainQuality(response.getDomainQuality());
                 result.setStructuredData(response.getData());
+                if (productNodeResultCache != null) {
+                    productNodeResultCache.store(
+                            node, userId, resolvedInput, userProfile, completed, result);
+                }
                 progress(eventsKey, criteria == SubTaskResult.ErrorType.NEED_REPLAN
                                 || domainQuality.isWarn()
                                 ? "node_quality_degraded" : "node_completed",
@@ -371,6 +388,10 @@ public class GraphNodeExecutionService {
 
     void setUserProfileContextAwaiter(UserProfileContextAwaiter userProfileContextAwaiter) {
         this.userProfileContextAwaiter = userProfileContextAwaiter;
+    }
+
+    void setProductNodeResultCache(ProductNodeResultCache productNodeResultCache) {
+        this.productNodeResultCache = productNodeResultCache;
     }
 
     private void checkCancellation(String requestId, Long userId) {

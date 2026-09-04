@@ -59,7 +59,7 @@
 | `ToolDefinition` | 扩展 | 新增 `tags`、`version`、`status`、`ownerTeam`、`deprecatedBy`、`sunsetDate` |
 | `common.ToolRegistry` | 保留 + 扩展 | 本地缓存副本，定时从 Registry 服务同步 |
 | `ToolGateway` | 保留 + 扩展 | 增加远程执行路由（Registry 作为执行代理） |
-| `ToolGroupManager` | 保留 | 与 Registry 标签系统融合 |
+| 工具分组 | 收口 | 统一由 Registry 标签查询和动态发现处理 |
 | 各 AgentConfig | **简化** | 去掉 `AiToolRegistry.assemble()`，改为从 Registry 查询 |
 
 ---
@@ -329,17 +329,10 @@ public class ToolRegistryClient {
 }
 ```
 
-### 5.4 Tag 与当前 ToolGroup 的关系
+### 5.4 Registry 标签分组
 
-`ToolGroupManager` 的组概念仍然保留，与 Registry 标签的关系如下：
-
-| ToolGroup 概念 | Registry 标签 | 说明 |
-|---------------|--------------|------|
-| `group("order")` | `tag: ORDER` | 两者等价，只是管理位置不同 |
-| `required(true)` | `status: REQUIRED`（可新增） | 必选组标识 |
-| `activate("order")` | Agent 启动时通过 `tags=ORDER` 拉取 | 激活变成了查询过滤 |
-
-**迁移策略**：ToolGroupManager 保留作为 Agent 内部的二级过滤机制。Agent 从 Registry 拉取到本域工具后，仍可通过 ToolGroupManager 做更细粒度的按需激活。
+工具分组统一收口到 Registry 标签与能力查询。Agent 启动时按域标签加载基础工具，
+运行时通过 `discover_tools` 补充能力，不再维护进程内的第二套工具组状态。
 
 ---
 
@@ -460,8 +453,7 @@ if (tags != null && tags.length > 0) {
 | `ToolGateway` (common) | 保留并扩展：增加标签鉴权 + 远程执行路由 |
 | `ToolDefinition` (common) | 扩展：新增 tags/version/status 等字段 |
 | `AiToolRegistry` (common) | **废弃**：由 `ToolRegistryClient` 替代 |
-| `ToolGroupManager` (common) | 保留：作为 Agent 内部二级过滤 |
-| `ToolGroup` (common) | 保留：作为 Agent 内部分组 |
+| Registry 标签/能力查询 | 统一承担工具分组和运行期裁剪 |
 | `ToolLogAspect` (common) | 保留：增加 Registry 维度的标签注入 |
 | `ToolResult` (common) | 保留：执行结果格式标准化 |
 | `RoutingToolChecker` (router) | 保留：检查维度从"关键工具是否注册"升级为"健康状态 + 标签匹配" |
@@ -530,8 +522,7 @@ public class OrderTools {
 // OrderAgentConfig.java — 目标
 @Bean
 public SmartReActAgent orderAgent(
-        ToolRegistryClient registryClient,
-        ToolGroupManager groupManager) {
+        ToolRegistryClient registryClient) {
 
     List<ToolCallback> tools = registryClient.getToolCallbacks("ORDER");
     return new SmartReActAgent(prompt, tools);

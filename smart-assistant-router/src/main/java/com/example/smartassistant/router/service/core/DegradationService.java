@@ -7,15 +7,12 @@
 
 package com.example.smartassistant.router.service.core;
 
-import com.example.smartassistant.common.gateway.ControlPlaneEventBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -83,10 +80,6 @@ public class DegradationService {
     private final AtomicInteger counterSinceLastRefresh = new AtomicInteger(0);
 
     private final StringRedisTemplate redisTemplate;
-
-    /** ⭐ 控制平面事件总线（可选，用于发布降级通知，与业务消息隔离） */
-    @Autowired(required = false)
-    private ControlPlaneEventBus controlPlaneEventBus;
 
     public DegradationService(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
@@ -165,10 +158,6 @@ public class DegradationService {
             log.warn("[Degradation] ❌ 半开探测失败，回到 HEAVY 降级");
             currentLevel = DegradationLevel.HEAVY;
         }
-        if (controlPlaneEventBus != null) {
-            controlPlaneEventBus.publish("router", "PROBE_RESULT",
-                    Map.of("success", success, "level", currentLevel.name()));
-        }
     }
 
     /**
@@ -225,17 +214,6 @@ public class DegradationService {
                 log.warn("[Degradation] 🔄 降级级别变更: {} → {} (errorRate={:.2f}, calls={})",
                         currentLevel, newLevel, errorRate, totalCalls);
 
-                // ⭐ 通过控制平面事件总线发布降级通知（与业务消息隔离）
-                if (controlPlaneEventBus != null) {
-                    controlPlaneEventBus.publish("router", "DEGRADATION_LEVEL_CHANGE",
-                            Map.of(
-                                    "from", currentLevel.name(),
-                                    "to", newLevel.name(),
-                                    "errorRate", String.format("%.2f", errorRate),
-                                    "totalCalls", totalCalls,
-                                    "timestamp", System.currentTimeMillis()
-                            ));
-                }
             }
 
             currentLevel = newLevel;

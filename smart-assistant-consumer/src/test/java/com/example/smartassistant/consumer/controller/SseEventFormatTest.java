@@ -7,7 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.sse.SseEvent;
+import com.example.smartassistant.consumer.streaming.SseEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

@@ -1,6 +1,6 @@
 package com.example.smartassistant.common.gateway.tool.meta;
 
-import com.example.smartassistant.common.trace.TraceSpan;
+import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,7 +66,8 @@ public class ToolGapEvent {
      */
     public void record(ObservationRegistry observationRegistry) {
         if (observationRegistry != null && observationRegistry != ObservationRegistry.NOOP) {
-            TraceSpan.of(observationRegistry, "agent-tool-gap").run(this::logEvent);
+            Observation.createNotStarted("agent-tool-gap", observationRegistry)
+                    .observe(this::logEvent);
         } else {
             logEvent();
         }

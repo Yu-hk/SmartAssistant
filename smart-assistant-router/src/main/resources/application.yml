@@ -19,7 +19,7 @@ spring:
 
   # 加载版本化规划 Skill；具体 Skill 由 BGE 意图检索结果按请求选择。
   config:
-    import: classpath:skill-packages.yml
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties],classpath:skill-packages.yml
   
   # 禁用 Spring Cloud 兼容性检查（Spring Boot 3.4.x 需要）
   cloud:
@@ -173,6 +173,9 @@ nacos:
 
 # Router 配置
 router:
+  product-node-cache:
+    # Product subtasks inside composite DAGs are reusable; user-bound Order nodes never enter it.
+    ttl: ${PRODUCT_NODE_CACHE_TTL:PT1M}
   # 旧经验库不再参与路由，默认停止自动提取和向量写入。
   # 仅兼容部署需要导出历史经验时才显式开启。
   experience-learning:

@@ -2,9 +2,9 @@ package com.example.smartassistant.service.core;
 
 import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
-import com.example.smartassistant.common.idempotent.TaskLogService;
+import com.example.smartassistant.order.infrastructure.idempotency.TaskLogService;
 import com.example.smartassistant.common.quality.DomainQualityResult;
-import com.example.smartassistant.common.order.OrderStatus;
+import com.example.smartassistant.order.model.OrderStatus;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;
 import com.example.smartassistant.common.tool.spi.dto.LogisticsDTO;
 import com.example.smartassistant.common.tool.spi.dto.OrderDTO;

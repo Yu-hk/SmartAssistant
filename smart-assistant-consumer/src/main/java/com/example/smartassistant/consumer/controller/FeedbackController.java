@@ -7,7 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.feedback.UserFeedbackService;
+import com.example.smartassistant.consumer.service.feedback.UserFeedbackService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;

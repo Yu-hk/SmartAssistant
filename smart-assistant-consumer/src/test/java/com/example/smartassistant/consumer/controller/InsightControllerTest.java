@@ -1,6 +1,6 @@
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.sentiment.SentimentAnalysisService;
+import com.example.smartassistant.consumer.service.sentiment.SentimentAnalysisService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;

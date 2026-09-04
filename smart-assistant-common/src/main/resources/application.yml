@@ -1,6 +1,8 @@
 # ⭐ OpenTelemetry 共享配置（Langfuse LLM 可观测性集成）
 # 所有模块继承此配置，各模块可在自己的 application.yml 中按需覆盖
 spring:
+  config:
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties]
   ai:
     chat:
       observations:

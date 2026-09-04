@@ -7,8 +7,8 @@
 
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.sse.SseEvent;
-import com.example.smartassistant.common.sse.SseEventBus;
+import com.example.smartassistant.consumer.streaming.SseEvent;
+import com.example.smartassistant.consumer.streaming.SseEventBus;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;

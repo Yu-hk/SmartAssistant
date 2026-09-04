@@ -204,7 +204,7 @@
 |------|------|
 | 是否有 JWT/API Key 鉴权 | ✅ `GlobalJwtAuthFilter` 统一 JWT 鉴权 |
 | 会话中断/结束端点是否校验归属 | ✅ **已审计** — 项目中不存在 `endSession`/`interrupt` 端点，无 IDOR 风险 ✅ |
-| 密钥是否从环境变量读取 | ✅ `.env` 文件 + `DotenvEnvironmentPostProcessor` |
+| 密钥是否从环境变量读取 | ✅ Spring Boot Config Data 加载 `.env`，且操作系统环境变量优先 |
 | Swagger 在生产环境是否关闭 | ✅ 生产 profile 未配置 springdoc |
 | API Response 是否暴露内部细节 | ✅ 异常信息已通用化 |
 
@@ -292,8 +292,8 @@
 | 6 | 质检不通过时触发重试 | 🟡 **中** | ❌ 待处理 | `RouterService.finalizeRouting()` |
 | 7 | LangGraph4j 原生 Checkpoint 断点续跑（Order 多步流） | ⚪ **低** | ✅ 已实现 | `LangGraphRedisCheckpointSaver` |
 | 8 | 水平扩展适配（进程内限流→Redis） | ⚪ **低** | ❌ 待评估 | — |
-| 9 | **Tool Group 工具分组** | 🟡 **中** | ✅ **已实现** | `ToolGroupManager` + `SmartReActAgent` |
-| 10 | **结构化输出框架化** | 🟢 **高** | ✅ **已实现** | `StructuredOutputService` |
+| 9 | **动态工具裁剪** | 🟡 **中** | ✅ **已实现** | Registry 标签过滤 + `discover_tools` + `SmartReActAgent` |
+| 10 | **结构化输出框架化** | 🟢 **高** | ✅ **已实现** | Spring AI `ChatClient.entity()` / `AiChatService.entity()` |
 | 11 | Runtime Sandbox 工具隔离 | ⚪ **低** | ❌ 待评估 | — |
 | 12 | Harness 工作区 | ⚪ **低** | ❌ 待评估 | — |
 | 13 | 评估与强化学习管线 | ⚪ **低** | ❌ 待评估 | — |

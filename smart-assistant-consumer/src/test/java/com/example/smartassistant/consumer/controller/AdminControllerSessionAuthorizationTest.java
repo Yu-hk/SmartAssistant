@@ -37,7 +37,7 @@ class AdminControllerSessionAuthorizationTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AdminController(adminService, null);
+        controller = new AdminController(adminService);
         ReflectionTestUtils.setField(controller, "conversationGateService", conversationGateService);
     }
 

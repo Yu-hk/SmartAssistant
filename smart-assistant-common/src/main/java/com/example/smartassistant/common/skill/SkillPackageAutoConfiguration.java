@@ -9,10 +9,11 @@ package com.example.smartassistant.common.skill;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
 /**
  * 技能包系统自动配置。
@@ -20,7 +21,7 @@ import org.springframework.context.annotation.Configuration;
  * <p>提供 {@link SkillPackageManager} Bean 并从配置属性加载预定义技能包。
  * 通过 {@code skill-package.enabled=true} 启用（默认开启）。
  */
-@Configuration
+@AutoConfiguration
 @EnableConfigurationProperties(SkillPackageProperties.class)
 @ConditionalOnProperty(name = "skill-package.enabled", havingValue = "true", matchIfMissing = true)
 public class SkillPackageAutoConfiguration {
@@ -28,6 +29,7 @@ public class SkillPackageAutoConfiguration {
     private static final Logger log = LoggerFactory.getLogger(SkillPackageAutoConfiguration.class);
 
     @Bean
+    @ConditionalOnMissingBean(SkillPackageManager.class)
     public SkillPackageManager skillPackageManager(SkillPackageProperties properties) {
         log.info("[SkillPackage] 技能包自动配置已启用");
         SkillPackageManager manager = new SkillPackageManager();

@@ -14,8 +14,8 @@ import com.example.smartassistant.common.agent.ExecutionTraceStore;
 import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageCache;
-import com.example.smartassistant.common.budget.BudgetTracker;
-import com.example.smartassistant.common.intent.IntentTagGenerator;
+import com.example.smartassistant.router.governance.budget.BudgetTracker;
+import com.example.smartassistant.router.service.intent.IntentTagGenerator;
 import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import com.example.smartassistant.router.model.*;
@@ -227,6 +227,15 @@ public class RouteFinalizer {
                 result.setResult(qualityFailureMessage);
             }
         }
+        result.setQualityAccepted(qualityPassed);
+        result.setSemanticCacheEligible(qualityPassed
+                && !clarification
+                && !Boolean.TRUE.equals(result.getAdminOperation())
+                && !Boolean.TRUE.equals(result.getFromCache())
+                && result.getWorkflowStatus() == RoutingResult.WorkflowStatus.COMPLETED
+                && result.getResult() != null && !result.getResult().isBlank()
+                && result.getSemanticCacheCategory() != null
+                && !"NONE".equalsIgnoreCase(result.getSemanticCacheCategory()));
 
         // ⭐ 缓存路由决策 + 回复
         String agentName = result.getAgentName();

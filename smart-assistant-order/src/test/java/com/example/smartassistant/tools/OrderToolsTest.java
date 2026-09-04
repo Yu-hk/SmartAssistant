@@ -8,7 +8,7 @@
 package com.example.smartassistant.tools;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.idempotent.TaskLogService;
+import com.example.smartassistant.order.infrastructure.idempotency.TaskLogService;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.common.tool.spi.OrderDataProvider;

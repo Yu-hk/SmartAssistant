@@ -15,6 +15,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnSingleCandidate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -48,6 +49,7 @@ public class TierModelAutoConfiguration {
      * 档位模型注册表——内部持有三档 DelegatingOptionsChatModel（非 Spring Bean）。
      */
     @Bean
+    @ConditionalOnMissingBean
     public TierModelRegistry tierModelRegistry(ChatModel chatModel,
                                                TieredModelRouterProperties props) {
         Map<ModelTier, TierModelRegistry.TierModelEntry> m = new EnumMap<>(ModelTier.class);
@@ -64,6 +66,7 @@ public class TierModelAutoConfiguration {
      * 作为灰度流量的首选节点；命中灰度比例的请求先试灰度模型，失败自动回退到正常档位降级链。</p>
      */
     @Bean
+    @ConditionalOnMissingBean
     public TieredModelRouter tieredModelRouter(TierModelRegistry registry,
                                                TieredModelRouterProperties props,
                                                ChatModel chatModel,
