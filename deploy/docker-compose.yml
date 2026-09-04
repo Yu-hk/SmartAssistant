@@ -294,7 +294,7 @@ services:
       embedding-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health/readiness"]
       interval: 30s
       timeout: 5s
       retries: 3

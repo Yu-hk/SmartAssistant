@@ -10,6 +10,7 @@ import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentMessageDispatcher;
 import com.example.smartassistant.router.service.agent.RouterFallbackAgentService;
 import com.example.smartassistant.router.service.heartbeat.AgentHeartbeatService;
+import com.example.smartassistant.router.service.cache.ProductNodeResultCache;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ class GraphNodeExecutionServiceTest {
     @Mock RouterFallbackAgentService fallbackAgentService;
     @Mock AgentMessageDispatcher agentMessageDispatcher;
     @Mock UserProfileContextAwaiter userProfileContextAwaiter;
+    @Mock ProductNodeResultCache productNodeResultCache;
 
     private GraphNodeExecutionService service;
 
@@ -243,6 +245,26 @@ class GraphNodeExecutionServiceTest {
         order.verify(userProfileContextAwaiter).await("request-profile");
         order.verify(agentCallerService).callAgentAndExtractTitles(
                 eq("product"), any(AgentExecutionRequest.class));
+    }
+
+    @Test
+    void productNodeCacheHitSkipsAgentWhileOrderNodesRemainUnaffected() {
+        service.setProductNodeResultCache(productNodeResultCache);
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "hot", "查询热门商品", "product", List.of(), null, List.of(), false,
+                "QUERY_HOT_PRODUCTS", Map.of(), List.of(), null, "READ");
+        SubTaskResult cached = new SubTaskResult(
+                "hot", "查询热门商品", "product", "缓存商品", true);
+        cached.setDomainQuality(DomainQualityResult.pass(1.0, "CACHE_VERIFIED"));
+        when(productNodeResultCache.find(eq(node), eq(1L), any(), any(), any()))
+                .thenReturn(cached);
+
+        SubTaskResult result = service.execute(
+                node, Map.of(), new ConcurrentHashMap<>(), 1L, null, "request");
+
+        assertThat(result.getResult()).isEqualTo("缓存商品");
+        verify(agentCallerService, never()).callAgentAndExtractTitles(
+                anyString(), anyString(), any(), anyString());
     }
 
     @Test

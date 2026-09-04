@@ -67,6 +67,12 @@ public class TaskAnalysisResult {
     /** 意图拆解模型耗时。 */
     private long analysisLatencyMs;
 
+    /**
+     * 回答语义缓存分类：PRODUCT_CONSULTATION / BUSINESS_CONSULTATION / NONE。
+     * 最终是否允许缓存仍由确定性策略根据节点读写属性二次校验。
+     */
+    private String semanticCacheCategory = "NONE";
+
     // ======================== 新增字段 ========================
 
     // ---------- 1. 多意图拆分 ----------
@@ -202,6 +208,11 @@ public class TaskAnalysisResult {
     public void setAnalysisQuestionChars(int analysisQuestionChars) { this.analysisQuestionChars = analysisQuestionChars; }
     public long getAnalysisLatencyMs() { return analysisLatencyMs; }
     public void setAnalysisLatencyMs(long analysisLatencyMs) { this.analysisLatencyMs = analysisLatencyMs; }
+    public String getSemanticCacheCategory() { return semanticCacheCategory; }
+    public void setSemanticCacheCategory(String semanticCacheCategory) {
+        this.semanticCacheCategory = semanticCacheCategory == null || semanticCacheCategory.isBlank()
+                ? "NONE" : semanticCacheCategory.trim().toUpperCase(Locale.ROOT);
+    }
 
     // --- 新增字段 getters/setters ---
 
@@ -302,6 +313,7 @@ public class TaskAnalysisResult {
                 + ", confidence=" + confidence
                 + ", analysisModel='" + analysisModel + '\''
                 + ", analysisModelTier='" + analysisModelTier + '\''
+                + ", semanticCacheCategory='" + semanticCacheCategory + '\''
                 + ", entities=" + entities
                 + ", subIntents=" + subIntents
                 + ", implicitIntents=" + implicitIntents

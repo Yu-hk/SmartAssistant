@@ -10,7 +10,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
-import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -124,9 +123,11 @@ public class McpToolSourceIngestor {
         // 这与 T2a 适配器「def.inputSchema 为 null 时回退空对象 schema」互逆；
         // 故仅含 type=object、无实际 properties 的 schema 视为「无入参」→ null。
         String inputSchemaJson = null;
-        McpSchema.JsonSchema inputSchema = backendTool.inputSchema();
+        Map<String, Object> inputSchema = backendTool.inputSchema();
         if (inputSchema != null) {
-            Map<String, Object> props = inputSchema.properties();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> props = inputSchema.get("properties") instanceof Map<?, ?> map
+                    ? (Map<String, Object>) map : Map.of();
             boolean hasRealProps = props != null && !props.isEmpty();
             if (hasRealProps) {
                 try {

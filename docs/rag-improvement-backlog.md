@@ -18,12 +18,12 @@
 | 🔴 Q3 双栏检测 | `PdfDocumentParser` 基于 x 坐标聚类的双栏剥离 | `d5426b7` 前 | `PdfParserTest`（双栏）✅ |
 | 🔴 Q3 PDF 表格提取 | 位置感知表格检测 → Markdown，`contentType=pdf-table` 独立 `ParsedDocument` | `d5426b7` 前 | `PdfParserTableTest`（3）✅ |
 | 🟡 Q3 图片 OCR 提取 | `OcrStrategy`/`NoopOcrStrategy` + `TesseractOcrStrategy`（零新依赖）+ `OcrStrategies.autoDetect()`；`PdfDocumentParser` 默认启用自动检测 | `11a7b56` | `TesseractOcrStrategyTest`（3）✅ |
-| 🟡 Q4/Q5 实体关系抽取 + 知识图谱 | `graph` 包：`EntityNode`/`EntityRelation`/`EntityExtractor`/`NoopEntityExtractor`/`KnowledgeGraphService`；`LlmEntityExtractor` 复用 `AiChatService.entity`；`RagGraphAutoConfiguration` 按 `ChatModel` 自动装配 | `11a7b56` | `LlmEntityExtractorTest`（4）✅ |
+| 🟡 Q4/Q5 实体关系抽取 + 知识图谱 | Common `graph` 包提供 `EntityNode`/`EntityRelation`/`EntityExtractor`/`NoopEntityExtractor`/`KnowledgeGraphService`；`LlmEntityExtractor` 复用 `AiChatService.entity`；Product 的 `ProductRagGraphConfiguration` 按 `ChatModel` 装配 | `11a7b56` | `LlmEntityExtractorTest`（4）✅ |
 | 🟡 Q6 检索侧冲突消解（第二层） | `CrossDocumentConflictResolver`（复用 `ContextFaithfulnessChecker` 词表，AuthorityLevel→版本判定，败方扣分 0.30/平局减半，输出 `ScoreBreakdown`+`ConflictDecision`）；已接入 **InMemory + PgVector + Milvus** 三套 KB | `d5426b7` 前 + 本轮 | `CrossDocumentConflictResolverTest`（8）+ `KnowledgeBaseConflictResolverTest`（4）✅ |
 | 🟡 Q5 深化 chunk 级增量 diff | `ContentHashCache` chunk 级哈希；`KnowledgeIngestionService` Step 4.2 仅重算变更 chunk | `d5426b7` 前 | `ContentHashCacheChunkTest`（5）✅ |
 | 🟢 Q1 多源结构化分流 | `KnowledgeIngestionService` 按 `contentType`（pdf-table/html/word）分流，结构化类型跳过 chunking 直接入库 | `d5426b7` | — |
 | 🟡 评测闭环接入 CI | `EvalGate` 四件套 + `GoldenSuiteEvalGate` + `.github/workflows/eval-gate.yml`（绝对阈值+基线回归双保险） | `dede9bb` | `EvalGateTest`（4）+ `GoldenSuiteEvalGateTest`（1）✅ |
-| 🟡 多模态 RAG | `multimodal` 包：`ImageReference`/`ImageCaptioner`/`NoopImageCaptioner`/`OllamaVisionImageCaptioner`（Spring AI 2.0 多模态 `ChatClient.media`）/`ImageCaptioners`/`MultimodalIngestor`；`RagMultimodalAutoConfiguration` 按 `rag.multimodal.vision.enabled` 装配；`KnowledgeIngestionService.ingestImages` 联动 | 本轮 | `OllamaVisionImageCaptionerTest`（4）+ `MultimodalIngestorTest`（3）+ `KnowledgeIngestionMultimodalTest`（2）✅ |
+| 🟡 多模态 RAG | `multimodal` 包：`ImageReference`/`ImageCaptioner`/`NoopImageCaptioner`/`OllamaVisionImageCaptioner`（Spring AI 2.0 多模态 `ChatClient.media`）/`MultimodalIngestor`；`RagMultimodalAutoConfiguration` 按 `rag.multimodal.vision.enabled` 装配；`KnowledgeIngestionService.ingestImages` 联动 | 本轮 | `OllamaVisionImageCaptionerTest`（4）+ `MultimodalIngestorTest`（3）+ `KnowledgeIngestionMultimodalTest`（2）✅ |
 | 🟡 检索可观测性 | `RetrievalTrace` 新增 `ScoreBreakdown`；`InMemoryKnowledgeBase` Stage 4 将冲突消解明细写入 trace | `d5426b7` | — |
 | 🟡 语义缓存一致性 | `CacheVersionManager` + `CachedRouteDecision.cacheVersionAtSave`；`SemanticRouteCacheService` 写入记版本、读取验版本 | `d5426b7` | — |
 | 🟡 经验体系 × RAG 协同 | `ExperienceService` 注入 `InMemoryKnowledgeBase`，`match()` 中 `computeRagQualityFactor`（Top-1 分→0.5~1.0）影响置信度衰减 | `d5426b7` | — |
@@ -46,7 +46,7 @@
 - **`common.rag.multimodal` 包**：
   - `ImageReference`（图片字节 + MIME）、`ImageCaptioner` 接口、`NoopImageCaptioner`（默认降级）。
   - `OllamaVisionImageCaptioner`：Spring AI 2.0 多模态——`Media.builder().data(ByteArrayResource).mimeType(MimeType)` + `ChatClient.prompt().user(u -> u.media(...))`；实际调用抽至 `doCaption(...)` 受保护方法便于单测桩接；异常隔离返回空串。
-  - `ImageCaptioners.autoDetect(ChatModel)` 工厂 + `MultimodalIngestor`（图片→描述→`KnowledgeDocument` 入库，docId 由字节 SHA-256 派生保证幂等）。
+  - `RagMultimodalAutoConfiguration` 根据 `ChatModel` 可用性选择描述器 + `MultimodalIngestor`（图片→描述→`KnowledgeDocument` 入库，docId 由字节 SHA-256 派生保证幂等）。
 - **装配**：`RagMultimodalAutoConfiguration` 按 `rag.multimodal.vision.enabled=true` 且存在 `ChatModel` Bean 装配真实描述器，否则降级 `NoopImageCaptioner`（保证 Bean 始终存在）。
 - **摄取联动**：`KnowledgeIngestionService.setImageCaptioner(...)` + `ingestImages(...)`，成功后触发缓存失效 + 索引重建，与文本摄取最终态一致。
 - **测试**：`OllamaVisionImageCaptionerTest`（4）/ `MultimodalIngestorTest`（3）/ `KnowledgeIngestionMultimodalTest`（2）全通过。
@@ -60,7 +60,7 @@
 | `2cad3f8` | P0 非覆盖式版本 + 隔离/回滚 API 闭环 |
 | `dede9bb` | 评测闭环接入 CI（GoldenSuite + EvalGate + GitHub Actions） |
 | `d5426b7` | 检索可观测性（RetrievalTrace ScoreBreakdown）、语义缓存一致性（CacheVersionManager）、多源结构化分流、经验×RAG 协同（ragQualityFactor）、OCR 框架 + 实体关系框架（graph 包） |
-| `11a7b56` | Router 测试编译修复、实体关系 LLM 抽取器（LlmEntityExtractor + RagGraphAutoConfiguration）、Tesseract OCR 引擎（零新依赖） |
+| `11a7b56` | Router 测试编译修复、实体关系 LLM 抽取器（LlmEntityExtractor；现由 ProductRagGraphConfiguration 装配）、Tesseract OCR 引擎（零新依赖） |
 
 ---
 
@@ -83,7 +83,7 @@ P0  非覆盖式版本 + 隔离/回滚 API        ✅ 已落地 (2cad3f8)
   │
 P1  ├─ PDF 表格提取                     ✅ 已落地
   │   ├─ AgentCallerService entity()    ✅ 已落地 (P1-2)
-  │   └─ RedisChatMemory Bean 注册       ✅ 已落地 (P1-3)
+  │   └─ 闲置自定义 ChatMemory 层清理     ✅ 已落地（生产会话由现有持久化链路管理）
   │
 P2  ├─ 实体关系抽取 + 知识图谱            ✅ 已落地 (11a7b56)
   │   ├─ 评测闭环接入 CI                  ✅ 已落地 (dede9bb)

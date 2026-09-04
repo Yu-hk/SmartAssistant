@@ -116,25 +116,11 @@
             <version>${resilience4j.version}</version>
         </dependency>
 
-        <!-- ⭐ T2c：MCP client SDK（方案 A，轻量、不引 WebFlux reactive 栈）
-             mcp 聚合包 -> mcp-core(2.0.0，仅 reactor-core 轻量依赖 + jakarta.servlet-api[provided])
-             + mcp-json-jackson3(2.0.0，Jackson 3 JsonMapper)。手动 McpClient.sync(transport) 构造，
-             不使用 Spring AI client 自动装配，故消费方无需 spring.ai.mcp.client.enabled 守门。 -->
+        <!-- ⭐ MCP client SDK：通过 Spring AI MCP 统一对齐底层 SDK 版本。
+             动态 endpoint 仍由业务代码手动构造 McpClient，避免引入固定连接的自动装配。 -->
         <dependency>
-            <groupId>io.modelcontextprotocol.sdk</groupId>
-            <artifactId>mcp</artifactId>
-            <version>0.18.3</version>
-        </dependency>
-        <dependency>
-            <groupId>io.modelcontextprotocol.sdk</groupId>
-            <artifactId>mcp-json-jackson2</artifactId>
-            <version>0.18.3</version>
-        </dependency>
-        <!-- Spring AI 2 MCP server auto-configuration uses the Jackson 3 mapper. -->
-        <dependency>
-            <groupId>io.modelcontextprotocol.sdk</groupId>
-            <artifactId>mcp-json-jackson3</artifactId>
-            <version>2.0.0</version>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-mcp</artifactId>
         </dependency>
 
         <!-- ⭐ Spring AI Tool（ToolCallback / MethodToolCallbackProvider — 由 spring-ai-model 传递引入）
@@ -181,7 +167,7 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
         </dependency>
 
-        <!-- ⭐ Caffeine 缓存（EntityConflictResolver / ReadBeforeEditGuard） -->
+        <!-- ⭐ Caffeine 缓存（ReadBeforeEditGuard） -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>

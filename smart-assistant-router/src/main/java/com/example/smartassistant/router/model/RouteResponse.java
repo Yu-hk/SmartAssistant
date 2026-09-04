@@ -70,6 +70,16 @@ public class RouteResponse {
     @Builder.Default
     private Boolean fromCache = false;
 
+    /** Consumer-side semantic answer cache directive produced by Route. */
+    @Builder.Default
+    private String semanticCacheCategory = "NONE";
+
+    @Builder.Default
+    private Boolean semanticCacheVolatileProduct = false;
+
+    @Builder.Default
+    private Boolean semanticCacheEligible = false;
+
     /** Whether the response is collecting a required parameter instead of completing the request. */
     @Builder.Default
     private Boolean clarification = false;

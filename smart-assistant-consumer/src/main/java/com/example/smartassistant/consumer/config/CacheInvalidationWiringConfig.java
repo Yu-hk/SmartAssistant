@@ -33,7 +33,7 @@ public class CacheInvalidationWiringConfig {
         knowledgeIngestionService.addCacheInvalidationHook(() -> {
             try {
                 answerCacheService.invalidateAll().block();
-                log.info("[CacheInvalidation] 知识库更新 → 答案缓存已失效");
+                log.info("[CacheInvalidation] 知识库更新 → 旧版 Consumer 答案缓存已失效");
             } catch (Exception e) {
                 log.warn("[CacheInvalidation] 答案缓存失效钩子异常（已忽略）: {}", e.getMessage());
             }

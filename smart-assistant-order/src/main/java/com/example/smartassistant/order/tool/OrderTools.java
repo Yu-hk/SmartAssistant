@@ -9,8 +9,8 @@ package com.example.smartassistant.order.tool;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
-import com.example.smartassistant.common.idempotent.TaskLogService;
-import com.example.smartassistant.common.order.OrderStatus;
+import com.example.smartassistant.order.infrastructure.idempotency.TaskLogService;
+import com.example.smartassistant.order.model.OrderStatus;
 import com.example.smartassistant.common.tool.ReadBeforeEditGuard;
 import com.example.smartassistant.common.tool.ToolResult;
 import com.example.smartassistant.common.tool.ToolLogContext;

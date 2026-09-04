@@ -10,14 +10,18 @@ package com.example.smartassistant.common.rag.advisor;
 import com.example.smartassistant.common.governance.CallLimitProperties;
 import com.example.smartassistant.common.governance.InvocationBudgetRegistry;
 import com.example.smartassistant.common.security.PiiPolicyEngine;
+import io.micrometer.observation.ObservationRegistry;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.core.ParameterizedTypeReference;
 
 /**
  * 统一 ChatClient 工厂 — 对标 Spring AI 2.0 工程化样本中的 {@code AiChatService}。
  *
- * <p>收敛各业务模块重复的 ChatClient 构建样板：将 SafeGuard / TokenUsage / ThinkingCollector /
- * PromptAudit 四层 Advisor 的装配逻辑集中到一处。业务模块只需注入本服务并调用
+ * <p>收敛各业务模块重复的 ChatClient 构建样板：将 SafeGuard / TokenUsage /
+ * PromptAudit 等 Advisor 的装配逻辑集中到一处。业务模块只需注入本服务并调用
  * {@link #buildChatClient(ChatModel)} 即可获得已装配完整 Advisor 链的 ChatClient，
  * 无需在各自的 {@code *AgentConfig} 中手动列举并 defaultAdvisors(...)。</p>
  *
@@ -29,18 +33,19 @@ public class AiChatService {
     /** Managed fallback for non-Spring construction sites and compatibility tests. */
     public static AiChatService governedDefaults() {
         PiiPolicyEngine pii = PiiPolicyEngine.shared();
-        return new AiChatService(null, null, null, null, null,
+        return new AiChatService(null, null, null, null,
                 new ModelCallLimitAdvisor(InvocationBudgetRegistry.shared(), new CallLimitProperties()),
                 new PiiAdvisor(pii));
     }
 
     private final SafeGuardAdvisor safeGuardAdvisor;
     private final TokenUsageAdvisor tokenUsageAdvisor;
-    private final ThinkingCollectorAdvisor thinkingCollectorAdvisor;
     private final PromptAuditAdvisor promptAuditAdvisor;
     private final PostGenerationComplianceAdvisor postGenerationComplianceAdvisor;
     private final ModelCallLimitAdvisor modelCallLimitAdvisor;
     private final PiiAdvisor piiAdvisor;
+    private final ObservationRegistry observationRegistry;
+    private final ToolCallingManager toolCallingManager;
 
     /**
      * 全参构造（含生成后合规 Advisor）。由 {@code AdvisorChainAutoConfiguration} 使用。
@@ -48,28 +53,42 @@ public class AiChatService {
     public AiChatService(
             SafeGuardAdvisor safeGuardAdvisor,
             TokenUsageAdvisor tokenUsageAdvisor,
-            ThinkingCollectorAdvisor thinkingCollectorAdvisor,
             PromptAuditAdvisor promptAuditAdvisor,
             PostGenerationComplianceAdvisor postGenerationComplianceAdvisor) {
-        this(safeGuardAdvisor, tokenUsageAdvisor, thinkingCollectorAdvisor, promptAuditAdvisor,
+        this(safeGuardAdvisor, tokenUsageAdvisor, promptAuditAdvisor,
                 postGenerationComplianceAdvisor, null, null);
     }
 
     public AiChatService(
             SafeGuardAdvisor safeGuardAdvisor,
             TokenUsageAdvisor tokenUsageAdvisor,
-            ThinkingCollectorAdvisor thinkingCollectorAdvisor,
             PromptAuditAdvisor promptAuditAdvisor,
             PostGenerationComplianceAdvisor postGenerationComplianceAdvisor,
             ModelCallLimitAdvisor modelCallLimitAdvisor,
             PiiAdvisor piiAdvisor) {
+        this(safeGuardAdvisor, tokenUsageAdvisor, promptAuditAdvisor,
+                postGenerationComplianceAdvisor, modelCallLimitAdvisor, piiAdvisor,
+                ObservationRegistry.NOOP, null);
+    }
+
+    public AiChatService(
+            SafeGuardAdvisor safeGuardAdvisor,
+            TokenUsageAdvisor tokenUsageAdvisor,
+            PromptAuditAdvisor promptAuditAdvisor,
+            PostGenerationComplianceAdvisor postGenerationComplianceAdvisor,
+            ModelCallLimitAdvisor modelCallLimitAdvisor,
+            PiiAdvisor piiAdvisor,
+            ObservationRegistry observationRegistry,
+            ToolCallingManager toolCallingManager) {
         this.safeGuardAdvisor = safeGuardAdvisor;
         this.tokenUsageAdvisor = tokenUsageAdvisor;
-        this.thinkingCollectorAdvisor = thinkingCollectorAdvisor;
         this.promptAuditAdvisor = promptAuditAdvisor;
         this.postGenerationComplianceAdvisor = postGenerationComplianceAdvisor;
         this.modelCallLimitAdvisor = modelCallLimitAdvisor;
         this.piiAdvisor = piiAdvisor;
+        this.observationRegistry = observationRegistry != null
+                ? observationRegistry : ObservationRegistry.NOOP;
+        this.toolCallingManager = toolCallingManager;
     }
 
     /**
@@ -78,15 +97,24 @@ public class AiChatService {
     public AiChatService(
             SafeGuardAdvisor safeGuardAdvisor,
             TokenUsageAdvisor tokenUsageAdvisor,
-            ThinkingCollectorAdvisor thinkingCollectorAdvisor,
             PromptAuditAdvisor promptAuditAdvisor) {
-        this(safeGuardAdvisor, tokenUsageAdvisor, thinkingCollectorAdvisor,
-                promptAuditAdvisor, null);
+        this(safeGuardAdvisor, tokenUsageAdvisor, promptAuditAdvisor, null);
     }
 
     /** 构建装配了完整 Advisor 链的 ChatClient */
     public ChatClient buildChatClient(ChatModel chatModel) {
-        return applyAdvisors(ChatClient.builder(chatModel)).build();
+        ChatClient.Builder builder;
+        if (toolCallingManager == null && observationRegistry == ObservationRegistry.NOOP) {
+            // 非 Spring 构造点与测试保持轻量兼容。
+            builder = ChatClient.builder(chatModel);
+        } else {
+            ToolCallingAdvisor.Builder<?> toolCallingAdvisor = ToolCallingAdvisor.builder();
+            if (toolCallingManager != null) {
+                toolCallingAdvisor.toolCallingManager(toolCallingManager);
+            }
+            builder = ChatClient.builder(chatModel, observationRegistry, null, null, toolCallingAdvisor);
+        }
+        return applyAdvisors(builder).build();
     }
 
     /** 将 Advisor 链应用到已有 Builder（便于业务模块附加工具 / 系统提示） */
@@ -95,7 +123,6 @@ public class AiChatService {
         if (piiAdvisor != null) builder.defaultAdvisors(piiAdvisor);
         if (modelCallLimitAdvisor != null) builder.defaultAdvisors(modelCallLimitAdvisor);
         if (tokenUsageAdvisor != null) builder.defaultAdvisors(tokenUsageAdvisor);
-        if (thinkingCollectorAdvisor != null) builder.defaultAdvisors(thinkingCollectorAdvisor);
         if (promptAuditAdvisor != null) builder.defaultAdvisors(promptAuditAdvisor);
         if (postGenerationComplianceAdvisor != null) builder.defaultAdvisors(postGenerationComplianceAdvisor);
         return builder;
@@ -105,7 +132,7 @@ public class AiChatService {
      * 结构化输出封装 — 对标工程化样本中的 {@code entity()} 用法。
      *
      * <p>将「用户文本 → 结构化对象」收敛为一行调用，且复用统一 Advisor 链
-     * （安全护栏 / Token 审计 / 思考收集 / 提示审计）。业务侧无需再手动
+     * （安全护栏 / Token 审计 / 提示审计）。业务侧无需再手动
      * {@code ChatClient.create(model)} 并拼接样板。</p>
      *
      * @param chatModel 聊天模型（通常注入 {@code lightChatModel} 等轻量模型）
@@ -116,6 +143,11 @@ public class AiChatService {
      * @return 结构化结果
      */
     public <T> T entity(ChatModel chatModel, String userText, Class<T> type) {
+        return buildChatClient(chatModel).prompt().user(userText).call().entity(type);
+    }
+
+    /** 泛型结构化输出（例如 {@code Map<String, String>}、{@code List<MyRecord>}）。 */
+    public <T> T entity(ChatModel chatModel, String userText, ParameterizedTypeReference<T> type) {
         return buildChatClient(chatModel).prompt().user(userText).call().entity(type);
     }
 

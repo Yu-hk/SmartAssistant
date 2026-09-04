@@ -136,7 +136,6 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
 
         <!-- ⭐ Tool Registry — 引用工具 Bean（排除 web starter 避免端口冲突） -->

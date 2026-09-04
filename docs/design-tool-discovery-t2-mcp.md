@@ -41,8 +41,8 @@
 
 1. **仅设计，不写实现代码、不修改任何源码、不 commit。**
 2. **兼容 T1**：复用 `ToolDefinition.functionalCapabilities`（`List<String>`，绝不为 null、归一化去重）+ `ToolFunctionalCapability` 枚举（32 令牌，见原文档 §7.1），**不重新设计词表**。
-3. **兼容 P0 治理链（不可破坏）**：`ToolGateway` 准入 + `ToolGatewayToolCallback` 包裹 + `SafeGuardAdvisor`/`GuardrailService`/`LoopGuardService`/`PhaseGate`/`PreALGate`/`CompressionHooks` + 三级降级（缓存→远程→空/CORE-only）+ 状态门禁（DISABLED 不可调用）。
-4. **复用既有原语**：`ToolRegistryClient` 缓存+三级降级、`ToolGroupManager` 元工具模式、`RegistryService.query` 已支持的 capabilities OR 过滤、`ToolManifestValidator`。
+3. **兼容 P0 治理链（不可破坏）**：`ToolGateway` 准入 + `ToolGatewayToolCallback` 包裹 + `SafeGuardAdvisor`/`GuardrailService`/`LoopGuardService`/`PhaseGate`/`PreALGate` + 三级降级（缓存→远程→空/CORE-only）+ 状态门禁（DISABLED 不可调用）。
+4. **复用既有原语**：`ToolRegistryClient` 缓存+三级降级、`RegistryService.query` 的 capabilities OR 过滤、`ToolManifestValidator`。
 5. **修复数据分裂 #4**：把现有裸 MCP SQL server（`executeQuery`/`getTableSchema`）登记为 tool-registry 的一个 **MCP-backed 工具源**，进入统一目录、经 ToolGateway 治理。
 
 ---
@@ -137,7 +137,7 @@ LLM ──call──▶ McpBackendToolExecutor(经 ToolGatewayToolCallback 包�
 
 ### 2.1 契约不变（常驻 CORE 元工具）
 
-`discover_tools` 仍是所有 Agent 的 **CORE 常驻元工具**（与 `ToolGroupManager.enableGroup` 同模式），契约**完全不变**：
+`discover_tools` 是所有 Agent 的 **CORE 常驻元工具**，契约**完全不变**：
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
@@ -189,7 +189,7 @@ sequenceDiagram
 
 - 字段 `List<ToolCallback> dynamicTools`（会话级）；
 - `registerDiscoveredTool(ToolCallback... tcs)`：去重加入（同名覆盖）；
-- `effectiveTools` 计算 = `presetTools（或 ToolGroup active）+ dynamicTools`；`spec.tools(...)` 每轮重读（现有 `injectToolsToModel` 已每轮注入，无需改）；
+- `effectiveTools` 计算 = `presetTools + dynamicTools`，同名动态工具覆盖预置工具；`spec.tools(...)` 每轮重读；
 - 配套 `getDiscoveredCapabilityHistory()` 供护栏去重。
 
 > **T2' 对 Agent 侧的唯一新增**是 `McpToolCallbackFactory`：根据 `ToolDefinition` 的 `endpoint` 是否指向 MCP 源，决定生成「本地 `@Tool` Bean 回调」还是「`McpBackendToolExecutor` 回调」，两者都经 `ToolGatewayToolCallback` 包裹。**治理接线点完全不变**。

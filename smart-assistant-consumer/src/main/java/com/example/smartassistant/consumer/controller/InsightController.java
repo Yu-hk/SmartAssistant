@@ -7,7 +7,7 @@
 
 package com.example.smartassistant.consumer.controller;
 
-import com.example.smartassistant.common.sentiment.SentimentAnalysisService;
+import com.example.smartassistant.consumer.service.sentiment.SentimentAnalysisService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;

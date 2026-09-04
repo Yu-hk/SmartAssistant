@@ -12,7 +12,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -38,11 +37,12 @@ class TaskAnalysisPromptTest {
                 "buildDynamicPrompt", String.class, List.class);
         method.setAccessible(true);
 
-        assertEquals("base-prompt\n\n## 本次请求可用 Agent（Router 从 Nacos 动态注入）\n"
-                        + "- route_name=general; source=local; service_name=router-local; "
-                        + "capabilities=[通用问答]; examples=[\"回答通用问题\"]"
-                        + "\n\nintent-section",
-                method.invoke(service, "question", List.of()));
+        String result = (String) method.invoke(service, "question", List.of());
+        assertTrue(result.startsWith("base-prompt\n\n## 本次请求可用 Agent（Router 从 Nacos 动态注入）\n"
+                + "- route_name=general; source=local; service_name=router-local; "
+                + "capabilities=[通用问答]; examples=[\"回答通用问题\"]"));
+        assertTrue(result.contains("semantic_cache_category"));
+        assertTrue(result.endsWith("intent-section"));
     }
 
     @Test
@@ -59,6 +59,7 @@ class TaskAnalysisPromptTest {
         assertTrue(prompt.contains("task_steps"));
         assertTrue(prompt.contains("execution_order"));
         assertTrue(prompt.contains("flowchart"));
+        assertTrue(prompt.contains("semantic_cache_category"));
         assertTrue(prompt.contains("{{WORKFLOW_OPERATION_CATALOG}}"));
         assertTrue(prompt.contains("operation 仅允许"));
         assertTrue(prompt.contains("DISCOVER_PRODUCTS 输出 data.products"));

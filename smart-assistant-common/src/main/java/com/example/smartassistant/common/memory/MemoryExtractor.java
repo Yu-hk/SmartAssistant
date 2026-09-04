@@ -7,21 +7,16 @@
 
 package com.example.smartassistant.common.memory;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 记忆后台提取器。
@@ -36,18 +31,22 @@ public class MemoryExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(MemoryExtractor.class);
 
-    private static final Pattern JSON_BLOCK = Pattern.compile(
-            "(?:```json|```)\\s*\\n?([\\s\\S]*?)\\n?\\s*```", Pattern.CASE_INSENSITIVE);
-    private static final Pattern BRACE_JSON = Pattern.compile("\\{.*}", Pattern.DOTALL);
-
     private final ObjectProvider<ChatModel> chatModelProvider;
     private final AgentMemoryService memoryService;
-    private final ObjectMapper objectMapper;
+    private final AiChatService aiChatService;
 
-    public MemoryExtractor(ObjectProvider<ChatModel> chatModelProvider, AgentMemoryService memoryService) {
+    @Autowired
+    public MemoryExtractor(ObjectProvider<ChatModel> chatModelProvider,
+                           AgentMemoryService memoryService,
+                           AiChatService aiChatService) {
         this.chatModelProvider = chatModelProvider;
         this.memoryService = memoryService;
-        this.objectMapper = new ObjectMapper();
+        this.aiChatService = aiChatService;
+    }
+
+    /** 非 Spring 构造点兼容入口。 */
+    public MemoryExtractor(ObjectProvider<ChatModel> chatModelProvider, AgentMemoryService memoryService) {
+        this(chatModelProvider, memoryService, AiChatService.governedDefaults());
     }
 
     /**
@@ -70,12 +69,11 @@ public class MemoryExtractor {
         String prompt = buildExtractionPrompt(agent, question, response);
 
         try {
-            ChatResponse chatResponse = chatModel.call(new Prompt(prompt));
-            String content = chatResponse.getResult().getOutput().getText();
-            if (content == null || content.isBlank()) return;
-
-            Map<String, String> preferences = parseExtractionResult(content);
-            if (preferences.isEmpty()) return;
+            Map<String, String> preferences = aiChatService.entity(
+                    chatModel,
+                    prompt,
+                    new ParameterizedTypeReference<>() {});
+            if (preferences == null || preferences.isEmpty()) return;
 
             int saved = 0;
             for (Map.Entry<String, String> entry : preferences.entrySet()) {
@@ -105,7 +103,7 @@ public class MemoryExtractor {
                 + "偏好键名使用英文驼峰，值使用中文。\n"
                 + capAgent + " 常见的偏好键名参考：\n"
                 + getAgentHints(agent)
-                + "\n如果未发现可提取的偏好，返回 {}。\n\n"
+                + "\n只输出一个 JSON 对象；如果未发现可提取的偏好，返回 {}。\n\n"
                 + "用户：" + question + "\n"
                 + capAgent + "：" + response + "\n\n"
                 + "JSON：";
@@ -130,25 +128,4 @@ public class MemoryExtractor {
         };
     }
 
-    /** 解析 LLM 返回的 JSON */
-    private Map<String, String> parseExtractionResult(String content) {
-        try {
-            // 先尝试 ```json 代码块
-            Matcher m = JSON_BLOCK.matcher(content);
-            String json = m.find() ? m.group(1).trim() : content.trim();
-
-            // 尝试提取最外层的 {}
-            if (!json.startsWith("{")) {
-                Matcher braceM = BRACE_JSON.matcher(json);
-                json = braceM.find() ? braceM.group() : json;
-            }
-
-            if (json.startsWith("{")) {
-                return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, String>>() {});
-            }
-        } catch (Exception e) {
-            log.debug("[MemoryExtractor] JSON 解析失败: {}", e.getMessage());
-        }
-        return Collections.emptyMap();
-    }
 }

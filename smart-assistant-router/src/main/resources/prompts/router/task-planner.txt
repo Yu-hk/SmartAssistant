@@ -22,6 +22,7 @@
 - merge_policy：普通解释用 APPEND，结构化事实用 STRUCTURED，经过核实且应覆盖旧结论的节点用 REPLACE。
 - output_schema 使用稳定的“业务含义.v版本”名称；非结构化输出使用 null。
 - sub_intents 至少包含一个节点，单一任务也必须进入统一工作流。
+- semantic_cache_category 只允许 PRODUCT_CONSULTATION、BUSINESS_CONSULTATION、NONE：只读商品查询/分析/推荐标为 PRODUCT_CONSULTATION；严格依赖业务文档、规则或流程说明的只读咨询标为 BUSINESS_CONSULTATION；订单状态、物流、支付、下单、退单、售后等用户业务数据，写操作，闲聊，通用知识，创作及无法确定的请求一律标为 NONE。
 
 ## 本次请求可用 Agent（Router 从 Nacos 动态注入）
 
@@ -35,6 +36,7 @@
 
 {
   "intent_category": "首要 target_agent 的 route_name；多 Agent 使用 MULTI；无法判断使用 UNKNOWN",
+  "semantic_cache_category": "PRODUCT_CONSULTATION|BUSINESS_CONSULTATION|NONE",
   "confidence": 0.0,
   "entities": {
     "order_id": null,

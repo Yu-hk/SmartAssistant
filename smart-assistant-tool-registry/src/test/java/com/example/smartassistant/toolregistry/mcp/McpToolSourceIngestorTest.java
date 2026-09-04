@@ -9,7 +9,6 @@ import com.example.smartassistant.toolregistry.service.RegistryService;
 import com.example.smartassistant.toolregistry.service.ToolManifestValidator;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -78,18 +77,11 @@ class McpToolSourceIngestorTest {
     }
 
     private Tool backendTool(String name, Map<String, Object> inputSchema) {
-        McpSchema.Tool.Builder b = McpSchema.Tool.builder()
+        Tool.Builder b = Tool.builder()
                 .name(name)
                 .description("backend " + name);
         if (inputSchema != null) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> properties = inputSchema.get("properties") instanceof Map<?, ?> map
-                    ? (Map<String, Object>) map : Map.of();
-            List<String> required = inputSchema.get("required") instanceof List<?> list
-                    ? list.stream().map(String::valueOf).toList() : List.of();
-            b.inputSchema(new McpSchema.JsonSchema(
-                    String.valueOf(inputSchema.getOrDefault("type", "object")),
-                    properties, required, null, null, null));
+            b.inputSchema(inputSchema);
         }
         return b.build();
     }

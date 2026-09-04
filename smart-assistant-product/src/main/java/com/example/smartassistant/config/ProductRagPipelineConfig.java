@@ -14,6 +14,8 @@ import com.example.smartassistant.common.rag.pipeline.DedupHandler;
 import com.example.smartassistant.common.rag.pipeline.EmbeddingScorer;
 import com.example.smartassistant.common.rag.pipeline.MetricsCollectorHandler;
 import com.example.smartassistant.common.rag.pipeline.QueryRewriteHandler;
+import com.example.smartassistant.common.rag.pipeline.RagSearchHandler;
+import com.example.smartassistant.common.rag.pipeline.RagSearchPipeline;
 import com.example.smartassistant.common.rag.pipeline.RerankHandler;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.service.search.LlmSupplementalQueryPlanner;
@@ -26,6 +28,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -63,6 +66,18 @@ public class ProductRagPipelineConfig {
 
     @Value("${product.rag.adaptive-weight.enabled:true}")
     private boolean adaptiveWeightEnabled;
+
+    /**
+     * Product 查询处理管线。
+     *
+     * <p>该 Bean 只被商品检索使用，因此由 Product 模块汇集并排序处理节点；
+     * Common 仅保留可复用的管线与 Handler 抽象。</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean(RagSearchPipeline.class)
+    public RagSearchPipeline productRagSearchPipeline(java.util.List<RagSearchHandler> handlers) {
+        return new RagSearchPipeline(handlers);
+    }
 
     /**
      * 查询重写 Handler。

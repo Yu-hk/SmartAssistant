@@ -4,7 +4,7 @@
 
 package com.example.smartassistant.consumer.service.admin;
 
-import com.example.smartassistant.common.db.DatabaseDialect;
+import com.example.smartassistant.consumer.infrastructure.db.DatabaseDialect;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;

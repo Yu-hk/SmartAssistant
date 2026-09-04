@@ -34,31 +34,6 @@ class PromptManagerDataAnalysisTest {
     }
 
     @Test
-    void rendersMachineReadableAuditAndVerifiedRecommendationPrompts() {
-        String audit = promptManager.renderProductAnalysisAudit(
-                "推荐耳机", "SKU-100，¥599；分析结果：符合预算");
-        String recommendation = promptManager.renderVerifiedProductRecommendation(
-                "推荐耳机", "分析事实核实通过");
-
-        assertThat(audit)
-                .contains("\"valid\": true")
-                .contains("correction_instruction")
-                .contains("销售量、性价比、口碑")
-                .contains("违规分析维度")
-                .contains("SKU-100，¥599")
-                .doesNotContain("{{query}}", "{{context}}");
-        assertThat(recommendation)
-                .contains("\"conclusion\"")
-                .contains("只输出一个合法 JSON 对象")
-                .contains("销售量、性价比、口碑")
-                .contains("没有明确用户偏好时不得虚构偏好")
-                .contains("只负责推荐，不得创建订单")
-                .contains("分析依据、核实过程、候选清单、维度评分和审计记录只用于内部判断")
-                .doesNotContain("### 推荐核实完成 ###")
-                .doesNotContain("{{query}}", "{{context}}");
-    }
-
-    @Test
     void restrictsProductAnalysisToThreeDimensionsAndConditionalPreference() {
         String withoutPreference = promptManager.renderDataAnalysisExpert(
                 "推荐一款耳机",

@@ -7,9 +7,10 @@
 
 package com.example.smartassistant.common.agent;
 
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,11 +22,12 @@ import java.util.Map;
  * 缺失字段以 {@link ReActProfile#DEFAULT} 补齐，保证未配置任何入口时
  * 各 Agent 仍使用默认画像。</p>
  */
-@Configuration
+@AutoConfiguration
 @EnableConfigurationProperties(ReActProfileProperties.class)
 public class ReActProfileAutoConfiguration {
 
     @Bean
+    @ConditionalOnMissingBean(ReActProfileRegistry.class)
     public ReActProfileRegistry reactProfileRegistry(ReActProfileProperties properties) {
         Map<String, ReActProfile> map = new HashMap<>();
         if (properties.getProfiles() != null) {

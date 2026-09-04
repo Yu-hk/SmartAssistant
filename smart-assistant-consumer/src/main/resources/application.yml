@@ -16,6 +16,8 @@ server:
       force: true
 
 spring:
+  config:
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties]
   # ⭐ JDK 21 虚拟线程：每请求一线程 + @Async/@Scheduled 默认走虚拟线程（I/O 阻塞型服务收益显著）
   threads:
     virtual:
@@ -418,6 +420,13 @@ management:
       enabled: true  # 启用 Prometheus 端点
     health:
       show-details: always  # 显示详细健康信息
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,routerConnectivity
     circuitbreakers:
       enabled: true  # 启用熔断器端点
     ratelimiters:
@@ -428,7 +437,7 @@ management:
         enabled: true  # 启用 Prometheus 指标导出
     tags:
       application: ${spring.application.name}  # 添加应用标签
-  
+
   # 分布式追踪配置 (Jaeger - Zipkin 兼容模式)
   tracing:
     sampling:
@@ -443,6 +452,26 @@ embedding:
     url: ${EMBEDDING_SERVICE_URL:http://localhost:8091}
   local:
     enabled: ${EMBEDDING_LOCAL_ENABLED:false}
+
+# Selective answer cache runs in Consumer before invoking Route. Product data
+# uses one conservative TTL because hot/stable classification is not rerun on a cache lookup.
+consumer:
+  readiness:
+    router:
+      connect-timeout-ms: ${CONSUMER_ROUTER_READINESS_CONNECT_TIMEOUT_MS:500}
+      read-timeout-ms: ${CONSUMER_ROUTER_READINESS_READ_TIMEOUT_MS:1000}
+  semantic-answer-cache:
+    product-ttl: ${SEMANTIC_CACHE_PRODUCT_TTL:PT1M}
+    business-ttl: ${SEMANTIC_CACHE_BUSINESS_TTL:PT24H}
+    # 线上 BGE 校准：等价热门商品改写约 0.786，商品+物流复合问题约 0.722；
+    # 0.76 只负责候选召回，最终仍须通过严格的模型等价校验。
+    product-similarity-threshold: ${SEMANTIC_CACHE_PRODUCT_SIMILARITY_THRESHOLD:0.76}
+    business-similarity-threshold: ${SEMANTIC_CACHE_BUSINESS_SIMILARITY_THRESHOLD:0.94}
+    minimum-score-margin: ${SEMANTIC_CACHE_MINIMUM_SCORE_MARGIN:0.03}
+    verifier-confidence-threshold: ${SEMANTIC_CACHE_VERIFIER_CONFIDENCE_THRESHOLD:0.95}
+    verifier-timeout-ms: ${SEMANTIC_CACHE_VERIFIER_TIMEOUT_MS:6000}
+    candidate-limit: ${SEMANTIC_CACHE_CANDIDATE_LIMIT:100}
+    max-entries-per-partition: ${SEMANTIC_CACHE_MAX_ENTRIES:500}
 
 bge:
   model:
