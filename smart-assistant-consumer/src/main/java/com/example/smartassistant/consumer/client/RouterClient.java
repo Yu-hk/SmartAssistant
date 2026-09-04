@@ -7,8 +7,8 @@
 
 package com.example.smartassistant.consumer.client;
 
-import com.example.smartassistant.consumer.service.cache.RouteSemanticCacheService;
 import com.example.smartassistant.routing.contract.RoutingKeys;
+import com.example.smartassistant.consumer.service.cache.SelectiveSemanticAnswerCache;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
@@ -58,7 +58,7 @@ public class RouterClient {
     private final ObjectMapper objectMapper;
 
     @Autowired(required = false)
-    private RouteSemanticCacheService routeSemanticCache;
+    private SelectiveSemanticAnswerCache semanticAnswerCache;
 
     @Value("${router.service.url:http://localhost:8083}")
     private String routerServiceUrl;
@@ -104,6 +104,14 @@ public class RouterClient {
 
         long authenticatedUserId = requireAuthenticatedUserId(userId);
         try {
+            Map<String, Object> cached = semanticAnswerCache != null
+                    ? semanticAnswerCache.find(authenticatedUserId, question) : null;
+            if (cached != null) {
+                log.info("[RouterClient] Consumer semantic cache hit; skip Router: userId={}, requestId={}",
+                        authenticatedUserId, requestId);
+                return cached;
+            }
+
             Map<String, Object> requestBody = new HashMap<>();
             // ⭐ 将 userId 转为 Long（Router 端期望 Long 类型）
             requestBody.put("userId", authenticatedUserId);
@@ -113,7 +121,6 @@ public class RouterClient {
             if (requestId != null) {
                 requestBody.put("requestId", requestId);
             }
-            applyCachedRouteHint(question, requestBody);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -151,9 +158,11 @@ public class RouterClient {
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 Map<String, Object> responseBody = response.getBody();
                 Map<String, Object> payload = unwrapRouterResponse(responseBody);
-                saveRouteHint(question, payload);
                 log.info("[RouterClient] Router 调用成功(完整响应): resultLength={}",
                         payload.get("result") instanceof String result ? result.length() : 0);
+                if (semanticAnswerCache != null) {
+                    semanticAnswerCache.store(authenticatedUserId, question, payload);
+                }
                 return payload;
             }
 
@@ -294,9 +303,9 @@ public class RouterClient {
      * SSE 接口从 Redis 阻塞等待决策结果
      * <p>
      * 流程：
-     * 1. 调用 Router 的 /api/router/decision 接口
-     * 2. Router 执行决策并存入 Redis
-     * 3. 返回（不等待结果）
+     * 1. Consumer 前置语义缓存命中时直接发布 Redis 决策
+     * 2. 未命中时调用 Router 的 /api/router/route 接口
+     * 3. Router 执行决策并存入 Redis
      *
      * @param message   用户问题
      * @param userId    用户 ID
@@ -309,6 +318,14 @@ public class RouterClient {
 
         long authenticatedUserId = requireAuthenticatedUserId(userId);
         try {
+            Map<String, Object> cached = semanticAnswerCache != null
+                    ? semanticAnswerCache.find(authenticatedUserId, message) : null;
+            if (cached != null && publishCachedDecision(requestId, cached)) {
+                log.info("[RouterClient] Consumer semantic cache hit; published decision without Router: requestId={}",
+                        requestId);
+                return;
+            }
+
             // ⚠️ 原实现调用 /api/router/decision，但该端点并不存在（RouterController 仅暴露 /api/router/route 等）。
             // /api/router/route 执行完整路由决策，并经由 RouteFinalizer.finalizeRouting
             // -> RoutingDecisionPublisher writes FULL_DECISION_KEY + notify.
@@ -320,7 +337,6 @@ public class RouterClient {
             requestBody.put("sessionId", requestId);
             requestBody.put("requestId", requestId);
             requestBody.put("enableRag", false);
-            applyCachedRouteHint(message, requestBody);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -337,31 +353,14 @@ public class RouterClient {
             ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 Map<String, Object> payload = unwrapRouterResponse(response.getBody());
-                if (!"CANCELLED".equals(payload.get("workflowStatus"))) {
-                    saveRouteHint(message, payload);
+                if (semanticAnswerCache != null) {
+                    semanticAnswerCache.store(authenticatedUserId, message, payload);
                 }
             }
             log.debug("[RouterClient] Router 决策请求已发送: requestId={}", requestId);
 
         } catch (Exception e) {
             log.error("[RouterClient] 触发路由决策失败: requestId={}, error={}", requestId, e.getMessage(), e);
-        }
-    }
-
-    private void applyCachedRouteHint(String question, Map<String, Object> requestBody) {
-        if (routeSemanticCache == null) return;
-        RouteSemanticCacheService.CachedRouteHint hint = routeSemanticCache.find(question);
-        if (hint == null) return;
-        requestBody.put("cachedAgentName", hint.agentName());
-        requestBody.put("cachedIntentTag", hint.intentTag());
-        requestBody.put("cachedConfidence", hint.confidence());
-        log.debug("[RouterClient] Consumer semantic route hit: agent={}, intent={}",
-                hint.agentName(), hint.intentTag());
-    }
-
-    private void saveRouteHint(String question, Map<String, Object> response) {
-        if (routeSemanticCache != null) {
-            routeSemanticCache.save(question, response);
         }
     }
 
@@ -374,6 +373,27 @@ public class RouterClient {
             return parsed;
         } catch (NumberFormatException | NullPointerException e) {
             throw new IllegalArgumentException("Missing or invalid authenticated user ID", e);
+        }
+    }
+
+    private boolean publishCachedDecision(String requestId, Map<String, Object> cached) {
+        if (redisTemplate == null || requestId == null || requestId.isBlank()
+                || cached == null) return false;
+        try {
+            Map<String, Object> decision = new HashMap<>(cached);
+            decision.put("requestId", requestId);
+            decision.put("timestamp", System.currentTimeMillis());
+            String decisionKey = RoutingKeys.fullDecision(requestId);
+            String notifyKey = RoutingKeys.decisionNotification(requestId);
+            redisTemplate.opsForValue().set(
+                    decisionKey, objectMapper.writeValueAsString(decision), Duration.ofSeconds(120));
+            redisTemplate.opsForList().rightPush(notifyKey, requestId);
+            redisTemplate.expire(notifyKey, Duration.ofSeconds(120));
+            return true;
+        } catch (Exception error) {
+            log.warn("[RouterClient] Failed to publish cached decision; continue to Router: requestId={}, error={}",
+                    requestId, error.getMessage());
+            return false;
         }
     }
 

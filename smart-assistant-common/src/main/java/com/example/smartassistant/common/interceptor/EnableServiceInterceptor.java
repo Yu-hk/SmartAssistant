@@ -30,7 +30,7 @@ import java.lang.annotation.*;
  * }</pre>
  *
  * <p>替换旧方案：启用此注解后，可删除模块本地的
- * {@code PerformanceMonitorAspect} 和 {@code LogUtils} 重复实现。
+ * {@code PerformanceMonitorAspect} 和模块内重复日志工具实现。
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)

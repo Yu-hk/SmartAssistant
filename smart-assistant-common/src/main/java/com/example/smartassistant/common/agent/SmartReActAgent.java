@@ -14,13 +14,11 @@ import com.example.smartassistant.common.error.AgentException;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.common.error.PromptInjectionBlockedException;
 import com.example.smartassistant.common.error.RecoveryAction;
-import com.example.smartassistant.common.memory.ConversationSummaryStore;
 import com.example.smartassistant.common.metrics.AgentMetricsCollector;
 import com.example.smartassistant.common.observability.OpsMetrics;
 import com.example.smartassistant.common.skill.SkillPackageManager;
 import com.example.smartassistant.common.skill.SkillSelectionContext;
-import com.example.smartassistant.common.tool.ToolGroupManager;
-import com.example.smartassistant.common.trace.TraceSpan;
+import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -188,9 +186,6 @@ public class SmartReActAgent {
     /** ⭐ 错误恢复服务（表驱动恢复，默认使用内置静态实例） */
     private ErrorRecoveryService recoveryService = ErrorRecoveryService.DEFAULT;
 
-    /** ⭐ 工具组管理器（可选，用于按需激活工具组） */
-    private ToolGroupManager toolGroupManager;
-
     /** ⭐ 追踪跨度注册表（可选，用于生成 Jaeger 嵌套跨度） */
     private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
 
@@ -202,8 +197,6 @@ public class SmartReActAgent {
     /** 每触发一次压缩后递增的摘要代数 */
     private int summaryGeneration = 0;
 
-    /** ⭐ 对话摘要持久化存储（可选） */
-    private ConversationSummaryStore summaryStore;
     /** ⭐ 上下文压缩器 */
     private SummarizationAdvisor contextCompressor;
     /** ⭐ 工具执行器（延迟初始化） */
@@ -391,7 +384,7 @@ public class SmartReActAgent {
 	 * 合并基础工具列表与动态工具列表（按工具名去重）。
 	 * <p>动态工具同名覆盖基础工具。</p>
 	 *
-	 * @param base 基础工具列表（presetTools 或 ToolGroup active）
+	 * @param base 基础工具列表（预置工具或调用方传入工具）
 	 * @return 合并后的工具列表（base 在前，dynamicTools 去重追加）
 	 */
 	private List<ToolCallback> mergeWithDynamicTools(List<ToolCallback> base) {
@@ -454,33 +447,15 @@ public class SmartReActAgent {
         return this;
     }
 
-    /**
-     * 设置工具组管理器（用于按需激活工具组，减少 LLM Schema 占用）。
-     * 激活的组工具会注入 ReAct 循环，未激活组对 LLM 不可见。
-     *
-     * @param toolGroupManager 工具组管理器
-     * @return this
-     */
-    public SmartReActAgent withToolGroupManager(ToolGroupManager toolGroupManager) {
-        this.toolGroupManager = toolGroupManager;
-        return this;
-    }
-
     public SmartReActAgent withObservationRegistry(ObservationRegistry registry) {
         if (registry != null) this.observationRegistry = registry;
-        return this;
-    }
-
-    /** 配置对话摘要持久化存储（方案 A：压缩摘要写入向量数据库） */
-    public SmartReActAgent withSummaryStore(ConversationSummaryStore summaryStore) {
-        this.summaryStore = summaryStore;
         return this;
     }
 
     /**
      * 配置 ChatClient（含 Advisor 链）。
      *
-     * <p>设置后，Agent 使用 ChatClient (含 TokenUsageAdvisor / ThinkingCollectorAdvisor 等)
+     * <p>设置后，Agent 使用 ChatClient (含 TokenUsageAdvisor / PromptAuditAdvisor 等)
      * 替换原始的 {@code chatModel.call()}，使 Advisor 链生效。
      * 建议在创建 Agent 时通过 {@code ChatClient.builder(chatModel).defaultAdvisors(...).build()} 构建。
      *
@@ -585,16 +560,8 @@ public class SmartReActAgent {
     /** Executes ReAct with an explicit request-scoped skill selection context. */
     public String execute(String userMessage, String systemPrompt, List<ToolCallback> tools,
                           SkillSelectionContext skillContext) {
-		// ⭐ 当有 ToolGroupManager 时，使用活跃组的工具替换平坦列表
-		List<ToolCallback> effectiveTools = tools;
+		List<ToolCallback> effectiveTools = tools != null ? tools : List.of();
 		String enhancedPrompt = systemPrompt;
-		if (toolGroupManager != null) {
-			effectiveTools = toolGroupManager.getActiveTools();
-			String groupDesc = toolGroupManager.getActiveGroupsDescription();
-			enhancedPrompt = systemPrompt + "\n\n【当前可用的工具组】\n" + groupDesc;
-			log.info("[SmartReActAgent] 使用 ToolGroup 模式: activeGroups={}, tools={}",
-					toolGroupManager.getActiveGroupNames(), effectiveTools.size());
-		}
 
         if (feedbackLog != null) {
             String feedbackContext = feedbackLog.buildPromptContext(3);
@@ -713,7 +680,7 @@ public class SmartReActAgent {
                 }
                 if (compressed == null) {
                     if (contextCompressor == null) {
-                        contextCompressor = new SummarizationAdvisor(chatModel, profile, summaryStore, summaryChain);
+                        contextCompressor = new SummarizationAdvisor(chatModel, profile, summaryChain);
                     }
                     compressed = contextCompressor.compress(messages);
                 }
@@ -747,7 +714,6 @@ public class SmartReActAgent {
             ChatResponse response;
             long llmStart = System.currentTimeMillis();
             try {
-                ModelToolInjector.inject(log, chatModel, effectiveTools);
                 final List<Message> callMessages = messages;
                 final ToolCallingChatOptions callOptions = options;
 
@@ -762,8 +728,8 @@ public class SmartReActAgent {
                     response = spec.call().chatResponse();
                 } else {
                     // 兼容旧调用：直接使用 ChatModel
-                    response = TraceSpan.of(observationRegistry, "agent-llm-call")
-                            .run(() -> chatModel.call(new Prompt(callMessages, callOptions)));
+                    response = Observation.createNotStarted("agent-llm-call", observationRegistry)
+                            .observe(() -> chatModel.call(new Prompt(callMessages, callOptions)));
                 }
             } catch (Exception e) {
                 if (e instanceof PromptInjectionBlockedException pib) {
@@ -961,8 +927,9 @@ public class SmartReActAgent {
             messages.add(assistantMsg);
 
             // ⭐ 执行工具（支持并行，带追踪跨度）
-            List<ToolResponseMessage.ToolResponse> toolResponses = TraceSpan.of(observationRegistry, "agent-tool-execute")
-                    .run(() -> getAgentToolExecutor().execute(toolCalls, toolMap));
+            List<ToolResponseMessage.ToolResponse> toolResponses =
+                    Observation.createNotStarted("agent-tool-execute", observationRegistry)
+                            .observe(() -> getAgentToolExecutor().execute(toolCalls, toolMap));
 
             // ⭐ G1 连续无增量检测：防止重复调同类工具陷入循环。
             // 哈希键加入参数指纹 —— 仅"名称 + 参数完全一致"判定为无增量，
@@ -995,7 +962,7 @@ public class SmartReActAgent {
                     && messages.size() > compressThreshold - 3) {
                 List<Message> snapshot = new ArrayList<>(messages);
                 if (contextCompressor == null) {
-                    contextCompressor = new SummarizationAdvisor(chatModel, profile, summaryStore, summaryChain);
+                    contextCompressor = new SummarizationAdvisor(chatModel, profile, summaryChain);
                 }
                 precomputedCompactFuture = CompletableFuture.supplyAsync(() -> contextCompressor.compress(snapshot));
             }
@@ -1043,7 +1010,4 @@ public class SmartReActAgent {
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    /**
-     * ⭐ 向自定义 ChatModel 注入工具列表已抽取至 {@link ModelToolInjector}（反射，避免循环依赖）。
-     */
 }

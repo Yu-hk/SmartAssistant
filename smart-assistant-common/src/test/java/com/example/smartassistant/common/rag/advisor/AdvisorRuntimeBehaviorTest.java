@@ -85,20 +85,6 @@ class AdvisorRuntimeBehaviorTest {
         log.info("（DEBUG 级别日志: [PromptAudit] Call）");
     }
 
-    @Test
-    @DisplayName("ThinkingCollectorAdvisor: Stream 路径收集 reasoning")
-    void thinkingCollectorStreamLog(@Mock ChatClientRequest request,
-                                     @Mock StreamAdvisorChain chain) {
-        ThinkingCollectorAdvisor advisor = new ThinkingCollectorAdvisor();
-
-        when(chain.nextStream(any())).thenReturn(Flux.empty());
-
-        log.info("=== ThinkingCollectorAdvisor Stream 路径 ===");
-        advisor.adviseStream(request, chain).subscribe();
-        verify(chain).nextStream(request);
-        log.info("从 ChatResponse metadata 中提取 reasoning_content / reasoning 字段");
-    }
-
     private void sleepQuietly(long ms) {
         try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }

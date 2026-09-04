@@ -13,7 +13,6 @@ import com.example.smartassistant.common.agent.SmartReActAgent;
 import com.example.smartassistant.common.prompt.PromptBuilder;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
-import com.example.smartassistant.common.tool.AiToolRegistry;
 import com.example.smartassistant.common.tool.GifCacheStore;
 import com.example.smartassistant.common.tool.spi.RegistryTool;
 import com.example.smartassistant.consumer.config.McpTableWhitelistConfig;
@@ -27,6 +26,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -57,9 +57,6 @@ public class McpAgentService {
     // ⭐ ChatClient 由 AiChatService 统一装配 Advisor 链
     @Autowired(required = false)
     private AiChatService aiChatService;
-    // ⭐ 工具注册聚合器（收敛工具对象 → ToolCallback 列表样板）
-    @Autowired(required = false)
-    private AiToolRegistry aiToolRegistry;
     // ⭐ 入口级 ReAct 画像注册表（可选；缺失时回退 DEFAULT）
     @Autowired(required = false)
     private ReActProfileRegistry reactProfileRegistry;
@@ -105,10 +102,16 @@ public class McpAgentService {
                 whitelistConfig
             );
             
-            // ⭐ 注册数据库查询工具 + GIF 动图工具（由 AiToolRegistry 聚合）
+            // ⭐ 注册数据库查询工具 + GIF 动图工具（使用 Spring AI 原生工具回调提供器）
             // GIF 工具通过 RegistryTool 标记从 Spring 上下文取得，业务模块不依赖具体工具类
             Collection<RegistryTool> gifTools = applicationContext.getBeansOfType(RegistryTool.class).values();
-            List<ToolCallback> allCallbacks = aiToolRegistry.assemble(dbTools, gifTools.toArray());
+            List<Object> toolObjects = new ArrayList<>(gifTools.size() + 1);
+            toolObjects.add(dbTools);
+            toolObjects.addAll(gifTools);
+            List<ToolCallback> allCallbacks = List.of(MethodToolCallbackProvider.builder()
+                    .toolObjects(toolObjects.toArray())
+                    .build()
+                    .getToolCallbacks());
 
             log.info("[McpAgentService] ✅ 发现 {} 个工具 (DB + GIF)", allCallbacks.size());
             

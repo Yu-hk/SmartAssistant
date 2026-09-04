@@ -11,10 +11,11 @@ import com.example.smartassistant.common.agent.ExecutionTraceStore;
 import com.example.smartassistant.common.agent.AgentExecutionState;
 import com.example.smartassistant.common.agent.FeedbackLog;
 import com.example.smartassistant.common.agent.GoalContinuityArbiter;
-import com.example.smartassistant.common.budget.BudgetTracker;
+import com.example.smartassistant.router.governance.budget.BudgetTracker;
 import com.example.smartassistant.common.error.AgentErrorCode;
-import com.example.smartassistant.common.intent.IntentTagGenerator;
+import com.example.smartassistant.router.service.intent.IntentTagGenerator;
 import com.example.smartassistant.router.service.context.IntentDriftDetector;
+import com.example.smartassistant.router.service.cache.SemanticAnswerCachePolicy;
 import com.example.smartassistant.common.error.ErrorRecoveryService;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.monitoring.NewMetricsCollector;
@@ -97,6 +98,9 @@ public class RouterService {
     // ⭐ P2 新指标采集
     @Autowired(required = false)
     private NewMetricsCollector newMetrics;
+
+    @Autowired(required = false)
+    private SemanticAnswerCachePolicy semanticAnswerCachePolicy;
 
     // ⭐ P1 确定性护栏服务
     private final GuardrailService guardrailService;
@@ -326,6 +330,9 @@ public class RouterService {
                 // 复杂问题自动分解为多个子任务并行执行
                 executionQuestion = addConversationContextIfNeeded(
                         enhancedQuestion, conversationHistory);
+                SemanticAnswerCachePolicy.Decision cacheDecision = semanticAnswerCachePolicy != null
+                        ? semanticAnswerCachePolicy.resolve(taskAnalysis)
+                        : SemanticAnswerCachePolicy.Decision.none("policy_unavailable");
                 log.info("[Router] 🤝 启动多 Agent 协作: question={}",
                         QuestionExtractor.truncate(executionQuestion, 120));
             result = executeCollaborative(
@@ -335,9 +342,13 @@ public class RouterService {
             if (result.getIntentTag() == null || result.getIntentTag().isBlank()) {
                 result.setIntentTag(intentTag != null ? intentTag : intentTagGenerator.generate(question));
             }
+            result.setSemanticCacheCategory(cacheDecision.scope().name());
+            result.setSemanticCacheVolatileProduct(cacheDecision.volatileProductData());
 
-            // ⭐⭐ 反思器 + 缓存写入 + 经验提取（公共后处理）
-                return finalizeRouting(result, request, executionQuestion, emotion);
+            // ⭐⭐ 反思器 + Consumer 缓存指令 + 经验提取（公共后处理）
+                RoutingResult finalized = finalizeRouting(
+                        result, request, executionQuestion, emotion);
+                return finalized;
 
         } catch (Exception e) {
             log.error("[Router] 路由失败: {}", e.getMessage(), e);

@@ -7,7 +7,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
-import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -70,7 +69,7 @@ public class McpToolRegistryAdapter {
      * 将单个 {@link ToolDefinition} 映射为 MCP {@link Tool}（仅发现元数据）。
      */
     public Tool toMcpTool(ToolDefinition def) {
-        McpSchema.JsonSchema inputSchema = parseInputSchema(def.getInputSchema());
+        Map<String, Object> inputSchema = parseInputSchema(def.getInputSchema());
 
         ToolAnnotations annotations = new ToolAnnotations(
                 firstNonBlank(def.getDescription(), def.getName()),
@@ -182,7 +181,7 @@ public class McpToolRegistryAdapter {
 
     // ==================== 内部：schema / meta 构造 ====================
 
-    private McpSchema.JsonSchema buildSearchToolsInputSchema() {
+    private Map<String, Object> buildSearchToolsInputSchema() {
         Map<String, Object> schema = new HashMap<>();
         schema.put("type", "object");
 
@@ -207,7 +206,7 @@ public class McpToolRegistryAdapter {
 
         schema.put("properties", properties);
         schema.put("required", new ArrayList<String>());
-        return toJsonSchema(schema);
+        return schema;
     }
 
     private Map<String, Object> buildMeta(ToolDefinition def) {
@@ -223,7 +222,7 @@ public class McpToolRegistryAdapter {
         return meta;
     }
 
-    private McpSchema.JsonSchema parseInputSchema(String inputSchemaJson) {
+    private Map<String, Object> parseInputSchema(String inputSchemaJson) {
         if (inputSchemaJson == null || inputSchemaJson.isBlank()) {
             // 中心 @Tool 工具本期无 inputSchema：给空对象 schema
             return emptyObjectSchema();
@@ -231,35 +230,18 @@ public class McpToolRegistryAdapter {
         try {
             Map<String, Object> schema = objectMapper.readValue(
                     inputSchemaJson, new TypeReference<Map<String, Object>>() {});
-            return toJsonSchema(schema);
+            return schema;
         } catch (Exception e) {
             log.warn("[McpToolRegistryAdapter] inputSchema 解析失败，回退空 schema: {}", e.getMessage());
             return emptyObjectSchema();
         }
     }
 
-    private McpSchema.JsonSchema emptyObjectSchema() {
+    private Map<String, Object> emptyObjectSchema() {
         Map<String, Object> empty = new HashMap<>();
         empty.put("type", "object");
         empty.put("properties", new HashMap<>());
-        return toJsonSchema(empty);
-    }
-
-    @SuppressWarnings("unchecked")
-    private McpSchema.JsonSchema toJsonSchema(Map<String, Object> schema) {
-        String type = String.valueOf(schema.getOrDefault("type", "object"));
-        Map<String, Object> properties = schema.get("properties") instanceof Map<?, ?> map
-                ? (Map<String, Object>) map : Map.of();
-        List<String> required = schema.get("required") instanceof List<?> list
-                ? list.stream().map(String::valueOf).toList() : List.of();
-        Boolean additionalProperties = schema.get("additionalProperties") instanceof Boolean value
-                ? value : null;
-        Map<String, Object> defs = schema.get("$defs") instanceof Map<?, ?> map
-                ? (Map<String, Object>) map : null;
-        Map<String, Object> definitions = schema.get("definitions") instanceof Map<?, ?> map
-                ? (Map<String, Object>) map : null;
-        return new McpSchema.JsonSchema(
-                type, properties, required, additionalProperties, defs, definitions);
+        return empty;
     }
 
     // ==================== 内部：参数类型转换 ====================

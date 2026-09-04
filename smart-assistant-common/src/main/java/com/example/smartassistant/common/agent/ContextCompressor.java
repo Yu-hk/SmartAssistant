@@ -7,7 +7,6 @@
 
 package com.example.smartassistant.common.agent;
 
-import com.example.smartassistant.common.memory.ConversationSummaryStore;
 import com.example.smartassistant.common.governance.CallLimitProperties;
 import com.example.smartassistant.common.governance.InvocationBudgetRegistry;
 import com.example.smartassistant.common.rag.advisor.ModelCallLimitAdvisor;
@@ -63,19 +62,16 @@ public class ContextCompressor {
 
     private final ChatClient summaryClient;
     private final ReActProfile profile;
-    private final ConversationSummaryStore summaryStore;
     private final List<String> summaryChain;
     private int summaryGeneration = 0;
 
-    public ContextCompressor(ChatModel chatModel, ReActProfile profile,
-                             ConversationSummaryStore summaryStore, List<String> summaryChain) {
+    public ContextCompressor(ChatModel chatModel, ReActProfile profile, List<String> summaryChain) {
         this.summaryClient = ChatClient.builder(chatModel)
                 .defaultAdvisors(
                         new PiiAdvisor(PiiPolicyEngine.shared()),
                         new ModelCallLimitAdvisor(InvocationBudgetRegistry.shared(), new CallLimitProperties()))
                 .build();
         this.profile = profile;
-        this.summaryStore = summaryStore;
         this.summaryChain = summaryChain;
     }
 
@@ -153,13 +149,6 @@ public class ContextCompressor {
             }
             log.info("[Compressor] 摘要链: 第{}代, 长度={}", summaryGeneration, summary.length());
 
-            if (summaryStore != null) {
-                try {
-                    summaryStore.store(null, null, null, summary, summaryGeneration);
-                } catch (Exception e) {
-                    log.warn("[Compressor] 摘要持久化失败: {}", e.getMessage());
-                }
-            }
         } catch (Exception e) {
             log.warn("[Compressor] 摘要生成失败: {}", e.getMessage());
             return messages;

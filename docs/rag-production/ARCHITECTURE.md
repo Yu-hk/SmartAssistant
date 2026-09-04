@@ -20,7 +20,6 @@
 | `KnowledgeBase`（接口） | `common/.../rag/KnowledgeBase.java` | 存储抽象 | 已定义 `addDocument/removeByBaseDocId/search/listIdsByBaseDocId/updateStatus/markSupersededByBaseId` 等，Pg/InMemory 共用 |
 | `KnowledgeRetrievalService` | `common/.../rag/KnowledgeRetrievalService.java` | 检索入口 | `search(kbName, query, topK, acl)` → `kb.search(...)`，是 Pipeline 与存储的分界，**不动** |
 | `IngestAuditEvent/Recorder` | `common/.../rag/ingestion/*` | 审计 | REQ-3 审计日志可复用其结构 |
-| `IndexReconciliationService` | `common/.../rag/IndexReconciliationService.java` | indexVersion 对账 | 可承载 REQ-2 indexVersion 对账 |
 | `KnowledgeSeedData` | `common/.../rag/KnowledgeSeedData.java` | 种子 | 首启动需把种子灌入 PG，保证基线不丢 |
 | `advisor/PromptAuditAdvisor` 等 | `common/.../rag/advisor/*` | REQ-3 接入点参考 | 生成后合规可做成同类 Advisor |
 
@@ -466,7 +465,7 @@ sequenceDiagram
 ### 8.1 indexVersion 约定
 - 全局 active 版本存于 `knowledge_index_meta.active_index_version`（单行）。
 - 摄入时由 `KnowledgeIndexMetaService.getActiveVersion()` 取当前值，打在 chunk 的 `indexVersion` 字段；检索时 `WHERE index_version = :active` 过滤。
-- 模型/切分策略/解析策略变更 → 运维 bump（actuator/`KnowledgeIndexMetaService.bump`）→ 旧版本检索不可见但保留，由 `IndexReconciliationService` 对账 + 延迟 GC。
+- 模型/切分策略/解析策略变更 → 运维 bump（actuator/`KnowledgeIndexMetaService.bump`）→ 旧版本检索不可见但保留；延迟 GC 与向量数量对账由独立运维任务执行（当前未内置）。
 - 默认种子首版：`v1`；bge-large 切换后首个生产版本建议 `v2`。
 
 ### 8.2 元数据提取规则（DocumentMetadataEnricher）

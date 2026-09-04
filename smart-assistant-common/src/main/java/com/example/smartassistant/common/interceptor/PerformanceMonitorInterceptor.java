@@ -7,7 +7,6 @@
 
 package com.example.smartassistant.common.interceptor;
 
-import com.example.smartassistant.common.util.LogUtils;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
@@ -59,7 +58,7 @@ public class PerformanceMonitorInterceptor implements ServiceInterceptor {
         String methodName = context.getFullMethodName();
 
         // 日志输出
-        LogUtils.logPerformance(methodName, duration, "SUCCESS");
+        logPerformance(methodName, duration, "SUCCESS");
 
         // Micrometer 指标
         recordLatency(methodName, duration);
@@ -72,7 +71,7 @@ public class PerformanceMonitorInterceptor implements ServiceInterceptor {
         long duration = context.getDurationMs();
         String methodName = context.getFullMethodName();
 
-        LogUtils.logPerformance(methodName, duration, "FAILED");
+        logPerformance(methodName, duration, "FAILED");
 
         if (duration > slowThresholdMs) {
             log.error("[SLOW_FAIL] {} | duration={}ms | error={}",
@@ -91,6 +90,14 @@ public class PerformanceMonitorInterceptor implements ServiceInterceptor {
                         .publishPercentiles(0.5, 0.95, 0.99)
                         .register(meterRegistry)
         ).record(millis, TimeUnit.MILLISECONDS);
+    }
+
+    private void logPerformance(String methodName, long durationMs, String status) {
+        if (durationMs > slowThresholdMs) {
+            log.warn("[SLOW_METHOD] {} | duration={}ms | status={}", methodName, durationMs, status);
+        } else {
+            log.debug("[METHOD_EXEC] {} | duration={}ms | status={}", methodName, durationMs, status);
+        }
     }
 
     @Override

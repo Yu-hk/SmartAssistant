@@ -7,7 +7,7 @@
 
 package com.example.smartassistant.consumer.service.admin;
 
-import com.example.smartassistant.common.db.DatabaseDialect;
+import com.example.smartassistant.consumer.infrastructure.db.DatabaseDialect;
 import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.audit.ToolUsageHeaders;
 import jakarta.annotation.PostConstruct;

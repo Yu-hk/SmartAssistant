@@ -99,13 +99,6 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
-            <version>${spring-ai.version}</version>
-        </dependency>
-
-        <!-- ⭐ Spring AI MCP Client (连接外部 MCP Server，如高德地图) -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
         </dependency>
 
         <!-- JDBC Template (用于 MCP SQL 执行) ⭐ -->

@@ -17,6 +17,7 @@ import com.example.smartassistant.common.rag.ingestion.KnowledgeIngestionService
 import com.example.smartassistant.common.rag.ingestion.ReviewQueueService;
 import com.example.smartassistant.common.rag.properties.RagProductionProperties;
 import com.example.smartassistant.common.rag.store.KnowledgeIndexMetaService;
+import com.example.smartassistant.common.cache.KnowledgeVersionManager;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -24,6 +25,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
  * 异步摄取任务管线自动装配——仅在有 {@link KnowledgeBase} Bean 的 Web 应用上下文激活。
@@ -86,7 +88,8 @@ public class IngestionJobAutoConfiguration {
                                                                DocumentMetadataEnricher enricher,
                                                                DocumentValidator validator,
                                                                ReviewQueueService reviewQueueService,
-                                                               KnowledgeIndexMetaService indexMetaService) {
+                                                               KnowledgeIndexMetaService indexMetaService,
+                                                               ObjectProvider<StringRedisTemplate> redisProvider) {
         KnowledgeIngestionService service = new KnowledgeIngestionService(router, chunker, knowledgeBase);
         KnowledgeGraphService graph = graphProvider.getIfAvailable();
         if (graph != null) {
@@ -97,6 +100,13 @@ public class IngestionJobAutoConfiguration {
         service.setValidator(validator);
         service.setReviewQueueService(reviewQueueService);
         service.setIndexMetaService(indexMetaService);
+        // Every successful ingestion, regardless of which application owns the endpoint,
+        // invalidates document-bound semantic answers across all Consumer instances.
+        StringRedisTemplate redisTemplate = redisProvider.getIfAvailable();
+        if (redisTemplate != null) {
+            service.addCacheInvalidationHook(() ->
+                    redisTemplate.opsForValue().increment(KnowledgeVersionManager.VERSION_KEY));
+        }
         return service;
     }
 

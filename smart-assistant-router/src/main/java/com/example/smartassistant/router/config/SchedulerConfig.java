@@ -1,9 +1,9 @@
 package com.example.smartassistant.router.config;
 
 import com.example.smartassistant.common.agent.protocol.AgentExecutionResponse;
-import com.example.smartassistant.common.scheduler.AgentSchedulerService;
-import com.example.smartassistant.common.scheduler.AgentTaskQueue;
-import com.example.smartassistant.common.scheduler.HotAgentPool;
+import com.example.smartassistant.router.scheduler.AgentSchedulerService;
+import com.example.smartassistant.router.scheduler.AgentTaskQueue;
+import com.example.smartassistant.router.scheduler.HotAgentPool;
 import com.example.smartassistant.router.service.agent.AgentCallResult;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.router.service.agent.AgentMessageDispatcher;
@@ -116,7 +116,7 @@ public class SchedulerConfig {
         return priorities;
     }
 
-    private String executeQueuedTask(com.example.smartassistant.common.scheduler.AgentTask task,
+    private String executeQueuedTask(com.example.smartassistant.router.scheduler.AgentTask task,
                                      AgentCallerService agentCallerService) {
         if (task.getExecutionRequest() == null) {
             return agentCallerService.callAgentWithContext(

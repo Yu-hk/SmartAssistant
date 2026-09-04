@@ -8,9 +8,11 @@
 package com.example.smartassistant.consumer.config;
 
 import com.example.smartassistant.common.cache.CacheVersionManager;
+import com.example.smartassistant.common.cache.KnowledgeVersionManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
  * Consumer 缓存版本配置——创建 {@link CacheVersionManager} 用于校验缓存版本。
@@ -39,5 +41,18 @@ public class CacheVersionConfig {
                     // Consumer 不写入版本
                 }
         );
+    }
+
+    @Bean
+    public KnowledgeVersionManager consumerKnowledgeVersionManager(StringRedisTemplate redisTemplate) {
+        return new KnowledgeVersionManager(
+                () -> {
+                    String value = redisTemplate.opsForValue().get(KnowledgeVersionManager.VERSION_KEY);
+                    return value != null ? Long.parseLong(value) : 0L;
+                },
+                () -> {
+                    Long value = redisTemplate.opsForValue().increment(KnowledgeVersionManager.VERSION_KEY);
+                    return value != null ? value : 0L;
+                });
     }
 }

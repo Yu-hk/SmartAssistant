@@ -45,7 +45,7 @@
 
 1. **仅设计，不写实现、不改源码、不 commit。**
 2. **P0 治理链 100% 不可破**：所有 MCP-backed 工具的 `tools/call` 必须经由 `ToolGateway`（经 `ToolGatewayToolCallback` 包裹）；registry MCP server 不实现传递式 `tools/call`（沿用 T2a 边界）。
-3. **复用既有原语**：`ToolRegistryClient` 三级降级、`ToolGroupManager` 元工具模式、`ToolManifestValidator`、`ToolGateway`/`ToolGatewayToolCallback` 治理。
+3. **复用既有原语**：`ToolRegistryClient` 三级降级、Registry 标签过滤、`ToolManifestValidator`、`ToolGateway`/`ToolGatewayToolCallback` 治理。
 4. **不碰 T2a/T2b/registry 已落地代码**；不重新设计 32 令牌词表（复用 `ToolFunctionalCapability`）。
 5. **T2c 是基础设施层**：不依赖 T4（`capabilityScope` 预载，那是 T2d 的事），但可被 T2d 复用。
 6. **降级策略**：MCP 不可用时回到现有 HTTP REST / 缓存（CORE-only 三级降级不破）。

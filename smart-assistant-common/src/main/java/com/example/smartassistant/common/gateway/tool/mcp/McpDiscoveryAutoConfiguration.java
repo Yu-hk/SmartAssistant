@@ -3,14 +3,19 @@ package com.example.smartassistant.common.gateway.tool.mcp;
 import com.example.smartassistant.common.gateway.tool.ToolGateway;
 import com.example.smartassistant.common.gateway.tool.ToolRegistry;
 import com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsTool;
+import com.example.smartassistant.common.tool.client.ToolRegistryAutoConfiguration;
 import com.example.smartassistant.common.tool.client.ToolRegistryProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.modelcontextprotocol.client.McpClient;
 import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -27,7 +32,10 @@ import org.springframework.context.annotation.Bean;
  * <p>特性开关 {@code tool-registry.mcp-discovery-enabled=false} 时这些 bean 仍会创建（创建不触发连接），
  * 但 {@code ToolRegistryClient} 完全走原 REST 路径，T2c 改动零影响、可一键回退。</p>
  */
-@AutoConfiguration
+@AutoConfiguration(after = ToolRegistryAutoConfiguration.class)
+@ConditionalOnClass(McpClient.class)
+@ConditionalOnBean({ToolGateway.class, ToolRegistry.class})
+@EnableConfigurationProperties(ToolRegistryProperties.class)
 public class McpDiscoveryAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(McpDiscoveryAutoConfiguration.class);
@@ -70,7 +78,8 @@ public class McpDiscoveryAutoConfiguration {
 	 */
 	@Bean
 	@ConditionalOnMissingBean
-	@ConditionalOnProperty(prefix = "tool-registry", name = "t2-mcp-discovery-enabled", havingValue = "true", matchIfMissing = true)
+	@ConditionalOnBean(ObservationRegistry.class)
+	@ConditionalOnProperty(prefix = "tool-registry", name = "t2-mcp-discovery-enabled", havingValue = "true")
 	public DiscoverToolsTool discoverToolsTool(McpRegistryDiscoveryClient discoveryClient,
 	                                           McpToolCallbackFactory callbackFactory,
 	                                           ToolRegistryProperties properties,

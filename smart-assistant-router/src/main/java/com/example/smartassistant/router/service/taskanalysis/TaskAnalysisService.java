@@ -63,6 +63,12 @@ public class TaskAnalysisService {
             + "service_name=router-local; capabilities=[通用问答]; examples=[\"回答通用问题\"]";
     private static final String FALLBACK_PROMPT = "你是任务规划专家。仅输出合法 JSON，"
             + "将用户目标拆为至少一个原子 sub_intents 节点，并明确依赖、Agent、读写属性和完成标准。";
+    private static final String SEMANTIC_CACHE_PROTOCOL = """
+
+            ## 语义缓存分类协议
+            输出必须包含 semantic_cache_category，且只能是 PRODUCT_CONSULTATION、BUSINESS_CONSULTATION、NONE。
+            只读商品查询、分析、推荐使用 PRODUCT_CONSULTATION；严格依据业务文档、业务规则或流程说明的只读咨询使用 BUSINESS_CONSULTATION；订单/物流/支付等用户数据、任何写操作、闲聊、通用知识、创作和不确定场景一律使用 NONE。
+            """;
 
     private final ModelRoutingService modelRoutingService;
     private final IntentEvaluationService intentEvaluationService;
@@ -321,8 +327,10 @@ public class TaskAnalysisService {
                 ? basePrompt.replace(NACOS_AGENT_CATALOG_PLACEHOLDER, catalog)
                 : basePrompt + "\n\n## 本次请求可用 Agent（Router 从 Nacos 动态注入）\n"
                         + catalog;
-        return enriched.replace(WORKFLOW_OPERATION_CATALOG_PLACEHOLDER,
+        String resolved = enriched.replace(WORKFLOW_OPERATION_CATALOG_PLACEHOLDER,
                 WorkflowOperation.promptCodes());
+        return resolved.contains("semantic_cache_category")
+                ? resolved : resolved + SEMANTIC_CACHE_PROTOCOL;
     }
 
     /**
@@ -429,6 +437,10 @@ public class TaskAnalysisService {
             // intent_category
             if (map.containsKey("intent_category")) {
                 result.setIntentCategory(String.valueOf(map.get("intent_category")));
+            }
+
+            if (map.containsKey("semantic_cache_category")) {
+                result.setSemanticCacheCategory(String.valueOf(map.get("semantic_cache_category")));
             }
 
             // confidence

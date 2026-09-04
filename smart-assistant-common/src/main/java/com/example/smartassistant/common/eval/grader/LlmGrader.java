@@ -9,17 +9,11 @@ package com.example.smartassistant.common.eval.grader;
 
 import com.example.smartassistant.common.eval.AgentEvaluationResult;
 import com.example.smartassistant.common.eval.EvaluationReportService.AgentTestSpec;
+import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
-
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * LLM-as-Judge 打分器 — 瀑布流第二环，对规则无法判定的语义质量（语气/策略/合理性）做弹性评分。
@@ -39,66 +33,48 @@ import java.util.regex.Pattern;
 public class LlmGrader implements Grader {
 
     private static final Logger log = LoggerFactory.getLogger(LlmGrader.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final Pattern JSON_PATTERN = Pattern.compile("[\\{].*?[\\}]", Pattern.DOTALL);
-
     private final ChatModel chatModel;
     private final double humanReviewConfidenceThreshold;
+    private final AiChatService aiChatService;
 
     public LlmGrader(ChatModel chatModel) {
-        this(chatModel, 0.6);
+        this(chatModel, 0.6, AiChatService.governedDefaults());
     }
 
     public LlmGrader(ChatModel chatModel, double humanReviewConfidenceThreshold) {
+        this(chatModel, humanReviewConfidenceThreshold, AiChatService.governedDefaults());
+    }
+
+    public LlmGrader(ChatModel chatModel, double humanReviewConfidenceThreshold,
+                     AiChatService aiChatService) {
         this.chatModel = chatModel;
         this.humanReviewConfidenceThreshold = humanReviewConfidenceThreshold;
+        this.aiChatService = aiChatService;
     }
 
     @Override
     public GraderResult grade(AgentEvaluationResult result, AgentTestSpec spec) {
         String prompt = buildJudgePrompt(result, spec);
-        String raw = safeCall(prompt);
-        JudgeOutput out = parse(raw);
+        JudgeOutput out = safeCall(prompt);
         if (out == null) {
             return new GraderResult(result.getCompositeScore(), true,
                     "LLM 解析失败，回退规则分", "LLM", 0.3, true);
         }
 
-        double score = applyBiasGuardrails(out.score, result);
-        double confidence = out.confidence;
-        if (out.rationale == null || out.rationale.isBlank()) {
+        double score = applyBiasGuardrails(out.score(), result);
+        double confidence = out.confidence();
+        if (out.rationale() == null || out.rationale().isBlank()) {
             confidence = Math.min(confidence, 0.3); // 无理由 → 不可信
         }
         boolean needHuman = confidence < humanReviewConfidenceThreshold;
-        return new GraderResult(score, true, out.rationale, "LLM", confidence, needHuman);
+        return new GraderResult(score, true, out.rationale(), "LLM", confidence, needHuman);
     }
 
-    private String safeCall(String prompt) {
+    private JudgeOutput safeCall(String prompt) {
         try {
-            ChatResponse resp = chatModel.call(new Prompt(prompt));
-            if (resp == null || resp.getResult() == null || resp.getResult().getOutput() == null) {
-                return null;
-            }
-            return resp.getResult().getOutput().getText();
+            return aiChatService.entity(chatModel, prompt, JudgeOutput.class);
         } catch (Exception e) {
             log.warn("[LlmGrader] 模型调用失败: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    private JudgeOutput parse(String raw) {
-        if (raw == null) return null;
-        try {
-            Matcher m = JSON_PATTERN.matcher(raw);
-            String json = m.find() ? m.group() : raw;
-            JsonNode node = MAPPER.readTree(json);
-            JudgeOutput o = new JudgeOutput();
-            o.score = node.has("score") ? node.get("score").asDouble() : 0.0;
-            o.rationale = node.has("rationale") ? node.get("rationale").asText() : "";
-            o.confidence = node.has("confidence") ? node.get("confidence").asDouble() : 0.5;
-            return o;
-        } catch (Exception e) {
-            log.warn("[LlmGrader] JSON 解析失败: {}", e.getMessage());
             return null;
         }
     }
@@ -132,9 +108,5 @@ public class LlmGrader implements Grader {
 
     /** LLM 返回的打分结构。 */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private static class JudgeOutput {
-        double score;
-        String rationale;
-        double confidence;
-    }
+    private record JudgeOutput(double score, String rationale, double confidence) {}
 }

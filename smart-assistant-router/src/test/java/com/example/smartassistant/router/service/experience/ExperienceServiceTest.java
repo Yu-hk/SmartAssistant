@@ -8,7 +8,7 @@
 package com.example.smartassistant.router.service.experience;
 
 import com.example.smartassistant.common.cache.CacheVersionManager;
-import com.example.smartassistant.common.intent.IntentTagGenerator;
+import com.example.smartassistant.router.service.intent.IntentTagGenerator;
 import com.example.smartassistant.router.service.experience.ExperienceModel.*;
 import com.example.smartassistant.router.service.experience.ExperienceModel.ReactExperience.ReactStep;
 import com.fasterxml.jackson.databind.ObjectMapper;

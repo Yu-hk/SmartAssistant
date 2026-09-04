@@ -334,7 +334,7 @@ class RouteExecutionPreplannedGraphTest {
                         com.example.smartassistant.router.model.ExecutionPlan.AccessMode.READ,
                         com.example.smartassistant.router.model.ExecutionPlan.AccessMode.WRITE),
                 plan.nodes().stream().map(node -> node.accessMode()).toList());
-        assertFalse(plan.nodes().get(1).approvalRequired());
+        assertTrue(plan.nodes().get(1).approvalRequired());
         assertTrue(plan.nodes().get(2).approvalRequired());
         assertTrue(plan.nodes().get(3).approvalRequired());
         assertFalse(plan.nodes().get(4).approvalRequired());

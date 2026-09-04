@@ -2,7 +2,6 @@ package com.example.smartassistant.common.rag.advisor;
 
 import com.example.smartassistant.common.agent.ContextCompressor;
 import com.example.smartassistant.common.agent.ReActProfile;
-import com.example.smartassistant.common.memory.ConversationSummaryStore;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -25,9 +24,8 @@ public class SummarizationAdvisor extends ContextCompressor
 
     private static final String APPLIED = SummarizationAdvisor.class.getName() + ".applied";
 
-    public SummarizationAdvisor(ChatModel chatModel, ReActProfile profile,
-                                ConversationSummaryStore summaryStore, List<String> summaryChain) {
-        super(chatModel, profile, summaryStore, summaryChain);
+    public SummarizationAdvisor(ChatModel chatModel, ReActProfile profile, List<String> summaryChain) {
+        super(chatModel, profile, summaryChain);
     }
 
     @Override

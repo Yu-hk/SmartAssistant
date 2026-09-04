@@ -13,7 +13,7 @@ spring:
 
   # ⭐ 加载外部技能包配置
   config:
-    import: classpath:skill-packages.yml
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties],classpath:skill-packages.yml
 
   # ⭐ 排除 Spring Security 自动配置（模型调用使用 Spring AI 原生自动配置）
   autoconfigure:

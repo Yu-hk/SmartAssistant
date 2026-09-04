@@ -19,7 +19,7 @@ spring:
 
   # 加载版本化 Agent Skill。
   config:
-    import: classpath:skill-packages.yml
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties],classpath:skill-packages.yml
 
   # ⭐ 排除 Spring Security 自动配置
   autoconfigure:

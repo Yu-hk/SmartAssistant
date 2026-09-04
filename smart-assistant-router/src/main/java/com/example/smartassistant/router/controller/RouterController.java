@@ -106,6 +106,11 @@ public class RouterController {
                     .routingMethod("LLM_ROUTING")
                     .intentTag(routingResult.getIntentTag())
                     .fromCache(routingResult.getFromCache() != null && routingResult.getFromCache())
+                    .semanticCacheCategory(routingResult.getSemanticCacheCategory())
+                    .semanticCacheVolatileProduct(Boolean.TRUE.equals(
+                            routingResult.getSemanticCacheVolatileProduct()))
+                    .semanticCacheEligible(Boolean.TRUE.equals(
+                            routingResult.getSemanticCacheEligible()))
                     .clarification(Boolean.TRUE.equals(routingResult.getClarification()))
                     .promptTokens(tokenUsage != null ? tokenUsage.promptTokens() : null)
                     .completionTokens(tokenUsage != null ? tokenUsage.completionTokens() : null)
