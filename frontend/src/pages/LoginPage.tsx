@@ -12,6 +12,7 @@ import {
 } from '../api/auth';
 import { DingTalkQrLoginDialog } from '../components/DingTalkQrLoginDialog';
 import { FeishuQrLoginDialog } from '../components/FeishuQrLoginDialog';
+import { createDemoAccount } from '../api/demo';
 import {
   Activity,
   AtSign,
@@ -51,6 +52,7 @@ export function LoginPage() {
     () => searchParams.get('expired') === '1' ? '登录状态已过期，请重新登录' : '',
   );
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const [helpDialog, setHelpDialog] = useState<'forgot' | 'terms' | null>(null);
   const [dingtalkQrOpen, setDingtalkQrOpen] = useState(false);
   const [feishuQrOpen, setFeishuQrOpen] = useState(false);
@@ -120,6 +122,7 @@ export function LoginPage() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (loading) return;
     setError('');
     if (mode === 'register' && password !== confirm) {
       setError('两次输入的密码不一致');
@@ -161,6 +164,23 @@ export function LoginPage() {
       return;
     }
     setHelpDialog('forgot');
+  };
+
+  const beginDemo = async () => {
+    if (loading) return;
+    setError('');
+    setLoading(true);
+    setDemoLoading(true);
+    try {
+      const user = await createDemoAccount();
+      saveAuth(user, false);
+      navigate('/', { replace: true });
+    } catch (err) {
+      setError(`演示账号暂时无法登录：${err instanceof Error ? err.message : '请稍后重试'}`);
+    } finally {
+      setDemoLoading(false);
+      setLoading(false);
+    }
   };
 
   const beginSso = (provider: OAuthProviderStatus) => {
@@ -266,6 +286,16 @@ export function LoginPage() {
               <>
                 <h2>登录工作台</h2>
                 <p className="login-subtitle">欢迎回来，请使用账号登录</p>
+
+                <section className="login-demo" aria-label="演示账号">
+                  <strong>演示账号 · 免注册体验</strong>
+                  <p>无需填写注册信息，为你创建独立的普通体验账号。</p>
+                  <button type="button" className="login-submit" disabled={loading}
+                    onClick={beginDemo}>
+                    {demoLoading ? '正在准备演示账号…' : '使用演示账号体验'}
+                  </button>
+                  <small>可体验商品咨询、订单服务和智能问答。关闭标签页后需重新体验；请勿填写真实敏感信息。</small>
+                </section>
 
                 <label>账号</label>
                 <div className="login-input-wrap">

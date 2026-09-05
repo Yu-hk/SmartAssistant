@@ -30,6 +30,126 @@ import static org.mockito.Mockito.when;
 class ProductStreamControllerTest {
 
     @Test
+    void emptyTabletCatalogSurvivesDiscoveryAnalysisAndRecommendationWithoutModels() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        ProductDiscoveryService discovery = mock(ProductDiscoveryService.class);
+        String question = "帮我推荐一款平板电脑，预算2000以内";
+        when(discovery.discover(question, "平板电脑", null)).thenReturn(
+                new ProductDiscoveryService.DiscoveryResult("暂无预算内平板电脑", 0, false,
+                        List.of(), false, "平板电脑"));
+        ProductStreamController controller = new ProductStreamController(service, discovery);
+        var discoverResponse = controller.execute(new AgentExecutionRequest(
+                "1.0", "empty-tablet", "discover", "42", "DISCOVER_PRODUCTS", question,
+                Map.of("category", "平板电脑"), List.of(), List.of(), null, null), null);
+        assertEquals("0", discoverResponse.getHeaders().getFirst(TokenUsageHeaders.TOTAL_TOKENS));
+        var tools = com.example.smartassistant.common.audit.ToolUsageHeaders.decode(discoverResponse.getHeaders()
+                .getFirst(com.example.smartassistant.common.audit.ToolUsageHeaders.TOOL_USAGE));
+        org.junit.jupiter.api.Assertions.assertTrue(tools.complete());
+        assertEquals(1, tools.calls().size());
+        assertEquals("discoverProducts", tools.calls().getFirst().name());
+        var discover = discoverResponse.getBody();
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, discover.status());
+        AgentNodeOutput previous = new AgentNodeOutput("discover", "product", "SUCCEEDED",
+                discover.answer(), discover.data());
+        for (String operation : List.of("ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT")) {
+            var http = controller.execute(productStep(operation, question, previous), null);
+            assertEquals("0", http.getHeaders().getFirst(TokenUsageHeaders.TOTAL_TOKENS));
+            var noTools = com.example.smartassistant.common.audit.ToolUsageHeaders.decode(http.getHeaders()
+                    .getFirst(com.example.smartassistant.common.audit.ToolUsageHeaders.TOOL_USAGE));
+            org.junit.jupiter.api.Assertions.assertTrue(noTools.complete());
+            assertEquals(0, noTools.calls().size());
+            var result = http.getBody();
+            assertEquals(AgentExecutionResponse.Status.SUCCEEDED, result.status());
+            assertEquals("WARN", result.quality().status());
+            assertEquals(List.of(), result.data().get("products"));
+            assertEquals(0, result.data().get("productCount"));
+            org.assertj.core.api.Assertions.assertThat(result.answer())
+                    .contains("暂无符合", "调整预算或品类")
+                    .doesNotContain("FATAL_FAILED", "分析", "审核", "iPad");
+            previous = new AgentNodeOutput(operation, "product", "SUCCEEDED",
+                    result.answer(), result.data());
+        }
+        org.mockito.Mockito.verifyNoInteractions(service);
+    }
+
+    @Test
+    void failedOrMissingCatalogMustNotBecomeSuccessfulNoMatch() {
+        for (AgentNodeOutput upstream : List.of(
+                new AgentNodeOutput("discover", "product", "FAILED", "超时",
+                        Map.of("products", List.of(), "productCount", 0)),
+                new AgentNodeOutput("analysis", "product", "SUCCEEDED", "数据缺失", Map.of()))) {
+            StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+            when(service.verifyAnalysisAndRecommend(anyString(), anyString(), anyString()))
+                    .thenReturn(DomainAgentResponse.of("缺少可靠上下文",
+                            DomainQualityResult.fail("MISSING_RECOMMENDATION_CONTEXT")));
+            var result = new ProductStreamController(service).execute(
+                    productStep("RECOMMEND_PRODUCT", "推荐平板电脑", upstream), null).getBody();
+            org.assertj.core.api.Assertions.assertThat(result.status())
+                    .isNotEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+            verify(service).verifyAnalysisAndRecommend(anyString(), anyString(), anyString());
+        }
+    }
+
+    @Test
+    void validBudgetTabletStillUsesVerifiedModelRecommendation() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        String answer = "推荐入门平板，价格1999元，符合2000元以内预算。";
+        when(service.verifyAnalysisAndRecommend(anyString(), anyString(), anyString()))
+                .thenReturn(DomainAgentResponse.of(answer,
+                        DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED")));
+        AgentNodeOutput upstream = new AgentNodeOutput("analysis", "product", "SUCCEEDED", "符合预算",
+                Map.of("products", List.of(Map.of("code", "TABLET-1999", "name", "入门平板",
+                        "price", 1999)), "productCount", 1));
+        var result = new ProductStreamController(service).execute(productStep(
+                "RECOMMEND_PRODUCT", "帮我推荐一款平板电脑，预算2000以内", upstream), null).getBody();
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, result.status());
+        assertEquals(answer, result.answer());
+        verify(service).verifyAnalysisAndRecommend(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void rejectedOverBudgetRecommendationCannotBeOverriddenByCatalogFallback() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        when(service.verifyAnalysisAndRecommend(anyString(), anyString(), anyString()))
+                .thenReturn(DomainAgentResponse.of("候选超出预算",
+                        DomainQualityResult.fail("PRODUCT_ANALYSIS_AUDIT_REJECTED")));
+        AgentNodeOutput upstream = new AgentNodeOutput("analysis", "product", "SUCCEEDED", "待核实",
+                Map.of("products", List.of(Map.of("code", "TABLET-9499", "name", "高价平板",
+                        "price", 9499)), "productCount", 1));
+        var result = new ProductStreamController(service).execute(productStep(
+                "RECOMMEND_PRODUCT", "预算2000以内", upstream), null).getBody();
+        org.assertj.core.api.Assertions.assertThat(result.status())
+                .isNotEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        assertNull(result.answer());
+        assertEquals("PRODUCT_ANALYSIS_AUDIT_REJECTED", result.error().code());
+    }
+
+    private static AgentExecutionRequest productStep(String operation, String question, AgentNodeOutput previous) {
+        return new AgentExecutionRequest("1.0", "tablet-regression", operation, "42", operation,
+                question, Map.of(), List.of(previous.nodeId()), List.of(), null, null,
+                Map.of(previous.nodeId(), previous), "shopping", 1, "checksum", 0, "tablet-regression");
+    }
+
+    @Test
+    void modelAnalysisAndAuditRejectionBothReturnMeasuredTokens() {
+        for (boolean reject : List.of(false, true)) {
+            var service = mock(StreamingProductAgentService.class);
+            when(service.analyzeVerifiedContext(anyString(), anyString(), anyString())).thenAnswer(invocation -> {
+                TokenUsageCache.record(invocation.getArgument(2), 81, 19, 100);
+                return DomainAgentResponse.of("核实结果", reject
+                        ? DomainQualityResult.fail("AUDIT_REJECTED") : DomainQualityResult.pass(1, "VERIFIED"));
+            });
+            var upstream = new AgentNodeOutput("discover", "product", "SUCCEEDED", "商品", Map.of());
+            var http = new ProductStreamController(service).execute(
+                    productStep("ANALYZE_PRODUCT_DATA", "分析商品", upstream), null);
+            assertEquals("100", http.getHeaders().getFirst(TokenUsageHeaders.TOTAL_TOKENS));
+            assertNull(TokenUsageCache.snapshot("tablet-regression"));
+            assertEquals(reject ? AgentExecutionResponse.Status.FAILED : AgentExecutionResponse.Status.SUCCEEDED,
+                    http.getBody().status());
+        }
+    }
+
+    @Test
     void streamEmitsMeasuredUsageBeforeDone() {
         StreamingProductAgentService service = mock(StreamingProductAgentService.class);
         when(service.execute("耳机推荐")).thenAnswer(ignored -> {

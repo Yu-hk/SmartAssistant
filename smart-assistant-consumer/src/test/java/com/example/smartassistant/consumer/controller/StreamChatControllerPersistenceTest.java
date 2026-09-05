@@ -55,6 +55,32 @@ class StreamChatControllerPersistenceTest {
     }
 
     @Test
+    void emitsMeasuredToolSnapshotAndTokensBeforeDoneWithoutToolArguments() throws Exception {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+        when(routerClient.waitForDecisionFromRedis(eq("telemetry"), eq(60_000L), any(Runnable.class)))
+                .thenReturn(Map.of("agentName", "product", "result", "查询完成",
+                        "totalTokens", 100, "promptTokens", 80, "completionTokens", 20,
+                        "toolUsageComplete", true, "toolCalls", List.of(Map.of(
+                                "name", "queryProductInfo", "status", "SUCCESS", "durationMs", 36,
+                                "arguments", "private-order-data", "result", "private-tool-result"))));
+        StreamChatController controller = new StreamChatController(
+                routerClient, agentStreamClient, requestQueueService, routingCallLogService, null);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        controller.streamChatPost(Map.of("message", "查询商品", "requestId", "telemetry", "sessionId", "owned"), response);
+        String events = response.getContentAsString();
+        assertTrue(events.contains("event: tool_usage"));
+        assertTrue(events.contains("\"toolUsageComplete\":true"));
+        assertTrue(events.contains("\"durationMs\":36"));
+        assertTrue(events.contains("\"totalTokens\":100"));
+        assertTrue(events.indexOf("event: tool_usage") < events.indexOf("event: done"));
+        assertTrue(events.indexOf("event: token_usage") < events.indexOf("event: done"));
+        assertFalse(events.contains("private-order-data"));
+        assertFalse(events.contains("private-tool-result"));
+    }
+
+    @Test
     void completedSseTurnPersistsOwnerSessionAgentAndResponse() {
         MockHttpServletRequest servletRequest = new MockHttpServletRequest();
         servletRequest.addHeader("X-User-Id", "42");
