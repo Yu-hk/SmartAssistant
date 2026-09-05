@@ -306,16 +306,16 @@ public class ResultMerger {
         return answer.toString();
     }
 
-    private static String requiredFailureReply(List<SubTaskResult> failures) {
-        StringBuilder answer = new StringBuilder("未能完成以下必要步骤，因此暂时无法给出完整结论：");
-        for (SubTaskResult failure : failures) {
-            answer.append("\n- ").append(failure.getDescription());
-            if (failure.getErrorType() != null
-                    && failure.getErrorType() != SubTaskResult.ErrorType.NONE) {
-                answer.append("（").append(failure.getErrorType()).append("）");
-            }
+    static String requiredFailureReply(List<SubTaskResult> failures) {
+        // Neither planning descriptions nor raw downstream errors are public-safe.
+        // Preserve failure semantics while using curated, actionable user wording.
+        if (failures.stream().allMatch(failure -> failure.getDomainQuality() != null
+                && failure.getDomainQuality().getReasonCodes()
+                        .contains("PRODUCT_ANALYSIS_AUDIT_REJECTED"))) {
+            return "当前推荐尚未通过商品信息核实，暂时无法给出可靠结论。"
+                    + "请稍后重试，或提供具体商品型号以便核对。";
         }
-        return answer.toString();
+        return "部分必要信息暂时未能核实，无法完成本次请求。请稍后重试；如果问题持续，请联系人工客服。";
     }
 
     private static String optionalFailureWarning(List<SubTaskResult> results) {

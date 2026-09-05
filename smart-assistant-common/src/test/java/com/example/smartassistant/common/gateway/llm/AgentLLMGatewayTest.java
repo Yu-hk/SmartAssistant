@@ -12,6 +12,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AgentLLMGatewayTest {
 
     @Test
+    void propagatesRequestContextAcrossRetriesWithoutChangingCaller() {
+        var gateway = new AgentLLMGateway();
+        var attempts = new AtomicInteger();
+        org.slf4j.MDC.put("requestId", "usage-context");
+        try {
+            var result = gateway.call(() -> {
+                assertEquals("usage-context", org.slf4j.MDC.get("requestId"));
+                org.slf4j.MDC.put("requestId", "worker-only");
+                if (attempts.getAndIncrement() == 0) throw new IllegalStateException("retry");
+                return "ok";
+            }, "context-test", new LLMCallConfig(null, 128, Duration.ofSeconds(2), 1, 0.1, false));
+            assertTrue(result.success());
+            assertEquals(2, attempts.get());
+            assertEquals("usage-context", org.slf4j.MDC.get("requestId"));
+        } finally {
+            org.slf4j.MDC.clear();
+        }
+    }
+
+    @Test
     void timeoutReturnsWithoutWaitingForUncooperativeTaskToFinish() {
         AgentLLMGateway gateway = new AgentLLMGateway();
         LLMCallConfig config = new LLMCallConfig(

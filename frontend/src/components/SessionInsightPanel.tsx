@@ -1,3 +1,4 @@
+import React from 'react';
 import {
   Activity,
   CircleCheck,
@@ -10,6 +11,9 @@ import {
   Wrench,
 } from 'lucide-react';
 import { Session, INTENT_LABELS, INTENT_COLORS } from '../types';
+import { summarizeTelemetry } from '../utils/sessionTelemetry';
+import { getAgentCapabilityLabel } from '../utils/toolDisplay';
+import { SessionExecutionSteps } from './SessionExecutionSteps';
 
 interface SessionInsightPanelProps {
   sessions: Session[];
@@ -47,6 +51,8 @@ export function SessionInsightPanel({
   onCloseSession,
   onRateSession,
 }: SessionInsightPanelProps) {
+  const telemetry = summarizeTelemetry(currentSession?.messages ?? []);
+  const formatTokens = (value: number | null) => value === null ? '未采集' : value.toLocaleString('zh-CN');
   const stats = {
     total: sessions.length,
     active: sessions.filter(s => s.status === 'active').length,
@@ -92,7 +98,13 @@ export function SessionInsightPanel({
             )}
             <div className="insight-kv">
               <span>处理能力</span>
-              <strong>{currentSession.agent_name || '正在识别需求'}</strong>
+              <strong>{currentSession.agent_name ? getAgentCapabilityLabel(currentSession.agent_name)
+                : telemetry.streaming ? '正在识别需求' : '智能助手'}</strong>
+            </div>
+            <div className="insight-kv">
+              <span>本轮回复</span>
+              <strong>{telemetry.streaming ? '处理中' : currentSession.messages.some(m => m.role === 'assistant')
+                ? '已结束' : '等待提问'}</strong>
             </div>
             <div className="insight-kv">
               <span>创建时间</span>
@@ -105,12 +117,27 @@ export function SessionInsightPanel({
             <div className="insight-kv">
               <span>工具调用</span>
               <strong>
-                {currentSession.messages.reduce(
-                  (sum, m) => sum + (m.toolCalls?.length ?? 0),
-                  0,
-                )} 次
+                {telemetry.calls.length || telemetry.toolsComplete
+                  ? `${telemetry.calls.length} 次${telemetry.toolsComplete ? '' : ' · 部分采集'}`
+                  : telemetry.streaming ? '等待调用记录' : '未采集'}
               </strong>
             </div>
+            <div className="insight-telemetry" aria-live="polite" aria-atomic="true">
+              <div className="insight-kv">
+                <span>累计 Token</span>
+                <strong>{formatTokens(telemetry.totalTokens)}</strong>
+              </div>
+              <div className="insight-token-breakdown">
+                <span>输入 <b>{formatTokens(telemetry.promptTokens)}</b></span>
+                <span>输出 <b>{formatTokens(telemetry.completionTokens)}</b></span>
+              </div>
+              <p className="insight-telemetry-note">
+                {telemetry.streaming ? '执行中 · 随服务端回传更新'
+                  : telemetry.totalTokens === null ? '服务端尚未提供用量，不代表消耗为 0'
+                  : telemetry.tokensComplete ? '已采集各轮用量' : '部分轮次未采集，当前为已知用量'}
+              </p>
+            </div>
+            <SessionExecutionSteps key={currentSession.id} messages={currentSession.messages} />
           </section>
 
           <section className="insight-section">

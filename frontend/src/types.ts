@@ -112,6 +112,7 @@ export interface ToolCall {
   status: 'running' | 'completed' | 'error';
   result?: string;
   isError?: boolean;
+  durationMs?: number;
 }
 
 export type ContentBlock =
@@ -127,6 +128,11 @@ export interface Message {
   timestamp: Date;
   isStreaming?: boolean;
   toolCalls?: ToolCall[];
+  toolUsageComplete?: boolean | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  tokenUsageComplete?: boolean | null;
   contentBlocks?: ContentBlock[];
   /** Independent Router/LangGraph execution ID for this conversation turn. */
   requestId?: string;

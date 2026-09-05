@@ -160,6 +160,19 @@ public class TokenUsageAdvisor implements CallAdvisor, StreamAdvisor, Ordered {
         }
     }
 
+    /** For direct ChatModel calls that do not pass through ChatClient advisors. */
+    public static void recordDirectUsage(String requestId, ChatResponseMetadata meta) {
+        MeasuredUsage usage = measuredUsage(meta);
+        if (usage == null) {
+            TokenUsageCache.markIncomplete(requestId);
+            return;
+        }
+        TokenUsageCache.recordPartial(requestId, UUID.randomUUID().toString(),
+                usage.promptTokens() == null ? null : usage.promptTokens().longValue(),
+                usage.completionTokens() == null ? null : usage.completionTokens().longValue(),
+                usage.totalTokens());
+    }
+
     private static MeasuredUsage measuredUsage(ChatResponseMetadata meta) {
         if (meta == null) return null;
         Usage usage = meta.getUsage();

@@ -12,6 +12,7 @@ import {
 } from '../types';
 import { sessions as sessionApi } from '../api';
 import { authenticatedFetch } from '../api/client';
+import { applyTelemetryEvent } from '../utils/sessionTelemetry';
 
 interface UseChatOptions {
   currentSession: Session | undefined;
@@ -214,6 +215,42 @@ export function useChat(options: UseChatOptions) {
             ? { ...parsed.data, type: parsed.type || parsed.data.type || event.type }
             : { ...parsed, type: parsed.type || event.type };
 
+          if (['token_usage', 'tool_usage', 'tool', 'tool_call', 'tool_result'].includes(data.type)) {
+            const patch = applyTelemetryEvent({ toolCalls: currentToolCalls }, data);
+            if (!patch) return;
+            if (patch.toolCalls) {
+              currentToolCalls = patch.toolCalls;
+              // Replace block references as calls complete; snapshots must not duplicate calls.
+              contentBlocks = contentBlocks.filter(block => block.type !== 'tool_use'
+                || currentToolCalls.some(tool => tool.id === block.toolCall.id))
+                .map(block => block.type === 'tool_use'
+                  ? { ...block, toolCall: currentToolCalls.find(tool => tool.id === block.toolCall.id)! } : block);
+              for (const tool of currentToolCalls) {
+                if (!contentBlocks.some(block => block.type === 'tool_use' && block.toolCall.id === tool.id)) {
+                  currentTextBlock = '';
+                  contentBlocks.push({ type: 'tool_use', toolCall: tool });
+                }
+              }
+            }
+            if (data.type === 'tool' || data.type === 'tool_call') setProgressMessage('正在查询业务数据…');
+            if (data.type === 'tool_result') setProgressMessage('查询完成，正在核实结果…');
+            const nextBlocks = [...contentBlocks];
+            updateAssistantMessage(current => ({ ...current, ...patch, contentBlocks: nextBlocks }));
+            return;
+          }
+
+          if (data.type === 'routed') {
+            const agents = Array.isArray(data.participatingAgents)
+              ? data.participatingAgents.filter((value: unknown): value is string => typeof value === 'string' && !!value)
+              : [];
+            const agentName = agents.length === 1 ? agents[0]
+              : typeof data.agentName === 'string' ? data.agentName : null;
+            const intent = normalizeIntentType(data.intentTag ?? agentName);
+            setSessions(prev => prev.map(s => s.id === realSessionId || s.id === sessionId
+              ? { ...s, agent_name: agentName || s.agent_name, intent: intent === 'unknown' ? s.intent : intent }
+              : s));
+          }
+
           if (data.type === 'init') {
             activeRequestIdRef.current = data.requestId || requestId;
             setProgressMessage('会话已建立，正在分析问题…');
@@ -274,51 +311,6 @@ export function useChat(options: UseChatOptions) {
               toolCalls: [...currentToolCalls],
               contentBlocks: [...contentBlocks],
             }));
-
-          } else if (data.type === 'tool') {
-            setProgressMessage('正在查询业务数据…');
-            currentTextBlock = '';
-            const toolCall: ToolCall = { id: data.id || crypto.randomUUID(), name: data.name, input: data.input, status: 'running' };
-            currentToolCalls.push(toolCall);
-            contentBlocks.push({ type: 'tool_use', toolCall });
-            setSessions(prev => prev.map(s => {
-              if (s.id === realSessionId) {
-                return {
-                  ...s,
-                  messages: s.messages.map(m =>
-                    m.id === realAssistantMessageId
-                      ? { ...m, toolCalls: [...currentToolCalls], contentBlocks: [...contentBlocks] }
-                      : m
-                  ),
-                };
-              }
-              return s;
-            }));
-
-          } else if (data.type === 'tool_result') {
-            setProgressMessage('查询完成，正在核实结果…');
-            const idx = data.toolId
-              ? currentToolCalls.findIndex(t => t.id === data.toolId)
-              : currentToolCalls.length - 1;
-            if (idx >= 0) {
-              currentToolCalls[idx].status = data.isError ? 'error' : 'completed';
-              currentToolCalls[idx].result = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
-              const blockIdx = contentBlocks.findIndex(b => b.type === 'tool_use' && b.toolCall.id === currentToolCalls[idx].id);
-              if (blockIdx >= 0) (contentBlocks[blockIdx] as any).toolCall = { ...currentToolCalls[idx] };
-              setSessions(prev => prev.map(s => {
-                if (s.id === realSessionId) {
-                  return {
-                    ...s,
-                    messages: s.messages.map(m =>
-                      m.id === realAssistantMessageId
-                        ? { ...m, toolCalls: [...currentToolCalls], contentBlocks: [...contentBlocks] }
-                        : m
-                    ),
-                  };
-                }
-                return s;
-              }));
-            }
 
           } else if (data.type === 'done') {
             isDone = true;

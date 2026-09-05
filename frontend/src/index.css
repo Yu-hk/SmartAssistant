@@ -196,6 +196,20 @@ body {
   font-size: 12px;
 }
 .insight-kv > span { color: var(--nova-text-secondary); flex: none; }
+.insight-telemetry { margin-top: 10px; padding: 10px; border-radius: 10px; background: var(--nova-bg-component); }
+.insight-token-breakdown { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 11px; color: var(--nova-text-secondary); }
+.insight-token-breakdown b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.insight-telemetry-note { margin: 8px 0 0; color: var(--nova-text-tertiary); font-size: 11px; line-height: 1.6; }
+.insight-tools { margin-top: 12px; font-size: 12px; }
+.insight-tools summary { cursor: pointer; color: var(--nova-text-secondary); padding: 5px 0; }
+.insight-tools ol { list-style: none; padding: 0; margin: 4px 0 0; max-height: 240px; overflow-y: auto; }
+.insight-tools li { padding: 9px 0; border-bottom: 1px solid var(--nova-border); }
+.insight-tools li > div { display: flex; align-items: center; gap: 6px; }
+.insight-tools li strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.insight-tools li small { display: block; padding: 4px 0 0 18px; color: var(--nova-text-tertiary); }
+.insight-tool-status { margin-left: auto; flex-shrink: 0; font-size: 10px; color: var(--nova-text-tertiary); }
+.insight-tool-status.is-completed { color: var(--nova-success); }
+.insight-tool-status.is-error { color: var(--nova-warning); }
 .insight-kv > strong {
   min-width: 0;
   overflow: hidden;
@@ -900,6 +914,12 @@ body {
 
 .login-card h2 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
 .login-subtitle { color: var(--nova-text-secondary); font-size: 13px; margin-bottom: 26px; }
+.login-demo { margin-bottom: 24px; padding: 16px; border: 1px solid var(--nova-border, #cbd5e1); border-radius: 12px; background: var(--nova-bg-secondary, #f1f5f9); }
+.login-demo > strong { color: var(--nova-text-primary); font-size: 15px; }
+.login-demo > p { margin: 7px 0 12px; color: var(--nova-text-secondary); font-size: 13px; line-height: 1.6; }
+.login-demo > small { display: block; margin-top: 10px; color: var(--nova-text-secondary); font-size: 12px; line-height: 1.6; }
+.login-demo > button:focus-visible { outline: 3px solid #60a5fa; outline-offset: 3px; }
+.login-demo > .login-submit { width: 100%; padding: 12px 16px; }
 .login-card form { display: flex; flex-direction: column; }
 .login-card label {
   margin: 0 0 8px;
@@ -1257,9 +1277,18 @@ body {
   }
 }
 
-/* 工作台右栏 — 窄屏自动隐藏 */
+.chat-mobile-execution { display: none; }
+/* Narrow screens retain a collapsed steps entry when the sidebar is hidden. */
 @media (max-width: 1180px) {
   .workbench-insight { display: none !important; }
+  .chat-mobile-execution { display: block; }
+  .chat-mobile-execution .insight-tools {
+    margin: 0 0 16px;
+    padding: 8px 12px;
+    border: 1px solid var(--nova-border);
+    border-radius: 12px;
+    background: var(--nova-bg-component);
+  }
 }
 
 /* 代码字体 */
