@@ -167,7 +167,21 @@ public class ProductStreamController {
                             "Question must not be blank", false));
         }
         String question = UserQuestionNormalizer.normalize(request.question());
+        ToolUsageCache.start(requestId);
         if (isAnalysisOrRecommendationRequest(request)) {
+            // An explicit, successful empty catalog is a business result, not missing
+            // context to send through Flash/Pro. Carry it across analysis-only DAG edges.
+            if (hasVerifiedEmptyCatalog(request)) {
+                String answer = "当前商品目录中暂无符合您本次查询条件的候选商品，暂时无法推荐。"
+                        + "您可以调整预算或品类，我再帮您查询。";
+                String field = WorkflowOperation.ANALYZE_PRODUCT_DATA.code()
+                        .equalsIgnoreCase(request.operation()) ? "analysis" : "recommendation";
+                return executionResponse(requestId, AgentExecutionResponse.success(answer,
+                        Map.of("operation", request.operation(), "products", List.of(),
+                                "productCount", 0, field, answer,
+                                "sourceNodeIds", List.copyOf(request.predecessorOutputs().keySet())),
+                        DomainQualityResult.warn(0.5, "PRODUCT_CATALOG_EVIDENCE_LIMITED")), true);
+            }
             String verifiedContext = buildVerifiedContext(request);
             ToolUsageCache.start(requestId);
             DomainAgentResponse response = WorkflowOperation.ANALYZE_PRODUCT_DATA.code().equalsIgnoreCase(request.operation())
@@ -181,8 +195,8 @@ public class ProductStreamController {
             if (response.quality().isFail()) {
                 String code = response.quality().getReasonCodes().isEmpty()
                         ? "PRODUCT_ANALYSIS_FAILED" : response.quality().getReasonCodes().getFirst();
-                return ResponseEntity.ok(AgentExecutionResponse.failure(
-                        code, response.answer(), false));
+                return executionResponse(requestId, AgentExecutionResponse.failure(
+                        code, response.answer(), false), false);
             }
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("operation", request.operation());
@@ -202,14 +216,23 @@ public class ProductStreamController {
             } else {
                 data.put("recommendation", response.answer());
             }
-            return ResponseEntity.ok(AgentExecutionResponse.success(
-                    response.answer(), data, response.quality()));
+            return executionResponse(requestId, AgentExecutionResponse.success(
+                    response.answer(), data, response.quality()), false);
         }
         if (productDiscoveryService != null && isDiscoveryRequest(request)) {
             Integer limit = integerInput(request, "candidateLimit", "candidate_limit", "limit");
             String category = textInput(request, "product_category", "category", "product_name");
-            ProductDiscoveryService.DiscoveryResult discovery =
-                    productDiscoveryService.discover(withUserProfile(question, request), category, limit);
+            long started = System.nanoTime();
+            ProductDiscoveryService.DiscoveryResult discovery;
+            boolean success = false;
+            try {
+                discovery = productDiscoveryService.discover(withUserProfile(question, request), category, limit);
+                success = true;
+            } finally {
+                // This is an actual catalog capability invocation, not a synthetic LLM tool call.
+                ToolUsageCache.record(requestId, "discoverProducts", success,
+                        (System.nanoTime() - started) / 1_000_000);
+            }
             DomainAgentResponse response = DomainAgentResponse.of(
                     discovery.answer(), discovery.productCount() > 0
                     ? discovery.scenarioEvidenceLimited()
@@ -225,17 +248,30 @@ public class ProductStreamController {
                     "popularityBased", discovery.popularityBased(),
                     "scenarioEvidenceLimited", discovery.scenarioEvidenceLimited(),
                     "category", discovery.category());
-            return ResponseEntity.ok(AgentExecutionResponse.success(
-                    response.answer(), data, response.quality()));
+            return executionResponse(requestId, AgentExecutionResponse.success(
+                    response.answer(), data, response.quality()), true);
         }
         ToolUsageCache.start(requestId);
         DomainAgentResponse response = streamingAgentService.executeWithQuality(
                 withUserProfile(question, request), requestId);
-        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
-                .header(DomainQualityHeaders.STATUS, response.quality().getStatus().name())
-                .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().getScore()))
-                .header(DomainQualityHeaders.REASON_CODES, response.quality().reasonCodesHeaderValue());
+        return executionResponse(requestId,
+                AgentExecutionResponse.success(response.answer(), response.quality()), false);
+    }
+
+    /** Every protocol exit, including deterministic and audit-failure exits, carries telemetry. */
+    private ResponseEntity<AgentExecutionResponse> executionResponse(
+            String requestId, AgentExecutionResponse response, boolean noModelInvocation) {
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
+        if (response.quality() != null) {
+            builder.header(DomainQualityHeaders.STATUS, response.quality().status())
+                    .header(DomainQualityHeaders.SCORE, String.valueOf(response.quality().score()))
+                    .header(DomainQualityHeaders.REASON_CODES,
+                            String.join(",", response.quality().reasonCodes()));
+        }
         TokenUsageCache.TokenUsage usage = TokenUsageCache.consume(requestId);
+        if (usage == null && noModelInvocation) {
+            usage = new TokenUsageCache.TokenUsage(0L, 0L, 0L);
+        }
         if (usage != null) {
             if (usage.promptTokens() != null) builder.header(
                     TokenUsageHeaders.PROMPT_TOKENS, String.valueOf(usage.promptTokens()));
@@ -246,7 +282,7 @@ public class ProductStreamController {
         }
         String toolUsage = ToolUsageHeaders.encode(ToolUsageCache.consume(requestId));
         if (toolUsage != null) builder.header(ToolUsageHeaders.TOOL_USAGE, toolUsage);
-        return builder.body(AgentExecutionResponse.success(response.answer(), response.quality()));
+        return builder.body(response);
     }
 
     private boolean isDiscoveryRequest(AgentExecutionRequest request) {
@@ -323,6 +359,9 @@ public class ProductStreamController {
      */
     private static DomainAgentResponse ensureEvidenceBackedRecommendation(
             AgentExecutionRequest request, DomainAgentResponse modelResponse) {
+        // A factual audit rejection must never become a recommendation merely because
+        // there are catalog entries. They may violate the user's hard constraints.
+        if (modelResponse.quality().isFail()) return modelResponse;
         List<Map<?, ?>> products = verifiedProducts(request);
         if (products.isEmpty() || mentionsVerifiedProduct(modelResponse.answer(), products)) {
             return modelResponse;
@@ -361,6 +400,22 @@ public class ProductStreamController {
                 DomainQualityResult.warn(0.8,
                         "PRODUCT_RECOMMENDATION_VERIFIED_CANDIDATE_FALLBACK",
                         "PRODUCT_RECOMMENDATION_EVIDENCE_LIMITED"));
+    }
+
+    private static boolean hasVerifiedEmptyCatalog(AgentExecutionRequest request) {
+        boolean emptyCatalog = false;
+        for (AgentNodeOutput output : request.predecessorOutputs().values()) {
+            if (!"SUCCEEDED".equals(output.status())) return false;
+            Object products = output.data().get("products");
+            // Conflicting/nonempty evidence must still be audited, not hidden as no match.
+            if (products instanceof List<?> items && !items.isEmpty()) return false;
+            Object count = output.data().get("productCount");
+            if (products instanceof List<?> items && items.isEmpty()
+                    && count instanceof Number number && number.doubleValue() == 0) {
+                emptyCatalog = true;
+            }
+        }
+        return emptyCatalog;
     }
 
     private static List<Map<?, ?>> verifiedProducts(AgentExecutionRequest request) {

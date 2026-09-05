@@ -2,6 +2,9 @@ package com.example.smartassistant.router.service.core;
 
 import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
 import com.example.smartassistant.common.agent.protocol.AgentNodeOutput;
+import com.example.smartassistant.common.audit.TokenUsageCache;
+import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.smartassistant.router.model.HandoffCommand;
 import com.example.smartassistant.router.model.InputBindingExpression;
 import com.example.smartassistant.router.model.IntentGraph.IntentNode;
@@ -42,6 +45,7 @@ public class GraphNodeExecutionService {
     private static final int BREAKER_THRESHOLD = 2;
     private static final long SSE_TTL_SECONDS = 120;
     private static final long MAX_STREAM_EVENTS = 5_000;
+    private static final ObjectMapper TELEMETRY_JSON = new ObjectMapper();
 
     private final AgentCallerService agentCallerService;
     private final ReflectionService reflectionService;
@@ -213,6 +217,7 @@ public class GraphNodeExecutionService {
                     response = agentCallerService.callAgentAndExtractTitles(
                             targetAgent, enrichedDescription, userId, requestId);
                 }
+                publishTelemetry(eventsKey, requestId);
                 String text = response.getResponse();
                 if (text == null || text.isBlank()) {
                     if (attempt < maxRetries) {
@@ -632,10 +637,38 @@ public class GraphNodeExecutionService {
     }
 
     private void progress(String eventsKey, String type, String content, String agent) {
+        String payload = "{\"type\":\"" + type + "\",\"content\":\""
+                + escape(content) + "\",\"agent\":\"" + escape(agent) + "\"}";
+        publishProgressPayload(eventsKey, payload);
+    }
+
+    /** Emit measured request snapshots at node boundaries without consuming final audit data. */
+    void publishTelemetry(String eventsKey, String requestId) {
         if (eventsKey == null || redisTemplate == null) return;
         try {
-            String payload = "{\"type\":\"" + type + "\",\"content\":\""
-                    + escape(content) + "\",\"agent\":\"" + escape(agent) + "\"}";
+            var tokens = TokenUsageCache.snapshot(requestId);
+            if (tokens != null && tokens.totalTokens() != null) {
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("type", "token_usage");
+                payload.put("tokenUsageComplete", false);
+                payload.put("promptTokens", tokens.promptTokens());
+                payload.put("completionTokens", tokens.completionTokens());
+                payload.put("totalTokens", tokens.totalTokens());
+                publishProgressPayload(eventsKey, TELEMETRY_JSON.writeValueAsString(payload));
+            }
+            var tools = ToolUsageCache.snapshot(requestId);
+            if (tools != null) {
+                publishProgressPayload(eventsKey, TELEMETRY_JSON.writeValueAsString(Map.of(
+                        "type", "tool_usage", "toolUsageComplete", false, "toolCalls", tools.calls())));
+            }
+        } catch (Exception error) {
+            log.debug("[GraphNode] telemetry event failed: {}", error.getMessage());
+        }
+    }
+
+    private void publishProgressPayload(String eventsKey, String payload) {
+        if (eventsKey == null || redisTemplate == null) return;
+        try {
             redisTemplate.opsForList().rightPush(eventsKey, payload);
             redisTemplate.expire(eventsKey, SSE_TTL_SECONDS, TimeUnit.SECONDS);
         if (eventsKey.startsWith(RoutingKeys.SSE_EVENTS_PREFIX)) {

@@ -196,12 +196,12 @@ public class StreamingProductAgentService {
                     long generationStart = System.currentTimeMillis();
                     try {
                         DomainAgentResponse analysis = analyzeVerifiedContext(
-                                userMessage, discovery.answer(), rid + ":analysis");
+                                userMessage, discovery.answer(), rid);
                         if (!analysis.quality().isFail()) {
                             DomainAgentResponse recommendation = verifyAnalysisAndRecommend(
                                     userMessage,
                                     discovery.answer() + "\n\n[Flash 分析结果]\n" + analysis.answer(),
-                                    rid + ":recommendation");
+                                    rid);
                             if (!recommendation.quality().isFail()) {
                                 if (isPopularityRequest(userMessage)
                                         && isRecommendationDeferral(recommendation.answer())) {
@@ -437,7 +437,7 @@ public class StreamingProductAgentService {
             String answer = callBoundedModel(
                     tierModelRegistry.get(ModelTier.LIGHT),
                     tierModelRegistry.modelName(ModelTier.LIGHT),
-                    prompt, analysisMaxTokens);
+                    prompt, analysisMaxTokens, rid);
             if (answer == null || answer.isBlank()) {
                 return DomainAgentResponse.of("商品分析结果为空。",
                         DomainQualityResult.fail("EMPTY_PRODUCT_ANALYSIS"));
@@ -483,8 +483,9 @@ public class StreamingProductAgentService {
         String workingContext = verifiedContext;
         int revisionCount = 0;
         try {
-            AnalysisAudit audit = auditAndRecommend(recommendationModel, question, workingContext);
+            AnalysisAudit audit = auditAndRecommend(recommendationModel, question, workingContext, rid);
             while (!audit.valid() && revisionCount < Math.max(0, maxReanalysis)) {
+                logAuditRejection(rid, revisionCount, audit);
                 revisionCount++;
                 String correctionPrompt = promptManager.renderDataAnalysisExpert(
                         question,
@@ -496,18 +497,19 @@ public class StreamingProductAgentService {
                         tierModelRegistry.modelName(ModelTier.LIGHT),
                         correctionPrompt
                                 + "\n\n请压缩在600个中文字符以内，只修正审计指出的问题。",
-                        analysisMaxTokens);
+                        analysisMaxTokens, rid);
                 if (revisedAnalysis == null || revisedAnalysis.isBlank()) {
                     return DomainAgentResponse.of("Flash 重分析结果为空，推荐流程已停止。",
                             DomainQualityResult.fail("EMPTY_REANALYSIS_RESULT"));
                 }
                 workingContext = verifiedContext + "\n\n[Flash 修正后的分析]\n" + revisedAnalysis;
-                audit = auditAndRecommend(recommendationModel, question, workingContext);
+                audit = auditAndRecommend(recommendationModel, question, workingContext, rid);
             }
 
             if (!audit.valid()) {
+                logAuditRejection(rid, revisionCount, audit);
                 return DomainAgentResponse.of(
-                        "当前商品数据不足以形成可靠推荐，请补充可比较的销量、规格、口碑或使用偏好。",
+                        "当前推荐尚未通过商品信息核实，暂时无法给出可靠结论。请稍后重试，或提供具体商品型号以便核对。",
                         DomainQualityResult.fail("PRODUCT_ANALYSIS_AUDIT_REJECTED"));
             }
 
@@ -587,14 +589,22 @@ public class StreamingProductAgentService {
         return light != null && heavy != null && !light.equalsIgnoreCase(heavy);
     }
 
+    private static void logAuditRejection(String requestId, int revisions, AnalysisAudit audit) {
+        // Keep bounded diagnostic details in server logs, never in the public response.
+        log.warn("[StreamingProductAgent] 推荐审核拒绝: requestId={}, revisions={}, issues={}, correction={}",
+                requestId, revisions,
+                truncateForLog(String.valueOf(audit.issues()), 500),
+                truncateForLog(audit.correctionInstruction(), 500));
+    }
+
     private AnalysisAudit auditAndRecommend(ChatModel recommendationModel,
-                                            String question, String context) throws Exception {
+                                            String question, String context, String requestId) throws Exception {
         String auditPrompt = promptManager.renderProductAuditAndRecommendation(question, context);
         String raw = callBoundedModel(
                 recommendationModel,
                 tierModelRegistry.modelName(ModelTier.HEAVY),
                 auditPrompt,
-                Math.max(auditMaxTokens, recommendationMaxTokens));
+                Math.max(auditMaxTokens, recommendationMaxTokens), requestId);
         AnalysisAudit parsed = parseAudit(raw);
         if (isCompleteReview(parsed)) return parsed;
 
@@ -611,7 +621,7 @@ public class StreamingProductAgentService {
                 recommendationModel,
                 tierModelRegistry.modelName(ModelTier.HEAVY),
                 retryPrompt,
-                Math.max(auditMaxTokens, recommendationMaxTokens));
+                Math.max(auditMaxTokens, recommendationMaxTokens), requestId);
         parsed = parseAudit(retriedRaw);
         if (isCompleteReview(parsed)) return parsed;
         throw new IllegalStateException("Pro 核实推荐模型连续两次未返回完整合法 JSON");
@@ -627,7 +637,7 @@ public class StreamingProductAgentService {
      * Request-level options preserve the tier-selected model while bounding generation cost.
      */
     private String callBoundedModel(ChatModel model, String modelName,
-                                    String prompt, int maxTokens) {
+                                    String prompt, int maxTokens, String requestId) {
         OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder()
                 // Spring AI 2.0 defaults a fresh OpenAI options object to gpt-5-mini;
                 // explicitly retain the tier-selected model on this bounded request.
@@ -639,6 +649,8 @@ public class StreamingProductAgentService {
             builder.extraBody(thinkingOptions);
         }
         ChatResponse response = model.call(new Prompt(prompt, builder.build()));
+        com.example.smartassistant.common.rag.advisor.TokenUsageAdvisor.recordDirectUsage(
+                requestId, response == null ? null : response.getMetadata());
         if (response == null || response.getResult() == null
                 || response.getResult().getOutput() == null) {
             return null;

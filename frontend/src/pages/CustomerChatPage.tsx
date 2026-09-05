@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Session, PermissionRequest, FaqItem } from '../types';
 import { ChatMessages } from '../components/ChatMessages';
+import { SessionExecutionSteps } from '../components/SessionExecutionSteps';
 import { FaqSuggestions } from '../components/FaqSuggestions';
 import { IntentBadge } from '../components/IntentBadge';
 import { sessions as sessionApi } from '../api';
@@ -238,6 +239,9 @@ export function CustomerChatPage({
             )}
 
             {/* 消息列表 */}
+            <div className="chat-mobile-execution">
+              <SessionExecutionSteps key={currentSession!.id} messages={currentSession!.messages} defaultOpen={false} />
+            </div>
             <ChatMessages
               messages={currentSession!.messages}
               models={[]}
