@@ -126,6 +126,50 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
+    void nodeBoundaryEmitsPartialTelemetryWithoutConsumingFinalAudit() {
+        var redis = org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class,
+                org.mockito.Mockito.RETURNS_DEEP_STUBS);
+        ReflectionTestUtils.setField(service, "redisTemplate", redis);
+        String requestId = "node-telemetry-regression";
+        try {
+            com.example.smartassistant.common.audit.TokenUsageCache.record(requestId, 80, 20, 100);
+            com.example.smartassistant.common.audit.ToolUsageCache.record(requestId, "queryWeather", true, 25);
+            service.publishTelemetry("telemetry-events", requestId);
+            ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+            verify(redis.opsForList(), times(2)).rightPush(eq("telemetry-events"), payload.capture());
+            assertThat(payload.getAllValues().get(0)).contains("token_usage", "\"totalTokens\":100",
+                    "\"tokenUsageComplete\":false");
+            assertThat(payload.getAllValues().get(1)).contains("tool_usage", "queryWeather", "\"durationMs\":25");
+            assertThat(com.example.smartassistant.common.audit.TokenUsageCache.snapshot(requestId).totalTokens())
+                    .isEqualTo(100);
+            assertThat(com.example.smartassistant.common.audit.ToolUsageCache.snapshot(requestId).calls()).hasSize(1);
+        } finally {
+            com.example.smartassistant.common.audit.TokenUsageCache.consume(requestId);
+            com.example.smartassistant.common.audit.ToolUsageCache.consume(requestId);
+        }
+    }
+
+    @Test
+    void emptyBudgetTabletCatalogIsUsableEvenWhenCriteriaDemandsOneRecommendation() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode(
+                "recommend", "推荐一款预算2000以内的平板电脑", "product", List.of(),
+                "必须推荐一款平板电脑");
+        AgentCallResult noMatch = new AgentCallResult(
+                "当前目录暂无符合查询条件的候选商品，您可以调整预算或品类。", List.of(), Map.of(),
+                DomainQualityResult.warn(0.5, "PRODUCT_CATALOG_EVIDENCE_LIMITED"));
+        when(agentCallerService.callAgentAndExtractTitles(eq("product"), anyString(),
+                eq(1L), eq("request"))).thenReturn(noMatch);
+        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "request");
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getErrorType()).isEqualTo(SubTaskResult.ErrorType.NONE);
+        assertThat(result.getResult()).contains("暂无符合");
+        verify(agentCallerService, times(1)).callAgentAndExtractTitles(
+                eq("product"), anyString(), eq(1L), eq("request"));
+        verify(reflectionService, never()).checkCriteria(anyString(), anyString());
+    }
+
+    @Test
     void completedDomainPassIsDeliveredWithoutGenericSemanticRetry() {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "recommend", "核实并推荐商品", "product", List.of(),

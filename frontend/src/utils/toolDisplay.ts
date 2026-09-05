@@ -1,4 +1,6 @@
 const CAPABILITY_LABELS: Record<string, string> = {
+  queryweather: '天气查询',
+  getweather: '天气查询',
   searchweb: '联网搜索',
   websearch: '联网搜索',
   webfetch: '网页读取',
@@ -21,6 +23,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   payorder: '订单支付',
   queryproductinfo: '商品查询',
   queryproduct: '商品查询',
+  discoverproducts: '商品目录查询',
   checkstock: '库存查询',
   getprice: '价格查询',
   queryprice: '价格查询',
@@ -41,6 +44,15 @@ const CAPABILITY_LABELS: Record<string, string> = {
   task: '任务处理',
 };
 
+export function getAgentCapabilityLabel(name: string): string {
+  const value = name.toLowerCase();
+  if (value.includes('product')) return '商品服务';
+  if (value.includes('order') || value.includes('logistics')) return '订单服务';
+  if (value.includes('knowledge') || value.includes('rag')) return '知识服务';
+  if (/^[\u4e00-\u9fff\s、]+$/.test(name)) return name;
+  return '智能助手';
+}
+
 export function getToolCapabilityLabel(toolName?: string): string {
   if (!toolName) return '智能能力';
   const normalized = toolName.toLowerCase().replace(/[.\-]/g, '_');
@@ -51,6 +63,7 @@ export function getToolCapabilityLabel(toolName?: string): string {
 }
 
 function inferCapability(name: string): string {
+  if (name.includes('weather')) return '天气查询';
   if (name.includes('search') || name.includes('web')) return '联网搜索';
   if (name.includes('order')) return '订单服务';
   if (name.includes('product') || name.includes('stock') || name.includes('price')) return '商品服务';

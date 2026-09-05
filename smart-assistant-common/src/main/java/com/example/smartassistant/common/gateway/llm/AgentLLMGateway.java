@@ -10,6 +10,7 @@ import io.github.resilience4j.timelimiter.TimeLimiter;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -76,9 +77,20 @@ public class AgentLLMGateway {
 
         long overallStart = System.currentTimeMillis();
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        var requestContext = MDC.getCopyOfContextMap();
         try {
             Callable<String> singleAttempt = () -> timeLimiter.executeFutureSupplier(
-                    () -> executor.submit(modelCall::execute));
+                    () -> executor.submit(() -> {
+                        var previous = MDC.getCopyOfContextMap();
+                        try {
+                            if (requestContext == null) MDC.clear();
+                            else MDC.setContextMap(requestContext);
+                            return modelCall.execute();
+                        } finally {
+                            if (previous == null) MDC.clear();
+                            else MDC.setContextMap(previous);
+                        }
+                    }));
             Callable<String> decorated = Retry.decorateCallable(retry, singleAttempt);
             if (circuitBreaker != null) {
                 // 熔断器位于重试器外层：一次业务调用只有在全部尝试失败后才计为一次失败。

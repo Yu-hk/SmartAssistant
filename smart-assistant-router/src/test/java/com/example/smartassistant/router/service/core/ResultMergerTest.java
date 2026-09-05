@@ -13,6 +13,40 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ResultMergerTest {
 
     @Test
+    void publicFailureNeverIncludesInternalCodesNodeLabelsOrRawErrors() {
+        for (SubTaskResult.ErrorType type : List.of(SubTaskResult.ErrorType.FATAL_FAILED,
+                SubTaskResult.ErrorType.RETRYABLE_FAILED, SubTaskResult.ErrorType.NEED_REPLAN)) {
+            SubTaskResult failed = new SubTaskResult("recommend_product", "internal_function_name",
+                    "product", "SQLException password=secret", false, type);
+            assertThat(ResultMerger.requiredFailureReply(List.of(failed)))
+                    .contains("未能核实", "稍后重试")
+                    .doesNotContain(type.name(), "internal_function_name", "SQLException", "secret");
+        }
+    }
+
+    @Test
+    void rejectedRecommendationProvidesCuratedExplanationWithoutRepeatingBudgetQuestion() {
+        SubTaskResult failed = new SubTaskResult("recommend", "推荐平板电脑", "product",
+                "internal audit details", false, SubTaskResult.ErrorType.FATAL_FAILED);
+        failed.setDomainQuality(DomainQualityResult.fail("PRODUCT_ANALYSIS_AUDIT_REJECTED"));
+        assertThat(ResultMerger.requiredFailureReply(List.of(failed)))
+                .contains("尚未通过商品信息核实", "具体商品型号")
+                .doesNotContain("FATAL_FAILED", "PRODUCT_ANALYSIS_AUDIT_REJECTED",
+                        "internal audit details", "请提供预算");
+    }
+
+    @Test
+    void emptyCatalogConclusionReplacesIntermediateAnalysis() {
+        SubTaskResult analysis = successful("analysis", "分析候选", "暂无匹配候选");
+        SubTaskResult recommendation = successful("recommend", "推荐商品", "当前目录暂无符合查询条件的候选商品");
+        recommendation.setDomainQuality(DomainQualityResult.warn(0.5, "PRODUCT_CATALOG_EVIDENCE_LIMITED"));
+        recommendation.setMergePolicy(ExecutionPlan.MergePolicy.REPLACE);
+        assertThat(ResultMerger.requiredFailures(List.of(analysis, recommendation))).isEmpty();
+        assertThat(ResultMerger.applyMergePolicies(List.of(analysis, recommendation)))
+                .containsExactly(recommendation);
+    }
+
+    @Test
     void recognizesSuccessfulSingleDomainOrderWorkflow() {
         List<SubTaskResult> results = List.of(
                 verifiedOrderResult("query", "查询订单", "状态：待付款"),

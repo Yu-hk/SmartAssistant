@@ -2,6 +2,8 @@ package com.example.smartassistant.router.service.core;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.smartassistant.common.audit.TokenUsageCache;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -66,12 +68,41 @@ public class DeepSeekPlanningClient {
     }
 
     private String complete(Map<String, Object> request) {
+        String requestId = MDC.get("requestId");
+        if (requestId == null || requestId.isBlank()) requestId = MDC.get("traceId");
         String raw = restClient.post()
                 .uri("/chat/completions")
                 .body(request)
                 .retrieve()
                 .body(String.class);
-        return extractContent(raw, objectMapper);
+        return extractMeasuredContent(raw, objectMapper, requestId);
+    }
+
+    /** Direct HTTP calls bypass the ChatClient usage advisor. Never discard provider usage. */
+    static String extractMeasuredContent(String raw, ObjectMapper mapper, String requestId) {
+        try {
+            JsonNode response = mapper.readTree(raw == null ? "{}" : raw);
+            JsonNode usage = response == null ? mapper.createObjectNode() : response.path("usage");
+            Long prompt = tokenCount(usage.path("prompt_tokens"));
+            Long completion = tokenCount(usage.path("completion_tokens"));
+            Long total = tokenCount(usage.path("total_tokens"));
+            if (total == null && prompt != null && completion != null) {
+                total = prompt > Long.MAX_VALUE - completion ? Long.MAX_VALUE : prompt + completion;
+            }
+            TokenUsageCache.recordPartial(requestId, java.util.UUID.randomUUID().toString(),
+                    prompt, completion, total);
+            if (prompt == null || completion == null || total == null) {
+                TokenUsageCache.markIncomplete(requestId);
+            }
+        } catch (Exception ex) {
+            TokenUsageCache.markIncomplete(requestId);
+        }
+        return extractContent(raw, mapper);
+    }
+
+    private static Long tokenCount(JsonNode node) {
+        return node.isIntegralNumber() && node.canConvertToLong() && node.longValue() >= 0
+                ? node.longValue() : null;
     }
 
     static Map<String, Object> requestBody(String model, String prompt, int maxTokens) {

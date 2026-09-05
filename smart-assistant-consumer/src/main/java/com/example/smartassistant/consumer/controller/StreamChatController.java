@@ -222,6 +222,7 @@ public class StreamChatController {
         }
         bus.sendRouted(agentName, confidence, executionMode,
                 participatingAgents, workflowStatus);
+        injectToolUsageEvent(bus, toolUsage);
 
         // Router 的 /api/router/route 已经完成 Agent 调用并返回最终结果。
         // 直接发送该结果，避免再次调用不存在或不兼容的 Agent SSE 端点。
@@ -332,13 +333,26 @@ public class StreamChatController {
         return values.stream().filter(Objects::nonNull).map(Objects::toString).toList();
     }
 
+    /** Public tool telemetry contains only names, outcomes and durations, never arguments/results. */
+    private void injectToolUsageEvent(SseEventBus bus, ToolUsageCache.ToolUsage usage) {
+        if (usage == null) return;
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("type", "tool_usage");
+            ToolUsageExtractor.copyTo(usage, payload);
+            bus.send(SseEvent.raw("tool_usage", objectMapper.writeValueAsString(payload)));
+        } catch (Exception error) {
+            log.warn("[StreamChat] 工具用量回传失败: {}", error.getMessage());
+        }
+    }
+
     /** Emits the Router-provided token snapshot without consuming local state. */
     private void injectTokenUsageEvent(SseEventBus bus, TokenUsageExtractor.TokenUsage tokenUsage) {
-        if (tokenUsage == null || !tokenUsage.tracked()) return;
         try {
             Map<String, Object> payload = new java.util.LinkedHashMap<>();
             payload.put("type", "token_usage");
-            tokenUsage.copyTo(payload);
+            payload.put("tokenUsageComplete", tokenUsage != null && tokenUsage.tracked());
+            if (tokenUsage != null) tokenUsage.copyTo(payload);
             String json = objectMapper.writeValueAsString(payload);
             bus.send(SseEvent.raw("token_usage", json));
             log.info("[StreamChat] Token 用量已回传: {}", json);

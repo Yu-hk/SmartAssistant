@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Session, Message, SessionStatus, normalizeIntentType } from '../types';
 import { sessions as sessionApi } from '../api';
 import { ApiError } from '../api/client';
+import { normalizeTelemetry } from '../utils/sessionTelemetry';
 
 function normalizeSessionStatus(value: unknown): SessionStatus {
   const status = String(value ?? '').trim().toUpperCase();
@@ -55,7 +56,7 @@ function normalizeMessage(raw: any): Message {
     deliveryStatus: status === 'FAILED' || status === 'TIMEOUT' ? 'failed' : 'completed',
     recoverable: Boolean(requestId) && (status === 'FAILED' || status === 'TIMEOUT'),
     timestamp: normalizeDate(raw.createdAt ?? raw.created_at),
-    toolCalls: raw.toolCalls ?? raw.tool_calls ?? undefined,
+    ...normalizeTelemetry(raw),
   };
 }
 

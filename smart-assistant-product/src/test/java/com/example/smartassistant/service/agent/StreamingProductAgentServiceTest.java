@@ -305,6 +305,25 @@ class StreamingProductAgentServiceTest {
     }
 
     @Test
+    void repeatedFactualAuditRejectionRemainsFailureWithoutLeakingAuditDetails() {
+        var flash = mock(org.springframework.ai.chat.model.ChatModel.class);
+        var pro = mock(org.springframework.ai.chat.model.ChatModel.class);
+        when(flash.call(any(Prompt.class))).thenReturn(chatResponse("修正分析：商品仍超出预算"));
+        when(pro.call(any(Prompt.class))).thenReturn(chatResponse(
+                "{\"valid\":false,\"issues\":[\"价格9499超过预算2000\"],"
+                        + "\"correction_instruction\":\"不得推荐超预算商品\",\"conclusion\":\"\"}"));
+        var service = dualModelService(flash, pro);
+        service.setMaxReanalysis(1);
+        var result = service.verifyAnalysisAndRecommend("预算2000以内", "候选价格9499元", "audit-rejected");
+        assertTrue(result.quality().isFail());
+        assertTrue(result.quality().getReasonCodes().contains("PRODUCT_ANALYSIS_AUDIT_REJECTED"));
+        assertTrue(result.answer().contains("尚未通过商品信息核实"));
+        assertFalse(result.answer().contains("9499"));
+        verify(pro, times(2)).call(any(Prompt.class));
+        verify(flash).call(any(Prompt.class));
+    }
+
+    @Test
     @DisplayName("推荐节点：Pro 首次未返回 JSON 时只重试核实格式，不重跑 Flash")
     void recommendationNode_shouldRetryInvalidAuditFormatWithoutReanalysis() {
         org.springframework.ai.chat.model.ChatModel flash =
@@ -431,5 +450,26 @@ class StreamingProductAgentServiceTest {
 
     private static ChatResponse chatResponse(String text) {
         return new ChatResponse(List.of(new Generation(new AssistantMessage(text))));
+    }
+
+    @Test
+    void directRecommendationCountsBothFormattingAttemptsWithoutThreadLocalContext() {
+        var flash = mock(org.springframework.ai.chat.model.ChatModel.class);
+        var pro = mock(org.springframework.ai.chat.model.ChatModel.class);
+        var metadata = mock(org.springframework.ai.chat.metadata.ChatResponseMetadata.class);
+        var usage = mock(org.springframework.ai.chat.metadata.Usage.class);
+        when(usage.getPromptTokens()).thenReturn(80);
+        when(usage.getCompletionTokens()).thenReturn(20);
+        when(usage.getTotalTokens()).thenReturn(100);
+        when(metadata.getUsage()).thenReturn(usage);
+        when(pro.call(any(Prompt.class))).thenReturn(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("请再核实"))), metadata),
+                new ChatResponse(List.of(new Generation(new AssistantMessage(
+                        "{\"valid\":true,\"issues\":[],\"conclusion\":\"暂无唯一推荐\"}"))), metadata));
+        String id = "direct-model-usage";
+        var result = dualModelService(flash, pro).verifyAnalysisAndRecommend("推荐商品", "可靠数据", id);
+        assertTrue(result.quality().isPass());
+        assertEquals(new com.example.smartassistant.common.audit.TokenUsageCache.TokenUsage(160L, 40L, 200L),
+                com.example.smartassistant.common.audit.TokenUsageCache.consume(id));
     }
 }

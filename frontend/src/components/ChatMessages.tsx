@@ -1,6 +1,5 @@
 import { Loading } from 'tdesign-react';
 import { Message, Model, PermissionRequest, ContentBlock, SessionStatus } from '../types';
-import { ToolCallsCollapse } from './ToolCallsCollapse';
 import { InlinePermissionCard } from './InlinePermissionCard';
 import { SafeMarkdown } from './SafeMarkdown';
 import { RefreshCw } from 'lucide-react';
@@ -95,33 +94,21 @@ export function ChatMessages({
           )}
         </div>
       );
-    } else if (block.type === 'tool_use') {
-      return (
-        <ToolCallsCollapse
-          key={`tool-${block.toolCall.id}`}
-          toolCalls={[block.toolCall]}
-          isStreaming={isStreaming && block.toolCall.status === 'running'}
-        />
-      );
     }
     return null;
   };
 
   const renderAssistantContent = (message: Message) => {
-    if (message.contentBlocks && message.contentBlocks.length > 0) {
-      return message.contentBlocks.map((block, index) => 
-        renderContentBlock(block, index, message.isStreaming, index === message.contentBlocks!.length - 1)
+    // Execution details live in the sidebar. Keep only answer text in the conversation.
+    const textBlocks = message.contentBlocks?.filter(block => block.type === 'text' && block.text);
+    if (textBlocks?.length) {
+      return textBlocks.map((block, index) =>
+        renderContentBlock(block, index, message.isStreaming, index === textBlocks.length - 1)
       );
     }
     
     return (
       <>
-        {message.toolCalls && message.toolCalls.length > 0 && (
-          <ToolCallsCollapse
-            toolCalls={message.toolCalls}
-            isStreaming={message.isStreaming}
-          />
-        )}
         {message.content && (
           <div 
             className="animate-fade-in-up"
@@ -339,8 +326,7 @@ export function ChatMessages({
             {/* 思考中 / 排队中 */}
             {message.role === 'assistant' && message.isStreaming && 
              !message.content && 
-             (!message.contentBlocks || message.contentBlocks.length === 0) && 
-             (!message.toolCalls || message.toolCalls.length === 0) && (
+             !message.contentBlocks?.some(block => block.type === 'text' && block.text) && (
               <div 
                 className="flex items-center gap-2"
                 style={{
