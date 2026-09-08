@@ -53,8 +53,8 @@ public class LoopGuardService {
     private static final List<Pattern> INFRA_ERROR_PATTERNS = List.of(
             Pattern.compile("(?i)(LLM error|model error|API error|service error)"),
             Pattern.compile("(?i)(timeout|timed out|connection refused|network error)"),
-            Pattern.compile("(?i)(rate limit|quota exceeded|too many requests|429)"),
-            Pattern.compile("(?i)(internal server error|500|502|503|504)"),
+            Pattern.compile("(?i)(rate limit|quota exceeded|too many requests)"),
+            Pattern.compile("(?i)(internal server error|(?:HTTP(?:/\\d(?:\\.\\d)?)?|status(?: code)?|状态码|错误码)\\s*[:：=]?\\s*(?:429|500|502|503|504)\\b)"),
             Pattern.compile("(?i)(provider error|upstream error)"),
             Pattern.compile("(?i)(server_error|服务内部错误|系统繁忙)")
     );

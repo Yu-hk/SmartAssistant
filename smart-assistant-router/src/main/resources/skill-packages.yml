@@ -57,6 +57,8 @@ skill-package:
       dependencies: [route-product-recommendation-flow, route-order-lifecycle-flow]
       instruction: |
         多个互不依赖的只读任务应并行；写任务必须等待其必需的查询、推荐或用户确认节点。
-        depends_on 只能引用已定义节点；input_bindings 只能读取 depends_on 节点的结构化输出。
+        depends_on 只能引用已定义节点；input_bindings 只能读取 depends_on 节点真实存在的输出。
+        ANSWER 和 QUERY_PRODUCT 知识问答使用 answer 文本，不得臆造 data.total、data.result 或 data.analysis；
+        商品发现、分析、推荐等结构化业务操作按其已声明的 data 字段绑定。
         补充性节点可以 required=false，生成完整结论所需节点必须 required=true。
       bind-agents: [router-service]

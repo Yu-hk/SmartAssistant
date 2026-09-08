@@ -24,6 +24,13 @@ public class ProductDomainQualityValidator {
 
     public DomainQualityResult evaluate(String answer, RetrievalQualityResult retrieval,
                                         FaithfulnessGuard.FaithfulnessVerdict faithfulness) {
+        // An operational refusal contains no factual claims, but that does not make it
+        // a faithful answer. Check before evidence/faithfulness shortcuts.
+        if (answer != null && (answer.contains("您的输入已被内容安全策略拦截")
+                || answer.startsWith("处理失败:") || answer.startsWith("处理失败：")
+                || answer.startsWith("❌"))) {
+            return DomainQualityResult.fail("PRODUCT_EXECUTION_FAILURE");
+        }
         if (retrieval != null && retrieval.isRejected()) {
             return DomainQualityResult.pass(1.0, "SAFE_NO_EVIDENCE_RESPONSE");
         }

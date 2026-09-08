@@ -173,6 +173,11 @@ public class AgentCallerService {
 
     private AgentCallResult withExtractedTitles(String agentName, AgentCallResult detailed) {
         String result = detailed.getResponse();
+        if (detailed.getDomainQuality().isFail()
+                || Boolean.TRUE.equals(detailed.getData().get(AgentCallResult.TRANSPORT_FAILURE_KEY))
+                || Boolean.TRUE.equals(detailed.getData().get(AgentCallResult.PROTOCOL_RETRYABLE_FAILURE_KEY))) {
+            return detailed;
+        }
 
         // ⭐ 检查 Agent 调用是否返回错误（callAgentWithContext 内部 catch 了异常并转为错误字符串）
         if (result != null && (result.startsWith("❌") || result.startsWith("⚠️"))) {
@@ -212,7 +217,9 @@ public class AgentCallerService {
         log.warn("[AgentCaller] Agent protocol call circuit fallback: agent={}, executionId={}, error={}",
                 agentName, request != null ? request.executionId() : null,
                 t != null ? t.getMessage() : "unknown");
-        return new AgentCallResult("Agent '" + agentName + "' is temporarily unavailable. Please retry later.");
+        return new AgentCallResult("服务暂时无法完成本次请求，请稍后重试。",
+                List.of(), Map.of(), DomainQualityResult.fail("AGENT_CALL_FAILED"),
+                Map.of(AgentCallResult.PROTOCOL_RETRYABLE_FAILURE_KEY, true));
     }
 
     /**

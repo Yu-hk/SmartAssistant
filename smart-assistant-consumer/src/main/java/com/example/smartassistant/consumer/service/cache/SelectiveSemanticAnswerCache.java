@@ -89,6 +89,8 @@ public class SelectiveSemanticAnswerCache {
     /** Searches only Route-approved product and current-version business partitions. */
     public Map<String, Object> find(long userId, String question) {
         if (userId <= 0 || question == null || question.isBlank()) return null;
+        // No exact or approximate reuse of user-provided documents, including legacy entries.
+        if (com.example.smartassistant.common.rag.source.UserDocumentContext.from(question).userOnly()) return null;
         try {
             long knowledgeVersion = knowledgeVersionManager.refreshCurrentVersion();
             List<String> partitions = List.of(
@@ -163,6 +165,7 @@ public class SelectiveSemanticAnswerCache {
     /** Stores a completed response only when Route explicitly marks it eligible. */
     public void store(long userId, String question, Map<String, Object> response) {
         if (userId <= 0 || question == null || question.isBlank() || !eligible(response)) return;
+        if (com.example.smartassistant.common.rag.source.UserDocumentContext.from(question).userOnly()) return;
         try {
             String scope = Objects.toString(response.get("semanticCacheCategory"), "NONE");
             Duration ttl = PRODUCT.equals(scope) ? productTtl : businessTtl;
