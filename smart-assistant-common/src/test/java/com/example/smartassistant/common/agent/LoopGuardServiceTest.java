@@ -6,6 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class LoopGuardServiceTest {
 
+    @Test
+    void pricesAndQuantitiesAreNotHttpErrors() {
+        assertEquals(LoopGuardService.GuardAction.CONTINUE,
+                guard.analyze("售价500元，库存429件，型号X503。预算1500元。").action());
+        assertEquals(LoopGuardService.GuardAction.PAUSE_INFRASTRUCTURE,
+                guard.analyze("HTTP 503 Service Unavailable").action());
+        assertEquals(LoopGuardService.GuardAction.PAUSE_INFRASTRUCTURE,
+                guard.analyze("API状态码：429").action());
+    }
+
     private final LoopGuardService guard = new LoopGuardService();
 
     @Test

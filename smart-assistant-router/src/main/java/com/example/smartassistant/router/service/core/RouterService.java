@@ -102,6 +102,9 @@ public class RouterService {
     @Autowired(required = false)
     private SemanticAnswerCachePolicy semanticAnswerCachePolicy;
 
+    @Autowired
+    private com.example.smartassistant.common.rag.source.UserDocumentQaService userDocumentQaService;
+
     // ⭐ P1 确定性护栏服务
     private final GuardrailService guardrailService;
 
@@ -193,6 +196,23 @@ public class RouterService {
                             .workflowStatus(RoutingResult.WorkflowStatus.DEGRADED)
                             .build();
                 }
+            }
+
+            // Source restrictions are execution permissions, not a planner's optional suggestion.
+            var document = com.example.smartassistant.common.rag.source.UserDocumentContext.from(question);
+            if (document.userOnly()) {
+                var response = userDocumentQaService.answer(document);
+                boolean missing = document.evidence().isBlank();
+                RoutingResult documentResult = RoutingResult.builder()
+                        .result(response.answer()).intentTag("USER_DOCUMENT_QA")
+                        .confidence(response.quality().isFail() ? 0.0 : 1.0)
+                        .executionMode(RoutingResult.ExecutionMode.BUILTIN)
+                        .domainQuality(response.quality()).disableTools(true)
+                        .clarification(missing).semanticCacheCategory("NONE")
+                        .workflowStatus(missing ? RoutingResult.WorkflowStatus.CLARIFICATION
+                                : response.quality().isFail() ? RoutingResult.WorkflowStatus.FAILED
+                                : RoutingResult.WorkflowStatus.COMPLETED).build();
+                return finalizeRouting(documentResult, request, question, emotion);
             }
 
             // 普通业务意图不再执行关键词、经验或 Consumer 单 Agent 提示短路。
@@ -370,6 +390,7 @@ public class RouterService {
                     AgentErrorCode.SYSTEM_ROUTE_FAILED, e.getMessage());
             return RoutingResult.builder()
                     .result(errorMsg)
+                    .confidence(0.0)
                     .executionMode(RoutingResult.ExecutionMode.FALLBACK)
                     .workflowStatus(RoutingResult.WorkflowStatus.FAILED)
                 .build();

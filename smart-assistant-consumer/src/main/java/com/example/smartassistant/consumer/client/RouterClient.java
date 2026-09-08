@@ -62,6 +62,9 @@ public class RouterClient {
 
     @Value("${router.service.url:http://localhost:8083}")
     private String routerServiceUrl;
+
+    @Value("${router.service.dns-retry-delay-ms:11000}")
+    private long dnsRetryDelayMs = 11000;
     
     public RouterClient(
             @Autowired(required = false) StringRedisTemplate redisTemplate,
@@ -153,7 +156,7 @@ public class RouterClient {
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
             String url = routerServiceUrl + "/api/router/route";
-            ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
+            ResponseEntity<Map> response = postRoutingRequest(url, request);
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 Map<String, Object> responseBody = response.getBody();
@@ -350,7 +353,7 @@ public class RouterClient {
             log.debug("[RouterClient] 触发路由决策(调用 Router.route): {}", url);
 
             // 发送请求触发决策（route 端点同步返回，内部已写入 Redis 决策）
-            ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
+            ResponseEntity<Map> response = postRoutingRequest(url, request);
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 Map<String, Object> payload = unwrapRouterResponse(response.getBody());
                 if (semanticAnswerCache != null) {
@@ -361,7 +364,37 @@ public class RouterClient {
 
         } catch (Exception e) {
             log.error("[RouterClient] 触发路由决策失败: requestId={}, error={}", requestId, e.getMessage(), e);
+            if (isDnsFailure(e)) {
+                // DNS failure proves the POST was never sent. Wake the SSE reader instead
+                // of leaving it blocked for 60 seconds; never write a semantic cache entry.
+                publishCachedDecision(requestId, Map.of("result", "路由服务暂时无法连接，请稍后重试。",
+                        "success", false, "error", "ROUTER_DNS_UNAVAILABLE"));
+            }
         }
+    }
+
+    ResponseEntity<Map> postRoutingRequest(String url, HttpEntity<?> request) {
+        try {
+            return restTemplate.postForEntity(url, request, Map.class);
+        } catch (org.springframework.web.client.ResourceAccessException failure) {
+            // Retry only name resolution: read timeouts and ambiguous POST failures may
+            // already have executed a write workflow and must not be resubmitted here.
+            if (!isDnsFailure(failure)) throw failure;
+            try {
+                Thread.sleep(Math.max(0, Math.min(dnsRetryDelayMs, 15000)));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw failure;
+            }
+            return restTemplate.postForEntity(url, request, Map.class);
+        }
+    }
+
+    private static boolean isDnsFailure(Throwable failure) {
+        for (int depth = 0; failure != null && depth < 10; depth++, failure = failure.getCause()) {
+            if (failure instanceof java.net.UnknownHostException) return true;
+        }
+        return false;
     }
 
     private long requireAuthenticatedUserId(String userId) {
