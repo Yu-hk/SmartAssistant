@@ -26,6 +26,14 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class SmartReActAgentPhaseGateTest {
 
+    @Test
+    void confirmationStopsExecutionWithoutDiscardingTheProductAnswer() {
+        String text = "AirPods Pro 第二代售价1999元，库存充足。请告诉我是否需要继续下单。";
+        when(chatModel.call(any(Prompt.class))).thenReturn(answer(text));
+        assertEquals(text, new SmartReActAgent(chatModel).execute("查商品", "sys", List.of()));
+        verify(chatModel, times(1)).call(any(Prompt.class));
+    }
+
     @Mock
     ChatModel chatModel;
 

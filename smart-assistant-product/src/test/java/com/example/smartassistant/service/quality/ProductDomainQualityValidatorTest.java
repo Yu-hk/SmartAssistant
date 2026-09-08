@@ -11,6 +11,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProductDomainQualityValidatorTest {
 
+    @Test
+    void guardRefusalIsNotVerifiedEvenWhenItContainsNoUnsupportedClaims() {
+        var result = new ProductDomainQualityValidator().evaluate(
+                "⚠️ 您的输入已被内容安全策略拦截：检测到注入模式",
+                RetrievalQualityResult.highQuality("[E1] 1999元", 0.9), checked(false, 0));
+        assertTrue(result.isFail());
+    }
+
     private final ProductDomainQualityValidator validator = new ProductDomainQualityValidator();
 
     @Test

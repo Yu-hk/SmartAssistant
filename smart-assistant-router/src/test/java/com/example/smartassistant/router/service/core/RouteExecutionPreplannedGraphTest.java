@@ -15,6 +15,52 @@ import static org.junit.jupiter.api.Assertions.*;
 class RouteExecutionPreplannedGraphTest {
 
     @Test
+    void policyExplanationConsumesKnowledgeAnswerNotInventedAnalysis() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(
+                Map.of("id", "retrieve", "description", "查询退货政策", "target_agent", "product",
+                        "operation", "QUERY_PRODUCT"),
+                Map.of("id", "explain", "description", "解释退货政策", "target_agent", "product",
+                        "operation", "QUERY_PRODUCT", "depends_on", List.of("retrieve"),
+                        "input_bindings", Map.of("context", "$.nodes.retrieve.data.analysis"))));
+        var plan = RouteExecutionService.buildExecutionPlan("退货条件", analysis, "policy");
+        assertEquals("$.nodes.retrieve.answer", plan.nodes().get(1).inputBindings().get("context"));
+    }
+
+    @Test
+    void proseCalculationDependenciesUseActualAnswerWithoutInventedDataFields() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(
+                Map.of("id", "total", "description", "计算1999乘2", "target_agent", "general",
+                        "operation", "ANSWER", "output_schema", "calculation.v1"),
+                Map.of("id", "gap", "description", "计算总额减3000", "target_agent", "general",
+                        "operation", "ANSWER", "depends_on", List.of("total"),
+                        "input_bindings", Map.of("total", "$.nodes.total.data.total"))));
+        var graph = RouteExecutionService.buildGraphFromAnalysis("计算总价和预算差额", analysis);
+        assertNotNull(graph);
+        var nodes = graph.getAllNodes().stream().toList();
+        assertNull(nodes.getFirst().getOutputSchema());
+        assertEquals("$.nodes.total.answer", nodes.get(1).getInputBindings().get("total"));
+        var completed = new com.example.smartassistant.router.model.SubTaskResult(
+                "total", "计算总价", "router_fallback", "1999 × 2 = 3998", true, List.of(), Map.of());
+        assertEquals("1999 × 2 = 3998", GraphNodeExecutionService.resolveInput(
+                nodes.get(1), Map.of("total", completed)).get("total"));
+    }
+
+    @Test
+    void textNormalizationNeverRewritesBusinessWriteBindings() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setSubIntents(List.of(
+                Map.of("id", "total", "description", "计算总价", "target_agent", "general", "operation", "ANSWER"),
+                Map.of("id", "order", "description", "创建订单", "target_agent", "order",
+                        "operation", "CREATE_ORDER", "depends_on", List.of("total"),
+                        "input_bindings", Map.of("amount", "$.nodes.total.data.total"))));
+        var plan = RouteExecutionService.buildExecutionPlan("下单", analysis, "test-write");
+        assertEquals("$.nodes.total.data.total", plan.nodes().get(1).inputBindings().get("amount"));
+        assertTrue(plan.nodes().get(1).approvalRequired());
+    }
+
+    @Test
     void carriesStructuredProductCategoryIntoDiscoveryNodeInput() {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setIntentCategory("PRODUCT");

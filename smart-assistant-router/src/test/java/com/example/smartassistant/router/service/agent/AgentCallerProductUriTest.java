@@ -11,6 +11,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class AgentCallerProductUriTest {
 
     @Test
+    void circuitFallbackCannotBeMisclassifiedAsSuccessfulProse() {
+        AgentCallerService service = new AgentCallerService(null, null, null, null);
+        AgentCallResult result = ReflectionTestUtils.invokeMethod(service, "callAgentExecutionFallback",
+                "product", null, new IllegalStateException("downstream failure"));
+        assertEquals(DomainQualityResult.Status.FAIL, result.getDomainQuality().getStatus());
+        assertEquals(true, result.getData().get(AgentCallResult.PROTOCOL_RETRYABLE_FAILURE_KEY));
+    }
+
+    @Test
     void productUsesUnifiedInternalEndpointWithoutQuestionInQueryString() {
         String question = "办公 笔记本电脑";
         var uri = AgentCallerService.buildProcessUri(
