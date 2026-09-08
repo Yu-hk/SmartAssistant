@@ -803,7 +803,9 @@ public class SmartReActAgent {
                     // 守卫暂停：返回包含暂停原因的友好消息
                     return switch (guardResult.action()) {
                         case PAUSE_BLOCKED -> "检测到 Agent 报告被阻塞，无法继续。请提供更多信息或重新描述需求。";
-                        case AWAIT_CONFIRMATION -> "Agent 在等待您的确认。请根据提示做出选择。";
+                        // Stop before any further tool execution, but preserve both the
+                        // verified facts and the actual confirmation question for the user.
+                        case AWAIT_CONFIRMATION -> answerText;
                         case PAUSE_INFRASTRUCTURE -> "检测到基础设施故障，已暂停以避免持续重试。请稍后再试。";
                         default -> "循环守卫暂停";
                     };
@@ -889,7 +891,7 @@ public class SmartReActAgent {
                     }
                     case AWAIT_CONFIRMATION -> {
                         metrics.recordMaxIterationHit();
-                        return "Agent 在等待您的确认。请根据提示做出选择。";
+                        return answerText;
                     }
                     case PAUSE -> {
                         metrics.recordMaxIterationHit();

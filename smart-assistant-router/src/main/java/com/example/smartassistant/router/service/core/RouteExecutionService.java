@@ -377,6 +377,16 @@ public class RouteExecutionService {
                         analysis.getIntentCategory())))
                 .map(RawPlanNode::nodeId)
                 .collect(java.util.stream.Collectors.toSet());
+        // Local answers and product knowledge queries expose prose. Never invent data fields.
+        Set<String> textNodeIds = rawNodes.stream()
+                .filter(node -> Set.of("general", "product").contains(resolveDeclaredAgent(
+                        node.source().get("target_agent"), analysis.getIntentCategory())))
+                .filter(node -> Set.of("ANSWER", "QUERY_PRODUCT").contains(normalizeDeclaredOperation(
+                        node.source().get("operation"), node.source().get("target_agent"),
+                        analysis.getIntentCategory())))
+                .filter(node -> !"WRITE".equalsIgnoreCase(
+                        Objects.toString(node.source().get("access_mode"), "")))
+                .map(RawPlanNode::nodeId).collect(java.util.stream.Collectors.toSet());
         List<ExecutionPlan.TaskNode> nodes = new ArrayList<>();
         for (RawPlanNode rawNode : rawNodes) {
             Map<String, Object> subIntent = rawNode.source();
@@ -439,6 +449,13 @@ public class RouteExecutionService {
             Map<String, String> inputBindings = sanitizeInputBindings(
                     rawNode.nodeId(), dependencies, input,
                     stringMap(subIntent.get("input_bindings")));
+            if (textNodeIds.contains(rawNode.nodeId())) {
+                if ("ANSWER".equals(operation)) {
+                    outputSchema = null;
+                    mergePolicy = ExecutionPlan.MergePolicy.APPEND;
+                }
+                inputBindings = normalizeTextAnswerBindings(inputBindings, dependencies, textNodeIds);
+            }
 
             nodes.add(new ExecutionPlan.TaskNode(
                     rawNode.nodeId(), agent, operation, scopedDescription, input,
@@ -449,6 +466,31 @@ public class RouteExecutionService {
 
         return nodes.isEmpty() ? null : new ExecutionPlan(effectiveExecutionId, question,
                 analysis.getActionConstraints(), nodes);
+    }
+
+    private static Map<String, String> normalizeTextAnswerBindings(
+            Map<String, String> bindings, List<String> dependencies, Set<String> textNodeIds) {
+        Map<String, String> normalized = new LinkedHashMap<>();
+        bindings.forEach((target, expression) -> {
+            String value = expression;
+            try {
+                var parsed = InputBindingExpression.parse(expression);
+                if (parsed.section() == InputBindingExpression.Section.DATA
+                        && dependencies.contains(parsed.sourceNodeId())
+                        && textNodeIds.contains(parsed.sourceNodeId())
+                        && !parsed.dataPath().isEmpty()
+                        && Set.of("analysis", "result", "total", "answer", "content")
+                                .contains(parsed.dataPath().getFirst())) {
+                    value = "$.nodes." + parsed.sourceNodeId() + ".answer";
+                    log.info("[Collaborative] Normalize prose dependency: source={}, target={}",
+                            parsed.sourceNodeId(), target);
+                }
+            } catch (IllegalArgumentException ignored) {
+                // Invalid or undeclared dependencies still fail the normal plan validation.
+            }
+            normalized.put(target, value);
+        });
+        return Map.copyOf(normalized);
     }
 
     private static String buildScopedDescription(String description, String agent,

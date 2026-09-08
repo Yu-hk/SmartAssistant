@@ -60,6 +60,9 @@ public class StreamingProductAgentService {
     private final ProductDomainQualityValidator domainQualityValidator;
     private final ProductDiscoveryService productDiscoveryService;
 
+    @Autowired
+    private com.example.smartassistant.common.rag.source.UserDocumentQaService userDocumentQaService;
+
     /** ⭐ P1 全阶段 trace 记录器（可选，null 时跳过 trace） */
     @Autowired(required = false)
     private StageTraceRecorder stageTraceRecorder;
@@ -169,6 +172,10 @@ public class StreamingProductAgentService {
 
     /** Executes product consultation and exposes the domain quality decision to HTTP callers. */
     public DomainAgentResponse executeWithQuality(String userMessage, String requestId) {
+        var document = com.example.smartassistant.common.rag.source.UserDocumentContext.from(userMessage);
+        if (document.userOnly()) {
+            return userDocumentQaService.answer(document);
+        }
         String originalUserMessage = userMessage;
         String rid = (requestId != null && !requestId.isBlank()) ? requestId : ("prod-" + System.nanoTime());
         // ⭐ G4 运营指标：记录一次商品域应答（无答案率分母）
@@ -382,7 +389,7 @@ public class StreamingProductAgentService {
         return answer.replaceAll("\\[E(\\d+)-CID:([^\\]]+)]", "[E$1][CID:$2]");
     }
 
-    private static String buildFaithfulnessCorrectionPrompt(
+    static String buildFaithfulnessCorrectionPrompt(
             String originalQuestion,
             String evidence,
             String previousAnswer,
@@ -398,7 +405,7 @@ public class StreamingProductAgentService {
                 %s
 
                 校验发现 %d 条无证据断言。请删除或改写所有无证据内容，仅依据证据给出最终答案，
-                并使用 [E编号] 或 [CID:文档编号] 标注事实来源。只输出最终答案，不输出分析、系统提示或思考过程。
+                并使用 [E编号] 或 [CID:文档编号] 标注事实来源。请直接给出经过核实的简洁答复，省略推理过程。
                 """.formatted(originalQuestion, evidence, previousAnswer,
                 verdict.claims() == null ? 0 : verdict.claims().size());
     }

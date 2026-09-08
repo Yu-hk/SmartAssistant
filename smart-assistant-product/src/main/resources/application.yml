@@ -40,9 +40,9 @@ spring:
         # 注册时携带元数据（供 Router Agent 发现和路由决策）
         metadata:
           agent-type: product_agent
-          capabilities: product_query,price_query,stock_check,product_analysis,product_recommendation
+          capabilities: product_query,price_query,stock_check,product_analysis,product_recommendation,product_knowledge,policy_qa,inventory_rules
           keywords: 商品,价格,库存,规格,颜色,多少钱,有货,参数,对比,手机,电脑,推荐,性价比
-          routing-examples: "查询3000元内有库存的手机||分析热门商品的销量性价比和口碑||根据分析结果推荐最合适的商品"
+          routing-examples: "查询商品价格和库存并分析推荐||从商品知识库检索可售库存计算规则||查询退换货条件和价格保护政策，只说明不办理"
           priority: 10
           cache-ttl-seconds: "43200"    # ⭐ 回复缓存 TTL（秒），商品咨询类 12h
           always-cache-reply: "true"    # ⭐ 首次即缓存回复，无需等待成为高频问题
@@ -99,9 +99,9 @@ spring:
             password: ${NACOS_PASSWORD}
             metadata:
               agent-type: product_agent
-              capabilities: product_query,stock_check,price_query,product_analysis,product_recommendation
+              capabilities: product_query,stock_check,price_query,product_analysis,product_recommendation,product_knowledge,policy_qa,inventory_rules
               keywords: 商品,价格,库存,规格,颜色,分期,多少钱,有货,参数,对比
-              routing-examples: "查询3000元内有库存的手机||分析热门商品的销量性价比和口碑||根据分析结果推荐最合适的商品"
+              routing-examples: "查询商品价格和库存并分析推荐||从商品知识库检索可售库存计算规则||查询退换货条件和价格保护政策，只说明不办理"
               priority: 10
               cache-ttl-seconds: "43200"
               version: "1.0.0"

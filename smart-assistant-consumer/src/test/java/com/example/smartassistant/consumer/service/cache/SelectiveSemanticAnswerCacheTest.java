@@ -26,6 +26,15 @@ import static org.mockito.Mockito.when;
 
 class SelectiveSemanticAnswerCacheTest {
 
+    @Test
+    void userDocumentsNeverReadLegacyEntriesOrStoreEvenIfMarkedEligible() {
+        String question = "仅依据资料：“蓝牙5.3，续航30小时。”回答参数";
+        assertThat(cache.find(42L, question)).isNull();
+        cache.store(42L, question, Map.of("result", "30小时", "workflowStatus", "COMPLETED",
+                "semanticCacheCategory", "PRODUCT_CONSULTATION", "semanticCacheEligible", true));
+        org.mockito.Mockito.verifyNoInteractions(values, zsets, verifier);
+    }
+
     private StringRedisTemplate redisTemplate;
     private ValueOperations<String, String> values;
     private ZSetOperations<String, String> zsets;

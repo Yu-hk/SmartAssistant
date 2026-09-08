@@ -3,21 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { Session, PermissionRequest, FaqItem } from '../types';
 import { ChatMessages } from '../components/ChatMessages';
 import { SessionExecutionSteps } from '../components/SessionExecutionSteps';
+import { ScenarioExamples } from '../components/ScenarioExamples';
+import { DocumentExamples } from '../components/DocumentExamples';
 import { FaqSuggestions } from '../components/FaqSuggestions';
 import { IntentBadge } from '../components/IntentBadge';
 import { sessions as sessionApi } from '../api';
 import {
-  ArrowRight,
-  BookOpenText,
   CircleCheck,
-  Compass,
   Headset,
   MessagesSquare,
-  PackageSearch,
   PhoneForwarded,
-  ShoppingBag,
   Sparkles,
-  Workflow,
 } from 'lucide-react';
 
 interface CustomerChatPageProps {
@@ -39,19 +35,6 @@ interface CustomerChatPageProps {
   onRateSession: (score: number) => void;
   userName?: string;
 }
-
-const QUICK_QUESTIONS = [
-  { icon: PackageSearch, text: '帮我追踪最近一笔订单' },
-  { icon: ShoppingBag, text: '推荐现在的热门商品' },
-  { icon: BookOpenText, text: '从知识库查资料并总结' },
-];
-
-const CAPABILITIES = [
-  { icon: PackageSearch, title: '订单助手', desc: '查订单、跟物流、处理售后', tone: 'cyan', prompt: '请帮我查询订单：' },
-  { icon: ShoppingBag, title: '商品顾问', desc: '商品咨询、参数对比与推荐', tone: 'amber', prompt: '请帮我推荐或对比商品：' },
-  { icon: BookOpenText, title: '知识检索', desc: '检索资料、文档问答与总结', tone: 'emerald', prompt: '请从知识库中查找并总结：' },
-  { icon: Workflow, title: '综合协助', desc: '识别需求并安排合适的处理步骤', tone: 'indigo', prompt: '请帮我处理：' },
-];
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -167,47 +150,9 @@ export function CustomerChatPage({
               onChange={onInputChange}
             />
 
-            <div className="home-section-heading">
-              <span>选择服务能力</span>
-              <small>也可以直接在上方输入客户问题</small>
-            </div>
-            <div className="home-capability-grid">
-              {CAPABILITIES.map((item, idx) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    type="button"
-                    key={item.title}
-                    className={`home-capability-card tone-${item.tone} animate-fade-in-up`}
-                    onClick={() => onInputChange(item.prompt)}
-                    disabled={isClosed || isSuspended}
-                    aria-label={`使用${item.title}`}
-                    style={{ animationDelay: `${idx * 0.06}s` }}
-                  >
-                    <span className="home-capability-icon"><Icon size={21} /></span>
-                    <span className="home-capability-copy">
-                      <strong>{item.title}</strong>
-                      <small>{item.desc}</small>
-                    </span>
-                    <ArrowRight className="home-card-arrow" size={16} />
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="home-quick-row">
-              <span className="home-quick-label"><Compass size={14} /> 快速开始</span>
-              <div className="home-quick-actions">
-                {QUICK_QUESTIONS.map(q => {
-                  const Icon = q.icon;
-                  return (
-                    <button type="button" key={q.text} disabled={isClosed || isSuspended} onClick={() => handleSend(q.text)}>
-                      <Icon size={14} /> {q.text}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <ScenarioExamples disabled={isClosed || isSuspended || isLoading} onSelect={onInputChange} />
+            <DocumentExamples key={currentSession?.id || 'new'} disabled={isClosed || isSuspended || isLoading}
+              hasDraft={Boolean(inputValue.trim())} onSelect={onInputChange} />
           </section>
         ) : (
           /* ===== 对话区域 ===== */

@@ -14,6 +14,10 @@
 - depends_on 只能引用当前 sub_intents 中已定义的节点；无依赖时输出空数组。
 - input_bindings 只能读取 depends_on 中声明的节点，格式为“目标字段”:“$.nodes.节点ID.data.字段路径”；没有结构化传值时输出空对象。
 - 商品链路使用稳定协议字段：DISCOVER_PRODUCTS 输出 data.products，ANALYZE_PRODUCT_DATA 输出 data.analysis，RECOMMEND_PRODUCT 输出 data.recommendation；不得臆造 product_ids 等字段。
+- general 的 ANSWER 节点只输出 answer 文本，不提供 data.result、data.total 等结构化字段。计算的后续步骤用 depends_on 接收前一步答案；如需绑定只能使用 $.nodes.节点ID.answer，output_schema=null，merge_policy=APPEND。无需依赖的两个计算可以并行，不得虚构依赖字段。
+- QUERY_PRODUCT 的知识问答结果也使用 answer 文本，不提供 data.analysis；政策检索和解释通常一个 QUERY_PRODUCT 节点即可完成，不要额外生成没有独立目标的解释节点。
+- 业务知识检索、库存规则、退换货条件、价保政策属于只读说明，优先分给声明 product_knowledge/policy_qa/inventory_rules 的健康 Agent，operation=QUERY_PRODUCT。没有指定知识库工具的 general 不能代替内部知识检索，也不得自行改为联网搜索。
+- 询问退货退款的条件、流程或政策不是申请退款，不需要订单号，也不是下单准备。EXPLAIN_ORDER_REQUIREMENTS 仅用于用户询问下单所需信息；不得用于售后政策或任意缺失参数的澄清。
 - 订单链路采用“Agent 收集和校验参数 → 确定性工作流执行”的边界：CREATE_ORDER、CANCEL_ORDER、REFUND_ORDER、APPLY_AFTER_SALES 的最终节点必须是 WRITE 且 human_approval_required=true；信息不足时只生成澄清，不得提前生成写节点。
 - CREATE_ORDER 至少需要 product_name、amount、recipient_name、recipient_phone、shipping_address；CANCEL_ORDER/REFUND_ORDER 至少需要 order_id、reason；APPLY_AFTER_SALES 至少需要 order_id、after_sales_type、reason。
 - TRACK_LOGISTICS 是确定性只读流程，信息齐全后直接执行，不需要人工确认；不得因为它属于订单域而误标为 WRITE。
