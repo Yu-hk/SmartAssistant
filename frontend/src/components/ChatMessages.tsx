@@ -149,7 +149,7 @@ export function ChatMessages({
               borderRadius: '12px',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: message.role === 'user'
-                ? 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))'
+                ? 'var(--nova-accent)'
                 : 'var(--nova-bg-component)',
               color: message.role === 'user' ? 'white' : 'var(--nova-text-primary)',
               border: message.role === 'assistant' ? '1px solid var(--nova-border)' : 'none',
@@ -199,7 +199,7 @@ export function ChatMessages({
                 className="animate-scale-in"
                 style={{
                   padding: '12px 18px',
-                  background: 'linear-gradient(135deg, var(--nova-accent), var(--nova-secondary))',
+                  background: 'var(--nova-accent)',
                   color: 'white',
                   borderRadius: '16px 16px 4px 16px',
                   fontSize: '14px',
