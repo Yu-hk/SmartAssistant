@@ -14,15 +14,15 @@ import { DingTalkQrLoginDialog } from '../components/DingTalkQrLoginDialog';
 import { FeishuQrLoginDialog } from '../components/FeishuQrLoginDialog';
 import { createDemoAccount } from '../api/demo';
 import {
-  Activity,
   AtSign,
   Building2,
   KeyRound,
   Mail,
   RefreshCw,
   ShieldCheck,
-  Users,
-  Wifi,
+  BookOpenText,
+  PackageSearch,
+  Workflow,
 } from 'lucide-react';
 
 export function LoginPage() {
@@ -212,51 +212,36 @@ export function LoginPage() {
       {/* ===== 左侧品牌叙事 ===== */}
       <section className="login-intro">
         <div className="login-brand"><img src="/icons/app-icon.svg" alt="" /> 智服 SmartAssistant</div>
-        <div className="login-kicker">INTELLIGENT CUSTOMER SERVICE</div>
-        <h1>让每个服务问题，<br />都有 <span className="accent">清晰步骤</span> 解决</h1>
+        <div className="login-kicker">智能客服 · 多能力协同</div>
+        <h1>服务问题，<br /><span className="accent">交给智服。</span></h1>
         <p>
-          覆盖售前、订单、技术支持和投诉处理，自动理解需求并协同完成，
-          全渠道接入，让服务更快、更准确。
+          从订单查询到文档问答，用一次对话连接你需要的服务。
         </p>
 
         <div className="login-values">
           <div className="login-value">
-            <div className="lv-icon lv1"><Users size={18} /></div>
+            <div className="lv-icon lv1"><PackageSearch size={18} /></div>
             <div>
-              <div className="lv-t">专业能力协同</div>
-              <div className="lv-d">自动拆分复杂问题，并行完成可独立处理的步骤</div>
+              <div className="lv-t">订单与商品</div>
+              <div className="lv-d">查询订单、了解商品、获取选购建议</div>
             </div>
           </div>
           <div className="login-value">
-            <div className="lv-icon lv2"><Activity size={18} /></div>
+            <div className="lv-icon lv2"><BookOpenText size={18} /></div>
             <div>
-              <div className="lv-t">全链路服务追踪</div>
-              <div className="lv-d">处理状态、服务能力与知识命中清晰可见</div>
+              <div className="lv-t">知识与文档</div>
+              <div className="lv-d">检索知识库，围绕导入资料提问</div>
             </div>
           </div>
           <div className="login-value">
-            <div className="lv-icon lv3"><Wifi size={18} /></div>
+            <div className="lv-icon lv3"><Workflow size={18} /></div>
             <div>
-              <div className="lv-t">全渠道接入</div>
-              <div className="lv-d">微信 / App / 网页 / 企业微信统一工作台</div>
+              <div className="lv-t">过程清晰可见</div>
+              <div className="lv-d">随时查看处理步骤、工具调用与用量</div>
             </div>
           </div>
         </div>
 
-        <div className="login-stats">
-          <div>
-            <div className="ls-num">3<span> 层</span></div>
-            <div className="ls-label">意图识别（规则 + 小模型 + LLM）</div>
-          </div>
-          <div>
-            <div className="ls-num">RAG</div>
-            <div className="ls-label">知识库检索增强问答</div>
-          </div>
-          <div>
-            <div className="ls-num">360°</div>
-            <div className="ls-label">客户画像与偏好学习</div>
-          </div>
-        </div>
       </section>
 
       {/* ===== 右侧登录 / 注册卡片 ===== */}
@@ -288,13 +273,13 @@ export function LoginPage() {
                 <p className="login-subtitle">欢迎回来，请使用账号登录</p>
 
                 <section className="login-demo" aria-label="演示账号">
-                  <strong>演示账号 · 免注册体验</strong>
-                  <p>无需填写注册信息，为你创建独立的普通体验账号。</p>
+                  <strong>先体验，再开始</strong>
+                  <p>免注册，为你创建独立的演示账号。</p>
                   <button type="button" className="login-submit" disabled={loading}
                     onClick={beginDemo}>
                     {demoLoading ? '正在准备演示账号…' : '使用演示账号体验'}
                   </button>
-                  <small>可体验商品咨询、订单服务和智能问答。关闭标签页后需重新体验；请勿填写真实敏感信息。</small>
+                  <small>关闭标签页后需重新体验，请勿提交敏感信息。</small>
                 </section>
 
                 <label>账号</label>

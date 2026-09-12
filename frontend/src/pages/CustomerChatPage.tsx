@@ -8,13 +8,7 @@ import { DocumentExamples } from '../components/DocumentExamples';
 import { FaqSuggestions } from '../components/FaqSuggestions';
 import { IntentBadge } from '../components/IntentBadge';
 import { sessions as sessionApi } from '../api';
-import {
-  CircleCheck,
-  Headset,
-  MessagesSquare,
-  PhoneForwarded,
-  Sparkles,
-} from 'lucide-react';
+import { Headset, FileText } from 'lucide-react';
 
 interface CustomerChatPageProps {
   sessions: Session[];
@@ -33,19 +27,9 @@ interface CustomerChatPageProps {
   onPermissionDeny: () => void;
   onRecoverMessage: (messageId: string, requestId: string) => void;
   onRateSession: (score: number) => void;
-  userName?: string;
-}
-
-function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 6) return '夜深了';
-  if (hour < 12) return '上午好';
-  if (hour < 18) return '下午好';
-  return '晚上好';
 }
 
 export function CustomerChatPage({
-  sessions,
   currentSession,
   isLoading,
   inputValue,
@@ -61,7 +45,6 @@ export function CustomerChatPage({
   onPermissionDeny,
   onRecoverMessage,
   onRateSession,
-  userName,
 }: CustomerChatPageProps) {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -95,13 +78,6 @@ export function CustomerChatPage({
   const isClosed = currentSession?.status === 'closed';
   const isSuspended = currentSession?.status === 'suspended';
 
-  const homeStats = {
-    total: sessions.length,
-    active: sessions.filter(s => s.status === 'active').length,
-    human: sessions.filter(s => s.status === 'human_transfer').length,
-    closed: sessions.filter(s => s.status === 'closed').length,
-  };
-
   return (
     <>
       {/* 消息区域 */}
@@ -109,32 +85,13 @@ export function CustomerChatPage({
         {!hasMessages ? (
           <section className="assistant-home" aria-labelledby="home-title">
             <div className="home-hero">
-              <div className="home-eyebrow"><Sparkles size={15} /> 智能服务助手</div>
-              <h1 id="home-title">{getGreeting()}{userName ? `，${userName}` : ''}</h1>
+              <div className="home-eyebrow"><Headset size={18} /> 智服 · 智能客服助手</div>
+              <h1 id="home-title">有什么可以帮你？</h1>
               <p>{isClosed
                 ? '该会话已结束，请从左侧新建会话后继续。'
                 : isSuspended
                   ? '该会话已暂停且上下文已保留；请从左侧暂停列表中主动恢复。'
-                  : '直接描述需要处理的事情，或从下方选择服务入口；系统会自动安排后续步骤。'}</p>
-            </div>
-
-            <div className="home-stats" aria-label="接待概览">
-              <div className="home-stat">
-                <span className="home-stat-icon"><MessagesSquare size={17} /></span>
-                <span><strong>{homeStats.total}</strong><span>全部会话</span></span>
-              </div>
-              <div className="home-stat">
-                <span className="home-stat-icon is-ok"><Headset size={17} /></span>
-                <span><strong>{homeStats.active}</strong><span>进行中</span></span>
-              </div>
-              <div className="home-stat">
-                <span className="home-stat-icon is-warn"><PhoneForwarded size={17} /></span>
-                <span><strong>{homeStats.human}</strong><span>转人工</span></span>
-              </div>
-              <div className="home-stat">
-                <span className="home-stat-icon is-muted"><CircleCheck size={17} /></span>
-                <span><strong>{homeStats.closed}</strong><span>已结束</span></span>
-              </div>
+                  : '查订单、选商品、查资料，从一个问题开始。'}</p>
             </div>
 
             <CustomerChatInput
@@ -151,8 +108,11 @@ export function CustomerChatPage({
             />
 
             <ScenarioExamples disabled={isClosed || isSuspended || isLoading} onSelect={onInputChange} />
-            <DocumentExamples key={currentSession?.id || 'new'} disabled={isClosed || isSuspended || isLoading}
-              hasDraft={Boolean(inputValue.trim())} onSelect={onInputChange} />
+            <details className="home-documents" key={currentSession?.id || 'new'}>
+              <summary><FileText size={17} /><span>文档问答<small>导入资料，或试用示例文档</small></span><span className="home-documents-toggle" aria-hidden="true">+</span></summary>
+              <DocumentExamples disabled={isClosed || isSuspended || isLoading}
+                hasDraft={Boolean(inputValue.trim())} onSelect={onInputChange} />
+            </details>
           </section>
         ) : (
           /* ===== 对话区域 ===== */
@@ -226,7 +186,7 @@ export function CustomerChatPage({
 }
 
 // ===================================================
-// 输入框 — 霓虹科技风格
+// 输入框 — 首页与对话页共享
 // ===================================================
 interface CustomerChatInputProps {
   variant?: 'home' | 'docked';
@@ -274,16 +234,16 @@ function CustomerChatInput({
         <textarea
           ref={textareaRef}
           value={inputValue}
+          aria-label="输入你的问题"
           onChange={e => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           placeholder={disabled
             ? disabledMessage || '本次会话已结束，请开启新对话'
-            : '输入你的问题或业务需求...（Enter 发送）'}
+            : '输入你的问题…'}
           disabled={disabled || isLoading}
           rows={1}
-          autoFocus={variant === 'home'}
           className="chat-composer-input"
         />
         {isLoading ? (
@@ -311,8 +271,9 @@ function CustomerChatInput({
         )}
       </div>
       <div className="chat-composer-meta">
+        <span className="composer-shortcut">Enter 发送 · Shift + Enter 换行</span>
         <span className="composer-disclaimer">
-          AI 生成内容可能存在偏差，涉及订单、金额和关键业务操作时请再次确认
+          AI 回复仅供参考，关键业务信息请核实
         </span>
       </div>
     </div>

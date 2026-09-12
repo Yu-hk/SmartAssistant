@@ -5,6 +5,7 @@ import { useTheme } from './hooks/useTheme';
 import { useSessions } from './hooks/useSessions';
 import { useChat } from './hooks/useChat';
 import { useNotifications } from './hooks/useNotifications';
+import { getUserDisplayName } from './utils/userDisplay';
 
 import { CustomerSidebar } from './components/CustomerSidebar';
 import { SessionInsightPanel } from './components/SessionInsightPanel';
@@ -18,7 +19,7 @@ import {
   getCurrentUser,
   logout,
 } from './api/auth';
-import { LogOut, Menu, MessageSquareText, ShieldCheck, UserRound } from 'lucide-react';
+import { LogOut, Menu, MessageSquareText, UserRound } from 'lucide-react';
 
 const AdminApp = lazy(() => import('./admin/AdminApp').then(module => ({
   default: module.AdminApp,
@@ -305,14 +306,12 @@ function CustomerApp() {
               <div className="header-context-icon"><MessageSquareText size={18} /></div>
               <div className="header-context">
                 <strong>{currentSession ? currentSession.title : '智能服务助手'}</strong>
-                <span>{currentSession ? '当前服务会话' : '描述需要处理的事情，系统会安排合适的服务能力'}</span>
               </div>
-              <div className="header-capability"><ShieldCheck size={14} /> 安全协同处理</div>
               <div className="header-actions">
                 <div className="header-user">
                   <span className="header-avatar"><UserRound size={15} /></span>
                   <span>
-                    <strong>{authUser?.username || '用户'}</strong>
+                    <strong>{getUserDisplayName(authUser?.username)}</strong>
                     <small>{authUser?.role === 'ROLE_ADMIN' ? '管理员' : '普通用户'}</small>
                   </span>
                 </div>
@@ -354,7 +353,6 @@ function CustomerApp() {
               onPermissionDeny={handlePermissionDeny}
               onRecoverMessage={handleRecoverMessage}
               onRateSession={handleRateSession}
-              userName={authUser?.username}
             />
             {sessionActionError && (
               <div className="session-action-error" role="alert">
@@ -365,12 +363,12 @@ function CustomerApp() {
         </>
       </main>
 
-      <SessionInsightPanel
+      {Boolean(currentSession?.messages.length) && <SessionInsightPanel
         sessions={sessions}
         currentSession={currentSession}
         onCloseSession={handleCloseSession}
         onRateSession={handleRateSession}
-      />
+      />}
 
       <RecoveryNotificationCenter
         notifications={notifications}

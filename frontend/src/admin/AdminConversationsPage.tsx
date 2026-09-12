@@ -16,6 +16,7 @@ import {
 import * as adminApi from '../api/admin';
 import type { WorkflowRecoveryJob, WorkflowRecoveryStatus } from '../api/admin';
 import { ApiError } from '../api/client';
+import { getUserDisplayName } from '../utils/userDisplay';
 import type { AdminAgentFlow, AdminAgentFlowNode, AdminSessionDetail, AdminSessionPage, AdminSessionSummary } from '../types';
 import {
   formatAgent,
@@ -223,7 +224,7 @@ function ConversationTable({ items, onOpen }: { items: AdminSessionSummary[]; on
                   <span className="admin-user-avatar"><UserRound size={15} /></span>
                   <span>
                     <button type="button" onClick={() => onOpen({ sessionId: session.sessionId, userId: session.userId })}>{formatConversationTitle(session.title)}</button>
-                    <small>{session.username || '未知用户'}{session.userId !== null ? ` · ID ${session.userId}` : ''}</small>
+                    <small>{getUserDisplayName(session.username, '未知用户')}{session.userId !== null ? ` · ID ${session.userId}` : ''}</small>
                   </span>
                 </div>
               </td>
@@ -575,7 +576,7 @@ function ConversationDrawer({
           <>
             <div className="admin-drawer-summary">
               <div className="admin-drawer-title-row">
-                <div><h3>{formatConversationTitle(detail.session.title)}</h3><p>{detail.session.username || '未知用户'}{detail.session.userId !== null ? ` · 用户 ID ${detail.session.userId}` : ''}</p></div>
+                <div><h3>{formatConversationTitle(detail.session.title)}</h3><p>{getUserDisplayName(detail.session.username, '未知用户')}{detail.session.userId !== null ? ` · 用户 ID ${detail.session.userId}` : ''}</p></div>
                 <span className={`admin-status-tag tone-${statusTone(detail.session.status)}`}>{formatStatus(detail.session.status)}</span>
               </div>
               <dl className="admin-detail-facts">
