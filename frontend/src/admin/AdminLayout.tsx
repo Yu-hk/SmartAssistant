@@ -3,7 +3,6 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   BarChart3,
   BookOpenText,
-  ChevronRight,
   Database,
   LogOut,
   Menu,
@@ -80,11 +79,6 @@ export function AdminLayout({
         </button>
       </div>
 
-      <div className="admin-environment-card">
-        <span className="admin-live-dot" aria-hidden="true" />
-        <span><strong>生产环境</strong><small>全局管理视图</small></span>
-      </div>
-
       <nav className="admin-navigation">
         <span className="admin-nav-caption">控制台</span>
         {NAV_ITEMS.map(item => {
@@ -96,8 +90,7 @@ export function AdminLayout({
               className={({ isActive }) => `admin-nav-item ${isActive ? 'active' : ''}`}
             >
               <span className="admin-nav-icon"><Icon size={18} aria-hidden="true" /></span>
-              <span><strong>{item.label}</strong><small>{item.description}</small></span>
-              <ChevronRight size={15} className="admin-nav-arrow" aria-hidden="true" />
+              <span><strong>{item.label}</strong></span>
             </NavLink>
           );
         })}
