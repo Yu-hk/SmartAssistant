@@ -82,7 +82,7 @@
 .home-hero p { margin-top: 10px; }
 .chat-composer-shell.is-home { margin: 30px 0 32px; }
 .chat-composer, .is-home .chat-composer { border-radius: 12px; box-shadow: none; }
-.is-home .chat-composer { min-height: 100px; padding: 18px; }
+.is-home .chat-composer { min-height: 64px; padding: 10px 12px; }
 .chat-composer.is-focused { box-shadow: 0 0 0 3px var(--nova-accent-light); }
 .chat-composer-action, .is-home .chat-composer-action { border-radius: 8px; }
 .chat-composer-action:not(:disabled):hover { transform: none; box-shadow: none; }
@@ -167,7 +167,7 @@
   .home-capability-grid { grid-template-columns: 1fr; }
   .home-capability-card { min-height: auto; padding: 16px; }
   .home-documents summary small { display: block; margin: 4px 0 0; }
-  .is-home .chat-composer { padding: 14px; }
+  .is-home .chat-composer { min-height: 58px; padding: 8px 10px; }
   .chat-composer-meta { flex-direction: column; gap: 3px; align-items: flex-start; }
   .composer-shortcut { display: none; }
   .composer-disclaimer { display: block; text-align: left; }
