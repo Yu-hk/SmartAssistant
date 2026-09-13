@@ -17,8 +17,8 @@ function buttons(node: React.ReactNode): React.ReactElement[] {
   });
 }
 
-test('four scenarios show complete example questions, without private order IDs or placeholders', () => {
-  assert.deepEqual(SCENARIO_EXAMPLES.map(item => item.id), ['order', 'product', 'knowledge', 'general']);
+test('three customer-service scenarios show complete questions without private order IDs or placeholders', () => {
+  assert.deepEqual(SCENARIO_EXAMPLES.map(item => item.id), ['order', 'product', 'knowledge']);
   const html = renderToStaticMarkup(<ScenarioExamples onSelect={() => {}} />);
   for (const item of SCENARIO_EXAMPLES) {
     assert.ok(html.includes(item.title));
@@ -27,15 +27,16 @@ test('four scenarios show complete example questions, without private order IDs 
     assert.doesNotMatch(item.question, /ORD-|XXX|\{.*\}|[：:]$/);
   }
   assert.match(html, /点击示例填入输入框，确认后发送/);
+  assert.doesNotMatch(html, /综合协助|使用计算工具|1999 乘以 2/);
   const knowledge = SCENARIO_EXAMPLES.find(item => item.id === 'knowledge');
   assert.equal(knowledge?.question, '可售库存如何计算？锁定库存能当作可售库存吗？请根据知识库回答。');
   assert.ok(!html.includes('A款耳机'));
 });
 
-test('four focused cards select full questions without duplicate quick entries or automatic sending', () => {
+test('three focused cards select full questions without duplicate quick entries or automatic sending', () => {
   const selected: string[] = [];
   const entries = buttons(ScenarioExamples({ onSelect: question => selected.push(question) }));
-  assert.equal(entries.length, 4);
+  assert.equal(entries.length, 3);
   entries.forEach(button => button.props.onClick());
   const questions = SCENARIO_EXAMPLES.map(item => item.question);
   assert.deepEqual(selected, questions);
@@ -63,7 +64,8 @@ test('homepage wires examples for new sessions and disables them for loading, cl
     const html = renderToStaticMarkup(<MemoryRouter><CustomerChatPage {...props}
       currentSession={currentSession} isLoading={state === 'loading'} /></MemoryRouter>);
     const cards = html.match(/<button[^>]*home-capability-card[^>]*>/g) ?? [];
-    assert.equal(cards.length, 4);
+    assert.equal(cards.length, 3);
+    assert.doesNotMatch(html, /综合协助|使用计算工具|1999 乘以 2/);
     assert.doesNotMatch(html, /home-stats|home-quick-row/);
     assert.match(html, /<details class="home-documents">/);
     assert.match(html, /文档问答/);

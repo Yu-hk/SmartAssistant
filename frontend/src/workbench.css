@@ -88,7 +88,7 @@
 .chat-composer-action:not(:disabled):hover { transform: none; box-shadow: none; }
 .chat-composer-meta { justify-content: space-between; font-size: 11px; line-height: 1.5; }
 .home-section-heading small { font-size: 11px; }
-.home-capability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.home-capability-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
 .home-capability-card {
   position: relative; display: grid; grid-template-columns: 24px 1fr 18px;
   align-items: center; align-content: start; gap: 10px; min-height: 116px;
@@ -118,7 +118,7 @@
 .workbench-insight { height: 100%; }
 .insight-heading { letter-spacing: 0; font-size: 12px; }
 
-/* 登录页减少营销装饰，保留演示登录、账号和所有已配置渠道。 */
+/* 登录页减少营销装饰，保留账号登录及钉钉、飞书企业渠道。 */
 .login-page { height: 100dvh; min-height: 100dvh; background: var(--nova-bg-page); grid-template-columns: 1fr 1fr; }
 .login-intro { padding: clamp(32px, 5vw, 80px); }
 .login-brand img, .login-mobile-brand img { width: 34px; height: 34px; box-shadow: none; }
