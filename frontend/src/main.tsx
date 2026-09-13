@@ -5,6 +5,7 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import 'tdesign-react/esm/style/index.js';
 import './index.css';
+import './workbench.css';
 
 document.title = '智服 SmartAssistant';
 
