@@ -92,12 +92,12 @@ class OAuthLoginServiceTest {
                 anyString(),
                 org.mockito.ArgumentMatchers.eq("https://xiaoyuai.cloud/api/auth/oauth/feishu/callback")))
                 .thenAnswer(invocation -> URI.create(
-                        "https://accounts.feishu.cn/open-apis/authen/v1/authorize?state="
+                        "https://passport.feishu.cn/suite/passport/oauth/authorize?state="
                                 + invocation.getArgument(1, String.class)));
 
         OAuthLoginService.FeishuFrameConfig config = service.feishuFrameConfig("//evil.example", false);
 
-        assertEquals("https://accounts.feishu.cn/open-apis/authen/v1/authorize?state=" + config.state(),
+        assertEquals("https://passport.feishu.cn/suite/passport/oauth/authorize?state=" + config.state(),
                 config.authorizationUri());
         verify(values).set(
                 org.mockito.ArgumentMatchers.eq("oauth:state:" + config.state()),
