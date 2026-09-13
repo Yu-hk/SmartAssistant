@@ -1,7 +1,7 @@
-import { ArrowUpLeft, BookOpenText, PackageSearch, ShoppingBag, Workflow } from 'lucide-react';
+import { ArrowUpLeft, BookOpenText, PackageSearch, ShoppingBag } from 'lucide-react';
 import { SCENARIO_EXAMPLES } from '../config/scenarioExamples';
 
-const ICONS = { order: PackageSearch, product: ShoppingBag, knowledge: BookOpenText, general: Workflow };
+const ICONS = { order: PackageSearch, product: ShoppingBag, knowledge: BookOpenText };
 
 export function ScenarioExamples({ disabled = false, onSelect }: {
   disabled?: boolean;

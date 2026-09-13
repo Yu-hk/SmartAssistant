@@ -16,9 +16,4 @@ export const SCENARIO_EXAMPLES = [
     tone: 'emerald', shortLabel: '库存规则查询',
     question: '可售库存如何计算？锁定库存能当作可售库存吗？请根据知识库回答。',
   },
-  {
-    id: 'general', title: '综合协助', description: '识别需求并安排合适的处理步骤',
-    tone: 'indigo', shortLabel: '使用计算工具',
-    question: '请计算 1999 乘以 2。',
-  },
 ] as const;

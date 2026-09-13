@@ -2,14 +2,12 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   exchangeOAuthTicket,
-  getOAuthAuthorizeUrl,
   getOAuthProviders,
   login,
   register,
   saveAuth,
-  type OAuthProviderId,
-  type OAuthProviderStatus,
 } from '../api/auth';
+import { getLoginChannels, type LoginChannel } from '../config/loginChannels';
 import { DingTalkQrLoginDialog } from '../components/DingTalkQrLoginDialog';
 import { FeishuQrLoginDialog } from '../components/FeishuQrLoginDialog';
 import {
@@ -57,11 +55,7 @@ export function LoginPage() {
   const [oauthLoading, setOAuthLoading] = useState(true);
   const [oauthLoadError, setOAuthLoadError] = useState('');
   const [oauthReloadKey, setOAuthReloadKey] = useState(0);
-  const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([
-    { id: 'wechat', name: '微信', enabled: false },
-    { id: 'dingtalk', name: '钉钉', enabled: false },
-    { id: 'feishu', name: '飞书', enabled: false },
-  ]);
+  const [oauthProviders, setOAuthProviders] = useState(() => getLoginChannels());
 
   useEffect(() => {
     let active = true;
@@ -70,7 +64,7 @@ export function LoginPage() {
     getOAuthProviders()
       .then(providers => {
         if (!active) return;
-        setOAuthProviders(providers);
+        setOAuthProviders(getLoginChannels(providers));
       })
       .catch(err => {
         if (!active) return;
@@ -164,13 +158,12 @@ export function LoginPage() {
     setHelpDialog('forgot');
   };
 
-  const beginSso = (provider: OAuthProviderStatus) => {
+  const beginSso = (provider: LoginChannel) => {
     setError('');
     if (!provider.enabled) {
       setError(`${provider.name}登录尚未配置，请联系系统管理员`);
       return;
     }
-    const requestedPath = (location.state as { from?: string } | null)?.from || '/';
     if (provider.id === 'dingtalk') {
       setDingtalkQrOpen(true);
       return;
@@ -179,14 +172,9 @@ export function LoginPage() {
       setFeishuQrOpen(true);
       return;
     }
-    window.location.assign(getOAuthAuthorizeUrl(provider.id, requestedPath, remember));
   };
 
   const requestedPath = (location.state as { from?: string } | null)?.from || '/';
-
-  const channelColors: Record<OAuthProviderId, string> = {
-    wechat: '#2ecc71', dingtalk: '#3370ff', feishu: '#00d6b9',
-  };
 
   return (
     <div className="login-page">
@@ -312,7 +300,7 @@ export function LoginPage() {
                     <button
                       type="button"
                       className="login-channel"
-                      key={channel.name}
+                      key={channel.id}
                       disabled={oauthLoading || Boolean(oauthLoadError) || !channel.enabled || loading}
                       title={oauthLoading
                         ? '正在检测登录渠道'
@@ -321,7 +309,7 @@ export function LoginPage() {
                           : channel.enabled ? `使用${channel.name}登录` : `${channel.name}尚未开通`}
                       onClick={() => beginSso(channel)}
                     >
-                      <span className="lc-dot" style={{ background: channelColors[channel.id] }} />
+                      <span className="lc-dot" style={{ background: channel.color }} />
                       <span>{channel.name}</span>
                       {oauthLoading
                         ? <small>检测中</small>
