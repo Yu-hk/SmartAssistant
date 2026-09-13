@@ -1,57 +1,8 @@
 import { useEffect, useId, useState } from 'react';
-import { getFeishuFrameConfig } from '../api/auth';
-
-const FEISHU_LOGIN_SDK =
-  'https://sf3-cn.feishucdn.com/obj/feishu-static/lark/passport/qrcode/LarkSSOSDKWebQRCode-1.0.2.js';
-
-interface FeishuQrLoginOptions {
-  id: string;
-  goto: string;
-  width: string;
-  height: string;
-  style: string;
-}
-
-interface FeishuQrLoginInstance {
-  matchOrigin: (origin: string) => boolean;
-}
-
-declare global {
-  interface Window {
-    QRLogin?: (options: FeishuQrLoginOptions) => FeishuQrLoginInstance;
-  }
-}
-
-let sdkPromise: Promise<void> | null = null;
-
-function loadFeishuSdk(): Promise<void> {
-  if (window.QRLogin) return Promise.resolve();
-  if (sdkPromise) return sdkPromise;
-  const pending = new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${FEISHU_LOGIN_SDK}"]`);
-    const script = existing || document.createElement('script');
-    const handleLoad = () => window.QRLogin
-      ? resolve()
-      : reject(new Error('飞书登录组件加载失败'));
-    const handleError = () => {
-      script.remove();
-      reject(new Error('无法加载飞书登录组件，请检查网络后重试'));
-    };
-    script.addEventListener('load', handleLoad, { once: true });
-    script.addEventListener('error', handleError, { once: true });
-    if (!existing) {
-      script.src = FEISHU_LOGIN_SDK;
-      script.async = true;
-      script.referrerPolicy = 'no-referrer';
-      document.head.appendChild(script);
-    }
-  }).catch(error => {
-    sdkPromise = null;
-    throw error;
-  });
-  sdkPromise = pending;
-  return pending;
-}
+import { getFeishuFrameConfig, getOAuthAuthorizeUrl } from '../api/auth';
+import {
+  loadFeishuSdk, mountFeishuQrCode, validateFeishuAuthorizationUri, type FeishuQrStatus,
+} from '../utils/feishuQrLogin';
 
 interface FeishuQrLoginDialogProps {
   open: boolean;
@@ -68,7 +19,7 @@ export function FeishuQrLoginDialog({
 }: FeishuQrLoginDialogProps) {
   const reactId = useId();
   const containerId = `feishu-qr-${reactId.replace(/:/g, '')}`;
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [status, setStatus] = useState<FeishuQrStatus>('loading');
   const [message, setMessage] = useState('正在加载飞书二维码…');
   const [attempt, setAttempt] = useState(0);
 
@@ -84,7 +35,7 @@ export function FeishuQrLoginDialog({
   useEffect(() => {
     if (!open) return undefined;
     let active = true;
-    let removeMessageListener: (() => void) | undefined;
+    let disposeQr: (() => void) | undefined;
     setStatus('loading');
     setMessage('正在加载飞书二维码…');
 
@@ -92,35 +43,17 @@ export function FeishuQrLoginDialog({
       .then(([config]) => {
         if (!active) return;
         const target = document.getElementById(containerId);
-        if (!target || !window.QRLogin) throw new Error('飞书登录组件初始化失败');
-        const authorizationUri = new URL(config.authorizationUri);
-        if (authorizationUri.searchParams.get('state') !== config.state) {
-          throw new Error('飞书登录状态校验失败，请重新加载');
-        }
-        target.replaceChildren();
-        const login = window.QRLogin({
-          id: containerId,
-          goto: authorizationUri.toString(),
-          width: '300',
-          height: '300',
-          style: 'width:300px;height:300px;border:0;',
+        if (!target) throw new Error('飞书登录组件初始化失败');
+        const authorizationUri = validateFeishuAuthorizationUri(config);
+        disposeQr = mountFeishuQrCode({
+          container: target, authorizationUri,
+          onStatus: (nextStatus, nextMessage) => {
+            if (!active) return;
+            setStatus(nextStatus);
+            setMessage(nextMessage);
+          },
+          onAuthorized: uri => { if (active) window.location.assign(uri); },
         });
-        const handleMessage = (event: MessageEvent) => {
-          if (!active || !login.matchOrigin(event.origin)) return;
-          const temporaryCode = typeof event.data === 'string' ? event.data.trim() : '';
-          if (!temporaryCode) {
-            setStatus('error');
-            setMessage('飞书授权结果无效，请重新扫码');
-            return;
-          }
-          const callbackUri = new URL(authorizationUri);
-          callbackUri.searchParams.set('tmp_code', temporaryCode);
-          window.location.assign(callbackUri.toString());
-        };
-        window.addEventListener('message', handleMessage);
-        removeMessageListener = () => window.removeEventListener('message', handleMessage);
-        setStatus('ready');
-        setMessage('请使用飞书扫描二维码并确认登录');
       })
       .catch(error => {
         if (!active) return;
@@ -130,7 +63,7 @@ export function FeishuQrLoginDialog({
 
     return () => {
       active = false;
-      removeMessageListener?.();
+      disposeQr?.();
       document.getElementById(containerId)?.replaceChildren();
     };
   }, [attempt, containerId, open, remember, returnTo]);
@@ -156,11 +89,14 @@ export function FeishuQrLoginDialog({
         <p className={`oauth-qr-status ${status}`} role={status === 'error' ? 'alert' : 'status'}>
           {message}
         </p>
-        {status === 'error' && (
+        {status !== 'loading' && status !== 'redirecting' && (
           <button type="button" className="login-dialog-action" onClick={() => setAttempt(value => value + 1)}>
             重新加载
           </button>
         )}
+        <p className="oauth-qr-fallback">
+          <a href={getOAuthAuthorizeUrl('feishu', returnTo, remember)}>在飞书官方页面登录</a>
+        </p>
       </section>
     </div>
   );

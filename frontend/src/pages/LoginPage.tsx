@@ -12,7 +12,6 @@ import {
 } from '../api/auth';
 import { DingTalkQrLoginDialog } from '../components/DingTalkQrLoginDialog';
 import { FeishuQrLoginDialog } from '../components/FeishuQrLoginDialog';
-import { createDemoAccount } from '../api/demo';
 import {
   AtSign,
   Building2,
@@ -52,7 +51,6 @@ export function LoginPage() {
     () => searchParams.get('expired') === '1' ? '登录状态已过期，请重新登录' : '',
   );
   const [loading, setLoading] = useState(false);
-  const [demoLoading, setDemoLoading] = useState(false);
   const [helpDialog, setHelpDialog] = useState<'forgot' | 'terms' | null>(null);
   const [dingtalkQrOpen, setDingtalkQrOpen] = useState(false);
   const [feishuQrOpen, setFeishuQrOpen] = useState(false);
@@ -166,23 +164,6 @@ export function LoginPage() {
     setHelpDialog('forgot');
   };
 
-  const beginDemo = async () => {
-    if (loading) return;
-    setError('');
-    setLoading(true);
-    setDemoLoading(true);
-    try {
-      const user = await createDemoAccount();
-      saveAuth(user, false);
-      navigate('/', { replace: true });
-    } catch (err) {
-      setError(`演示账号暂时无法登录：${err instanceof Error ? err.message : '请稍后重试'}`);
-    } finally {
-      setDemoLoading(false);
-      setLoading(false);
-    }
-  };
-
   const beginSso = (provider: OAuthProviderStatus) => {
     setError('');
     if (!provider.enabled) {
@@ -271,16 +252,6 @@ export function LoginPage() {
               <>
                 <h2>登录工作台</h2>
                 <p className="login-subtitle">欢迎回来，请使用账号登录</p>
-
-                <section className="login-demo" aria-label="演示账号">
-                  <strong>先体验，再开始</strong>
-                  <p>免注册，为你创建独立的演示账号。</p>
-                  <button type="button" className="login-submit" disabled={loading}
-                    onClick={beginDemo}>
-                    {demoLoading ? '正在准备演示账号…' : '使用演示账号体验'}
-                  </button>
-                  <small>关闭标签页后需重新体验，请勿提交敏感信息。</small>
-                </section>
 
                 <label>账号</label>
                 <div className="login-input-wrap">
