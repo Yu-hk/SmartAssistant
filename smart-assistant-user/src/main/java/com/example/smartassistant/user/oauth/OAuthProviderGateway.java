@@ -33,9 +33,12 @@ public class OAuthProviderGateway {
                     .queryParam("redirect_uri", redirectUri).queryParam("response_type", "code")
                     .queryParam("client_id", config.getClientId()).queryParam("scope", "openid")
                     .queryParam("state", state).queryParam("prompt", "consent").build().encode().toUri();
-            case FEISHU -> UriComponentsBuilder.fromUriString("https://accounts.feishu.cn/open-apis/authen/v1/authorize")
-                    .queryParam("app_id", config.getClientId()).queryParam("redirect_uri", redirectUri)
-                    .queryParam("state", state).build().encode().toUri();
+            // The QR SDK embeds this OAuth endpoint; the accounts/authen URL is not a QR endpoint.
+            case FEISHU -> UriComponentsBuilder.fromUriString("https://passport.feishu.cn/suite/passport/oauth/authorize")
+                    .queryParam("client_id", "{clientId}").queryParam("response_type", "code")
+                    .queryParam("redirect_uri", "{redirectUri}").queryParam("state", "{state}")
+                    .encode().buildAndExpand(Map.of("clientId", config.getClientId(),
+                            "redirectUri", redirectUri, "state", state)).toUri();
         };
     }
 
