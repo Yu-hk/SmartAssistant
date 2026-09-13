@@ -136,11 +136,6 @@
 .login-tab { flex: none; padding: 0 6px 10px; border-radius: 0; }
 .login-tab.active { background: none; color: var(--nova-accent); box-shadow: none; border-bottom: 2px solid var(--nova-accent); }
 .login-subtitle { margin-bottom: 20px; }
-.login-demo { padding: 14px; margin-bottom: 20px; background: var(--nova-bg-component); border: 0; border-radius: 8px; }
-.login-demo > strong { font-size: 13px; }
-.login-demo > p { font-size: 12px; margin: 5px 0 10px; }
-.login-demo > small { font-size: 11px; }
-.login-demo > .login-submit { background: var(--nova-bg-container); border: 1px solid var(--nova-border); color: var(--nova-accent); }
 .login-submit, .login-dialog-action { background: var(--nova-accent); border-radius: 8px; box-shadow: none; }
 .login-submit:hover { transform: none; box-shadow: none; }
 .login-input-wrap { border-radius: 8px; background: var(--nova-bg-container); }

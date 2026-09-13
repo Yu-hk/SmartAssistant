@@ -937,12 +937,6 @@ body {
 
 .login-card h2 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
 .login-subtitle { color: var(--nova-text-secondary); font-size: 13px; margin-bottom: 26px; }
-.login-demo { margin-bottom: 24px; padding: 16px; border: 1px solid var(--nova-border, #cbd5e1); border-radius: 12px; background: var(--nova-bg-secondary, #f1f5f9); }
-.login-demo > strong { color: var(--nova-text-primary); font-size: 15px; }
-.login-demo > p { margin: 7px 0 12px; color: var(--nova-text-secondary); font-size: 13px; line-height: 1.6; }
-.login-demo > small { display: block; margin-top: 10px; color: var(--nova-text-secondary); font-size: 12px; line-height: 1.6; }
-.login-demo > button:focus-visible { outline: 3px solid #60a5fa; outline-offset: 3px; }
-.login-demo > .login-submit { width: 100%; padding: 12px 16px; }
 .login-card form { display: flex; flex-direction: column; }
 .login-card label {
   margin: 0 0 8px;
@@ -1277,6 +1271,8 @@ body {
 }
 .oauth-qr-status.error { color: #dc2626; }
 .oauth-qr-dialog .login-dialog-action { margin-top: 12px; }
+.oauth-qr-fallback { margin: 16px 0 0; font-size: 13px; }
+.oauth-qr-fallback a { color: var(--nova-primary, #2563eb); text-underline-offset: 3px; }
 
 @media (max-width: 820px) {
   .login-page { grid-template-columns: 1fr; }
