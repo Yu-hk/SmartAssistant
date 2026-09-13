@@ -219,13 +219,29 @@ function CustomerChatInput({
     }
   };
 
-  // 自动调整高度
+  // 单行不预留滚动条；多行按内容扩展，达到上限后才允许滚动。
   useEffect(() => {
     const ta = textareaRef.current;
-    if (ta) {
+    if (!ta) return;
+    const resize = () => {
+      ta.style.overflowY = 'hidden';
       ta.style.height = 'auto';
-      ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-    }
+      const contentHeight = ta.scrollHeight;
+      ta.style.height = Math.min(contentHeight, 120) + 'px';
+      ta.style.overflowY = contentHeight > 120 ? 'auto' : 'hidden';
+    };
+    resize();
+    if (typeof ResizeObserver === 'undefined') return;
+    // 页面宽度或侧栏变化也会导致换行，仅宽度变化时重算，避免高度观察循环。
+    let width = ta.getBoundingClientRect().width;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = ta.getBoundingClientRect().width;
+      if (nextWidth === width) return;
+      width = nextWidth;
+      resize();
+    });
+    observer.observe(ta);
+    return () => observer.disconnect();
   }, [inputValue]);
 
   return (

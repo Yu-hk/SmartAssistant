@@ -500,7 +500,7 @@ body {
   min-height: 54px;
   margin: 0 auto;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
   padding: 10px 12px 10px 16px;
   border: 1px solid var(--nova-border);
@@ -523,22 +523,26 @@ body {
 .chat-composer-input {
   flex: 1;
   min-width: 0;
+  min-height: 24px;
   max-height: 120px;
+  box-sizing: border-box;
+  padding: 0;
   border: 0;
   outline: 0;
   resize: none;
-  overflow-y: auto;
+  overflow-y: hidden;
   color: var(--nova-text-primary);
   background: transparent;
   font: inherit;
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 24px;
 }
 .is-home .chat-composer-input { font-size: 15px; }
 .chat-composer-input::placeholder { color: var(--nova-text-placeholder); }
 .chat-composer-input:disabled { opacity: .45; }
 .chat-composer-action {
   min-height: 36px;
+  align-self: flex-end;
   display: inline-flex;
   align-items: center;
   justify-content: center;
