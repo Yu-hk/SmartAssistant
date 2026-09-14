@@ -444,13 +444,13 @@ rect.c-bg-rect { fill: var(--bg); }
 
         <!-- Connection paths (before components for correct z-order) -->
         <path data-edge-from="web-client" data-edge-to="api-entry" data-edge-label="HTTPS" data-edge-key="0" data-edge-id="web-api" data-composition-points="173.25,285;243.375,285" d="M 173.25 285 L 243.375 285" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="api-entry" data-edge-to="chat-admission" data-edge-label="Chat/SSE" data-edge-key="1" data-edge-id="api-chat" data-composition-points="391.875,285;462,285" d="M 391.875 285 L 462 285" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="api-entry" data-edge-to="chat-admission" data-edge-label="API/SSE" data-edge-key="1" data-edge-id="api-chat" data-composition-points="391.875,285;462,285" d="M 391.875 285 L 462 285" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="chat-admission" data-edge-to="chat-broker" data-edge-label="发布" data-edge-key="2" data-edge-id="publish-chat" data-composition-points="610.5,285;680.625,285" d="M 610.5 285 L 680.625 285" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="chat-broker" data-edge-to="chat-worker" data-edge-label="投递" data-edge-key="3" data-edge-id="deliver-chat" data-composition-points="829.125,285;899.25,285" d="M 829.125 285 L 899.25 285" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="chat-worker" data-edge-to="task-coordinator" data-edge-label="Route API" data-edge-key="4" data-edge-id="invoke-router" data-composition-points="1047.75,285;1117.875,285" d="M 1047.75 285 L 1117.875 285" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="api-entry" data-edge-to="account-service" data-edge-label="认证 API" data-edge-key="5" data-edge-id="authenticate" data-composition-points="317.625,240;317.625,150" d="M 317.625 240 L 317.625 150" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="chat-admission" data-edge-to="request-state" data-edge-label="短期状态" data-edge-key="6" data-edge-id="context-state" data-composition-points="536.25,240;536.25,150" d="M 536.25 240 L 536.25 150" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="chat-admission" data-edge-to="persistent-data" data-edge-label="会话与画像持久化" data-edge-key="7" data-edge-id="save-conversation" data-composition-points="536.25,330;536.25,420" d="M 536.25 330 L 536.25 420" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="chat-admission" data-edge-to="persistent-data" data-edge-label="业务事务持久化" data-edge-key="7" data-edge-id="save-conversation" data-composition-points="536.25,330;536.25,420" d="M 536.25 330 L 536.25 420" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="task-coordinator" data-edge-to="domain-agents" data-edge-label="业务任务" data-edge-key="8" data-edge-id="dispatch-domains" data-composition-points="1192.125,240;1192.125,150" d="M 1192.125 240 L 1192.125 150" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="domain-agents" data-edge-to="model-retrieval" data-edge-label="推理检索" data-edge-key="9" data-edge-id="domain-model" data-composition-points="1117.875,105;1047.75,105" d="M 1117.875 105 L 1047.75 105" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="task-coordinator" data-edge-to="tool-catalog" data-edge-label="工具发现" data-edge-key="10" data-edge-id="discover-tools" data-composition-points="1192.125,330;1192.125,420" d="M 1192.125 330 L 1192.125 420" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
@@ -481,15 +481,15 @@ rect.c-bg-rect { fill: var(--bg); }
         <text x="317.625" y="299" class="t-muted" font-size="9" text-anchor="middle">认证与业务 API 路由</text>
         </g>
 
-        <g id="node-chat-admission" data-node-id="chat-admission" data-node-label="Consumer 接入" tabindex="0" role="button" aria-label="聚焦Consumer 接入，情绪与画像并行 · 答案缓存, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="情绪与画像并行 · 答案缓存" data-node-tag="对话治理" data-node-context="架构组件">
-          <title>Consumer 接入 · 情绪与画像并行 · 答案缓存 · 架构组件 · 对话治理</title>
+        <g id="node-chat-admission" data-node-id="chat-admission" data-node-label="Consumer 接入" tabindex="0" role="button" aria-label="聚焦Consumer 接入，对话治理 · 商品录入, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="对话治理 · 商品录入" data-node-tag="对话治理" data-node-context="架构组件">
+          <title>Consumer 接入 · 对话治理 · 商品录入 · 架构组件 · 对话治理</title>
           <rect x="462" y="240" width="148.5" height="90" rx="6" class="c-mask"/>
           <rect x="462" y="240" width="148.5" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(468 246) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" x="536.25" y="283" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Consumer 接入</text>
-        <text x="536.25" y="299" class="t-muted" font-size="9" text-anchor="middle">情绪与画像并行 · 答案缓存</text>
+        <text x="536.25" y="299" class="t-muted" font-size="9" text-anchor="middle">对话治理 · 商品录入</text>
         <text x="536.25" y="322" class="t-backend" font-size="7" text-anchor="middle">对话治理</text>
         </g>
 
@@ -568,20 +568,20 @@ rect.c-bg-rect { fill: var(--bg); }
         <text x="973.5" y="119" class="t-muted" font-size="9" text-anchor="middle">LLM · Embedding · RAG</text>
         </g>
 
-        <g id="node-domain-agents" data-node-id="domain-agents" data-node-label="Product / Order" tabindex="0" role="button" aria-label="聚焦Product / Order，商品推荐核实 · 订单确认, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="商品推荐核实 · 订单确认" data-node-tag="两个独立领域服务" data-node-context="架构组件">
-          <title>Product / Order · 商品推荐核实 · 订单确认 · 架构组件 · 两个独立领域服务</title>
+        <g id="node-domain-agents" data-node-id="domain-agents" data-node-label="Product / Order" tabindex="0" role="button" aria-label="聚焦Product / Order，参数筛选与推荐 · 订单确认, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="参数筛选与推荐 · 订单确认" data-node-tag="两个独立领域服务" data-node-context="架构组件">
+          <title>Product / Order · 参数筛选与推荐 · 订单确认 · 架构组件 · 两个独立领域服务</title>
           <rect x="1117.875" y="60" width="148.5" height="90" rx="6" class="c-mask"/>
           <rect x="1117.875" y="60" width="148.5" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1123.875 66) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" x="1192.125" y="103" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Product / Order</text>
-        <text x="1192.125" y="119" class="t-muted" font-size="9" text-anchor="middle">商品推荐核实 · 订单确认</text>
+        <text x="1192.125" y="119" class="t-muted" font-size="9" text-anchor="middle">参数筛选与推荐 · 订单确认</text>
         <text x="1192.125" y="142" class="t-backend" font-size="7" text-anchor="middle">两个独立领域服务</text>
         </g>
 
-        <g id="node-persistent-data" data-node-id="persistent-data" data-node-label="PostgreSQL / pgvector" tabindex="0" role="button" aria-label="聚焦PostgreSQL / pgvector，业务数据 · 画像版本 · 向量, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="业务数据 · 画像版本 · 向量" data-node-context="架构组件">
-          <title>PostgreSQL / pgvector · 业务数据 · 画像版本 · 向量 · 架构组件</title>
+        <g id="node-persistent-data" data-node-id="persistent-data" data-node-label="PostgreSQL / pgvector" tabindex="0" role="button" aria-label="聚焦PostgreSQL / pgvector，商品参数 · 画像 · 向量, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="商品参数 · 画像 · 向量" data-node-context="架构组件">
+          <title>PostgreSQL / pgvector · 商品参数 · 画像 · 向量 · 架构组件</title>
           <rect x="462" y="420" width="148.5" height="90" rx="6" class="c-mask"/>
           <rect x="462" y="420" width="148.5" height="90" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(468 426) scale(0.6875)">
@@ -589,7 +589,7 @@ rect.c-bg-rect { fill: var(--bg); }
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
           <text data-node-label="" x="536.25" y="463" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">PostgreSQL / pgvector</text>
-        <text x="536.25" y="479" class="t-muted" font-size="9" text-anchor="middle">业务数据 · 画像版本 · 向量</text>
+        <text x="536.25" y="479" class="t-muted" font-size="9" text-anchor="middle">商品参数 · 画像 · 向量</text>
         </g>
 
         <g id="node-tool-catalog" data-node-id="tool-catalog" data-node-label="Tool Registry" tabindex="0" role="button" aria-label="聚焦Tool Registry，MCP 目录 · 通用工具, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="MCP 目录 · 通用工具" data-node-tag="Runtime 可嵌入模块" data-node-context="架构组件">
@@ -609,9 +609,9 @@ rect.c-bg-rect { fill: var(--bg); }
           <rect x="191.3125" y="265" width="34" height="14" rx="3" class="c-mask"/>
           <text x="208.3125" y="275" class="t-backend" font-size="8" text-anchor="middle">HTTPS</text>
         </g>
-        <g data-edge-from="api-entry" data-edge-to="chat-admission" data-edge-label="Chat/SSE" data-edge-key="1" data-edge-id="api-chat">
-          <rect x="402.7375" y="265" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="426.9375" y="275" class="t-backend" font-size="8" text-anchor="middle">Chat/SSE</text>
+        <g data-edge-from="api-entry" data-edge-to="chat-admission" data-edge-label="API/SSE" data-edge-key="1" data-edge-id="api-chat">
+          <rect x="405.1375" y="265" width="43.6" height="14" rx="3" class="c-mask"/>
+          <text x="426.9375" y="275" class="t-backend" font-size="8" text-anchor="middle">API/SSE</text>
         </g>
         <g data-edge-from="chat-admission" data-edge-to="chat-broker" data-edge-label="发布" data-edge-key="2" data-edge-id="publish-chat">
           <rect x="630.5625" y="265" width="30" height="14" rx="3" class="c-mask"/>
@@ -633,9 +633,9 @@ rect.c-bg-rect { fill: var(--bg); }
           <rect x="512.05" y="220" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="536.25" y="230" class="t-muted" font-size="8" text-anchor="middle">短期状态</text>
         </g>
-        <g data-edge-from="chat-admission" data-edge-to="persistent-data" data-edge-label="会话与画像持久化" data-edge-key="7" data-edge-id="save-conversation">
-          <rect x="492.85" y="334" width="86.8" height="14" rx="3" class="c-mask"/>
-          <text x="536.25" y="344" class="t-muted" font-size="8" text-anchor="middle">会话与画像持久化</text>
+        <g data-edge-from="chat-admission" data-edge-to="persistent-data" data-edge-label="业务事务持久化" data-edge-key="7" data-edge-id="save-conversation">
+          <rect x="497.65" y="334" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="536.25" y="344" class="t-muted" font-size="8" text-anchor="middle">业务事务持久化</text>
         </g>
         <g data-edge-from="task-coordinator" data-edge-to="domain-agents" data-edge-label="业务任务" data-edge-key="8" data-edge-id="dispatch-domains">
           <rect x="1167.925" y="220" width="48.4" height="14" rx="3" class="c-mask"/>
