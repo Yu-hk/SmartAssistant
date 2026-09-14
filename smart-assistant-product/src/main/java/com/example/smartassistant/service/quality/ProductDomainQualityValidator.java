@@ -24,6 +24,12 @@ public class ProductDomainQualityValidator {
 
     public DomainQualityResult evaluate(String answer, RetrievalQualityResult retrieval,
                                         FaithfulnessGuard.FaithfulnessVerdict faithfulness) {
+        return evaluate(answer, retrieval, faithfulness, false);
+    }
+
+    public DomainQualityResult evaluate(String answer, RetrievalQualityResult retrieval,
+                                        FaithfulnessGuard.FaithfulnessVerdict faithfulness,
+                                        boolean hasToolEvidence) {
         // An operational refusal contains no factual claims, but that does not make it
         // a faithful answer. Check before evidence/faithfulness shortcuts.
         if (answer != null && (answer.contains("您的输入已被内容安全策略拦截")
@@ -41,6 +47,10 @@ public class ProductDomainQualityValidator {
             return DomainQualityResult.warn(
                     Math.max(0.1, 1.0 - faithfulness.score()),
                     "UNSUPPORTED_PRODUCT_CLAIMS");
+        }
+        if (hasToolEvidence && faithfulness != null && faithfulness.checked()) {
+            return DomainQualityResult.pass(Math.max(0.7, 1.0 - faithfulness.score()),
+                    "PRODUCT_TOOL_FACTS_VERIFIED");
         }
         if (retrieval == null || retrieval.getContent() == null || retrieval.getContent().isBlank()) {
             if (FACTUAL_CLAIM.matcher(answer).find()) {

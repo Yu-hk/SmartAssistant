@@ -236,7 +236,6 @@ logging:
 product:
   catalog:
     # Production must never fabricate catalog data when PostgreSQL is unavailable.
-    mock-fallback-enabled: ${PRODUCT_MOCK_FALLBACK_ENABLED:false}
     excluded-code-prefixes: ${PRODUCT_EXCLUDED_CODE_PREFIXES:LOAD-PROD-,E2E-PROD-}
   graph:
     refresh-ms: ${PRODUCT_GRAPH_REFRESH_MS:60000}

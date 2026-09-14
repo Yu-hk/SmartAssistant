@@ -16,10 +16,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
+import java.util.ArrayList;
 
 /**
- * Reads the live product catalog from PostgreSQL and falls back to the bundled
- * catalog only when the database is not configured or temporarily unavailable.
+ * Reads only the live PostgreSQL catalog. Failure must not substitute demo facts.
  */
 public class JdbcProductBackend implements ProductBackend {
 
@@ -31,7 +31,13 @@ public class JdbcProductBackend implements ProductBackend {
             """;
     private static final String SELECT_COLUMNS = """
             SELECT product_code, product_name, price, stock, spec,
-                   COALESCE(to_jsonb(p)->>'colors', to_jsonb(p)->>'color', '') AS color
+                   COALESCE(to_jsonb(p)->>'colors', to_jsonb(p)->>'color', '') AS color,
+                   NULLIF(to_jsonb(p)->>'weight_grams', '')::NUMERIC AS weight_grams,
+                   NULLIF(to_jsonb(p)->>'battery_life_hours', '')::NUMERIC AS battery_life_hours,
+                   to_jsonb(p)->>'battery_life_scenario' AS battery_life_scenario,
+                   NULLIF(to_jsonb(p)->>'noise_cancelling', '')::BOOLEAN AS noise_cancelling,
+                   to_jsonb(p)->>'feature_source' AS feature_source,
+                   to_jsonb(p)->>'features_verified_at' AS features_verified_at
               FROM products p
             """;
     private static final String DISCOVERY_CATEGORY =
@@ -46,11 +52,15 @@ public class JdbcProductBackend implements ProductBackend {
             "COALESCE(NULLIF(to_jsonb(p)->>'review_count', '')::BIGINT, 0)";
 
     private final JdbcTemplate jdbcTemplate;
-    private final ProductBackend fallback;
+    private final ProductBackend fallback = new UnavailableProductBackend();
 
+    /** Compatibility overload: a demo backend is deliberately never used as a live fallback. */
     public JdbcProductBackend(JdbcTemplate jdbcTemplate, ProductBackend fallback) {
+        this(jdbcTemplate);
+    }
+
+    public JdbcProductBackend(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
-        this.fallback = fallback;
     }
 
     @Override
@@ -58,8 +68,10 @@ public class JdbcProductBackend implements ProductBackend {
         ProductRecord product;
         try {
             product = findProduct(productCode);
+        } catch (AmbiguousProductException e) {
+            return e.clarification();
         } catch (RuntimeException e) {
-            log.warn("[JdbcProduct] 商品精确查询失败，降级到内存目录: {}", e.getMessage());
+            log.warn("[JdbcProduct] 商品精确查询失败: {}", e.getClass().getSimpleName());
             return fallback.queryProductInfo(productCode);
         }
         if (product != null) {
@@ -77,8 +89,10 @@ public class JdbcProductBackend implements ProductBackend {
         ProductRecord product;
         try {
             product = findProduct(productCode);
+        } catch (AmbiguousProductException e) {
+            return e.clarification();
         } catch (RuntimeException e) {
-            log.warn("[JdbcProduct] 库存查询失败，降级到内存目录: {}", e.getMessage());
+            log.warn("[JdbcProduct] 库存查询失败: {}", e.getClass().getSimpleName());
             return fallback.checkStock(productCode);
         }
         if (product == null) {
@@ -98,8 +112,10 @@ public class JdbcProductBackend implements ProductBackend {
         ProductRecord product;
         try {
             product = findProduct(productCode);
+        } catch (AmbiguousProductException e) {
+            return e.clarification();
         } catch (RuntimeException e) {
-            log.warn("[JdbcProduct] 价格查询失败，降级到内存目录: {}", e.getMessage());
+            log.warn("[JdbcProduct] 价格查询失败: {}", e.getClass().getSimpleName());
             return fallback.getPrice(productCode);
         }
         if (product == null) {
@@ -141,7 +157,7 @@ public class JdbcProductBackend implements ProductBackend {
             products = jdbcTemplate.query(sql, this::mapProduct,
                     like, like, like, query, query, query, query, SEARCH_LIMIT);
         } catch (RuntimeException e) {
-            log.warn("[JdbcProduct] 商品搜索失败，降级到内存目录: {}", e.getMessage());
+            log.warn("[JdbcProduct] 商品搜索失败: {}", e.getClass().getSimpleName());
             return fallback.searchProduct(keyword);
         }
         if (products.isEmpty()) {
@@ -178,8 +194,7 @@ public class JdbcProductBackend implements ProductBackend {
                     .filter(category -> category != null && !category.isBlank())
                     .toList();
         } catch (RuntimeException e) {
-            log.warn("[JdbcProduct] 商品类型查询失败，降级到内存目录: {}", e.getMessage());
-            return fallback.listProductCategories();
+            throw new ProductCatalogUnavailableException(e);
         }
     }
 
@@ -199,20 +214,21 @@ public class JdbcProductBackend implements ProductBackend {
                     SELECT p.product_code, p.product_name, p.price, p.stock, p.spec,
                            %s AS category,
                            %s AS market_price,
-                           %s + COALESCE(o.order_count, 0) AS popularity,
+                           %s AS popularity,
                            %s AS rating,
-                           %s AS review_count
+                           %s AS review_count,
+                           NULLIF(to_jsonb(p)->>'weight_grams', '')::NUMERIC AS weight_grams,
+                           NULLIF(to_jsonb(p)->>'battery_life_hours', '')::NUMERIC AS battery_life_hours,
+                           to_jsonb(p)->>'battery_life_scenario' AS battery_life_scenario,
+                           NULLIF(to_jsonb(p)->>'noise_cancelling', '')::BOOLEAN AS noise_cancelling,
+                           to_jsonb(p)->>'feature_source' AS feature_source,
+                           to_jsonb(p)->>'features_verified_at' AS features_verified_at
                       FROM products p
-                      LEFT JOIN (
-                          SELECT UPPER(product_name) AS product_key, COUNT(*) AS order_count
-                            FROM orders
-                           WHERE COALESCE(status, '') NOT IN ('已取消', '退款中', '已退款')
-                           GROUP BY UPPER(product_name)
-                     ) o ON o.product_key = UPPER(p.product_name)
                      WHERE %s
                            AND (CAST(? AS TEXT) = '' OR UPPER(%s) = CAST(? AS TEXT))
                            AND (CAST(? AS NUMERIC) IS NULL OR p.price <= CAST(? AS NUMERIC))
                            AND (CAST(? AS BOOLEAN) = FALSE OR COALESCE(p.stock, '') NOT IN ('缺货', '无货', '售罄'))
+                           __FEATURE_FILTER__
                      ORDER BY popularity DESC,
                               CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
                               p.product_code
@@ -220,6 +236,10 @@ public class JdbcProductBackend implements ProductBackend {
                     """).formatted(DISCOVERY_CATEGORY, DISCOVERY_MARKET_PRICE,
                     DISCOVERY_SALES, DISCOVERY_RATING, DISCOVERY_REVIEW_COUNT,
                     PRODUCTION_CATALOG_FILTER, DISCOVERY_CATEGORY);
+            List<Object> parameters = new ArrayList<>(java.util.Arrays.asList(
+                    category, category, maxPrice, maxPrice, inStockOnly));
+            sql = sql.replace("__FEATURE_FILTER__", featureFilter(safeCriteria.features(), parameters));
+            parameters.add(safeLimit);
             return jdbcTemplate.query(sql, (rs, rowNum) -> new ProductSummary(
                     rs.getString("product_code"),
                     rs.getString("product_name"),
@@ -230,51 +250,14 @@ public class JdbcProductBackend implements ProductBackend {
                     rs.getString("category"),
                     rs.getBigDecimal("market_price"),
                     rs.getBigDecimal("rating"),
-                    rs.getLong("review_count")),
-                    category, category, maxPrice, maxPrice, inStockOnly, safeLimit);
+                    rs.getLong("review_count"),
+                    mapFeatures(rs)),
+                    parameters.toArray());
         } catch (RuntimeException e) {
-            log.warn("[JdbcProduct] 热度统计查询失败，尝试读取实时商品目录: {}", e.getMessage());
-            return listCatalogProducts(safeCriteria);
+            throw new ProductCatalogUnavailableException(e);
         }
     }
 
-    private List<ProductSummary> listCatalogProducts(ProductDiscoveryCriteria criteria) {
-        int limit = Math.max(1, Math.min(criteria.limit(), SEARCH_LIMIT));
-        String category = normalize(criteria.category());
-        BigDecimal maxPrice = criteria.maxPrice();
-        boolean inStockOnly = criteria.inStockOnly();
-        try {
-            String sql = ("""
-                    SELECT p.product_code, p.product_name, p.price, p.stock, p.spec,
-                           %s AS category,
-                           %s AS market_price,
-                           %s AS popularity,
-                           %s AS rating,
-                           %s AS review_count
-                     FROM products p
-                     WHERE %s
-                           AND (CAST(? AS TEXT) = '' OR UPPER(%s) = CAST(? AS TEXT))
-                           AND (CAST(? AS NUMERIC) IS NULL OR p.price <= CAST(? AS NUMERIC))
-                           AND (CAST(? AS BOOLEAN) = FALSE OR COALESCE(p.stock, '') NOT IN ('缺货', '无货', '售罄'))
-                     ORDER BY popularity DESC,
-                              CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
-                              p.product_code
-                         LIMIT CAST(? AS INTEGER)
-                    """).formatted(DISCOVERY_CATEGORY, DISCOVERY_MARKET_PRICE,
-                    DISCOVERY_SALES, DISCOVERY_RATING, DISCOVERY_REVIEW_COUNT,
-                    PRODUCTION_CATALOG_FILTER, DISCOVERY_CATEGORY);
-            return jdbcTemplate.query(sql, (rs, rowNum) -> new ProductSummary(
-                    rs.getString("product_code"), rs.getString("product_name"),
-                    rs.getBigDecimal("price"), rs.getString("stock"),
-                    rs.getString("spec"), rs.getLong("popularity"),
-                    rs.getString("category"), rs.getBigDecimal("market_price"),
-                    rs.getBigDecimal("rating"), rs.getLong("review_count")),
-                    category, category, maxPrice, maxPrice, inStockOnly, limit);
-        } catch (RuntimeException e) {
-            log.warn("[JdbcProduct] 实时商品目录查询失败，降级到内存目录: {}", e.getMessage());
-            return fallback.listPopularProducts(criteria);
-        }
-    }
 
     private ProductRecord findProduct(String productCodeOrName) {
         if (jdbcTemplate == null) {
@@ -286,9 +269,85 @@ public class JdbcProductBackend implements ProductBackend {
         }
         List<ProductRecord> products = jdbcTemplate.query(SELECT_COLUMNS + """
                         WHERE UPPER(product_code) = ? OR UPPER(product_name) = ?
-                        LIMIT 1
-                        """, this::mapProduct, normalized, normalized);
+                        ORDER BY CASE WHEN UPPER(product_code) = ? THEN 0 ELSE 1 END, product_code
+                        LIMIT 2
+                        """, this::mapProduct, normalized, normalized, normalized);
+        // A unique code wins over another product having the same display name.
+        if (!products.isEmpty() && normalize(products.getFirst().code()).equals(normalized)) {
+            return products.getFirst();
+        }
+        if (products.isEmpty()) {
+            // Only omit a terminal parenthetical qualifier. No prefix/substring matching:
+            // AirPods Pro may identify AirPods Pro（第二代）, but AirPods must not pick Pro/Max.
+            // Bind the input literally; '%' and '_' are never search wildcards here.
+            products = jdbcTemplate.query(SELECT_COLUMNS + """
+                            WHERE UPPER(BTRIM(regexp_replace(product_name,
+                                '[[:space:]]*[(（][^()（）]*[)）][[:space:]]*$', ''))) = ?
+                            ORDER BY product_code
+                            LIMIT 2
+                            """, this::mapProduct, normalized);
+        }
+        if (products.size() > 1) throw new AmbiguousProductException(products);
         return products.isEmpty() ? null : products.getFirst();
+    }
+
+    @Override
+    public List<String> listMatchingCategories(ProductDiscoveryCriteria criteria) {
+        if (jdbcTemplate == null) throw new ProductCatalogUnavailableException();
+        List<Object> parameters = new ArrayList<>();
+        // This query intentionally has no LIMIT: popularity top-N must not imply a unique category.
+        String sql = "SELECT DISTINCT " + DISCOVERY_CATEGORY + " AS category FROM products p WHERE "
+                + PRODUCTION_CATALOG_FILTER + " AND " + DISCOVERY_CATEGORY + " <> ''"
+                + " AND (CAST(? AS NUMERIC) IS NULL OR p.price <= CAST(? AS NUMERIC))"
+                + " AND (CAST(? AS BOOLEAN) = FALSE OR COALESCE(p.stock, '') NOT IN ('缺货', '无货', '售罄'))";
+        parameters.add(criteria.maxPrice());
+        parameters.add(criteria.maxPrice());
+        parameters.add(criteria.inStockOnly());
+        sql += featureFilter(criteria.features(), parameters) + " ORDER BY category";
+        try {
+            return jdbcTemplate.query(sql, (rs, row) -> rs.getString("category"), parameters.toArray());
+        } catch (RuntimeException e) {
+            throw new ProductCatalogUnavailableException(e);
+        }
+    }
+
+    /** Conditions are applied before ordering/limiting and shared with full-catalog category inference. */
+    private static String featureFilter(ProductFeatureConstraints features, List<Object> parameters) {
+        if (!features.active()) return "";
+        StringBuilder where = new StringBuilder(" AND NULLIF(BTRIM(to_jsonb(p)->>'feature_source'), '') IS NOT NULL"
+                + " AND NULLIF(to_jsonb(p)->>'features_verified_at', '') IS NOT NULL");
+        if (features.maxWeightGrams() != null) {
+            where.append(" AND NULLIF(to_jsonb(p)->>'weight_grams', '')::NUMERIC > 0")
+                    .append(" AND NULLIF(to_jsonb(p)->>'weight_grams', '')::NUMERIC <= CAST(? AS NUMERIC)");
+            parameters.add(features.maxWeightGrams());
+        }
+        if (features.minBatteryLifeHours() != null) {
+            where.append(" AND NULLIF(to_jsonb(p)->>'battery_life_hours', '')::NUMERIC >= CAST(? AS NUMERIC)")
+                    .append(" AND to_jsonb(p)->>'battery_life_scenario' = CAST(? AS TEXT)");
+            parameters.add(features.minBatteryLifeHours());
+            parameters.add(features.batteryLifeScenario());
+        }
+        if (features.noiseCancelling() != null) {
+            where.append(" AND NULLIF(to_jsonb(p)->>'noise_cancelling', '')::BOOLEAN = CAST(? AS BOOLEAN)");
+            parameters.add(features.noiseCancelling());
+        }
+        return where.toString();
+    }
+
+    private static final class AmbiguousProductException extends RuntimeException {
+        private final String options;
+
+        private AmbiguousProductException(List<ProductRecord> products) {
+            super("Multiple catalog products match the supplied name");
+            options = products.stream().map(p -> p.name() + "（编码：" + p.code() + "）")
+                    .collect(java.util.stream.Collectors.joining("、"));
+        }
+
+        private String clarification() {
+            return ToolResult.error(AgentErrorCode.TOOL_INVALID_ARGUMENT,
+                    "匹配到多款商品，请提供完整商品名称或编码后查询，不能直接确定价格或库存。",
+                    "候选包括：" + options);
+        }
     }
 
     private ProductRecord mapProduct(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
@@ -298,13 +357,20 @@ public class JdbcProductBackend implements ProductBackend {
                 rs.getBigDecimal("price"),
                 rs.getString("stock"),
                 rs.getString("spec"),
-                rs.getString("color"));
+                rs.getString("color"), mapFeatures(rs));
+    }
+
+    private static ProductFeatures mapFeatures(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new ProductFeatures(rs.getBigDecimal("weight_grams"), rs.getBigDecimal("battery_life_hours"),
+                rs.getString("battery_life_scenario"), rs.getObject("noise_cancelling", Boolean.class),
+                rs.getString("feature_source"), rs.getString("features_verified_at"));
     }
 
     private static String formatDetails(ProductRecord product) {
         return String.format("%s\n商品编码：%s\n价格：%s 元\n库存：%s\n规格：%s\n颜色：%s",
                 product.name(), product.code(), formatPrice(product.price()), product.stock(),
-                valueOrUnknown(product.spec()), valueOrUnknown(product.color()));
+                valueOrUnknown(product.spec()), valueOrUnknown(product.color()))
+                + (product.features().documented() ? "\n结构化参数：" + product.features().evidence() : "");
     }
 
     private static String formatPrice(BigDecimal price) {
@@ -320,6 +386,6 @@ public class JdbcProductBackend implements ProductBackend {
     }
 
     private record ProductRecord(String code, String name, BigDecimal price,
-                                 String stock, String spec, String color) {
+                                 String stock, String spec, String color, ProductFeatures features) {
     }
 }

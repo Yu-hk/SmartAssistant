@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "test:product-intake": "node scripts/run-product-intake-tests.mjs",
     "test:login": "node scripts/run-login-page-tests.mjs",
     "test:feishu": "node --import tsx --test scripts/feishu-qr-login.test.ts",
     "test:scenarios": "node scripts/run-scenario-examples-tests.mjs",

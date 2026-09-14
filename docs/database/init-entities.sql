@@ -266,6 +266,17 @@ CREATE TABLE IF NOT EXISTS products (
     review_count    BIGINT NOT NULL DEFAULT 0,
     metrics_source  VARCHAR(32) NOT NULL DEFAULT 'catalog',
     metrics_updated_at TIMESTAMP,
+    weight_grams NUMERIC(10,3) CHECK (weight_grams > 0),
+    battery_life_hours NUMERIC(8,2) CHECK (battery_life_hours > 0),
+    battery_life_scenario VARCHAR(32) CHECK (battery_life_scenario IN ('video_playback', 'audio_anc_on', 'audio_anc_off', 'mixed_use')),
+    noise_cancelling BOOLEAN,
+    feature_source TEXT,
+    features_verified_at TIMESTAMPTZ,
+    features_revision BIGINT NOT NULL DEFAULT 0,
+    features_updated_by BIGINT,
+    features_updated_at TIMESTAMPTZ,
+    description TEXT,
+    feature_ingestion_audit TEXT,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_products_code ON products(product_code);

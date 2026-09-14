@@ -9,6 +9,25 @@ class PromptManagerDataAnalysisTest {
     private final PromptManager promptManager = new PromptManager();
 
     @Test
+    void structuredProductPromptKeepsAmountsOutOfModelOutput() {
+        for (boolean review : new boolean[]{false, true}) {
+            assertThat(promptManager.renderStructuredProductDecision("预算6000元", "已核实目录", review))
+                    .contains("预算6000元", "已核实目录", "eligible=true", "selected_code", "evidence_fields",
+                            "金额与预算结论由程序生成", "程序会在结论之外单独展示计算")
+                    .doesNotContain("{{query}}", "{{context}}", "{{role}}");
+        }
+    }
+
+    @Test
+    void recommendationKeepsKnownPreferencesAndAllowsOneVerifiedCandidate() {
+        assertThat(promptManager.renderProductAuditAndRecommendation(
+                "预算6000元以内，重视拍照", "小米15 Pro，5299元，徕卡光学，评分4.8"))
+                .contains("只有一个符合硬约束的候选", "可考虑的候选", "不得再次说成未提供",
+                        "不得笼统声称没有口碑数据", "预算6000元以内", "不得创建订单")
+                .doesNotContain("{{query}}", "{{context}}");
+    }
+
+    @Test
     void rendersQueryAndVerifiedContextWithoutTemplatePlaceholders() {
         String prompt = promptManager.renderDataAnalysisExpert(
                 "近 30 天销量是否增长",
