@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -18,6 +19,119 @@ import static org.mockito.Mockito.verify;
 import org.mockito.ArgumentCaptor;
 
 class JdbcProductBackendTest {
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void resolvesUniqueParentheticalShortNameForInfoPriceAndStock() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ProductBackend fallback = mock(ProductBackend.class);
+        ResultSet row = airPodsRow("AIRPODS-PRO", "AirPods Pro（第二代）");
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    String sql = invocation.getArgument(0);
+                    if (!sql.contains("regexp_replace")) return List.of();
+                    assertThat(sql).contains("[(（][^()（）]*[)）]", "= ?", "LIMIT 2")
+                            .doesNotContain("LIKE");
+                    assertThat((String) invocation.getArgument(2)).isEqualTo("AIRPODS PRO");
+                    RowMapper<Object> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(row, 0));
+                });
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc, fallback);
+        assertThat(backend.queryProductInfo("  AirPods Pro  "))
+                .contains("AirPods Pro（第二代）", "AIRPODS-PRO", "1999", "库存：充足");
+        assertThat(backend.getPrice("AirPods Pro")).contains("1999", "AirPods Pro（第二代）");
+        assertThat(backend.checkStock("AirPods Pro")).contains("库存充足", "AirPods Pro（第二代）");
+        org.mockito.Mockito.verifyNoInteractions(fallback);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ambiguousShortNamesAskForVersionAndNeverFallBackToAnArbitraryPrice() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ProductBackend fallback = mock(ProductBackend.class);
+        ResultSet second = airPodsRow("AIRPODS-PRO-2", "AirPods Pro（第二代）");
+        ResultSet third = airPodsRow("AIRPODS-PRO-3", "AirPods Pro(第三代)");
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    if (!((String) invocation.getArgument(0)).contains("regexp_replace")) return List.of();
+                    RowMapper<Object> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(second, 0), mapper.mapRow(third, 1));
+                });
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc, fallback);
+        for (String response : List.of(backend.queryProductInfo("AirPods Pro"),
+                backend.getPrice("AirPods Pro"), backend.checkStock("AirPods Pro"))) {
+            assertThat(response).contains("TOOL_INVALID_ARGUMENT", "匹配到多款商品", "AIRPODS-PRO-2", "AIRPODS-PRO-3")
+                    .doesNotContain("PRODUCT_NOT_FOUND", "1999", "库存充足");
+        }
+        org.mockito.Mockito.verifyNoInteractions(fallback);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void exactCodeWinsAndExactNamesDoNotFallThroughToAliases() throws Exception {
+        for (String query : List.of("AIRPODS-PRO", "AirPods Pro（第二代）")) {
+            JdbcTemplate jdbc = mock(JdbcTemplate.class);
+            ResultSet row = airPodsRow("AIRPODS-PRO", "AirPods Pro（第二代）");
+            when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                    .thenAnswer(invocation -> {
+                        assertThat((String) invocation.getArgument(0)).doesNotContain("regexp_replace");
+                        RowMapper<Object> mapper = invocation.getArgument(1);
+                        return List.of(mapper.mapRow(row, 0));
+                    });
+            assertThat(new JdbcProductBackend(jdbc, mock(ProductBackend.class)).queryProductInfo(query))
+                    .contains("1999", "AIRPODS-PRO");
+            verify(jdbc).query(anyString(), any(RowMapper.class), any(Object[].class));
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void exactCodeWinsOverDisplayNameCollisionButDuplicateNamesRequireClarification() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ProductBackend fallback = mock(ProductBackend.class);
+        ResultSet first = airPodsRow("AIRPODS-PRO", "AirPods Pro（第二代）");
+        ResultSet other = airPodsRow("ANOTHER-CODE", "AIRPODS-PRO");
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    assertThat((String) invocation.getArgument(0))
+                            .contains("ORDER BY CASE WHEN UPPER(product_code) = ? THEN 0 ELSE 1 END")
+                            .doesNotContain("regexp_replace");
+                    RowMapper<Object> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(first, 0), mapper.mapRow(other, 1));
+                });
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc, fallback);
+        assertThat(backend.queryProductInfo("AIRPODS-PRO")).contains("价格：1999").doesNotContain("ANOTHER-CODE");
+        when(other.getString("product_name")).thenReturn("AirPods Pro（第二代）");
+        assertThat(backend.queryProductInfo("AirPods Pro（第二代）")).contains("匹配到多款商品").doesNotContain("价格：1999");
+        org.mockito.Mockito.verifyNoInteractions(fallback);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shortNamesAreLiteralAndMissingProductsDoNotUseMockCatalog() {
+        for (String input : List.of("AirPods", "AirPods%", "AIRPODS_PRO", "AirPods Pro（不存在的版本）")) {
+            JdbcTemplate jdbc = mock(JdbcTemplate.class);
+            ProductBackend fallback = mock(ProductBackend.class);
+            when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+            assertThat(new JdbcProductBackend(jdbc, fallback).queryProductInfo(input)).contains("PRODUCT_NOT_FOUND");
+            ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+            ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
+            org.mockito.Mockito.verify(jdbc, org.mockito.Mockito.times(2))
+                    .query(sql.capture(), any(RowMapper.class), arguments.capture());
+            assertThat(sql.getAllValues().get(1)).contains("= ?", "LIMIT 2").doesNotContain("LIKE");
+            assertThat(arguments.getAllValues().get(1)).containsExactly(input.toUpperCase(java.util.Locale.ROOT));
+            org.mockito.Mockito.verifyNoInteractions(fallback);
+        }
+    }
+
+    private static ResultSet airPodsRow(String code, String name) throws Exception {
+        ResultSet row = productRow();
+        when(row.getString("product_code")).thenReturn(code);
+        when(row.getString("product_name")).thenReturn(name);
+        when(row.getBigDecimal("price")).thenReturn(new BigDecimal("1999.00"));
+        when(row.getString("stock")).thenReturn("充足");
+        return row;
+    }
 
     @Test
     @SuppressWarnings("unchecked")
@@ -67,7 +181,7 @@ class JdbcProductBackendTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void fallsBackWhenDatabaseIsUnavailable() {
+    void neverReturnsDemoProductsWhenDatabaseIsUnavailable() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
                 .thenThrow(new IllegalStateException("database unavailable"));
@@ -75,12 +189,18 @@ class JdbcProductBackendTest {
         JdbcProductBackend backend = new JdbcProductBackend(jdbc, new InMemoryProductBackend());
 
         assertThat(backend.queryProductInfo("MACBOOK-AIR-M3"))
-                .contains("MacBook Air M3");
+                .contains("商品目录暂时不可用", "TOOL_EXECUTION_ERROR")
+                .doesNotContain("MacBook Air M3", "8999");
+        assertThat(backend.getPrice("MACBOOK-AIR-M3")).contains("商品目录暂时不可用");
+        assertThat(backend.checkStock("MACBOOK-AIR-M3")).contains("商品目录暂时不可用");
+        assertThat(backend.searchProduct("MacBook")).contains("商品目录暂时不可用");
+        assertThatThrownBy(() -> backend.listPopularProducts(5))
+                .isInstanceOf(ProductCatalogUnavailableException.class);
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void listsPopularProductsFromOrderSignals() throws Exception {
+    void listsPopularProductsFromSales30dWithoutDoubleCountingOrders() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         ResultSet row = productRow();
         when(row.getLong("popularity")).thenReturn(7L);
@@ -114,6 +234,7 @@ class JdbcProductBackendTest {
                 .contains("E2E-PROD-%")
                 .contains("category")
                 .contains("sales_30d")
+                .doesNotContain("FROM orders", "order_count", "LEFT JOIN")
                 .contains("review_count")
                 .contains("UPPER(COALESCE(to_jsonb(p)->>'category', '')) = CAST(? AS TEXT)")
                 .contains("CAST(? AS NUMERIC) IS NULL")
@@ -125,7 +246,7 @@ class JdbcProductBackendTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void listsLiveCatalogWhenOrderSignalsAreUnavailable() throws Exception {
+    void catalogQueryFailureDoesNotRetryAgainstDemoOrReturnAnEmptyList() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         ResultSet row = productRow();
         AtomicInteger calls = new AtomicInteger();
@@ -140,12 +261,19 @@ class JdbcProductBackendTest {
 
         JdbcProductBackend backend = new JdbcProductBackend(jdbc, new InMemoryProductBackend());
 
-        assertThat(backend.listPopularProducts(5))
-                .singleElement()
-                .satisfies(product -> {
-                    assertThat(product.name()).isEqualTo("MacBook Air M3");
-                    assertThat(product.popularity()).isZero();
-                });
+        assertThatThrownBy(() -> backend.listPopularProducts(5))
+                .isInstanceOf(ProductCatalogUnavailableException.class);
+        assertThat(calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    void missingDatabaseAndUnavailableBackendNeverPretendToBeEmptyCatalogs() {
+        ProductBackend fallback = mock(ProductBackend.class);
+        var backend = new JdbcProductBackend(null, fallback);
+        assertThatThrownBy(backend::listProductCategories).isInstanceOf(ProductCatalogUnavailableException.class);
+        assertThatThrownBy(() -> backend.listPopularProducts(5)).isInstanceOf(ProductCatalogUnavailableException.class);
+        assertThat(backend.queryProductInfo("AIRPODS-PRO")).contains("商品目录暂时不可用");
+        org.mockito.Mockito.verifyNoInteractions(fallback);
     }
 
     @Test

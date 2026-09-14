@@ -8,10 +8,8 @@
 package com.example.smartassistant;
 
 import com.example.smartassistant.common.interceptor.EnableServiceInterceptor;
-import com.example.smartassistant.spi.InMemoryProductBackend;
 import com.example.smartassistant.spi.JdbcProductBackend;
 import com.example.smartassistant.spi.ProductBackend;
-import com.example.smartassistant.spi.UnavailableProductBackend;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -20,7 +18,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.beans.factory.annotation.Value;
 
 /**
  * Product Service 启动类
@@ -49,11 +46,8 @@ public class ProductServiceApplication {
 
     @Bean
     public ProductBackend productBackend(
-            ObjectProvider<JdbcTemplate> jdbcTemplateProvider,
-            @Value("${product.catalog.mock-fallback-enabled:false}") boolean mockFallbackEnabled) {
-        ProductBackend fallback = mockFallbackEnabled
-                ? new InMemoryProductBackend() : new UnavailableProductBackend();
-        return new JdbcProductBackend(jdbcTemplateProvider.getIfAvailable(), fallback);
+            ObjectProvider<JdbcTemplate> jdbcTemplateProvider) {
+        return new JdbcProductBackend(jdbcTemplateProvider.getIfAvailable());
     }
 
     public static void main(String[] args) {

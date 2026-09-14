@@ -22,6 +22,7 @@ import com.example.smartassistant.routing.contract.WorkflowOperation;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.example.smartassistant.service.agent.StreamingProductAgentService;
 import com.example.smartassistant.service.core.ProductDiscoveryService;
+import com.example.smartassistant.service.core.StructuredProductRecommendation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -161,6 +162,17 @@ public class ProductStreamController {
             @RequestBody AgentExecutionRequest request,
             @RequestHeader(value = "X-Request-Id", required = false) String headerRequestId) {
         String requestId = headerRequestId != null ? headerRequestId : request.executionId();
+        try {
+            return executeRequest(request, requestId);
+        } catch (com.example.smartassistant.spi.ProductCatalogUnavailableException e) {
+            return executionResponse(requestId, AgentExecutionResponse.failure(
+                    com.example.smartassistant.spi.ProductCatalogUnavailableException.CODE,
+                    e.getMessage(), true), true);
+        }
+    }
+
+    private ResponseEntity<AgentExecutionResponse> executeRequest(
+            AgentExecutionRequest request, String requestId) {
         if (request.question() == null || request.question().isBlank()) {
             return ResponseEntity.badRequest().body(
                     AgentExecutionResponse.failure("EMPTY_PRODUCT_QUESTION",
@@ -169,6 +181,15 @@ public class ProductStreamController {
         String question = UserQuestionNormalizer.normalize(request.question());
         ToolUsageCache.start(requestId);
         if (isAnalysisOrRecommendationRequest(request)) {
+            AgentNodeOutput terminal = verifiedDiscoveryReply(request);
+            if (terminal != null) {
+                Map<String, Object> data = new LinkedHashMap<>(terminal.data());
+                data.put(WorkflowOperation.ANALYZE_PRODUCT_DATA.code().equalsIgnoreCase(request.operation())
+                        ? "analysis" : "recommendation", terminal.answer());
+                return executionResponse(requestId, AgentExecutionResponse.success(terminal.answer(), data,
+                        DomainQualityResult.pass(1.0, Boolean.TRUE.equals(data.get("clarificationRequired"))
+                                ? "PRODUCT_PREFERENCE_CLARIFICATION" : "PRODUCT_POPULAR_BROWSING")), true);
+            }
             // An explicit, successful empty catalog is a business result, not missing
             // context to send through Flash/Pro. Carry it across analysis-only DAG edges.
             if (hasVerifiedEmptyCatalog(request)) {
@@ -180,15 +201,16 @@ public class ProductStreamController {
                         Map.of("operation", request.operation(), "products", List.of(),
                                 "productCount", 0, field, answer,
                                 "sourceNodeIds", List.copyOf(request.predecessorOutputs().keySet())),
-                        DomainQualityResult.warn(0.5, "PRODUCT_CATALOG_EVIDENCE_LIMITED")), true);
+                        DomainQualityResult.pass(1.0, "EMPTY_PRODUCT_CATALOG")), true);
             }
             String verifiedContext = buildVerifiedContext(request);
+            List<Map<?, ?>> catalog = verifiedProducts(request);
             ToolUsageCache.start(requestId);
             DomainAgentResponse response = WorkflowOperation.ANALYZE_PRODUCT_DATA.code().equalsIgnoreCase(request.operation())
                     ? streamingAgentService.analyzeVerifiedContext(
-                            question, verifiedContext, requestId)
+                            question, verifiedContext, catalog, requestId)
                     : streamingAgentService.verifyAnalysisAndRecommend(
-                            question, verifiedContext, requestId);
+                            question, verifiedContext, catalog, requestId);
             if (WorkflowOperation.RECOMMEND_PRODUCT.code().equalsIgnoreCase(request.operation())) {
                 response = ensureEvidenceBackedRecommendation(request, response);
             }
@@ -200,6 +222,10 @@ public class ProductStreamController {
             }
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("operation", request.operation());
+            if (!catalog.isEmpty()) {
+                data.put("budgetAssessment", new StructuredProductRecommendation(
+                        question, catalog).budgetData());
+            }
             data.put("sourceNodeIds", List.copyOf(request.predecessorOutputs().keySet()));
             // Workflow DSL input bindings address typed node data. Keep answer for
             // display/backward compatibility and expose the same verified content
@@ -217,7 +243,8 @@ public class ProductStreamController {
                 data.put("recommendation", response.answer());
             }
             return executionResponse(requestId, AgentExecutionResponse.success(
-                    response.answer(), data, response.quality()), false);
+                    response.answer(), data, response.quality()),
+                    response.quality().getReasonCodes().contains("NO_ELIGIBLE_VERIFIED_PRODUCT"));
         }
         if (productDiscoveryService != null && isDiscoveryRequest(request)) {
             Integer limit = integerInput(request, "candidateLimit", "candidate_limit", "limit");
@@ -226,7 +253,8 @@ public class ProductStreamController {
             ProductDiscoveryService.DiscoveryResult discovery;
             boolean success = false;
             try {
-                discovery = productDiscoveryService.discover(withUserProfile(question, request), category, limit);
+                // Profile is advisory: it must not silently replace the user's explicit category/budget.
+                discovery = productDiscoveryService.discover(question, category, limit);
                 success = true;
             } finally {
                 // This is an actual catalog capability invocation, not a synthetic LLM tool call.
@@ -234,26 +262,36 @@ public class ProductStreamController {
                         (System.nanoTime() - started) / 1_000_000);
             }
             DomainAgentResponse response = DomainAgentResponse.of(
-                    discovery.answer(), discovery.productCount() > 0
+                    discovery.answer(), discovery.clarificationRequired()
+                    ? DomainQualityResult.pass(1.0, "PRODUCT_PREFERENCE_CLARIFICATION")
+                    : discovery.productCount() > 0
                     ? discovery.scenarioEvidenceLimited()
                         ? com.example.smartassistant.common.quality.DomainQualityResult.pass(
                                 1.0, "PRODUCT_SCENARIO_EVIDENCE_LIMITED")
                         : com.example.smartassistant.common.quality.DomainQualityResult.pass(
                                 1.0, "PRODUCT_DISCOVERY_DATA")
-                    : com.example.smartassistant.common.quality.DomainQualityResult.warn(
-                            0.5, "EMPTY_PRODUCT_CATALOG"));
+                    : com.example.smartassistant.common.quality.DomainQualityResult.pass(
+                            1.0, "EMPTY_PRODUCT_CATALOG"));
             Map<String, Object> data = Map.of(
                     "products", discovery.products(),
                     "productCount", discovery.productCount(),
                     "popularityBased", discovery.popularityBased(),
                     "scenarioEvidenceLimited", discovery.scenarioEvidenceLimited(),
-                    "category", discovery.category());
+                    "category", discovery.category(),
+                    "clarificationRequired", discovery.clarificationRequired(),
+                    "browsingOnly", discovery.browsingOnly());
             return executionResponse(requestId, AgentExecutionResponse.success(
                     response.answer(), data, response.quality()), true);
         }
         ToolUsageCache.start(requestId);
         DomainAgentResponse response = streamingAgentService.executeWithQuality(
                 withUserProfile(question, request), requestId);
+        if (response.quality().isFail()) {
+            String code = response.quality().getReasonCodes().isEmpty()
+                    ? "PRODUCT_EXECUTION_ERROR" : response.quality().getReasonCodes().getFirst();
+            return executionResponse(requestId, AgentExecutionResponse.failure(code, response.answer(),
+                    com.example.smartassistant.spi.ProductCatalogUnavailableException.CODE.equals(code)), false);
+        }
         return executionResponse(requestId,
                 AgentExecutionResponse.success(response.answer(), response.quality()), false);
     }
@@ -336,6 +374,11 @@ public class ProductStreamController {
             // evidence there, while retaining analysis prose whose data envelope is metadata-only.
             boolean structuredCatalog = output.data() != null
                     && output.data().containsKey("products");
+            if (structuredCatalog) {
+                // These are backend field definitions, not facts supplied by the user or model.
+                context.append("目录字段口径：popularity 仅为目录 sales_30d 记录的站内近30天销量，不累加历史订单，不代表全网热度；")
+                        .append("rating 为5分制评分，reviewCount 为评价数量。\n");
+            }
             if (!structuredCatalog && output.answer() != null && !output.answer().isBlank()) {
                 context.append(output.answer().trim()).append('\n');
             }
@@ -361,22 +404,27 @@ public class ProductStreamController {
             AgentExecutionRequest request, DomainAgentResponse modelResponse) {
         // A factual audit rejection must never become a recommendation merely because
         // there are catalog entries. They may violate the user's hard constraints.
-        if (modelResponse.quality().isFail()) return modelResponse;
+        if (modelResponse.quality().isFail()
+                || modelResponse.quality().getReasonCodes().contains("NO_ELIGIBLE_VERIFIED_PRODUCT")) return modelResponse;
         List<Map<?, ?>> products = verifiedProducts(request);
         if (products.isEmpty() || mentionsVerifiedProduct(modelResponse.answer(), products)) {
             return modelResponse;
         }
 
-        StringBuilder answer = new StringBuilder("当前热门商品候选（近期订单热度并列）：\n");
+        List<Map<?, ?>> displayed = products.stream().limit(5).toList();
+        StringBuilder answer = new StringBuilder("当前可核实的商品候选：\n");
         int index = 1;
         Object sharedPopularity = null;
-        boolean samePopularity = true;
-        for (Map<?, ?> product : products.stream().limit(5).toList()) {
+        boolean samePopularity = displayed.size() > 1;
+        for (Map<?, ?> product : displayed) {
             String code = text(product.get("code"));
             String name = text(product.get("name"));
             String price = decimalText(product.get("price"));
             String stock = text(product.get("stock"));
             Object popularity = product.get("popularity");
+            if (!(popularity instanceof Number count) || count.doubleValue() <= 0) {
+                samePopularity = false;
+            }
             if (sharedPopularity == null) sharedPopularity = popularity;
             else if (!String.valueOf(sharedPopularity).equals(String.valueOf(popularity))) {
                 samePopularity = false;
@@ -385,21 +433,50 @@ public class ProductStreamController {
             if (!code.isBlank()) answer.append("（").append(code).append("）");
             if (!price.isBlank()) answer.append(" — ¥").append(price);
             if (!stock.isBlank()) answer.append("，库存：").append(stock);
-            if (popularity != null) answer.append("，近期订单：").append(popularity);
+            if (popularity instanceof Number count && count.doubleValue() > 0) {
+                answer.append("，近30天站内销量：").append(popularity);
+            }
+            if (!text(product.get("spec")).isBlank()) {
+                answer.append("，规格：").append(text(product.get("spec")));
+            }
+            if (product.get("rating") instanceof Number rating && rating.doubleValue() > 0) {
+                answer.append("，评分：").append(decimalText(rating)).append("/5");
+            }
+            if (product.get("reviewCount") instanceof Number count && count.longValue() > 0) {
+                answer.append("，评价数：").append(count);
+            }
             answer.append('\n');
         }
         if (samePopularity && sharedPopularity != null) {
-            answer.append("\n这些候选的近期订单数均为 ").append(sharedPopularity)
-                    .append("，现有数据无法区分唯一第一；");
+            answer.append("\n以上展示候选的近30天站内销量均为 ").append(sharedPopularity)
+                    .append("，仅凭该销量无法区分优先顺序。");
         } else {
-            answer.append("\n以上候选来自当前真实商品与订单数据；");
+            answer.append("\n以上候选来自当前商品目录。");
         }
-        answer.append("口碑数据和您的预算、用途偏好尚未提供。告诉我预算或使用场景后，")
-                .append("我可以继续缩小范围。 ");
+        answer.append("具体用途的适配性仍需结合相应规格或实测核实，不能仅凭销量认定最适合。");
         return DomainAgentResponse.of(answer.toString().trim(),
                 DomainQualityResult.warn(0.8,
                         "PRODUCT_RECOMMENDATION_VERIFIED_CANDIDATE_FALLBACK",
                         "PRODUCT_RECOMMENDATION_EVIDENCE_LIMITED"));
+    }
+
+    /** Preserve clarification/browse results across both direct and transitive DAG edges. */
+    private static AgentNodeOutput verifiedDiscoveryReply(AgentExecutionRequest request) {
+        AgentNodeOutput reply = null;
+        for (AgentNodeOutput output : request.predecessorOutputs().values()) {
+            if (!"SUCCEEDED".equals(output.status())) return null;
+            // Do not let one terminal marker hide conflicting catalog evidence on another edge.
+            if (output.data().containsKey("products")
+                    && !Boolean.TRUE.equals(output.data().get("clarificationRequired"))
+                    && !Boolean.TRUE.equals(output.data().get("browsingOnly"))) return null;
+            if (Boolean.TRUE.equals(output.data().get("clarificationRequired"))
+                    || Boolean.TRUE.equals(output.data().get("browsingOnly"))) {
+                if (output.answer() == null || output.answer().isBlank()) return null;
+                if (reply != null && !reply.answer().equals(output.answer())) return null;
+                reply = output;
+            }
+        }
+        return reply;
     }
 
     private static boolean hasVerifiedEmptyCatalog(AgentExecutionRequest request) {
@@ -419,27 +496,40 @@ public class ProductStreamController {
     }
 
     private static List<Map<?, ?>> verifiedProducts(AgentExecutionRequest request) {
+        Map<String, Map<?, ?>> catalog = new LinkedHashMap<>();
         for (AgentNodeOutput output : request.predecessorOutputs().values()) {
+            if (!"SUCCEEDED".equals(output.status())) return List.of();
             Object value = output.data().get("products");
             if (!(value instanceof List<?> items) || items.isEmpty()) continue;
-            List<Map<?, ?>> products = new java.util.ArrayList<>();
             for (Object item : items) {
-                if (item instanceof Map<?, ?> product) products.add(product);
+                Map<?, ?> product;
+                if (item instanceof Map<?, ?> map) product = map;
+                else if (item instanceof com.example.smartassistant.spi.ProductBackend.ProductSummary summary) {
+                    product = new com.fasterxml.jackson.databind.ObjectMapper().convertValue(summary, Map.class);
+                } else return List.of();
+                String code = text(product.get("code"));
+                if (code.isBlank() || text(product.get("name")).isBlank()) return List.of();
+                Map<?, ?> previous = catalog.putIfAbsent(code, product);
+                if (previous != null && !previous.equals(product)) return List.of();
             }
-            if (!products.isEmpty()) return products;
         }
-        return List.of();
+        return List.copyOf(catalog.values());
     }
 
     private static boolean mentionsVerifiedProduct(String answer, List<Map<?, ?>> products) {
         if (answer == null || answer.isBlank()) return false;
+        String normalizedAnswer = normalizeProductReference(answer);
         for (Map<?, ?> product : products) {
-            String code = text(product.get("code"));
-            String name = text(product.get("name"));
-            if ((!code.isBlank() && answer.contains(code))
-                    || (!name.isBlank() && answer.contains(name))) return true;
+            String code = normalizeProductReference(text(product.get("code")));
+            String name = normalizeProductReference(text(product.get("name")));
+            if ((!code.isBlank() && normalizedAnswer.contains(code))
+                    || (!name.isBlank() && normalizedAnswer.contains(name))) return true;
         }
         return false;
+    }
+
+    private static String normalizeProductReference(String value) {
+        return value.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String text(Object value) {

@@ -13,6 +13,9 @@ const AdminConversationsPage = lazy(() => import('./AdminConversationsPage').the
 const AdminKnowledgePage = lazy(() => import('./AdminKnowledgePage').then(module => ({
   default: module.AdminKnowledgePage,
 })));
+const AdminProductsPage = lazy(() => import('./AdminProductsPage').then(module => ({
+  default: module.AdminProductsPage,
+})));
 
 /**
  * Independent administrator application.
@@ -38,6 +41,7 @@ export function AdminApp() {
           <Route path="overview" element={<AdminOverviewPage refreshVersion={refreshVersion} />} />
         <Route path="conversations" element={<AdminConversationsPage refreshVersion={refreshVersion} />} />
         <Route path="knowledge" element={<AdminKnowledgePage refreshVersion={refreshVersion} />} />
+        <Route path="products" element={<AdminProductsPage />} />
         <Route path="*" element={<Navigate to="overview" replace />} />
         </Routes>
       </Suspense>

@@ -39,28 +39,28 @@ public class ProductTools {
     public String queryProductInfo(
             @ToolParam(description = "商品编码或名称", required = true) String productCode) {
         log.info("[ProductTool] 查商品: {}", productCode);
-        return productData.queryProductInfo(productCode.trim().toUpperCase());
+        return observed(productData.queryProductInfo(productCode.trim().toUpperCase()));
     }
 
     @Tool(description = "查询商品库存状态，返回是否可购买及预计发货时间")
     public String checkStock(
             @ToolParam(description = "商品编码", required = true) String productCode) {
         log.info("[ProductTool] 查库存: {}", productCode);
-        return productData.checkStock(productCode.trim().toUpperCase());
+        return observed(productData.checkStock(productCode.trim().toUpperCase()));
     }
 
     @Tool(description = "查询商品价格，支持查询原价、促销价和是否支持分期")
     public String getPrice(
             @ToolParam(description = "商品编码", required = true) String productCode) {
         log.info("[ProductTool] 查价格: {}", productCode);
-        return productData.getPrice(productCode.trim().toUpperCase());
+        return observed(productData.getPrice(productCode.trim().toUpperCase()));
     }
 
     @Tool(description = "查询当前热门商品、推荐商品或商品列表；没有销量数据时会明确返回当前可售商品")
     public String listRecommendedProducts(
             @ToolParam(description = "最多返回多少件商品，默认 5，最大 10", required = false) Integer limit) {
         log.info("[ProductTool] 查询推荐商品: limit={}", limit);
-        return productDiscoveryService.discover("热门商品", limit).answer();
+        return observed(productDiscoveryService.discover("热门商品", limit).answer());
     }
 
     @Tool(description = "查询商品目录中当前存在的全部商品类型；商品类型来自实时目录，不使用固定枚举")
@@ -70,5 +70,10 @@ public class ProductTools {
         return categories.isEmpty()
                 ? "当前商品目录中没有可用的商品类型。"
                 : "当前商品类型：" + String.join("、", categories);
+    }
+
+    private static String observed(String result) {
+        com.example.smartassistant.service.quality.ProductToolEvidenceScope.record(result);
+        return result;
     }
 }
