@@ -92,6 +92,7 @@ public class BgeSentimentAnalyzer {
                 int level = entry.getKey();
                 List<float[]> vectors = new ArrayList<>();
                 for (String seed : entry.getValue()) {
+                    checkInterrupted();
                     float[] vec = embeddingModel.embedding(seed);
                     if (vec != null) {
                         vectors.add(normalize(vec));
@@ -115,11 +116,13 @@ public class BgeSentimentAnalyzer {
      */
     public int analyze(String userInput) {
         if (userInput == null || userInput.isBlank()) return 0;
+        checkInterrupted();
         ensureInitialized();
 
         if (seedVectors.isEmpty()) return 0;
 
         // 计算用户输入的 embedding
+        checkInterrupted();
         float[] inputVec = embeddingModel.embedding(userInput);
         if (inputVec == null) return 0;
         inputVec = normalize(inputVec);
@@ -149,6 +152,12 @@ public class BgeSentimentAnalyzer {
     }
 
     // ==================== 向量工具 ====================
+
+    private static void checkInterrupted() {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new java.util.concurrent.CancellationException("Sentiment analysis cancelled");
+        }
+    }
 
     private static float[] normalize(float[] vec) {
         double norm = 0;

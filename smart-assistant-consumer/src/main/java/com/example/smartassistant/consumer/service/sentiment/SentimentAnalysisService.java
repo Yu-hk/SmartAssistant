@@ -22,7 +22,7 @@ import java.util.function.Function;
  * ⭐ 情感分析服务 — 识别用户情绪并建议处理策略。
  * <p>
  * 对应客服Agent实战系列 06 文章：5级情感(正面→愤怒)、关键词+LLM混合、
- * 等级≥4触发转人工、情绪追踪。
+ * 情绪等级只提供处理建议，不代表已发起人工转接；跨轮状态由 SentimentSnapshotStore 管理。
  * </p>
  *
  * <h3>情感等级</h3>
@@ -32,7 +32,7 @@ import java.util.function.Function;
  *   <tr><td>2</td><td>中性</td><td>正常回复</td></tr>
  *   <tr><td>3</td><td>轻微负面</td><td>道歉+改进建议</td></tr>
  *   <tr><td>4</td><td>负面</td><td>道歉+加快处理</td></tr>
- *   <tr><td>5</td><td>愤怒</td><td>立即转人工</td></tr>
+ *   <tr><td>5</td><td>愤怒</td><td>共情并建议人工协助</td></tr>
  * </table>
  */
 @Service
@@ -52,7 +52,7 @@ public class SentimentAnalysisService {
                     "帮我", "看看", "我想", "有没有", "怎么", "为什么",
                     "什么", "多少", "哪里", "哪个", "能否", "可以吗")),
             new SentimentLevel(3, "轻微负面", "道歉+改进建议", List.of(
-                    "有点慢", "不太方便", "一般", "还行吧", "不怎么好",
+                    "有点慢", "不太方便", "还行吧", "不怎么好",
                     "有点麻烦", "不太满意", "能不能快点", "等很久了",
                     "一般般", "凑合", "马马虎虎", "不怎么样", "不太好",
                     "有点失望", "不够好", "不算好", "不太行")),
@@ -61,10 +61,9 @@ public class SentimentAnalysisService {
                     "非常失望", "太糟糕", "服务差", "效率低", "太离谱",
                     "受不了", "忍不了", "搞什么", "怎么回事", "太差劲",
                     "太让人失望", "很不满意", "体验很差", "浪费时间")),
-            new SentimentLevel(5, "愤怒", "立即转人工", List.of(
-                    "投诉", "太差了", "垃圾", "骗子", "赔偿", "举报",
-                    "太过分", "无法容忍", "欺诈", "告你", "曝光",
-                    "律师函", "315", "消费者协会", "退款赔偿",
+            new SentimentLevel(5, "愤怒", "共情并建议人工协助", List.of(
+                    "我要投诉", "太差了", "垃圾服务", "你们是骗子",
+                    "太过分", "无法容忍", "告你们",
                     "你们等着", "没完", "别想糊弄", "什么玩意",
                     "气死我了", "烦死了", "什么破玩意", "滚"))
     );
@@ -78,14 +77,6 @@ public class SentimentAnalysisService {
     /** ⭐ BGE 语义情感分析器（可选，处理语义相似但字面不同的表达） */
     private final BgeSentimentAnalyzer bgeAnalyzer;
 
-    /** 跨轮次情绪追踪（sessionId → 最近5轮情绪等级） */
-    private final Map<String, int[]> emotionHistory = new ConcurrentHashMap<>();
-
-    /** 情绪升级阈值：连续 N 轮情绪等级≥3 时触发预警 */
-    private static final int ESCALATION_WINDOW = 3;
-
-    /** 情绪升级警告等级 */
-    private static final int ESCALATION_WARN_LEVEL = 3;
 
     public SentimentAnalysisService() {
         this(null, null);
@@ -95,6 +86,7 @@ public class SentimentAnalysisService {
         this(llmAnalyzer, null);
     }
 
+    @Autowired
     public SentimentAnalysisService(
             @Autowired(required = false) Function<String, Integer> llmAnalyzer,
             @Autowired(required = false) BgeEmbeddingModel embeddingModel) {
@@ -122,10 +114,10 @@ public class SentimentAnalysisService {
     }
 
     /**
-     * 分析用户输入的情感（含跨轮次情绪追踪）。
+     * 无状态分析；跨轮趋势由统一预处理中的 Redis 快照维护。
      *
      * @param userInput 用户输入文本
-     * @param sessionId 会话 ID（用于情绪追踪，可为 null）
+     * @param sessionId 兼容旧调用签名，不在分析器中存储会话状态
      * @return 情感分析结果
      */
     public SentimentResult analyze(String userInput, String sessionId) {
@@ -156,7 +148,7 @@ public class SentimentAnalysisService {
                     confidence = 80;
                 }
             } catch (Exception e) {
-                log.warn("[Sentiment] LLM 分析失败，使用关键词结果: {}", e.getMessage());
+                throw new IllegalStateException("Sentiment inference failed", e);
             }
         }
 
@@ -166,16 +158,13 @@ public class SentimentAnalysisService {
             confidence = 50;
         }
 
-        // Step 3: 情绪追踪
-        boolean escalated = false;
-        if (sessionId != null) {
-            escalated = trackEmotion(sessionId, level);
-        }
-
         SentimentLevel sl = getByLevel(level);
-        boolean needHandoff = level >= 4;
-
-        return new SentimentResult(level, sl.name, sl.responseStrategy, needHandoff, escalated, confidence);
+        // A complaint or negative emotion alone must not stop order/product assistance.
+        boolean needHandoff = userInput.matches("(?s).*(?:请转人工|我要人工|找人工客服|转接人工客服).*")
+                && !userInput.matches("(?s).*(?:不要|不用|不想|无需).{0,4}人工.*");
+        return new SentimentResult(level, sl.name,
+                needHandoff ? "建议人工协助" : level >= 3 ? "共情并继续解决业务问题" : sl.responseStrategy,
+                needHandoff, false, confidence);
     }
 
     /**
@@ -183,39 +172,23 @@ public class SentimentAnalysisService {
      */
     private int keywordMatch(String input) {
         int maxLevel = 0;
-        for (Map.Entry<String, Integer> entry : keywordMap.entrySet()) {
-            if (input.contains(entry.getKey())) {
+        boolean[] matched = new boolean[input.length()];
+        var entries = keywordMap.entrySet().stream()
+                .sorted(java.util.Comparator.comparingInt((Map.Entry<String, Integer> e) -> e.getKey().length()).reversed())
+                .toList();
+        for (var entry : entries) {
+            for (int index = input.indexOf(entry.getKey()); index >= 0; index = input.indexOf(entry.getKey(), index + 1)) {
+                int end = index + entry.getKey().length();
+                boolean overlaps = false;
+                for (int i = index; i < end; i++) if (matched[i]) overlaps = true;
+                if (overlaps) continue;
+                String before = input.substring(Math.max(0, index - 3), index);
+                if (before.matches(".*(?:不|没|无|不是|并非|不要|不用)$")) continue;
+                java.util.Arrays.fill(matched, index, end, true);
                 maxLevel = Math.max(maxLevel, entry.getValue());
             }
         }
         return maxLevel;
-    }
-
-    /**
-     * 跨轮次情绪追踪——检测情绪升级趋势。
-     *
-     * @param sessionId 会话 ID
-     * @param level     当前情绪等级
-     * @return 是否触发情绪升级预警
-     */
-    private boolean trackEmotion(String sessionId, int level) {
-        int[] history = emotionHistory.computeIfAbsent(sessionId, k -> new int[5]);
-        // 将历史左移
-        System.arraycopy(history, 1, history, 0, history.length - 1);
-        history[history.length - 1] = level;
-
-        // 检查是否连续 N 轮情绪等级≥3
-        if (history.length >= ESCALATION_WINDOW) {
-            int count = 0;
-            for (int i = history.length - ESCALATION_WINDOW; i < history.length; i++) {
-                if (history[i] >= ESCALATION_WARN_LEVEL) count++;
-            }
-            if (count >= ESCALATION_WINDOW) {
-                log.warn("[Sentiment] ⚠️ 情绪升级预警: session={}, history={}", sessionId, history);
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -228,7 +201,7 @@ public class SentimentAnalysisService {
         return switch (level) {
             case 3 -> "抱歉给您带来不便。";
             case 4 -> "非常抱歉，我立即为您处理。";
-            case 5 -> "非常抱歉给您带来不好的体验。正在为您转接人工客服。";
+            case 5 -> "非常抱歉给您带来不好的体验。可以联系人工客服进一步协助。";
             default -> "";
         };
     }
@@ -238,9 +211,9 @@ public class SentimentAnalysisService {
      */
     public String getHandoffResponse(int level) {
         if (level >= 5) {
-            return "非常抱歉给您带来不好的体验。正在为您转接人工客服，请稍候。";
+            return "非常抱歉给您带来不好的体验。可以联系人工客服进一步协助。";
         }
-        return getTonePrefix(level) + "正在为您转接人工客服，请稍候。";
+        return getTonePrefix(level) + "可以联系人工客服进一步协助。";
     }
 
     private SentimentLevel getByLevel(int level) {
@@ -258,7 +231,7 @@ public class SentimentAnalysisService {
             String name,
             /** 建议的处理策略 */
             String responseStrategy,
-            /** 是否需转人工（等级≥4） */
+            /** 是否明确请求人工协助（不是已经转接成功） */
             boolean needHandoff,
             /** 是否触发情绪升级预警 */
             boolean escalated,

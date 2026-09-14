@@ -2,202 +2,401 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "SmartAssistant 高层运行时架构",
+    "title": "SmartAssistant 系统架构",
     "locale": "zh-CN",
     "output": "smartassistant-runtime.architecture.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/Yu-hk/SmartAssistant",
-      "revision": "df5af36be6c4414d1e379f185b40694cacaa87e2"
+      "revision": "d93765acbb1f34182f991e34c79dbba2b20ab0b0"
     },
-    "viewBox": [1200, 760]
+    "viewBox": [
+      1320,
+      620
+    ]
+  },
+  "layout": {
+    "mode": "grid",
+    "origin": [
+      24.75,
+      60
+    ],
+    "cols": 6,
+    "cellW": 148.5,
+    "cellH": 90,
+    "gapX": 70.125,
+    "gapY": 90
   },
   "components": [
     {
-      "id": "user",
-      "type": "external",
-      "label": "用户",
-      "sublabel": "浏览器",
-      "pos": [20, 300],
-      "size": [100, 64]
-    },
-    {
-      "id": "frontend",
+      "id": "web-client",
       "type": "frontend",
-      "label": "React 前端",
-      "sublabel": "Vite :5173",
-      "pos": [145, 300],
-      "size": [130, 64],
+      "label": "React 工作台",
+      "sublabel": "用户对话 · 管理后台",
+      "row": 1,
+      "col": 0,
+      "size": [
+        148.5,
+        90
+      ],
       "sources": [
-        { "path": "frontend/vite.config.ts", "line": 5, "end_line": 17, "label": "开发入口与 API 代理" }
+        {
+          "path": "frontend/src/hooks/useChat.ts",
+          "label": "SSE 进度与用量展示"
+        }
       ]
     },
     {
-      "id": "gateway",
+      "id": "api-entry",
       "type": "backend",
-      "label": "API Gateway",
-      "sublabel": "路由 :8081",
-      "tag": "统一接入",
-      "pos": [300, 300],
-      "size": [140, 70],
+      "label": "Gateway",
+      "sublabel": "认证与业务 API 路由",
+      "row": 1,
+      "col": 1,
+      "size": [
+        148.5,
+        90
+      ],
       "sources": [
-        { "path": "smart-assistant-gateway/src/main/resources/application.yml", "line": 35, "end_line": 79, "label": "服务路由" }
+        {
+          "path": "smart-assistant-gateway/src/main/resources/application.yml",
+          "label": "网关路由配置"
+        }
       ]
     },
     {
-      "id": "identity",
-      "type": "security",
-      "label": "User Service",
-      "sublabel": "JWT · 权限 :8086",
-      "pos": [300, 100],
-      "size": [140, 70],
-      "sources": [
-        { "path": "smart-assistant-user/src/main/java/com/example/smartassistant/user/controller/AuthController.java", "line": 30, "end_line": 85, "label": "认证 API" },
-        { "path": "smart-assistant-user/src/main/java/com/example/smartassistant/user/config/JwtAuthenticationFilter.java", "line": 87, "label": "JWT 与会话校验" }
-      ]
-    },
-    {
-      "id": "consumer",
+      "id": "chat-admission",
       "type": "backend",
-      "label": "Consumer Service",
-      "sublabel": "对话 · 画像 · 缓存 :8082",
-      "tag": "前置请求治理",
-      "pos": [464, 300],
-      "size": [150, 76],
+      "label": "Consumer 接入",
+      "sublabel": "情绪与画像并行 · 答案缓存",
+      "row": 1,
+      "col": 2,
+      "size": [
+        148.5,
+        90
+      ],
+      "tag": "对话治理",
       "sources": [
-        { "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/controller/StreamChatController.java", "line": 350, "end_line": 363, "label": "SSE 对话入口" },
-        { "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/cache/SelectiveSemanticAnswerCache.java", "label": "前置语义缓存" },
-        { "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/health/RouterConnectivityHealthIndicator.java", "label": "Router readiness" }
+        {
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/core/ConversationPreprocessingService.java",
+          "label": "情绪与画像并行预处理"
+        },
+        {
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/dispatch/PriorityRoutingDispatcher.java",
+          "label": "优先级调度入口"
+        },
+        {
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/cache/SelectiveSemanticAnswerCache.java",
+          "label": "可选答案缓存"
+        }
       ]
     },
     {
-      "id": "router",
-      "type": "backend",
-      "label": "Router Service",
-      "sublabel": "LangGraph4j 编排 :8083",
-      "tag": "核心调度",
-      "pos": [640, 300],
-      "size": [150, 76],
-      "sources": [
-        { "path": "smart-assistant-router/src/main/java/com/example/smartassistant/router/controller/RouterController.java", "line": 36, "end_line": 92, "label": "路由执行 API" }
-      ]
-    },
-    {
-      "id": "model",
-      "type": "external",
-      "label": "AI / RAG Runtime",
-      "sublabel": "LLM · Embedding :8091",
-      "pos": [640, 100],
-      "size": [150, 70],
-      "sources": [
-        { "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/agent/McpAgentService.java", "line": 108, "end_line": 121, "label": "模型与工具装配" },
-        { "path": "smart-assistant-embedding-service/src/main/java/com/example/smartassistant/embedding/EmbeddingApplication.java", "label": "Embedding 服务入口" }
-      ]
-    },
-    {
-      "id": "product",
-      "type": "backend",
-      "label": "Product Service",
-      "sublabel": "候选 · 三维分析 · 核实闭环",
-      "tag": "查询与推荐",
-      "pos": [820, 145],
-      "size": [180, 82],
-      "sources": [
-        { "path": "smart-assistant-product/src/main/java/com/example/smartassistant/controller/ProductStreamController.java", "line": 170, "end_line": 203, "label": "分析与推荐节点入口" },
-        { "path": "smart-assistant-product/src/main/java/com/example/smartassistant/service/agent/StreamingProductAgentService.java", "line": 465, "end_line": 531, "label": "核实与重新分析闭环" }
-      ]
-    },
-    {
-      "id": "order",
-      "type": "backend",
-      "label": "Order Service",
-      "sublabel": "补槽 · 确认 · 确定性执行",
-      "tag": "写操作门禁",
-      "pos": [820, 330],
-      "size": [180, 82],
-      "sources": [
-        { "path": "smart-assistant-order/src/main/java/com/example/smartassistant/service/core/OrderDeterministicExecutionService.java", "line": 49, "end_line": 110, "label": "确定性订单操作" },
-        { "path": "smart-assistant-order/src/main/resources/application.yml", "line": 54, "label": "订单槽位定义" }
-      ]
-    },
-    {
-      "id": "tools",
-      "type": "backend",
-      "label": "Tool Registry / Runtime",
-      "sublabel": "MCP · 安全执行 :8088",
-      "pos": [820, 515],
-      "size": [160, 76],
-      "sources": [
-        { "path": "smart-assistant-tool-registry/src/main/java/com/example/smartassistant/toolregistry/service/RegistryService.java", "line": 61, "end_line": 67, "label": "工具权威目录" },
-        { "path": "smart-assistant-tool-runtime/pom.xml", "label": "嵌入式工具运行时" }
-      ]
-    },
-    {
-      "id": "data",
-      "type": "database",
-      "label": "PostgreSQL · pgvector",
-      "sublabel": "商品 · 订单 · 用户 · 向量",
-      "pos": [1020, 240],
-      "size": [170, 76],
-      "sources": [
-        { "path": "docker-compose.dev.yml", "line": 64, "end_line": 85, "label": "开发数据存储" }
-      ]
-    },
-    {
-      "id": "state",
+      "id": "chat-broker",
       "type": "messagebus",
-      "label": "Redis · RabbitMQ",
-      "sublabel": "缓存 · 检查点 · 恢复队列",
-      "pos": [640, 520],
-      "size": [150, 76],
+      "label": "RabbitMQ 4.1",
+      "sublabel": "Quorum · 普通 0 / 高 5",
+      "row": 1,
+      "col": 3,
+      "size": [
+        148.5,
+        90
+      ],
+      "tag": "非抢占优先级",
       "sources": [
-        { "path": "docker-compose.dev.yml", "line": 23, "end_line": 60, "label": "缓存与消息代理" },
-        { "path": "smart-assistant-router/src/main/java/com/example/smartassistant/router/config/WorkflowRecoveryConfig.java", "line": 44, "end_line": 57, "label": "恢复队列选择" }
+        {
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/config/ChatDispatchRabbitConfig.java",
+          "label": "对话队列与死信配置"
+        }
+      ]
+    },
+    {
+      "id": "chat-worker",
+      "type": "backend",
+      "label": "Consumer 执行器",
+      "sublabel": "4 并发 · 预取 1 · 手工 ACK",
+      "row": 1,
+      "col": 4,
+      "size": [
+        148.5,
+        90
+      ],
+      "tag": "同一 Consumer 服务",
+      "sources": [
+        {
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/dispatch/ChatDispatchListener.java",
+          "label": "消费消息并调用 Router"
+        },
+        {
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/dispatch/ChatDispatchStore.java",
+          "label": "Redis 执行权与结果记录"
+        }
+      ]
+    },
+    {
+      "id": "task-coordinator",
+      "type": "backend",
+      "label": "Router",
+      "sublabel": "LangGraph4j · 分配与协调",
+      "row": 1,
+      "col": 5,
+      "size": [
+        148.5,
+        90
+      ],
+      "tag": "内置兜底 Agent",
+      "sources": [
+        {
+          "path": "smart-assistant-router/src/main/java/com/example/smartassistant/router/service/core/GraphNodeExecutionService.java",
+          "label": "商品节点与兜底执行"
+        },
+        {
+          "path": "smart-assistant-router/src/main/java/com/example/smartassistant/router/service/core/UserProfileContextAwaiter.java",
+          "label": "500 ms 可选画像选择"
+        }
+      ]
+    },
+    {
+      "id": "account-service",
+      "type": "security",
+      "label": "User 服务",
+      "sublabel": "登录 · JWT · 权限隔离",
+      "row": 0,
+      "col": 1,
+      "size": [
+        148.5,
+        90
+      ],
+      "sources": [
+        {
+          "path": "smart-assistant-user/src/main/java/com/example/smartassistant/user/controller/AuthController.java",
+          "label": "认证入口"
+        }
+      ]
+    },
+    {
+      "id": "request-state",
+      "type": "database",
+      "label": "Redis",
+      "sublabel": "画像上下文 · 执行权 · 结果",
+      "row": 0,
+      "col": 2,
+      "size": [
+        148.5,
+        90
+      ],
+      "sources": [
+        {
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/dispatch/ChatDispatchStore.java",
+          "label": "请求与账号执行权"
+        },
+        {
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/recommendation/UserProfileService.java",
+          "label": "异步画像上下文"
+        }
+      ]
+    },
+    {
+      "id": "model-retrieval",
+      "type": "external",
+      "label": "模型与检索依赖",
+      "sublabel": "LLM · Embedding · RAG",
+      "row": 0,
+      "col": 4,
+      "size": [
+        148.5,
+        90
+      ],
+      "sources": [
+        {
+          "path": "smart-assistant-product/src/main/java/com/example/smartassistant/service/agent/StreamingProductAgentService.java",
+          "label": "商品模型与检索调用"
+        },
+        {
+          "path": "smart-assistant-embedding-service/src/main/java/com/example/smartassistant/embedding/EmbeddingApplication.java",
+          "label": "独立 Embedding 服务"
+        }
+      ]
+    },
+    {
+      "id": "domain-agents",
+      "type": "backend",
+      "label": "Product / Order",
+      "sublabel": "商品推荐核实 · 订单确认",
+      "row": 0,
+      "col": 5,
+      "size": [
+        148.5,
+        90
+      ],
+      "tag": "两个独立领域服务",
+      "sources": [
+        {
+          "path": "smart-assistant-product/src/main/java/com/example/smartassistant/service/agent/StreamingProductAgentService.java",
+          "label": "商品查询与推荐核实"
+        },
+        {
+          "path": "smart-assistant-order/src/main/java/com/example/smartassistant/service/core/OrderDeterministicExecutionService.java",
+          "label": "确认后确定性订单执行"
+        }
+      ]
+    },
+    {
+      "id": "persistent-data",
+      "type": "database",
+      "label": "PostgreSQL / pgvector",
+      "sublabel": "业务数据 · 画像版本 · 向量",
+      "row": 2,
+      "col": 2,
+      "size": [
+        148.5,
+        90
+      ],
+      "sources": [
+        {
+          "path": "deploy/docker-compose.yml",
+          "label": "共享持久化存储与服务连接"
+        },
+        {
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/recommendation/UserProfileSnapshotStore.java",
+          "label": "版本化画像快照"
+        }
+      ]
+    },
+    {
+      "id": "tool-catalog",
+      "type": "backend",
+      "label": "Tool Registry",
+      "sublabel": "MCP 目录 · 通用工具",
+      "row": 2,
+      "col": 5,
+      "size": [
+        148.5,
+        90
+      ],
+      "tag": "Runtime 可嵌入模块",
+      "sources": [
+        {
+          "path": "smart-assistant-tool-registry/src/main/java/com/example/smartassistant/toolregistry/service/RegistryService.java",
+          "label": "工具注册与发现"
+        },
+        {
+          "path": "smart-assistant-tool-runtime/pom.xml",
+          "label": "工具运行时模块"
+        }
       ]
     }
   ],
   "connections": [
-    { "id": "user-frontend", "from": "user", "to": "frontend", "variant": "emphasis" },
-    { "id": "frontend-gateway", "from": "frontend", "to": "gateway", "label": "HTTPS /api", "variant": "emphasis", "labelDy": -26 },
-    { "id": "gateway-consumer", "from": "gateway", "to": "consumer", "label": "聊天与运营 API", "variant": "emphasis", "labelDy": 65 },
-    { "id": "consumer-router", "from": "consumer", "to": "router", "label": "缓存未命中 · Route API", "variant": "emphasis", "labelAt": [612, 296] },
-    { "id": "router-product", "from": "router", "to": "product", "label": "商品意图", "variant": "emphasis" },
-    { "id": "router-order", "from": "router", "to": "order", "label": "订单意图", "variant": "emphasis", "labelAt": [835, 325] },
-    { "id": "product-data", "from": "product", "to": "data", "label": "商品证据", "labelAt": [995, 236] },
-    { "id": "order-data", "from": "order", "to": "data", "label": "确认后执行", "labelAt": [995, 426] },
-    { "id": "gateway-identity", "from": "gateway", "to": "identity", "label": "认证 / 用户 API", "variant": "security" },
-    { "id": "router-model", "from": "router", "to": "model", "label": "意图拆解", "variant": "dashed" },
-    { "id": "model-product", "from": "model", "to": "product", "label": "分析 + 核实模型", "variant": "dashed", "labelAt": [790, 96] },
-    { "id": "router-tools", "from": "router", "to": "tools", "label": "工具发现 / 兜底", "variant": "dashed" },
-    { "id": "consumer-state", "from": "consumer", "to": "state", "label": "会话 / 高精度语义缓存", "variant": "dashed" },
-    { "id": "router-state", "from": "router", "to": "state", "label": "检查点 / RabbitMQ 恢复", "variant": "dashed", "labelAt": [715, 390] }
+    {
+      "id": "web-api",
+      "from": "web-client",
+      "to": "api-entry",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-chat",
+      "from": "api-entry",
+      "to": "chat-admission",
+      "label": "Chat/SSE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "publish-chat",
+      "from": "chat-admission",
+      "to": "chat-broker",
+      "label": "发布",
+      "variant": "emphasis"
+    },
+    {
+      "id": "deliver-chat",
+      "from": "chat-broker",
+      "to": "chat-worker",
+      "label": "投递",
+      "variant": "emphasis"
+    },
+    {
+      "id": "invoke-router",
+      "from": "chat-worker",
+      "to": "task-coordinator",
+      "label": "Route API",
+      "variant": "emphasis"
+    },
+    {
+      "id": "authenticate",
+      "from": "api-entry",
+      "to": "account-service",
+      "label": "认证 API",
+      "variant": "security"
+    },
+    {
+      "id": "context-state",
+      "from": "chat-admission",
+      "to": "request-state",
+      "label": "短期状态",
+      "variant": "default"
+    },
+    {
+      "id": "save-conversation",
+      "from": "chat-admission",
+      "to": "persistent-data",
+      "label": "会话与画像持久化",
+      "labelAt": [
+        536.25,
+        344
+      ],
+      "variant": "default"
+    },
+    {
+      "id": "dispatch-domains",
+      "from": "task-coordinator",
+      "to": "domain-agents",
+      "label": "业务任务",
+      "variant": "emphasis"
+    },
+    {
+      "id": "domain-model",
+      "from": "domain-agents",
+      "to": "model-retrieval",
+      "label": "推理检索",
+      "variant": "dashed"
+    },
+    {
+      "id": "discover-tools",
+      "from": "task-coordinator",
+      "to": "tool-catalog",
+      "label": "工具发现",
+      "labelAt": [
+        1192.125,
+        344
+      ],
+      "variant": "dashed"
+    }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "主请求路径",
+      "title": "画像可选，情绪与画像并行",
       "items": [
-        "前端经 Gateway 完成认证接入，Consumer 管理对话、画像和前置缓存",
-        "仅经策略认证的单意图缓存命中会跳过 Router；其余请求进入模型路由",
-        "Consumer readiness 同时验证 Router 连通性，避免入口健康但编排不可用"
+        "Consumer 内独立有界执行；情绪推理预算 750 ms。",
+        "商品节点本轮最多等画像 500 ms，超时继续，迟到结果留待后续轮次。"
       ]
     },
     {
       "dot": "violet",
-      "title": "Agent 与确定性工作流",
+      "title": "排队有优先级，执行不抢占",
       "items": [
-        "Product 完成候选查询、三维分析、核实推荐与一次重新分析",
-        "Order 由 Agent 补齐参数，写操作在二次确认后交给确定性工作流",
-        "分配失败时由 Tool Registry / Runtime 提供通用兜底"
+        "接入与执行器属于同一服务；每实例默认 4 路消费。",
+        "Redis 防重，先记结果再 ACK；不确定业务进入死信核查。"
       ]
     },
     {
       "dot": "emerald",
-      "title": "边界与运行基础设施",
+      "title": "只展示主调用关系",
       "items": [
-        "Common 仅保留跨服务复用能力，模块专属配置与实现下沉到所属服务",
-        "Redis 保存会话、语义缓存和检查点；RabbitMQ 扫描并触发过期工作流恢复",
-        "业务咨询随知识版本失效，热门商品缓存使用严格短 TTL"
+        "存储和模型为共享依赖，图中省略其他访问边。",
+        "General 已移除；Router 内置兜底，Registry / Runtime 提供工具。"
       ]
     }
   ]

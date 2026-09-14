@@ -154,20 +154,23 @@ public class GraphNodeExecutionService {
         }
         String userProfile = null;
         if (isProductTarget(targetAgent) && userProfileContextAwaiter != null) {
+            checkCancellation(requestId, userId);
             try {
-                userProfile = userProfileContextAwaiter.await(requestId);
+                userProfile = userProfileContextAwaiter.await(requestId, userId);
                 if (userProfile != null && !userProfile.isBlank() && hasProtocolMetadata(node)) {
                     resolvedInput = new LinkedHashMap<>(resolvedInput);
                     resolvedInput.put(RoutingKeys.USER_PROFILE_INPUT, userProfile);
                 }
+            } catch (java.util.concurrent.CancellationException cancelled) {
+                throw cancelled;
             } catch (IllegalStateException error) {
-                log.error("[GraphNode] Product 执行前用户画像未就绪: nodeId={}, requestId={}, error={}",
-                        node.getId(), requestId, error.getMessage());
-                progress(eventsKey, "node_profile_failed",
-                        "节点[" + node.getDescription() + "]等待用户画像失败", targetAgent);
-                return recordFailure(node, breakerFailures, requestId,
-                        truncate(error.getMessage(), 100), SubTaskResult.ErrorType.FATAL_FAILED);
+                log.warn("[GraphNode] Optional profile unavailable; continue Product: nodeId={}, requestId={}",
+                        node.getId(), requestId);
             }
+            if (Thread.currentThread().isInterrupted()) {
+                throw new java.util.concurrent.CancellationException("Request interrupted");
+            }
+            checkCancellation(requestId, userId);
         }
         String enrichedDescription = enrich(node, completed, originalQuestion);
         if (userProfile != null && !userProfile.isBlank() && !hasProtocolMetadata(node)) {
