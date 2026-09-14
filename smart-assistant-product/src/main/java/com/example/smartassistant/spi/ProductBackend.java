@@ -85,9 +85,14 @@ public interface ProductBackend {
                 .filter(product -> safe.maxPrice() == null
                         || (product.price() != null && product.price().compareTo(safe.maxPrice()) <= 0))
                 .filter(product -> !safe.inStockOnly() || isAvailableStock(product.stock()))
+                .filter(product -> safe.features().matches(product.features()))
                 .limit(safe.limit())
                 .toList();
     }
+
+    /** Full-catalog distinct categories after filtering, never inferred from a limited top-N pool.
+     * Empty means inference is unavailable or no category is confirmed; callers must clarify. */
+    default List<String> listMatchingCategories(ProductDiscoveryCriteria criteria) { return List.of(); }
 
     private static boolean isAvailableStock(String stock) {
         if (stock == null || stock.isBlank()) return false;
@@ -101,7 +106,12 @@ public interface ProductBackend {
             String keyword,
             BigDecimal maxPrice,
             boolean inStockOnly,
-            int limit) {
+            int limit,
+            ProductFeatureConstraints features) {
+        public ProductDiscoveryCriteria(String category, String keyword, BigDecimal maxPrice,
+                                        boolean inStockOnly, int limit) {
+            this(category, keyword, maxPrice, inStockOnly, limit, ProductFeatureConstraints.NONE);
+        }
         public ProductDiscoveryCriteria(String category, String keyword, int limit) {
             this(category, keyword, null, false, limit);
         }
@@ -109,8 +119,9 @@ public interface ProductBackend {
         public ProductDiscoveryCriteria {
             category = category == null ? "" : category.trim();
             keyword = keyword == null ? "" : keyword.trim();
-            maxPrice = maxPrice != null && maxPrice.signum() > 0 ? maxPrice : null;
+            maxPrice = maxPrice != null && maxPrice.signum() >= 0 ? maxPrice : null;
             limit = Math.max(1, Math.min(limit, 20));
+            features = features == null ? ProductFeatureConstraints.NONE : features;
         }
     }
 
@@ -124,7 +135,8 @@ public interface ProductBackend {
             String category,
             BigDecimal marketPrice,
             BigDecimal rating,
-            long reviewCount
+            long reviewCount,
+            ProductFeatures features
     ) {
         public ProductSummary {
             code = code == null ? "" : code;
@@ -133,6 +145,14 @@ public interface ProductBackend {
             spec = spec == null ? "" : spec;
             category = category == null ? "" : category;
             reviewCount = Math.max(0, reviewCount);
+            features = features == null ? ProductFeatures.UNKNOWN : features;
+        }
+
+        public ProductSummary(String code, String name, BigDecimal price, String stock, String spec,
+                              long popularity, String category, BigDecimal marketPrice,
+                              BigDecimal rating, long reviewCount) {
+            this(code, name, price, stock, spec, popularity, category, marketPrice, rating,
+                    reviewCount, ProductFeatures.UNKNOWN);
         }
 
         /** Compatibility constructor for integrations that have not exposed category yet. */

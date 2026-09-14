@@ -210,6 +210,33 @@ class GlobalJwtAuthFilterTest {
     }
 
     @Test
+    void spoofedAdminHeadersCannotAuthorizeProductFeatureWrites() {
+        stubAuthenticatedToken("ROLE_USER");
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.put("/api/admin/products/FEATURE-TEST-A/features")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer valid-token")
+                        .header("X-User-Role", "ROLE_ADMIN").header("X-User-Id", "7").build());
+        filter.filter(exchange, chain).block();
+        assertEquals(403, exchange.getResponse().getStatusCode().value());
+        verifyNoInteractions(chain);
+    }
+
+    @Test
+    void ordinaryUserCannotCreateProductsOrRequestIntakeExtraction() {
+        stubAuthenticatedToken("ROLE_USER");
+        for (String path : java.util.List.of("/api/admin/products", "/api/admin/products/extract-features")) {
+            GatewayFilterChain chain = mock(GatewayFilterChain.class);
+            MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post(path)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer valid-token")
+                    .header("X-User-Role", "ROLE_ADMIN").header("X-User-Id", "7").build());
+            filter.filter(exchange, chain).block();
+            assertEquals(403, exchange.getResponse().getStatusCode().value());
+            verifyNoInteractions(chain);
+        }
+    }
+
+    @Test
     void roleMatchingIsExactForAdminApi() {
         stubAuthenticatedToken("role_admin");
         GatewayFilterChain chain = mock(GatewayFilterChain.class);

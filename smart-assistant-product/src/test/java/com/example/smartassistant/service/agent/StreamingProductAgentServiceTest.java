@@ -21,6 +21,8 @@ import com.example.smartassistant.spi.InMemoryProductBackend;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -39,6 +41,185 @@ import static org.mockito.Mockito.*;
  * 验证：无证据拒答短路、高质量注入上下文、RAG 异常降级。
  */
 class StreamingProductAgentServiceTest {
+
+    @Test
+    void structuredFeatureEvidenceSurvivesFlashAnalysisAndProReview() throws Exception {
+        var flash = mock(org.springframework.ai.chat.model.ChatModel.class);
+        var pro = mock(org.springframework.ai.chat.model.ChatModel.class);
+        String decision = """
+                {"valid":true,"selected_code":"FEATURE-TEST-LAPTOP-A","evidence_fields":["features"],"limitations":[]}
+                """;
+        when(flash.call(any(Prompt.class))).thenReturn(chatResponse(decision));
+        when(pro.call(any(Prompt.class))).thenReturn(chatResponse(decision));
+        var service = dualModelService(flash, pro);
+        try (var input = getClass().getResourceAsStream("/product-structured-features-fixture.json")) {
+            List<Map<?, ?>> catalog = new com.fasterxml.jackson.databind.ObjectMapper().readValue(input,
+                    new com.fasterxml.jackson.core.type.TypeReference<>() { });
+            String question = "推荐笔记本电脑，预算5000元，重量不超过1.3kg，视频播放续航至少10小时";
+            var analysis = service.analyzeVerifiedContext(question, "真实的结构化目录", catalog, "features-analysis");
+            var recommendation = service.verifyAnalysisAndRecommend(question, analysis.answer(), catalog, "features-review");
+            assertTrue(analysis.quality().isPass());
+            assertTrue(recommendation.quality().isPass());
+            assertTrue(recommendation.answer().contains("1200克"));
+            assertTrue(recommendation.answer().contains("12小时"));
+            assertTrue(recommendation.answer().contains("明确给出的特征条件"));
+            assertFalse(recommendation.answer().contains("预算剩余"));
+            var captured = org.mockito.ArgumentCaptor.forClass(Prompt.class);
+            verify(pro).call(captured.capture());
+            assertTrue(captured.getValue().getContents().contains("batteryLifeScenario"));
+            assertTrue(captured.getValue().getContents().contains("synthetic-test-fixture-not-real-product"));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/product-analysis-budget-regression.json",
+            "/product-analysis-budget-difference-regression.json",
+            "/product-analysis-budget-prose-regression.json",
+            "/product-analysis-budget-comparison-regression.json",
+            "/product-analysis-budget-implicit-regression.json"})
+    void capturedOnlineAnalysisPassesWithFieldDefinitionsAndVerifiedBudgetComparison(String fixture) throws Exception {
+        try (var input = getClass().getResourceAsStream(fixture)) {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            var sample = mapper.readTree(input);
+            String context = mapper.convertValue(sample.get("catalog"), Map.class).toString()
+                    + "\n目录字段口径：popularity 为站内近30天销量快照与同期有效订单数之和；rating 为5分制评分。";
+            var verdict = service.checkProductFaithfulness(sample.get("analysis").asText(),
+                    context, sample.get("question").asText());
+            assertFalse(verdict.hallucination(), () -> verdict.claims().toString());
+        }
+    }
+
+    @Test
+    void priceBudgetComparisonRequiresActualPriceAndCorrectArithmetic() {
+        String context = "{price=5299.0, stock=充足}";
+        assertFalse(service.checkProductFaithfulness("预算≤6000元，5299≤6000", context, "预算6000元").hallucination());
+        assertTrue(service.checkProductFaithfulness("5299>6000", context, "预算6000元").hallucination());
+        assertTrue(service.checkProductFaithfulness("4999≤6000", context, "预算6000元").hallucination());
+        assertTrue(service.checkProductFaithfulness("价格6000元", context, "预算6000元").hallucination());
+        assertTrue(service.checkProductFaithfulness("5299≤7000", context, "预算6000元").hallucination());
+    }
+
+    @Test
+    void verifiedBudgetDifferenceNeverAuthorizesInventedProductPrices() {
+        String context = "{price=5299.0, stock=充足}";
+        assertFalse(service.checkProductFaithfulness("符合6000元内预算，价格5299元，价差701元。",
+                context, "预算6000元以内").hallucination());
+        assertFalse(service.checkProductFaithfulness("符合6000元以内的预算，6000-5299=701。",
+                context, "预算6000元以内").hallucination());
+        assertTrue(service.checkProductFaithfulness("价格5299元，价差701元。商品售价701元。",
+                context, "预算6000元以内").hallucination());
+        assertTrue(service.checkProductFaithfulness("价格5299元，价差700元",
+                context + "，赠品价格700元", "预算6000元以内").hallucination());
+        assertTrue(service.checkProductFaithfulness("价格4999元，价差1001元",
+                context, "预算6000元以内").hallucination());
+    }
+
+    @Test
+    void proseBudgetDifferencesAreVerifiedBeforeBudgetRestatementsAreMasked() {
+        String context = "{price=5299.0, stock=充足}";
+        for (String phrase : List.of("展示6000元与5299元差额701元", "预算6000元与5299元差额701元")) {
+            assertFalse(service.checkProductFaithfulness(phrase, context, "预算6000元以内").hallucination());
+        }
+        for (String phrase : List.of("预算6000元与5299元差额700元", "6000元与4999元差额1001元",
+                "商品售价6000元与5299元差额701元", "展示6000元与5299元差额701元，商品售价701元")) {
+            assertTrue(service.checkProductFaithfulness(phrase, context, "预算6000元以内").hallucination());
+        }
+    }
+
+    @Test
+    void normalizedBudgetClaimsStillUseRealFaithfulnessChecks() {
+        String context = "{price=5299.0, stock=充足}";
+        for (String phrase : List.of("5299元＜6000元", "预算6000元＞售价5299元", "若坚持6000元内且重视拍照",
+                "￥５２９９元＜＝￥６０００元", "６０００－５２９９＝７０１", "要求6000元以内")) {
+            assertFalse(service.checkProductFaithfulness(phrase, context, "预算６０００元以内").hallucination(), phrase);
+        }
+        for (String phrase : List.of("售价5299元＞预算6000元", "预算6000元＜售价5299元", "售价6000元＞5299元",
+                "5299元＜6000元，另一款商品售价6000元", "若坚持6000元内，商品售价6000元", "若坚持7000元内",
+                "售价6000元以内", "商品售价6000-5299=701", "6000-5299=701，售价701元", "5299%＜6000%")) {
+            assertTrue(service.checkProductFaithfulness(phrase, context, "预算6000元以内").hallucination(), phrase);
+        }
+        assertTrue(service.checkProductFaithfulness("售价4999元＜预算6000元", context + ", stockCount=4999",
+                "预算6000元以内").hallucination());
+        assertTrue(service.checkProductFaithfulness("售价5299元＜预算7000元", context + ", stockCount=7000",
+                "预算6000元以内").hallucination());
+    }
+
+    @Test
+    void onlyStandaloneAnalysisHeadingsAreExcludedFromEntityChecks() {
+        assertFalse(service.checkProductFaithfulness("【数据概览】\n价格5299元\n【核心结论】\n价格已核实",
+                "价格5299元", "分析手机").hallucination());
+        assertTrue(service.checkProductFaithfulness("推荐【不存在手机】价格5299元",
+                "价格5299元", "分析手机").hallucination());
+        assertTrue(service.checkProductFaithfulness("引用【核心结论】这本书",
+                "价格5299元", "分析手机").hallucination());
+    }
+
+    @Test
+    void restatedUserBudgetIsNotAnUnsupportedProductPrice() {
+        assertFalse(service.checkProductFaithfulness("价格5299元，符合6000元预算",
+                "价格5299元", "预算6000元以内").hallucination());
+        assertFalse(service.checkProductFaithfulness("预算6,000.00元，价格5299元",
+                "价格5299元", "6000元预算").hallucination());
+    }
+
+    @Test
+    void userBudgetCannotAuthorizeAnInventedPriceOrChangedBudget() {
+        assertTrue(service.checkProductFaithfulness("价格6000元，符合6000元预算",
+                "价格5299元", "预算6000元以内").hallucination());
+        assertTrue(service.checkProductFaithfulness("预算7000元，价格5299元",
+                "价格5299元", "预算6000元以内").hallucination());
+        assertTrue(service.checkProductFaithfulness("价格6000元",
+                "价格5299元", "有人说商品价格6000元").hallucination());
+    }
+
+    @Test
+    void actualProductToolFactsJoinRagEvidenceWithoutUnnecessaryModelRetry() {
+        var backend = mock(com.example.smartassistant.common.tool.spi.ProductDataProvider.class);
+        var tools = new com.example.smartassistant.product.tool.ProductTools(backend, null);
+        when(backend.getPrice("AIRPODS-PRO")).thenReturn("AirPods Pro 售价 1999 元");
+        when(backend.checkStock("AIRPODS-PRO")).thenReturn("AirPods Pro 库存充足");
+        when(ragService.retrieveWithQualityResult(anyString()))
+                .thenReturn(RetrievalQualityResult.highQuality("耳机使用与保养说明", .9));
+        when(agent.execute(anyString())).thenAnswer(invocation -> {
+            tools.getPrice("AIRPODS-PRO"); tools.checkStock("AIRPODS-PRO");
+            return "AirPods Pro 售价 1999 元，库存充足。";
+        });
+        var guard = mock(com.example.smartassistant.common.rag.eval.FaithfulnessGuard.class);
+        when(guard.check(anyString(), anyString())).thenAnswer(invocation -> {
+            String context = invocation.getArgument(1);
+            assertTrue(context.contains("保养说明") && context.contains("1999") && context.contains("库存充足"));
+            var verdict = new com.example.smartassistant.common.rag.eval.FaithfulnessGuard()
+                    .check(invocation.getArgument(0), context);
+            assertFalse(verdict.hallucination());
+            return verdict;
+        });
+        service.setFaithfulnessGuard(guard);
+        var response = service.executeWithQuality("AirPods Pro多少钱？有货吗？", "tool-evidence");
+        assertTrue(response.quality().isPass());
+        assertTrue(response.quality().getReasonCodes().contains("PRODUCT_TOOL_FACTS_VERIFIED"));
+        verify(agent, times(1)).execute(anyString());
+        assertFalse(response.answer().contains("仅供参考"));
+        try (var next = com.example.smartassistant.service.quality.ProductToolEvidenceScope.open()) {
+            assertFalse(next.hasEvidence());
+        }
+    }
+
+    @Test
+    void unsupportedClaimsRemainWarningsEvenWhenOtherToolFactsExist() {
+        when(ragService.retrieveWithQualityResult(anyString()))
+                .thenReturn(RetrievalQualityResult.highQuality("商品保养说明", .9));
+        when(agent.execute(anyString())).thenAnswer(invocation -> {
+            com.example.smartassistant.service.quality.ProductToolEvidenceScope.record("售价 1999 元");
+            return "售价 4999 元，永久保修。";
+        });
+        var guard = new com.example.smartassistant.common.rag.eval.FaithfulnessGuard();
+        service.setFaithfulnessGuard(guard);
+        var response = service.executeWithQuality("商品多少钱", "unsupported-tools");
+        assertTrue(response.quality().isWarn());
+        assertTrue(response.quality().getReasonCodes().contains("UNSUPPORTED_PRODUCT_CLAIMS"));
+        assertTrue(response.answer().contains("未能在检索到的资料中核实"));
+        verify(agent, times(2)).execute(anyString());
+    }
 
     @Test
     void suppliedDocumentBypassesRagAndProductAgent() {
@@ -121,36 +302,34 @@ class StreamingProductAgentServiceTest {
         discoveryService.setPromptManager(new PromptManager());
         discoveryService.setTierModelRegistry(tierRegistry(flash, pro));
         when(flash.call(any(Prompt.class))).thenReturn(chatResponse(
-                "### 数据分析开始 ###\n【核心结论】AIRPODS-PRO，¥1999，库存充足"));
+                structuredDecision("AIRPODS-PRO")));
         when(pro.call(any(Prompt.class))).thenReturn(chatResponse(
-                "### 内部核实内容 ###\n销量、性价比和口碑分析已完成。\n"
-                        + "{\"valid\":true,\"issues\":[],\"correction_instruction\":\"\","
-                        + "\"conclusion\":\"推荐 AIRPODS-PRO（AirPods Pro（第二代）），"
-                        + "价格 ¥1999，库存充足。\"}"));
+                structuredDecision("AIRPODS-PRO")));
 
-        String result = discoveryService.execute("推荐几款热门商品", "req-p-analysis");
+        String result = discoveryService.execute("推荐一款无线耳机", "req-p-analysis");
 
-        assertEquals("推荐 AIRPODS-PRO（AirPods Pro（第二代）），价格 ¥1999，库存充足。", result);
+        assertTrue(result.contains("AirPods Pro（第二代）"));
+        assertTrue(result.contains("售价1999元"));
         assertFalse(result.contains("内部核实"));
         assertFalse(result.contains("销量、性价比"));
         verifyNoInteractions(ragService);
         org.mockito.ArgumentCaptor<Prompt> directAnalysisPrompt =
                 org.mockito.ArgumentCaptor.forClass(Prompt.class);
         verify(flash).call(directAnalysisPrompt.capture());
-        assertTrue(directAnalysisPrompt.getValue().getContents().contains("推荐几款热门商品"));
+        assertTrue(directAnalysisPrompt.getValue().getContents().contains("推荐一款无线耳机"));
         assertTrue(directAnalysisPrompt.getValue().getContents().contains("AirPods Pro"));
-        assertTrue(directAnalysisPrompt.getValue().getContents().contains("【核心结论】"));
+        assertTrue(directAnalysisPrompt.getValue().getContents().contains("budgetAssessment"));
         assertEquals(900, directAnalysisPrompt.getValue().getOptions().getMaxTokens());
         org.mockito.ArgumentCaptor<Prompt> directRecommendationPrompt =
                 org.mockito.ArgumentCaptor.forClass(Prompt.class);
         verify(pro).call(directRecommendationPrompt.capture());
         assertTrue(directRecommendationPrompt.getValue().getContents().contains("一次调用"));
-        assertTrue(directRecommendationPrompt.getValue().getContents().contains("\"conclusion\""));
+        assertTrue(directRecommendationPrompt.getValue().getContents().contains("\"selected_code\""));
         verify(agent, never()).execute(anyString());
     }
 
     @Test
-    @DisplayName("热门商品：模型因跨品类拒绝时应稳定回退站内排行榜")
+    @DisplayName("跨品类热门浏览：直接展示目录，不强制模型挑选唯一商品")
     void popularProducts_shouldFallbackToRankingWhenModelDefers() {
         StreamingProductAgentService discoveryService = new StreamingProductAgentService(
                 agent, ragService, new ProductDomainQualityValidator(),
@@ -162,10 +341,10 @@ class StreamingProductAgentServiceTest {
         discoveryService.setPromptManager(new PromptManager());
         discoveryService.setTierModelRegistry(tierRegistry(flash, pro));
         when(flash.call(any(Prompt.class))).thenReturn(chatResponse(
-                "【核心结论】候选商品销量可排序，但跨品类性价比不可比较。"));
+                structuredDecision("AIRPODS-PRO")));
+        org.springframework.test.util.ReflectionTestUtils.setField(discoveryService, "maxReanalysis", 0);
         when(pro.call(any(Prompt.class))).thenReturn(chatResponse(
-                "{\"valid\":true,\"issues\":[],\"correction_instruction\":\"\","
-                        + "\"conclusion\":\"无法形成唯一推荐，需补充用户品类偏好。\"}"));
+                "{\"valid\":false,\"issues\":[\"需要明确品类\"],\"correction_instruction\":\"补充偏好\"}"));
 
         var result = discoveryService.executeWithQuality(
                 "推荐现在的热门商品", "req-popular-ranking-fallback");
@@ -174,8 +353,7 @@ class StreamingProductAgentServiceTest {
         assertTrue(result.answer().contains("AirPods Pro"));
         assertFalse(result.answer().contains("无法形成唯一推荐"));
         assertTrue(result.quality().getReasonCodes().contains("PRODUCT_DISCOVERY_DATA"));
-        verify(flash).call(any(Prompt.class));
-        verify(pro).call(any(Prompt.class));
+        verifyNoInteractions(flash, pro);
     }
 
     @Test
@@ -473,6 +651,84 @@ class StreamingProductAgentServiceTest {
         entries.put(ModelTier.HEAVY,
                 new TierModelRegistry.TierModelEntry(pro, "qwen3.7-plus"));
         return new TierModelRegistry(entries);
+    }
+
+    private static String structuredDecision(String code) {
+        return "{\"valid\":true,\"selected_code\":\"" + code
+                + "\",\"evidence_fields\":[],\"limitations\":[],\"issues\":[],\"correction_instruction\":\"\"}";
+    }
+
+    @Test
+    void structuredPathGeneratesBudgetConclusionWithoutRemainder() {
+        var flash = mock(org.springframework.ai.chat.model.ChatModel.class);
+        var pro = mock(org.springframework.ai.chat.model.ChatModel.class);
+        when(flash.call(any(Prompt.class))).thenReturn(chatResponse(structuredDecision("PHONE")));
+        when(pro.call(any(Prompt.class))).thenReturn(chatResponse(structuredDecision("PHONE")));
+        var service = dualModelService(flash, pro);
+        var products = java.util.List.of(java.util.Map.of("code", "PHONE", "name", "小米 15 Pro", "price", 5299));
+        var analysis = service.analyzeVerifiedContext("预算6000元以内推荐手机", "待审核上游文本", products, "structured-analysis");
+        var recommendation = service.verifyAnalysisAndRecommend("预算6000元以内推荐手机", analysis.answer(), products, "structured-review");
+        assertTrue(analysis.quality().isPass());
+        assertTrue(recommendation.quality().isPass());
+        assertTrue(recommendation.answer().contains("售价5299元，未超预算"));
+        assertFalse(analysis.answer().contains("701"));
+        assertFalse(recommendation.answer().contains("701"));
+        verify(flash).call(any(Prompt.class));
+        verify(pro).call(any(Prompt.class));
+    }
+
+    @Test
+    void structuredMoneyFieldsAndUnknownCodesFailAfterBoundedRetry() {
+        for (String raw : java.util.List.of(structuredDecision("UNKNOWN"),
+                structuredDecision("PHONE").replace("\"issues\":[]", "\"price\":5000,\"issues\":[]"))) {
+            var flash = mock(org.springframework.ai.chat.model.ChatModel.class);
+            var pro = mock(org.springframework.ai.chat.model.ChatModel.class);
+            when(pro.call(any(Prompt.class))).thenReturn(chatResponse(raw));
+            var result = dualModelService(flash, pro).verifyAnalysisAndRecommend("预算6000元", "真实目录",
+                    java.util.List.of(java.util.Map.of("code", "PHONE", "name", "手机", "price", 5299)), "structured-invalid");
+            assertTrue(result.quality().isFail());
+            verify(pro, times(2)).call(any(Prompt.class));
+            verifyNoInteractions(flash);
+        }
+    }
+
+    @Test
+    void structuredAuditRejectionCannotBecomeSuccessfulCandidateFallback() {
+        var flash = mock(org.springframework.ai.chat.model.ChatModel.class);
+        var pro = mock(org.springframework.ai.chat.model.ChatModel.class);
+        when(pro.call(any(Prompt.class))).thenReturn(chatResponse("{\"valid\":false,\"correction_instruction\":\"核实规格\"}"));
+        when(flash.call(any(Prompt.class))).thenReturn(chatResponse(structuredDecision("PHONE")));
+        var result = dualModelService(flash, pro).verifyAnalysisAndRecommend("预算6000元", "待审核分析",
+                java.util.List.of(java.util.Map.of("code", "PHONE", "name", "手机", "price", 5299)), "structured-rejected");
+        assertTrue(result.quality().isFail());
+        verify(pro, times(2)).call(any(Prompt.class));
+        verify(flash).call(any(Prompt.class));
+    }
+
+    @Test
+    void structuredRetryAndRevisionPreserveMeasuredTokens() {
+        var flash = mock(org.springframework.ai.chat.model.ChatModel.class);
+        var pro = mock(org.springframework.ai.chat.model.ChatModel.class);
+        var metadata = mock(org.springframework.ai.chat.metadata.ChatResponseMetadata.class);
+        var usage = mock(org.springframework.ai.chat.metadata.Usage.class);
+        when(usage.getPromptTokens()).thenReturn(80);
+        when(usage.getCompletionTokens()).thenReturn(20);
+        when(usage.getTotalTokens()).thenReturn(100);
+        when(metadata.getUsage()).thenReturn(usage);
+        when(pro.call(any(Prompt.class))).thenReturn(
+                new ChatResponse(List.of(new Generation(new AssistantMessage("格式错误"))), metadata),
+                new ChatResponse(List.of(new Generation(new AssistantMessage("{\"valid\":false,\"correction_instruction\":\"核实规格\"}"))), metadata),
+                new ChatResponse(List.of(new Generation(new AssistantMessage(structuredDecision("PHONE")))), metadata));
+        when(flash.call(any(Prompt.class))).thenReturn(
+                new ChatResponse(List.of(new Generation(new AssistantMessage(structuredDecision("PHONE")))), metadata));
+        String id = "structured-model-usage";
+        var result = dualModelService(flash, pro).verifyAnalysisAndRecommend("预算6000元", "真实目录",
+                List.of(Map.of("code", "PHONE", "name", "手机", "price", 5299)), id);
+        assertTrue(result.quality().isPass());
+        assertEquals(new com.example.smartassistant.common.audit.TokenUsageCache.TokenUsage(320L, 80L, 400L),
+                com.example.smartassistant.common.audit.TokenUsageCache.consume(id));
+        verify(pro, times(3)).call(any(Prompt.class));
+        verify(flash).call(any(Prompt.class));
     }
 
     private static ChatResponse chatResponse(String text) {

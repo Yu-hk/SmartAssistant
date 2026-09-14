@@ -39,7 +39,7 @@ public class HallucinationDetector {
 
     /** 数字模式：匹配独立数字（整数、小数、百分比） */
     private static final Pattern NUMBER_PATTERN = Pattern.compile(
-            "(?<![\\d.])(\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?%?)(?![\\d.])");
+            "(?<![\\d.])((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?%?)(?![\\d.])");
 
     /** 日期模式：匹配常见中文日期格式 */
     private static final Pattern DATE_PATTERN = Pattern.compile(
@@ -103,6 +103,11 @@ public class HallucinationDetector {
         List<HallucinationClaim> claims = new ArrayList<>();
         Matcher matcher = NUMBER_PATTERN.matcher(answer);
         Set<String> seen = new HashSet<>();
+        Set<String> evidenceNumbers = new HashSet<>();
+        Matcher evidenceMatcher = NUMBER_PATTERN.matcher(context);
+        while (evidenceMatcher.find()) {
+            evidenceNumbers.add(normalizeNumber(evidenceMatcher.group(1)));
+        }
 
         while (matcher.find()) {
             String number = matcher.group(1);
@@ -115,7 +120,7 @@ public class HallucinationDetector {
             String contextAround = answer.substring(start, end).replace('\n', ' ').trim();
 
             // 检查数字是否在检索上下文中出现
-            if (!context.contains(number)) {
+            if (!evidenceNumbers.contains(normalizeNumber(number))) {
                 claims.add(new HallucinationClaim(
                         "数字断言",
                         "答案中的数字 '" + number + "' 未在检索上下文出现",
@@ -125,6 +130,13 @@ public class HallucinationDetector {
             }
         }
         return claims;
+    }
+
+    private static String normalizeNumber(String number) {
+        boolean percent = number.endsWith("%");
+        String value = number.replace(",", "").replace("%", "");
+        return new java.math.BigDecimal(value).stripTrailingZeros().toPlainString()
+                + (percent ? "%" : "");
     }
 
     /**
