@@ -1,14 +1,10 @@
 # SmartAssistant
 
-SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体对话系统。系统通过 Gateway 统一接入请求，由 Consumer 管理对话上下文、用户画像和前置语义答案缓存，Router 负责意图识别、任务分发和 Agent 协调，再调用订单、商品等领域服务；常规 Agent 无法处理时，由 Tool Registry 与 Tool Runtime 提供工具发现和通用兜底能力。
+SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体对话系统。系统通过 Gateway 统一接入请求，由 Consumer 管理对话、情绪预处理、用户画像和语义答案缓存，并通过 RabbitMQ 调度业务请求。Router 负责意图识别、任务分发和 Agent 协调，调用订单、商品等领域服务；分配失败时由 Router 内置 Agent 配合 Tool Registry / Runtime 完成兜底。
 
 ## 主要能力
 
-登录页默认提供“使用演示账号体验”入口。点击后通过现有注册接口创建独立的
-`demo_` 普通用户并直接进入工作台，无需手动填写账号密码。演示登录态仅保存在
-当前标签页的 sessionStorage，关闭标签页或退出后再次体验会创建新账号；账号和
-对话记录仍留在服务端，便于后台查看演示效果。体验用户沿用普通用户权限和数据隔离，
-不提供共享管理员密码。该入口需要 Gateway 和 User 的注册接口正常可用。
+用户通过登录页访问工作台，普通用户与管理员使用不同页面，并遵守各自的权限与数据隔离约束。此前的演示账号入口已移除。
 
 - 用户登录、权限控制与会话隔离
 - 多轮对话、历史会话管理和人工关闭会话
@@ -24,17 +20,19 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
   <img src="docs/architecture/smartassistant-runtime.svg" alt="SmartAssistant 高层运行时架构" width="100%">
 </p>
 
-主请求路径是 `React → Gateway → Consumer → Router → 业务 Agent → 数据存储`：
+启用 MQ 时的主请求路径是 `React → Gateway → Consumer 接入 → RabbitMQ → Consumer 执行器 → Router → 业务 Agent`。图中的 Consumer 接入和执行器属于同一服务，Product / Order 则是两个独立领域服务；模型与检索节点是逻辑依赖组，不是新增的统一微服务。
 
 1. 前端统一通过 Gateway 访问认证、对话和运营接口。
-2. Consumer 维护会话上下文和用户画像，并把路由请求交给 Router。
-3. Router 完成意图识别与 Agent 编排，将任务分派到订单、商品服务或工具兜底链路。
-4. Product 依次完成候选查询、销量/性价比/口碑分析与推荐核实，核实失败时触发一次重新分析。
-5. Order 由 Agent 补齐业务参数并请求用户二次确认，再交给确定性工作流执行下单、支付、退单、物流或售后操作。
-6. PostgreSQL/pgvector 保存业务与向量数据；Redis 和 RabbitMQ 分别承载缓存、检查点与工作流恢复。
+2. Consumer 在独立有界执行器中并行情绪分析与画像准备。情绪推理默认预算 750 ms，画像异步更新不阻塞请求线程。
+3. 服务端根据本轮情绪建议确定 MQ 优先级。RabbitMQ 4.1 Quorum 队列区分普通 0 / 高 5；每个 Consumer 实例默认 4 路消费、预取 1、手工 ACK，不抢占已运行任务。Redis 记录执行权与结果，不确定业务进入死信核查，不自动重做订单操作。
+4. Router 只承担规划、协调与内置兜底。商品节点在当前 Router 实例内对同一轮画像最多额外等待 500 ms，超时或读取失败无画像继续；后续商品节点复用选定结果。
+5. Product 完成候选查询、分析与推荐核实；Order 在补齐参数、用户二次确认后进入确定性工作流。画像和情绪不能替代业务证据或写操作确认。
+6. PostgreSQL/pgvector 保存业务、画像版本与向量数据；Redis 保存短期上下文、缓存、执行权和检查点。RabbitMQ 还承担画像提交与工作流恢复等独立队列。
+7. Nacos 提供服务注册发现，监控配置覆盖 Prometheus、Grafana、Loki 与链路追踪。高层图省略共享依赖的其他访问边与监控连线，完整配置见 `deploy/docker-compose.yml`。
 
 语义答案缓存只覆盖短时效商品咨询和文档绑定的业务咨询，其他场景不进入缓存；完整边界见 [语义答案缓存策略](docs/semantic-cache-policy.md)。
-7. Nacos 提供服务注册发现，监控配置覆盖 Prometheus、Grafana、Loki 与链路追踪。
+
+设计与边界：[情绪并行预处理](docs/architecture/sentiment-preprocessing.md) · [MQ 优先级调度](docs/architecture/chat-priority-mq.md) · [可选画像与等待上限](docs/architecture/optional-user-profile.md)。
 
 ## 项目结构
 
@@ -42,7 +40,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 | --- | --- |
 | `smart-assistant-gateway/` | API 网关，默认端口 8081 |
 | `smart-assistant-router/` | 意图识别、任务分发、Agent 协调与最终兜底 |
-| `smart-assistant-consumer/` | 对话、用户画像、反馈与运营接口 |
+| `smart-assistant-consumer/` | 对话、情绪预处理、用户画像、MQ 调度、反馈与运营接口 |
 | `smart-assistant-user/` | 用户、认证与权限 |
 | `smart-assistant-order/` | 订单查询与订单工具 |
 | `smart-assistant-product/` | 商品检索、商品知识库与推荐 |
@@ -138,6 +136,7 @@ GitHub Actions 会执行：
 
 - [交互式运行时架构图](docs/architecture/smartassistant-runtime.architecture.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
+- [架构图生成与验证记录](docs/architecture/runtime-diagram-verification.md)
 - [系统设计](docs/system_design.md)
 - [架构演进路线](docs/architecture-roadmap.md)
 - [RAG 生产化设计](docs/rag-production/ARCHITECTURE.md)
