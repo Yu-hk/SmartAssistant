@@ -26,9 +26,11 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 2. Consumer 在独立有界执行器中并行情绪分析与画像准备。情绪推理默认预算 750 ms，画像异步更新不阻塞请求线程。
 3. 服务端根据本轮情绪建议确定 MQ 优先级。RabbitMQ 4.1 Quorum 队列区分普通 0 / 高 5；每个 Consumer 实例默认 4 路消费、预取 1、手工 ACK，不抢占已运行任务。Redis 记录执行权与结果，不确定业务进入死信核查，不自动重做订单操作。
 4. Router 只承担规划、协调与内置兜底。商品节点在当前 Router 实例内对同一轮画像最多额外等待 500 ms，超时或读取失败无画像继续；后续商品节点复用选定结果。
-5. Product 完成候选查询、分析与推荐核实；Order 在补齐参数、用户二次确认后进入确定性工作流。画像和情绪不能替代业务证据或写操作确认。
+5. Product 从共享商品目录读取结构化参数，执行候选筛选、证据核实与推荐理由生成；金额和预算状态由程序校验，默认结论不含差额。Order 在补齐参数、用户二次确认后进入确定性工作流。画像和情绪不能替代业务证据或写操作确认。
 6. PostgreSQL/pgvector 保存业务、画像版本与向量数据；Redis 保存短期上下文、缓存、执行权和检查点。RabbitMQ 还承担画像提交与工作流恢复等独立队列。
 7. Nacos 提供服务注册发现，监控配置覆盖 Prometheus、Grafana、Loki 与链路追踪。高层图省略共享依赖的其他访问边与监控连线，完整配置见 `deploy/docker-compose.yml`。
+
+管理员商品录入是独立管理 API 路径：简介/规格规则提取 → 预览与人工核对 → Consumer 同事务保存商品、参数及审计。该流程不经聊天 MQ/Router，也不调用大模型；Product 推荐时读取已存事实，未知参数不猜测。详见 [商品录入与推荐读取架构](docs/architecture/product-intake.md) 和 [线上部署验收](docs/product-intake-deployment-verification.md)。
 
 语义答案缓存只覆盖短时效商品咨询和文档绑定的业务咨询，其他场景不进入缓存；完整边界见 [语义答案缓存策略](docs/semantic-cache-policy.md)。
 
@@ -40,7 +42,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 | --- | --- |
 | `smart-assistant-gateway/` | API 网关，默认端口 8081 |
 | `smart-assistant-router/` | 意图识别、任务分发、Agent 协调与最终兜底 |
-| `smart-assistant-consumer/` | 对话、情绪预处理、用户画像、MQ 调度、反馈与运营接口 |
+| `smart-assistant-consumer/` | 对话、情绪预处理、用户画像、MQ 调度、商品录入与参数持久化、反馈与运营接口 |
 | `smart-assistant-user/` | 用户、认证与权限 |
 | `smart-assistant-order/` | 订单查询与订单工具 |
 | `smart-assistant-product/` | 商品检索、商品知识库与推荐 |
@@ -137,6 +139,7 @@ GitHub Actions 会执行：
 - [交互式运行时架构图](docs/architecture/smartassistant-runtime.architecture.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
 - [架构图生成与验证记录](docs/architecture/runtime-diagram-verification.md)
+- [商品录入与推荐读取架构](docs/architecture/product-intake.md)
 - [系统设计](docs/system_design.md)
 - [架构演进路线](docs/architecture-roadmap.md)
 - [RAG 生产化设计](docs/rag-production/ARCHITECTURE.md)

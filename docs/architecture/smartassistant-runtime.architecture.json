@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/Yu-hk/SmartAssistant",
-      "revision": "d93765acbb1f34182f991e34c79dbba2b20ab0b0"
+      "revision": "773401019a0cbd81f5ec2ff6135d1062923bc295"
     },
     "viewBox": [
       1320,
@@ -43,6 +43,10 @@
         {
           "path": "frontend/src/hooks/useChat.ts",
           "label": "SSE 进度与用量展示"
+        },
+        {
+          "path": "frontend/src/admin/AdminProductsPage.tsx",
+          "label": "管理员商品录入与参数确认"
         }
       ]
     },
@@ -68,7 +72,7 @@
       "id": "chat-admission",
       "type": "backend",
       "label": "Consumer 接入",
-      "sublabel": "情绪与画像并行 · 答案缓存",
+      "sublabel": "对话治理 · 商品录入",
       "row": 1,
       "col": 2,
       "size": [
@@ -86,8 +90,8 @@
           "label": "优先级调度入口"
         },
         {
-          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/cache/SelectiveSemanticAnswerCache.java",
-          "label": "可选答案缓存"
+          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/admin/AdminProductIntakeService.java",
+          "label": "录入提取与原子持久化"
         }
       ]
     },
@@ -222,7 +226,7 @@
       "id": "domain-agents",
       "type": "backend",
       "label": "Product / Order",
-      "sublabel": "商品推荐核实 · 订单确认",
+      "sublabel": "参数筛选与推荐 · 订单确认",
       "row": 0,
       "col": 5,
       "size": [
@@ -238,6 +242,10 @@
         {
           "path": "smart-assistant-order/src/main/java/com/example/smartassistant/service/core/OrderDeterministicExecutionService.java",
           "label": "确认后确定性订单执行"
+        },
+        {
+          "path": "smart-assistant-product/src/main/java/com/example/smartassistant/service/core/StructuredProductRecommendation.java",
+          "label": "结构化决策与预算结论"
         }
       ]
     },
@@ -245,7 +253,7 @@
       "id": "persistent-data",
       "type": "database",
       "label": "PostgreSQL / pgvector",
-      "sublabel": "业务数据 · 画像版本 · 向量",
+      "sublabel": "商品参数 · 画像 · 向量",
       "row": 2,
       "col": 2,
       "size": [
@@ -260,6 +268,10 @@
         {
           "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/recommendation/UserProfileSnapshotStore.java",
           "label": "版本化画像快照"
+        },
+        {
+          "path": "docs/database/migrations/20260914_add_product_intake.sql",
+          "label": "简介与录入审计增量列"
         }
       ]
     },
@@ -299,7 +311,7 @@
       "id": "api-chat",
       "from": "api-entry",
       "to": "chat-admission",
-      "label": "Chat/SSE",
+      "label": "API/SSE",
       "variant": "emphasis"
     },
     {
@@ -341,7 +353,7 @@
       "id": "save-conversation",
       "from": "chat-admission",
       "to": "persistent-data",
-      "label": "会话与画像持久化",
+      "label": "业务事务持久化",
       "labelAt": [
         536.25,
         344
@@ -393,10 +405,11 @@
     },
     {
       "dot": "emerald",
-      "title": "只展示主调用关系",
+      "title": "商品录入提取，推荐读取事实",
       "items": [
-        "存储和模型为共享依赖，图中省略其他访问边。",
-        "General 已移除；Router 内置兜底，Registry / Runtime 提供工具。"
+        "简介/规格规则提取、人工核对后，Consumer 同事务保存商品、参数与审计。",
+        "Product 读取共享目录筛选与说明理由；不等待录入提取，未知参数不猜测。",
+        "仅绘主调用边；共享依赖访问另见录入架构。General 已移除，Router 内置兜底。"
       ]
     }
   ]

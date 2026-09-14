@@ -21,6 +21,7 @@ import com.example.smartassistant.common.rag.trace.StageSpan;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.search.ProductRagService;
 import com.example.smartassistant.service.core.ProductDiscoveryService;
+import com.example.smartassistant.service.core.StructuredProductRecommendation;
 import com.example.smartassistant.service.quality.ProductDomainQualityValidator;
 import lombok.extern.slf4j.Slf4j;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -180,7 +181,7 @@ public class StreamingProductAgentService {
         String rid = (requestId != null && !requestId.isBlank()) ? requestId : ("prod-" + System.nanoTime());
         // ⭐ G4 运营指标：记录一次商品域应答（无答案率分母）
         opsMetrics.recordAnswer("product", "product");
-        try {
+        try (var toolEvidence = com.example.smartassistant.service.quality.ProductToolEvidenceScope.open()) {
             log.info("[StreamingProductAgent] 执行推理: requestId={}, messageLength={}",
                     rid, userMessage != null ? userMessage.length() : 0);
 
@@ -199,16 +200,19 @@ public class StreamingProductAgentService {
 
                 // 兼容直连入口也必须走 Flash 分析 + Pro 核实推荐；失败时回退确定性目录。
                 if (promptManager != null && tierModelRegistry != null
-                        && discovery.productCount() > 0) {
+                        && discovery.productCount() > 0 && !discovery.browsingOnly()) {
                     long generationStart = System.currentTimeMillis();
                     try {
+                        List<Map<?, ?>> catalog = discovery.products().stream()
+                                .map(p -> (Map<?, ?>) objectMapper.convertValue(p, Map.class))
+                                .collect(java.util.stream.Collectors.toList());
                         DomainAgentResponse analysis = analyzeVerifiedContext(
-                                userMessage, discovery.answer(), rid);
+                                userMessage, discovery.answer(), catalog, rid);
                         if (!analysis.quality().isFail()) {
                             DomainAgentResponse recommendation = verifyAnalysisAndRecommend(
                                     userMessage,
                                     discovery.answer() + "\n\n[Flash 分析结果]\n" + analysis.answer(),
-                                    rid);
+                                    catalog, rid);
                             if (!recommendation.quality().isFail()) {
                                 if (isPopularityRequest(userMessage)
                                         && isRecommendationDeferral(recommendation.answer())) {
@@ -244,11 +248,13 @@ public class StreamingProductAgentService {
                 }
                 DomainQualityResult quality = generatedQuality != null
                         ? generatedQuality
+                        : discovery.clarificationRequired()
+                        ? DomainQualityResult.pass(1.0, "PRODUCT_PREFERENCE_CLARIFICATION")
                         : discovery.productCount() > 0
                         ? discovery.scenarioEvidenceLimited()
                             ? DomainQualityResult.warn(0.7, "PRODUCT_SCENARIO_EVIDENCE_LIMITED")
                             : DomainQualityResult.pass(1.0, "PRODUCT_DISCOVERY_DATA")
-                        : DomainQualityResult.warn(0.5, "EMPTY_PRODUCT_CATALOG");
+                        : DomainQualityResult.pass(1.0, "EMPTY_PRODUCT_CATALOG");
                 return DomainAgentResponse.of(answer, quality);
             }
 
@@ -312,18 +318,19 @@ public class StreamingProductAgentService {
             String genStatus = StageSpan.STATUS_OK;
             try {
                 result = stripInternalThinking(productAgent.execute(userMessage));
+                String factualContext = toolEvidence.combine(ragContext);
                 // ⭐ P5-A 生产 Faithfulness 校验（文章Q⑩校验层）：
                 // 回答关键断言未被检索上下文支撑时，先进行一次有界修正；仍不通过才追加免责声明。
-                if (ragContext != null && !ragContext.isBlank()) {
-                    faithfulness = faithfulnessGuard.check(result, ragContext);
+                if (!factualContext.isBlank()) {
+                    faithfulness = checkProductFaithfulness(result, factualContext, originalUserMessage);
                     if (faithfulness.hallucination()) {
                         FaithfulnessGuard.FaithfulnessVerdict initialVerdict = faithfulness;
                         if (ragAnswerVerificationMaxRetries > 0) {
                             String correctionPrompt = buildFaithfulnessCorrectionPrompt(
-                                    originalUserMessage, ragContext, result, faithfulness);
+                                    originalUserMessage, factualContext, result, faithfulness);
                             String revised = stripInternalThinking(productAgent.execute(correctionPrompt));
                             FaithfulnessGuard.FaithfulnessVerdict revisedVerdict =
-                                    faithfulnessGuard.check(revised, ragContext);
+                                    checkProductFaithfulness(revised, toolEvidence.combine(ragContext), originalUserMessage);
                             if (!revisedVerdict.hallucination()
                                     || revisedVerdict.score() < faithfulness.score()) {
                                 result = revised;
@@ -352,7 +359,8 @@ public class StreamingProductAgentService {
 
             if (result != null) {
                 result = normalizePublicRagAnswer(result);
-                DomainQualityResult quality = domainQualityValidator.evaluate(result, retrieval, faithfulness);
+                DomainQualityResult quality = domainQualityValidator.evaluate(
+                        result, retrieval, faithfulness, toolEvidence.hasEvidence());
                 if (quality.isFail()) {
                     result = "抱歉，暂时无法生成可靠的商品答复，请稍后重试。";
                 }
@@ -360,6 +368,9 @@ public class StreamingProductAgentService {
             }
             return DomainAgentResponse.of("Agent 返回为空",
                     DomainQualityResult.fail("EMPTY_PRODUCT_ANSWER"));
+        } catch (com.example.smartassistant.spi.ProductCatalogUnavailableException e) {
+            return DomainAgentResponse.of(e.getMessage(), DomainQualityResult.fail(
+                    com.example.smartassistant.spi.ProductCatalogUnavailableException.CODE));
         } catch (Exception e) {
             log.error("[StreamingProductAgent] 执行异常: {}", e.getMessage(), e);
             return DomainAgentResponse.of("处理失败: " + e.getMessage(),
@@ -387,6 +398,23 @@ public class StreamingProductAgentService {
     static String normalizePublicRagAnswer(String answer) {
         if (answer == null || answer.isBlank()) return answer;
         return answer.replaceAll("\\[E(\\d+)-CID:([^\\]]+)]", "[E$1][CID:$2]");
+    }
+
+    private static final Pattern ANALYSIS_SECTION_HEADING = Pattern.compile(
+            "(?m)^\\h*【(?:数据概览|分析过程|核心结论|建议与可视化)】\\h*(?:\\r?\\n|$)");
+
+    FaithfulnessGuard.FaithfulnessVerdict checkProductFaithfulness(
+            String answer, String context, String question) {
+        if (answer == null || question == null) return faithfulnessGuard.check(answer, context);
+        var checked = com.example.smartassistant.service.quality.ProductBudgetClaimVerifier.verify(
+                answer, context, question);
+        if (!checked.errors().isEmpty()) {
+            return new FaithfulnessGuard.FaithfulnessVerdict(true, true, 0.7, checked.errors(),
+                    "商品价格与预算计算尚未通过核实，请以实际价格为准。");
+        }
+        // Only the required standalone headings are formatting, not factual entity claims.
+        return faithfulnessGuard.check(ANALYSIS_SECTION_HEADING.matcher(checked.answer()).replaceAll(""),
+                com.example.smartassistant.service.quality.ProductMoneySyntax.normalize(context));
     }
 
     static String buildFaithfulnessCorrectionPrompt(
@@ -423,6 +451,68 @@ public class StreamingProductAgentService {
      * the evidence produced by its declared DAG dependencies.
      */
     public DomainAgentResponse analyzeVerifiedContext(String question, String verifiedContext,
+                                                      List<? extends Map<?, ?>> products,
+                                                      String requestId) {
+        return structuredProductDecision(question, verifiedContext, products, requestId, false);
+    }
+
+    public DomainAgentResponse verifyAnalysisAndRecommend(String question, String verifiedContext,
+                                                          List<? extends Map<?, ?>> products,
+                                                          String requestId) {
+        return structuredProductDecision(question, verifiedContext, products, requestId, true);
+    }
+
+    private DomainAgentResponse structuredProductDecision(String question, String context,
+            List<? extends Map<?, ?>> products, String requestId, boolean review) {
+        String rid = requestId == null || requestId.isBlank() ? "prod-structured-" + System.nanoTime() : requestId;
+        try {
+            var facts = new StructuredProductRecommendation(question, products);
+            if (!facts.hasEligibleProducts()) return DomainAgentResponse.of(facts.noEligibleAnswer(),
+                    DomainQualityResult.pass(1.0, "NO_ELIGIBLE_VERIFIED_PRODUCT"));
+            if (promptManager == null || tierModelRegistry == null || !tierModelRegistry.has(ModelTier.LIGHT)
+                    || review && !hasDistinctAnalysisAndRecommendationModels()) {
+                return DomainAgentResponse.of("商品分析或核实模型未就绪。",
+                        DomainQualityResult.fail("PRODUCT_STRUCTURED_MODEL_UNAVAILABLE"));
+            }
+            String evidence = facts.promptData() + "\n[待核实上游分析，不可覆盖目录事实]\n" + context;
+            var decision = requestStructuredDecision(facts, question, evidence, rid, review);
+            // A real audit rejection remains a rejection, with at most one bounded revision.
+            if (review && !decision.valid() && maxReanalysis > 0) {
+                var revised = requestStructuredDecision(facts, question,
+                        facts.promptData() + "\n[修正要求]\n" + decision.correction(), rid, false);
+                if (revised.valid()) decision = requestStructuredDecision(facts, question,
+                        facts.promptData() + "\n[修正后分析]\n" + facts.renderAnalysis(revised), rid, true);
+            }
+            if (!decision.valid()) return DomainAgentResponse.of("商品信息尚未通过核实，暂时无法给出可靠推荐。",
+                    DomainQualityResult.fail("PRODUCT_STRUCTURED_DECISION_REJECTED"));
+            return DomainAgentResponse.of(review ? facts.renderRecommendation(decision) : facts.renderAnalysis(decision),
+                    DomainQualityResult.pass(1.0, review ? "PRODUCT_STRUCTURED_RECOMMENDATION_VERIFIED" : "PRODUCT_STRUCTURED_ANALYSIS_VERIFIED"));
+        } catch (Exception error) {
+            // Never log model output, catalog contents or user profiles here.
+            log.warn("[ProductStructuredDecision] requestId={}, errorType={}", rid, error.getClass().getSimpleName());
+            return DomainAgentResponse.of("商品数据或分析结果未通过校验，请稍后重试。",
+                    DomainQualityResult.fail("INVALID_STRUCTURED_PRODUCT_DECISION"));
+        }
+    }
+
+    private StructuredProductRecommendation.Decision requestStructuredDecision(
+            StructuredProductRecommendation facts,
+            String question, String evidence, String rid, boolean review) {
+        ModelTier tier = review ? ModelTier.HEAVY : ModelTier.LIGHT;
+        String prompt = promptManager.renderStructuredProductDecision(question, evidence, review);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            String raw = callBoundedModel(tierModelRegistry.get(tier), tierModelRegistry.modelName(tier),
+                    prompt, review ? Math.max(auditMaxTokens, recommendationMaxTokens) : analysisMaxTokens, rid);
+            try { return facts.parse(raw); }
+            catch (IllegalArgumentException invalid) {
+                if (attempt == 1) throw invalid;
+                prompt += "\n上次结构化决策未通过校验。请检查商品 code、可用证据和 eligible，仅返回规定字段，禁止价格或结论字段。";
+            }
+        }
+        throw new IllegalStateException("Structured decision unavailable");
+    }
+
+    public DomainAgentResponse analyzeVerifiedContext(String question, String verifiedContext,
                                                       String requestId) {
         if (verifiedContext == null || verifiedContext.isBlank()) {
             return DomainAgentResponse.of(
@@ -450,9 +540,13 @@ public class StreamingProductAgentService {
                         DomainQualityResult.fail("EMPTY_PRODUCT_ANALYSIS"));
             }
             FaithfulnessGuard.FaithfulnessVerdict verdict =
-                    faithfulnessGuard.check(answer, verifiedContext);
+                    checkProductFaithfulness(answer, verifiedContext, question);
             DomainQualityResult quality = DomainQualityResult.pass(1.0, "PRODUCT_ANALYSIS_FLASH");
             if (verdict.hallucination()) {
+                // Log rule categories only: no raw answer, prompt, profile or claim snippets.
+                log.warn("[ProductAnalysisQuality] requestId={}, score={}, claimCount={}, claimTypes={}",
+                        rid, verdict.score(), verdict.claims().size(),
+                        verdict.claims().stream().map(claim -> claim.type()).distinct().toList());
                 answer = answer + "\n\n" + verdict.message();
                 quality = DomainQualityResult.warn(0.4,
                         "PRODUCT_ANALYSIS_FLASH", "UNSUPPORTED_PRODUCT_ANALYSIS_CLAIMS");
@@ -527,7 +621,7 @@ public class StreamingProductAgentService {
             }
 
             FaithfulnessGuard.FaithfulnessVerdict verdict =
-                    faithfulnessGuard.check(recommendation, workingContext);
+                    checkProductFaithfulness(recommendation, workingContext, question);
             if (verdict.hallucination()) {
                 return deterministicVerifiedFallback(
                         verifiedContext, "UNSUPPORTED_VERIFIED_RECOMMENDATION");

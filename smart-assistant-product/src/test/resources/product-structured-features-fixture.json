@@ -1,0 +1,17 @@
+[
+  {"code":"FEATURE-TEST-LAPTOP-A","name":"测试轻便本A（虚构）","price":3999,"stock":"充足","spec":"仅用于自动化测试","popularity":20,"category":"笔记本电脑","reviewCount":0,
+   "features":{"weightGrams":1200,"batteryLifeHours":12,"batteryLifeScenario":"video_playback","noiseCancelling":null,"source":"synthetic-test-fixture-not-real-product","verifiedAt":"2026-09-14T00:00:00Z"}},
+  {"code":"FEATURE-TEST-LAPTOP-B","name":"测试高热度重型本B（虚构）","price":3899,"stock":"充足","spec":"轻薄长续航营销文案不能覆盖结构化证据","popularity":9000,"category":"笔记本电脑","reviewCount":0,
+   "features":{"weightGrams":2100,"batteryLifeHours":8,"batteryLifeScenario":"video_playback","noiseCancelling":null,"source":"synthetic-test-fixture-not-real-product","verifiedAt":"2026-09-14T00:00:00Z"}},
+  {"code":"FEATURE-TEST-LAPTOP-C","name":"测试场景不同本C（虚构）","price":3999,"stock":"充足","spec":"","popularity":500,"category":"笔记本电脑","reviewCount":0,
+   "features":{"weightGrams":1100,"batteryLifeHours":16,"batteryLifeScenario":"mixed_use","noiseCancelling":null,"source":"synthetic-test-fixture-not-real-product","verifiedAt":"2026-09-14T00:00:00Z"}},
+  {"code":"FEATURE-TEST-TABLET","name":"测试平板（虚构）","price":1999,"stock":"充足","spec":"","popularity":300,"category":"平板电脑","reviewCount":0,
+   "features":{"weightGrams":550,"batteryLifeHours":11,"batteryLifeScenario":"video_playback","noiseCancelling":null,"source":"synthetic-test-fixture-not-real-product","verifiedAt":"2026-09-14T00:00:00Z"}},
+  {"code":"FEATURE-TEST-HEADSET-A","name":"测试降噪耳机A（虚构）","price":699,"stock":"充足","spec":"","popularity":200,"category":"耳机","reviewCount":0,
+   "features":{"weightGrams":250,"batteryLifeHours":30,"batteryLifeScenario":"audio_anc_on","noiseCancelling":true,"source":"synthetic-test-fixture-not-real-product","verifiedAt":"2026-09-14T00:00:00Z"}},
+  {"code":"FEATURE-TEST-HEADSET-B","name":"测试无主动降噪耳机B（虚构）","price":199,"stock":"充足","spec":"通话降噪不是主动降噪","popularity":999,"category":"耳机","reviewCount":0,
+   "features":{"weightGrams":200,"batteryLifeHours":40,"batteryLifeScenario":"audio_anc_off","noiseCancelling":false,"source":"synthetic-test-fixture-not-real-product","verifiedAt":"2026-09-14T00:00:00Z"}},
+  {"code":"FEATURE-TEST-UNKNOWN","name":"测试未知参数商品（虚构）","price":899,"stock":"充足","spec":"广告自称轻便、续航长、降噪","popularity":99999,"category":"耳机","reviewCount":0},
+  {"code":"FEATURE-TEST-UNSOURCED","name":"测试无来源商品（虚构）","price":999,"stock":"充足","spec":"","popularity":99998,"category":"耳机","reviewCount":0,
+   "features":{"weightGrams":150,"batteryLifeHours":40,"batteryLifeScenario":"audio_anc_on","noiseCancelling":true,"source":"","verifiedAt":""}}
+]

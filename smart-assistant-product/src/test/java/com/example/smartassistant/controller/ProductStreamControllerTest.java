@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -28,6 +29,104 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ProductStreamControllerTest {
+
+    @Test
+    void exposesBudgetAssessmentWithoutUnrequestedRemainder() {
+        var response = recommendationWith(List.of(Map.of("code", "PHONE", "name", "手机", "price", 5299)),
+                "可考虑手机，售价5299元，未超预算。", "预算6000元以内推荐手机");
+        var budget = (Map<?, ?>) response.data().get("budgetAssessment");
+        assertEquals(false, budget.get("detailsRequested"));
+        var row = (Map<?, ?>) ((List<?>) budget.get("products")).getFirst();
+        assertEquals("WITHIN_BUDGET", row.get("status"));
+        org.junit.jupiter.api.Assertions.assertFalse(row.containsKey("remainder"));
+    }
+
+    @Test
+    void noEligibleProductsAreNotReplacedByRecommendationFallback() {
+        var service = new StreamingProductAgentService(null, null,
+                new com.example.smartassistant.service.quality.ProductDomainQualityValidator(), null);
+        var upstream = new AgentNodeOutput("discover", "product", "SUCCEEDED", "目录", Map.of("products",
+                List.of(Map.of("code", "EXPENSIVE", "name", "高价手机", "price", 6999))));
+        var http = new ProductStreamController(service).execute(
+                productStep("RECOMMEND_PRODUCT", "预算6000元", upstream), null);
+        assertEquals("0", http.getHeaders().getFirst(TokenUsageHeaders.TOTAL_TOKENS));
+        var result = http.getBody();
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, result.status());
+        assertEquals(List.of("NO_ELIGIBLE_VERIFIED_PRODUCT"), result.quality().reasonCodes());
+        org.assertj.core.api.Assertions.assertThat(result.answer()).contains("超出预算").doesNotContain("优先考虑", "差额");
+    }
+
+    @Test
+    void conflictingOrFailedCatalogIsNotTreatedAsVerifiedFacts() {
+        var service = new StreamingProductAgentService(null, null,
+                new com.example.smartassistant.service.quality.ProductDomainQualityValidator(), null);
+        var controller = new ProductStreamController(service);
+        var failed = new AgentNodeOutput("discover", "product", "FAILED", "失败", Map.of("products",
+                List.of(Map.of("code", "PHONE", "name", "手机", "price", 5299))));
+        assertEquals(AgentExecutionResponse.Status.FAILED, controller.execute(
+                productStep("RECOMMEND_PRODUCT", "预算6000元", failed), null).getBody().status());
+        var conflict = new AgentNodeOutput("discover", "product", "SUCCEEDED", "目录冲突", Map.of("products", List.of(
+                Map.of("code", "PHONE", "name", "手机", "price", 5299),
+                Map.of("code", "PHONE", "name", "手机", "price", 6999))));
+        assertEquals(AgentExecutionResponse.Status.FAILED, controller.execute(
+                productStep("RECOMMEND_PRODUCT", "预算6000元", conflict), null).getBody().status());
+    }
+
+    @Test
+    void singlePhoneFallbackDoesNotForgetBudgetOrInventTiesAndMissingReviews() {
+        var result = recommendationWith(List.of(Map.of(
+                "code", "XIAOMI-15", "name", "小米 15 Pro", "price", 5299,
+                "stock", "充足", "spec", "徕卡光学", "popularity", 1982,
+                "rating", 4.8, "reviewCount", 8620)), "暂时无法选出唯一商品",
+                "预算6000元以内并重视拍照，请推荐一款手机");
+        org.assertj.core.api.Assertions.assertThat(result.answer())
+                .contains("5299", "小米 15 Pro", "徕卡光学", "4.8/5", "8620", "具体用途")
+                .doesNotContain("并列", "均为", "尚未提供", "告诉我预算", "暂无口碑", "近期订单");
+        assertEquals("WARN", result.quality().status());
+    }
+
+    @Test
+    void differingOrUnknownSalesAreNeverReportedAsTies() {
+        for (Map<String, Object> second : List.of(
+                Map.<String, Object>of("code", "B", "name", "手机B", "price", 2000, "popularity", 6),
+                Map.<String, Object>of("code", "B", "name", "手机B", "price", 2000))) {
+            var result = recommendationWith(List.of(
+                    Map.of("code", "A", "name", "手机A", "price", 1000, "popularity", 3), second),
+                    "数据尚不足以选出唯一商品", "推荐手机");
+            org.assertj.core.api.Assertions.assertThat(result.answer())
+                    .doesNotContain("并列", "均为", "尚未提供");
+        }
+    }
+
+    @Test
+    void zeroSalesAreNotEvidenceOfPopularity() {
+        var result = recommendationWith(List.of(
+                Map.of("code", "A", "name", "手机A", "price", 1000, "popularity", 0),
+                Map.of("code", "B", "name", "手机B", "price", 2000, "popularity", 0)),
+                "没有足够证据推荐", "推荐手机");
+        org.assertj.core.api.Assertions.assertThat(result.answer()).doesNotContain("均为", "热门", "销量：0");
+    }
+
+    @Test
+    void validRecommendationSurvivesWhitespaceAndCaseVariationsInProductName() {
+        String answer = "可考虑小米15 pro，价格5299元；徕卡光学与拍照偏好相关，实拍效果仍需核实。";
+        var result = recommendationWith(List.of(Map.of(
+                "code", "XIAOMI-15", "name", "小米 15 Pro", "price", 5299)),
+                answer, "预算6000元以内并重视拍照");
+        assertEquals(answer, result.answer());
+        assertEquals("PASS", result.quality().status());
+    }
+
+    private AgentExecutionResponse recommendationWith(List<Map<String, Object>> products,
+                                                       String answer, String question) {
+        var service = mock(StreamingProductAgentService.class);
+        when(service.verifyAnalysisAndRecommend(eq(question), anyString(), anyList(), anyString()))
+                .thenReturn(DomainAgentResponse.of(answer, DomainQualityResult.pass(1, "VERIFIED")));
+        var upstream = new AgentNodeOutput("analysis", "product", "SUCCEEDED", "目录分析",
+                Map.of("products", products, "productCount", products.size()));
+        return new ProductStreamController(service).execute(
+                productStep("RECOMMEND_PRODUCT", question, upstream), null).getBody();
+    }
 
     @Test
     void emptyTabletCatalogSurvivesDiscoveryAnalysisAndRecommendationWithoutModels() {
@@ -60,7 +159,8 @@ class ProductStreamControllerTest {
             assertEquals(0, noTools.calls().size());
             var result = http.getBody();
             assertEquals(AgentExecutionResponse.Status.SUCCEEDED, result.status());
-            assertEquals("WARN", result.quality().status());
+            assertEquals("PASS", result.quality().status());
+            assertEquals(List.of("EMPTY_PRODUCT_CATALOG"), result.quality().reasonCodes());
             assertEquals(List.of(), result.data().get("products"));
             assertEquals(0, result.data().get("productCount"));
             org.assertj.core.api.Assertions.assertThat(result.answer())
@@ -79,14 +179,14 @@ class ProductStreamControllerTest {
                         Map.of("products", List.of(), "productCount", 0)),
                 new AgentNodeOutput("analysis", "product", "SUCCEEDED", "数据缺失", Map.of()))) {
             StreamingProductAgentService service = mock(StreamingProductAgentService.class);
-            when(service.verifyAnalysisAndRecommend(anyString(), anyString(), anyString()))
+            when(service.verifyAnalysisAndRecommend(anyString(), anyString(), anyList(), anyString()))
                     .thenReturn(DomainAgentResponse.of("缺少可靠上下文",
                             DomainQualityResult.fail("MISSING_RECOMMENDATION_CONTEXT")));
             var result = new ProductStreamController(service).execute(
                     productStep("RECOMMEND_PRODUCT", "推荐平板电脑", upstream), null).getBody();
             org.assertj.core.api.Assertions.assertThat(result.status())
                     .isNotEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
-            verify(service).verifyAnalysisAndRecommend(anyString(), anyString(), anyString());
+            verify(service).verifyAnalysisAndRecommend(anyString(), anyString(), anyList(), anyString());
         }
     }
 
@@ -94,7 +194,7 @@ class ProductStreamControllerTest {
     void validBudgetTabletStillUsesVerifiedModelRecommendation() {
         StreamingProductAgentService service = mock(StreamingProductAgentService.class);
         String answer = "推荐入门平板，价格1999元，符合2000元以内预算。";
-        when(service.verifyAnalysisAndRecommend(anyString(), anyString(), anyString()))
+        when(service.verifyAnalysisAndRecommend(anyString(), anyString(), anyList(), anyString()))
                 .thenReturn(DomainAgentResponse.of(answer,
                         DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED")));
         AgentNodeOutput upstream = new AgentNodeOutput("analysis", "product", "SUCCEEDED", "符合预算",
@@ -104,13 +204,13 @@ class ProductStreamControllerTest {
                 "RECOMMEND_PRODUCT", "帮我推荐一款平板电脑，预算2000以内", upstream), null).getBody();
         assertEquals(AgentExecutionResponse.Status.SUCCEEDED, result.status());
         assertEquals(answer, result.answer());
-        verify(service).verifyAnalysisAndRecommend(anyString(), anyString(), anyString());
+        verify(service).verifyAnalysisAndRecommend(anyString(), anyString(), anyList(), anyString());
     }
 
     @Test
     void rejectedOverBudgetRecommendationCannotBeOverriddenByCatalogFallback() {
         StreamingProductAgentService service = mock(StreamingProductAgentService.class);
-        when(service.verifyAnalysisAndRecommend(anyString(), anyString(), anyString()))
+        when(service.verifyAnalysisAndRecommend(anyString(), anyString(), anyList(), anyString()))
                 .thenReturn(DomainAgentResponse.of("候选超出预算",
                         DomainQualityResult.fail("PRODUCT_ANALYSIS_AUDIT_REJECTED")));
         AgentNodeOutput upstream = new AgentNodeOutput("analysis", "product", "SUCCEEDED", "待核实",
@@ -134,8 +234,8 @@ class ProductStreamControllerTest {
     void modelAnalysisAndAuditRejectionBothReturnMeasuredTokens() {
         for (boolean reject : List.of(false, true)) {
             var service = mock(StreamingProductAgentService.class);
-            when(service.analyzeVerifiedContext(anyString(), anyString(), anyString())).thenAnswer(invocation -> {
-                TokenUsageCache.record(invocation.getArgument(2), 81, 19, 100);
+            when(service.analyzeVerifiedContext(anyString(), anyString(), anyList(), anyString())).thenAnswer(invocation -> {
+                TokenUsageCache.record(invocation.getArgument(3), 81, 19, 100);
                 return DomainAgentResponse.of("核实结果", reject
                         ? DomainQualityResult.fail("AUDIT_REJECTED") : DomainQualityResult.pass(1, "VERIFIED"));
             });
@@ -276,7 +376,7 @@ class ProductStreamControllerTest {
         when(service.analyzeVerifiedContext(
                 org.mockito.ArgumentMatchers.eq("分析候选商品与用户预算的匹配度"),
                 org.mockito.ArgumentMatchers.contains("SKU-100"),
-                org.mockito.ArgumentMatchers.eq("scene-analysis")))
+                anyList(), org.mockito.ArgumentMatchers.eq("scene-analysis")))
                 .thenReturn(DomainAgentResponse.of(
                         "### 数据分析开始 ###\n【核心结论】SKU-100 符合预算",
                         DomainQualityResult.pass(1.0, "VERIFIED_PRODUCT_ANALYSIS")));
@@ -295,8 +395,9 @@ class ProductStreamControllerTest {
                 org.mockito.ArgumentMatchers.eq("分析候选商品与用户预算的匹配度"),
                 org.mockito.ArgumentMatchers.argThat(context ->
                         context.contains("SKU-100") && context.contains("结构化数据")
+                                && context.contains("近30天") && context.contains("5分制")
                                 && !context.contains("候选商品：")),
-                org.mockito.ArgumentMatchers.eq("scene-analysis"));
+                anyList(), org.mockito.ArgumentMatchers.eq("scene-analysis"));
     }
 
     @Test
@@ -312,7 +413,7 @@ class ProductStreamControllerTest {
                 "shopping", 1, "sha256:v1", 0, "scene-profile");
         when(service.analyzeVerifiedContext(eq("分析候选商品"),
                 org.mockito.ArgumentMatchers.contains("预算范围: 5000元"),
-                eq("scene-profile")))
+                anyList(), eq("scene-profile")))
                 .thenReturn(DomainAgentResponse.of("按预算完成分析",
                         DomainQualityResult.pass(1.0, "VERIFIED_PRODUCT_ANALYSIS")));
 
@@ -324,7 +425,7 @@ class ProductStreamControllerTest {
                         context.contains("[用户画像]")
                                 && context.contains("预算范围: 5000元")
                                 && context.contains("用途: 摄影")),
-                eq("scene-profile"));
+                anyList(), eq("scene-profile"));
     }
 
     @Test
@@ -344,7 +445,7 @@ class ProductStreamControllerTest {
         when(service.verifyAnalysisAndRecommend(
                 org.mockito.ArgumentMatchers.eq("核实分析并推荐"),
                 org.mockito.ArgumentMatchers.contains("SKU-100"),
-                org.mockito.ArgumentMatchers.eq("scene-recommend")))
+                anyList(), org.mockito.ArgumentMatchers.eq("scene-recommend")))
                 .thenReturn(DomainAgentResponse.of(
                         "推荐 SKU-100，价格 ¥599，库存有货",
                         DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED")));
@@ -381,7 +482,7 @@ class ProductStreamControllerTest {
         when(service.verifyAnalysisAndRecommend(
                 org.mockito.ArgumentMatchers.eq("推荐现在的热门商品"),
                 org.mockito.ArgumentMatchers.contains("SKU-100"),
-                org.mockito.ArgumentMatchers.eq("scene-fallback")))
+                anyList(), org.mockito.ArgumentMatchers.eq("scene-fallback")))
                 .thenReturn(DomainAgentResponse.of(
                         "数据不足，暂时无法推荐。",
                         DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED")));
@@ -392,7 +493,7 @@ class ProductStreamControllerTest {
         assertEquals("WARN", response.getBody().quality().status());
         String answer = response.getBody().answer();
         org.assertj.core.api.Assertions.assertThat(answer)
-                .contains("SKU-100", "SKU-200", "近期订单数均为 3")
+                .contains("SKU-100", "SKU-200", "近30天站内销量均为 3")
                 .doesNotContain("数据不足，暂时无法推荐");
         assertEquals(answer, response.getBody().data().get("recommendation"));
     }

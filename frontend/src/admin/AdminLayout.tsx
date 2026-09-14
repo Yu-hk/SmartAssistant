@@ -8,6 +8,7 @@ import {
   Menu,
   MessageSquareText,
   Moon,
+  Package,
   RefreshCw,
   ShieldCheck,
   Sun,
@@ -30,12 +31,14 @@ const NAV_ITEMS = [
   { to: '/admin/overview', label: '数据总览', description: '运营与质量指标', icon: BarChart3 },
   { to: '/admin/conversations', label: '用户对话', description: '全局会话与审计', icon: MessageSquareText },
   { to: '/admin/knowledge', label: '知识库', description: '问答内容维护', icon: BookOpenText },
+  { to: '/admin/products', label: '商品录入', description: '资料与结构化参数', icon: Package },
 ];
 
 const PAGE_TITLES: Record<string, string> = {
   '/admin/overview': '数据总览',
   '/admin/conversations': '用户对话',
   '/admin/knowledge': '知识库',
+  '/admin/products': '商品录入',
 };
 
 export function AdminLayout({

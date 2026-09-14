@@ -117,6 +117,13 @@ public class PromptManager {
                 .replace("{{context}}", safePromptValue(context, "未提供候选商品或分析结果"));
     }
 
+    public String renderStructuredProductDecision(String query, String context, boolean review) {
+        return load("prompts/analysis/product-structured-decision.txt")
+                .replace("{{role}}", review ? "Pro 商品核实专家，一次调用完成审核和选择" : "Flash 数据分析专家")
+                .replace("{{query}}", safePromptValue(query, "未提供推荐目标"))
+                .replace("{{context}}", safePromptValue(context, "未提供可靠目录"));
+    }
+
     private static String safePromptValue(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
     }
