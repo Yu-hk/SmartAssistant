@@ -12,6 +12,8 @@ import com.example.smartassistant.consumer.streaming.SseEventBus;
 import com.example.smartassistant.consumer.client.AgentStreamClient;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.core.RequestQueueService;
+import com.example.smartassistant.consumer.service.core.ConversationPreprocessingService;
+import com.example.smartassistant.consumer.service.sentiment.TurnInsight;
 import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
 import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
 import com.example.smartassistant.consumer.service.infrastructure.ToolUsageExtractor;
@@ -62,7 +64,11 @@ public class StreamChatController {
     private final StringRedisTemplate redisTemplate;
     private final RequestQueueService requestQueueService;
     private final RoutingCallLogService routingCallLogService;
+    private final ConversationPreprocessingService preprocessingService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    private com.example.smartassistant.consumer.service.dispatch.PriorityRoutingDispatcher priorityDispatcher;
 
     @Autowired(required = false)
     private UserProfileService userProfileService;
@@ -88,11 +94,19 @@ public class StreamChatController {
             RequestQueueService requestQueueService,
             RoutingCallLogService routingCallLogService,
             @Autowired(required = false) StringRedisTemplate redisTemplate) {
+        this(routerClient, agentStreamClient, requestQueueService, routingCallLogService, redisTemplate, null);
+    }
+
+    @Autowired
+    public StreamChatController(RouterClient routerClient, AgentStreamClient agentStreamClient,
+            RequestQueueService requestQueueService, RoutingCallLogService routingCallLogService,
+            StringRedisTemplate redisTemplate, ConversationPreprocessingService preprocessingService) {
         this.routerClient = routerClient;
         this.agentStreamClient = agentStreamClient;
         this.requestQueueService = requestQueueService;
         this.routingCallLogService = routingCallLogService;
         this.redisTemplate = redisTemplate;
+        this.preprocessingService = preprocessingService;
     }
 
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -167,8 +181,6 @@ public class StreamChatController {
         // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
 
-        prefetchUserProfile(message, decisionKey);
-
         SseEventBus bus = createBus(response, requestId, message);
 
         // 断线续传
@@ -178,10 +190,29 @@ public class StreamChatController {
             } catch (NumberFormatException ignored) {}
         }
 
+        TurnInsight insight = TurnInsight.unknown("NOT_CONFIGURED", 0);
+        if (preprocessingService != null) {
+            try {
+                bus.send(SseEvent.raw("preprocessing", "{\"type\":\"preprocessing\",\"message\":\"正在理解诉求并准备服务上下文…\"}"));
+                insight = preprocessingService.prepare(Long.valueOf(resolveUserId()),
+                        effectiveSessionId(sessionId, decisionKey), decisionKey, message);
+                bus.send(SseEvent.raw("sentiment", objectMapper.writeValueAsString(Map.of(
+                        "type", "sentiment", "requestId", decisionKey, "sentiment", insight))));
+            } catch (Exception error) {
+                logger.warn("[StreamChat] Request preprocessing failed: requestId={}", decisionKey);
+                bus.sendError("服务上下文准备失败，请稍后重试");
+                bus.close();
+                return;
+            }
+        } else {
+            // Compatibility constructor for isolated tests; the production constructor requires preprocessing.
+            prefetchUserProfile(message, decisionKey);
+        }
+
         // 获取路由决策
         RedisEventCursor progressCursor = new RedisEventCursor();
         Map<String, Object> decision = getRoutingDecision(
-                requestId, sessionId, message, bus, progressCursor);
+                requestId, sessionId, message, bus, progressCursor, insight);
         if (decision != null && Boolean.TRUE.equals(decision.get("cancelled"))) {
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                     decisionKey, message, "unknown", null, startedAt, "CANCELLED");
@@ -228,6 +259,7 @@ public class StreamChatController {
         // 直接发送该结果，避免再次调用不存在或不兼容的 Agent SSE 端点。
         Object routedResult = decision.get("result");
         if (routedResult instanceof String result && !result.isBlank()) {
+            result = insight.adaptReply(result);
             try {
                 bus.sendProcessing();
                 Map<String, Object> responsePayload = new LinkedHashMap<>();
@@ -239,6 +271,7 @@ public class StreamChatController {
                 responsePayload.put("executionMode", executionMode);
                 responsePayload.put("participatingAgents", participatingAgents);
                 responsePayload.put("workflowStatus", workflowStatus);
+                responsePayload.put("sentiment", insight);
                 responsePayload.put("sessionId", effectiveSessionId(sessionId, decisionKey));
                 responsePayload.put("requestId", decisionKey != null ? decisionKey : "");
                 String responseJson = objectMapper.writeValueAsString(responsePayload);
@@ -246,7 +279,8 @@ public class StreamChatController {
                 injectTokenUsageEvent(bus, tokenUsage);
                 bus.sendDone();
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                        decisionKey, message, agentName, result, startedAt, "SUCCESS", tokenUsage, toolUsage);
+                        decisionKey, message, agentName, result, startedAt,
+                        decision.get("error") != null ? "FAILED" : "SUCCESS", tokenUsage, toolUsage);
             } catch (Exception e) {
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                         decisionKey, message, agentName, null, startedAt, "FAILED");
@@ -368,8 +402,8 @@ public class StreamChatController {
         String sessionId = (String) request.getOrDefault("sessionId", null);
         boolean showThinking = request.containsKey("showThinking")
                 ? (Boolean) request.get("showThinking") : true;
-        int priority = request.containsKey("priority")
-                ? ((Number) request.get("priority")).intValue() : RequestQueueService.PRIORITY_NORMAL;
+        // MQ priority is derived from server sentiment. Ignore client claims, including malformed values.
+        int priority = RequestQueueService.PRIORITY_NORMAL;
         streamChatInternal(message, requestId, sessionId, showThinking, priority,
                 null, response);
     }
@@ -378,13 +412,23 @@ public class StreamChatController {
     public void cancelChat(@RequestBody Map<String, String> request) {
         String requestId = request.get("requestId");
         if (requestId != null && !requestId.isBlank()) {
-            requestQueueService.complete(requestId);
             String userId = resolveUserId();
+            if (priorityDispatcher != null) priorityDispatcher.cancelQueued(Long.valueOf(userId), requestId);
+            requestQueueService.complete(requestId);
             boolean leaseReleased = conversationGateService != null
                     && conversationGateService.releaseByRequest(userId, requestId);
             boolean routerNotified = routerClient.cancelRouting(requestId, userId);
             logger.info("[StreamChat] 用户取消: requestId={}, routerNotified={}, leaseReleased={}",
                     requestId, routerNotified, leaseReleased);
+        }
+    }
+
+    @GetMapping("/chat/requests/{requestId}")
+    public Map<String, Object> dispatchStatus(@PathVariable String requestId) {
+        try {
+            return priorityDispatcher.ownedStatus(Long.valueOf(resolveUserId()), requestId);
+        } catch (SecurityException error) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         }
     }
 
@@ -448,7 +492,8 @@ public class StreamChatController {
     }
 
     long sseIdleTimeoutFor(String message) {
-        long decisionTimeout = decisionTimeoutFor(message);
+        long decisionTimeout = decisionTimeoutFor(message)
+                + (priorityDispatcher != null ? priorityDispatcher.queueWaitMs() : 0);
         long grace = Math.max(0L, sseIdleGraceMs);
         return decisionTimeout > Long.MAX_VALUE - grace
                 ? Long.MAX_VALUE
@@ -457,16 +502,33 @@ public class StreamChatController {
 
     private Map<String, Object> getRoutingDecision(String requestId, String sessionId, String message,
                                                    SseEventBus bus,
-                                                   RedisEventCursor progressCursor) {
+                                                   RedisEventCursor progressCursor, TurnInsight insight) {
         // 决策键：requestId 优先，否则用 sessionId（前端以 sessionId 作为会话/请求标识）
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
         if (decisionKey == null || decisionKey.isBlank()) {
             logger.warn("[StreamChat] 无决策键(requestId/sessionId 均空)，无法触发路由");
             return null;
         }
+        if (priorityDispatcher != null && priorityDispatcher.enabled()) {
+            bus.send(SseEvent.raw("queue", "{\"type\":\"queue\",\"message\":\"正在提交至处理队列…\"}"));
+            try {
+                return priorityDispatcher.route(message, resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                        decisionKey, insight, decisionTimeoutFor(message),
+                        () -> forwardRedisStreamEvents(bus, RoutingKeys.sseStream(decisionKey), progressCursor));
+            } catch (Exception error) {
+                logger.warn("[StreamChat] MQ dispatch unavailable: requestId={}, errorType={}", decisionKey, error.getClass().getSimpleName());
+                return com.example.smartassistant.consumer.service.dispatch.PriorityRoutingDispatcher.failure(
+                        "DISPATCH_UNAVAILABLE", "暂时无法进入处理队列，或当前账号已有请求正在处理，请稍后查看原请求。");
+            }
+        }
         // ⚠️ 先触发路由决策写入 Redis（修复原"只等待、不触发"导致永久失败的问题）
         try {
-            routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey);
+            if (preprocessingService == null) {
+                routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey);
+            } else {
+                routerClient.triggerRoutingDecision(message, resolveUserId(), decisionKey,
+                        effectiveSessionId(sessionId, decisionKey), !insight.bypassAnswerCache());
+            }
         } catch (Exception e) {
             logger.warn("[StreamChat] 触发路由决策异常(将尝试等待已有决策): {}", e.getMessage());
         }

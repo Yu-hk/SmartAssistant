@@ -215,6 +215,15 @@ export function useChat(options: UseChatOptions) {
             ? { ...parsed.data, type: parsed.type || parsed.data.type || event.type }
             : { ...parsed, type: parsed.type || event.type };
 
+          if (data.type === 'preprocessing') {
+            setProgressMessage('正在理解诉求并准备服务上下文…');
+            return;
+          }
+          if (data.type === 'queue') {
+            setProgressMessage('请求正在排队，等待处理…');
+            return;
+          }
+
           if (['token_usage', 'tool_usage', 'tool', 'tool_call', 'tool_result'].includes(data.type)) {
             const patch = applyTelemetryEvent({ toolCalls: currentToolCalls }, data);
             if (!patch) return;

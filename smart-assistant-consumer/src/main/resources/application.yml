@@ -68,7 +68,7 @@ spring:
   # ⭐ MVC 异步请求超时（任务拆解需要更长时间）
   mvc:
     async:
-      request-timeout: 120000  # 2 分钟
+      request-timeout: 180000  # 覆盖 MQ 排队 30s + 路由执行等待 120s
 
   # ⭐ HTTP 编码配置
   http:
@@ -175,6 +175,12 @@ spring:
 
 # ⭐ 请求排队配置（基于压测：5 并发 P50<5s，10 并发 P50=8.8s）
 chat:
+  dispatch:
+    enabled: ${CHAT_DISPATCH_ENABLED:true}
+    queue-wait-ms: ${CHAT_DISPATCH_QUEUE_WAIT_MS:30000}
+    result-wait-ms: ${CHAT_DISPATCH_RESULT_WAIT_MS:150000}
+    concurrency: ${CHAT_DISPATCH_CONCURRENCY:4}
+    max-length: ${CHAT_DISPATCH_MAX_LENGTH:100}
   queue:
     max-concurrent: 5          # 最大并发 LLM 请求数（超过则排队等待）
     max-queue-size: 50         # 最大排队长度
@@ -217,7 +223,7 @@ router:
     heavy-question-chars: 160        # 与 Router 模型分档阈值保持一致
     sse-idle-grace-ms: 30000         # SSE 通道晚于路由预算关闭，避免长任务仍执行时断流
 
-# 用户画像与路由规划并行；模型失败时返回空画像，Product 执行前等待最终状态。
+# 画像是旁路增强：已有画像优先；Router 整轮短暂等待，超时无画像继续业务。
 preference:
   extraction:
     timeout-ms: 8000

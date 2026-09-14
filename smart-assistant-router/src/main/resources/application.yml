@@ -191,8 +191,8 @@ router:
     timeout-ms: ${DEEPSEEK_TASK_PLANNER_TIMEOUT_MS:35000}
     max-tokens: ${DEEPSEEK_TASK_PLANNER_MAX_TOKENS:2048}
   user-profile:
-    # Consumer starts profile preparation before Router planning; only Product waits here.
-    wait-timeout-ms: ${ROUTER_USER_PROFILE_WAIT_TIMEOUT_MS:10000}
+    # Optional enhancement; one shared budget per request, including Redis reads.
+    wait-timeout-ms: ${ROUTER_USER_PROFILE_WAIT_TIMEOUT_MS:500}
     poll-interval-ms: ${ROUTER_USER_PROFILE_POLL_INTERVAL_MS:25}
 
   # ⭐ Agent 发现配置（消除硬编码）

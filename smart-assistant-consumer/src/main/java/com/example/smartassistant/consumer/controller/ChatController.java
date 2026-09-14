@@ -239,6 +239,7 @@ public class ChatController {
                 // 8. 构建响应（Token 用量由 Router 跨 JVM 显式回传）
                 TokenUsageExtractor.TokenUsage tokenUsage = TokenUsageExtractor.extract(routerResponse);
                 ChatResponse chatResp = ChatResponse.builder()
+                        .sentiment((com.example.smartassistant.consumer.service.sentiment.TurnInsight) routerResponse.get("sentiment"))
                         .reply(cleanReply)
                         .suggestions(suggestions)
                         .sessionId(Objects.toString(routerResponse.get("sessionId"), sessionId))
@@ -261,6 +262,7 @@ public class ChatController {
 
     private static void copyRoutingMetadata(Map<String, Object> source,
                                             Map<String, Object> target) {
+        target.put("sentiment", source.get("sentiment"));
         target.put("executionMode", source.get("executionMode"));
         target.put("participatingAgents", source.getOrDefault("participatingAgents", List.of()));
         target.put("workflowStatus", source.get("workflowStatus"));

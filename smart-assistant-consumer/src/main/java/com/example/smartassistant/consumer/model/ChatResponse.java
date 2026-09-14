@@ -20,6 +20,8 @@ import java.util.List;
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ChatResponse {
+    /** Observation and suggested service policy; not a claim of actual queue promotion or handoff. */
+    private com.example.smartassistant.consumer.service.sentiment.TurnInsight sentiment;
 
     /** AI 回复内容 */
     private String reply;

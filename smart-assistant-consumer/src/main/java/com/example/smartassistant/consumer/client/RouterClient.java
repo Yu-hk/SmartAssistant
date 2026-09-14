@@ -102,12 +102,20 @@ public class RouterClient {
     @RateLimiter(name = "routerRateLimiter")
     @Retry(name = "routerRetry")
     public Map<String, Object> callRouterRaw(String question, String userId, String sessionId, String requestId) {
+        return callRouterRaw(question, userId, sessionId, requestId, true);
+    }
+
+    @CircuitBreaker(name = "routerService", fallbackMethod = "callRouterRawFallback")
+    @RateLimiter(name = "routerRateLimiter")
+    @Retry(name = "routerRetry")
+    public Map<String, Object> callRouterRaw(String question, String userId, String sessionId, String requestId,
+                                              boolean allowAnswerCache) {
         log.info("[RouterClient] 调用 Router Service: userId={}, sessionId={}, questionLength={}",
                 userId, sessionId, question != null ? question.length() : 0);
 
         long authenticatedUserId = requireAuthenticatedUserId(userId);
         try {
-            Map<String, Object> cached = semanticAnswerCache != null
+            Map<String, Object> cached = allowAnswerCache && semanticAnswerCache != null
                     ? semanticAnswerCache.find(authenticatedUserId, question) : null;
             if (cached != null) {
                 log.info("[RouterClient] Consumer semantic cache hit; skip Router: userId={}, requestId={}",
@@ -163,7 +171,7 @@ public class RouterClient {
                 Map<String, Object> payload = unwrapRouterResponse(responseBody);
                 log.info("[RouterClient] Router 调用成功(完整响应): resultLength={}",
                         payload.get("result") instanceof String result ? result.length() : 0);
-                if (semanticAnswerCache != null) {
+                if (allowAnswerCache && semanticAnswerCache != null) {
                     semanticAnswerCache.store(authenticatedUserId, question, payload);
                 }
                 return payload;
@@ -207,6 +215,11 @@ public class RouterClient {
             return payload;
         }
         return responseBody;
+    }
+
+    private Map<String, Object> callRouterRawFallback(String question, String userId, String sessionId,
+                                                    String requestId, boolean allowAnswerCache, Throwable t) {
+        return callRouterRawFallback(question, userId, sessionId, requestId, t);
     }
 
     private Map<String, Object> callRouterRawFallback(String question, String userId, String sessionId,
@@ -316,12 +329,18 @@ public class RouterClient {
      */
     @Async("taskExecutor")
     public void triggerRoutingDecision(String message, String userId, String requestId) {
+        triggerRoutingDecision(message, userId, requestId, requestId, true);
+    }
+
+    @Async("taskExecutor")
+    public void triggerRoutingDecision(String message, String userId, String requestId, String sessionId,
+                                       boolean allowAnswerCache) {
         log.debug("[RouterClient] 触发路由决策: requestId={}, messageLength={}", 
                 requestId, message != null ? message.length() : 0);
 
         long authenticatedUserId = requireAuthenticatedUserId(userId);
         try {
-            Map<String, Object> cached = semanticAnswerCache != null
+            Map<String, Object> cached = allowAnswerCache && semanticAnswerCache != null
                     ? semanticAnswerCache.find(authenticatedUserId, message) : null;
             if (cached != null && publishCachedDecision(requestId, cached)) {
                 log.info("[RouterClient] Consumer semantic cache hit; published decision without Router: requestId={}",
@@ -337,7 +356,7 @@ public class RouterClient {
             // userId 与 callRouterRaw 保持一致：非数字（如 anonymous）映射为 0L
             requestBody.put("userId", authenticatedUserId);
             requestBody.put("question", message);
-            requestBody.put("sessionId", requestId);
+            requestBody.put("sessionId", sessionId);
             requestBody.put("requestId", requestId);
             requestBody.put("enableRag", false);
 
@@ -356,7 +375,7 @@ public class RouterClient {
             ResponseEntity<Map> response = postRoutingRequest(url, request);
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 Map<String, Object> payload = unwrapRouterResponse(response.getBody());
-                if (semanticAnswerCache != null) {
+                if (allowAnswerCache && semanticAnswerCache != null) {
                     semanticAnswerCache.store(authenticatedUserId, message, payload);
                 }
             }
