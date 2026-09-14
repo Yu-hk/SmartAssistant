@@ -267,7 +267,7 @@ class GraphNodeExecutionServiceTest {
                 "recommend-profile", "根据用户偏好推荐商品", "product",
                 List.of(), null, List.of(), false, "RECOMMEND_PRODUCT",
                 Map.of(), List.of("READ_ONLY"), null);
-        when(userProfileContextAwaiter.await("request-profile"))
+        when(userProfileContextAwaiter.await("request-profile", 42L))
                 .thenReturn("【用户历史信息】\n- 预算范围: 5000元");
         when(agentCallerService.callAgentAndExtractTitles(
                 eq("product"), any(AgentExecutionRequest.class)))
@@ -286,7 +286,7 @@ class GraphNodeExecutionServiceTest {
                 RoutingKeys.USER_PROFILE_INPUT, "【用户历史信息】\n- 预算范围: 5000元");
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(
                 userProfileContextAwaiter, agentCallerService);
-        order.verify(userProfileContextAwaiter).await("request-profile");
+        order.verify(userProfileContextAwaiter).await("request-profile", 42L);
         order.verify(agentCallerService).callAgentAndExtractTitles(
                 eq("product"), any(AgentExecutionRequest.class));
     }
@@ -312,21 +312,54 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
-    void profileFailurePreventsProductCall() {
+    void profileFailureDoesNotFailProductOrLoseCurrentConstraints() {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "recommend-profile", "根据用户偏好推荐商品", "product",
                 List.of(), null, List.of(), false, "RECOMMEND_PRODUCT",
                 Map.of(), List.of("READ_ONLY"), null);
-        when(userProfileContextAwaiter.await("request-profile"))
+        when(userProfileContextAwaiter.await("request-profile", 42L))
                 .thenThrow(new IllegalStateException("profile timeout"));
+        when(agentCallerService.callAgentAndExtractTitles(eq("product"), any(AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("推荐 SKU-100", List.of(), Map.of(),
+                        DomainQualityResult.pass(1.0, "PRODUCT_RECOMMENDATION_PRO_VERIFIED")));
+        var failures = new ConcurrentHashMap<String, Integer>();
 
-        SubTaskResult result = service.execute(node, Map.of(), new ConcurrentHashMap<>(),
-                42L, null, "request-profile");
+        SubTaskResult result = service.execute(node, Map.of(), failures,
+                42L, null, "request-profile", null, null, null, "预算2000以内，买平板，不要创建订单");
 
-        assertThat(result.isSuccess()).isFalse();
-        assertThat(result.getErrorType()).isEqualTo(SubTaskResult.ErrorType.FATAL_FAILED);
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(failures.getOrDefault("product", 0)).isZero();
+        ArgumentCaptor<AgentExecutionRequest> request = ArgumentCaptor.forClass(AgentExecutionRequest.class);
+        verify(agentCallerService).callAgentAndExtractTitles(eq("product"), request.capture());
+        assertThat(request.getValue().question()).isEqualTo("预算2000以内，买平板，不要创建订单");
+        assertThat(request.getValue().input()).doesNotContainKey(RoutingKeys.USER_PROFILE_INPUT);
+        verify(degradationService, never()).recordCall(false);
+    }
+
+    @Test
+    void interruptionOfProfileWaitStillStopsProduct() {
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode("product", "推荐商品", "product", List.of());
+        when(userProfileContextAwaiter.await("cancelled", 42L))
+                .thenThrow(new java.util.concurrent.CancellationException("cancelled"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.execute(node, Map.of(),
+                new ConcurrentHashMap<>(), 42L, null, "cancelled"))
+                .isInstanceOf(java.util.concurrent.CancellationException.class);
         verify(agentCallerService, never()).callAgentAndExtractTitles(
                 eq("product"), any(AgentExecutionRequest.class));
+    }
+
+    @Test
+    void cancellationArrivingDuringProfileSelectionStopsBeforeProductCall() {
+        var cancellation = org.mockito.Mockito.mock(WorkflowCancellationService.class);
+        service.setCancellationService(cancellation);
+        org.mockito.Mockito.doNothing().doThrow(new WorkflowCancelledException("cancel-during-profile"))
+                .when(cancellation).throwIfCancellationRequested("cancel-during-profile", 42L);
+        when(userProfileContextAwaiter.await("cancel-during-profile", 42L)).thenReturn("");
+        var node = new IntentGraph.IntentNode("product", "推荐商品", "product", List.of());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.execute(node, Map.of(),
+                new ConcurrentHashMap<>(), 42L, null, "cancel-during-profile"))
+                .isInstanceOf(WorkflowCancelledException.class);
+        org.mockito.Mockito.verifyNoInteractions(agentCallerService);
     }
 
     @Test

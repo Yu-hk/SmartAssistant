@@ -42,7 +42,7 @@ class SentimentAnalysisServiceTest {
     void analyze_negative_shouldBeLevel4() {
         var result = service.analyze("等了很久了，太慢了");
         assertEquals(4, result.level(), "等了很久应为负面(level=4)");
-        assertTrue(result.needHandoff(), "level>=4 需要转人工");
+        assertFalse(result.needHandoff(), "负面情绪不代表已经请求转人工");
     }
 
     @Test
@@ -50,7 +50,7 @@ class SentimentAnalysisServiceTest {
     void analyze_angry_shouldBeLevel5() {
         var result = service.analyze("我要投诉你们");
         assertEquals(5, result.level(), "投诉应为愤怒(level=5)");
-        assertTrue(result.needHandoff(), "level=5 需要转人工");
+        assertFalse(result.needHandoff(), "投诉不应中断业务处理");
     }
 
     @Test
@@ -72,15 +72,27 @@ class SentimentAnalysisServiceTest {
     @DisplayName("getTonePrefix: level=5 返回转人工")
     void getTonePrefix_level5_shouldReturnHandoff() {
         String prefix = service.getTonePrefix(5);
-        assertTrue(prefix.contains("转接"), "level=5 应包含转接人工");
+        assertTrue(prefix.contains("可以联系人工客服"));
+        assertFalse(prefix.contains("正在"));
     }
 
     @Test
     @DisplayName("转人工回复不重复提示")
     void getHandoffResponse_level5_shouldNotDuplicateHandoffText() {
         String response = service.getHandoffResponse(5);
-        assertEquals("非常抱歉给您带来不好的体验。正在为您转接人工客服，请稍候。", response);
-        assertEquals(response.indexOf("转接人工客服"), response.lastIndexOf("转接人工客服"));
+        assertEquals("非常抱歉给您带来不好的体验。可以联系人工客服进一步协助。", response);
+        assertEquals(response.indexOf("人工客服"), response.lastIndexOf("人工客服"));
+    }
+
+    @Test
+    void businessWordsAndNegationDoNotTriggerAnger() {
+        for (String text : java.util.List.of("请问赔偿规则是什么", "投诉流程怎么走", "315是什么", "一般几天到账", "不是不满意")) {
+            assertEquals(2, service.analyze(text).level(), text);
+            assertFalse(service.analyze(text).needHandoff(), text);
+        }
+        assertEquals(3, service.analyze("不太满意").level());
+        assertTrue(service.analyze("请转人工").needHandoff());
+        assertFalse(service.analyze("不用转接人工客服").needHandoff());
     }
 
     @Test

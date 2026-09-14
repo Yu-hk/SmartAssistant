@@ -6,6 +6,8 @@ package com.example.smartassistant.consumer.service.core;
 
 import com.example.smartassistant.common.memory.EntityProfileService;
 import com.example.smartassistant.consumer.service.sentiment.SentimentAnalysisService;
+import com.example.smartassistant.consumer.service.sentiment.TurnInsight;
+import org.junit.jupiter.api.BeforeEach;
 import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.infrastructure.DataMaskingService;
@@ -43,10 +45,33 @@ class ChatConsumerServiceTest {
     @Mock private DistributedTracingService tracingService;
     @Mock private DataMaskingService maskingService;
     @Mock private EntityProfileService entityProfileService;
-    @Mock private SentimentAnalysisService sentimentAnalysisService;
+    @Mock private ConversationPreprocessingService preprocessingService;
 
     @InjectMocks
     private ChatConsumerService chatConsumerService;
+
+    @BeforeEach
+    void neutralPreprocessing() {
+        org.mockito.Mockito.lenient().when(preprocessingService.prepare(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(TurnInsight.analyzed(new SentimentAnalysisService.SentimentResult(
+                        2, "中性", "正常回复", false, false, 95), 1));
+    }
+
+    @Test
+    void productionChatDispatchesThroughMqAndKeepsTelemetry() {
+        var dispatcher = org.mockito.Mockito.mock(com.example.smartassistant.consumer.service.dispatch.PriorityRoutingDispatcher.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(chatConsumerService, "priorityDispatcher", dispatcher);
+        when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread");
+        when(dispatcher.route(eq("查询订单"), eq("42"), eq("session"), eq("request"),
+                org.mockito.ArgumentMatchers.any(), eq(120000L), isNull()))
+                .thenReturn(Map.of("result", "已查询", "agentName", "order", "totalTokens", 99));
+        var response = chatConsumerService.calculateWithSession("42", "查询订单", "session", "request");
+        assertEquals("已查询", response.get("result"));
+        assertEquals(99L, response.get("totalTokens"));
+        org.mockito.Mockito.verifyNoInteractions(routerClient);
+    }
 
     @Test
     void temporaryOrGenericQuestionsAreNotStoredAsPreferences() throws Exception {
@@ -64,7 +89,7 @@ class ChatConsumerServiceTest {
     void calculatePersistsActualAgentAndResponseSummary() {
         when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
         when(routerClient.callRouterRaw(
-                "北京天气", "42", null, "request-1"))
+                "北京天气", "42", null, "request-1", true))
                 .thenReturn(Map.of(
                         "result", "今天晴朗",
                         "agentName", "weather_service",
@@ -86,11 +111,8 @@ class ChatConsumerServiceTest {
     @Test
     void calculateWithSessionPersistsExplicitSessionAndActualAgent() {
         when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
-        when(sentimentAnalysisService.analyze("北京天气", "session-a"))
-                .thenReturn(new SentimentAnalysisService.SentimentResult(
-                        2, "中性", "正常回复", false, false, 100));
         when(routerClient.callRouterRaw(
-                "北京天气", "42", "session-a", "request-2"))
+                "北京天气", "42", "session-a", "request-2", true))
                 .thenReturn(Map.of(
                         "result", "今天晴朗",
                         "agentName", "weather_service",
@@ -113,16 +135,13 @@ class ChatConsumerServiceTest {
     @Test
     void nullErrorFieldDoesNotMarkSuccessfulRouterResponseAsFailed() {
         when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
-        when(sentimentAnalysisService.analyze("hello", "session-null-error"))
-                .thenReturn(new SentimentAnalysisService.SentimentResult(
-                        2, "neutral", "normal", false, false, 100));
         Map<String, Object> routerResponse = new HashMap<>();
         routerResponse.put("result", "hi");
         routerResponse.put("agentName", "general_service");
         routerResponse.put("error", null);
         routerResponse.put("totalTokens", 9L);
         when(routerClient.callRouterRaw(
-                "hello", "42", "session-null-error", "request-null-error"))
+                "hello", "42", "session-null-error", "request-null-error", true))
                 .thenReturn(routerResponse);
 
         chatConsumerService.calculateWithSession(
@@ -137,11 +156,8 @@ class ChatConsumerServiceTest {
     @Test
     void requiredParameterClarificationIsPersistedAsPartialSuccess() {
         when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
-        when(sentimentAnalysisService.analyze("查询退款进度", "session-refund"))
-                .thenReturn(new SentimentAnalysisService.SentimentResult(
-                        2, "中性", "正常回复", false, false, 100));
         when(routerClient.callRouterRaw(
-                "查询退款进度", "42", "session-refund", "request-refund"))
+                "查询退款进度", "42", "session-refund", "request-refund", true))
                 .thenReturn(Map.of(
                         "result", "请提供订单号（格式：ORD-xxx）以便查询退款信息。",
                         "agentName", "order",
@@ -163,11 +179,8 @@ class ChatConsumerServiceTest {
     @Test
     void missingSessionUsesRequestIdAsStableConversationKey() {
         when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
-        when(sentimentAnalysisService.analyze("hello", "request-without-session"))
-                .thenReturn(new SentimentAnalysisService.SentimentResult(
-                        2, "中性", "正常回复", false, false, 100));
         when(routerClient.callRouterRaw(
-                "hello", "42", "request-without-session", "request-without-session"))
+                "hello", "42", "request-without-session", "request-without-session", true))
                 .thenReturn(Map.of(
                         "result", "hi",
                         "agentName", "general_service",
@@ -178,7 +191,7 @@ class ChatConsumerServiceTest {
 
         assertEquals("request-without-session", response.get("sessionId"));
         verify(routerClient).callRouterRaw(
-                "hello", "42", "request-without-session", "request-without-session");
+                "hello", "42", "request-without-session", "request-without-session", true);
         verify(routingCallLogService).saveLog(
                 eq(42L), eq("request-without-session"), eq("hello"), eq("general_service"),
                 eq("ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("hi"),
@@ -186,22 +199,22 @@ class ChatConsumerServiceTest {
     }
 
     @Test
-    void sentimentHandoffIsAlsoPersistedAsACompletedTurn() {
+    void negativeEmotionKeepsBusinessRoutingAndDoesNotInventHumanTransfer() {
         when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
-        when(sentimentAnalysisService.analyze("我要投诉", "session-handoff"))
-                .thenReturn(new SentimentAnalysisService.SentimentResult(
-                        5, "愤怒", "转人工", true, true, 100));
-        when(sentimentAnalysisService.getHandoffResponse(5)).thenReturn("正在为您转接人工客服");
+        TurnInsight insight = TurnInsight.analyzed(new SentimentAnalysisService.SentimentResult(
+                5, "愤怒", "共情", false, false, 95), 2);
+        when(preprocessingService.prepare(42L, "session-handoff", "request-3", "我要投诉"))
+                .thenReturn(insight);
+        when(routerClient.callRouterRaw("我要投诉", "42", "session-handoff", "request-3", false))
+                .thenReturn(Map.of("agentName", "order", "result", "请提供订单号。"));
 
         Map<String, Object> response = chatConsumerService.calculateWithSession(
                 "42", "我要投诉", "session-handoff", "request-3");
 
-        assertEquals("human_service", response.get("agentName"));
-        verify(routingCallLogService).saveLog(
-                eq(42L), eq("session-handoff"), eq("我要投诉"), eq("human_service"),
-                eq("SENTIMENT_HANDOFF"), anyLong(), eq("SUCCESS"),
-                eq("正在为您转接人工客服"), eq(0L), eq(0L), eq(0L), eq("我要投诉"),
-                argThat(usage -> usage.complete() && usage.calls().isEmpty()));
-        verify(userProfileService, never()).commitAfterSuccessfulTurn(42L, "request-3");
+        assertEquals("order", response.get("agentName"));
+        assertEquals("抱歉给您带来不便。请提供订单号。", response.get("result"));
+        assertEquals(insight, response.get("sentiment"));
+        assertFalse(response.get("result").toString().contains("正在为您转接"));
+        verify(routerClient).callRouterRaw("我要投诉", "42", "session-handoff", "request-3", false);
     }
 }

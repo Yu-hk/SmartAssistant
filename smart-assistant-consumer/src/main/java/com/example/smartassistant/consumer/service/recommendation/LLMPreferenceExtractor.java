@@ -15,7 +15,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -29,7 +31,9 @@ public class LLMPreferenceExtractor {
     private final AiChatService aiChatService;
     private final ChatModel lightModel;
     private final PromptManager promptManager;
-    private final ExecutorService extractionExecutor = Executors.newVirtualThreadPerTaskExecutor();
+    private final ExecutorService extractionExecutor = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(32), Thread.ofPlatform().daemon().name("profile-model-", 0).factory(),
+            new ThreadPoolExecutor.AbortPolicy());
 
     @Value("${preference.extraction.timeout-ms:8000}")
     private long extractionTimeoutMs = 8000;
@@ -58,8 +62,13 @@ public class LLMPreferenceExtractor {
         }
         String analysisInput = conversationHistory == null || conversationHistory.isBlank()
                 ? latestUserMessage : conversationHistory;
-        Future<UserInsightReport> extraction = extractionExecutor.submit(
-                () -> extractWithLlm(currentProfile, analysisInput));
+        Future<UserInsightReport> extraction;
+        try {
+            extraction = extractionExecutor.submit(() -> extractWithLlm(currentProfile, analysisInput));
+        } catch (RejectedExecutionException overloaded) {
+            log.warn("[UserInsight] optional model analysis skipped: executor overloaded");
+            return UserInsightReport.empty("用户画像分析繁忙");
+        }
         try {
             UserInsightReport result = extraction.get(extractionTimeoutMs, TimeUnit.MILLISECONDS);
             return result != null ? result.normalized()

@@ -48,10 +48,66 @@ class StreamChatControllerPersistenceTest {
     @Mock private RoutingCallLogService routingCallLogService;
     @Mock private UserProfileService userProfileService;
     @Mock private ConversationGateService conversationGateService;
+    @Mock private com.example.smartassistant.consumer.service.core.ConversationPreprocessingService preprocessingService;
 
     @AfterEach
     void clearRequestContext() {
         RequestContextHolder.resetRequestAttributes();
+    }
+
+    @Test
+    void productionSseDispatchesThroughMqAndDoesNotTriggerDirectRouter() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        var dispatcher = org.mockito.Mockito.mock(com.example.smartassistant.consumer.service.dispatch.PriorityRoutingDispatcher.class);
+        var insight = com.example.smartassistant.consumer.service.sentiment.TurnInsight.unknown("TIMEOUT", 750);
+        when(preprocessingService.prepare(42L, "owned", "mq", "查询订单")).thenReturn(insight);
+        when(dispatcher.enabled()).thenReturn(true);
+        when(dispatcher.route(eq("查询订单"), eq("42"), eq("owned"), eq("mq"), eq(insight), eq(60000L), any(Runnable.class)))
+                .thenReturn(Map.of("result", "查询完成", "agentName", "order", "totalTokens", 99));
+        StreamChatController controller = new StreamChatController(routerClient, agentStreamClient,
+                requestQueueService, routingCallLogService, null, preprocessingService);
+        ReflectionTestUtils.setField(controller, "priorityDispatcher", dispatcher);
+        var response = new MockHttpServletResponse();
+        controller.streamChatPost(Map.of("message", "查询订单", "requestId", "mq", "sessionId", "owned", "priority", "999"), response);
+        String events = response.getContentAsString();
+        assertTrue(events.contains("event: queue"));
+        assertTrue(events.contains("\"totalTokens\":99"));
+        assertTrue(events.contains("event: done"));
+        org.mockito.Mockito.verifyNoInteractions(routerClient, requestQueueService, agentStreamClient);
+    }
+
+    @Test
+    void productionSseUsesSharedPreprocessingBeforeRoutingWithoutChangingQuestion() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        var insight = com.example.smartassistant.consumer.service.sentiment.TurnInsight.analyzed(
+                new com.example.smartassistant.consumer.service.sentiment.SentimentAnalysisService.SentimentResult(
+                        4, "负面", "共情", false, false, 95), 2);
+        when(preprocessingService.prepare(42L, "owned", "sentiment", "太慢了，查询订单"))
+                .thenReturn(insight);
+        when(routerClient.waitForDecisionFromRedis(eq("sentiment"), eq(60_000L), any(Runnable.class)))
+                .thenReturn(Map.of("agentName", "order", "result", "请提供订单号。"));
+        StreamChatController controller = new StreamChatController(routerClient, agentStreamClient,
+                requestQueueService, routingCallLogService, null, preprocessingService);
+        ReflectionTestUtils.setField(controller, "userProfileService", userProfileService);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.streamChatPost(Map.of("message", "太慢了，查询订单", "requestId", "sentiment", "sessionId", "owned"), response);
+
+        String events = response.getContentAsString();
+        assertTrue(events.contains("event: sentiment"));
+        assertTrue(events.contains("\"suggestedPriority\":\"ELEVATED\""));
+        assertTrue(events.indexOf("event: sentiment") < events.indexOf("event: routed"));
+        assertTrue(events.contains("抱歉给您带来不便。请提供订单号。"));
+        assertTrue(events.contains("event: done"));
+        assertFalse(events.contains("正在为您转接"));
+        var order = org.mockito.Mockito.inOrder(preprocessingService, routerClient);
+        order.verify(preprocessingService).prepare(42L, "owned", "sentiment", "太慢了，查询订单");
+        order.verify(routerClient).triggerRoutingDecision("太慢了，查询订单", "42", "sentiment", "owned", false);
+        verify(userProfileService, never()).prefetchForRequest(any(), any(), any());
     }
 
     @Test
