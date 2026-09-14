@@ -9,7 +9,7 @@ package com.example.smartassistant.consumer.service.core;
 
 import com.example.smartassistant.consumer.client.RouterClient;
 import com.example.smartassistant.consumer.service.infrastructure.DataMaskingService;
-import com.example.smartassistant.consumer.service.sentiment.SentimentAnalysisService;
+import com.example.smartassistant.consumer.service.sentiment.TurnInsight;
 import com.example.smartassistant.common.tracing.DistributedTracingService;
 import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
 import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
@@ -46,6 +46,9 @@ public class ChatConsumerService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatConsumerService.class);
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.example.smartassistant.consumer.service.dispatch.PriorityRoutingDispatcher priorityDispatcher;
+
     private final SessionManagementService sessionManagementService;
     private final UserProfileService userProfileService; // ⭐ 用户画像服务
     private final RouterClient routerClient;
@@ -53,7 +56,7 @@ public class ChatConsumerService {
     private final DistributedTracingService tracingService; // ⭐ 分布式追踪
     private final DataMaskingService maskingService; // ⭐ 数据脱敏
     private final EntityProfileService entityProfileService;
-    private final SentimentAnalysisService sentimentAnalysisService;
+    private final ConversationPreprocessingService preprocessingService;
 
     public ChatConsumerService(
             SessionManagementService sessionManagementService,
@@ -63,7 +66,7 @@ public class ChatConsumerService {
             DistributedTracingService tracingService,
             DataMaskingService maskingService,
             EntityProfileService entityProfileService,
-            SentimentAnalysisService sentimentAnalysisService) {
+            ConversationPreprocessingService preprocessingService) {
         this.sessionManagementService = sessionManagementService;
         this.userProfileService = userProfileService; // ⭐ 用户画像服务
         this.routerClient = routerClient;
@@ -71,7 +74,7 @@ public class ChatConsumerService {
         this.tracingService = tracingService;
         this.maskingService = maskingService;
         this.entityProfileService = entityProfileService;
-        this.sentimentAnalysisService = sentimentAnalysisService;
+        this.preprocessingService = preprocessingService;
     }
 
     /**
@@ -107,14 +110,15 @@ public class ChatConsumerService {
         
         log.info("[Consumer] 收到请求: userId={}, userIdLong={}, question={}", userId, userIdLong, question);
 
-        // Step 1: 异步预取画像。Router 可并行规划，但 Product 节点执行前必须等待该 requestId。
-        userProfileService.prefetchForRequest(userIdLong, question, traceReqId);
+        // Step 1: 画像旁路异步准备；Product 整轮短暂等待，超时不阻断业务。
+        TurnInsight insight = preprocessingService.prepare(userIdLong, threadId, traceReqId, question);
 
         // Step 2: 用户画像始终留在 Consumer；Router 只接收任务与 Consumer 的路由提示。
         log.info("[Consumer] 转发请求到 Router Service (纯文本question), questionLength={}", question.length());
-        Map<String, Object> routeResponse = routerClient.callRouterRaw(
-                question, userId, null, traceReqId);
-        String response = (String) routeResponse.getOrDefault("result", "");
+        Map<String, Object> routeResponse = priorityDispatcher != null
+                ? priorityDispatcher.route(question, userId, threadId, traceReqId, insight, 120000, null)
+                : routerClient.callRouterRaw(question, userId, null, traceReqId, !insight.bypassAnswerCache());
+        String response = insight.adaptReply((String) routeResponse.getOrDefault("result", ""));
         String routedAgent = (String) routeResponse.getOrDefault("agentName", null);
         String intentTag = (String) routeResponse.get("intentTag");  // ⭐ 读取意图标签
         TokenUsageExtractor.TokenUsage tokenUsage = TokenUsageExtractor.extract(routeResponse);
@@ -177,48 +181,15 @@ public class ChatConsumerService {
 
         log.info("[Consumer] 收到请求(含session): userId={}, sessionId={}, question={}", userId, sessionId, question);
 
-        // 尽早启动画像预取，与情感分析和 Router 任务拆解并行。
-        userProfileService.prefetchForRequest(userIdLong, originalQuestion, traceReqId);
-
-        // ⭐ Step 0.5: 情感分析 — 检测用户情绪并影响回复策略
-        var sentimentResult = sentimentAnalysisService.analyze(question, effectiveSessionId);
-        if (sentimentResult.needHandoff()) {
-            log.warn("[Consumer] 检测到负面情绪，建议转人工: userId={}, level={}, sentiment={}",
-                    userId, sentimentResult.level(), sentimentResult.name());
-            // 返回转人工响应，不再继续路由
-            Map<String, Object> handoffResponse = new java.util.HashMap<>();
-            String handoffMessage = sentimentAnalysisService.getHandoffResponse(sentimentResult.level());
-            handoffResponse.put("result", handoffMessage);
-            handoffResponse.put("agentName", "human_service");
-            handoffResponse.put("sentiment", sentimentResult.level());
-            handoffResponse.put("sessionId", effectiveSessionId);
-            routingCallLogService.saveLog(
-                    userIdLong,
-                    effectiveSessionId,
-                    originalQuestion,
-                    "human_service",
-                    "SENTIMENT_HANDOFF",
-                    System.currentTimeMillis() - startTime,
-                    "SUCCESS",
-                    handoffMessage,
-                    0L, 0L, 0L,
-                    originalQuestion,
-                    new ToolUsageCache.ToolUsage(true, List.of()));
-            tracingService.endTrace();
-            return handoffResponse;
-        }
-        if (sentimentResult.level() >= 3 || sentimentResult.escalated()) {
-            // 轻微负面或情绪升级：在问题前注入情感上下文，让下游 Agent 调整语气
-            String sentimentPrefix = "[用户情绪:" + sentimentResult.name()
-                    + "(等级" + sentimentResult.level() + ")] ";
-            question = sentimentPrefix + question;
-            log.info("[Consumer] 注入情感上下文: question='{}'", question);
-        }
+        TurnInsight insight = preprocessingService.prepare(userIdLong, effectiveSessionId, traceReqId, originalQuestion);
 
         // Step 2: 用户画像始终留在 Consumer；Router 只接收任务与 Consumer 的路由提示。
         log.info("[Consumer] 转发请求到 Router Service(含session), questionLength={}", question.length());
-        Map<String, Object> response = new java.util.HashMap<>(routerClient.callRouterRaw(
-                question, userId, effectiveSessionId, traceReqId));
+        Map<String, Object> response = new java.util.HashMap<>(priorityDispatcher != null
+                ? priorityDispatcher.route(question, userId, effectiveSessionId, traceReqId, insight, 120000, null)
+                : routerClient.callRouterRaw(question, userId, effectiveSessionId, traceReqId, !insight.bypassAnswerCache()));
+        response.put("sentiment", insight);
+        response.computeIfPresent("result", (key, value) -> value instanceof String text ? insight.adaptReply(text) : value);
         
         // Step 3.5: 更新意图分布
         String routedAgent = (String) response.get("agentName");

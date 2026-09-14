@@ -63,8 +63,11 @@ class LLMPreferenceExtractorTest {
 
         assertNotNull(annotation);
         assertEquals("taskExecutor", annotation.value());
-        assertNotNull(commitAnnotation);
-        assertEquals("taskExecutor", commitAnnotation.value());
+        // The public commit entry explicitly schedules work even with spring.aop.auto=false.
+        org.junit.jupiter.api.Assertions.assertNull(commitAnnotation);
+        var qualifier = UserProfileService.class.getDeclaredField("commitExecutor")
+                .getAnnotation(org.springframework.beans.factory.annotation.Qualifier.class);
+        assertEquals("profileCommitExecutor", qualifier.value());
     }
 
     @Test

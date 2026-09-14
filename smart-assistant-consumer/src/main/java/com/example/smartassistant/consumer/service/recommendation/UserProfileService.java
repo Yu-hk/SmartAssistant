@@ -13,6 +13,8 @@ import com.example.smartassistant.consumer.mapper.RoutingCallLogMapper;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.slf4j.Logger;
@@ -63,8 +65,15 @@ public class UserProfileService {
     private RoutingCallLogMapper routingCallLogMapper;
 
     @Autowired(required = false)
-    @Qualifier("taskExecutor")
+    @Qualifier("profilePreparationExecutor")
     private Executor profileExecutor;
+
+    @Autowired(required = false)
+    @Qualifier("profileCommitExecutor")
+    private Executor commitExecutor;
+
+    private final Cache<ProfileRequest, CompletableFuture<String>> preparations = Caffeine.newBuilder()
+            .maximumSize(10000).expireAfterWrite(Duration.ofMinutes(2)).build();
 
     private final LLMPreferenceExtractor llmExtractor;
     private final UserProfileSnapshotStore profileStore;
@@ -104,8 +113,8 @@ public class UserProfileService {
 
     /**
      * Starts request-scoped profile preparation without delaying Router planning.
-     * Consumer writes {@code PENDING} before scheduling so Router can reliably
-     * establish a barrier immediately before the first Product node.
+     * All storage/model work runs off the caller thread. Router has a short optional budget,
+     * not a mandatory barrier. Repeated admission of the same request does not reset its state.
      */
     public CompletableFuture<String> prefetchForRequest(
             Long userId, String question, String requestId) {
@@ -113,40 +122,69 @@ public class UserProfileService {
             return CompletableFuture.completedFuture("");
         }
 
-        String key = RoutingKeys.userProfileContext(requestId);
-        if (redisTemplate != null) {
-            try {
-                redisTemplate.opsForValue().set(key, RoutingKeys.USER_PROFILE_PENDING,
-                        Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
-            } catch (Exception error) {
-                throw new IllegalStateException(
-                        "Unable to establish the user-profile coordination barrier", error);
-            }
-        } else {
-            throw new IllegalStateException(
-                    "User-profile coordination requires Redis before routing request " + requestId);
-        }
+        if (redisTemplate == null || profileExecutor == null) return CompletableFuture.completedFuture("");
+        return preparations.get(new ProfileRequest(userId, requestId, questionFingerprint(question)), ignored ->
+                schedulePreparation(userId, question, requestId));
+    }
 
-        Executor executor = profileExecutor != null ? profileExecutor : Runnable::run;
+    private CompletableFuture<String> schedulePreparation(Long userId, String question, String requestId) {
+        String key = RoutingKeys.userProfileContext(requestId);
         try {
             return CompletableFuture
-                    .supplyAsync(() -> prepareProfile(userId, question, requestId), executor)
-                    .whenComplete((prepared, error) ->
-                            publishPrefetchResult(requestId, key, prepared, error))
-                    .thenApply(PreparedProfile::projection);
+                    .supplyAsync(() -> {
+                        try {
+                            redisTemplate.opsForValue().set(key, RoutingKeys.USER_PROFILE_PENDING, prefetchTtl());
+                            PreparedProfile prepared = prepareProfile(userId, question, requestId);
+                            publishPrefetchResult(requestId, key, prepared, null);
+                            return prepared.projection();
+                        } catch (RuntimeException unavailable) {
+                            publishPrefetchResult(requestId, key, null, unavailable);
+                            return "";
+                        }
+                    }, profileExecutor);
         } catch (RejectedExecutionException error) {
-            publishPrefetchResult(requestId, key, null, error);
-            return CompletableFuture.failedFuture(error);
+            // Never perform a Redis write or execute analysis on the caller when overloaded.
+            log.info("[UserProfile] Optional preparation skipped: executor overloaded");
+            return CompletableFuture.completedFuture("");
         }
     }
 
     private PreparedProfile prepareProfile(Long userId, String question, String requestId) {
-        if (question != null && !question.isBlank()) {
-            PreparedProfileCandidate candidate = analyzeCandidate(userId, question, requestId);
-            return new PreparedProfile(
-                    buildUserProfilePrompt(writeJson(candidate.report())), candidate);
+        String savedProjection = profileStore.load(userId)
+                .map(snapshot -> reliableProjection(snapshot.reportJson())).orElse("");
+        if (!savedProjection.isBlank()) {
+            // Existing reliable context becomes available before history/model analysis begins.
+            redisTemplate.opsForValue().set(RoutingKeys.userProfileContext(requestId),
+                    RoutingKeys.USER_PROFILE_READY_PREFIX + savedProjection, prefetchTtl());
         }
-        return new PreparedProfile(buildUserProfilePrompt(userId), null);
+        if (question != null && !question.isBlank()) {
+            try {
+                PreparedProfileCandidate candidate = analyzeCandidate(userId, question, requestId);
+                if (!shouldCommit(candidate.report())) return new PreparedProfile(savedProjection, null);
+                return new PreparedProfile(reliableProjection(writeJson(candidate.report())), candidate);
+            } catch (RuntimeException unavailable) {
+                log.warn("[UserProfile] Optional analysis failed; retaining snapshot: requestId={}, type={}",
+                        requestId, unavailable.getClass().getSimpleName());
+                return new PreparedProfile(savedProjection, null);
+            }
+        }
+        return new PreparedProfile(savedProjection, null);
+    }
+
+    private Duration prefetchTtl() { return Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)); }
+
+    private static boolean shouldCommit(LLMPreferenceExtractor.UserInsightReport report) {
+        return report != null && report.profileUpdate() != null
+                && !"KEEP".equals(report.profileUpdate().action());
+    }
+
+    private String reliableProjection(String reportJson) {
+        try {
+            if (!objectMapper.readTree(reportJson).path("commerceAssessment").path("reliable").asBoolean(false)) return "";
+            return buildUserProfilePrompt(reportJson);
+        } catch (IOException malformed) {
+            return "";
+        }
     }
 
     private PreparedProfileCandidate analyzeCandidate(
@@ -199,19 +237,19 @@ public class UserProfileService {
             String state;
             if (error != null) {
                 state = RoutingKeys.USER_PROFILE_FAILED;
-            } else if (prepared == null || prepared.projection().isBlank()) {
-                state = RoutingKeys.USER_PROFILE_EMPTY;
             } else {
-                if (prepared.candidate() != null) {
+                if (prepared != null && prepared.candidate() != null && shouldCommit(prepared.candidate().report())) {
                     redisTemplate.opsForValue().set(
                             RoutingKeys.userProfileCandidate(requestId),
                             writeJson(prepared.candidate()),
                             Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
                 }
-                state = RoutingKeys.USER_PROFILE_READY_PREFIX + prepared.projection();
+                state = prepared == null || prepared.projection().isBlank() ? RoutingKeys.USER_PROFILE_EMPTY
+                        : RoutingKeys.USER_PROFILE_READY_PREFIX + prepared.projection();
             }
             redisTemplate.opsForValue().set(key, state,
                     Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
+            redisTemplate.opsForValue().set(preparationDoneKey(requestId), "DONE", prefetchTtl());
         } catch (Exception publishError) {
             log.error("[UserProfile] 发布画像预取结果失败: key={}, error={}",
                     key, publishError.getMessage());
@@ -224,12 +262,20 @@ public class UserProfileService {
     }
 
     /** Emits a durable commit command after a turn has completed successfully. */
-    @Async("taskExecutor")
     public void commitAfterSuccessfulTurn(Long userId, String requestId) {
         if (userId == null || requestId == null || requestId.isBlank()) return;
+        if (commitExecutor == null) return;
+        try {
+            commitExecutor.execute(() -> publishCommitAfterSuccessfulTurn(userId, requestId));
+        } catch (RejectedExecutionException overloaded) {
+            log.warn("[UserProfile] Optional commit skipped: executor overloaded, requestId={}", requestId);
+        }
+    }
+
+    private void publishCommitAfterSuccessfulTurn(Long userId, String requestId) {
         try {
             PreparedProfileCandidate candidate = awaitPreparedCandidate(userId, requestId);
-            if (candidate == null) return;
+            if (candidate == null || !shouldCommit(candidate.report())) return;
             commitPublisher.publish(candidate);
             redisTemplate.delete(RoutingKeys.userProfileCandidate(requestId));
         } catch (Exception error) {
@@ -244,6 +290,7 @@ public class UserProfileService {
                 || candidate.requestId() == null || candidate.requestId().isBlank()) {
             throw new IllegalArgumentException("Prepared user profile is incomplete");
         }
+        if (!shouldCommit(candidate.report())) return;
         if (profileStore.isRequestApplied(candidate.userId(), candidate.requestId())) return;
         commitCandidate(candidate);
     }
@@ -257,18 +304,17 @@ public class UserProfileService {
             String candidateJson = redisTemplate.opsForValue().get(
                     RoutingKeys.userProfileCandidate(requestId));
             if (candidateJson != null && !candidateJson.isBlank()) {
-                PreparedProfileCandidate candidate = readCandidate(candidateJson);
-                if (!Objects.equals(userId, candidate.userId())
-                        || !Objects.equals(requestId, candidate.requestId())) {
-                    throw new IllegalStateException("Prepared user profile identity mismatch");
-                }
-                return candidate;
+                return readOwnedCandidate(userId, requestId, candidateJson);
             }
             String state = redisTemplate.opsForValue().get(
                     RoutingKeys.userProfileContext(requestId));
             if (RoutingKeys.USER_PROFILE_FAILED.equals(state)
-                    || RoutingKeys.USER_PROFILE_EMPTY.equals(state)) {
-                return null;
+                    || RoutingKeys.USER_PROFILE_EMPTY.equals(state)
+                    || "DONE".equals(redisTemplate.opsForValue().get(preparationDoneKey(requestId)))) {
+                // Publication can finish between the first candidate read and the terminal-state read.
+                String finalCandidate = redisTemplate.opsForValue().get(RoutingKeys.userProfileCandidate(requestId));
+                return finalCandidate == null || finalCandidate.isBlank() ? null
+                        : readOwnedCandidate(userId, requestId, finalCandidate);
             }
             long remaining = deadline - System.currentTimeMillis();
             if (remaining <= 0L) {
@@ -344,6 +390,7 @@ public class UserProfileService {
         }
         StringBuilder prompt = new StringBuilder();
         prompt.append("【电商用户洞察】\n");
+        prompt.append("以下仅为历史偏好参考；本轮明确的预算、品类、用途及其他要求优先，冲突时忽略历史偏好。\n");
         appendAssessment(prompt, report.get("commerceAssessment"));
         appendList(prompt, "核心驱动", report.get("topDrivers"));
         appendList(prompt, "核心阻碍", report.get("topBarriers"));
@@ -442,6 +489,27 @@ public class UserProfileService {
     }
 
     private record PreparedProfile(String projection, PreparedProfileCandidate candidate) {
+    }
+
+    private PreparedProfileCandidate readOwnedCandidate(Long userId, String requestId, String json) {
+        PreparedProfileCandidate candidate = readCandidate(json);
+        if (!Objects.equals(userId, candidate.userId()) || !Objects.equals(requestId, candidate.requestId())) {
+            throw new IllegalStateException("Prepared user profile identity mismatch");
+        }
+        return candidate;
+    }
+
+    private record ProfileRequest(Long userId, String requestId, String question) { }
+
+    private static String questionFingerprint(String question) {
+        try {
+            return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(Objects.toString(question, "").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
+
+    private static String preparationDoneKey(String requestId) {
+        return RoutingKeys.userProfileCandidate(requestId) + ":preparation-done";
     }
 
     public record PreparedProfileCandidate(

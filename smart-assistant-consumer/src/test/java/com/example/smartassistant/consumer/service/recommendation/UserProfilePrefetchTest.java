@@ -47,7 +47,7 @@ class UserProfilePrefetchTest {
         when(redis.opsForValue()).thenReturn(values);
         when(store.load(42L)).thenReturn(Optional.empty());
 
-        var report = LLMPreferenceExtractor.UserInsightReport.empty("信息不足");
+        var report = report("CREATE", "深度咨询", 65, List.of("便携"), List.of("价格"));
         String reportJson = objectMapper.writeValueAsString(report);
         when(extractor.extract(anyString(), anyString(), eq("帮我查热门商品"))).thenReturn(report);
 
@@ -62,12 +62,11 @@ class UserProfilePrefetchTest {
                 42L, "帮我查热门商品", "request-profile");
 
         assertThat(result).isNotDone();
-        verify(values).set(eq(RoutingKeys.userProfileContext("request-profile")),
-                eq(RoutingKeys.USER_PROFILE_PENDING), eq(Duration.ofSeconds(120)));
+        org.mockito.Mockito.verifyNoInteractions(redis, values, store, extractor);
 
         scheduled.get().run();
 
-        assertThat(result.join()).contains("【电商用户洞察】").contains("信息不足");
+        assertThat(result.join()).contains("【电商用户洞察】").contains("深度咨询");
         ArgumentCaptor<String> states = ArgumentCaptor.forClass(String.class);
         verify(values, times(2)).set(eq(RoutingKeys.userProfileContext("request-profile")),
                 states.capture(), any(Duration.class));
@@ -80,13 +79,11 @@ class UserProfilePrefetchTest {
     }
 
     @Test
-    void failsClosedWhenCoordinationStoreIsUnavailable() {
+    void missingCoordinationStoreSkipsOptionalProfile() {
         UserProfileService service = service(
                 mock(LLMPreferenceExtractor.class), mock(UserProfileSnapshotStore.class));
 
-        assertThatThrownBy(() -> service.prefetchForRequest(42L, "推荐手机", "request-no-redis"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("requires Redis");
+        assertThat(service.prefetchForRequest(42L, "推荐手机", "request-no-redis").join()).isEmpty();
     }
 
     @Test
@@ -244,6 +241,98 @@ class UserProfilePrefetchTest {
                 20L, List.of(18L, 20L));
     }
 
+    @Test
+    void existingReliableSnapshotIsPublishedBeforeSlowAnalysisAndSurvivesEmptyResult() throws Exception {
+        var extractor = mock(LLMPreferenceExtractor.class);
+        var store = mock(UserProfileSnapshotStore.class);
+        var redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked") ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        var previous = report("CREATE", "深度咨询", 70, List.of("轻薄"), List.of("预算"));
+        when(store.load(42L)).thenReturn(Optional.of(snapshot(42L, 3L, objectMapper.writeValueAsString(previous))));
+        when(extractor.extract(anyString(), anyString(), anyString())).thenAnswer(ignored -> {
+            verify(values).set(eq(RoutingKeys.userProfileContext("saved")),
+                    org.mockito.ArgumentMatchers.startsWith(RoutingKeys.USER_PROFILE_READY_PREFIX), any(Duration.class));
+            return LLMPreferenceExtractor.UserInsightReport.empty("用户画像分析超时");
+        });
+        UserProfileService service = service(extractor, store);
+        ReflectionTestUtils.setField(service, "redisTemplate", redis);
+        ReflectionTestUtils.setField(service, "profileExecutor", (Executor) Runnable::run);
+        assertThat(service.prefetchForRequest(42L, "本轮预算2000", "saved").join())
+                .contains("轻薄", "本轮明确的预算", "冲突时忽略历史偏好");
+        verify(values, never()).set(eq(RoutingKeys.userProfileCandidate("saved")), anyString(), any(Duration.class));
+        verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList());
+        // Same request is deduplicated, not reset to PENDING or analyzed a second time.
+        service.prefetchForRequest(42L, "本轮预算2000", "saved").join();
+        verify(extractor, times(1)).extract(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void rejectedPreparationNeverTouchesStorageOnCaller() {
+        var extractor = mock(LLMPreferenceExtractor.class);
+        var store = mock(UserProfileSnapshotStore.class);
+        var redis = mock(StringRedisTemplate.class);
+        UserProfileService service = service(extractor, store);
+        ReflectionTestUtils.setField(service, "redisTemplate", redis);
+        ReflectionTestUtils.setField(service, "profileExecutor", (Executor) task -> {
+            throw new java.util.concurrent.RejectedExecutionException();
+        });
+        assertThat(service.prefetchForRequest(42L, "买平板", "busy").join()).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(redis, store, extractor);
+    }
+
+    @Test
+    void storageFailureInWorkerReturnsEmptyInsteadOfFailingChat() {
+        var extractor = mock(LLMPreferenceExtractor.class);
+        var store = mock(UserProfileSnapshotStore.class);
+        var redis = mock(StringRedisTemplate.class);
+        when(redis.opsForValue()).thenThrow(new IllegalStateException("offline"));
+        UserProfileService service = service(extractor, store);
+        ReflectionTestUtils.setField(service, "redisTemplate", redis);
+        ReflectionTestUtils.setField(service, "profileExecutor", (Executor) Runnable::run);
+        assertThat(service.prefetchForRequest(42L, "买平板", "unavailable").join()).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(store, extractor);
+    }
+
+    @Test
+    void successfulTurnCommitIsScheduledWithoutSpringAsyncProxy() {
+        var publisher = mock(UserProfileCommitPublisher.class);
+        var redis = mock(StringRedisTemplate.class);
+        var service = service(mock(LLMPreferenceExtractor.class), mock(UserProfileSnapshotStore.class), publisher);
+        AtomicReference<Runnable> task = new AtomicReference<>();
+        ReflectionTestUtils.setField(service, "commitExecutor", (Executor) task::set);
+        ReflectionTestUtils.setField(service, "redisTemplate", redis);
+        service.commitAfterSuccessfulTurn(42L, "pending");
+        assertThat(task.get()).isNotNull();
+        org.mockito.Mockito.verifyNoInteractions(redis, publisher);
+    }
+
+    @Test
+    void emptyKeepCandidateDoesNotOverwriteExistingSnapshotEvenFromOldQueueMessage() {
+        var store = mock(UserProfileSnapshotStore.class);
+        var service = service(mock(LLMPreferenceExtractor.class), store);
+        service.commitPreparedProfile(new UserProfileService.PreparedProfileCandidate(42L, "timeout", 2L,
+                LLMPreferenceExtractor.UserInsightReport.empty("用户画像分析超时"), "推荐商品", 3L, List.of(3L)));
+        org.mockito.Mockito.verifyNoInteractions(store);
+    }
+
+    @Test
+    void lateCandidatePublishedBetweenPollingReadsIsStillCommitted() throws Exception {
+        var publisher = mock(UserProfileCommitPublisher.class);
+        var redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked") ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        var candidate = new UserProfileService.PreparedProfileCandidate(42L, "late", 0L,
+                report("CREATE", "深度咨询", 70, List.of("便携"), List.of("预算")), "选电脑", 1L, List.of(1L));
+        when(values.get(RoutingKeys.userProfileCandidate("late")))
+                .thenReturn(null, objectMapper.writeValueAsString(candidate));
+        when(values.get(RoutingKeys.userProfileCandidate("late") + ":preparation-done")).thenReturn("DONE");
+        var service = service(mock(LLMPreferenceExtractor.class), mock(UserProfileSnapshotStore.class), publisher);
+        ReflectionTestUtils.setField(service, "redisTemplate", redis);
+        service.commitAfterSuccessfulTurn(42L, "late");
+        verify(publisher).publish(candidate);
+    }
+
     private static UserProfileService service(
             LLMPreferenceExtractor extractor, UserProfileSnapshotStore store) {
         return service(extractor, store, mock(UserProfileCommitPublisher.class));
@@ -255,6 +344,7 @@ class UserProfilePrefetchTest {
         UserProfileService service = new UserProfileService(extractor, store, publisher);
         ReflectionTestUtils.setField(service, "maxHistoryTurns", 20);
         ReflectionTestUtils.setField(service, "maxHistoryChars", 12000);
+        ReflectionTestUtils.setField(service, "commitExecutor", (Executor) Runnable::run);
         return service;
     }
 
