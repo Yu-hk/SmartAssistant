@@ -50,7 +50,7 @@ spring:
             - id: consumer-service
               uri: lb://consumer-service
               predicates:
-                - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/insight/**,/assistant/api/notifications/**
+                - Path=/assistant/api/chat/**,/assistant/api/math/**,/assistant/api/insight/**,/assistant/api/notifications/**,/assistant/api/speech/**
               filters:
                 - StripPrefix=1
 
@@ -67,6 +67,11 @@ spring:
               uri: lb://router-service
               predicates:
                 - Path=/api/router/workflows/**,/api/router/graph/**,/api/admin/workflows/**
+
+            - id: consumer-speech
+              uri: lb://consumer-service
+              predicates:
+                - Path=/api/speech/**
 
             - id: consumer-service-bare
               uri: lb://consumer-service
