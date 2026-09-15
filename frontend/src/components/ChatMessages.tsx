@@ -3,8 +3,11 @@ import { Message, Model, PermissionRequest, ContentBlock, SessionStatus } from '
 import { InlinePermissionCard } from './InlinePermissionCard';
 import { SafeMarkdown } from './SafeMarkdown';
 import { RefreshCw } from 'lucide-react';
+import { VoiceReplyControls } from './VoiceReplyControls';
+import { useVoiceOutput } from '../hooks/useVoiceOutput';
 
 interface ChatMessagesProps {
+  playback?: ReturnType<typeof useVoiceOutput>;
   messages: Message[];
   models: Model[];
   messagesEndRef: React.RefObject<HTMLDivElement>;
@@ -22,6 +25,7 @@ interface ChatMessagesProps {
 }
 
 export function ChatMessages({ 
+  playback,
   messages, 
   models, 
   messagesEndRef,
@@ -240,6 +244,7 @@ export function ChatMessages({
               </div>
             )}
 
+              {playback && <VoiceReplyControls message={message} playback={playback} />}
               {message.role === 'assistant'
                 && idx === lastAssistantIndex
                 && !message.isStreaming

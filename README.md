@@ -9,6 +9,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 - 用户登录、权限控制与会话隔离
 - 多轮对话、历史会话管理和人工关闭会话
 - 聊天框语音输入：Qwen ASR 转文字，核对后手动发送（需开启服务端配置，见 [接入说明](docs/voice-input.md)）
+- 配套语音回复：语音提问完成后自动播报，文字回复可手动朗读，支持暂停/继续/停止（见 [语音回复说明](docs/voice-output.md)）
 - 多 Agent 路由与任务编排
 - 订单、商品与推荐能力，以及基于 Tool Registry / Runtime 的通用兜底
 - RAG 文档解析、向量检索、重排序与评测门禁
