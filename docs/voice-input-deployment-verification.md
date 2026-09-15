@@ -4,6 +4,7 @@
 
 - 本地重新执行前端 17 项语音回归和 TypeScript/Vite 构建，全部通过。
 - Consumer 13 项、Gateway 22 项测试通过，两个部署 JAR 已打包。
+- 新增 CI 的 17 项前端语音测试通过，但干净环境生产构建发现旧 `frontend/server` 原型引用未声明依赖。生产页面经 Vite 连接 Java Gateway，并不部署该 Node 原型；将 `tsconfig.node.json` 限定为 Vite 配置，保留全部 `src` 严格类型检查，不删除原型源码。
 - SSH 主机密钥校验通过；部署后服务器 14 个正式服务容器运行，公网 `/healthz` 为 UP。
 - 使用用户授权的新版普通百炼密钥，北京地域普通 API、模型 `qwen3-asr-flash`；准确识别“请查询我的订单物流。”，输入 74、输出 13、总计 87 Token。
 - 密钥通过无回显输入和 SSH 加密通道注入，仅在成功后保存为服务器 `0600` 配置，没有提交到 Git。
