@@ -34,6 +34,34 @@ jobs:
           -Dtest=ProductFeatureExtractorTest,AdminProductIntakeTest,AdminProductFeaturePersistenceTest,AdminProductFeatureControllerTest,AdminControllerSessionAuthorizationTest,AdminServiceStorageInitializationTest,GlobalJwtAuthFilterTest
           -Dsurefire.failIfNoSpecifiedTests=false
 
+  # 语音转写与聊天解耦：鉴权、有界音频和浏览器生命周期回归。
+  voice-input-gate:
+    name: Voice input and ASR boundary gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Test authenticated speech boundary
+        run: >-
+          mvn -B -pl smart-assistant-consumer,smart-assistant-gateway -am test
+          -Dtest=SpeechRecognitionServiceTest,SpeechControllerTest,GlobalJwtAuthFilterTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+      - name: Test recorder lifecycle and build frontend
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts
+          npm run test:voice
+          npm run build
+
   # 全模块编译完整性检查（不含测试，最快反馈构建是否破坏）
   compile-all:
     name: Compile all modules

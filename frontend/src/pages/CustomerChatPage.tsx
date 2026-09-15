@@ -8,7 +8,9 @@ import { DocumentExamples } from '../components/DocumentExamples';
 import { FaqSuggestions } from '../components/FaqSuggestions';
 import { IntentBadge } from '../components/IntentBadge';
 import { sessions as sessionApi } from '../api';
-import { Headset, FileText } from 'lucide-react';
+import { Headset, FileText, Mic, Square, Loader2 } from 'lucide-react';
+import { useVoiceInput } from '../hooks/useVoiceInput';
+import { appendTranscript } from '../audio/voiceAudio';
 
 interface CustomerChatPageProps {
   sessions: Session[];
@@ -95,6 +97,7 @@ export function CustomerChatPage({
             </div>
 
             <CustomerChatInput
+              key={currentSession?.id || 'new'}
               variant="home"
               inputValue={inputValue}
               isLoading={isLoading}
@@ -169,6 +172,7 @@ export function CustomerChatPage({
 
       {hasMessages && (
         <CustomerChatInput
+          key={currentSession?.id || 'new'}
           inputValue={inputValue}
           isLoading={isLoading}
           disabled={currentSession?.status === 'closed' || currentSession?.status === 'suspended'}
@@ -211,11 +215,15 @@ function CustomerChatInput({
 }: CustomerChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const voice = useVoiceInput(Boolean(disabled || isLoading), text => {
+    onChange(appendTranscript(inputValue, text));
+    textareaRef.current?.focus();
+  });
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (inputValue.trim() && !isLoading && !disabled) onSend(inputValue);
+      if (inputValue.trim() && !isLoading && !disabled && !voice.busy) onSend(inputValue);
     }
   };
 
@@ -262,6 +270,14 @@ function CustomerChatInput({
           rows={1}
           className="chat-composer-input"
         />
+        <button type="button" className={`chat-voice-button ${voice.phase === 'recording' ? 'is-recording' : ''}`}
+          disabled={disabled || isLoading || voice.phase === 'starting' || voice.phase === 'transcribing'}
+          aria-label={voice.phase === 'recording' ? '结束录音并识别' : '语音输入'}
+          title={voice.phase === 'recording' ? '结束录音并识别' : '语音输入：音频将交由语音模型转文字'}
+          aria-pressed={voice.phase === 'recording'} onClick={voice.phase === 'recording' ? voice.stop : voice.start}>
+          {voice.phase === 'recording' ? <Square size={18} />
+            : voice.busy ? <Loader2 size={18} className="voice-spinner" /> : <Mic size={19} />}
+        </button>
         {isLoading ? (
           <button
             onClick={onStop}
@@ -274,8 +290,8 @@ function CustomerChatInput({
           </button>
         ) : (
           <button
-            onClick={() => inputValue.trim() && !disabled && onSend(inputValue)}
-            disabled={!inputValue.trim() || disabled}
+            onClick={() => inputValue.trim() && !disabled && !voice.busy && onSend(inputValue)}
+            disabled={!inputValue.trim() || disabled || voice.busy}
             className="chat-composer-action is-send"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -286,8 +302,15 @@ function CustomerChatInput({
           </button>
         )}
       </div>
+      <div className="chat-voice-status" aria-live="polite" aria-atomic="true">
+        {voice.busy ? <>
+          <span>{voice.phase === 'recording' ? `正在录音 ${voice.seconds}/60 秒，点击停止图标完成`
+            : voice.phase === 'starting' ? '正在连接语音服务并等待麦克风授权…' : '正在识别语音，请稍候…'}</span>
+          <button type="button" onClick={voice.cancel}>取消</button>
+        </> : <span className={voice.error ? 'is-error' : ''}>{voice.error || voice.notice}</span>}
+      </div>
       <div className="chat-composer-meta">
-        <span className="composer-shortcut">Enter 发送 · Shift + Enter 换行</span>
+        <span className="composer-shortcut">Enter 发送 · Shift + Enter 换行 · 语音经模型转文字后确认发送</span>
         <span className="composer-disclaimer">
           AI 回复仅供参考，关键业务信息请核实
         </span>

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "test:voice": "node scripts/run-voice-input-tests.mjs",
     "test:product-intake": "node scripts/run-product-intake-tests.mjs",
     "test:login": "node scripts/run-login-page-tests.mjs",
     "test:feishu": "node --import tsx --test scripts/feishu-qr-login.test.ts",
@@ -33,6 +34,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.20",
     "concurrently": "^8.2.2",
+    "jsdom": "^26.1.0",
     "less": "^4.3.0",
     "postcss": "^8.5.0",
     "tailwindcss": "^3.4.17",
