@@ -60,6 +60,18 @@ class GlobalJwtAuthFilterTest {
     // ========== 精确匹配 ==========
 
     @Test
+    void speechRoutesRejectAnonymousAndForgedIdentityHeaders() {
+        for (String path : List.of("/api/speech/capabilities", "/api/speech/transcriptions", "/assistant/api/speech/transcriptions")) {
+            var exchange = MockServerWebExchange.from(MockServerHttpRequest.post(path)
+                    .header("X-User-Id", "7").header("X-User-Role", "ROLE_ADMIN"));
+            var chain = mock(GatewayFilterChain.class);
+            filter.filter(exchange, chain).block();
+            assertEquals(401, exchange.getResponse().getStatusCode().value());
+            verifyNoInteractions(chain);
+        }
+    }
+
+    @Test
     void exactPathShouldMatch() throws Exception {
         assertTrue(invokeIsWhiteListPath("/api/auth/login",
                 List.of("/api/auth/login")));
