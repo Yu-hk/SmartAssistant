@@ -53,13 +53,14 @@ jobs:
       - name: Test authenticated speech boundary
         run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-gateway -am test
-          -Dtest=SpeechRecognitionServiceTest,SpeechControllerTest,GlobalJwtAuthFilterTest
+          -Dtest=SpeechRecognitionServiceTest,SpeechControllerTest,SpeechSynthesisServiceTest,SpeechOutputControllerTest,GlobalJwtAuthFilterTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - name: Test recorder lifecycle and build frontend
         working-directory: frontend
         run: |
           npm ci --ignore-scripts
           npm run test:voice
+          npm run test:voice-output
           npm run build
 
   # 全模块编译完整性检查（不含测试，最快反馈构建是否破坏）
