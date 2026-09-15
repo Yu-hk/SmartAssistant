@@ -1,4 +1,10 @@
 speech:
+  tts:
+    enabled: ${SPEECH_TTS_ENABLED:false}
+    api-key: ${SPEECH_TTS_API_KEY:${SPEECH_API_KEY:}}
+    model: ${SPEECH_TTS_MODEL:qwen-audio-3.0-tts-flash}
+    voice: ${SPEECH_TTS_VOICE:longanhuan_v3.6}
+    endpoint: ${SPEECH_TTS_ENDPOINT:https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer}
   enabled: ${SPEECH_ENABLED:false}
   api-key: ${SPEECH_API_KEY:${DASHSCOPE_API_KEY:}}
   base-url: ${SPEECH_API_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}

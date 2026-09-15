@@ -91,7 +91,12 @@
 .chat-voice-button:disabled { opacity: .45; cursor: not-allowed; }
 .chat-voice-button.is-recording { background: #fee2e2; color: #b91c1c; }
 .chat-voice-button:focus-visible, .chat-voice-status button:focus-visible { outline: 2px solid var(--nova-accent); outline-offset: 2px; }
-.chat-voice-status { max-width: 800px; margin: 0 auto; display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 1.6; color: var(--nova-text-secondary); }
+.chat-voice-status { max-width: 800px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; line-height: 1.6; color: var(--nova-text-secondary); }
+.voice-reply-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--nova-text-secondary); font-size: 12px; margin: 8px 0; }
+.voice-reply-controls button { background: var(--nova-bg-component); color: var(--nova-accent); border: 1px solid var(--nova-border); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.voice-reply-controls button:focus-visible { outline: 2px solid var(--nova-accent); outline-offset: 2px; }
+.voice-reply-controls button:disabled { opacity: .6; cursor: wait; }
+.chat-voice-status .voice-reply-toggle { margin-top: 4px; min-height: 36px; }
 .is-home .chat-voice-status { max-width: none; }
 .chat-voice-status:has(span:not(:empty)) { padding-top: 8px; }
 .chat-voice-status .is-error { color: var(--nova-error); }

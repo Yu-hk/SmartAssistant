@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test:voice": "node scripts/run-voice-input-tests.mjs",
+    "test:voice-output": "node scripts/run-voice-output-tests.mjs",
     "test:product-intake": "node scripts/run-product-intake-tests.mjs",
     "test:login": "node scripts/run-login-page-tests.mjs",
     "test:feishu": "node --import tsx --test scripts/feishu-qr-login.test.ts",

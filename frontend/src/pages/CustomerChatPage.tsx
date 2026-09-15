@@ -11,6 +11,7 @@ import { sessions as sessionApi } from '../api';
 import { Headset, FileText, Mic, Square, Loader2 } from 'lucide-react';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { appendTranscript } from '../audio/voiceAudio';
+import { useVoiceOutput } from '../hooks/useVoiceOutput';
 
 interface CustomerChatPageProps {
   sessions: Session[];
@@ -22,7 +23,7 @@ interface CustomerChatPageProps {
   queuePosition: number | null;
   queueEstimatedWait: number | null;
   progressMessage: string;
-  onSendMessage: (message: string, sessionIdOverride?: string, onNavigate?: (path: string) => void) => void;
+  onSendMessage: (message: string, sessionIdOverride?: string, onNavigate?: (path: string) => void, voiceReply?: boolean) => void;
   onStop: () => void;
   onInputChange: (value: string) => void;
   onPermissionAllow: () => void;
@@ -51,6 +52,26 @@ export function CustomerChatPage({
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [currentFaqSuggestions, setCurrentFaqSuggestions] = useState<FaqItem[]>([]);
+  const [voiceReplyEnabled,setVoiceReplyEnabled]=useState(()=>{try{return localStorage.getItem('voice-reply-enabled')!=='false';}catch{return true;}});
+  const [voiceInputBusy,setVoiceInputBusy]=useState(false);
+  const playback=useVoiceOutput(currentSession?.id || 'new');
+  const autoPlayed=useRef(new Set(currentSession?.messages.filter(m=>!m.isStreaming && m.deliveryStatus==='completed').map(m=>m.requestId).filter((id):id is string=>Boolean(id))));
+  const playbackScope=useRef(currentSession?.id || 'new');
+  const allowAutoReply=useRef(true);
+  useEffect(()=>{
+    const scope=currentSession?.id || 'new';
+    // Opening an existing conversation must not replay completed history.
+    const openedHistory=playbackScope.current!==scope && playbackScope.current!=='new';
+    playbackScope.current=scope;
+    for(const message of currentSession?.messages || []){
+      if(!message.voiceReply || !message.requestId || message.isStreaming || message.deliveryStatus!=='completed' || autoPlayed.current.has(message.requestId))continue;
+      autoPlayed.current.add(message.requestId);
+      if(autoPlayed.current.size>128)autoPlayed.current.delete(autoPlayed.current.values().next().value!);
+      if(!openedHistory && allowAutoReply.current && !document.hidden && voiceReplyEnabled && currentSession?.status==='active')void playback.play(message.requestId);
+    }
+  },[currentSession?.messages,currentSession?.status,voiceReplyEnabled,playback.play]);
+  const toggleVoiceReply=()=>{const next=!voiceReplyEnabled;setVoiceReplyEnabled(next);try{localStorage.setItem('voice-reply-enabled',String(next));}catch{}if(!next)playback.stop();};
+  const startVoiceInput=()=>{allowAutoReply.current=false;playback.stop();};
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -62,19 +83,22 @@ export function CustomerChatPage({
     }
   }, [faqSuggestions]);
 
-  const handleSend = useCallback((message: string) => {
+  const handleSend = useCallback((message: string, fromVoice = false) => {
+    playback.stop();
+    allowAutoReply.current=fromVoice;
     setCurrentFaqSuggestions([]);
     if (!currentSession) {
-      onSendMessage(message, undefined, (path) => navigate(path));
+      onSendMessage(message, undefined, (path) => navigate(path), fromVoice && voiceReplyEnabled);
     } else {
-      onSendMessage(message);
+      onSendMessage(message, undefined, undefined, fromVoice && voiceReplyEnabled);
     }
-  }, [currentSession, onSendMessage, navigate]);
+  }, [currentSession, onSendMessage, navigate,playback.stop,voiceReplyEnabled]);
 
   const handleFaqSelect = useCallback((faq: FaqItem) => {
+    playback.stop();
     onSendMessage(faq.question);
     sessionApi.hitFaq(faq.id).catch(() => {});
-  }, [onSendMessage]);
+  }, [onSendMessage,playback.stop]);
 
   const hasMessages = currentSession && currentSession.messages.length > 0;
   const isClosed = currentSession?.status === 'closed';
@@ -99,6 +123,8 @@ export function CustomerChatPage({
             <CustomerChatInput
               key={currentSession?.id || 'new'}
               variant="home"
+              voiceReplyEnabled={voiceReplyEnabled} onToggleVoiceReply={toggleVoiceReply} onVoiceStart={startVoiceInput}
+              onVoiceBusyChange={setVoiceInputBusy}
               inputValue={inputValue}
               isLoading={isLoading}
               disabled={isClosed || isSuspended}
@@ -151,6 +177,7 @@ export function CustomerChatPage({
               <SessionExecutionSteps key={currentSession!.id} messages={currentSession!.messages} defaultOpen={false} />
             </div>
             <ChatMessages
+              playback={voiceInputBusy ? undefined : playback}
               messages={currentSession!.messages}
               models={[]}
               messagesEndRef={messagesEndRef}
@@ -172,6 +199,8 @@ export function CustomerChatPage({
 
       {hasMessages && (
         <CustomerChatInput
+          voiceReplyEnabled={voiceReplyEnabled} onToggleVoiceReply={toggleVoiceReply} onVoiceStart={startVoiceInput}
+          onVoiceBusyChange={setVoiceInputBusy}
           key={currentSession?.id || 'new'}
           inputValue={inputValue}
           isLoading={isLoading}
@@ -198,7 +227,11 @@ interface CustomerChatInputProps {
   isLoading: boolean;
   disabled?: boolean;
   disabledMessage?: string;
-  onSend: (msg: string) => void;
+  onSend: (msg: string, fromVoice?: boolean) => void;
+  voiceReplyEnabled?: boolean;
+  onToggleVoiceReply?: () => void;
+  onVoiceStart?: () => void;
+  onVoiceBusyChange?: (busy: boolean) => void;
   onStop: () => void;
   onChange: (val: string) => void;
 }
@@ -212,18 +245,24 @@ function CustomerChatInput({
   onSend,
   onStop,
   onChange,
+  voiceReplyEnabled, onToggleVoiceReply, onVoiceStart, onVoiceBusyChange,
 }: CustomerChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const fromVoice=useRef(false);
+  useEffect(()=>{if(!inputValue.trim())fromVoice.current=false;},[inputValue]);
+  const send=()=>{onSend(inputValue,fromVoice.current);fromVoice.current=false;};
   const voice = useVoiceInput(Boolean(disabled || isLoading), text => {
+    fromVoice.current=true;
     onChange(appendTranscript(inputValue, text));
     textareaRef.current?.focus();
   });
+  useEffect(()=>{onVoiceBusyChange?.(voice.busy);return ()=>onVoiceBusyChange?.(false);},[voice.busy,onVoiceBusyChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (inputValue.trim() && !isLoading && !disabled && !voice.busy) onSend(inputValue);
+      if (inputValue.trim() && !isLoading && !disabled && !voice.busy) send();
     }
   };
 
@@ -274,7 +313,7 @@ function CustomerChatInput({
           disabled={disabled || isLoading || voice.phase === 'starting' || voice.phase === 'transcribing'}
           aria-label={voice.phase === 'recording' ? '结束录音并识别' : '语音输入'}
           title={voice.phase === 'recording' ? '结束录音并识别' : '语音输入：音频将交由语音模型转文字'}
-          aria-pressed={voice.phase === 'recording'} onClick={voice.phase === 'recording' ? voice.stop : voice.start}>
+          aria-pressed={voice.phase === 'recording'} onClick={voice.phase === 'recording' ? voice.stop : ()=>{onVoiceStart?.();void voice.start();}}>
           {voice.phase === 'recording' ? <Square size={18} />
             : voice.busy ? <Loader2 size={18} className="voice-spinner" /> : <Mic size={19} />}
         </button>
@@ -290,7 +329,7 @@ function CustomerChatInput({
           </button>
         ) : (
           <button
-            onClick={() => inputValue.trim() && !disabled && !voice.busy && onSend(inputValue)}
+            onClick={() => inputValue.trim() && !disabled && !voice.busy && send()}
             disabled={!inputValue.trim() || disabled || voice.busy}
             className="chat-composer-action is-send"
           >
@@ -303,6 +342,9 @@ function CustomerChatInput({
         )}
       </div>
       <div className="chat-voice-status" aria-live="polite" aria-atomic="true">
+        {onToggleVoiceReply && <button className="voice-reply-toggle" type="button" role="switch" aria-checked={Boolean(voiceReplyEnabled)} onClick={onToggleVoiceReply} title="语音提问确认发送后，自动朗读完整回复；文字提问不自动播报">
+          语音回复{voiceReplyEnabled?'已开':'已关'}
+        </button>}
         {voice.busy ? <>
           <span>{voice.phase === 'recording' ? `正在录音 ${voice.seconds}/60 秒，点击停止图标完成`
             : voice.phase === 'starting' ? '正在连接语音服务并等待麦克风授权…' : '正在识别语音，请稍候…'}</span>
