@@ -137,6 +137,8 @@ export interface Message {
   /** Independent Router/LangGraph execution ID for this conversation turn. */
   requestId?: string;
   deliveryStatus?: 'streaming' | 'completed' | 'failed' | 'stopped';
+  /** Current-page opt-in from a voice-originated draft, never inferred from text. */
+  voiceReply?: boolean;
   recoverable?: boolean;
   recoveryStatus?: WorkflowRecoveryStatus;
   recoveryError?: string;

@@ -267,6 +267,10 @@ services:
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       CONSUMER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-v4-flash}
       SPEECH_ENABLED: ${SPEECH_ENABLED:-false}
+      SPEECH_TTS_ENABLED: ${SPEECH_TTS_ENABLED:-false}
+      SPEECH_TTS_API_KEY: ${SPEECH_TTS_API_KEY:-${SPEECH_API_KEY:-${DASHSCOPE_API_KEY:-}}}
+      SPEECH_TTS_MODEL: ${SPEECH_TTS_MODEL:-qwen-audio-3.0-tts-flash}
+      SPEECH_TTS_VOICE: ${SPEECH_TTS_VOICE:-longanhuan_v3.6}
       SPEECH_API_KEY: ${SPEECH_API_KEY:-${DASHSCOPE_API_KEY:-}}
       SPEECH_API_BASE_URL: ${SPEECH_API_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       SPEECH_MODEL: ${SPEECH_MODEL:-qwen3-asr-flash}

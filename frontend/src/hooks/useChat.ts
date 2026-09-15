@@ -48,7 +48,8 @@ export function useChat(options: UseChatOptions) {
   const sendMessage = useCallback(async (
     messageContent: string,
     sessionIdOverride?: string,
-    onNavigate?: (path: string) => void
+    onNavigate?: (path: string) => void,
+    voiceReply = false,
   ) => {
     if (!messageContent.trim() || isLoading) return;
 
@@ -75,6 +76,7 @@ export function useChat(options: UseChatOptions) {
       contentBlocks: [],
       requestId: workflowRequestId,
       deliveryStatus: 'streaming',
+      voiceReply,
     };
 
     // 如果没有会话，本地生成 sessionId 直接开聊（微服务未提供会话创建端点，dev/demo 模式）
