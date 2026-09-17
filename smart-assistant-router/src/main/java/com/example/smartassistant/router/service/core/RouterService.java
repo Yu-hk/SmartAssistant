@@ -371,6 +371,14 @@ public class RouterService {
                 return finalized;
 
         } catch (Exception e) {
+            // Do not turn LangGraph's wrapped user cancellation into a business failure.
+            // In particular, publishing FAILED while interrupted can throw a Redis error
+            // and erase the typed cancellation before the controller sees it.
+            WorkflowCancelledException cancelled = WorkflowCancelledException.findIn(e);
+            if (cancelled != null) {
+                if (budgetTracker != null) budgetTracker.endSession();
+                throw cancelled;
+            }
             log.error("[Router] 路由失败: {}", e.getMessage(), e);
 
             // ⭐ P1 预算清理
