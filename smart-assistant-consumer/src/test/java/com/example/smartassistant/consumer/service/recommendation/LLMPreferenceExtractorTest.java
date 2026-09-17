@@ -36,6 +36,7 @@ class LLMPreferenceExtractorTest {
         ReflectionTestUtils.setField(extractor, "extractionTimeoutMs", 50L);
         when(aiChatService.buildChatClient(lightModel)
                 .prompt()
+                .options(org.mockito.ArgumentMatchers.any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class))
                 .user(anyString())
                 .call()
                 .entity(LLMPreferenceExtractor.UserInsightReport.class))
@@ -71,10 +72,46 @@ class LLMPreferenceExtractorTest {
     }
 
     @Test
+    void nonInterruptibleCallsCannotAccumulateQueuedProfileWork() {
+        ReflectionTestUtils.setField(extractor, "extractionTimeoutMs", 100L);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var starts = new java.util.concurrent.atomic.AtomicInteger();
+        when(aiChatService.buildChatClient(lightModel).prompt()
+                .options(org.mockito.ArgumentMatchers.any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class))
+                .user(anyString()).call().entity(LLMPreferenceExtractor.UserInsightReport.class))
+                .thenAnswer(invocation -> {
+                    starts.incrementAndGet();
+                    while (release.getCount() > 0) {
+                        try { release.await(); } catch (InterruptedException ignored) { }
+                    }
+                    return LLMPreferenceExtractor.UserInsightReport.empty("late response");
+                });
+        try {
+            extractor.extract("预算1000元");
+            extractor.extract("偏好轻便");
+            var third = extractor.extract("还需要续航长");
+            assertEquals(2, starts.get());
+            assertTrue(third.commerceAssessment().limitations().contains("用户画像分析繁忙"));
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
+    void profileCallDisablesThinkingAndBoundsOutput() {
+        extractor.extract("偏好续航长");
+        var options = org.mockito.ArgumentCaptor.forClass(org.springframework.ai.chat.prompt.ChatOptions.Builder.class);
+        org.mockito.Mockito.verify(aiChatService.buildChatClient(lightModel).prompt()).options(options.capture());
+        var actual = (org.springframework.ai.deepseek.DeepSeekChatOptions) options.getValue().build();
+        assertEquals(2048, actual.getMaxTokens());
+        assertEquals(org.springframework.ai.deepseek.DeepSeekChatOptions.builder().disableThinking().build().getThinking(), actual.getThinking());
+    }
+
+    @Test
     void modelFailureReturnsUnreliableEmptyReportWithoutLegacyFields() {
         ReflectionTestUtils.setField(extractor, "extractionTimeoutMs", 1_000L);
         when(aiChatService.buildChatClient(lightModel)
-                .prompt().user(anyString()).call()
+                .prompt().options(org.mockito.ArgumentMatchers.any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class)).user(anyString()).call()
                 .entity(LLMPreferenceExtractor.UserInsightReport.class))
                 .thenThrow(new IllegalStateException("model unavailable"));
 

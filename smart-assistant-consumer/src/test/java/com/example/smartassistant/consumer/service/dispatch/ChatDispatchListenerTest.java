@@ -83,6 +83,18 @@ class ChatDispatchListenerTest {
         verify(channel).basicReject(1, false);
         verify(router, times(1)).callRouterRaw(any(), any(), any(), any(), anyBoolean());
     }
+    @Test void provenUnsentFailureIsFailedNotUncertainOrSuccessfulAndNeverReplayed() throws Exception {
+        claimed();
+        var failure = PriorityRoutingDispatcher.failure("ROUTER_REQUEST_NOT_SENT", "本轮尚未开始");
+        when(router.callRouterRaw(any(), any(), any(), any(), anyBoolean())).thenReturn(failure);
+        listener.receive(message(), channel);
+        verify(store).finish(command, "RUNNING", "FAILED", failure);
+        verify(channel).basicReject(1, false);
+        verify(channel, never()).basicAck(anyLong(), anyBoolean());
+        when(store.start(eq(command), anyLong())).thenReturn("FAILED");
+        listener.receive(message(), channel);
+        verify(router, times(1)).callRouterRaw(any(), any(), any(), any(), anyBoolean());
+    }
     @Test void optionalProfileIsScheduledWithoutRedisBarrierProbe() throws Exception {
         claimed();
         when(router.callRouterRaw(any(), any(), any(), any(), anyBoolean())).thenReturn(Map.of("result", "完成"));

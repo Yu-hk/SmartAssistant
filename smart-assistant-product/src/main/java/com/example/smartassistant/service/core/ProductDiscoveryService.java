@@ -49,7 +49,7 @@ public class ProductDiscoveryService {
                 .replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
         boolean categoryRequest = !detectCategory(normalized).isBlank();
         boolean popularityRequest = asksForPopularity(normalized);
-        boolean hardConstraintRequest = extractMaxBudget(normalized) != null
+        boolean hardConstraintRequest = resolveBudget(normalized).max() != null || resolveBudget(normalized).ambiguous()
                 || normalized.contains("只看") || normalized.contains("仅看")
                 || normalized.contains("限定");
         ProductFeatureRequest features = ProductFeatureRequest.parse(normalized);
@@ -86,7 +86,9 @@ public class ProductDiscoveryService {
         String category = normalizeCategory(requestedCategory);
         if (category.isBlank()) category = detectCategory(normalizedQuery);
         ProductFeatureRequest featureRequest = ProductFeatureRequest.parse(normalizedQuery);
-        BigDecimal maxBudget = extractMaxBudget(normalizedQuery);
+        BudgetResolution budget = resolveBudget(normalizedQuery);
+        BigDecimal maxBudget = budget.max();
+        if (budget.ambiguous()) return clarification(budget.clarification(), category);
         boolean inStockOnly = asksForAvailableStock(normalizedQuery);
         if (!featureRequest.clarification().isBlank()) {
             String prefix = category.isBlank() ? "你想选购哪类商品？我会保留已提供的预算和特征。" : "";
@@ -278,17 +280,61 @@ public class ProductDiscoveryService {
     }
 
     public static BigDecimal extractMaxBudget(String query) {
-        if (query == null || query.isBlank()) return null;
+        return resolveBudget(query).max();
+    }
+
+    public record BudgetResolution(BigDecimal max, boolean ambiguous) {
+        public String clarification() {
+            return ambiguous ? "您提到了多个预算或预算范围，请确认本次购买的预算上限是多少元？我会按您确认的金额筛选。" : "";
+        }
+    }
+
+    public static BudgetResolution resolveBudget(String query) {
+        if (query == null || query.isBlank()) return new BudgetResolution(null, false);
         String normalized = com.example.smartassistant.service.quality.ProductMoneySyntax.normalize(query);
         // Physical dimensions are not money: e.g. 不超过1.3kg must not become a 1300-yuan budget.
         normalized = normalized.replaceAll("(?i)(?:不超过|不大于|至少|不低于|不少于|最多|至多|<=|>=|≤|≥)?"
                 + "\\s*\\d+(?:\\.\\d+)?\\s*(?:kg|千克|公斤|克|g|小时|h)(?:以内|以下|以上|及以下|及以上)?", "");
-        BigDecimal value = extractBudget(BUDGET_PREFIX_PATTERN.matcher(normalized));
-        return value != null ? value : extractBudget(BUDGET_SUFFIX_PATTERN.matcher(normalized));
+        record Candidate(int start, BigDecimal value, boolean current) {}
+        var candidates = new java.util.ArrayList<Candidate>();
+        boolean range = false;
+        for (Pattern pattern : List.of(BUDGET_PREFIX_PATTERN, BUDGET_SUFFIX_PATTERN)) {
+            Matcher matcher = pattern.matcher(normalized);
+            while (matcher.find()) {
+                String before = normalized.substring(0, matcher.start());
+                int boundary = Math.max(Math.max(before.lastIndexOf('，'), before.lastIndexOf(',')),
+                        Math.max(before.lastIndexOf('。'), before.lastIndexOf('；')));
+                String clause = before.substring(boundary + 1);
+                // Only discard an amount with an explicit historical/negated qualifier.
+                // A later current qualifier ("之前...现在...") takes precedence within a clause.
+                int old = lastMarker(clause, "之前", "原来", "原先", "以前", "上次", "过去", "不要按", "别按", "不是", "不按");
+                int current = lastMarker(clause, "现在", "本次", "这次", "目前", "改为", "调整为");
+                if (old >= 0 && old >= current) continue;
+                String matched = matcher.group();
+                boolean revised = current >= 0 || matched.contains("改为") || matched.contains("调整为");
+                if (normalized.substring(matcher.end()).matches("(?s)^\\s*(?:-|—|~|～|至|到)\\s*\\d.*")) {
+                    range = true;
+                }
+                BigDecimal value = extractBudget(matcher);
+                if (value != null) candidates.add(new Candidate(matcher.start(), value, revised));
+            }
+        }
+        candidates.sort(java.util.Comparator.comparingInt(Candidate::start));
+        // Explicit revisions win; conflicting unqualified limits require confirmation.
+        Candidate revision = candidates.stream().filter(Candidate::current).reduce((a, b) -> b).orElse(null);
+        if (revision != null && !range) return new BudgetResolution(revision.value(), false);
+        var values = candidates.stream().map(c -> c.value().stripTrailingZeros()).distinct().toList();
+        if (range || values.size() > 1) return new BudgetResolution(null, true);
+        return new BudgetResolution(values.isEmpty() ? null : values.getFirst(), false);
+    }
+
+    private static int lastMarker(String text, String... markers) {
+        int last = -1;
+        for (String marker : markers) last = Math.max(last, text.lastIndexOf(marker));
+        return last;
     }
 
     private static BigDecimal extractBudget(Matcher matcher) {
-        if (!matcher.find()) return null;
         try {
             BigDecimal value = new BigDecimal(matcher.group(1).replace(",", ""));
             String unit = matcher.group(2);
