@@ -26,6 +26,7 @@ const STATUS_LABELS: Record<string, string> = {
   active: '进行中',
   human_transfer: '转人工',
   closed: '已结束',
+  suspended: '已暂停',
 };
 
 const STATUS_TONES: Record<string, { color: string; bg: string }> = {

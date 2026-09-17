@@ -23,6 +23,50 @@ import static org.mockito.Mockito.when;
 @EnabledIfEnvironmentVariable(named = "RUN_REDIS_INTEGRATION_TESTS", matches = "true")
 class ConversationGateRedisIntegrationTest {
 
+    @Test
+    void deletingCompletedSessionReleasesOwnerAndFencesNewRequests() {
+        var active = gate.acquire("900010", "old", "r1");
+        assertEquals(ConversationGateService.CloseStatus.BUSY, gate.beginDeletion("900010", "old").status());
+        gate.release(active);
+        var deletion = gate.beginDeletion("900010", "old");
+        assertEquals(ConversationGateService.CloseStatus.CLOSED, deletion.status());
+        assertEquals(ConversationGateService.GateStatus.SESSION_CLOSED, gate.acquire("900010", "old", "r2").status());
+        org.junit.jupiter.api.Assertions.assertTrue(gate.finishDeletion(deletion, true));
+        var next = gate.acquire("900010", "new", "r3");
+        org.junit.jupiter.api.Assertions.assertTrue(next.acquired());
+        gate.release(next);
+        // An old finalizer must not clear a different session's ownership.
+        gate.finishDeletion(deletion, true);
+        assertEquals("new", redisTemplate.opsForValue().get("conversation:gate:{900010}:active"));
+    }
+
+    @Test
+    void failedDeletionReopensOriginalSessionOnly() {
+        var first = gate.acquire("900011", "old", "r1"); gate.release(first);
+        var deletion = gate.beginDeletion("900011", "old");
+        gate.finishDeletion(deletion, false);
+        var next = gate.acquire("900011", "old", "r2");
+        org.junit.jupiter.api.Assertions.assertTrue(next.acquired()); gate.release(next);
+    }
+
+    @Test
+    void staleMissingOwnerRequiresGraceAndCannotInterruptRunningWork() {
+        var store = mock(ConversationGateStateStore.class);
+        when(store.staleOwnerReason("900012", "old")).thenReturn("MISSING");
+        var isolated = new ConversationGateService(redisTemplate);
+        ReflectionTestUtils.setField(isolated, "stateStore", store);
+        try {
+            redisTemplate.opsForValue().set("conversation:gate:{900012}:active", "old", Duration.ofMinutes(30));
+            assertEquals(ConversationGateService.GateStatus.SESSION_SUSPENDED, isolated.acquire("900012", "new", "r1").status());
+            redisTemplate.expire("conversation:gate:{900012}:active", Duration.ofMinutes(28));
+            redisTemplate.opsForValue().set("conversation:gate:{900012}:running:old", "r0|token", Duration.ofMinutes(1));
+            assertEquals(ConversationGateService.GateStatus.SESSION_SUSPENDED, isolated.acquire("900012", "new", "r2").status());
+            redisTemplate.delete("conversation:gate:{900012}:running:old");
+            var acquired = isolated.acquire("900012", "new", "r3");
+            org.junit.jupiter.api.Assertions.assertTrue(acquired.acquired()); isolated.release(acquired);
+        } finally { isolated.shutdownHeartbeatScheduler(); }
+    }
+
     private static LettuceConnectionFactory connectionFactory;
     private static StringRedisTemplate redisTemplate;
     private static ConversationGateService gate;
@@ -124,8 +168,10 @@ class ConversationGateRedisIntegrationTest {
 
     private static void clearTestKeys() {
         if (redisTemplate == null) return;
-        var keys = redisTemplate.keys("conversation:gate:*");
-        if (keys != null && !keys.isEmpty()) redisTemplate.delete(keys);
+        for (String id : List.of("900001", "900002", "900003", "900010", "900011", "900012")) {
+            var keys = redisTemplate.keys("conversation:gate:{" + id + "}:*");
+            if (keys != null && !keys.isEmpty()) redisTemplate.delete(keys);
+        }
     }
 
     @FunctionalInterface

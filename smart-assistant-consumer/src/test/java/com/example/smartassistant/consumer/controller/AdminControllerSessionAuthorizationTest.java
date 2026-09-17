@@ -27,6 +27,43 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AdminControllerSessionAuthorizationTest {
 
+    @Test
+    void deletionReservesGateUntilDatabaseDeleteCommits() {
+        var lease = new ConversationGateService.DeletionLease(ConversationGateService.CloseStatus.CLOSED, "7", "session-a", "token");
+        when(conversationGateService.beginDeletion("7", "session-a")).thenReturn(lease);
+        when(adminService.deleteUserSession("session-a", 7L)).thenReturn(true);
+        when(conversationGateService.finishDeletion(lease, true)).thenReturn(true);
+        assertEquals(HttpStatus.OK, controller.deleteSession("session-a", 7L, "ROLE_USER").getStatusCode());
+        var order = org.mockito.Mockito.inOrder(conversationGateService, adminService);
+        order.verify(conversationGateService).beginDeletion("7", "session-a");
+        order.verify(adminService).deleteUserSession("session-a", 7L);
+        order.verify(conversationGateService).finishDeletion(lease, true);
+    }
+
+    @Test
+    void deletionNeverTouchesDatabaseWhileTurnIsRunningOrRedisUnavailable() {
+        for (var status : List.of(ConversationGateService.CloseStatus.BUSY, ConversationGateService.CloseStatus.UNAVAILABLE)) {
+            when(conversationGateService.beginDeletion("7", "session-a"))
+                    .thenReturn(new ConversationGateService.DeletionLease(status, "7", "session-a", null));
+            assertEquals(status == ConversationGateService.CloseStatus.BUSY ? HttpStatus.CONFLICT : HttpStatus.SERVICE_UNAVAILABLE,
+                    controller.deleteSession("session-a", 7L, "ROLE_USER").getStatusCode());
+        }
+        verifyNoInteractions(adminService);
+    }
+
+    @Test
+    void failedOrUnownedDeleteAbortsReservation() {
+        var lease = new ConversationGateService.DeletionLease(ConversationGateService.CloseStatus.CLOSED, "7", "session-a", "token");
+        when(conversationGateService.beginDeletion("7", "session-a")).thenReturn(lease);
+        when(adminService.deleteUserSession("session-a", 7L)).thenReturn(false);
+        assertEquals(HttpStatus.NOT_FOUND, controller.deleteSession("session-a", 7L, "ROLE_USER").getStatusCode());
+        verify(conversationGateService).finishDeletion(lease, false);
+        when(adminService.deleteUserSession("session-a", 7L)).thenThrow(new IllegalStateException("DB rollback"));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> controller.deleteSession("session-a", 7L, "ROLE_USER"));
+        verify(conversationGateService, org.mockito.Mockito.times(2)).finishDeletion(lease, false);
+    }
+
     @Mock
     private AdminService adminService;
 

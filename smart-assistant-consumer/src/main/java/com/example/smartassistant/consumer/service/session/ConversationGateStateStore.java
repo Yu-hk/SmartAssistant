@@ -26,6 +26,7 @@ public class ConversationGateStateStore {
         switch (decision.status()) {
             case ACQUIRED, REATTACHED -> activate(userId, decision.sessionId(), "ACTIVE_RUNNING");
             case SESSION_SUSPENDED -> upsert(userId, decision.sessionId(), "SUSPENDED");
+            case SESSION_CLOSED -> { }
             case REQUEST_BLOCKED -> activate(userId, decision.sessionId(), "ACTIVE_RUNNING");
             case UNAVAILABLE -> { }
         }
@@ -57,6 +58,20 @@ public class ConversationGateStateStore {
                 String.class, numericUserId, sessionId);
         return statuses.stream().anyMatch(status ->
                 "SUSPENDED".equalsIgnoreCase(status) || "FROZEN".equalsIgnoreCase(status));
+    }
+
+    /** Null means a live/known owner; missing records alone are not enough without Redis grace/running checks. */
+    public String staleOwnerReason(String userId, String sessionId) {
+        Long id = numericUserId(userId);
+        if (id == null) return null;
+        List<String> states = jdbcTemplate.queryForList(
+                "SELECT status FROM conversation_session_state WHERE user_id = ? AND session_id = ?",
+                String.class, id, sessionId);
+        if (states.stream().anyMatch("CLOSED"::equalsIgnoreCase)) return "CLOSED";
+        if (!states.isEmpty()) return null;
+        Long count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM routing_call_log WHERE user_id = ? AND session_id = ?", Long.class, id, sessionId);
+        return count != null && count == 0 ? "MISSING" : null;
     }
 
     @Transactional

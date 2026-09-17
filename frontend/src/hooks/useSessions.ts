@@ -64,6 +64,7 @@ export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
+  const [blockingSessionId, setBlockingSessionId] = useState<string | null>(null);
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
@@ -144,12 +145,14 @@ export function useSessions() {
   }, []);
 
   const deleteSession = useCallback(async (sessionId: string): Promise<string | null> => {
+    setSessionActionError(null);
     try {
       await sessionApi.deleteSession(sessionId);
     } catch (e) {
       // 本地新建会话在首次发送前不会落库，后端 404 时仍应允许从列表移除。
       if (!(e instanceof ApiError) || e.status !== 404) {
         console.error(e);
+        setSessionActionError(e instanceof ApiError ? e.message : '删除对话失败，请稍后重试。');
         return null;
       }
     }
@@ -191,6 +194,15 @@ export function useSessions() {
       await sessionApi.resumeSession(sessionId);
     } catch (e) {
       console.error(e);
+      if (e instanceof ApiError && e.body) {
+        try {
+          const detail = JSON.parse(e.body);
+          if (typeof detail.activeSessionId === 'string' && detail.activeSessionId) {
+            setBlockingSessionId(detail.activeSessionId);
+            void fetchSessions();
+          }
+        } catch { /* Keep the original error visible. */ }
+      }
       setSessionActionError(e instanceof ApiError
         ? e.message
         : '恢复会话失败，请稍后重试。');
@@ -199,8 +211,9 @@ export function useSessions() {
     setSessions(prev => prev.map(s => s.id === sessionId
       ? { ...s, status: 'active' }
       : s));
+    setBlockingSessionId(null);
     return true;
-  }, []);
+  }, [fetchSessions]);
 
   const rateSession = useCallback(async (sessionId: string, score: number) => {
     setSessionActionError(null);
@@ -241,7 +254,7 @@ export function useSessions() {
   }, [currentSessionId, sessions, loadSessionMessages]);
 
   return {
-    sessions, setSessions, sessionActionError, setSessionActionError,
+    sessions, setSessions, sessionActionError, setSessionActionError, blockingSessionId, setBlockingSessionId,
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, loadSessionMessages, createSession,

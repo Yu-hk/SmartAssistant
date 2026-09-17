@@ -20,10 +20,11 @@ interface UseChatOptions {
   selectedModel: string;
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
   setCurrentSessionId: (id: string | null) => void;
+  onConversationConflict?: (sessionId: string) => void;
 }
 
 export function useChat(options: UseChatOptions) {
-  const { currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId } = options;
+  const { currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId, onConversationConflict } = options;
 
   const [isLoading, setIsLoading] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -334,6 +335,9 @@ export function useChat(options: UseChatOptions) {
             }));
 
           } else if (data.type === 'conversation_suspended' || data.type === 'conversation_frozen') {
+            if (typeof data.activeSessionId === 'string' && data.activeSessionId) {
+              onConversationConflict?.(data.activeSessionId);
+            }
             isGateStopped = true;
             setProgressMessage('');
             setQueuePosition(data.queuePosition || null);
@@ -351,6 +355,15 @@ export function useChat(options: UseChatOptions) {
                 : session
             ));
 
+          } else if (data.type === 'conversation_closed') {
+            isGateStopped = true;
+            setProgressMessage('');
+            updateAssistantMessage(current => ({ ...current,
+              content: '该会话已删除或正在删除，请新建对话。', isStreaming: false,
+              deliveryStatus: 'stopped', recoverable: false,
+            }));
+            setSessions(prev => prev.map(session => session.id === realSessionId || session.id === sessionId
+              ? { ...session, status: 'closed' } : session));
           } else if (data.type === 'request_blocked') {
             isGateStopped = true;
             setProgressMessage('');
@@ -520,7 +533,7 @@ export function useChat(options: UseChatOptions) {
       if (streamAbortRef.current === controller) streamAbortRef.current = null;
     }
   }, [setSessions, setFaqSuggestions, setPermissionRequest, setQueuePosition,
-    setQueueEstimatedWait, setProgressMessage]);
+    setQueueEstimatedWait, setProgressMessage, onConversationConflict]);
 
   // 权限处理
   const handlePermissionAllow = useCallback(async () => {
