@@ -91,9 +91,13 @@ public class AdminController {
             @RequestHeader(value = "X-User-Role", required = false) String role,
             @RequestParam(required = false) Long userId) {
         if (!isAdmin(role)) return forbidden();
-        return adminService.deleteAdminSession(id, userId)
-                ? ResponseEntity.ok(Map.of("success", true))
-                : ResponseEntity.notFound().build();
+        var detail = adminService.getAdminSessionDetail(id, userId);
+        if (detail.isEmpty()) return ResponseEntity.notFound().build();
+        Long owner = detail.get().userId();
+        // Legacy anonymous sessions never own an authenticated user's gate.
+        if (owner == null) return adminService.deleteAdminSession(id, null)
+                ? ResponseEntity.ok(Map.of("success", true)) : ResponseEntity.notFound().build();
+        return deleteWithGate(id, owner, () -> adminService.deleteAdminSession(id, owner));
     }
 
     @GetMapping("/admin/faqs")
@@ -196,9 +200,27 @@ public class AdminController {
             @PathVariable String id,
             @RequestHeader("X-User-Id") Long userId,
             @RequestHeader(value = "X-User-Role", required = false) String ignoredRole) {
-        return adminService.deleteUserSession(id, userId)
-                ? ResponseEntity.ok(Map.of("success", true))
-                : ResponseEntity.notFound().build();
+        return deleteWithGate(id, userId, () -> adminService.deleteUserSession(id, userId));
+    }
+
+    private ResponseEntity<?> deleteWithGate(String id, Long userId, java.util.function.BooleanSupplier delete) {
+        if (conversationGateService == null) return ResponseEntity.status(503)
+                .body(Map.of("message", "会话状态服务暂不可用，请稍后再删除"));
+        var lease = conversationGateService.beginDeletion(userId.toString(), id);
+        if (lease.status() == ConversationGateService.CloseStatus.BUSY) return ResponseEntity.status(409)
+                .body(Map.of("message", "当前对话仍在处理请求或删除中，请先停止生成并等待完成"));
+        if (lease.status() != ConversationGateService.CloseStatus.CLOSED) return ResponseEntity.status(503)
+                .body(Map.of("message", "会话状态服务暂不可用，请稍后再删除"));
+        boolean committed = false;
+        try {
+            // The service transaction commits before this proxy invocation returns.
+            committed = delete.getAsBoolean();
+            return committed ? ResponseEntity.ok(Map.of("success", true)) : ResponseEntity.notFound().build();
+        } finally {
+            if (!conversationGateService.finishDeletion(lease, committed)) {
+                log.warn("[SessionDelete] Gate cleanup pending: userId={}, sessionId={}, committed={}", userId, id, committed);
+            }
+        }
     }
 
     @PostMapping("/sessions/{id}/satisfaction")
