@@ -83,8 +83,7 @@ public class RetrievalQualityResult {
         r.highQuality = false;
         r.qualityLabel = QualityLabel.NO_DATA;
         r.rejectionCode = "NO_RELEVANT_DATA";
-        r.rejectionMessage = "抱歉，数据库中未找到与「" + queryDetail + "」相关的信息。"
-                + "请尝试更换关键词或联系人工客服。";
+        r.rejectionMessage = com.example.smartassistant.common.error.CustomerMessages.NO_DATA;
         return r;
     }
 
@@ -112,19 +111,8 @@ public class RetrievalQualityResult {
     // ═══════════════════════════════════════════════════════════
 
     private static String buildRejectionMessage(String detail, double score) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("抱歉，暂时无法回答您的问题。");
-
-        if (detail != null && !detail.isBlank()) {
-            sb.append(" ").append(detail);
-        }
-
-        if (score > 0) {
-            sb.append("（检索置信度：").append(String.format("%.0f", score * 100)).append("%）");
-        }
-
-        sb.append(" 请确认问题后再试，或联系人工客服。");
-        return sb.toString();
+        // Diagnostics and confidence are not customer instructions; never echo raw details.
+        return com.example.smartassistant.common.error.CustomerMessages.INSUFFICIENT_EVIDENCE;
     }
 
     // ═══════════════════════════════════════════════════════════

@@ -15,6 +15,33 @@ import static org.junit.jupiter.api.Assertions.*;
 class RouteExecutionPreplannedGraphTest {
 
     @Test
+    void refundStatusRemainsReadOnlyWithoutOrderIdAndNeverBecomesOrderPreparation() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setNeedsClarification(true);
+        analysis.setMissingSlots(List.of("order_id"));
+        analysis.setSubIntents(List.of(Map.of("id", "refund-status", "description", "查询退款进度",
+                "target_agent", "order", "operation", "QUERY_ORDER", "access_mode", "READ")));
+        var plan = RouteExecutionService.buildExecutionPlan("帮我查一下退款进度。", analysis, "refund-status");
+        var node = plan.nodes().getFirst();
+        assertEquals("order", node.targetAgent());
+        assertEquals("QUERY_ORDER", node.operation());
+        assertEquals(com.example.smartassistant.router.model.ExecutionPlan.AccessMode.READ, node.accessMode());
+        assertFalse(node.approvalRequired());
+        assertFalse(node.description().contains("收货人"));
+    }
+
+    @Test
+    void missingFieldReplyHidesInternalNamesAndDoesNotRepeatPlannerInstructions() {
+        String reply = RouteExecutionService.builtInOrderPreparationReply(
+                "执行REFUND_ORDER前还需要补充：order_id、reason。只追问缺失信息，本次不得执行任何写操作。");
+        assertTrue(reply.contains("订单号、原因"));
+        assertTrue(reply.contains("目前还没有提交"));
+        assertFalse(reply.contains("REFUND_ORDER"));
+        assertFalse(reply.contains("只追问"));
+        assertFalse(reply.contains("order_id"));
+    }
+
+    @Test
     void policyExplanationConsumesKnowledgeAnswerNotInventedAnalysis() {
         TaskAnalysisResult analysis = new TaskAnalysisResult();
         analysis.setSubIntents(List.of(

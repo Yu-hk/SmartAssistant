@@ -237,7 +237,7 @@ public class OrderRagService {
         if (orderId == null) {
             return RetrievalQualityResult.insufficientEvidence(
                     "", 0.0,
-                    "请提供订单号（如 ORD-xxx 或 BULK-xxx）以便查询" + intentLabel + "信息。");
+                    "您想查询哪笔订单的" + intentLabel + "信息？请把订单号发给我，方便核对。");
         }
 
         try {

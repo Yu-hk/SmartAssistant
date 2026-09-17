@@ -149,9 +149,23 @@ public class ErrorRecoveryService {
      */
     public String resolveUserMessage(AgentErrorCode errorCode, String detailMessage) {
         if (errorCode == null) {
-            return "系统暂时无法处理您的请求，请稍后再试";
+            return CustomerMessages.UNAVAILABLE;
         }
         // 使用枚举自带的 defaultHint
-        return errorCode.getDefaultHint();
+        return switch (errorCode) {
+            case ORDER_NOT_FOUND -> "这个账号下暂时没有查到这笔订单。请核对订单号，并确认是否使用了下单时的账号。";
+            case PRODUCT_NOT_FOUND -> "暂时没有查到这款商品。您可以告诉我商品名称或型号，我再帮您核对。";
+            case DATA_NOT_FOUND, NO_RESULTS -> CustomerMessages.NO_DATA;
+            case LOGISTICS_NOT_FOUND -> "暂时还没有查到物流信息。您可以核对订单号；查不到物流不代表订单没有发货。";
+            case TOOL_INVALID_ARGUMENT -> "还需要核对一下您提供的信息，请补充或确认本次操作所需的内容。";
+            case PERMISSION_DENIED -> "这个账号暂时没有权限进行这项操作，请使用有权限的账号。";
+            case SYSTEM_ROUTE_FAILED, SYSTEM_AGENT_TIMEOUT, AGENT_TIMEOUT, AGENT_EMPTY_REPLY,
+                    MODEL_CALL_FAILED, SYSTEM_BUDGET_EXCEEDED, SYSTEM_MAX_ITERATIONS, SYSTEM_NO_INCREMENT,
+                    UNKNOWN_TOOL, TOOL_EXECUTION_FAILED, TOOL_EXECUTION_ERROR -> CustomerMessages.UNAVAILABLE;
+            case RAG_EMBEDDING_UNAVAILABLE, RAG_VECTOR_SEARCH_FAILED, RAG_KEYWORD_SEARCH_FAILED,
+                    RAG_BM25_FAILED, RAG_RERANK_FAILED, RAG_GRAPH_FAILED, RAG_KNOWLEDGE_FAILED,
+                    RAG_QUERY_REWRITE_FAILED -> "抱歉，这次没能查到可用的资料。您可以稍后再试，或直接提供需要核对的资料。";
+            default -> errorCode.getDefaultHint();
+        };
     }
 }
