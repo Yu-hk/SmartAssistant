@@ -448,6 +448,7 @@ public class StreamChatController {
             }
             String type = switch (decision.status()) {
                 case SESSION_SUSPENDED -> "conversation_suspended";
+                case SESSION_CLOSED -> "conversation_closed";
                 case REQUEST_BLOCKED -> "request_blocked";
                 case REATTACHED -> "request_in_progress";
                 case UNAVAILABLE -> "conversation_gate_unavailable";
@@ -455,6 +456,7 @@ public class StreamChatController {
             };
             String reason = switch (decision.status()) {
                 case SESSION_SUSPENDED -> "USER_HAS_ACTIVE_CONVERSATION";
+                case SESSION_CLOSED -> "SESSION_DELETED";
                 case REQUEST_BLOCKED -> "SESSION_HAS_RUNNING_REQUEST";
                 case REATTACHED -> "REQUEST_ALREADY_RUNNING";
                 case UNAVAILABLE -> "CONVERSATION_GATE_UNAVAILABLE";
@@ -469,6 +471,7 @@ public class StreamChatController {
             payload.put("reason", reason);
             payload.put("message", switch (decision.status()) {
                 case SESSION_SUSPENDED -> "当前账号正在使用其他对话，本对话已暂停并保留上下文";
+                case SESSION_CLOSED -> "当前会话已删除或正在删除，请新建对话";
                 case REQUEST_BLOCKED -> "当前对话已有请求正在处理，请等待完成后再发送";
                 case REATTACHED -> "该请求仍在处理中，请等待原请求完成";
                 default -> "会话状态服务暂不可用，请稍后重试";
