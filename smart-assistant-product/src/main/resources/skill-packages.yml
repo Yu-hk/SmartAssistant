@@ -20,15 +20,17 @@ skill-package:
     - id: product-detail-query
       name: 商品详情查询
       description: 查询指定商品的真实详情、价格和库存
-      version: "2.0.0"
+      version: "2.0.1"
       priority: 80
       tags: [product, query]
       trigger-operations: [QUERY_PRODUCT]
       match-terms: [详情, 参数, 规格, 多少钱, 价格, 分期, 库存, 有货, 发货时间]
-      required-tools: [queryProductInfo, getPrice, checkStock]
+      required-tools: [queryProductInfo, getPrice, checkStock, queryKnowledge]
       instruction: |
         根据用户实际需要调用 queryProductInfo、getPrice 或 checkStock；多个维度可以依次查询后合并回答。
         需要具体商品但缺少商品编码或名称时先补充信息，不得猜测商品。
+        只问价格和库存时，用简短客服口吻直接回答，不额外查询热门榜单或拼接无关销量、评分、商品编码。
+        分期、优惠、发货和配送时效不能从价格或库存推断；用户问到这些政策时查询 queryKnowledge，未核实则明确说明。
       bind-agents: [product-service]
 
     - id: product-price-comparison

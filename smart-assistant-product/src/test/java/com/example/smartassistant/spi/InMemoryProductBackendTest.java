@@ -9,6 +9,14 @@ class InMemoryProductBackendTest {
     private final InMemoryProductBackend backend = new InMemoryProductBackend();
 
     @Test
+    void demoCatalogAlsoAvoidsUnverifiedCommercialPromises() {
+        assertThat(backend.getPrice("AIRPODS-PRO")).isEqualTo("AirPods Pro（第二代） 售价 1999 元。");
+        assertThat(backend.checkStock("AIRPODS-PRO")).isEqualTo("AirPods Pro（第二代） 库存充足。");
+        assertThat(backend.checkStock("MACBOOK-AIR-M3")).contains("库存紧张")
+                .doesNotContain("发货", "尽快下单");
+    }
+
+    @Test
     void matchesCodeCaseInsensitively() {
         assertThat(backend.queryProductInfo("macbook-air-m3"))
                 .contains("MacBook Air M3")
