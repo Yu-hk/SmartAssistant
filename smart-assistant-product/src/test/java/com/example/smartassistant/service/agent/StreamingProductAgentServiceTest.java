@@ -43,6 +43,14 @@ import static org.mockito.Mockito.*;
 class StreamingProductAgentServiceTest {
 
     @Test
+    void cleansPublicReplyAfterAgentExecutionWithoutChangingToolInputs() {
+        when(agent.execute(anyString())).thenReturn("MacBook Air M3（商品编码 MACBOOK-AIR-M3）库存紧张。");
+        var result = service.executeWithQuality("MacBook Air M3现在有货吗？", "no-public-code");
+        assertEquals("MacBook Air M3库存紧张。", result.answer());
+        verify(agent).execute(contains("MacBook Air M3"));
+    }
+
+    @Test
     void structuredFeatureEvidenceSurvivesFlashAnalysisAndProReview() throws Exception {
         var flash = mock(org.springframework.ai.chat.model.ChatModel.class);
         var pro = mock(org.springframework.ai.chat.model.ChatModel.class);
