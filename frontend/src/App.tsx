@@ -218,7 +218,7 @@ function CustomerApp() {
     isLoading, inputValue, setInputValue,
     permissionRequest, faqSuggestions,
     sendMessage, handleStop,
-    handlePermissionAllow, handlePermissionDeny, handleRecoverMessage,
+    handlePermissionAllow, handlePermissionDeny, handleRecoverMessage, recoveryAvailable,
     queuePosition, queueEstimatedWait, progressMessage,
   } = useChat({
     currentSession,
@@ -384,6 +384,7 @@ function CustomerApp() {
               onPermissionAllow={handlePermissionAllow}
               onPermissionDeny={handlePermissionDeny}
               onRecoverMessage={handleRecoverMessage}
+              recoveryAvailable={recoveryAvailable}
               onRateSession={handleRateSession}
             />
             {sessionActionError && (

@@ -29,6 +29,7 @@ interface CustomerChatPageProps {
   onPermissionAllow: () => void;
   onPermissionDeny: () => void;
   onRecoverMessage: (messageId: string, requestId: string) => void;
+  recoveryAvailable: boolean;
   onRateSession: (score: number) => void;
 }
 
@@ -47,6 +48,7 @@ export function CustomerChatPage({
   onPermissionAllow,
   onPermissionDeny,
   onRecoverMessage,
+  recoveryAvailable,
   onRateSession,
 }: CustomerChatPageProps) {
   const navigate = useNavigate();
@@ -185,6 +187,7 @@ export function CustomerChatPage({
               onPermissionAllow={onPermissionAllow}
               onPermissionDeny={onPermissionDeny}
               onRecoverMessage={onRecoverMessage}
+              recoveryAvailable={recoveryAvailable}
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
               progressMessage={progressMessage}
