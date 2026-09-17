@@ -19,7 +19,7 @@ class ResultMergerTest {
             SubTaskResult failed = new SubTaskResult("recommend_product", "internal_function_name",
                     "product", "SQLException password=secret", false, type);
             assertThat(ResultMerger.requiredFailureReply(List.of(failed)))
-                    .contains("未能核实", "稍后重试")
+                    .contains("没能完成", "避免重复提交")
                     .doesNotContain(type.name(), "internal_function_name", "SQLException", "secret");
         }
     }
@@ -30,7 +30,7 @@ class ResultMergerTest {
                 "internal audit details", false, SubTaskResult.ErrorType.FATAL_FAILED);
         failed.setDomainQuality(DomainQualityResult.fail("PRODUCT_ANALYSIS_AUDIT_REJECTED"));
         assertThat(ResultMerger.requiredFailureReply(List.of(failed)))
-                .contains("尚未通过商品信息核实", "具体商品型号")
+                .contains("还没能核实", "具体型号")
                 .doesNotContain("FATAL_FAILED", "PRODUCT_ANALYSIS_AUDIT_REJECTED",
                         "internal audit details", "请提供预算");
     }

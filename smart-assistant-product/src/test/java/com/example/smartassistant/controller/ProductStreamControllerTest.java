@@ -164,7 +164,7 @@ class ProductStreamControllerTest {
             assertEquals(List.of(), result.data().get("products"));
             assertEquals(0, result.data().get("productCount"));
             org.assertj.core.api.Assertions.assertThat(result.answer())
-                    .contains("暂无符合", "调整预算或品类")
+                    .contains("没有找到符合", "最看重哪项条件")
                     .doesNotContain("FATAL_FAILED", "分析", "审核", "iPad");
             previous = new AgentNodeOutput(operation, "product", "SUCCEEDED",
                     result.answer(), result.data());

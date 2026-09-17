@@ -94,7 +94,7 @@ class OrderDeterministicExecutionServiceTest {
                 "QUERY_ORDER", "查询我已有的订单列表", Map.of()));
 
         assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
-        assertThat(response.answer()).isEqualTo("当前没有查询到你的订单。");
+        assertThat(response.answer()).isEqualTo("这个账号下暂时没有查到订单。如果您用其他账号下过单，可以切换后再看看。");
         assertThat(response.data()).containsEntry("operation", "QUERY_ORDER_LIST")
                 .containsEntry("count", 0)
                 .containsEntry("verified", true);

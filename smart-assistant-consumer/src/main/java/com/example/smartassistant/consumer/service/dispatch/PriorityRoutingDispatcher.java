@@ -6,6 +6,7 @@ import com.example.smartassistant.consumer.service.sentiment.TurnInsight;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import static com.example.smartassistant.common.error.CustomerMessages.*;
 
 @Service
 public class PriorityRoutingDispatcher {
@@ -31,7 +32,7 @@ public class PriorityRoutingDispatcher {
             try { publisher.publish(command); }
             catch (RuntimeException uncertain) {
                 // If still queued, atomically cancel before any consumer can run it. Never direct-call Router.
-                store.finish(command, "QUEUED", "REJECTED", failure("PUBLISH_UNCONFIRMED", "请求未确认进入处理队列，请稍后重试。"));
+                store.finish(command, "QUEUED", "REJECTED", failure("PUBLISH_UNCONFIRMED", NOT_SENT));
             }
         }
         long budget = Math.min(properties.resultWaitMs(), Math.max(1000, executionWaitMs) + properties.queueWaitMs());
@@ -40,19 +41,19 @@ public class PriorityRoutingDispatcher {
             Map<String, Object> result = store.result(command);
             if (result != null) return result;
             if (System.currentTimeMillis() >= command.expiresAt()) {
-                store.finish(command, "QUEUED", "EXPIRED", failure("QUEUE_TIMEOUT", "排队等待超时，本轮尚未执行，请稍后重试。"));
+                store.finish(command, "QUEUED", "EXPIRED", failure("QUEUE_TIMEOUT", QUEUE_EXPIRED));
             }
             if (onPoll != null) onPoll.run();
             try { Thread.sleep(100); }
             catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
                 store.finish(command, "QUEUED", "CANCELLED", cancelled());
-                return failure("WAIT_INTERRUPTED", "等待已中断；已开始的任务请查询原请求结果，避免重复操作。");
+                return failure("WAIT_INTERRUPTED", UNCONFIRMED);
             }
         }
-        store.finish(command, "QUEUED", "EXPIRED", failure("QUEUE_TIMEOUT", "排队等待超时，本轮尚未执行。"));
+        store.finish(command, "QUEUED", "EXPIRED", failure("QUEUE_TIMEOUT", QUEUE_EXPIRED));
         Map<String, Object> result = store.result(command);
-        return result != null ? result : failure("EXECUTION_UNCONFIRMED", "任务已进入处理，但结果尚未确认。请查询原请求结果，避免重复提交业务操作。");
+        return result != null ? result : failure("EXECUTION_UNCONFIRMED", UNCONFIRMED);
     }
 
     public void cancelQueued(Long userId, String requestId) {
@@ -66,7 +67,7 @@ public class PriorityRoutingDispatcher {
         if (command == null) return Map.of("requestId", requestId, "status", "NOT_FOUND");
         // Reclaim a queued request even if its original HTTP/SSE waiter disconnected.
         if (System.currentTimeMillis() >= command.expiresAt()) {
-            store.finish(command, "QUEUED", "EXPIRED", failure("QUEUE_TIMEOUT", "排队超时，本轮尚未执行。"));
+            store.finish(command, "QUEUED", "EXPIRED", failure("QUEUE_TIMEOUT", QUEUE_EXPIRED));
         }
         Map<String, Object> response = new java.util.LinkedHashMap<>();
         response.put("requestId", requestId);
