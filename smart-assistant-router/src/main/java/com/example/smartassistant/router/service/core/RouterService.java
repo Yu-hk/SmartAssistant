@@ -484,15 +484,25 @@ public class RouterService {
                 request.getSessionId(), request.getQuestion(), result.getResult());
     }
 
-    /** 为“如果、它、继续”等上下文依赖型追问补充最近一轮用户问题。 */
+    /** 保留有界用户历史以解析连续追问，避免上一轮也只有代词时丢失商品。 */
     static String addConversationContextIfNeeded(String question, List<String> history) {
         if (question == null || history == null || history.isEmpty()) return question;
-        boolean contextDependent = question.matches(".*(如果|它|这个|那个|继续|还有|上面|前面|更看重|优先关注).*" );
+        boolean contextDependent = question.matches("(?s).*(如果|它|这个|那个|继续|还有|上面|前面|更看重|优先关注|呢[？?]?$).*" );
         if (!contextDependent) return question;
-        String lastUserQuestion = QuestionExtractor.extractLastUserQuestion(history);
-        if (lastUserQuestion == null || lastUserQuestion.isBlank()) return question;
-        return question + "\n\n[对话上下文]\n上一轮用户问题：" + lastUserQuestion
-                + "\n请延续上一轮讨论的对象回答当前问题，不要再次要求用户说明产品类型。";
+        StringBuilder userHistory = new StringBuilder();
+        for (String message : history.subList(Math.max(0, history.size() - 10), history.size())) {
+            if (message == null) continue;
+            String userQuestion = QuestionExtractor.extractLastUserQuestion(List.of(message));
+            if (userQuestion != null && !userQuestion.isBlank()) {
+                userHistory.append("用户：").append(QuestionExtractor.truncate(userQuestion, 1000)).append('\n');
+            }
+        }
+        if (userHistory.isEmpty()) return question;
+        return question + "\n\n[对话上下文]\n最近用户问题（按时间顺序，仅供解析指代）：\n" + userHistory
+                + "\n请延续上一轮讨论的对象回答当前问题，不要再次要求用户说明产品类型。"
+                + "历史仅用于解析商品指代和用户明确保留的约束，回答维度以本轮用户问题为准；"
+                + "用户已切换商品时，以最近明确提及的商品为准。"
+                + "不要继承上一轮助手主动提及的颜色、价格等内容，也不要重复用户本轮未问的信息。";
     }
 
     /**

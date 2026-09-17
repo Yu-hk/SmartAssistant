@@ -59,6 +59,23 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
+    void genericProductNodeCacheStillSeparatesActualTurnQuestions() {
+        service.setProductNodeResultCache(productNodeResultCache);
+        IntentGraph.IntentNode node = new IntentGraph.IntentNode("details", "查询商品详情", "product", List.of());
+        when(productNodeResultCache.find(eq(node), eq(1L), any(), any(), any()))
+                .thenReturn(new SubTaskResult("details", "查询商品详情", "product", "查询结果", true));
+        for (String question : List.of("这个规格是多少", "这个颜色呢")) {
+            service.execute(node, Map.of(), new ConcurrentHashMap<>(), 1L, null, "scope-test",
+                    null, null, null, question);
+        }
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> input = ArgumentCaptor.forClass(Map.class);
+        verify(productNodeResultCache, times(2)).find(eq(node), eq(1L), input.capture(), any(), any());
+        assertThat(input.getAllValues().get(0)).containsEntry("_replyScopeQuestion", "这个规格是多少");
+        assertThat(input.getAllValues().get(1)).containsEntry("_replyScopeQuestion", "这个颜色呢");
+    }
+
+    @Test
     void performsOneTargetedQualityCorrectionInsideTaskNode() {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "task", "查询物流", "order", List.of(), "包含物流单号");

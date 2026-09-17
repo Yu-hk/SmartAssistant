@@ -152,6 +152,12 @@ public class GraphNodeExecutionService {
             resolvedInput = new LinkedHashMap<>(resolvedInput);
             resolvedInput.putIfAbsent("_taskDescription", node.getDescription());
         }
+        if (isProductTarget(targetAgent) && originalQuestion != null && !originalQuestion.isBlank()) {
+            resolvedInput = new LinkedHashMap<>(resolvedInput);
+            // Two turns can share a generic planner description ("query product details")
+            // while asking different fields. Include the actual request in cache identity.
+            resolvedInput.put("_replyScopeQuestion", originalQuestion.trim());
+        }
         String userProfile = null;
         if (isProductTarget(targetAgent) && userProfileContextAwaiter != null) {
             checkCancellation(requestId, userId);

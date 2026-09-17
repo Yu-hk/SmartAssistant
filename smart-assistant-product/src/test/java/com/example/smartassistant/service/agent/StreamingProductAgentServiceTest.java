@@ -42,6 +42,22 @@ import static org.mockito.Mockito.*;
  */
 class StreamingProductAgentServiceTest {
 
+    @ParameterizedTest
+    @ValueSource(strings = {"这个规格是多少", "颜色呢", "规格和颜色都告诉我", "只问规格，不要介绍颜色"})
+    void followUpScopeUsesCurrentQuestionWithoutLosingProductContext(String current) {
+        String original = current + "\n\n[对话上下文]\n上一轮用户问题：AirPods Pro多少钱？有货吗？";
+        new StreamingProductAgentService(agent, null).execute(original, "scope-follow-up");
+        var captured = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(agent).execute(captured.capture());
+        String actual = captured.getValue();
+        assertTrue(actual.contains("AirPods Pro"), "保留指代所需的商品信息");
+        String scope = actual.substring(actual.lastIndexOf("[本轮回答范围]"));
+        assertTrue(scope.contains("当前用户提问：" + current + "\n"));
+        assertFalse(scope.contains("多少钱？有货吗？"), "旧问题不能变成本轮回答范围");
+        assertTrue(scope.contains("明确同时询问时才一起回答"));
+        assertTrue(scope.contains("必要的版本消歧和安全限制仍须保留"));
+    }
+
     @Test
     void cleansPublicReplyAfterAgentExecutionWithoutChangingToolInputs() {
         when(agent.execute(anyString())).thenReturn("MacBook Air M3（商品编码 MACBOOK-AIR-M3）库存紧张。");
@@ -415,6 +431,7 @@ class StreamingProductAgentServiceTest {
         verify(agent, times(2)).execute(prompts.capture());
         assertTrue(prompts.getAllValues().get(1).contains("答案事实校验未通过"));
         assertTrue(prompts.getAllValues().get(1).contains("经过核实的简洁答复"));
+        assertTrue(prompts.getAllValues().get(1).contains("[本轮回答范围]\n当前用户提问：保修多久"));
         assertTrue(new com.example.smartassistant.common.agent.AgentSafetyService()
                 .detectInjection(prompts.getAllValues().get(1)).isSafe());
     }
@@ -442,7 +459,7 @@ class StreamingProductAgentServiceTest {
 
         assertNotNull(result);
         // 异常降级：仍调用 LLM，且传入的是原始问题（无注入上下文）
-        verify(agent, times(1)).execute(eq("任意商品咨询"));
+        verify(agent, times(1)).execute(eq(StreamingProductAgentService.withCurrentReplyScope("任意商品咨询", "任意商品咨询")));
         var trace = recorder.findByRequestId("req-p-fallback");
         assertNotNull(trace);
         assertFalse(trace.isRejected());
@@ -454,7 +471,7 @@ class StreamingProductAgentServiceTest {
         StreamingProductAgentService legacy = new StreamingProductAgentService(agent, null);
         String result = legacy.execute("你好", "req-p-legacy");
         assertNotNull(result);
-        verify(agent, times(1)).execute(eq("你好"));
+        verify(agent, times(1)).execute(eq(StreamingProductAgentService.withCurrentReplyScope("你好", "你好")));
     }
 
     @Test

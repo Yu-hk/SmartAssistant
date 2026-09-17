@@ -43,6 +43,7 @@ class ProductNodeResultCacheTest {
         var key = org.mockito.ArgumentCaptor.forClass(String.class);
         var json = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(values).set(key.capture(), json.capture(), any(Duration.class));
+        assertThat(key.getValue()).startsWith("router:product-node:v2:");
         when(values.get(key.getValue())).thenReturn(json.getValue());
         SubTaskResult cached = cache.find(
                 node, 42L, Map.of("category", "手机"), "偏好苹果", Map.of());
