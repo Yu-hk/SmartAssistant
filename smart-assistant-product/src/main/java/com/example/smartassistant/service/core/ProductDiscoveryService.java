@@ -165,8 +165,7 @@ public class ProductDiscoveryService {
 
         for (int i = 0; i < products.size(); i++) {
             ProductBackend.ProductSummary product = products.get(i);
-            answer.append(i + 1).append(". ").append(value(product.name(), product.code()))
-                    .append("（").append(product.code()).append("）")
+            answer.append(i + 1).append(". ").append(value(product.name(), "未命名商品"))
                     .append(" — ").append(formatPrice(product.price()))
                     .append("，库存：").append(value(product.stock(), "未知"));
             if (hasPopularityData && product.popularity() > 0) {
@@ -200,7 +199,7 @@ public class ProductDiscoveryService {
                     .append("扬声器、接口和预算要求；在这些规格得到验证前，不应把上述候选表述为最终推荐。");
         } else {
             if (browsingOnly) answer.append("\n以上是跨品类浏览结果，不是为你选定的唯一最佳商品。");
-            answer.append("\n告诉我商品名称或编码，我可以继续查询价格、规格和库存。");
+            answer.append("\n告诉我商品名称或型号，我可以继续查询价格、规格和库存。");
         }
         return new DiscoveryResult(answer.toString().trim(), products.size(), hasPopularityData,
                 products, scenarioEvidenceLimited, category, false, browsingOnly);
