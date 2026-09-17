@@ -189,11 +189,28 @@ function CustomerApp() {
 
   const { theme, toggleTheme } = useTheme();
   const {
-    sessions, setSessions, sessionActionError, setSessionActionError,
+    sessions, setSessions, sessionActionError, setSessionActionError, blockingSessionId, setBlockingSessionId,
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, deleteSession, createSession, closeSession, resumeSession, rateSession,
   } = useSessions();
+
+  const [resolvingConflict, setResolvingConflict] = useState(false);
+  const handleConversationConflict = useCallback((id: string) => {
+    setBlockingSessionId(id);
+    void fetchSessions();
+  }, [fetchSessions, setBlockingSessionId]);
+
+  const resolveConversationConflict = async () => {
+    if (!blockingSessionId || !currentSessionId || resolvingConflict) return;
+    const suspendedId = currentSessionId;
+    setResolvingConflict(true);
+    try {
+      if (!await closeSession(blockingSessionId)) return;
+      if (await resumeSession(suspendedId)) setBlockingSessionId(null);
+      await fetchSessions();
+    } finally { setResolvingConflict(false); }
+  };
 
   const { notifications, markRead: markNotificationRead } = useNotifications({ setSessions });
 
@@ -209,6 +226,7 @@ function CustomerApp() {
     selectedModel: 'deepseek-v4-flash',
     setSessions,
     setCurrentSessionId,
+    onConversationConflict: handleConversationConflict,
   });
 
   // URL 同步
@@ -335,6 +353,20 @@ function CustomerApp() {
               </div>
             </header>
 
+            {blockingSessionId && currentSession?.status === 'suspended' && (
+              <div role="alert" className="conversation-conflict">
+                <p>账号有另一条未结束的对话。您可以查看它，或结束占用后恢复本会话；正在处理的请求不会被强行关闭。</p>
+                <div className="conversation-conflict-actions">
+                  {sessions.some(s => s.id === blockingSessionId) && <button type="button"
+                    onClick={() => { setCurrentSessionId(blockingSessionId); navigate(`/chat/${blockingSessionId}`); }}>
+                    查看占用对话
+                  </button>}
+                  <button type="button" disabled={resolvingConflict} onClick={() => void resolveConversationConflict()}>
+                    {resolvingConflict ? '正在恢复…' : '结束占用并恢复本会话'}
+                  </button>
+                </div>
+              </div>
+            )}
             {/* 聊天区域 */}
             <CustomerChatPage
               sessions={sessions}

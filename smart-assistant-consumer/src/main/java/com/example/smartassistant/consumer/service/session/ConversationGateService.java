@@ -30,6 +30,7 @@ public class ConversationGateService {
     private static final String PREFIX = "conversation:gate:";
 
     private static final DefaultRedisScript<String> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('EXISTS', KEYS[6]) == 1 then return 'SESSION_CLOSED||0|' end
             local active = redis.call('GET', KEYS[1])
             redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', ARGV[7])
 
@@ -119,6 +120,7 @@ public class ConversationGateService {
             """, String.class);
 
     private static final DefaultRedisScript<String> RESUME_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('EXISTS', KEYS[4]) == 1 then return 'NOT_SUSPENDED|' end
             local active = redis.call('GET', KEYS[1])
             if active then
               if active == ARGV[1] then
@@ -132,6 +134,30 @@ public class ConversationGateService {
             redis.call('HDEL', KEYS[3], ARGV[1])
             return 'RESUMED|' .. ARGV[1]
             """, String.class);
+
+    // Reserve deletion before SQL changes. New turns cannot slip between the busy check and delete.
+    private static final DefaultRedisScript<Long> BEGIN_DELETE_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
+            if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
+            redis.call('SET', KEYS[2], ARGV[1], 'PX', ARGV[2])
+            return 1
+            """, Long.class);
+    private static final DefaultRedisScript<Long> FINISH_DELETE_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+            if ARGV[3] == 'abort' then redis.call('DEL', KEYS[1]); return 1 end
+            if redis.call('GET', KEYS[2]) == ARGV[2] then redis.call('DEL', KEYS[2]) end
+            redis.call('ZREM', KEYS[3], ARGV[2])
+            redis.call('HDEL', KEYS[4], ARGV[2])
+            return 1
+            """, Long.class);
+    private static final DefaultRedisScript<Long> CLEAR_STALE_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+            if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
+            local ttl = redis.call('PTTL', KEYS[1])
+            if ARGV[2] == 'MISSING' and (ttl < 0 or ttl > tonumber(ARGV[3])) then return 0 end
+            redis.call('DEL', KEYS[1])
+            return 1
+            """, Long.class);
 
     private static final DefaultRedisScript<Long> ROLLBACK_RESUME_SCRIPT = new DefaultRedisScript<>("""
             if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
@@ -172,10 +198,11 @@ public class ConversationGateService {
         String token = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
         try {
+            reconcileStaleOwner(userId, sessionId);
             String result = redisTemplate.execute(
                     ACQUIRE_SCRIPT,
                     List.of(activeKey(userId), runningKey(userId, sessionId), suspendedKey(userId),
-                            suspendedDetailsKey(userId), requestIndexKey(userId, requestId)),
+                            suspendedDetailsKey(userId), requestIndexKey(userId, requestId), deletedKey(userId, sessionId)),
                     sessionId, requestId, token, Long.toString(now),
                     Long.toString(activeTtl.toMillis()), Long.toString(requestTtl.toMillis()),
                     Long.toString(now - suspendedTtl.toMillis()), Long.toString(suspendedTtl.toMillis()));
@@ -290,6 +317,52 @@ public class ConversationGateService {
         }
     }
 
+    public DeletionLease beginDeletion(String userId, String sessionId) {
+        requireText(userId, "userId");
+        requireText(sessionId, "sessionId");
+        String token = UUID.randomUUID().toString();
+        try {
+            Long result = redisTemplate.execute(BEGIN_DELETE_SCRIPT,
+                    List.of(runningKey(userId, sessionId), deletedKey(userId, sessionId)),
+                    token, Long.toString(activeTtl.toMillis()));
+            return new DeletionLease(result != null && result == 1 ? CloseStatus.CLOSED : CloseStatus.BUSY,
+                    userId, sessionId, token);
+        } catch (RuntimeException error) {
+            log.warn("[ConversationGate] deletion reservation unavailable: userId={}, sessionId={}", userId, sessionId);
+            return new DeletionLease(CloseStatus.UNAVAILABLE, userId, sessionId, null);
+        }
+    }
+
+    /** Called only after the transactional SQL delete returned (committed), or on failure to abort. */
+    public boolean finishDeletion(DeletionLease lease, boolean committed) {
+        if (lease == null || lease.status() != CloseStatus.CLOSED) return false;
+        try {
+            Long result = redisTemplate.execute(FINISH_DELETE_SCRIPT,
+                    List.of(deletedKey(lease.userId(), lease.sessionId()), activeKey(lease.userId()),
+                            suspendedKey(lease.userId()), suspendedDetailsKey(lease.userId())),
+                    lease.token(), lease.sessionId(), committed ? "commit" : "abort");
+            return result != null && result == 1;
+        } catch (RuntimeException error) {
+            log.warn("[ConversationGate] deletion finalization unavailable: userId={}, sessionId={}",
+                    lease.userId(), lease.sessionId());
+            return false;
+        }
+    }
+
+    private void reconcileStaleOwner(String userId, String requestedSession) {
+        if (stateStore == null) return;
+        String active = redisTemplate.opsForValue().get(activeKey(userId));
+        if (active == null || active.equals(requestedSession)) return;
+        String stale = stateStore.staleOwnerReason(userId, active);
+        if (stale == null) return;
+        // A just-acquired session may not yet have its durable mirror. Missing records need a grace period.
+        redisTemplate.execute(CLEAR_STALE_SCRIPT,
+                List.of(activeKey(userId), runningKey(userId, active), deletedKey(userId, active)),
+                active, stale, Long.toString(Math.max(0, activeTtl.toMillis() - 60_000)));
+    }
+
+    public record DeletionLease(CloseStatus status, String userId, String sessionId, String token) { }
+
     /**
      * Explicitly restores a suspended session. The Redis script is the concurrency
      * boundary, while the durable state check prevents restoring another user's or
@@ -302,12 +375,13 @@ public class ConversationGateService {
             return new ResumeDecision(ResumeStatus.UNAVAILABLE, null);
         }
         try {
+            reconcileStaleOwner(userId, sessionId);
             if (!stateStore.isSuspended(userId, sessionId)) {
                 return new ResumeDecision(ResumeStatus.NOT_SUSPENDED, null);
             }
             String result = redisTemplate.execute(
                     RESUME_SCRIPT,
-                    List.of(activeKey(userId), suspendedKey(userId), suspendedDetailsKey(userId)),
+                    List.of(activeKey(userId), suspendedKey(userId), suspendedDetailsKey(userId), deletedKey(userId, sessionId)),
                     sessionId, Long.toString(activeTtl.toMillis()));
             ResumeDecision decision = ResumeDecision.parse(result);
             if (decision.status() == ResumeStatus.RESUMED
@@ -342,6 +416,7 @@ public class ConversationGateService {
 
     private static String userSlot(String userId) { return PREFIX + "{" + userId + "}:"; }
     private static String activeKey(String userId) { return userSlot(userId) + "active"; }
+    private static String deletedKey(String userId, String sessionId) { return userSlot(userId) + "deleted:" + sessionId; }
     private static String runningPrefix(String userId) { return userSlot(userId) + "running:"; }
     private static String runningKey(String userId, String sessionId) { return runningPrefix(userId) + sessionId; }
     private static String suspendedKey(String userId) { return userSlot(userId) + "suspended"; }
@@ -366,7 +441,7 @@ public class ConversationGateService {
         }
     }
 
-    public enum GateStatus { ACQUIRED, REATTACHED, SESSION_SUSPENDED, REQUEST_BLOCKED, UNAVAILABLE }
+    public enum GateStatus { ACQUIRED, REATTACHED, SESSION_SUSPENDED, SESSION_CLOSED, REQUEST_BLOCKED, UNAVAILABLE }
 
     public record GateDecision(GateStatus status, String userId, String sessionId, String requestId,
                                String activeSessionId, int queuePosition, String leaseToken) {
