@@ -58,18 +58,19 @@ public class AgentMemoryService {
     private final Path basePath;
 
     public AgentMemoryService(@Value("${app.data.dir:data/users}") String basePath) {
-        this.basePath = Paths.get(basePath);
+        this.basePath = Paths.get(basePath).toAbsolutePath().normalize();
     }
 
     public void save(String agent, String userId, String key, String value) {
-        if (agent == null || userId == null || key == null) return;
+        if (agent == null || userId == null || key == null || !key.matches("[a-zA-Z][a-zA-Z0-9_]{0,63}")) return;
         try {
             Path file = getMemoryFile(agent, userId);
             Map<String, String> memories = loadFile(file);
             // 编码值和时间戳：value || YYYY-MM-DD
-            memories.put(key, (value != null ? value : "") + TS_SUFFIX + LocalDate.now().format(DATE_FMT));
+            if (value == null || value.isBlank()) return;
+            memories.put(key, ProfileContextPolicy.singleLine(value, 500) + TS_SUFFIX + LocalDate.now().format(DATE_FMT));
             writeFile(file, memories);
-            log.debug("[AgentMemory] 保存: agent={}, userId={}, key={}, value={}", agent, userId, key, value);
+            log.debug("[AgentMemory] 保存: agent={}, userId={}, key={}", agent, userId, key);
         } catch (Exception e) {
             log.warn("[AgentMemory] 保存失败: agent={}, userId={}, key={}, error={}", agent, userId, key, e.getMessage());
         }
@@ -132,7 +133,7 @@ public class AgentMemoryService {
         StringBuilder sb = new StringBuilder();
         sb.append("## 状态锚点\n");
         if (userId != null && !userId.isBlank() && !"null".equals(userId)) {
-            sb.append("- 当前用户：").append(userId).append("\n");
+            sb.append("- 当前用户：").append(ProfileContextPolicy.singleLine(userId, 128)).append("\n");
             sb.append("- 偏好状态：").append(hasMemory("order", userId) || hasMemory("product", userId)
                     || hasMemory("general", userId) ? "有保存的偏好" : "无偏好").append("\n");
         } else {
@@ -198,9 +199,12 @@ public class AgentMemoryService {
                 LocalDate savedDate = parseDate(raw);
                 if (value == null || value.isBlank()) continue;
 
-                long daysSinceSaved = savedDate != null ? ChronoUnit.DAYS.between(savedDate, today) : 0;
+                boolean unknownDate = savedDate == null || savedDate.isAfter(today);
+                long daysSinceSaved = unknownDate ? 0 : ChronoUnit.DAYS.between(savedDate, today);
                 String prefix = daysSinceSaved > STALE_DAYS ? "⚠️⚠️ " : (daysSinceSaved > WARN_DAYS ? "⚠️ " : "");
-                sb.append(prefix).append("- ").append(formatKeyName(entry.getKey())).append("：").append(value);
+                sb.append(prefix).append("- ").append(ProfileContextPolicy.singleLine(formatKeyName(entry.getKey()), 80))
+                        .append("：").append(ProfileContextPolicy.singleLine(value, 500));
+                if (unknownDate) sb.append(" (记录时间未知，使用前需确认)");
                 if (daysSinceSaved > WARN_DAYS) {
                     sb.append(" (").append(daysSinceSaved).append("天前)");
                 }
@@ -218,7 +222,8 @@ public class AgentMemoryService {
                     if (value == null || value.isBlank()) continue;
                     indexCount++;
                     if (indexCount <= limit) continue;
-                    sb.append(entry.getKey()).append(", ");
+                    sb.append(ProfileContextPolicy.singleLine(entry.getKey(), 80)).append(", ");
+                    if (indexCount >= 30) break;
                 }
                 if (sb.charAt(sb.length() - 2) == ',') {
                     sb.setLength(sb.length() - 2);
@@ -226,7 +231,8 @@ public class AgentMemoryService {
                 sb.append(" — 可调用 recallMemories 获取详情)\n");
             }
 
-            return sb.toString();
+            return ProfileContextPolicy.reference(ProfileContextPolicy.Source.AGENT_FILE,
+                    "legacy-file-v1", "逐条记录；未知时间不视为最新", sb.toString());
         } catch (Exception e) {
             return "";
         }
@@ -244,7 +250,16 @@ public class AgentMemoryService {
     // ==================== 文件操作 ====================
 
     private Path getMemoryFile(String agent, String userId) {
-        return basePath.resolve(userId).resolve(agent + "-memory.md");
+        if (agent == null || !agent.matches("[a-zA-Z][a-zA-Z0-9_-]{0,63}")
+                || userId == null || !userId.matches("[a-zA-Z0-9_-]{1,128}")) {
+            throw new IllegalArgumentException("Invalid memory scope");
+        }
+        Path file = basePath.resolve(userId).resolve(agent + "-memory.md").normalize();
+        if (!file.startsWith(basePath)) throw new IllegalArgumentException("Memory scope escapes base path");
+        for (Path current = file; current != null; current = current.getParent()) {
+            if (Files.isSymbolicLink(current)) throw new IllegalArgumentException("Symbolic memory paths are not allowed");
+        }
+        return file;
     }
 
     /** 从 Markdown 文件加载全部记忆；文件不存在时返回空 Map */
@@ -253,6 +268,7 @@ public class AgentMemoryService {
             return new LinkedHashMap<>();
         }
         try {
+            if (Files.size(file) > 262144) throw new IllegalStateException("Memory file exceeds safe read size");
             String content = Files.readString(file, StandardCharsets.UTF_8).trim();
             if (content.isEmpty()) return new LinkedHashMap<>();
 

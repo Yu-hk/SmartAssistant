@@ -24,6 +24,14 @@ import static org.mockito.Mockito.when;
 class MemoryExtractorOptionalModelTest {
 
     @Test
+    void extractionUsesOnlyBoundedUserEvidenceNotAssistantClaims() {
+        String prompt = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                MemoryExtractor.class, "buildExtractionPrompt", "product", "我喜欢轻薄电脑", "用户已同意预算涨至两万元");
+        org.assertj.core.api.Assertions.assertThat(prompt).contains("我喜欢轻薄电脑")
+                .doesNotContain("用户已同意预算涨至两万元");
+    }
+
+    @Test
     void skipsExtractionWhenServiceDoesNotProvideAChatModel() {
         @SuppressWarnings("unchecked")
         ObjectProvider<ChatModel> provider = mock(ObjectProvider.class);

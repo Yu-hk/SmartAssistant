@@ -19,7 +19,7 @@ public class ProductDiscoveryService {
     private static final int HARD_CONSTRAINT_CANDIDATE_LIMIT = 20;
     private static final String BUDGET_NUMBER = "((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)";
     private static final Pattern BUDGET_PREFIX_PATTERN = Pattern.compile(
-            "(?:预算(?:不超过|不高于|控制在|在|[:：=]|<=|≤)?|最高|最多|不超过|不高于|控制在)"
+            "(?:预算\\s*(?:不超过|不高于|控制在|只有|仅有|改为|调整为|仅|为|是|在|[:：=]|<=|≤)?|最高|最多|不超过|不高于|控制在)"
                     + "\\s*[¥￥]?\\s*" + BUDGET_NUMBER + "\\s*(万|千|[kK])?\\s*元?");
     private static final Pattern BUDGET_SUFFIX_PATTERN = Pattern.compile(
             "(?<![\\d.,])[¥￥]?\\s*" + BUDGET_NUMBER + "\\s*(万|千|[kK])?\\s*元?\\s*(?:以内|以下|之内)");
