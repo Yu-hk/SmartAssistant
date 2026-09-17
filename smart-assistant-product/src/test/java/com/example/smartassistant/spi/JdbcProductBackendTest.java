@@ -22,6 +22,27 @@ class JdbcProductBackendTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void priceAndStockNeverInventPaymentOrDeliveryPolicies() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ResultSet row = airPodsRow("AIRPODS-PRO", "AirPods Pro（第二代）");
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> List.of(((RowMapper<?>) invocation.getArgument(1)).mapRow(row, 0)));
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc, mock(ProductBackend.class));
+        assertThat(backend.getPrice("AIRPODS-PRO")).isEqualTo("AirPods Pro（第二代） 售价 1999 元。");
+        for (String stock : new String[]{"充足", "紧张", "缺货", "未知", "", null}) {
+            when(row.getString("stock")).thenReturn(stock);
+            String answer = backend.checkStock("AIRPODS-PRO");
+            assertThat(answer).doesNotContain("发货", "免息", "分期", "尽快下单", "补货时间");
+            if (stock == null || stock.isBlank() || "未知".equals(stock)) {
+                assertThat(answer).contains("尚未确认").doesNotContain("缺货");
+            } else {
+                assertThat(answer).contains(stock);
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void resolvesUniqueParentheticalShortNameForInfoPriceAndStock() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         ProductBackend fallback = mock(ProductBackend.class);

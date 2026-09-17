@@ -100,10 +100,11 @@ public class JdbcProductBackend implements ProductBackend {
                     ? fallback.checkStock(productCode)
                     : ToolResult.error(AgentErrorCode.PRODUCT_NOT_FOUND, "未找到商品 " + productCode);
         }
-        return switch (product.stock()) {
-            case "充足" -> product.name() + " 库存充足，下单后 24 小时内发货。";
-            case "紧张" -> product.name() + " 库存紧张，建议尽快下单，预计 3-5 天发货。";
-            default -> product.name() + " 暂时缺货，补货时间待定。";
+        return switch (java.util.Objects.toString(product.stock(), "")) {
+            case "充足" -> product.name() + " 库存充足。";
+            case "紧张" -> product.name() + " 库存紧张。";
+            case "缺货" -> product.name() + " 暂时缺货。";
+            default -> product.name() + " 库存状态尚未确认。";
         };
     }
 
@@ -123,7 +124,7 @@ public class JdbcProductBackend implements ProductBackend {
                     ? fallback.getPrice(productCode)
                     : ToolResult.error(AgentErrorCode.PRODUCT_NOT_FOUND, "未找到商品 " + productCode);
         }
-        return String.format("%s 售价 %s 元，支持 3/6/12/24 期免息分期。",
+        return String.format("%s 售价 %s 元。",
                 product.name(), formatPrice(product.price()));
     }
 
