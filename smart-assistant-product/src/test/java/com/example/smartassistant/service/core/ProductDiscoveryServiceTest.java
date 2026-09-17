@@ -12,6 +12,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ProductDiscoveryServiceTest {
 
+    @Test
+    void publicCatalogOmitsCodesButStructuredProductsKeepThem() {
+        var result = new ProductDiscoveryService(new InMemoryProductBackend()).discover("现在有什么热门商品", 10);
+        assertThat(result.products()).isNotEmpty();
+        for (var product : result.products()) {
+            assertThat(product.code()).isNotBlank();
+            assertThat(result.answer()).contains(product.name()).doesNotContain(product.code());
+        }
+        assertThat(result.answer()).doesNotContain("编码");
+    }
+
     private final ProductDiscoveryService service =
             new ProductDiscoveryService(new InMemoryProductBackend());
 

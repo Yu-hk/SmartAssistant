@@ -21,6 +21,7 @@ import com.example.smartassistant.common.rag.trace.StageSpan;
 import com.example.smartassistant.common.rag.trace.StageTraceRecorder;
 import com.example.smartassistant.service.search.ProductRagService;
 import com.example.smartassistant.service.core.ProductDiscoveryService;
+import com.example.smartassistant.service.core.ProductPublicAnswer;
 import com.example.smartassistant.service.core.StructuredProductRecommendation;
 import com.example.smartassistant.service.quality.ProductDomainQualityValidator;
 import lombok.extern.slf4j.Slf4j;
@@ -255,7 +256,7 @@ public class StreamingProductAgentService {
                             ? DomainQualityResult.warn(0.7, "PRODUCT_SCENARIO_EVIDENCE_LIMITED")
                             : DomainQualityResult.pass(1.0, "PRODUCT_DISCOVERY_DATA")
                         : DomainQualityResult.pass(1.0, "EMPTY_PRODUCT_CATALOG");
-                return DomainAgentResponse.of(answer, quality);
+                return DomainAgentResponse.of(ProductPublicAnswer.format(answer), quality);
             }
 
             // ⭐ P1: RAG 检索质量评估（决定拒答 or 注入上下文）
@@ -364,7 +365,7 @@ public class StreamingProductAgentService {
                 if (quality.isFail()) {
                     result = "抱歉，暂时无法生成可靠的商品答复，请稍后重试。";
                 }
-                return DomainAgentResponse.of(result, quality);
+                return DomainAgentResponse.of(ProductPublicAnswer.format(result), quality);
             }
             return DomainAgentResponse.of("Agent 返回为空",
                     DomainQualityResult.fail("EMPTY_PRODUCT_ANSWER"));
@@ -631,7 +632,7 @@ public class StreamingProductAgentService {
                     : "PRODUCT_RECOMMENDATION_PRO_VERIFIED";
             log.info("[StreamingProductAgent] Pro 推荐核实完成: requestId={}, revisions={}",
                     rid, revisionCount);
-            return DomainAgentResponse.of(recommendation, DomainQualityResult.pass(1.0, reason));
+            return DomainAgentResponse.of(ProductPublicAnswer.format(recommendation), DomainQualityResult.pass(1.0, reason));
         } catch (Exception error) {
             if (error instanceof IllegalStateException) {
                 log.warn("[StreamingProductAgent] Pro 推荐核实格式异常，回退已验证候选: "
