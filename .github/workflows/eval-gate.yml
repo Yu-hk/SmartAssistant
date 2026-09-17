@@ -10,6 +10,72 @@ permissions:
   contents: read
 
 jobs:
+  project-context:
+    name: Repository facts and governance gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/check_project_context.py
+      - run: python -m unittest discover -s scripts -p 'test_project_context.py' -v
+      - run: python -m unittest discover -s scripts -p 'test_integration_reports.py' -v
+
+  storage-broker-integration:
+    name: Real PostgreSQL and RabbitMQ contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env:
+          POSTGRES_DB: smartassistant_integration
+          POSTGRES_USER: integration
+          POSTGRES_PASSWORD: integration-test-only
+        ports: ['15433:5432']
+        options: >-
+          --health-cmd "pg_isready -U integration -d smartassistant_integration"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+      rabbitmq:
+        image: rabbitmq:4.1-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: integration
+          RABBITMQ_DEFAULT_PASS: integration-test-only
+        ports: ['15673:5672']
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PG_TEST_URL: jdbc:postgresql://127.0.0.1:15433/smartassistant_integration
+      PG_TEST_USER: integration
+      PG_TEST_PASSWORD: integration-test-only
+      CHAT_DISPATCH_TEST_RABBIT_PORT: '15673'
+      CHAT_DISPATCH_TEST_RABBIT_USERNAME: integration
+      CHAT_DISPATCH_TEST_RABBIT_PASSWORD: integration-test-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Run actual storage and fair-share contracts (no skip on failure)
+        run: >-
+          mvn -B -pl smart-assistant-consumer -am test
+          -Dtest=PgIntegrationSettingsTest,PgVectorKnowledgeBaseIntegrationTest,ChatDispatchBrokerIntegrationTest
+          -Dpg.integration=true -Dsurefire.failIfNoSpecifiedTests=false
+      - name: Require executed integration suites
+        run: |
+          python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.rag.PgVectorKnowledgeBaseIntegrationTest.xml --minimum 7
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.dispatch.ChatDispatchBrokerIntegrationTest.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storage-broker-integration-reports
+          path: '**/target/surefire-reports/*.xml'
+          if-no-files-found: error
+
   product-evidence-gate:
     name: Product evidence and terminal telemetry gate
     runs-on: ubuntu-latest
@@ -237,6 +303,5 @@ jobs:
 #      - "Quality gate (enforcer + jacoco)"  （Phase2-② 工程合规 + 覆盖率门禁）
 # 2. 重新生成基线（仅人工确认质量变化后执行）：
 #    本地运行 GoldenSuiteEvalGate.main 并将生成的 src/test/resources/eval-baseline.json 提交。
-# 3. 其他模块依赖 Redis/PG 的集成测试不在本工作流范围内（需 service container，另行编排）。
-#    后续若要扩展"全量单测"，可在本工作流增 job 并挂 Redis/PG service container，
-#    再运行 `mvn -B test -pl <module>`（注意排除 Redis/BGE 强依赖用例）。
+# 3. session-gate 与 storage-broker-integration 使用专用 Redis/PG/RabbitMQ service containers。
+#    这些契约测试不等于全量集成测试、真实模型评测或生产多副本故障演练。

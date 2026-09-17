@@ -22,8 +22,6 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -34,137 +32,54 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * PgVectorKnowledgeBase 真 PostgreSQL + pgvector 集成验证（REQ-4 多实例一致性核心证据）。
- * <p>
- * 本测试是「RAG 生产化改造」唯一未连环境验证的环节——Flyway 迁移 + PgVector 增量 upsert +
- * 多实例读共享——的补齐。它在<b>真实 PG</b> 上验证下列核心契约：
- * <ul>
- *   <li>(a) 4 张表（knowledge_docs / knowledge_index_meta / knowledge_review_queue / compliance_audit_log）均存在；</li>
- *   <li>(b) {@code knowledge_docs.embedding} 数据类型为 {@code vector} 且维度 = 1024（非写死 384）；</li>
- *   <li>(c) <b>增量 upsert</b>：同 id 两次写入仅更新，检索反映新内容，全程<b>不触发整库 reindex</b>；</li>
- *   <li>(d) <b>index_version 过滤</b>：active=v1 时仅返回 v1 文档，旧版本不可见但保留；</li>
- *   <li>(e) <b>多实例读共享（REQ-4）</b>：实例 A 写入后，实例 B 无需重启/通知即可检索到；</li>
- *   <li>(f) <b>真实相似度排序</b>：用 pgvector 真实距离验证排序正确。</li>
- * </ul>
- *
- * <h3>跳过规则（无 PG 环境，如 CI / 沙箱）</h3>
- * 通过 {@link org.junit.jupiter.api.Assumptions#assumeTrue(boolean, String)} 实现：
- * 仅当可连接本地 PG（{@code jdbc:postgresql://localhost:5433/a2a_system}）或为测试显式传入
- * {@code -Dpg.integration=true} 时才执行；否则<b>整类优雅 skip，BUILD SUCCESS 不报错</b>。
- * 这保证 SDK 默认 {@code mvn test} 在任意无 PG 环境都能通过。
- *
- * <h3>不依赖真 BGE 模型</h3>
- * 通过 {@link StubBgeEmbeddingModel} 提供 1024 维<b>确定性</b>向量（相同文本 → 相同向量），
- * 无需 embedding-service 即可在真 PG 上验证向量读写与距离语义。
- *
- * <p><b>连接参数</b>（与 docker-compose-infra.yml 的 postgres 服务一致）：
- * url={@code jdbc:postgresql://localhost:5433/a2a_system}，user={@code postgres}，pwd={@code postgres123}。</p>
+ * Real PostgreSQL/pgvector contracts using an explicitly enabled disposable test database.
+ * Disabled by default; once enabled, configuration, connection and migration failures MUST fail.
+ * Never auto-probe developer databases. The tests delete fixture tables in the dedicated database.
+ * Embeddings are deterministic stubs: this validates storage, not model quality or retrieval recall.
  */
 @Tag("integration")
+@org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "pg.integration", matches = "true")
 class PgVectorKnowledgeBaseIntegrationTest {
-
-    /** 与 docker-compose-infra.yml 的 postgres 服务严格一致 */
-    private static final String PG_URL = "jdbc:postgresql://localhost:5433/a2a_system";
-    private static final String PG_USER = "postgres";
-    private static final String PG_PWD = "postgres123";
     private static final String V1_SQL_RESOURCE = "db/migration/V1__rag_knowledge_schema.sql";
-
-    /** 是否具备可达 PG（@BeforeAll 探测；-Dpg.integration=true 可显式开启） */
-    private static boolean pgAvailable;
-
+    private static PgIntegrationSettings settings;
     private JdbcTemplate jdbcTemplate;
     private StubBgeEmbeddingModel stub;
 
-    // ==================== 环境探测与 setUp ====================
-
     @BeforeAll
-    static void detectPg() {
-        boolean flag = Boolean.getBoolean("pg.integration");
-        pgAvailable = flag || probeConnection();
-        if (!pgAvailable) {
-            System.out.println("[PG-INTEG] 跳过：未检测到可达 PG（如需启用，请先启动 PG 并传入 -Dpg.integration=true）");
-        }
-    }
-
-    /** 尝试一次真实连接以判断 PG 是否可达（无 PG 时返回 false 而非抛错） */
-    private static boolean probeConnection() {
-        try {
-            DriverManager.setLoginTimeout(3);
-            try (Connection c = DriverManager.getConnection(PG_URL, PG_USER, PG_PWD)) {
-                return c.isValid(3);
-            }
-        } catch (Exception e) {
-            return false;
-        }
+    static void configurePg() {
+        settings = PgIntegrationSettings.from(System.getenv());
     }
 
     @BeforeEach
     void setUp() {
-        // 无可达 PG 时整类优雅跳过（BUILD SUCCESS，不报错）
-        assumeTrue(pgAvailable, "PG 集成测试跳过：未检测到可达 PG（设置 -Dpg.integration=true 且确保 PG 在 5433 可达可启用）");
-        try {
-            DriverManagerDataSource ds = new DriverManagerDataSource(PG_URL, PG_USER, PG_PWD);
-            ds.setDriverClassName("org.postgresql.Driver");
-            this.jdbcTemplate = new JdbcTemplate(ds);
-            this.stub = new StubBgeEmbeddingModel();
-            // 真实连通性探针：即便显式 -Dpg.integration=true 但 PG 实际不可达，也优雅跳过而非报错
-            // （runV1Migration/cleanTables 会吞掉各自的内部异常，故需此处先行探活）
-            this.jdbcTemplate.queryForObject("SELECT 1", Integer.class);
-            // 执行 V1 Flyway 迁移脚本（幂等），保证 4 张表存在且环境干净，再允许各服务自愈
-            runV1Migration();
-            cleanTables();
-        } catch (Exception e) {
-            // 显式开启（-Dpg.integration=true）但 PG 实际不可达：优雅跳过而非报错
-            assumeTrue(false, "PG 连接/建表失败，跳过集成测试：" + e.getMessage());
-        }
+        DriverManagerDataSource ds = new DriverManagerDataSource(settings.url(), settings.user(), settings.password());
+        ds.setDriverClassName("org.postgresql.Driver");
+        jdbcTemplate = new JdbcTemplate(ds);
+        assertEquals("smartassistant_integration",
+                jdbcTemplate.queryForObject("SELECT current_database()", String.class));
+        stub = new StubBgeEmbeddingModel();
+        runV1Migration();
+        cleanTables();
     }
 
-    /** 读取并执行 classpath 中的 V1 迁移脚本（幂等） */
     private void runV1Migration() {
-        try (InputStream is = getClass().getClassLoader().getResourceAsStream(V1_SQL_RESOURCE)) {
-            if (is == null) {
-                System.out.println("[PG-INTEG] 未找到 V1 SQL 资源，依赖各服务自愈建表");
-                return;
-            }
-            String sql = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            for (String raw : sql.split(";")) {
-                String stmt = stripSqlComments(raw).trim();
-                if (stmt.isEmpty()) continue;
-                try {
-                    jdbcTemplate.execute(stmt);
-                } catch (Exception e) {
-                    // 幂等建表/种子冲突等可忽略（如 CREATE EXTENSION 已存在）
-                    System.out.println("[PG-INTEG] 执行 V1 语句跳过(可忽略): " + e.getMessage());
-                }
-            }
-        } catch (IOException e) {
-            System.out.println("[PG-INTEG] 读取 V1 SQL 失败，依赖自愈: " + e.getMessage());
+        try (InputStream stream = getClass().getClassLoader().getResourceAsStream(V1_SQL_RESOURCE)) {
+            assertNotNull(stream, "Required V1 migration resource is missing");
+            var resource = new org.springframework.core.io.ByteArrayResource(stream.readAllBytes());
+            new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(resource)
+                    .execute(java.util.Objects.requireNonNull(jdbcTemplate.getDataSource()));
+        } catch (IOException error) {
+            throw new java.io.UncheckedIOException(error);
         }
     }
 
-    /** 去掉 SQL 行注释，避免把纯注释块当作语句执行 */
-    private static String stripSqlComments(String raw) {
-        StringBuilder sb = new StringBuilder();
-        for (String line : raw.split("\n")) {
-            if (line.trim().startsWith("--")) continue;
-            sb.append(line).append("\n");
-        }
-        return sb.toString();
-    }
-
-    /** 清空 4 张表，保证每个测试用例数据隔离 */
+    /** Only fixture tables in the explicitly selected disposable test database. */
     private void cleanTables() {
-        for (String t : new String[]{
-                "knowledge_docs", "knowledge_index_meta",
+        for (String table : new String[]{"knowledge_docs", "knowledge_index_meta",
                 "knowledge_review_queue", "compliance_audit_log"}) {
-            try {
-                jdbcTemplate.execute("DELETE FROM " + t);
-            } catch (Exception ignored) {
-                // 表尚未存在等情况忽略
-            }
+            jdbcTemplate.execute("DELETE FROM " + table);
         }
     }
 

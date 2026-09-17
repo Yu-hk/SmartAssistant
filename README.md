@@ -38,6 +38,9 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 设计与边界：[情绪并行预处理](docs/architecture/sentiment-preprocessing.md) · [MQ 优先级调度](docs/architecture/chat-priority-mq.md) · [可选画像与等待上限](docs/architecture/optional-user-profile.md)。
 
+当前技术/模块事实与编码边界见 [项目上下文](ai-project-context.md)；依赖或服务声明变更由 CI 自动核对。
+运维见 [发布与回滚检查单](docs/deployment-rollback-runbook.md)，整改范围见 [报告核对记录](docs/assessment-follow-up-20260917.md)。
+
 ## 项目结构
 
 | 路径 | 说明 |
