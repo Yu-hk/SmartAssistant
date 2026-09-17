@@ -62,6 +62,7 @@ class TaskAnalysisPromptTest {
         assertTrue(prompt.contains("semantic_cache_category"));
         assertTrue(prompt.contains("{{WORKFLOW_OPERATION_CATALOG}}"));
         assertTrue(prompt.contains("operation 仅允许"));
+        assertTrue(prompt.contains("只规划规格查询，不能扩写为“规格和颜色”"));
         assertTrue(prompt.contains("查询退款进度、退款到账情况或已有售后状态属于 QUERY_ORDER（READ）"));
         assertTrue(prompt.contains("没有订单号时仍交给订单 Agent 查询当前账号的订单或澄清具体订单"));
         assertTrue(prompt.contains("DISCOVER_PRODUCTS 输出 data.products"));
