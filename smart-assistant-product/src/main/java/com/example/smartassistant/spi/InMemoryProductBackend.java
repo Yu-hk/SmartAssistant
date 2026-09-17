@@ -93,11 +93,11 @@ public class InMemoryProductBackend implements ProductBackend {
         if (p == null) return ToolResult.error(AgentErrorCode.PRODUCT_NOT_FOUND, "未找到商品 " + productCode);
         String stock = p.get("stock");
         if ("充足".equals(stock)) {
-            return p.get("name") + " 库存充足，下单后 24 小时内发货。";
+            return p.get("name") + " 库存充足。";
         } else if ("紧张".equals(stock)) {
-            return p.get("name") + " 库存紧张，建议尽快下单，预计 3-5 天发货。";
+            return p.get("name") + " 库存紧张。";
         }
-        return p.get("name") + " 暂时缺货，补货时间待定。";
+        return p.get("name") + ("缺货".equals(stock) ? " 暂时缺货。" : " 库存状态尚未确认。");
     }
 
     @Override
@@ -105,7 +105,7 @@ public class InMemoryProductBackend implements ProductBackend {
         log.info("[MockProduct] 查价格: {}", productCode);
         Map<String, String> p = findProduct(productCode);
         if (p == null) return ToolResult.error(AgentErrorCode.PRODUCT_NOT_FOUND, "未找到商品 " + productCode);
-        return String.format("%s 售价 %s 元，支持 3/6/12/24 期免息分期。", p.get("name"), p.get("price"));
+        return String.format("%s 售价 %s 元。", p.get("name"), p.get("price"));
     }
 
     @Override

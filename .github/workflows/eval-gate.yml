@@ -24,7 +24,7 @@ jobs:
       - name: Verify product evidence and successful empty catalogs
         run: >-
           mvn -B -pl smart-assistant-product -am test
-          -Dtest=ProductStructuredFeaturesTest,JdbcProductFeaturesTest,StructuredProductRecommendationTest,ProductRecommendationSafetyTest,ProductBudgetClaimVerifierTest,ProductBudgetDerivationVerifierTest,PromptManagerDataAnalysisTest,ProductPriceFaithfulnessTest,HallucinationDetectorTest,FaithfulnessGuardTest,ContextFaithfulnessCheckerTest,ProductToolEvidenceScopeTest,ProductStreamControllerTest,StreamingProductAgentServiceTest,ProductDomainQualityValidatorTest,ProductToolsTest,ProductDiscoveryServiceTest,JdbcProductBackendTest
+          -Dtest=ProductStructuredFeaturesTest,JdbcProductFeaturesTest,StructuredProductRecommendationTest,ProductRecommendationSafetyTest,ProductBudgetClaimVerifierTest,ProductBudgetDerivationVerifierTest,PromptManagerDataAnalysisTest,ProductPriceFaithfulnessTest,HallucinationDetectorTest,FaithfulnessGuardTest,ContextFaithfulnessCheckerTest,ProductToolEvidenceScopeTest,ProductStreamControllerTest,StreamingProductAgentServiceTest,ProductDomainQualityValidatorTest,ProductToolsTest,ProductDiscoveryServiceTest,JdbcProductBackendTest,InMemoryProductBackendTest,ProductCustomerServicePromptTest,ProductSkillPackageConfigurationTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - name: Verify final SSE token selection
         run: python3 -m unittest discover -s scripts -p test_chat_telemetry.py -v
