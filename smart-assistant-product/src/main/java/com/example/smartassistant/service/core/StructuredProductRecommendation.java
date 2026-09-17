@@ -30,6 +30,7 @@ public final class StructuredProductRecommendation {
                            List<String> limitations, String correction) { }
     private final List<Product> products;
     private final BigDecimal budget;
+    private final ProductDiscoveryService.BudgetResolution budgetResolution;
     private final boolean detailsRequested;
     private final String question;
     private final ProductFeatureRequest featureRequest;
@@ -38,7 +39,8 @@ public final class StructuredProductRecommendation {
         if (catalog == null || catalog.isEmpty()) throw new IllegalArgumentException("Missing verified catalog");
         this.question = question == null ? "" : question;
         featureRequest = ProductFeatureRequest.parse(this.question);
-        budget = ProductDiscoveryService.extractMaxBudget(question);
+        budgetResolution = ProductDiscoveryService.resolveBudget(question);
+        budget = budgetResolution.max();
         detailsRequested = question != null && DETAILS.matcher(question).find() && !NO_DETAILS.matcher(question).find();
         List<Product> parsed = new ArrayList<>();
         Set<String> codes = new HashSet<>();
@@ -56,7 +58,7 @@ public final class StructuredProductRecommendation {
     public boolean hasEligibleProducts() { return products.stream().anyMatch(this::eligible); }
 
     private boolean eligible(Product p) {
-        return p.price() != null && (budget == null || p.price().compareTo(budget) <= 0)
+        return !budgetResolution.ambiguous() && p.price() != null && (budget == null || p.price().compareTo(budget) <= 0)
                 && featureRequest.clarification().isBlank() && featureRequest.constraints().matches(p.features())
                 && !p.stock().matches("(?i)(?:.*(?:缺货|无货|售罄|售完|out.of.stock).*|0(?:\\.0+)?)");
     }
@@ -187,6 +189,7 @@ public final class StructuredProductRecommendation {
     }
 
     public String noEligibleAnswer() {
+        if (budgetResolution.ambiguous()) return budgetResolution.clarification();
         if (!featureRequest.clarification().isBlank()) return featureRequest.clarification();
         StringBuilder answer = new StringBuilder("当前目录中没有满足当前条件的可推荐商品。\n");
         if (featureRequest.constraints().active()) answer.append("未找到结构化证据足以核实全部特征条件的候选；未知字段不能按匹配处理。\n");

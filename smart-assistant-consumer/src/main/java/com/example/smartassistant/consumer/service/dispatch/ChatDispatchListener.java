@@ -65,13 +65,14 @@ public class ChatDispatchListener {
                     result = PriorityRoutingDispatcher.failure("INVALID_ROUTER_RESULT", "业务处理结果尚未确认，请查询原请求，避免重复操作。");
                 }
             }
-            boolean uncertain = result.get("error") != null;
+            boolean notSent = "ROUTER_REQUEST_NOT_SENT".equals(result.get("error"));
+            boolean uncertain = result.get("error") != null && !notSent;
             if (uncertain) result = PriorityRoutingDispatcher.failure("ROUTER_EXECUTION_UNCONFIRMED",
                     "业务处理结果尚未确认，请查询原请求或联系管理员核查，避免重复提交业务操作。");
-            if (!store.finish(command, "RUNNING", uncertain ? "UNCERTAIN" : "COMPLETED", result)) {
+            if (!store.finish(command, "RUNNING", notSent ? "FAILED" : uncertain ? "UNCERTAIN" : "COMPLETED", result)) {
                 throw new IllegalStateException("Dispatch completion could not be recorded");
             }
-            if (uncertain) channel.basicReject(tag, false);
+            if (uncertain || notSent) channel.basicReject(tag, false);
             else channel.basicAck(tag, false);
         } catch (Exception error) {
             // Do not log body, credentials or raw exception text. Unacked business work is not auto-replayed.

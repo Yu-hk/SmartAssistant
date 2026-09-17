@@ -164,7 +164,12 @@ public class RouterClient {
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
             String url = routerServiceUrl + "/api/router/route";
-            ResponseEntity<Map> response = postRoutingRequest(url, request);
+            ResponseEntity<Map> response;
+            try {
+                response = postRoutingRequest(url, request);
+            } catch (org.springframework.web.client.ResourceAccessException transportFailure) {
+                return routingFailure(transportFailure);
+            }
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 Map<String, Object> responseBody = response.getBody();
@@ -183,11 +188,10 @@ public class RouterClient {
             return errorMap;
 
         } catch (Exception e) {
-            log.error("[RouterClient] Router 调用失败: {}", e.getMessage(), e);
-            Map<String, Object> errorMap = new HashMap<>();
-            errorMap.put("result", "❌ 调用 Router 服务失败: " + e.getMessage());
-            errorMap.put("error", e.getMessage());
-            return errorMap;
+            log.error("[RouterClient] call failed: errorType={}", e.getClass().getSimpleName());
+            // This also covers post-response processing: do not infer NOT_SENT
+            // from a DNS exception raised by cache/storage after Router executed.
+            return routingFailure(null);
         }
     }
 
@@ -414,6 +418,16 @@ public class RouterClient {
             if (failure instanceof java.net.UnknownHostException) return true;
         }
         return false;
+    }
+
+    static Map<String, Object> routingFailure(Throwable failure) {
+        // DNS is proof that neither POST reached Router. Other transport failures
+        // may happen after an order operation; never claim they were not executed.
+        boolean notSent = isDnsFailure(failure);
+        return Map.of("result", notSent ? "服务暂时无法连接，本轮业务尚未开始，请稍后重试。"
+                        : "业务处理结果尚未确认，请查询原请求，避免重复操作。",
+                "error", notSent ? "ROUTER_REQUEST_NOT_SENT" : "ROUTER_EXECUTION_UNCONFIRMED",
+                "workflowStatus", "FAILED", "executionMode", "BUILTIN");
     }
 
     private long requireAuthenticatedUserId(String userId) {
