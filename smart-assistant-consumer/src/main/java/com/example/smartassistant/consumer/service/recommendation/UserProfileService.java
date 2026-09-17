@@ -77,6 +77,7 @@ public class UserProfileService {
 
     private final LLMPreferenceExtractor llmExtractor;
     private final UserProfileSnapshotStore profileStore;
+    private final UserProfileQueryService profileQueries;
     private final UserProfileCommitPublisher commitPublisher;
 
     public UserProfileService(LLMPreferenceExtractor llmExtractor,
@@ -84,6 +85,7 @@ public class UserProfileService {
                               UserProfileCommitPublisher commitPublisher) {
         this.llmExtractor = llmExtractor;
         this.profileStore = profileStore;
+        this.profileQueries = new UserProfileQueryService(profileStore);
         this.commitPublisher = commitPublisher;
     }
 
@@ -150,8 +152,7 @@ public class UserProfileService {
     }
 
     private PreparedProfile prepareProfile(Long userId, String question, String requestId) {
-        String savedProjection = profileStore.load(userId)
-                .map(snapshot -> reliableProjection(snapshot.reportJson())).orElse("");
+        String savedProjection = profileQueries.forUser(userId);
         if (!savedProjection.isBlank()) {
             // Existing reliable context becomes available before history/model analysis begins.
             redisTemplate.opsForValue().set(RoutingKeys.userProfileContext(requestId),
@@ -179,12 +180,7 @@ public class UserProfileService {
     }
 
     private String reliableProjection(String reportJson) {
-        try {
-            if (!objectMapper.readTree(reportJson).path("commerceAssessment").path("reliable").asBoolean(false)) return "";
-            return buildUserProfilePrompt(reportJson);
-        } catch (IOException malformed) {
-            return "";
-        }
+        return UserProfileQueryService.candidate(reportJson);
     }
 
     private PreparedProfileCandidate analyzeCandidate(
@@ -375,28 +371,8 @@ public class UserProfileService {
      */
     public String buildUserProfilePrompt(Long userId) {
         if (userId == null) return "";
-        return profileStore.load(userId)
-                .map(snapshot -> buildUserProfilePrompt(snapshot.reportJson()))
-                .orElse("【电商用户洞察】\n- 当前没有可靠画像\n");
-    }
-
-    @SuppressWarnings("unchecked")
-    private String buildUserProfilePrompt(String reportJson) {
-        Map<String, Object> report;
-        try {
-            report = objectMapper.readValue(reportJson, LinkedHashMap.class);
-        } catch (IOException error) {
-            throw new IllegalStateException("Unable to read stored user profile", error);
-        }
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("【电商用户洞察】\n");
-        prompt.append("以下仅为历史偏好参考；本轮明确的预算、品类、用途及其他要求优先，冲突时忽略历史偏好。\n");
-        appendAssessment(prompt, report.get("commerceAssessment"));
-        appendList(prompt, "核心驱动", report.get("topDrivers"));
-        appendList(prompt, "核心阻碍", report.get("topBarriers"));
-        appendDimension(prompt, "购买动机", report.get("insightDimensions"), "purchaseMotivation");
-        appendDimension(prompt, "价值偏好", report.get("insightDimensions"), "valuePreference");
-        return prompt.toString();
+        String projection = profileQueries.forUser(userId);
+        return projection.isBlank() ? "【电商用户洞察】\n- 当前没有可靠画像\n" : projection;
     }
 
     /**
@@ -416,37 +392,6 @@ public class UserProfileService {
      */
     public void updateIntentDistribution(Long userId, String routedAgent) {
         // 电商画像只保存新 Prompt 的结构化结果，旧意图计数不再写入画像。
-    }
-
-    private void appendAssessment(StringBuilder prompt, Object rawAssessment) {
-        if (!(rawAssessment instanceof Map<?, ?> assessment)) return;
-        appendValue(prompt, "画像可靠", assessment.get("reliable"));
-        appendValue(prompt, "购买阶段", assessment.get("purchaseStage"));
-        appendValue(prompt, "决策风格", assessment.get("decisionStyle"));
-        appendValue(prompt, "价格敏感度", assessment.get("priceSensitivity"));
-        appendValue(prompt, "购买意愿", assessment.get("purchaseIntentScore"));
-        appendValue(prompt, "流失风险", assessment.get("churnRisk"));
-        appendList(prompt, "主要顾虑", assessment.get("primaryConcerns"));
-    }
-
-    private void appendDimension(StringBuilder prompt, String label,
-                                 Object rawDimensions, String dimensionKey) {
-        if (!(rawDimensions instanceof Map<?, ?> dimensions)) return;
-        Object rawDimension = dimensions.get(dimensionKey);
-        if (!(rawDimension instanceof Map<?, ?> dimension)) return;
-        appendValue(prompt, label, dimension.get("summary"));
-    }
-
-    private void appendList(StringBuilder prompt, String label, Object rawValues) {
-        if (!(rawValues instanceof Collection<?> values) || values.isEmpty()) return;
-        String joined = values.stream().filter(Objects::nonNull).map(Object::toString)
-                .filter(value -> !value.isBlank()).collect(Collectors.joining("、"));
-        if (!joined.isBlank()) prompt.append("- ").append(label).append(": ").append(joined).append("\n");
-    }
-
-    private void appendValue(StringBuilder prompt, String label, Object value) {
-        if (value == null || value.toString().isBlank()) return;
-        prompt.append("- ").append(label).append(": ").append(value).append("\n");
     }
 
     private ProfileConversationContext buildConversationContext(Long userId, String currentQuestion) {

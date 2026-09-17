@@ -77,7 +77,9 @@ public class ProductAgentConfig {
 
         // 从本模块 @Component 工具 Bean 直接扫描加载
         ToolCallback[] moduleToolCallbacks = MethodToolCallbackProvider.builder()
-                .toolObjects(productTools, productMemoryTool, knowledgeQueryTool)
+                // Legacy memory tools accept a model-supplied userId without authenticated binding.
+                // Commerce preferences are prepared/committed by Consumer instead.
+                .toolObjects(productTools, knowledgeQueryTool)
                 .build()
                 .getToolCallbacks();
         List<ToolCallback> toolList = new ArrayList<>(Arrays.asList(moduleToolCallbacks));

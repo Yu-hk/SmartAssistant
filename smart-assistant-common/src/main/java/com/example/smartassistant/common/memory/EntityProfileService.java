@@ -63,7 +63,7 @@ public class EntityProfileService {
         String key = PROFILE_KEY_PREFIX + userId;
         redis.opsForHash().put(key, category, value);
         redis.expire(key, PROFILE_TTL_DAYS, TimeUnit.DAYS);
-        log.debug("[Profile] 已存储: userId={}, {}={}", userId, category, value);
+        log.debug("[Profile] 已存储实体事实: userId={}", userId);
     }
 
     /**
@@ -74,7 +74,7 @@ public class EntityProfileService {
         String key = PROFILE_KEY_PREFIX + userId;
         redis.opsForHash().putAll(key, new HashMap<>(facts));
         redis.expire(key, PROFILE_TTL_DAYS, TimeUnit.DAYS);
-        log.info("[Profile] 已批量存储 {} 条事实: userId={}, facts={}", facts.size(), userId, facts);
+        log.info("[Profile] 已批量存储 {} 条实体事实: userId={}", facts.size(), userId);
     }
 
     /**
@@ -250,8 +250,11 @@ public class EntityProfileService {
         Map<String, String> profile = getAll(userId);
         if (profile.isEmpty()) return "";
 
-        return profile.entrySet().stream()
-                .map(e -> String.format("- %s: %s", e.getKey(), e.getValue()))
+        String body = profile.entrySet().stream().sorted(Map.Entry.comparingByKey()).limit(20)
+                .map(e -> String.format("- %s: %s", ProfileContextPolicy.singleLine(e.getKey(), 80),
+                        ProfileContextPolicy.singleLine(e.getValue(), 500)))
                 .collect(Collectors.joining("\n"));
+        return ProfileContextPolicy.reference(ProfileContextPolicy.Source.REDIS_ENTITY,
+                "legacy-kv-v1", "未知；Redis TTL 不等于事实更新时间", body);
     }
 }

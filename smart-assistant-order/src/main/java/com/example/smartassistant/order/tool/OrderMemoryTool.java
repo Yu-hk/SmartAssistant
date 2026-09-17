@@ -38,7 +38,7 @@ public class OrderMemoryTool {
             @ToolParam(description = "偏好键名，如 preferWindowSeat、frequentRoute") String key,
             @ToolParam(description = "偏好值，如 '靠窗'、'北京→上海'") String value) {
         memoryService.save(AGENT_NAME, userId, key, value);
-        log.info("[OrderMemory] 保存偏好: userId={}, key={}, value={}", userId, key, value);
+        log.info("[OrderMemory] 已处理偏好保存请求: userId={}", userId);
     }
 
     @Tool(description = "获取用户保存的订单相关偏好和习惯，返回格式化的记忆列表。在处理用户问题前可主动调用以了解用户偏好。")

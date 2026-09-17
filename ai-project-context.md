@@ -70,7 +70,10 @@ Redis 请求级投影是派生数据，不应反写成为第二事实源。
 `EntityProfileService` 是 Redis 实体事实；`AgentMemoryService` 是按 Agent/用户隔离的文件记忆。
 三者语义及调用入口不同，不通过简单复制或新增同名门面宣称已统一。
 当前用户明确要求 > 已验证业务事实 > 有来源和时效的历史偏好；低可信记忆只可作为提示。
-后续统一需先覆盖同步/SSE/MQ/工具记忆调用方，再设计版本、来源、清除和冲突规则，禁止无证据合并历史数据。
+`UserProfileQueryService` 提供 PG 只读摘要，校验归属、schema、版本和可靠性；候选标记为未持久化。
+三类来源统一输出历史参考边界与限长；旧文件未知时间不再视作新鲜。
+Product/Order 不再向 Agent 发布接受模型 userId 的旧记忆工具；保留数据，电商写入仍走 Consumer。
+完整用户级清除和跨进程文件并发仍属后续专项，禁止无证据合并历史数据。
 
 ## 开发与安全边界
 
@@ -86,6 +89,7 @@ Redis 请求级投影是派生数据，不应反写成为第二事实源。
 ## 深入资料
 
 - [报告核对与分期整改](docs/assessment-follow-up-20260917.md)
+- [画像来源与旧记忆隔离](docs/profile-memory-governance.md)
 - [框架基线与兼容性决策](docs/adr/0001-framework-baseline.md)
 - [发布与回滚检查单](docs/deployment-rollback-runbook.md)
 - [可选画像与等待预算](docs/architecture/optional-user-profile.md)

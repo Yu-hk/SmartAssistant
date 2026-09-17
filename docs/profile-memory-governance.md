@@ -1,0 +1,83 @@
+# 画像与记忆治理（2026-09-17）
+
+## 本批边界
+
+统一读取规则，不合并三套存储，不迁移或删除既有用户数据。
+ReAct 引擎拆分属于下一批，不混入本次运行时变更。
+
+| 来源 | 地位与读取规则 |
+| --- | --- |
+| PG 电商快照 | UserProfileQueryService 只读门面；校验用户归属、正版本号、当前 schema、布尔 reliable=true；输出来源、版本、时间和白名单摘要 |
+| 请求内画像候选 | 标记尚未持久化；沿用 Consumer prepare/commit、版本及幂等机制，不声称已保存 |
+| Redis 实体事实 | 低可信历史参考；旧 hash 无字段更新时间，明确标记未知，不能将 TTL 当作新鲜度 |
+| Agent 文件 | 独立历史参考；不能覆盖 PG 快照；未知/未来日期需确认，保留原文件与逐键删除能力 |
+
+来源标签和当前要求优先规则由 ProfileContextPolicy 统一输出，摘要限长、字段单行化。
+当前预算、品类、用途优先于历史偏好，价格库存仍需本轮业务工具核验。
+这是提示词约束，不是完整的语义冲突证明器；原商品事实校验仍然必要。
+不可靠、错误归属、未知 schema 的 PG 快照不进入提示词，也不会回退合并旧文件或 Redis 事实。
+查询仍在已有可选画像 worker 内，Router 默认最多等待 500ms，不增加主业务阻塞等待。
+
+## 旧记忆工具隔离
+
+Product/Order 的旧 savePreference、recallMemories 接受模型传入的 userId，缺少独立身份绑定。
+本次从 Agent 实际回调注册和 Skill 发布清单移除这组能力；即使 Order 其他扩展工具开启也不恢复。
+类与历史数据保留，Consumer 版本化电商画像链路继续运行。
+以后若重新开放，必须先以可信请求身份绑定用户，不能直接相信工具参数中的 userId。
+
+## 文件和提取边界
+
+- 用户/agent/key 使用受限字符集；路径限制在配置根目录；拒绝符号链接路径。
+- 值单行化、限长，防止伪造 Markdown 记录和日期；超过 256KiB 的旧文件拒绝读写，避免覆盖。
+- MemoryExtractor 仅将本轮用户文本作为提取材料，不再把助手回复当作用户事实；限制提取条数。
+- 本批移除所改记忆路径中的原始值日志，不宣称全系统日志均已完成隐私审计。
+
+## 删除、并发和后续工作
+
+PG 快照、变更日志、Redis 投影/候选、文件有不同生命周期，不能用清空 Redis 代替用户画像删除。
+本次不新增全量删除入口，不自动清除任何真实用户数据。
+后续用户级清除需审计授权、暂停在途候选提交、分别清除各存储并验证，防止删除后重新写入。
+文件写入仍未实现跨进程事务或锁；本批不宣称解决所有并发写入与完整租户授权问题。
+
+## 回归与发布
+
+CI `Profile provenance and memory isolation` 覆盖路径/摘要边界、可靠性和用户归属、
+候选提交、500ms 可选等待及商品/订单 Skill 清单。
+运行时涉及 Consumer、Product、Order；发布前备份实际挂载 JAR、核验 SHA-256，
+暂停入口并等待队列排空后切换；健康失败则恢复原 JAR。无前端或数据库 schema 变更。
+
+### 当前验证记录
+
+- 本地 129 项运行时回归通过；另补 2 项实际 Agent 回调隔离测试通过（合计 131 个不同用例），均无失败或跳过。
+- 7 项 Python 文档/测试报告治理测试通过。
+- 已切换 Consumer/Product/Order，三者与 Gateway、公开 `/healthz` 均健康。
+- 新建普通测试用户完成订单列表、AirPods Pro 价格库存、预算从 2000 改为 1000 三轮对话；
+  最后一轮返回无符合候选，没有把 1999 元耳机当作预算内推荐。请求均为 COMPLETED。
+- 商品两轮末尾提供完整工具/Token 事件；订单确定性空列表的 Token 标记为未完整采集，未冒充零消耗。
+- 自然对话没有生成 PG 画像快照；日志显示画像模型触发既有 8000ms 超时。
+  这验证了可选画像失败不阻断业务，不代表画像模型提取或持久化成功。
+- 另创建独立测试用户及显式标记的 PG 合成画像用于读取核验，未修改真实用户画像。
+  首次只读核验误用了不存在的 REDIS_PASSWORD 环境变量；经授权使用服务器已有配置凭据后通过，
+  未展示或修改凭据。确认请求投影含 POSTGRES_SNAPSHOT、ecommerce-profile-v1/1 和当前要求优先边界。
+- 专项发现“预算只有1000元”未被确定性预算规则识别，超预算候选进入模型审核后被拒绝。
+  本地先用 4 项失败用例复现，再补充“只有、仅有、为、改为”等预算前缀，150 项商品相关测试通过。
+  更新商品服务后，带历史 2000 元预算的测试画像再次询问“预算只有1000元”，正确返回无符合候选，
+  workflowStatus=COMPLETED；末尾工具调用完成、总 Token=4745。
+  请求 ID：profile-fixture-ff88b5995ed84a4d9ca5e233afd640c0。
+- 发布后冒烟曾遇到容器 DNS 瞬时异常（Consumer 的 UnknownHostException: smart-router，未到达 Router），
+  后续容器内名称解析及 HTTPS 健康恢复；该失败保留为基础设施观察项，不计为成功用例，
+  未用固定 IP 或自动重试写操作规避。
+  恢复后新建测试用户的三轮只读业务验证通过，耗时分别 3.28s、4.62s、8.90s；
+  最后一轮请求 governance-d7a35affc9494dcf874b94f15cb7b07e 正常完成。
+
+发布目录：`/opt/smart-assistant/releases/profile-governance-20260917`。
+恢复副本：`/opt/smart-assistant/backups/before-profile-governance-20260917`。
+商品预算补丁发布目录为 `/opt/smart-assistant/releases/profile-budget-20260917`，
+对应恢复副本为 `/opt/smart-assistant/backups/before-profile-budget-20260917`。
+实际产物 SHA-256：
+
+| 服务 | SHA-256 |
+| --- | --- |
+| Consumer | `67b086f4549fdef79482725bbcc90e86d9861cc28ad6616c2a14d39680d5bde2` |
+| Product | `b94c845c732499ce2aabe59acf9c1d5a0955a0cc00e80520b1c010666ef05161` |
+| Order | `4baf06ca9fe533ddc5fefbc884bba713afbc0f0dc6623d7e8ead3ac1999514d8` |
