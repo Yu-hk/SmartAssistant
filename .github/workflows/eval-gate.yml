@@ -22,7 +22,7 @@ jobs:
           cache: 'maven'
       - run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-product,smart-assistant-order,smart-assistant-router -am test
-          -Dtest=CustomerReplyStyleTest,PromptBuilderTest,UserDocumentQaServiceTest,SentimentAnalysisServiceTest,OrderDeterministicExecutionServiceTest,OrderRagServiceTest,ProductCustomerServicePromptTest,ProductStreamControllerTest,ResultMergerTest,ChatDispatchListenerTest,RouterClientDnsRetryTest,SelectiveSemanticAnswerCacheTest,TaskAnalysisPromptTest,RouteExecutionPreplannedGraphTest,GraphNodeExecutionServiceTest
+          -Dtest=CustomerReplyStyleTest,PromptBuilderTest,UserDocumentQaServiceTest,SentimentAnalysisServiceTest,OrderDeterministicExecutionServiceTest,OrderRagServiceTest,ProductCustomerServicePromptTest,ProductStreamControllerTest,StreamingProductAgentServiceTest,ResultMergerTest,ChatDispatchListenerTest,RouterClientDnsRetryTest,SelectiveSemanticAnswerCacheTest,TaskAnalysisPromptTest,RouteExecutionPreplannedGraphTest,GraphNodeExecutionServiceTest,RouterConversationContextTest,ProductNodeResultCacheTest
           -Dsurefire.failIfNoSpecifiedTests=false
 
   profile-governance:

@@ -34,7 +34,7 @@ import java.util.Set;
 public class ProductNodeResultCache {
 
     public static final String CACHE_HIT_KEY = "_productNodeCacheHit";
-    private static final String PREFIX = "router:product-node:v1:";
+    private static final String PREFIX = "router:product-node:v2:";
     private static final Logger log = LoggerFactory.getLogger(ProductNodeResultCache.class);
     private static final Set<WorkflowOperation> ALLOWED = Set.of(
             WorkflowOperation.DISCOVER_PRODUCTS,

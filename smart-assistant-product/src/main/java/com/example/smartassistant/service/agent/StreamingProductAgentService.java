@@ -313,6 +313,7 @@ public class StreamingProductAgentService {
             }
 
             // ⭐ GENERATION 阶段
+            userMessage = withCurrentReplyScope(originalUserMessage, userMessage);
             long genStart = System.currentTimeMillis();
             String result = null;
             FaithfulnessGuard.FaithfulnessVerdict faithfulness = null;
@@ -418,12 +419,27 @@ public class StreamingProductAgentService {
                 com.example.smartassistant.service.quality.ProductMoneySyntax.normalize(context));
     }
 
+    static String withCurrentReplyScope(String originalQuestion, String evidencePrompt) {
+        if (originalQuestion == null || originalQuestion.isBlank()) return evidencePrompt;
+        // Router appends history under this marker. Keep it for product identity,
+        // but never treat earlier answer dimensions as part of the current request.
+        int history = originalQuestion.indexOf("[对话上下文]");
+        String current = (history >= 0 ? originalQuestion.substring(0, history) : originalQuestion).trim();
+        return evidencePrompt + "\n\n[本轮回答范围]\n当前用户提问：" + current
+                + "\n仅回答当前提问涉及的维度；历史用于确认商品指代，不是额外的提问。"
+                + "只问规格/参数时不附带颜色、价格、库存；只问颜色时不附带其他规格。"
+                + "明确同时询问时才一起回答，必要的版本消歧和安全限制仍须保留。"
+                + "工具和资料中的其他字段仅供核实，不要转述或在结尾主动邀约。"
+                + "本轮所问字段已回答完整就直接结束，不再追加‘如需了解价格或库存’、‘其他方面’等服务邀约；"
+                + "只有完成当前任务确实缺少信息、存在版本歧义或需要安全确认时才追问。";
+    }
+
     static String buildFaithfulnessCorrectionPrompt(
             String originalQuestion,
             String evidence,
             String previousAnswer,
             FaithfulnessGuard.FaithfulnessVerdict verdict) {
-        return """
+        return withCurrentReplyScope(originalQuestion, """
                 [系统：答案事实校验未通过，请修正]
                 用户问题：%s
 
@@ -436,7 +452,7 @@ public class StreamingProductAgentService {
                 校验发现 %d 条无证据断言。请删除或改写所有无证据内容，仅依据证据给出最终答案，
                 并使用 [E编号] 或 [CID:文档编号] 标注事实来源。请直接给出经过核实的简洁答复，省略推理过程。
                 """.formatted(originalQuestion, evidence, previousAnswer,
-                verdict.claims() == null ? 0 : verdict.claims().size());
+                verdict.claims() == null ? 0 : verdict.claims().size()));
     }
 
     private static String stripInternalThinking(String value) {
