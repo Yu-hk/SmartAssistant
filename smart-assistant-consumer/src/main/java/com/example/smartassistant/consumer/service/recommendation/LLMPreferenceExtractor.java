@@ -6,6 +6,7 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.deepseek.DeepSeekChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -15,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Future;
@@ -32,11 +33,14 @@ public class LLMPreferenceExtractor {
     private final ChatModel lightModel;
     private final PromptManager promptManager;
     private final ExecutorService extractionExecutor = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(32), Thread.ofPlatform().daemon().name("profile-model-", 0).factory(),
+            new SynchronousQueue<>(), Thread.ofPlatform().daemon().name("profile-model-", 0).factory(),
             new ThreadPoolExecutor.AbortPolicy());
 
     @Value("${preference.extraction.timeout-ms:8000}")
     private long extractionTimeoutMs = 8000;
+
+    @Value("${preference.extraction.max-tokens:2048}")
+    private int extractionMaxTokens = 2048;
 
     public LLMPreferenceExtractor(AiChatService aiChatService,
                                   @Qualifier("lightChatModel") ChatModel lightModel,
@@ -70,7 +74,7 @@ public class LLMPreferenceExtractor {
             return UserInsightReport.empty("用户画像分析繁忙");
         }
         try {
-            UserInsightReport result = extraction.get(extractionTimeoutMs, TimeUnit.MILLISECONDS);
+            UserInsightReport result = extraction.get(Math.max(1, Math.min(extractionTimeoutMs, 15000)), TimeUnit.MILLISECONDS);
             return result != null ? result.normalized()
                     : UserInsightReport.empty("模型未返回用户画像");
         } catch (TimeoutException error) {
@@ -82,14 +86,16 @@ public class LLMPreferenceExtractor {
             Thread.currentThread().interrupt();
             return UserInsightReport.empty("用户画像分析被中断");
         } catch (ExecutionException error) {
-            log.warn("[UserInsight] model failed: {}",
-                    error.getCause() != null ? error.getCause().getMessage() : error.getMessage());
+            log.warn("[UserInsight] model failed: errorType={}",
+                    error.getCause() != null ? error.getCause().getClass().getSimpleName() : error.getClass().getSimpleName());
             return UserInsightReport.empty("用户画像模型调用失败");
         }
     }
 
     private UserInsightReport extractWithLlm(String currentProfile, String conversationHistory) {
         return aiChatService.buildChatClient(lightModel).prompt()
+                .options(DeepSeekChatOptions.builder().disableThinking()
+                        .maxTokens(Math.max(512, Math.min(extractionMaxTokens, 4096))))
                 .user(buildExtractionPrompt(currentProfile, conversationHistory)).call()
                 .entity(UserInsightReport.class);
     }

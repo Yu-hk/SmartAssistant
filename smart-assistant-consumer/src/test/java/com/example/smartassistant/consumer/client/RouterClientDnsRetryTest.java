@@ -14,6 +14,44 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class RouterClientDnsRetryTest {
+    @Test void bothDnsAttemptsMustFailBeforeReturningNotSent() {
+        var client = new RouterClient(null, new ObjectMapper(), 1000, 1000);
+        var transport = mock(RestTemplate.class);
+        ReflectionTestUtils.setField(client, "restTemplate", transport);
+        ReflectionTestUtils.setField(client, "routerServiceUrl", "http://router");
+        ReflectionTestUtils.setField(client, "dnsRetryDelayMs", 0L);
+        when(transport.postForEntity(anyString(), any(HttpEntity.class), eq(Map.class)))
+                .thenThrow(new ResourceAccessException("DNS", new UnknownHostException("router")));
+        var result = client.callRouterRaw("查订单", "42", "session", "request", false);
+        assertEquals("ROUTER_REQUEST_NOT_SENT", result.get("error"));
+        verify(transport, times(2)).postForEntity(anyString(), any(HttpEntity.class), eq(Map.class));
+    }
+
+    @Test void dnsFailureWhileSavingCacheAfterBusinessExecutionIsNeverNotSent() {
+        var client = new RouterClient(null, new ObjectMapper(), 1000, 1000);
+        var transport = mock(RestTemplate.class);
+        var cache = mock(com.example.smartassistant.consumer.service.cache.SelectiveSemanticAnswerCache.class);
+        when(cache.find(anyLong(), anyString())).thenReturn(null);
+        ReflectionTestUtils.setField(client, "restTemplate", transport);
+        ReflectionTestUtils.setField(client, "routerServiceUrl", "http://router");
+        ReflectionTestUtils.setField(client, "semanticAnswerCache", cache);
+        when(transport.postForEntity(anyString(), any(HttpEntity.class), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(Map.of("result", "已处理")));
+        doThrow(new ResourceAccessException("DNS", new UnknownHostException("cache")))
+                .when(cache).store(eq(42L), anyString(), anyMap());
+        assertEquals("ROUTER_EXECUTION_UNCONFIRMED", client.callRouterRaw("查订单", "42", "session", "request", true).get("error"));
+        verify(transport, times(1)).postForEntity(anyString(), any(HttpEntity.class), eq(Map.class));
+    }
+
+    @Test void dnsFailureIsNotSentButReadTimeoutIsUnknownAndNeitherLeaksTransportDetails() {
+        var dns = RouterClient.routingFailure(new ResourceAccessException("private-host", new UnknownHostException("private-host")));
+        assertEquals("ROUTER_REQUEST_NOT_SENT", dns.get("error"));
+        assertFalse(dns.toString().contains("private-host"));
+        var timeout = RouterClient.routingFailure(new ResourceAccessException("secret", new SocketTimeoutException()));
+        assertEquals("ROUTER_EXECUTION_UNCONFIRMED", timeout.get("error"));
+        assertFalse(timeout.toString().contains("secret"));
+    }
+
     @Test
     void retriesDnsOnceWithTheSameRequest() {
         var client = new RouterClient(null, new ObjectMapper(), 1000, 1000);

@@ -22,7 +22,7 @@ jobs:
           cache: 'maven'
       - run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-product,smart-assistant-order,smart-assistant-router -am test
-          -Dtest=ProfileGovernanceTest,UserProfileQueryServiceTest,AgentMemoryServiceIntegrationTest,MemoryExtractorOptionalModelTest,UserProfilePrefetchTest,UserProfileSnapshotStoreTest,UserProfileCommitMessagingTest,UserProfileContextAwaiterTest,ProfileExecutionConfigTest,GraphNodeExecutionServiceTest,ProductSkillPackageConfigurationTest,OrderSkillPackageConfigurationTest
+          -Dtest=ProfileGovernanceTest,UserProfileQueryServiceTest,AgentMemoryServiceIntegrationTest,MemoryExtractorOptionalModelTest,UserProfilePrefetchTest,UserProfileSnapshotStoreTest,UserProfileCommitMessagingTest,UserProfileContextAwaiterTest,ProfileExecutionConfigTest,GraphNodeExecutionServiceTest,ProductSkillPackageConfigurationTest,OrderSkillPackageConfigurationTest,ProductBudgetRevisionTest,LightChatModelConfigTest,LLMPreferenceExtractorTest,RouterClientDnsRetryTest,ChatDispatchListenerTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - uses: actions/upload-artifact@v4
         if: always()
