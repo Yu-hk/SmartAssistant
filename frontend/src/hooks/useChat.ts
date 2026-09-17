@@ -151,7 +151,7 @@ export function useChat(options: UseChatOptions) {
               m.id === tempAssistantMessageId
                 ? {
                   ...m,
-                  content: '⚠️ 发生错误，请重试',
+                  content: '这次回复没能完整送达。请先查看原请求的结果，避免重复提交业务操作。',
                   isStreaming: false,
                   deliveryStatus: 'failed',
                   recoverable: Boolean(m.requestId),
@@ -237,7 +237,7 @@ export function useChat(options: UseChatOptions) {
             return;
           }
           if (data.type === 'queue') {
-            setProgressMessage('请求正在排队，等待处理…');
+            setProgressMessage('已收到您的问题，正在排队…');
             return;
           }
 
@@ -279,7 +279,7 @@ export function useChat(options: UseChatOptions) {
 
           if (data.type === 'init') {
             activeRequestIdRef.current = data.requestId || requestId;
-            setProgressMessage('会话已建立，正在分析问题…');
+            setProgressMessage('正在了解您的问题…');
             realSessionId = data.sessionId || sessionId;
             realAssistantMessageId = data.assistantMessageId || assistantMessageId;
             const normalizedIntent = normalizeIntentType(data.intent);
@@ -394,7 +394,7 @@ export function useChat(options: UseChatOptions) {
             setProgressMessage('');
             updateAssistantMessage(current => ({
               ...current,
-              content: '当前对话仍有一条请求正在处理，请等待完成后再发送。',
+              content: '上一条问题还在处理中，请等回复完成后再发送。',
               isStreaming: false,
               deliveryStatus: 'stopped',
               recoverable: false,
@@ -405,7 +405,7 @@ export function useChat(options: UseChatOptions) {
             setProgressMessage('原请求仍在处理中…');
             updateAssistantMessage(current => ({
               ...current,
-              content: '这条请求仍在处理中，请等待原请求完成。',
+              content: '这条问题还在处理中，您可以在原对话中查看进展，不需要重复发送。',
               isStreaming: false,
               deliveryStatus: 'stopped',
               recoverable: false,
@@ -416,7 +416,7 @@ export function useChat(options: UseChatOptions) {
             setProgressMessage('');
             updateAssistantMessage(current => ({
               ...current,
-              content: '⚠️ 会话状态服务暂不可用，请稍后重试。',
+              content: '暂时没能确认这段对话的状态，请稍后刷新页面再试。',
               isStreaming: false,
               deliveryStatus: 'failed',
               recoverable: false,
@@ -437,7 +437,7 @@ export function useChat(options: UseChatOptions) {
             setProgressMessage('');
             updateAssistantMessage(current => ({
               ...current,
-              content: `⚠️ ${data.content || data.message}`,
+              content: data.content || data.message || '这次没能完成回复，请先查看原请求的结果，避免重复操作。',
               isStreaming: false,
               deliveryStatus: 'failed',
               recoverable: Boolean(current.requestId),
@@ -447,7 +447,7 @@ export function useChat(options: UseChatOptions) {
             setProgressMessage('');
             updateAssistantMessage(current => ({
               ...current,
-              content: `⚠️ ${data.content || '请求超时，请稍后重试'}`,
+              content: data.content || '抱歉让您久等了，回复暂时还没有完成。请先查看原请求的结果，避免重复操作。',
               isStreaming: false,
               deliveryStatus: 'failed',
               recoverable: Boolean(current.requestId),
@@ -456,15 +456,15 @@ export function useChat(options: UseChatOptions) {
 
           // ⭐ 排队事件
           if (data.type === 'queued') {
-            setProgressMessage('请求已进入队列…');
+            setProgressMessage('已收到您的问题，正在排队…');
             setQueuePosition(data.position);
             setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
           } else if (data.type === 'queue_position') {
-            setProgressMessage('请求正在排队…');
+            setProgressMessage('还在排队，请稍等…');
             setQueuePosition(data.position);
             setQueueEstimatedWait(data.estimatedWaitMs || data.position * 5000);
           } else if (data.type === 'processing') {
-            setProgressMessage('已开始处理，正在匹配业务能力…');
+            setProgressMessage('正在为您处理…');
             setQueuePosition(null);
             setQueueEstimatedWait(null);
           } else if (data.type === 'timeout') {
@@ -716,17 +716,17 @@ export function useChat(options: UseChatOptions) {
 function workflowStageMessage(type: unknown): string | null {
   switch (String(type ?? '')) {
     case 'waiting':
-      return '正在分析问题并规划处理步骤…';
+      return '正在了解您的需求…';
     case 'routed':
-      return '已识别需求，正在调用相应服务…';
+      return '正在为您处理…';
     case 'node_started':
-      return '正在执行业务查询…';
+      return '正在核对相关信息…';
     case 'node_completed':
-      return '业务数据已返回，正在核实结果…';
+      return '正在核对查询结果…';
     case 'node_quality_degraded':
       return '正在补充核实信息…';
     case 'node_evidence_limited':
-      return '现有证据有限，正在整理可靠结论…';
+      return '正在整理已确认的信息…';
     case 'summarizing':
       return '正在整理最终答复…';
     default:

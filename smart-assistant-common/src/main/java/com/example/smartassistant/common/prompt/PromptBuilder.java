@@ -47,12 +47,12 @@ public final class PromptBuilder {
         String base = getBasePrompt();
         String service = servicePrompt == null ? "" : servicePrompt.trim();
         if (base.isBlank()) {
-            return service;
+            return service + "\n\n" + CustomerReplyStyle.RULES;
         }
         if (service.isBlank()) {
-            return base.trim();
+            return base.trim() + "\n\n" + CustomerReplyStyle.RULES;
         }
-        return base.trim() + "\n\n" + service;
+        return base.trim() + "\n\n" + service + "\n\n" + CustomerReplyStyle.RULES;
     }
 
     private static String getBasePrompt() {

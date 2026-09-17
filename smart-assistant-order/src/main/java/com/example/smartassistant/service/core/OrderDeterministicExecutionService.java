@@ -285,14 +285,14 @@ public class OrderDeterministicExecutionService {
                                           int offset, int limit) {
         if (orders.isEmpty()) {
             return status == null
-                    ? "当前没有查询到你的订单。"
-                    : "当前没有查询到状态为「" + status + "」的订单。";
+                    ? "这个账号下暂时没有查到订单。如果您用其他账号下过单，可以切换后再看看。"
+                    : "这个账号下暂时没有查到「" + status + "」的订单，您也可以查看全部订单。";
         }
         StringBuilder answer = new StringBuilder();
         if (status == null) {
-            answer.append("你的订单列表：");
+            answer.append("为您查到以下订单：");
         } else {
-            answer.append("你的「").append(status).append("」订单列表：");
+            answer.append("为您查到以下「").append(status).append("」订单：");
         }
         for (int index = 0; index < orders.size(); index++) {
             Map<String, Object> order = orders.get(index);

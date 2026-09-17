@@ -112,7 +112,7 @@ public class ResultMerger {
         }
 
         String prompt = String.format("""
-                你是一个信息整合专家。请根据用户的问题和各专业助理的回答摘要，
+                你是智服客服。请根据用户的问题和各项已核实的回答摘要，
                 整合成一份连贯、完整的最终回答。
 
                 要求：
@@ -120,7 +120,7 @@ public class ResultMerger {
                 - 保留每个回答中的关键信息（商品名称、价格、库存、订单状态等）
                 - 去掉重复内容
                 - 语言自然流畅，像一个人在回答
-                - 在引用特定信息时标注来源，如"根据景点攻略的推荐"、"美食助理提到"
+                - 需要引用时使用已提供的可读资料名称，不展示内部助理名称、Agent 或任务节点
                 - 严禁编造引用来源。如果某个助理的回答中没有出现游记标题，不要在整合时自行添加或推断标题
                 - 只需要输出整合后的回答，不要多余解释
 
@@ -135,7 +135,8 @@ public class ResultMerger {
                 """, question, context.toString().trim());
 
         try {
-            String merged = chatClient.prompt().user(prompt).call().content();
+            String merged = chatClient.prompt().system(com.example.smartassistant.common.prompt.CustomerReplyStyle.RULES)
+                    .user(prompt).call().content();
             log.info("[ResultMerger] 合并完成: question={}, agents={}, resultLength={}",
                     question, results.size(), merged != null ? merged.length() : 0);
             return appendWarning(merged != null ? merged.trim() : "", optionalWarning);
@@ -300,9 +301,8 @@ public class ResultMerger {
 
     private static String conflictReply(List<String> conflicts) {
         StringBuilder answer = new StringBuilder(
-                "并行节点返回了相互冲突的已核实事实，暂时不能生成唯一结论：");
-        conflicts.forEach(conflict -> answer.append("\n- ").append(conflict));
-        answer.append("\n请重新查询冲突数据后再合并。");
+                "查到的信息存在不一致，暂时还不能给您确定的答复。");
+        answer.append("请先核对相关商品或订单信息，再决定下一步操作。");
         return answer.toString();
     }
 
@@ -312,10 +312,10 @@ public class ResultMerger {
         if (failures.stream().allMatch(failure -> failure.getDomainQuality() != null
                 && failure.getDomainQuality().getReasonCodes()
                         .contains("PRODUCT_ANALYSIS_AUDIT_REJECTED"))) {
-            return "当前推荐尚未通过商品信息核实，暂时无法给出可靠结论。"
-                    + "请稍后重试，或提供具体商品型号以便核对。";
+            return "这次还没能核实推荐所需的商品信息，我不想给您不准确的建议。"
+                    + "您可以补充具体型号，方便进一步核对。";
         }
-        return "部分必要信息暂时未能核实，无法完成本次请求。请稍后重试；如果问题持续，请联系人工客服。";
+        return com.example.smartassistant.common.error.CustomerMessages.UNAVAILABLE;
     }
 
     private static String optionalFailureWarning(List<SubTaskResult> results) {

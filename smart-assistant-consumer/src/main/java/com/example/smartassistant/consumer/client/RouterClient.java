@@ -424,8 +424,8 @@ public class RouterClient {
         // DNS is proof that neither POST reached Router. Other transport failures
         // may happen after an order operation; never claim they were not executed.
         boolean notSent = isDnsFailure(failure);
-        return Map.of("result", notSent ? "服务暂时无法连接，本轮业务尚未开始，请稍后重试。"
-                        : "业务处理结果尚未确认，请查询原请求，避免重复操作。",
+        return Map.of("result", notSent ? com.example.smartassistant.common.error.CustomerMessages.NOT_SENT
+                        : com.example.smartassistant.common.error.CustomerMessages.UNCONFIRMED,
                 "error", notSent ? "ROUTER_REQUEST_NOT_SENT" : "ROUTER_EXECUTION_UNCONFIRMED",
                 "workflowStatus", "FAILED", "executionMode", "BUILTIN");
     }

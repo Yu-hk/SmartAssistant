@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.Map;
+import static com.example.smartassistant.common.error.CustomerMessages.*;
 
 @Service
 public class ChatDispatchListener {
@@ -36,7 +37,7 @@ public class ChatDispatchListener {
             command = mapper.readValue(message.getBody(), ChatDispatchCommand.class);
             String claim = store.start(command, System.currentTimeMillis());
             if ("EXPIRED".equals(claim)) {
-                store.finish(command, "QUEUED", "EXPIRED", PriorityRoutingDispatcher.failure("QUEUE_TIMEOUT", "排队超时，本轮尚未执行。"));
+                store.finish(command, "QUEUED", "EXPIRED", PriorityRoutingDispatcher.failure("QUEUE_TIMEOUT", QUEUE_EXPIRED));
                 channel.basicReject(tag, false);
                 return;
             }
@@ -62,13 +63,13 @@ public class ChatDispatchListener {
                 if (result != null && "CANCELLED".equals(result.get("workflowStatus"))) {
                     result = PriorityRoutingDispatcher.cancelled();
                 } else if (result == null || !(result.get("result") instanceof String text) || text.isBlank()) {
-                    result = PriorityRoutingDispatcher.failure("INVALID_ROUTER_RESULT", "业务处理结果尚未确认，请查询原请求，避免重复操作。");
+                    result = PriorityRoutingDispatcher.failure("INVALID_ROUTER_RESULT", UNCONFIRMED);
                 }
             }
             boolean notSent = "ROUTER_REQUEST_NOT_SENT".equals(result.get("error"));
             boolean uncertain = result.get("error") != null && !notSent;
             if (uncertain) result = PriorityRoutingDispatcher.failure("ROUTER_EXECUTION_UNCONFIRMED",
-                    "业务处理结果尚未确认，请查询原请求或联系管理员核查，避免重复提交业务操作。");
+                    UNCONFIRMED);
             if (!store.finish(command, "RUNNING", notSent ? "FAILED" : uncertain ? "UNCERTAIN" : "COMPLETED", result)) {
                 throw new IllegalStateException("Dispatch completion could not be recorded");
             }

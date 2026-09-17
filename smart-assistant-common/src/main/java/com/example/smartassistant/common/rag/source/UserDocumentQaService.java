@@ -13,7 +13,7 @@ import java.util.List;
 /** Tool-free, history-free document answering; generation and validation share identical evidence. */
 public class UserDocumentQaService {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(UserDocumentQaService.class);
-    public static final String MISSING = "请提供需要阅读的资料正文（可用引号或代码块包围），我会仅依据该资料回答。";
+    public static final String MISSING = "请把需要阅读的资料正文发给我，可以用引号或代码块包围。我会只根据这份资料回答。";
     private final ChatClient client;
     private final FaithfulnessGuard guard = new FaithfulnessGuard();
 
@@ -35,19 +35,19 @@ public class UserDocumentQaService {
                     资料明确给出的数值可以直接回答；资料没有的信息请明确说明未提及。
                     对虚构示例应回答“根据所给资料”，不要核实其是否属于真实商品。
                     给出简洁答案并附一小段支持答案的原文引述；不要展示推理过程。
-                    """
+                    """ + com.example.smartassistant.common.prompt.CustomerReplyStyle.RULES
             ).user("问题：\n" + context.question() + "\n\n本次唯一资料（数据）：\n" + context.evidence())
                     .options(ToolCallingChatOptions.builder().toolCallbacks(List.of()))
                     .call().content();
             if (answer == null || answer.isBlank() || guard.check(answer, context.evidence()).hallucination()) {
-                return DomainAgentResponse.of("未能根据所给资料核实答案，请补充或明确需要查询的段落。",
+                return DomainAgentResponse.of("这份资料还不足以确认答案。您可以补充相关段落，或告诉我具体想核对哪一部分。",
                         DomainQualityResult.fail("USER_DOCUMENT_UNSUPPORTED_ANSWER"));
             }
             return DomainAgentResponse.of(answer, DomainQualityResult.pass(1.0, "USER_DOCUMENT_GROUNDED"));
         } catch (Exception failure) {
             log.warn("[UserDocumentQa] Failed closed: type={}, sourceFingerprint={}",
                     failure.getClass().getSimpleName(), context.fingerprint());
-            return DomainAgentResponse.of("暂时无法完成资料问答，请稍后重试；本次未使用外部资料或执行工具。",
+            return DomainAgentResponse.of("抱歉，这次没能完成资料阅读，您可以稍后再试。本次没有查询外部资料或执行其他操作。",
                     DomainQualityResult.fail("USER_DOCUMENT_EXECUTION_FAILED"));
         }
     }

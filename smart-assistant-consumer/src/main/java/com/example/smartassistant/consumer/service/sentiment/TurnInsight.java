@@ -25,6 +25,8 @@ public record TurnInsight(String status, Integer level, String label, int confid
         if (reply == null || reply.isBlank() || !"ANALYZED".equals(status)) return reply;
         if ("STANDARD".equals(responseStrategy) || reply.startsWith("抱歉") || reply.startsWith("非常抱歉")
                 || reply.startsWith("很抱歉") || reply.startsWith("对不起")) return reply;
-        return "抱歉给您带来不便。" + reply;
+        // Avoid an awkward "抱歉……您好" when adding the current turn's empathy
+        // to an otherwise valid answer. Strip only a leading greeting, never facts.
+        return "抱歉给您带来不便。" + reply.replaceFirst("^(?:您好|你好)[，,！!。\\s]*", "");
     }
 }

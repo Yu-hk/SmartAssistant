@@ -47,10 +47,7 @@ public class RouteExecutionService {
     static final String BUILTIN_ORDER_PREPARATION_AGENT = "builtin_order_preparation";
 
     private static final List<String> FALLBACK_MESSAGES = List.of(
-            "😅 抱歉让你等了这么久，目前服务似乎遇到了一些临时问题。请稍后再试一下，或者联系技术支持看看。谢谢你的耐心！",
-            "🙏 不好意思让你久等了，系统这会儿有点忙不过来，暂时没办法回应你的问题。过一会儿再找我试试吧！",
-            "🤗 哎呀，好像出了点小岔子……你先别着急，我这边正在努力恢复中，等一小会儿再来找我聊聊好吗？",
-            "😊 真抱歉，刚才没能帮上忙。系统可能在打盹儿，你先去喝杯水，待会儿再来找我试试看？"
+            com.example.smartassistant.common.error.CustomerMessages.UNAVAILABLE
     );
 
     private final AtomicInteger fallbackIndex = new AtomicInteger(0);
@@ -518,13 +515,13 @@ public class RouteExecutionService {
 
     static String builtInOrderPreparationReply() {
         return """
-                下单前还需要确认以下信息：
+                下单前，需要先确认以下信息：
                 - 具体商品及成交金额（请从查询结果中选择一款）
                 - 收货人姓名
                 - 联系电话
                 - 收货地址
 
-                用户 ID 由当前登录账号自动获取，商品类型为可选信息。信息补齐并经你确认后才能创建订单；本次只做查询和说明，未创建订单，也未执行支付、退款或取消。""";
+                您确认商品和这些信息后，才会提交下单。目前未创建订单。""";
     }
 
     static String mergeOrderPreparationResults(List<SubTaskResult> results) {
@@ -782,8 +779,26 @@ public class RouteExecutionService {
         int start = marker >= 0 ? description.lastIndexOf("执行", marker) : -1;
         if (start < 0) return builtInOrderPreparationReply();
         int end = description.indexOf('\n', marker);
-        String prompt = description.substring(start, end >= 0 ? end : description.length()).trim();
-        return prompt + "\n信息补齐后，系统会展示最终操作摘要；只有你明确确认后才会提交。";
+        String detail = description.substring(marker + "前还需要补充：".length(),
+                end >= 0 ? end : description.length()).trim();
+        int sentenceEnd = detail.indexOf('。');
+        if (sentenceEnd >= 0) detail = detail.substring(0, sentenceEnd);
+        // Only trusted field labels are presented; internal operation names and planner
+        // instructions stay out of the customer-facing clarification.
+        Map<String, String> labels = Map.ofEntries(
+                Map.entry("order_id", "订单号"), Map.entry("reason", "原因"),
+                Map.entry("product_name", "商品名称"), Map.entry("amount", "成交金额"),
+                Map.entry("recipient_name", "收货人姓名"), Map.entry("recipient_phone", "联系电话"),
+                Map.entry("shipping_address", "收货地址"), Map.entry("after_sales_type", "售后类型"));
+        Set<String> allowed = Set.of("订单号", "原因", "退款原因", "取消原因", "售后原因",
+                "商品名称", "成交金额", "收货人姓名", "联系电话", "收货地址", "售后类型");
+        List<String> fields = Arrays.stream(detail.split("[、,，]"))
+                .map(String::trim).map(value -> labels.getOrDefault(value, value))
+                .filter(allowed::contains).distinct().toList();
+        String clarification = fields.isEmpty()
+                ? "请补充这次操作需要的信息，方便我继续帮您核对。"
+                : "还需要您补充" + String.join("、", fields) + "，方便我继续帮您核对。";
+        return clarification + "\n目前还没有提交这项操作；信息核对后，会请您确认是否提交。";
     }
 
     public RoutingResult inlineFallback(String question, Long userId, EmotionCheckResult emotion) {

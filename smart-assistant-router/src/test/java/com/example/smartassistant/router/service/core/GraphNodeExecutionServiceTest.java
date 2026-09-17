@@ -554,9 +554,9 @@ class GraphNodeExecutionServiceTest {
                 1L, null, "request");
 
         assertThat(result.isSuccess()).isTrue();
-        assertThat(result.getResult()).contains("执行REFUND_ORDER前还需要补充：退款原因")
-                .contains("只有你明确确认后才会提交")
-                .doesNotContain("收货人姓名");
+        assertThat(result.getResult()).contains("还需要您补充退款原因")
+                .contains("会请您确认是否提交")
+                .doesNotContain("收货人姓名", "REFUND_ORDER", "写操作", "只追问");
         verify(agentCallerService, never()).callAgentAndExtractTitles(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
