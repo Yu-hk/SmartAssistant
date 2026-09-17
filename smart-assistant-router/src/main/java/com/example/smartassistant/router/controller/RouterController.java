@@ -123,7 +123,11 @@ public class RouterController {
                     latency, routingResult.getResult() != null ? routingResult.getResult().length() : 0,
                     routingResult.getAgentName());
             return ApiResponse.success(response);
-        } catch (WorkflowCancelledException cancelled) {
+        } catch (RuntimeException failure) {
+            // LangGraph wraps node cancellation in GraphRunner/Completion/ExecutionException.
+            // Only our typed cancellation signal is terminal cancellation, never a timeout
+            // or arbitrary provider failure (which could hide an uncertain business write).
+            if (WorkflowCancelledException.findIn(failure) == null) throw failure;
             // Clear the interrupt flag before returning the servlet thread to its pool.
             Thread.interrupted();
             TokenUsageCache.consume(requestId);

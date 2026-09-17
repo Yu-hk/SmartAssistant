@@ -148,11 +148,16 @@ public class WorkflowExecutionLeaseService implements DisposableBean {
             }
             return;
         }
+        // Cancellation interrupts the executing thread. Temporarily clear the flag
+        // for owner-checked cleanup, then restore it for the caller to observe.
+        boolean interrupted = Thread.interrupted();
         try {
             redisTemplate.execute(RELEASE_SCRIPT, List.of(key(lease.requestId)), lease.owner);
         } catch (RuntimeException e) {
             log.warn("[WorkflowRecovery] execution lease release failed: requestId={}, error={}",
                     lease.requestId, e.getMessage());
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
         }
     }
 

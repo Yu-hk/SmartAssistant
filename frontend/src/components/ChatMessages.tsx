@@ -5,6 +5,7 @@ import { SafeMarkdown } from './SafeMarkdown';
 import { RefreshCw } from 'lucide-react';
 import { VoiceReplyControls } from './VoiceReplyControls';
 import { useVoiceOutput } from '../hooks/useVoiceOutput';
+import { publicRecoveryError } from '../utils/workflowRecovery';
 
 interface ChatMessagesProps {
   playback?: ReturnType<typeof useVoiceOutput>;
@@ -22,6 +23,7 @@ interface ChatMessagesProps {
   onRateSession?: (score: number) => void;
   agentName?: string;
   onRecoverMessage?: (messageId: string, requestId: string) => void;
+  recoveryAvailable?: boolean;
 }
 
 export function ChatMessages({ 
@@ -40,6 +42,7 @@ export function ChatMessages({
   onRateSession,
   agentName,
   onRecoverMessage,
+  recoveryAvailable = false,
 }: ChatMessagesProps) {
   const satisfactionOptions = [
     { score: 1, emoji: '😞', label: '很不满意' },
@@ -57,6 +60,7 @@ export function ChatMessages({
   }
 
   const formatModelName = (modelId: string) => {
+    if (!modelId || /^(unknown|null|undefined)$/i.test(modelId.trim())) return '智能助手';
     const model = models.find(m => m.modelId === modelId);
     const name = model?.name || modelId;
     return name
@@ -66,6 +70,7 @@ export function ChatMessages({
   };
 
   const formatServiceName = (value: string) => {
+    if (/^(unknown|null|undefined)$/i.test(value.trim())) return '智能助手';
     const normalized = value.toLowerCase();
     if (normalized.includes('product')) return '商品服务';
     if (normalized.includes('order') || normalized.includes('logistics')) return '订单服务';
@@ -221,7 +226,7 @@ export function ChatMessages({
             {message.role === 'assistant' && renderAssistantContent(message)}
 
             {message.role === 'assistant' && message.requestId
-              && (message.recoverable || message.recoveryStatus || message.recoveryError)
+              && ((message.recoverable && recoveryAvailable) || message.recoveryStatus || message.recoveryError)
               && onRecoverMessage && (
               <div className="chat-recovery-card" aria-live="polite">
                 {message.recoveryStatus && (
@@ -229,8 +234,8 @@ export function ChatMessages({
                     {formatRecoveryStatus(message.recoveryStatus)}
                   </span>
                 )}
-                {message.recoveryError && <span className="chat-recovery-error">{message.recoveryError}</span>}
-                {message.recoverable && !isRecoveryActive(message.recoveryStatus) && (
+                {message.recoveryError && <span className="chat-recovery-error">{publicRecoveryError(message.recoveryError)}</span>}
+                {recoveryAvailable && message.recoverable && !isRecoveryActive(message.recoveryStatus) && (
                   <button
                     type="button"
                     onClick={() => onRecoverMessage(message.id, message.requestId!)}

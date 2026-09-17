@@ -76,6 +76,11 @@ export async function denyPermission(requestId: string): Promise<void> {
   return apiClient.post('/permission-response', { requestId, action: 'deny' });
 }
 
+/** Read whether user-initiated recovery is enabled on this deployment. */
+export async function fetchWorkflowRecoveryCapabilities(): Promise<{ available: boolean }> {
+  return apiClient.get('/router/workflows/capabilities');
+}
+
 /** Submit recovery for one workflow owned by the authenticated user. */
 export async function requestWorkflowRecovery(requestId: string): Promise<WorkflowRecoveryJob> {
   return apiClient.post<WorkflowRecoveryJob>(

@@ -147,6 +147,7 @@ jobs:
           npm ci --ignore-scripts
           npm run test:voice
           npm run test:voice-output
+          npm run test:recovery
           node scripts/run-session-gate-tests.mjs
           npm run build
 
@@ -257,7 +258,7 @@ jobs:
       - name: Run router end-to-end test
         run: |
           mvn -B -pl smart-assistant-router -am -DskipTests install
-          mvn -B -pl smart-assistant-router clean test -Dtest="RouterControllerIdentityTest,RouterControllerTokenUsageTest,RouterSingleIntentFastPathTest,BgeOnnxEmbeddingServiceTest,RouteLangGraphExecutionTest,RouterCachedRouteHintTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest"
+          mvn -B -pl smart-assistant-router clean test -Dtest="RouterCancellationRecoveryTest,InterruptedLeaseCleanupTest,RouterControllerIdentityTest,RouterControllerTokenUsageTest,RouterSingleIntentFastPathTest,BgeOnnxEmbeddingServiceTest,RouteLangGraphExecutionTest,RouterCachedRouteHintTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest"
       - name: Upload surefire report
         if: always()
         uses: actions/upload-artifact@v4

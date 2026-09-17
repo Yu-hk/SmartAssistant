@@ -6,6 +6,29 @@ import { JSDOM } from 'jsdom';
 import { useSessions } from '../src/hooks/useSessions';
 import { useChat } from '../src/hooks/useChat';
 
+test('server cancellation is terminal stopped state and never offers recovery', async () => {
+ const dom = new JSDOM('<div id="root"></div>', {url:'https://gate.test'});
+ const saved = new Map<string, PropertyDescriptor | undefined>();
+ const set = (name: string, value: unknown) => { saved.set(name,Object.getOwnPropertyDescriptor(globalThis,name)); Object.defineProperty(globalThis,name,{value,writable:true,configurable:true}); };
+ for (const [name,value] of Object.entries({window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,sessionStorage:dom.window.sessionStorage,IS_REACT_ACT_ENVIRONMENT:true})) set(name,value);
+ let hooks: ReturnType<typeof useSessions>, chat: ReturnType<typeof useChat>;
+ set('fetch', async (input:RequestInfo|URL) => {
+  const url=String(input);
+  if(url.includes('/stream/chat')) return new Response('event: cancelled\ndata: {"type":"cancelled"}\n\n',{headers:{'Content-Type':'text/event-stream'}});
+  if(url.endsWith('/sessions')) return Response.json([]);
+  return Response.json({id:'cancel-session',status:'ACTIVE_IDLE',messages:[]});
+ });
+ function Harness(){hooks=useSessions();chat=useChat({currentSession:hooks.currentSession,currentSessionId:hooks.currentSessionId,selectedModel:'unknown',setSessions:hooks.setSessions,setCurrentSessionId:hooks.setCurrentSessionId});return null;}
+ const root=createRoot(dom.window.document.getElementById('root')!);
+ try {
+  await act(async()=>{root.render(<Harness/>);});
+  await act(async()=>{await chat!.sendMessage('AirPods Pro多少钱？');});
+  const message=hooks!.sessions.flatMap(s=>s.messages).find(m=>m.role==='assistant');
+  assert.ok(message);assert.equal(message.deliveryStatus,'stopped');assert.equal(message.recoverable,false);
+  assert.equal(message.content,'已停止本次回答。');assert.equal(chat!.isLoading,false);
+ } finally {await act(async()=>root.unmount());for(const [name,descriptor] of saved){if(descriptor)Object.defineProperty(globalThis,name,descriptor);else Reflect.deleteProperty(globalThis,name);}dom.window.close();}
+});
+
 test('conflict refresh exposes owning session; resume errors retain owner; busy delete stays visible', async () => {
  const dom = new JSDOM('<div id="root"></div>', {url:'https://gate.test'});
  const saved = new Map<string, PropertyDescriptor | undefined>();
