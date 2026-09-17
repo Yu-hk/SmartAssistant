@@ -239,6 +239,7 @@ router:
 preference:
   extraction:
     timeout-ms: 8000
+    max-tokens: ${PREFERENCE_EXTRACTION_MAX_TOKENS:2048} # 仅画像：关闭 thinking，输出限制 512..4096
   analysis:
     max-history-turns: ${PREFERENCE_ANALYSIS_MAX_HISTORY_TURNS:20}
     max-history-chars: ${PREFERENCE_ANALYSIS_MAX_HISTORY_CHARS:12000}

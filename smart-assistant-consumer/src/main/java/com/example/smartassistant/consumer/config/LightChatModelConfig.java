@@ -71,18 +71,25 @@ public class LightChatModelConfig {
 
         @Override
         public ChatResponse call(Prompt prompt) {
-            var lightPrompt = new Prompt(prompt.getInstructions(), lightOptions);
+            var lightPrompt = new Prompt(prompt.getInstructions(), optionsFor(prompt));
             return delegate.call(lightPrompt);
         }
 
         @Override
         public Flux<ChatResponse> stream(Prompt prompt) {
-            var lightPrompt = new Prompt(prompt.getInstructions(), lightOptions);
+            var lightPrompt = new Prompt(prompt.getInstructions(), optionsFor(prompt));
             return delegate.stream(lightPrompt);
         }
 
         public ChatOptions getOptions() {
-            return lightOptions;
+            return lightOptions.mutate().build();
+        }
+
+        private DeepSeekChatOptions optionsFor(Prompt prompt) {
+            var builder = lightOptions.mutate();
+            if (prompt.getOptions() != null) builder.combineWith(prompt.getOptions().mutate());
+            // Preserve per-task limits and thinking options, but keep this channel's model.
+            return builder.model(lightOptions.getModel()).build();
         }
     }
 }
