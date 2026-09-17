@@ -92,6 +92,7 @@ skill-package:
       bind-agents: [product-service]
 
     - id: product-preference-memory
+      enabled: false # Legacy userId arguments are not bound to authenticated request identity.
       name: 商品偏好记忆
       description: 读取或保存用户明确表达的长期商品偏好
       version: "2.0.0"
