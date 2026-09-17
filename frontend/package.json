@@ -9,12 +9,12 @@
     "test:login": "node scripts/run-login-page-tests.mjs",
     "test:feishu": "node --import tsx --test scripts/feishu-qr-login.test.ts",
     "test:scenarios": "node scripts/run-scenario-examples-tests.mjs",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:server": "tsx watch server/index.ts",
+    "dev": "vite",
+    "dev:legacy-server": "tsx watch server/index.ts",
     "dev:client": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "server": "tsx server/index.ts"
+    "legacy:server": "tsx server/index.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",

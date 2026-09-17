@@ -1,0 +1,27 @@
+# Disposable test infrastructure only. No production names, binds or persistent named volumes.
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    ports: ['127.0.0.1:15433:5432']
+    environment:
+      POSTGRES_DB: smartassistant_integration
+      POSTGRES_USER: integration
+      POSTGRES_PASSWORD: integration-test-only
+    tmpfs: ['/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U integration -d smartassistant_integration']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    ports: ['127.0.0.1:15673:5672']
+    environment:
+      RABBITMQ_DEFAULT_USER: integration
+      RABBITMQ_DEFAULT_PASS: integration-test-only
+    tmpfs: ['/var/lib/rabbitmq']
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
