@@ -13,6 +13,8 @@ import {
 import { sessions as sessionApi } from '../api';
 import { authenticatedFetch } from '../api/client';
 import { applyTelemetryEvent } from '../utils/sessionTelemetry';
+import { recoveryErrorMessage, publicRecoveryError } from '../utils/workflowRecovery';
+import { getAuthToken } from '../api/authStorage';
 
 interface UseChatOptions {
   currentSession: Session | undefined;
@@ -40,6 +42,18 @@ export function useChat(options: UseChatOptions) {
   const streamAbortRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
   const recoveryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
+  const recoveryAuthToken = getAuthToken();
+
+  useEffect(() => {
+    let disposed = false;
+    setRecoveryAvailable(false);
+    if (!recoveryAuthToken) return;
+    sessionApi.fetchWorkflowRecoveryCapabilities()
+      .then(result => { if (!disposed) setRecoveryAvailable(result.available === true); })
+      .catch(() => { if (!disposed) setRecoveryAvailable(false); });
+    return () => { disposed = true; };
+  }, [recoveryAuthToken]);
 
   useEffect(() => () => {
     recoveryTimersRef.current.forEach(timer => clearTimeout(timer));
@@ -324,6 +338,17 @@ export function useChat(options: UseChatOptions) {
               contentBlocks: [...contentBlocks],
             }));
 
+          } else if (data.type === 'cancelled') {
+            isDone = true;
+            isGateStopped = true;
+            setProgressMessage('');
+            setQueuePosition(null);
+            setQueueEstimatedWait(null);
+            updateAssistantMessage(current => ({ ...current,
+              content: '已停止本次回答。', contentBlocks: [], isStreaming: false,
+              deliveryStatus: 'stopped', recoverable: false,
+              recoveryStatus: undefined, recoveryError: undefined,
+            }));
           } else if (data.type === 'done') {
             isDone = true;
             setProgressMessage('');
@@ -565,13 +590,14 @@ export function useChat(options: UseChatOptions) {
           deliveryStatus: succeeded ? 'completed' : message.deliveryStatus,
           recoverable: succeeded ? false : !ACTIVE_RECOVERY_STATUSES.has(job.status),
           recoveryStatus: job.status,
-          recoveryError: job.lastError || undefined,
+          recoveryError: job.lastError ? publicRecoveryError(job.lastError) : undefined,
         };
       }),
     })));
   }, [setSessions]);
 
   const handleRecoverMessage = useCallback(async (messageId: string, requestId: string) => {
+    if (!recoveryAvailable) return;
     const previousTimer = recoveryTimersRef.current.get(messageId);
     if (previousTimer) clearTimeout(previousTimer);
 
@@ -582,7 +608,17 @@ export function useChat(options: UseChatOptions) {
         : message),
     })));
 
+    let polls = 0;
     const schedulePoll = (recoveryId: string) => {
+      if (++polls > 60) {
+        recoveryTimersRef.current.delete(messageId);
+        setSessions(prev => prev.map(session => ({ ...session,
+          messages: session.messages.map(message => message.id === messageId
+            ? { ...message, recoveryStatus: undefined, recoveryError: recoveryErrorMessage(null) }
+            : message),
+        })));
+        return;
+      }
       const timer = setTimeout(async () => {
         try {
           const latest = await sessionApi.fetchWorkflowRecovery(recoveryId);
@@ -593,10 +629,14 @@ export function useChat(options: UseChatOptions) {
           setSessions(prev => prev.map(session => ({
             ...session,
             messages: session.messages.map(message => message.id === messageId
-              ? { ...message, recoveryError: recoveryErrorMessage(error) }
+              ? { ...message, recoveryStatus: undefined, recoveryError: recoveryErrorMessage(error) }
               : message),
           })));
-          schedulePoll(recoveryId);
+          const status = (error as { status?: number })?.status;
+          if (status && [400, 401, 403, 404, 503].includes(status)) {
+            recoveryTimersRef.current.delete(messageId);
+            if (status === 404 || status === 503) setRecoveryAvailable(false);
+          } else schedulePoll(recoveryId);
         }
       }, 2000);
       recoveryTimersRef.current.set(messageId, timer);
@@ -607,6 +647,8 @@ export function useChat(options: UseChatOptions) {
       updateRecoveredMessage(messageId, job);
       if (ACTIVE_RECOVERY_STATUSES.has(job.status)) schedulePoll(job.recoveryId);
     } catch (error) {
+      const status = (error as { status?: number })?.status;
+      if (status === 404 || status === 503) setRecoveryAvailable(false);
       setSessions(prev => prev.map(session => ({
         ...session,
         messages: session.messages.map(message => message.id === messageId
@@ -619,7 +661,7 @@ export function useChat(options: UseChatOptions) {
           : message),
       })));
     }
-  }, [setSessions, updateRecoveredMessage]);
+  }, [setSessions, updateRecoveredMessage, recoveryAvailable]);
 
   /**
    * ⭐ 停止生成：中止 fetch 流式连接，真正取消后端请求。
@@ -667,6 +709,7 @@ export function useChat(options: UseChatOptions) {
     handlePermissionAllow,
     handlePermissionDeny,
     handleRecoverMessage,
+    recoveryAvailable,
   };
 }
 
@@ -694,21 +737,3 @@ function workflowStageMessage(type: unknown): string | null {
 const ACTIVE_RECOVERY_STATUSES = new Set<WorkflowRecoveryStatus>([
   'REQUESTED', 'QUEUED', 'RECOVERING', 'RETRY_SCHEDULED',
 ]);
-
-function recoveryErrorMessage(error: unknown): string {
-  const fallback = error instanceof Error ? error.message : '恢复失败，请稍后重试';
-  const body = (error as { body?: string } | null)?.body;
-  if (!body) return fallback;
-  try {
-    const code = (JSON.parse(body) as { code?: string }).code;
-    return ({
-      CHECKPOINT_NOT_FOUND: '恢复检查点不存在或已经过期。',
-      FORBIDDEN: '没有权限恢复这次回答。',
-      APPROVAL_REQUIRED: '该任务正在等待确认，请先完成确认。',
-      ACTIVE_EXECUTION: '任务仍在执行，请稍后再试。',
-      CHECKPOINT_VERSION_CONFLICT: '任务状态已经更新，请刷新后重试。',
-    } as Record<string, string>)[code || ''] || fallback;
-  } catch {
-    return fallback;
-  }
-}
