@@ -132,7 +132,7 @@ skill-package:
       name: 订单偏好记忆
       description: 读取或保存用户明确表达的长期订单偏好
       version: "1.0.0"
-      enabled: ${order.agent.extended-tools-enabled:false}
+      enabled: false # Legacy userId arguments are not bound to authenticated request identity.
       priority: 40
       tags: [order, memory]
       match-terms: [偏好, 常用, 以后都, 支付方式]

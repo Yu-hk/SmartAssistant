@@ -10,6 +10,26 @@ permissions:
   contents: read
 
 jobs:
+  profile-governance:
+    name: Profile provenance and memory isolation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - run: >-
+          mvn -B -pl smart-assistant-consumer,smart-assistant-product,smart-assistant-order,smart-assistant-router -am test
+          -Dtest=ProfileGovernanceTest,UserProfileQueryServiceTest,AgentMemoryServiceIntegrationTest,MemoryExtractorOptionalModelTest,UserProfilePrefetchTest,UserProfileSnapshotStoreTest,UserProfileCommitMessagingTest,UserProfileContextAwaiterTest,ProfileExecutionConfigTest,GraphNodeExecutionServiceTest,ProductSkillPackageConfigurationTest,OrderSkillPackageConfigurationTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-governance-reports
+          path: '**/target/surefire-reports/*.xml'
+
   project-context:
     name: Repository facts and governance gate
     runs-on: ubuntu-latest

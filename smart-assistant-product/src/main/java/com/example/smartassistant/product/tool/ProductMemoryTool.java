@@ -38,7 +38,7 @@ public class ProductMemoryTool {
             @ToolParam(description = "偏好键名，如 frequentCategory、maxPrice", required = true) String key,
             @ToolParam(description = "偏好值，如 '电子产品'、'200'", required = true) String value) {
         memoryService.save(AGENT_NAME, userId, key, value);
-        log.info("[ProductMemory] 保存偏好: userId={}, key={}, value={}", userId, key, value);
+        log.info("[ProductMemory] 已处理偏好保存请求: userId={}", userId);
     }
 
     @Tool(description = "获取用户保存的商品偏好和习惯，返回格式化的记忆列表。处理用户问题前可主动调用以了解用户偏好。")

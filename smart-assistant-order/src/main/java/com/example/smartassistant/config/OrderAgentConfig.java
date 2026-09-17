@@ -90,7 +90,7 @@ public class OrderAgentConfig {
         log.info("[OrderAgent] 初始化 Agent: agentName={}", agentName);
 
 		// 核心订单工具始终加载。扩展工具默认关闭，避免每轮请求携带过大的工具 Schema；
-		// 需要分析、记忆、知识库、Text-to-SQL、优惠券时可通过配置显式开启。
+		// 分析、知识库、Text-to-SQL、优惠券可显式开启；旧记忆工具不再发布。
 		ToolCallback[] coreToolCallbacks = MethodToolCallbackProvider.builder()
 				.toolObjects(orderTools)
 				.build()
@@ -98,7 +98,8 @@ public class OrderAgentConfig {
 		List<ToolCallback> toolList = new ArrayList<>(Arrays.asList(coreToolCallbacks));
 		if (extendedToolsEnabled) {
 			ToolCallback[] extendedToolCallbacks = MethodToolCallbackProvider.builder()
-					.toolObjects(orderMemoryTool, orderAnalyticsTool, orderKnowledgeTool, textToSqlTool, couponTools)
+					// Keep unbound legacy memory tools out even when other extensions are enabled.
+					.toolObjects(orderAnalyticsTool, orderKnowledgeTool, textToSqlTool, couponTools)
 					.build()
 					.getToolCallbacks();
 			toolList.addAll(Arrays.asList(extendedToolCallbacks));

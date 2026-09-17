@@ -73,6 +73,14 @@ class StructuredProductRecommendationTest {
         assertThat(facts.renderRecommendation(facts.parse(DECISION))).contains("未提供明确预算上限").doesNotContain("未超预算");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"这次预算只有1000元，请推荐耳机，不能超预算。", "预算仅有1000元", "预算为1000元", "预算改为1000元"})
+    void explicitCurrentBudgetCannotDisappearWithNaturalLanguageModifiers(String question) {
+        var facts = facts(question, 1999);
+        assertThat(ProductDiscoveryService.extractMaxBudget(question)).isEqualByComparingTo("1000");
+        assertThat(facts.hasEligibleProducts()).isFalse();
+    }
+
     @Test
     void punctuationDoesNotMergeBudgetAndOtherAmounts() {
         assertThat(ProductDiscoveryService.extractMaxBudget("预算6000，5299元的手机怎么样"))
