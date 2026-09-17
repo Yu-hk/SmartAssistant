@@ -271,7 +271,8 @@ class StreamingProductAgentServiceTest {
         String result = service.execute("推荐无线耳机", "req-p-reject");
 
         assertNotNull(result);
-        assertTrue(result.contains("无线耳机"), "应返回结构化拒答消息");
+        assertEquals(com.example.smartassistant.common.error.CustomerMessages.NO_DATA, result,
+                "无证据时返回统一客服提示，不回显原查询文本");
         verify(agent, never()).execute(anyString());
 
         var trace = recorder.findByRequestId("req-p-reject");

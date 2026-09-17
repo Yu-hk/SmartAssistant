@@ -40,7 +40,9 @@ public class SelectiveSemanticAnswerCache {
 
     static final String PRODUCT = "PRODUCT_CONSULTATION";
     static final String BUSINESS = "BUSINESS_CONSULTATION";
-    private static final String PREFIX = "consumer:semantic-answer:v2:";
+    // Reply-style revision: do not bypass the new prompts with pre-revision answers.
+    // Old entries expire naturally; no conversation/history deletion is needed.
+    private static final String PREFIX = "consumer:semantic-answer:v3:";
     private static final Logger log = LoggerFactory.getLogger(SelectiveSemanticAnswerCache.class);
 
     private final StringRedisTemplate redisTemplate;

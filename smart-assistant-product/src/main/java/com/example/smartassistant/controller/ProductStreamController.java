@@ -193,8 +193,8 @@ public class ProductStreamController {
             // An explicit, successful empty catalog is a business result, not missing
             // context to send through Flash/Pro. Carry it across analysis-only DAG edges.
             if (hasVerifiedEmptyCatalog(request)) {
-                String answer = "当前商品目录中暂无符合您本次查询条件的候选商品，暂时无法推荐。"
-                        + "您可以调整预算或品类，我再帮您查询。";
+                String answer = "目前在售商品中还没有找到符合这些条件的款式。"
+                        + "您最看重哪项条件？我可以据此帮您继续筛选。";
                 String field = WorkflowOperation.ANALYZE_PRODUCT_DATA.code()
                         .equalsIgnoreCase(request.operation()) ? "analysis" : "recommendation";
                 return executionResponse(requestId, AgentExecutionResponse.success(answer,

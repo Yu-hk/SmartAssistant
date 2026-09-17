@@ -20,6 +20,8 @@ class TurnInsightTest {
         String reply = insight.adaptReply("已查到订单。");
         assertEquals(reply, insight.adaptReply(reply));
         assertEquals("抱歉给您带来不便。已查到订单。", reply);
+        assertEquals("抱歉给您带来不便。售价1999元，库存充足。",
+                insight.adaptReply("您好，售价1999元，库存充足。"));
         assertFalse(reply.contains("转接"));
         assertNull(insight.adaptReply(null));
     }

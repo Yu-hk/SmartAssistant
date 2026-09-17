@@ -41,6 +41,14 @@ class SelectiveSemanticAnswerCacheTest {
     private SemanticCacheEquivalenceVerifier verifier;
     private SelectiveSemanticAnswerCache cache;
 
+    @Test
+    void onlyReadsCurrentReplyStyleNamespace() {
+        cache.find(42L, "退货条件是什么");
+        org.mockito.ArgumentCaptor<String> keys = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(values, org.mockito.Mockito.atLeastOnce()).get(keys.capture());
+        assertThat(keys.getAllValues()).allSatisfy(key -> assertThat(key).startsWith("consumer:semantic-answer:v3:"));
+    }
+
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {

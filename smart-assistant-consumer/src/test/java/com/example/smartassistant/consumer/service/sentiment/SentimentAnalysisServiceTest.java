@@ -9,6 +9,17 @@ import static org.junit.jupiter.api.Assertions.*;
  * SentimentAnalysisService 单元测试。
  */
 class SentimentAnalysisServiceTest {
+    @org.junit.jupiter.api.Test
+    void repeatedUnansweredQuestionNeedsEmpathyInsteadOfReusingNeutralAnswer() {
+        var service = new SentimentAnalysisService();
+        var result = service.analyze("问了半天还没说明白，AirPods Pro到底多少钱，有没有货？");
+        org.junit.jupiter.api.Assertions.assertEquals(3, result.level());
+        var insight = TurnInsight.analyzed(result, 1);
+        org.junit.jupiter.api.Assertions.assertTrue(insight.bypassAnswerCache());
+        org.junit.jupiter.api.Assertions.assertEquals("NORMAL", insight.suggestedPriority());
+        org.junit.jupiter.api.Assertions.assertTrue(insight.adaptReply("售价1999元，库存充足。").startsWith("抱歉"));
+        org.junit.jupiter.api.Assertions.assertEquals(2, service.analyze("不是没说明白，我只是再确认一下价格。").level());
+    }
 
     private final SentimentAnalysisService service = new SentimentAnalysisService();
 
@@ -66,6 +77,15 @@ class SentimentAnalysisServiceTest {
     void getTonePrefix_level3_shouldReturnApology() {
         String prefix = service.getTonePrefix(3);
         assertTrue(prefix.contains("抱歉"), "level=3 应包含道歉");
+    }
+
+    @Test
+    void emotionalReplyDoesNotInventPriorityOrCompletedActions() {
+        String prefix = service.getTonePrefix(4);
+        assertTrue(prefix.contains("抱歉"));
+        for (String promise : java.util.List.of("立即", "已加急", "已催办", "已转", "别着急", "冷静")) {
+            assertFalse(prefix.contains(promise));
+        }
     }
 
     @Test
