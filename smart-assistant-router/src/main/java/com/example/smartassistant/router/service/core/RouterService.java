@@ -89,7 +89,7 @@ public class RouterService {
     private ExecutionTraceStore executionTraceStore;
 
     @Autowired(required = false)
-    private ProductReadOnlyDispatcher productReadOnlyDispatcher;
+    private ModelUnavailableWorkflowService modelUnavailableWorkflowService;
 
     // ⭐ L5 意图漂移检测
     @Autowired(required = false)
@@ -152,6 +152,9 @@ public class RouterService {
         }
 
         long routeStart = System.nanoTime();
+        boolean fallbackEligible = false;
+        boolean businessExecutionStarted = false;
+        List<String> fallbackHistory = List.of();
         try {
             // Step 0: 安全与资源边界检查。旧关键词/经验路由已退出主链。
             String question = request.getQuestion();
@@ -221,12 +224,9 @@ public class RouterService {
             // 普通业务意图不再执行关键词、经验或 Consumer 单 Agent 提示短路。
             // 安全护栏只负责风险控制，节点拆解和分配统一由 DeepSeek 完成。
             Map<String, Object> context = buildContext(request);
-            if (!guardrail.triggered() && productReadOnlyDispatcher != null) {
-                @SuppressWarnings("unchecked")
-                List<String> history = (List<String>) context.getOrDefault("conversationHistory", List.of());
-                RoutingResult direct = productReadOnlyDispatcher.tryQuery(request, history);
-                if (direct != null) return finalizeRouting(direct, request, question, emotion);
-            }
+            if (context.get("conversationHistory") instanceof List<?> entries)
+                fallbackHistory = entries.stream().filter(String.class::isInstance).map(String.class::cast).toList();
+            fallbackEligible = true;
 
             // Step 3: RAG 增强(可选) — 正常开启或护栏触发时均执行
             String enhancedQuestion = question;
@@ -364,6 +364,7 @@ public class RouterService {
                         : SemanticAnswerCachePolicy.Decision.none("policy_unavailable");
                 log.info("[Router] 🤝 启动多 Agent 协作: question={}",
                         QuestionExtractor.truncate(executionQuestion, 120));
+            businessExecutionStarted = true;
             result = executeCollaborative(
                     executionQuestion, userId, request.getRequestId(), request.getSessionId(),
                     emotion, taskAnalysis);
@@ -381,6 +382,19 @@ public class RouterService {
 
         } catch (com.example.smartassistant.common.error.ModelCallFailure failure) {
             if (budgetTracker != null) budgetTracker.endSession();
+            WorkflowCancelledException modelCancelled = WorkflowCancelledException.findIn(failure);
+            if (modelCancelled != null) throw modelCancelled;
+            if (fallbackEligible && modelUnavailableWorkflowService != null) {
+                try {
+                    return modelUnavailableWorkflowService.handle(request, fallbackHistory, !businessExecutionStarted);
+                } catch (WorkflowCancelledException cancelled) {
+                    throw cancelled;
+                } catch (RuntimeException unavailable) {
+                    WorkflowCancelledException cancelled = WorkflowCancelledException.findIn(unavailable);
+                    if (cancelled != null) throw cancelled;
+                    return ModelUnavailableWorkflowService.unavailable();
+                }
+            }
             return RoutingResult.builder().result("抱歉，智能回复服务暂时不可用，请稍后再试。")
                     .intentTag("OTHER").confidence(0.0)
                     .domainQuality(com.example.smartassistant.common.quality.DomainQualityResult.fail(failure.code()))

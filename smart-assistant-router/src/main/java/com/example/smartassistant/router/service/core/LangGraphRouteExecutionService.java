@@ -518,6 +518,8 @@ public class LangGraphRouteExecutionService {
     private Map<String, Object> executeReplan(RouterGraphState state) {
         ExecutionContext context = context(state);
         if (context.replansPlanned >= Math.max(0, maxReplans)) return Map.of(PHASE, REPLAN);
+        if (context.graph.getAllNodes().stream().allMatch(node ->
+                Boolean.TRUE.equals(node.getInput().get("_deterministicFallback")))) return Map.of(PHASE, REPLAN);
         List<IntentNode> planned = planReplacementNodes(context.graph, context.orderedResults());
         if (!planned.isEmpty()) {
             context.pendingReplannedNodes = List.copyOf(planned);
