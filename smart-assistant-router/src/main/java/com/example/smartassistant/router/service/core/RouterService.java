@@ -88,6 +88,9 @@ public class RouterService {
     @Autowired(required = false)
     private ExecutionTraceStore executionTraceStore;
 
+    @Autowired(required = false)
+    private ProductReadOnlyDispatcher productReadOnlyDispatcher;
+
     // ⭐ L5 意图漂移检测
     @Autowired(required = false)
     private IntentDriftDetector intentDriftDetector;
@@ -218,6 +221,12 @@ public class RouterService {
             // 普通业务意图不再执行关键词、经验或 Consumer 单 Agent 提示短路。
             // 安全护栏只负责风险控制，节点拆解和分配统一由 DeepSeek 完成。
             Map<String, Object> context = buildContext(request);
+            if (!guardrail.triggered() && productReadOnlyDispatcher != null) {
+                @SuppressWarnings("unchecked")
+                List<String> history = (List<String>) context.getOrDefault("conversationHistory", List.of());
+                RoutingResult direct = productReadOnlyDispatcher.tryQuery(request, history);
+                if (direct != null) return finalizeRouting(direct, request, question, emotion);
+            }
 
             // Step 3: RAG 增强(可选) — 正常开启或护栏触发时均执行
             String enhancedQuestion = question;
@@ -370,6 +379,13 @@ public class RouterService {
                         result, request, executionQuestion, emotion);
                 return finalized;
 
+        } catch (com.example.smartassistant.common.error.ModelCallFailure failure) {
+            if (budgetTracker != null) budgetTracker.endSession();
+            return RoutingResult.builder().result("抱歉，智能回复服务暂时不可用，请稍后再试。")
+                    .intentTag("OTHER").confidence(0.0)
+                    .domainQuality(com.example.smartassistant.common.quality.DomainQualityResult.fail(failure.code()))
+                    .executionMode(RoutingResult.ExecutionMode.FALLBACK)
+                    .workflowStatus(RoutingResult.WorkflowStatus.FAILED).semanticCacheCategory("NONE").build();
         } catch (Exception e) {
             // Do not turn LangGraph's wrapped user cancellation into a business failure.
             // In particular, publishing FAILED while interrupted can throw a Redis error

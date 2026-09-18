@@ -41,6 +41,16 @@ import static org.mockito.Mockito.*;
  * 验证：无证据拒答短路、高质量注入上下文、RAG 异常降级。
  */
 class StreamingProductAgentServiceTest {
+    @Test
+    void modelBillingFailureRemainsTypedInsteadOfBecomingAnAnswer() {
+        when(agent.execute(anyString())).thenThrow(
+                com.example.smartassistant.common.error.ModelCallFailure.from(new RuntimeException("402: Insufficient Balance")));
+        var response = service.executeWithQuality("AirPods Pro价格", "billing-failure");
+        assertTrue(response.quality().isFail());
+        assertTrue(response.quality().getReasonCodes().contains("MODEL_BILLING_UNAVAILABLE"));
+        assertFalse(response.answer().contains("退款"));
+        verify(agent, times(1)).execute(anyString());
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"这个规格是多少", "颜色呢", "规格和颜色都告诉我", "只问规格，不要介绍颜色"})

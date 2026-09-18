@@ -370,6 +370,9 @@ public class StreamingProductAgentService {
             }
             return DomainAgentResponse.of("Agent 返回为空",
                     DomainQualityResult.fail("EMPTY_PRODUCT_ANSWER"));
+        } catch (com.example.smartassistant.common.error.ModelCallFailure e) {
+            return DomainAgentResponse.of("抱歉，暂时无法完成这次商品查询，请稍后再试。",
+                    DomainQualityResult.fail(e.code()));
         } catch (com.example.smartassistant.spi.ProductCatalogUnavailableException e) {
             return DomainAgentResponse.of(e.getMessage(), DomainQualityResult.fail(
                     com.example.smartassistant.spi.ProductCatalogUnavailableException.CODE));
