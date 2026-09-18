@@ -173,6 +173,7 @@ public class AgentCallerService {
 
     private AgentCallResult withExtractedTitles(String agentName, AgentCallResult detailed) {
         String result = detailed.getResponse();
+        if (Boolean.TRUE.equals(detailed.getData().get("deterministic"))) return detailed;
         if (detailed.getDomainQuality().isFail()
                 || Boolean.TRUE.equals(detailed.getData().get(AgentCallResult.TRANSPORT_FAILURE_KEY))
                 || Boolean.TRUE.equals(detailed.getData().get(AgentCallResult.PROTOCOL_RETRYABLE_FAILURE_KEY))) {
@@ -418,8 +419,16 @@ public class AgentCallerService {
             // 使用 URI 重载，避免 RestTemplate 再次编码已编码的 query 参数（%E6 → %25E6）。
             ResponseEntity<String> response;
             try {
-                response = restTemplate.postForEntity(processUri, entity, String.class);
+                if ("RESOLVE_READ_ONLY_PRODUCT".equals(protocolRequest.operation())) {
+                    SimpleClientHttpRequestFactory probeFactory = new SimpleClientHttpRequestFactory();
+                    probeFactory.setConnectTimeout(1000);
+                    probeFactory.setReadTimeout(2000);
+                    response = new RestTemplate(probeFactory).postForEntity(processUri, entity, String.class);
+                } else {
+                    response = restTemplate.postForEntity(processUri, entity, String.class);
+                }
             } catch (HttpClientErrorException e) {
+                if ("RESOLVE_READ_ONLY_PRODUCT".equals(protocolRequest.operation())) throw e;
                 if (e.getStatusCode().value() != 404 && e.getStatusCode().value() != 405) throw e;
                 // Rolling deployment compatibility: an old Agent may not expose /execute yet.
                 URI legacyUri = buildLegacyProcessUri(baseUrl, canonicalName, question);
@@ -445,6 +454,10 @@ public class AgentCallerService {
                 return protocolFailureResult(protocolResponse);
             }
             String result = protocolResponse != null ? protocolResponse.answer() : responseBody;
+            if (protocolResponse != null && Boolean.TRUE.equals(protocolResponse.data().get("deterministic"))) {
+                return new AgentCallResult(result, List.of(), Map.of(),
+                        protocolResponse.quality().toDomainQuality(), protocolResponse.data());
+            }
             if (result == null || result.isBlank()) {
                 return new AgentCallResult("⚠️ Agent 返回空结果");
             }

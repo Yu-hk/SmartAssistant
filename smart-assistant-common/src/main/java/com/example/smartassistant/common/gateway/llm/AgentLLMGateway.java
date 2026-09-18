@@ -156,6 +156,7 @@ public class AgentLLMGateway {
                 .maxAttempts(config.maxRetries() + 1)
                 .intervalFunction(IntervalFunction.ofExponentialBackoff(400L, 2.0))
                 .retryOnResult(Objects::isNull)
+                .retryOnException(com.example.smartassistant.common.error.ModelCallFailure::retryable)
                 .build();
         Retry retry = Retry.of("llm-" + modelKey, retryConfig);
         retry.getEventPublisher().onRetry(event ->

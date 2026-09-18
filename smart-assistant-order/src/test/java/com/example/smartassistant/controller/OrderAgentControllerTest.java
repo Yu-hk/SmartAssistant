@@ -81,7 +81,8 @@ class OrderAgentControllerTest {
         String result = response.getBody();
 
         assertNotNull(result);
-        assertTrue(result.contains("ORD-999"), "应返回结构化拒答消息");
+        assertEquals(com.example.smartassistant.common.error.CustomerMessages.NO_DATA, result,
+                "应返回受控的无资料消息，不回显检索输入");
         assertEquals("PASS", response.getHeaders().getFirst(DomainQualityHeaders.STATUS));
         assertEquals("SAFE_NO_EVIDENCE_RESPONSE",
                 response.getHeaders().getFirst(DomainQualityHeaders.REASON_CODES));
