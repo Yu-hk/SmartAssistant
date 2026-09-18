@@ -46,7 +46,8 @@ public class ModelUnavailableWorkflowService {
             input.put("amount", new BigDecimal(amount.toString()));
             description = "下单 1 件“" + name + "”，金额 " + amount + " 元；收货人：" + input.get("recipient_name")
                     + "；电话：" + input.get("recipient_phone") + "；地址：" + input.get("shipping_address");
-        } else description = (parsed.kind() == BusinessFallbackParser.Kind.CANCEL_ORDER ? "取消订单 " : "申请退款 ") + input.get("order_id");
+        } else description = (parsed.kind() == BusinessFallbackParser.Kind.CANCEL_ORDER ? "取消订单 " : "申请退款 ")
+                + input.get("order_id") + "；原因：" + input.get("reason");
         var write = new ExecutionPlan.TaskNode("fallback-write", ExecutionPlan.Domain.ORDER, parsed.kind().name(), description,
                 input, List.of(), ExecutionPlan.AccessMode.WRITE, List.of(), request.getRequestId() + ":fallback-write",
                 true, null, ExecutionPlan.MergePolicy.APPEND);
