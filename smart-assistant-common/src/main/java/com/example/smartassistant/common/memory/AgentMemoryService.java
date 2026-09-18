@@ -62,18 +62,28 @@ public class AgentMemoryService {
     }
 
     public void save(String agent, String userId, String key, String value) {
-        if (agent == null || userId == null || key == null || !key.matches("[a-zA-Z][a-zA-Z0-9_]{0,63}")) return;
+        trySave(agent, userId, key, value);
+    }
+
+    /** Internal acknowledgement distinguishes an accepted update from a best-effort rejection. */
+    boolean trySave(String agent, String userId, String key, String value) {
+        if (agent == null || userId == null || key == null || !key.matches("[a-zA-Z][a-zA-Z0-9_]{0,63}")) return false;
+        if (value == null || value.isBlank()) return false;
         try {
             Path file = getMemoryFile(agent, userId);
-            Map<String, String> memories = loadFile(file);
-            // 编码值和时间戳：value || YYYY-MM-DD
-            if (value == null || value.isBlank()) return;
-            memories.put(key, ProfileContextPolicy.singleLine(value, 500) + TS_SUFFIX + LocalDate.now().format(DATE_FMT));
-            writeFile(file, memories);
+            MemoryFileTransaction.mutate(file, () -> {
+                Map<String, String> memories = loadFile(file);
+                memories.put(key, ProfileContextPolicy.singleLine(value, 500) + TS_SUFFIX + LocalDate.now().format(DATE_FMT));
+                writeFile(file, memories);
+            });
             log.debug("[AgentMemory] 保存: agent={}, userId={}, key={}", agent, userId, key);
+            return true;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
-            log.warn("[AgentMemory] 保存失败: agent={}, userId={}, key={}, error={}", agent, userId, key, e.getMessage());
+            log.warn("[AgentMemory] 保存未完成: errorType={}", e.getClass().getSimpleName());
         }
+        return false;
     }
 
     public String get(String agent, String userId, String key) {
@@ -89,17 +99,25 @@ public class AgentMemoryService {
     }
 
     public void delete(String agent, String userId, String key) {
-        if (agent == null || userId == null || key == null) return;
+        tryDelete(agent, userId, key);
+    }
+
+    boolean tryDelete(String agent, String userId, String key) {
+        if (agent == null || userId == null || key == null) return false;
         try {
             Path file = getMemoryFile(agent, userId);
-            Map<String, String> memories = loadFile(file);
-            if (memories.remove(key) != null) {
-                writeFile(file, memories);
-                log.debug("[AgentMemory] 删除: agent={}, userId={}, key={}", agent, userId, key);
-            }
+            if (!Files.exists(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return true;
+            MemoryFileTransaction.mutate(file, () -> {
+                Map<String, String> memories = loadFile(file);
+                if (memories.remove(key) != null) writeFile(file, memories);
+            });
+            return true;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
-            log.warn("[AgentMemory] 删除失败: agent={}, userId={}, key={}, error={}", agent, userId, key, e.getMessage());
+            log.warn("[AgentMemory] 删除未完成: errorType={}", e.getClass().getSimpleName());
         }
+        return false;
     }
 
     /**
@@ -263,13 +281,14 @@ public class AgentMemoryService {
     }
 
     /** 从 Markdown 文件加载全部记忆；文件不存在时返回空 Map */
-    private Map<String, String> loadFile(Path file) {
-        if (!Files.exists(file)) {
-            return new LinkedHashMap<>();
-        }
-        try {
-            if (Files.size(file) > 262144) throw new IllegalStateException("Memory file exceeds safe read size");
-            String content = Files.readString(file, StandardCharsets.UTF_8).trim();
+    private Map<String, String> loadFile(Path file) throws IOException {
+        MemoryFileTransaction.checkPath(file);
+        // Only an absent file is empty. I/O/encoding errors must never become an empty overwrite.
+        try (var stream = Files.newInputStream(file, java.nio.file.StandardOpenOption.READ,
+                java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            byte[] bytes = stream.readNBytes(MemoryFileTransaction.MAX_BYTES + 1);
+            if (bytes.length > MemoryFileTransaction.MAX_BYTES) throw new IOException("Memory file exceeds safe read size");
+            String content = StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString().trim();
             if (content.isEmpty()) return new LinkedHashMap<>();
 
             Map<String, String> memories = new LinkedHashMap<>();
@@ -288,29 +307,23 @@ public class AgentMemoryService {
                 }
             }
             return memories;
-        } catch (IOException e) {
-            log.warn("[AgentMemory] 读取文件失败: {}, error={}", file, e.getMessage());
+        } catch (java.nio.file.NoSuchFileException absent) {
             return new LinkedHashMap<>();
         }
     }
 
     /** 写入 Markdown 文件 */
-    private void writeFile(Path file, Map<String, String> memories) {
-        try {
-            Files.createDirectories(file.getParent());
-            StringBuilder sb = new StringBuilder();
-            String agentName = file.getFileName().toString().replace("-memory.md", "");
-            sb.append("# ").append(capitalize(agentName)).append(" Agent 用户偏好\n\n");
-            for (Map.Entry<String, String> entry : memories.entrySet()) {
-                String fullValue = entry.getValue();
-                if (fullValue != null && !fullValue.isBlank()) {
-                    sb.append(LIST_PREFIX).append(entry.getKey()).append(KV_SEPARATOR).append(fullValue).append("\n");
-                }
+    private void writeFile(Path file, Map<String, String> memories) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        String agentName = file.getFileName().toString().replace("-memory.md", "");
+        sb.append("# ").append(capitalize(agentName)).append(" Agent 用户偏好\n\n");
+        for (Map.Entry<String, String> entry : memories.entrySet()) {
+            String fullValue = entry.getValue();
+            if (fullValue != null && !fullValue.isBlank()) {
+                sb.append(LIST_PREFIX).append(entry.getKey()).append(KV_SEPARATOR).append(fullValue).append("\n");
             }
-            Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.warn("[AgentMemory] 写入文件失败: {}, error={}", file, e.getMessage());
         }
+        MemoryFileTransaction.replace(file, sb.toString().getBytes(StandardCharsets.UTF_8));
     }
 
     // ==================== 时间戳工具 ====================
