@@ -33,3 +33,37 @@
 提交 SHA、时间、目标服务、前后 JAR/前端 SHA、备份绝对路径、迁移说明、
 内部/外部检查结果、测试账号与请求 ID、失败与回滚情况、最终运行版本。
 集成测试报告不替代线上验收；线上单次验收也不替代集群/故障测试。
+
+## 可执行的 JAR 基线与回滚核验
+
+工具：`scripts/release_artifacts.py`（Python 3.6+，Docker CLI）。仅支持本项目
+`/app/app.jar` 的只读 bind mount；它不停止容器、不修改产物、不读 `Config.Env`、不执行数据库操作。
+在服务器本地运行，需使用有权读取 Docker 和这些产物的运维身份。
+
+发布前为**本次变更服务**记录已通过健康与业务检查的基线，输出路径必须是新文件：
+
+```sh
+python3 scripts/release_artifacts.py snapshot \
+  --service smart-router --service smart-product \
+  --output /opt/smart-assistant/releases/<本次发布>/before-artifacts.json
+```
+
+随后按前述检查单备份与发布；发布后的哈希必须与本地测试包核对，再采集独立的
+`after-artifacts.json`，不能用“刚采集的快照自验证”代替与批准版本比对。
+镜像 ID、挂载源、目标路径、SHA-256、大小均纳入快照；脚本同时比较容器内部与宿主机 JAR
+的哈希，避免替换宿主文件后旧 bind inode 仍在容器内的误判。
+
+回滚恢复上一版本后执行：
+
+```sh
+python3 scripts/release_artifacts.py verify \
+  --snapshot /opt/smart-assistant/releases/<本次发布>/before-artifacts.json
+```
+
+缺少容器、容器未运行、非预期挂载、镜像或产物不匹配、空文件、读取失败均以非零退出码阻断。
+旧快照不会被覆盖。快照须与发布审批、备份保存在受控目录；这是完整性核验，不是数字签名，
+无法防止有权同时修改快照和产物的攻击者。检查通过后仍须执行内部健康、公开 `/healthz`、
+鉴权和只读业务验证，不能把“进程在运行”当作“业务已恢复”。
+
+CI 对校验器做正负测试，包括产物替换、同大小篡改、挂载漂移、旧 inode、停止服务，以及
+恢复原字节后重新通过。生产仅做只读盘点与核验；不为测试回滚工具主动破坏线上 JAR。
