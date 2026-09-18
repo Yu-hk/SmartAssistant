@@ -31,6 +31,26 @@ import static org.mockito.Mockito.when;
 class ProductStreamControllerTest {
 
     @Test
+    void modelIsPreferredAndOnlyModelFailureEnablesFactFallback() {
+        var agent = mock(StreamingProductAgentService.class);
+        var facts = mock(com.example.smartassistant.service.core.ProductFactQueryService.class);
+        var controller = new ProductStreamController(agent);
+        org.springframework.test.util.ReflectionTestUtils.setField(controller, "factQueryService", facts);
+        var request = new AgentExecutionRequest("1.0", "model-first", "query", "12", "QUERY_PRODUCT",
+                "AirPods Pro多少钱？有货吗？", Map.of(), List.of(), List.of(), null, null);
+        when(agent.executeWithQuality(anyString(), eq("model-first"))).thenReturn(
+                DomainAgentResponse.of("已为您查询：售价1999元，有货。", DomainQualityResult.pass(1, "VERIFIED")));
+        assertEquals("已为您查询：售价1999元，有货。", controller.execute(request, null).getBody().answer());
+        org.mockito.Mockito.verifyNoInteractions(facts);
+        when(agent.executeWithQuality(anyString(), eq("model-first"))).thenReturn(
+                DomainAgentResponse.of("服务不可用", DomainQualityResult.fail("MODEL_BILLING_UNAVAILABLE")));
+        when(facts.query(anyString(), anyList(), eq("model-first"))).thenReturn(
+                AgentExecutionResponse.success("售价1999元，库存充足。", Map.of("handled", true), DomainQualityResult.pass(1, "FACT")));
+        assertEquals("售价1999元，库存充足。", controller.execute(request, null).getBody().answer());
+        verify(facts).query(anyString(), anyList(), eq("model-first"));
+    }
+
+    @Test
     void exposesBudgetAssessmentWithoutUnrequestedRemainder() {
         var response = recommendationWith(List.of(Map.of("code", "PHONE", "name", "手机", "price", 5299)),
                 "可考虑手机，售价5299元，未超预算。", "预算6000元以内推荐手机");

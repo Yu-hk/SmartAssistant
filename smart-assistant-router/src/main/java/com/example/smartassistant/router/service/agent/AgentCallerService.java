@@ -168,7 +168,9 @@ public class AgentCallerService {
     /** Execute a validated DAG node without losing its operation, inputs or idempotency key. */
     @CircuitBreaker(name = "agentCall", fallbackMethod = "callAgentExecutionFallback")
     public AgentCallResult callAgentAndExtractTitles(String agentName, AgentExecutionRequest request) {
-        return withExtractedTitles(agentName, callAgentProtocolDetailed(agentName, request, null));
+        AgentCallResult result = callAgentProtocolDetailed(agentName, request, null);
+        return Boolean.TRUE.equals(request.input().get("_deterministicFallback"))
+                ? result : withExtractedTitles(agentName, result);
     }
 
     private AgentCallResult withExtractedTitles(String agentName, AgentCallResult detailed) {

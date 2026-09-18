@@ -74,8 +74,14 @@ public class ProductFactQueryService {
             parts.add("规格为" + known(product.spec()));
         }
         if (fields.contains("颜色")) parts.add("颜色为" + known(product.color()));
-        return handled(product.name() + "，" + String.join("；", parts) + "。",
+        var response = handled(product.name() + "，" + String.join("；", parts) + "。",
                 List.of(Map.of("name", product.name())), false);
+        Map<String, Object> data = new LinkedHashMap<>(response.data());
+        // Internal quote is catalog-derived; never trust an amount supplied in natural language.
+        if (product.price() != null && product.price().signum() > 0
+                && Set.of("充足", "紧张").contains(Objects.toString(product.stock(), "")))
+            data.put("orderQuote", Map.of("productName", product.name(), "amount", product.price()));
+        return AgentExecutionResponse.success(response.answer(), data, DomainQualityResult.pass(1, "PRODUCT_CATALOG_FACTS"));
     }
     private static String known(String value) { return value == null || value.isBlank() ? "暂未提供" : value; }
     private static AgentExecutionResponse handled(String answer, List<?> products, boolean clarification) {
