@@ -136,7 +136,9 @@ public class UserProfileService {
                     .supplyAsync(() -> {
                         try {
                             redisTemplate.opsForValue().set(key, RoutingKeys.USER_PROFILE_PENDING, prefetchTtl());
-                            PreparedProfile prepared = prepareProfile(userId, question, requestId);
+                            long generation = profileStore.captureGeneration(userId);
+                            PreparedProfile prepared = prepareProfile(userId, question, requestId, generation);
+                            profileStore.requireGeneration(userId, generation);
                             publishPrefetchResult(requestId, key, prepared, null);
                             return prepared.projection();
                         } catch (RuntimeException unavailable) {
@@ -151,16 +153,17 @@ public class UserProfileService {
         }
     }
 
-    private PreparedProfile prepareProfile(Long userId, String question, String requestId) {
+    private PreparedProfile prepareProfile(Long userId, String question, String requestId, long generation) {
         String savedProjection = profileQueries.forUser(userId);
         if (!savedProjection.isBlank()) {
+            profileStore.requireGeneration(userId, generation);
             // Existing reliable context becomes available before history/model analysis begins.
             redisTemplate.opsForValue().set(RoutingKeys.userProfileContext(requestId),
                     RoutingKeys.USER_PROFILE_READY_PREFIX + savedProjection, prefetchTtl());
         }
         if (question != null && !question.isBlank()) {
             try {
-                PreparedProfileCandidate candidate = analyzeCandidate(userId, question, requestId);
+                PreparedProfileCandidate candidate = analyzeCandidate(userId, question, requestId, generation);
                 if (!shouldCommit(candidate.report())) return new PreparedProfile(savedProjection, null);
                 return new PreparedProfile(reliableProjection(writeJson(candidate.report())), candidate);
             } catch (RuntimeException unavailable) {
@@ -185,7 +188,12 @@ public class UserProfileService {
 
     private PreparedProfileCandidate analyzeCandidate(
             Long userId, String question, String requestId) {
-        ProfileConversationContext context = buildConversationContext(userId, question);
+        return analyzeCandidate(userId, question, requestId, profileStore.captureGeneration(userId));
+    }
+
+    private PreparedProfileCandidate analyzeCandidate(
+            Long userId, String question, String requestId, long generation) {
+        ProfileConversationContext context = buildConversationContext(userId, question, generation);
         Optional<UserProfileSnapshotStore.Snapshot> current = profileStore.load(userId);
         long expectedVersion = current.map(UserProfileSnapshotStore.Snapshot::profileVersion)
                 .orElse(0L);
@@ -195,7 +203,7 @@ public class UserProfileService {
                 llmExtractor.extract(currentProfile, context.text(), question);
         return new PreparedProfileCandidate(
                 userId, requestId, expectedVersion, report, question,
-                context.sourceMaxMessageId(), context.messageIds());
+                context.sourceMaxMessageId(), context.messageIds(), generation);
     }
 
     private UserProfileSnapshotStore.Snapshot commitCandidate(
@@ -206,9 +214,11 @@ public class UserProfileService {
             try {
                 return profileStore.save(candidate.userId(), candidate.requestId(),
                         expectedVersion, report, candidate.sourceMaxMessageId(),
-                        candidate.evidenceMessageIds());
+                        candidate.evidenceMessageIds(), candidate.generation());
             } catch (UserProfileSnapshotStore.OptimisticProfileUpdateException conflict) {
                 if (attempt == 1) throw conflict;
+                // Never rebase an erased candidate into a newer lifecycle generation.
+                profileStore.requireGeneration(candidate.userId(), candidate.generation());
                 Optional<UserProfileSnapshotStore.Snapshot> current =
                         profileStore.load(candidate.userId());
                 expectedVersion = current.map(UserProfileSnapshotStore.Snapshot::profileVersion)
@@ -272,6 +282,7 @@ public class UserProfileService {
         try {
             PreparedProfileCandidate candidate = awaitPreparedCandidate(userId, requestId);
             if (candidate == null || !shouldCommit(candidate.report())) return;
+            profileStore.requireGeneration(candidate.userId(), candidate.generation());
             commitPublisher.publish(candidate);
             redisTemplate.delete(RoutingKeys.userProfileCandidate(requestId));
         } catch (Exception error) {
@@ -287,8 +298,13 @@ public class UserProfileService {
             throw new IllegalArgumentException("Prepared user profile is incomplete");
         }
         if (!shouldCommit(candidate.report())) return;
-        if (profileStore.isRequestApplied(candidate.userId(), candidate.requestId())) return;
-        commitCandidate(candidate);
+        try {
+            // Idempotency is checked inside the same fenced transaction as persistence.
+            commitCandidate(candidate);
+        } catch (ProfileGenerationFence.Rejected invalidated) {
+            // Acknowledge obsolete MQ work; do not retry/re-analyze or send its contents to the DLQ.
+            log.info("[UserProfile] Discarded inactive-generation candidate");
+        }
     }
 
     private PreparedProfileCandidate awaitPreparedCandidate(Long userId, String requestId) {
@@ -394,9 +410,11 @@ public class UserProfileService {
         // 电商画像只保存新 Prompt 的结构化结果，旧意图计数不再写入画像。
     }
 
-    private ProfileConversationContext buildConversationContext(Long userId, String currentQuestion) {
+    private ProfileConversationContext buildConversationContext(Long userId, String currentQuestion, long generation) {
         List<RoutingCallLog> history = List.of();
-        if (routingCallLogMapper != null) {
+        // Legacy logs have no admission-generation tag. After a reset, do not reconstruct
+        // erased preferences from them; only the current message and current snapshot are used.
+        if (generation == 0 && routingCallLogMapper != null) {
             try {
                 history = routingCallLogMapper.findRecentByUserId(
                         userId, Math.max(1, Math.min(maxHistoryTurns, 100)));
@@ -464,7 +482,14 @@ public class UserProfileService {
             LLMPreferenceExtractor.UserInsightReport report,
             String latestUserMessage,
             Long sourceMaxMessageId,
-            List<Long> evidenceMessageIds) {
+            List<Long> evidenceMessageIds,
+            long generation) {
+        /** Source compatibility for v1 producers: missing generation remains zero, never recaptured. */
+        public PreparedProfileCandidate(Long userId, String requestId, long expectedVersion,
+                                        LLMPreferenceExtractor.UserInsightReport report, String latestUserMessage,
+                                        Long sourceMaxMessageId, List<Long> evidenceMessageIds) {
+            this(userId, requestId, expectedVersion, report, latestUserMessage, sourceMaxMessageId, evidenceMessageIds, 0L);
+        }
     }
 
 }

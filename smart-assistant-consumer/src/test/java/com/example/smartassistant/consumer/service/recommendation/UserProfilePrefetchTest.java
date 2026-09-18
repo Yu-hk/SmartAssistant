@@ -75,7 +75,7 @@ class UserProfilePrefetchTest {
                 .contains("【电商用户洞察】");
         verify(values).set(eq(RoutingKeys.userProfileCandidate("request-profile")),
                 anyString(), eq(Duration.ofSeconds(120)));
-        verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList());
+        verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList(), anyLong());
     }
 
     @Test
@@ -97,7 +97,7 @@ class UserProfilePrefetchTest {
 
         AtomicReference<UserProfileSnapshotStore.Snapshot> current = new AtomicReference<>();
         when(store.load(42L)).thenAnswer(invocation -> Optional.ofNullable(current.get()));
-        when(store.save(eq(42L), nullable(String.class), anyLong(), any(), any(), anyList()))
+        when(store.save(eq(42L), nullable(String.class), anyLong(), any(), any(), anyList(), eq(0L)))
                 .thenAnswer(invocation -> {
                     long expected = invocation.getArgument(2);
                     LLMPreferenceExtractor.UserInsightReport report = invocation.getArgument(3);
@@ -160,7 +160,7 @@ class UserProfilePrefetchTest {
                 .thenReturn(objectMapper.writeValueAsString(candidate));
         when(store.isRequestApplied(42L, "request-commit")).thenReturn(false);
         when(store.save(eq(42L), eq("request-commit"), eq(0L), eq(insight),
-                eq(9L), eq(List.of(7L, 9L))))
+                eq(9L), eq(List.of(7L, 9L)), eq(0L)))
                 .thenReturn(snapshot(42L, 1L, objectMapper.writeValueAsString(insight)));
 
         UserProfileService service = service(extractor, store, publisher);
@@ -178,7 +178,7 @@ class UserProfilePrefetchTest {
         service.commitPreparedProfile(candidate);
 
         verify(store).save(42L, "request-commit", 0L, insight,
-                9L, List.of(7L, 9L));
+                9L, List.of(7L, 9L), 0L);
     }
 
     @Test
@@ -202,7 +202,7 @@ class UserProfilePrefetchTest {
                 service, "awaitPreparedCandidate", 42L, "request-pending"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("commit timeout");
-        verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList());
+        verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList(), anyLong());
     }
 
     @Test
@@ -220,7 +220,7 @@ class UserProfilePrefetchTest {
                 "预算合适就买", 20L, List.of(18L, 20L));
         when(store.isRequestApplied(42L, "request-conflict")).thenReturn(false);
         when(store.save(42L, "request-conflict", 1L, stale,
-                20L, List.of(18L, 20L)))
+                20L, List.of(18L, 20L), 0L))
                 .thenThrow(new UserProfileSnapshotStore.OptimisticProfileUpdateException(
                         42L, 1L, 2L));
         when(store.load(42L)).thenReturn(Optional.of(snapshot(
@@ -228,7 +228,7 @@ class UserProfilePrefetchTest {
         when(extractor.extract(anyString(), eq("[当前用户消息]\n预算合适就买"),
                 eq("预算合适就买"))).thenReturn(rebased);
         when(store.save(42L, "request-conflict", 2L, rebased,
-                20L, List.of(18L, 20L)))
+                20L, List.of(18L, 20L), 0L))
                 .thenReturn(snapshot(42L, 3L, objectMapper.writeValueAsString(rebased)));
         UserProfileService service = service(
                 extractor, store, mock(UserProfileCommitPublisher.class));
@@ -238,7 +238,7 @@ class UserProfilePrefetchTest {
         verify(extractor).extract(org.mockito.ArgumentMatchers.contains("重视售后"),
                 eq("[当前用户消息]\n预算合适就买"), eq("预算合适就买"));
         verify(store).save(42L, "request-conflict", 2L, rebased,
-                20L, List.of(18L, 20L));
+                20L, List.of(18L, 20L), 0L);
     }
 
     @Test
@@ -261,7 +261,7 @@ class UserProfilePrefetchTest {
         assertThat(service.prefetchForRequest(42L, "本轮预算2000", "saved").join())
                 .contains("轻薄", "本轮明确的预算", "冲突时忽略历史偏好");
         verify(values, never()).set(eq(RoutingKeys.userProfileCandidate("saved")), anyString(), any(Duration.class));
-        verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList());
+        verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList(), anyLong());
         // Same request is deduplicated, not reset to PENDING or analyzed a second time.
         service.prefetchForRequest(42L, "本轮预算2000", "saved").join();
         verify(extractor, times(1)).extract(anyString(), anyString(), anyString());

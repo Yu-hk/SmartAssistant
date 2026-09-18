@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -25,21 +24,29 @@ public class UserProfileSnapshotStore {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ProfileGenerationFence generationFence;
 
     @Value("${spring.ai.deepseek.chat.options.model:unknown}")
     private String modelName = "unknown";
 
-    public UserProfileSnapshotStore(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public UserProfileSnapshotStore(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper,
+                                    ProfileGenerationFence generationFence) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.generationFence = generationFence;
     }
+
+    public long captureGeneration(Long userId) { return generationFence.capture(userId); }
+    public void requireGeneration(Long userId, long generation) { generationFence.requireCurrent(userId, generation); }
 
     public Optional<Snapshot> load(Long userId) {
         if (userId == null) return Optional.empty();
         List<Snapshot> rows = jdbcTemplate.query(
-                "SELECT user_id, profile_version, schema_version, report::text, "
-                        + "source_max_message_id, created_at, updated_at "
-                        + "FROM user_profile_snapshot WHERE user_id = ?",
+                "SELECT s.user_id, s.profile_version, s.schema_version, s.report::text, "
+                        + "s.source_max_message_id, s.created_at, s.updated_at "
+                        + "FROM user_profile_snapshot s LEFT JOIN profile_lifecycle l ON l.user_id = s.user_id "
+                        + "WHERE s.user_id = ? AND COALESCE(l.analysis_enabled, true) "
+                        + "AND s.generation = COALESCE(l.generation, 0)",
                 (rs, rowNum) -> new Snapshot(
                         rs.getLong("user_id"), rs.getLong("profile_version"),
                         rs.getString("schema_version"), rs.getString("report"),
@@ -59,13 +66,26 @@ public class UserProfileSnapshotStore {
         return Boolean.TRUE.equals(applied);
     }
 
-    @Transactional
     public Snapshot save(Long userId, String requestId, long expectedVersion,
                          LLMPreferenceExtractor.UserInsightReport report,
                          Long sourceMaxMessageId, List<Long> evidenceMessageIds) {
+        // Compatibility path never upgrades a legacy caller to the current generation.
+        return save(userId, requestId, expectedVersion, report, sourceMaxMessageId, evidenceMessageIds, 0L);
+    }
+
+    public Snapshot save(Long userId, String requestId, long expectedVersion,
+                         LLMPreferenceExtractor.UserInsightReport report,
+                         Long sourceMaxMessageId, List<Long> evidenceMessageIds, long generation) {
         if (userId == null || report == null) {
             throw new IllegalArgumentException("userId and report are required");
         }
+        return generationFence.write(userId, generation, () -> persist(userId, requestId, expectedVersion,
+                report, sourceMaxMessageId, evidenceMessageIds, generation));
+    }
+
+    private Snapshot persist(Long userId, String requestId, long expectedVersion,
+                             LLMPreferenceExtractor.UserInsightReport report,
+                             Long sourceMaxMessageId, List<Long> evidenceMessageIds, long generation) {
         if (isRequestApplied(userId, requestId)) {
             return load(userId).orElseThrow(() -> new IllegalStateException(
                     "Applied user-profile request has no snapshot: " + requestId));
@@ -93,12 +113,12 @@ public class UserProfileSnapshotStore {
                     "INSERT INTO user_profile_snapshot "
                             + "(user_id, profile_version, schema_version, report, reliable, "
                             + "purchase_stage, purchase_intent_score, churn_risk, "
-                            + "source_max_message_id, created_at, updated_at) "
-                            + "VALUES (?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
+                            + "source_max_message_id, generation, created_at, updated_at) "
+                            + "VALUES (?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
                             + "ON CONFLICT (user_id) DO NOTHING",
                     userId, newVersion, SCHEMA_VERSION, reportJson, assessment.reliable(),
                     assessment.purchaseStage(), assessment.purchaseIntentScore(),
-                    assessment.churnRisk(), sourceMaxMessageId);
+                    assessment.churnRisk(), sourceMaxMessageId, generation);
         } else {
             changed = jdbcTemplate.update(
                     "UPDATE user_profile_snapshot SET profile_version = ?, schema_version = ?, "

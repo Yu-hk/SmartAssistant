@@ -29,7 +29,7 @@ class UserProfileSnapshotStoreTest {
         UserProfileSnapshotStore.Snapshot existing = snapshot(42L, 3L, "{\"saved\":true}");
         when(jdbc.query(anyString(), any(RowMapper.class), eq(42L)))
                 .thenReturn(List.of(existing));
-        UserProfileSnapshotStore store = new UserProfileSnapshotStore(jdbc, new ObjectMapper());
+        UserProfileSnapshotStore store = store(jdbc);
 
         UserProfileSnapshotStore.Snapshot result = store.save(
                 42L, "request-keep", 3L,
@@ -44,7 +44,7 @@ class UserProfileSnapshotStoreTest {
     void keepWithoutExistingProfileReturnsTransientProjectionWithoutPersistingFailure() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), eq(42L))).thenReturn(List.of());
-        UserProfileSnapshotStore store = new UserProfileSnapshotStore(jdbc, new ObjectMapper());
+        UserProfileSnapshotStore store = store(jdbc);
 
         UserProfileSnapshotStore.Snapshot result = store.save(
                 42L, "request-model-failed", 0L,
@@ -61,7 +61,7 @@ class UserProfileSnapshotStoreTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), eq(42L)))
                 .thenReturn(List.of(snapshot(42L, 4L, "{}")));
-        UserProfileSnapshotStore store = new UserProfileSnapshotStore(jdbc, new ObjectMapper());
+        UserProfileSnapshotStore store = store(jdbc);
 
         assertThatThrownBy(() -> store.save(
                 42L, "request-stale", 3L, report("UPDATE"), 12L, List.of(12L)))
@@ -75,7 +75,7 @@ class UserProfileSnapshotStoreTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), eq(42L))).thenReturn(List.of());
         when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
-        UserProfileSnapshotStore store = new UserProfileSnapshotStore(jdbc, new ObjectMapper());
+        UserProfileSnapshotStore store = store(jdbc);
 
         UserProfileSnapshotStore.Snapshot saved = store.save(
                 42L, "request-create", 0L, report("CREATE"), 15L, List.of(11L, 15L));
@@ -86,6 +86,13 @@ class UserProfileSnapshotStoreTest {
         verify(jdbc, times(2)).update(sql.capture(), any(Object[].class));
         assertThat(sql.getAllValues().get(0)).contains("INSERT INTO user_profile_snapshot");
         assertThat(sql.getAllValues().get(1)).contains("INSERT INTO user_profile_change_log");
+    }
+
+    private static UserProfileSnapshotStore store(JdbcTemplate jdbc) {
+        var fence = mock(ProfileGenerationFence.class);
+        when(fence.write(any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+                .thenAnswer(call -> ((java.util.function.Supplier<?>) call.getArgument(2)).get());
+        return new UserProfileSnapshotStore(jdbc, new ObjectMapper(), fence);
     }
 
     private static UserProfileSnapshotStore.Snapshot snapshot(
