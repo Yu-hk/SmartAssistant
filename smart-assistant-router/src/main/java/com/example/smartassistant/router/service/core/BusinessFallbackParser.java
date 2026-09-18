@@ -13,8 +13,10 @@ public class BusinessFallbackParser {
     public enum Kind { PRODUCT_QUERY, CREATE_ORDER, CANCEL_ORDER, REFUND_ORDER, CLARIFY, UNKNOWN }
     public record Parsed(Kind kind, String question, Map<String, Object> input, String reply) { }
     private static final Pattern UNSAFE = Pattern.compile("不|别|勿|如果|假如|是否|怎么|如何|然后|顺便|或者|以及|忽略|指令|系统|文档|资料|知识库|[\\r\\n?？]");
-    private static final Pattern CANCEL = Pattern.compile("^(?:请|帮我|请帮我)?取消订单[：: ]*((?:ORD|BULK)-[A-Za-z0-9-]+)[。！!]?$", Pattern.CASE_INSENSITIVE);
-    private static final Pattern REFUND = Pattern.compile("^(?:请|帮我|请帮我)?(?:申请退款|退款订单)[：: ]*((?:ORD|BULK)-[A-Za-z0-9-]+)[。！!]?$", Pattern.CASE_INSENSITIVE);
+    private static final String ORDER_AND_REASON = "[：: ]*((?:ORD|BULK)-[A-Za-z0-9-]+)(?:[；;]\\s*原因[：:]([^；;\\r\\n]*))?[。！!]?$";
+    private static final Pattern CANCEL = Pattern.compile("^(?:请|帮我|请帮我)?取消订单" + ORDER_AND_REASON, Pattern.CASE_INSENSITIVE);
+    private static final Pattern REFUND = Pattern.compile("^(?:请|帮我|请帮我)?(?:申请退款|退款订单)" + ORDER_AND_REASON, Pattern.CASE_INSENSITIVE);
+    private static final Pattern UNSAFE_REASON = Pattern.compile("如果|假如|是否|怎么|如何|然后|顺便|或者|以及|忽略|指令|系统|文档|资料|知识库|下单|购买|取消|退款|退单|退货|(?i:ORD-|BULK-)|[\\p{Cntrl}：:？?]");
     public Parsed parse(String raw) {
         String q = raw == null ? "" : raw.trim();
         if (q.isEmpty() || q.length() > 500) return unknown(q);
@@ -32,11 +34,13 @@ public class BusinessFallbackParser {
                 return new Parsed(Kind.PRODUCT_QUERY, q, Map.of(), null);
             return unknown(q);
         }
-        if (UNSAFE.matcher(q).find()) return unknown(q);
+        // Parse a closed command before checking its data: “不喜欢” is a reason,
+        // not a negation of “申请退款”. Never infer a reason from previous turns.
         var cancel = CANCEL.matcher(q);
-        if (cancel.matches()) return new Parsed(Kind.CANCEL_ORDER, q, Map.of("order_id", cancel.group(1)), null);
+        if (cancel.matches()) return afterSales(q, Kind.CANCEL_ORDER, cancel.group(1), cancel.group(2));
         var refund = REFUND.matcher(q);
-        if (refund.matches()) return new Parsed(Kind.REFUND_ORDER, q, Map.of("order_id", refund.group(1)), null);
+        if (refund.matches()) return afterSales(q, Kind.REFUND_ORDER, refund.group(1), refund.group(2));
+        if (UNSAFE.matcher(q).find()) return unknown(q);
         if (q.matches("^(?:请|帮我|请帮我)?(?:下单|购买)[：: ]?.*")) {
             String body = q.replaceFirst("^(?:请|帮我|请帮我)?(?:下单|购买)[：: ]*", "");
             String[] fields = body.split("[；;]", -1);
@@ -57,7 +61,17 @@ public class BusinessFallbackParser {
             return new Parsed(Kind.CREATE_ORDER, q, input, null);
         }
         if (q.contains("退单") || q.contains("退货")) return clarify(q, "请确认您是要取消未付款订单，还是为已付款订单申请退款，并提供订单号。目前没有取消订单或提交退款。");
-        return clarify(q, "请明确要执行的操作并提供订单号，例如“取消订单 ORD-xxx”或“申请退款 ORD-xxx”。目前没有修改订单。");
+        return clarify(q, "请明确要执行的操作、订单号和原因，例如“取消订单 ORD-xxx；原因：重复下单”或“申请退款 ORD-xxx；原因：商品不合适”。目前没有修改订单。");
+    }
+    private static Parsed afterSales(String q, Kind kind, String orderId, String rawReason) {
+        String operation = kind == Kind.CANCEL_ORDER ? "取消订单" : "申请退款";
+        String reason = rawReason == null ? "" : rawReason.trim().replaceFirst("[。！!]+$", "").trim();
+        if (reason.isBlank()) return clarify(q, "还需要您提供" + (kind == Kind.CANCEL_ORDER ? "取消" : "退款")
+                + "原因。请重新发送完整信息，例如“" + operation + " " + orderId.toUpperCase(Locale.ROOT)
+                + "；原因：商品不合适”。核对后会请您确认，目前没有修改订单或提交退款。");
+        // Keep reason text as bounded data; mixed/conditional instructions require clarification.
+        if (reason.length() > 100 || UNSAFE_REASON.matcher(reason.replace("重复下单", "重复订购")).find()) return unknown(q);
+        return new Parsed(kind, q, Map.of("order_id", orderId.toUpperCase(Locale.ROOT), "reason", reason), null);
     }
     private static Parsed clarify(String q, String reply) { return new Parsed(Kind.CLARIFY, q, Map.of(), reply); }
     private static Parsed unknown(String q) { return new Parsed(Kind.UNKNOWN, q, Map.of(), null); }
