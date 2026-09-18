@@ -299,6 +299,12 @@ public class ProductStreamController {
         DomainAgentResponse response = streamingAgentService.executeWithQuality(
                 withUserProfile(question, request), requestId);
         if (response.quality().isFail()) {
+            if (factQueryService != null && response.quality().getReasonCodes().stream().anyMatch(code -> code.startsWith("MODEL_"))) {
+                String original = java.util.Objects.toString(request.input().get("_replyScopeQuestion"), question);
+                var fallback = factQueryService.query(original, List.of(), requestId);
+                if (Boolean.TRUE.equals(fallback.data().get("handled")))
+                    return executionResponse(requestId, fallback, false);
+            }
             String code = response.quality().getReasonCodes().isEmpty()
                     ? "PRODUCT_EXECUTION_ERROR" : response.quality().getReasonCodes().getFirst();
             return executionResponse(requestId, AgentExecutionResponse.failure(code, response.answer(),

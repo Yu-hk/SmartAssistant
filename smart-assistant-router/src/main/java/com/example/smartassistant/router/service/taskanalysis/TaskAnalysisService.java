@@ -185,9 +185,13 @@ public class TaskAnalysisService {
             //     多轮场景：注入对话历史，提升指代消解和意图连贯性
             String basePrompt = buildDynamicPrompt(question, conversationHistory);
             String finalPrompt = stageAwareService.wrapPrompt(basePrompt, stage);
-            ModelRoutingService.IntentModelResponse modelResponse = modelRoutingService.callForIntent(
-                    finalPrompt, buildUserMessage(question, conversationHistory),
-                    modelSelectionQuestion);
+            ModelRoutingService.IntentModelResponse modelResponse;
+            try {
+                modelResponse = modelRoutingService.callForIntent(
+                        finalPrompt, buildUserMessage(question, conversationHistory), modelSelectionQuestion);
+            } catch (RuntimeException unavailable) {
+                throw com.example.smartassistant.common.error.ModelCallFailure.from(unavailable);
+            }
             String rawResponse = modelResponse.content();
 
             if (rawResponse == null || rawResponse.isBlank()) {
@@ -235,7 +239,8 @@ public class TaskAnalysisService {
 
         } catch (Exception e) {
             log.warn("[TaskAnalysis] 分析异常: {}", e.getMessage());
-            if (!com.example.smartassistant.common.error.ModelCallFailure.retryable(e)) {
+            if (e instanceof com.example.smartassistant.common.error.ModelCallFailure
+                    || !com.example.smartassistant.common.error.ModelCallFailure.retryable(e)) {
                 throw com.example.smartassistant.common.error.ModelCallFailure.from(e);
             }
             return TaskAnalysisResult.empty();

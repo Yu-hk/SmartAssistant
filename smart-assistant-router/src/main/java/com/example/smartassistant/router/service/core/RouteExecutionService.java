@@ -403,6 +403,10 @@ public class RouteExecutionService {
                     description = "执行" + operation + "前还需要补充："
                             + String.join("、", analysis.getMissingSlots())
                             + "。只追问缺失信息，本次不得执行任何写操作。";
+                } else if (Set.of("REFUND_ORDER", "CANCEL_ORDER", "APPLY_AFTER_SALES").contains(operation)
+                        || question.matches("(?s).*(退款|退单|退货|取消订单).*")) {
+                    description = "【售后操作说明】请提供订单号和具体诉求，先核实订单归属、当前状态及相关原因，"
+                            + "核对后再请用户确认；目前没有修改订单或提交退款。";
                 } else {
                     description = "说明后续下单所需信息（只说明，不执行）：明确列出具体商品及金额、"
                             + "收货人姓名、联系电话、收货地址；用户ID由登录态提供，商品类型可选。"
@@ -488,6 +492,21 @@ public class RouteExecutionService {
             normalized.put(target, value);
         });
         return Map.copyOf(normalized);
+    }
+
+    /** Fixed plans still use native approval/checkpoint/idempotency, but never an LLM planner or merger. */
+    public RoutingResult executeDeterministicFallback(ExecutionPlan plan, Long userId) {
+        if (!ExecutionPlanValidator.validate(plan).valid()) return ModelUnavailableWorkflowService.unavailable();
+        List<SubTaskResult> results = executeGraph(plan.toIntentGraph(), userId,
+                RoutingKeys.sseEvents(plan.executionId()), plan.executionId());
+        ResultAttribution attribution = determineResultAttribution(results);
+        String answer = results.stream().filter(SubTaskResult::isSuccess).map(SubTaskResult::getResult)
+                .filter(Objects::nonNull).collect(java.util.stream.Collectors.joining("\n\n"));
+        if (answer.isBlank()) answer = "暂时无法完成该订单流程，请先核实原请求的处理状态，再联系人工客服。";
+        return RoutingResult.builder().result(answer).intentTag("ORDER")
+                .agentName(attribution.agentName()).participatingAgents(attribution.participatingAgents())
+                .executionMode(attribution.executionMode()).workflowStatus(attribution.workflowStatus())
+                .domainQuality(aggregateDomainQuality(results)).semanticCacheCategory("NONE").build();
     }
 
     private static String buildScopedDescription(String description, String agent,
@@ -775,6 +794,8 @@ public class RouteExecutionService {
         if (description == null || description.isBlank()) {
             return builtInOrderPreparationReply();
         }
+        if (description.contains("【售后操作说明】")) return "办理取消、退款或退货前，需要核实订单号、订单归属、当前状态及具体原因。"
+                + "核对后会请您确认，目前没有修改订单或提交退款申请。";
         int marker = description.indexOf("前还需要补充：");
         int start = marker >= 0 ? description.lastIndexOf("执行", marker) : -1;
         if (start < 0) return builtInOrderPreparationReply();
