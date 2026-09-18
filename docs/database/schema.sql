@@ -1672,9 +1672,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_external_identity_union_id
 
 -- Versioned e-commerce user profile snapshot. Existing installations use
 -- migrations/20260902_add_ecommerce_user_profiles.sql.
+-- Lifecycle foundation: existing installations also apply 20260918_add_profile_lifecycle.sql.
+CREATE TABLE IF NOT EXISTS public.profile_lifecycle (
+    user_id BIGINT PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    generation BIGINT NOT NULL DEFAULT 0 CHECK (generation >= 0),
+    analysis_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS public.user_profile_snapshot (
     user_id BIGINT PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
     profile_version BIGINT NOT NULL DEFAULT 1 CHECK (profile_version > 0),
+    generation BIGINT NOT NULL DEFAULT 0 CHECK (generation >= 0),
     schema_version VARCHAR(64) NOT NULL,
     report JSONB NOT NULL,
     reliable BOOLEAN NOT NULL DEFAULT FALSE,
