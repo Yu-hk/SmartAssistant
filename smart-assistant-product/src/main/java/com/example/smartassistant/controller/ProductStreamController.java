@@ -55,6 +55,9 @@ public class ProductStreamController {
     private final StreamingProductAgentService streamingAgentService;
     private final ProductDiscoveryService productDiscoveryService;
 
+    @Autowired(required = false)
+    private com.example.smartassistant.service.core.ProductFactQueryService factQueryService;
+
     public ProductStreamController(StreamingProductAgentService streamingAgentService) {
         this(streamingAgentService, null);
     }
@@ -180,6 +183,15 @@ public class ProductStreamController {
         }
         String question = UserQuestionNormalizer.normalize(request.question());
         ToolUsageCache.start(requestId);
+        if ("RESOLVE_READ_ONLY_PRODUCT".equals(request.operation())) {
+            var history = request.input().get("conversationHistory") instanceof List<?> values
+                    ? values.stream().filter(String.class::isInstance).map(String.class::cast).toList()
+                    : List.<String>of();
+            var response = factQueryService == null
+                    ? AgentExecutionResponse.success("", Map.of("handled", false, "deterministic", true), DomainQualityResult.unknown())
+                    : factQueryService.query(question, history, requestId);
+            return executionResponse(requestId, response, true);
+        }
         if (isAnalysisOrRecommendationRequest(request)) {
             AgentNodeOutput terminal = verifiedDiscoveryReply(request);
             if (terminal != null) {

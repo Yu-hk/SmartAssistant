@@ -235,6 +235,9 @@ public class TaskAnalysisService {
 
         } catch (Exception e) {
             log.warn("[TaskAnalysis] 分析异常: {}", e.getMessage());
+            if (!com.example.smartassistant.common.error.ModelCallFailure.retryable(e)) {
+                throw com.example.smartassistant.common.error.ModelCallFailure.from(e);
+            }
             return TaskAnalysisResult.empty();
         }
     }
