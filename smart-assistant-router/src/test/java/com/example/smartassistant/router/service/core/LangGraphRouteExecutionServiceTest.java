@@ -79,6 +79,19 @@ class LangGraphRouteExecutionServiceTest {
     }
 
     @Test
+    void deterministicFallbackWriteStillPausesAndRequiresOwnerApproval() {
+        var write = new ExecutionPlan.TaskNode("fallback-write", ExecutionPlan.Domain.ORDER, "CANCEL_ORDER",
+                "取消订单 ORD-1001", Map.of("order_id", "ORD-1001", "_deterministicFallback", true),
+                List.of(), ExecutionPlan.AccessMode.WRITE, List.of(), "fallback-approval:write", true, null,
+                ExecutionPlan.MergePolicy.APPEND);
+        var graph = new ExecutionPlan("fallback-approval", "取消订单 ORD-1001", List.of(), List.of(write)).toIntentGraph();
+        assertThat(service.execute(graph, 1L, null, "fallback-approval")).anySatisfy(result ->
+                assertThat(result.getSystemNodeType()).isEqualTo(SubTaskResult.SystemNodeType.APPROVAL));
+        org.mockito.Mockito.verifyNoInteractions(nodeExecutor, planner);
+        assertThatThrownBy(() -> service.resumeApproved(2L, "fallback-approval")).isInstanceOf(SecurityException.class);
+    }
+
+    @Test
     void appliesNodeContractToRuntimeResult() {
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "task_1", "query product", "product_agent", List.of(), null, List.of(),
