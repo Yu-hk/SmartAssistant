@@ -307,6 +307,10 @@ public class ResultMerger {
     }
 
     static String requiredFailureReply(List<SubTaskResult> failures) {
+        if (!failures.isEmpty() && failures.stream().allMatch(failure ->
+                "READ".equals(failure.getStructuredData().get("_accessMode")))) {
+            return "抱歉，这次暂时没能完成查询，请稍后再试。";
+        }
         // Neither planning descriptions nor raw downstream errors are public-safe.
         // Preserve failure semantics while using curated, actionable user wording.
         if (failures.stream().allMatch(failure -> failure.getDomainQuality() != null

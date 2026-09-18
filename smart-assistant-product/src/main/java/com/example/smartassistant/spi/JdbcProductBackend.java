@@ -260,6 +260,21 @@ public class JdbcProductBackend implements ProductBackend {
     }
 
 
+    @Override
+    public FactLookup lookupFacts(String name) {
+        if (jdbcTemplate == null) throw new ProductCatalogUnavailableException();
+        try {
+            ProductRecord row = findProduct(name);
+            return new FactLookup(row == null ? List.of() : List.of(new ProductFact(
+                    row.code(), row.name(), row.price(), row.stock(), row.spec(), row.color())), false);
+        } catch (AmbiguousProductException ambiguous) {
+            // Never select an arbitrary version or return its price.
+            return new FactLookup(List.of(), true);
+        } catch (RuntimeException unavailable) {
+            throw new ProductCatalogUnavailableException();
+        }
+    }
+
     private ProductRecord findProduct(String productCodeOrName) {
         if (jdbcTemplate == null) {
             return null;

@@ -741,7 +741,7 @@ public class SmartReActAgent {
                 log.error("[SmartReActAgent] LLM 调用失败: {}", e.getMessage());
                 recoveryService.logRecovery(AgentErrorCode.MODEL_CALL_FAILED, RecoveryAction.RETRY_BACKOFF,
                         e.getMessage(), iteration);
-                return recoveryService.resolveUserMessage(AgentErrorCode.MODEL_CALL_FAILED, null);
+                throw com.example.smartassistant.common.error.ModelCallFailure.from(e);
             }
             long llmElapsed = System.currentTimeMillis() - llmStart;
             metrics.recordInferenceLatency(llmElapsed);

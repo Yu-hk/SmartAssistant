@@ -29,6 +29,7 @@ import java.net.SocketTimeoutException;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -300,6 +301,9 @@ public class GraphNodeExecutionService {
                             response.getRealTitles(), response.getTagsByTitle());
                     rejected.setDomainQuality(response.getDomainQuality());
                     rejected.setStructuredData(response.getData());
+                    Map<String, Object> failureMetadata = new LinkedHashMap<>(response.getData());
+                    failureMetadata.put("_accessMode", Objects.toString(node.getAccessMode(), "UNKNOWN"));
+                    rejected.setStructuredData(failureMetadata);
                     progress(eventsKey, "node_criteria_rejected",
                             "节点[" + node.getDescription() + "]结构化验收未满足", targetAgent);
                     return rejected;
@@ -426,8 +430,10 @@ public class GraphNodeExecutionService {
     }
 
     private static SubTaskResult failed(IntentNode node, SubTaskResult.ErrorType type) {
-        return new SubTaskResult(node.getId(), node.getDescription(),
+        SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(),
                 node.getTargetAgent(), "", false, type);
+        result.setStructuredData(Map.of("_accessMode", Objects.toString(node.getAccessMode(), "UNKNOWN")));
+        return result;
     }
 
     private static String enrich(IntentNode node, Map<String, SubTaskResult> completed,

@@ -29,6 +29,12 @@ import java.util.Objects;
  */
 public interface ProductBackend {
 
+    /** Exact, typed catalog lookup. null means this backend does not support the fast path. */
+    default FactLookup lookupFacts(String name) { return null; }
+
+    record ProductFact(String code, String name, BigDecimal price, String stock, String spec, String color) { }
+    record FactLookup(List<ProductFact> products, boolean ambiguous) { }
+
     /** 查询商品详细信息 */
     String queryProductInfo(String productCode);
 
