@@ -80,8 +80,11 @@ class LangGraphRouteExecutionServiceTest {
 
     @Test
     void deterministicFallbackWriteStillPausesAndRequiresOwnerApproval() {
+        var parsed = new BusinessFallbackParser().parse("取消订单 ORD-1001；原因：不需要了");
+        var input = new java.util.LinkedHashMap<String, Object>(parsed.input());
+        input.put("_deterministicFallback", true);
         var write = new ExecutionPlan.TaskNode("fallback-write", ExecutionPlan.Domain.ORDER, "CANCEL_ORDER",
-                "取消订单 ORD-1001", Map.of("order_id", "ORD-1001", "_deterministicFallback", true),
+                "取消订单 ORD-1001；原因：不需要了", input,
                 List.of(), ExecutionPlan.AccessMode.WRITE, List.of(), "fallback-approval:write", true, null,
                 ExecutionPlan.MergePolicy.APPEND);
         var graph = new ExecutionPlan("fallback-approval", "取消订单 ORD-1001", List.of(), List.of(write)).toIntentGraph();
@@ -89,6 +92,17 @@ class LangGraphRouteExecutionServiceTest {
                 assertThat(result.getSystemNodeType()).isEqualTo(SubTaskResult.SystemNodeType.APPROVAL));
         org.mockito.Mockito.verifyNoInteractions(nodeExecutor, planner);
         assertThatThrownBy(() -> service.resumeApproved(2L, "fallback-approval")).isInstanceOf(SecurityException.class);
+        when(nodeExecutor.execute(any(), anyMap(), any(), eq(1L), any(), eq("fallback-approval"),
+                any(), any(), any(), eq("取消订单 ORD-1001"))).thenAnswer(invocation -> {
+                    IntentGraph.IntentNode restored = invocation.getArgument(0);
+                    assertThat(restored.getInput()).containsEntry("reason", "不需要了")
+                            .containsEntry("order_id", "ORD-1001").containsEntry("_deterministicFallback", true);
+                    assertThat(restored.getDescription()).contains("原因：不需要了");
+                    return result("fallback-write", "order", "取消操作测试完成");
+                });
+        assertThat(service.resumeApproved(1L, "fallback-approval"))
+                .extracting(SubTaskResult::getTaskId).containsExactly("fallback-write");
+        org.mockito.Mockito.verifyNoInteractions(planner);
     }
 
     @Test

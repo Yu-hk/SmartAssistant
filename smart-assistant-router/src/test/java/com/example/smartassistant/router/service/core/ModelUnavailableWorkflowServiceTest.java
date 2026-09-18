@@ -26,17 +26,41 @@ class ModelUnavailableWorkflowServiceTest {
     private final ModelUnavailableWorkflowService service = new ModelUnavailableWorkflowService(new BusinessFallbackParser(), product, caller, execution);
     private RouteRequest request(String q) { return new RouteRequest(12L, q, "s", false, "r"); }
     @Test void writeUsesApprovalAndNeverRunsAfterAnExistingExecution() {
-        service.handle(request("取消订单 ORD-1001"), List.of(), false);
+        service.handle(request("取消订单 ORD-1001；原因：重复下单"), List.of(), false);
         verifyNoInteractions(execution, caller);
         when(execution.executeDeterministicFallback(any(), eq(12L))).thenAnswer(call -> {
             ExecutionPlan plan = call.getArgument(0);
             assertThat(plan.nodes().getFirst().approvalRequired()).isTrue();
             assertThat(plan.nodes().getFirst().input()).containsEntry("order_id", "ORD-1001");
+            assertThat(plan.nodes().getFirst().input()).containsEntry("reason", "重复下单");
+            assertThat(plan.nodes().getFirst().description()).contains("原因：重复下单");
             assertThat(plan.nodes().getFirst().idempotencyKey()).isEqualTo("r:fallback-write");
             assertThat(ExecutionPlanValidator.validate(plan).valid()).isTrue();
             return RoutingResult.builder().workflowStatus(RoutingResult.WorkflowStatus.AWAITING_APPROVAL).build();
         });
-        assertThat(service.handle(request("取消订单 ORD-1001"), List.of(), true).getWorkflowStatus()).isEqualTo(RoutingResult.WorkflowStatus.AWAITING_APPROVAL);
+        assertThat(service.handle(request("取消订单 ORD-1001；原因：重复下单"), List.of(), true).getWorkflowStatus()).isEqualTo(RoutingResult.WorkflowStatus.AWAITING_APPROVAL);
+    }
+    @Test void missingReasonDoesNotCreateApprovalOrReuseHistoryReason() {
+        for (String question : List.of("取消订单 ORD-1001", "申请退款 ORD-1001")) {
+            var response = service.handle(request(question), List.of("原因：重复下单"), true);
+            assertThat(response.getWorkflowStatus()).isEqualTo(RoutingResult.WorkflowStatus.CLARIFICATION);
+            assertThat(response.getResult()).contains("原因");
+        }
+        verifyNoInteractions(execution, caller, product);
+    }
+    @Test void refundReasonIsPassedToApprovedOrderNodeWithoutModelCalls() {
+        when(execution.executeDeterministicFallback(any(), eq(12L))).thenAnswer(call -> {
+            ExecutionPlan plan = call.getArgument(0);
+            var node = plan.nodes().getFirst();
+            assertThat(node.operation()).isEqualTo("REFUND_ORDER");
+            assertThat(node.input()).containsEntry("reason", "商品不合适").containsEntry("_deterministicFallback", true);
+            assertThat(node.description()).contains("申请退款 ORD-1001", "原因：商品不合适");
+            assertThat(node.approvalRequired()).isTrue();
+            return RoutingResult.builder().workflowStatus(RoutingResult.WorkflowStatus.AWAITING_APPROVAL).build();
+        });
+        assertThat(service.handle(request("申请退款 ORD-1001；原因：商品不合适"), List.of(), true).getWorkflowStatus())
+                .isEqualTo(RoutingResult.WorkflowStatus.AWAITING_APPROVAL);
+        verifyNoInteractions(caller, product);
     }
     @Test void orderAmountComesFromVerifiedCatalogAndMissingQuoteStops() {
         String q = "下单：AirPods Pro；数量：1；收货人：测试甲；电话：13800138000；地址：北京市测试路一号";
