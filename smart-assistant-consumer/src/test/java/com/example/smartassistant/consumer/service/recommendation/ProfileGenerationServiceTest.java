@@ -21,6 +21,12 @@ class ProfileGenerationServiceTest {
     static UserProfileService service(LLMPreferenceExtractor extractor, UserProfileSnapshotStore store) {
         return new UserProfileService(extractor, store, mock(UserProfileCommitPublisher.class));
     }
+    static ProfileAdmissionStore admit(UserProfileService service,long generation) {
+        var admission=mock(ProfileAdmissionStore.class);
+        when(admission.requireExisting(anyLong(),anyString(),anyString())).thenReturn(generation);
+        ReflectionTestUtils.setField(service,"admissionStore",admission);
+        return admission;
+    }
     @Test void legacyJsonKeepsGenerationZero() throws Exception {
         var json = new ObjectMapper();
         var tree = json.valueToTree(new UserProfileService.PreparedProfileCandidate(42L,"old",0,report(),"new",null,List.of()));
@@ -33,14 +39,17 @@ class ProfileGenerationServiceTest {
         when(extractor.extract(anyString(),anyString(),anyString())).thenAnswer(call -> {
             when(store.captureGeneration(42L)).thenReturn(5L); return report();
         });
-        service(extractor,store).extractAndUpdatePreferences(42L,"当前问题",null);
-        verify(store).save(eq(42L),isNull(),eq(0L),any(),isNull(),eq(List.of()),eq(4L));
-        verify(store,times(1)).captureGeneration(42L);
+        var service=service(extractor,store); var admission=admit(service,4L);
+        service.extractAdmittedPreferences(42L,"当前问题","request");
+        verify(store).save(eq(42L),eq("request"),eq(0L),any(),isNull(),eq(List.of()),eq(4L));
+        verify(admission,times(1)).requireExisting(42L,"request","当前问题");
+        verify(store,never()).captureGeneration(anyLong());
     }
     @Test void pausedAccountDoesNotStartAnalysis() {
         var store=mock(UserProfileSnapshotStore.class); var extractor=mock(LLMPreferenceExtractor.class);
-        when(store.captureGeneration(42L)).thenThrow(new ProfileGenerationFence.Rejected());
-        assertThrows(ProfileGenerationFence.Rejected.class,()->service(extractor,store).extractAndUpdatePreferences(42L,"问题",null));
+        var service=service(extractor,store); var admission=admit(service,0L);
+        when(admission.requireExisting(anyLong(),anyString(),anyString())).thenThrow(new ProfileGenerationFence.Rejected());
+        assertThrows(ProfileGenerationFence.Rejected.class,()->service.extractAdmittedPreferences(42L,"问题","request"));
         verifyNoInteractions(extractor);
     }
     @Test void invalidatedMqCandidateIsAcknowledgedWithoutReanalysis() {
@@ -65,8 +74,9 @@ class ProfileGenerationServiceTest {
         when(store.captureGeneration(42L)).thenReturn(2L);
         when(extractor.extract(anyString(),anyString(),anyString())).thenReturn(report());
         var service=service(extractor,store); var mapper=mock(RoutingCallLogMapper.class);
+        admit(service,2L);
         ReflectionTestUtils.setField(service,"routingCallLogMapper",mapper);
-        service.extractAndUpdatePreferences(42L,"当前问题",null);
+        service.extractAdmittedPreferences(42L,"当前问题","request");
         verifyNoInteractions(mapper);
         verify(extractor).extract(anyString(),contains("当前问题"),eq("当前问题"));
     }
@@ -128,5 +138,11 @@ class ProfileGenerationServiceTest {
         ReflectionTestUtils.setField(service,"profileExecutor",executor);
         assertEquals("",service.prefetchForRequest(42L,"question","busy").join());
         verifyNoInteractions(store,extractor,redis,executor);
+    }
+    @Test void legacyEntryCannotRecaptureOrAnalyze() {
+        var store=mock(UserProfileSnapshotStore.class);var extractor=mock(LLMPreferenceExtractor.class);
+        var service=service(extractor,store);
+        assertThrows(ProfileGenerationFence.Rejected.class,()->service.extractAndUpdatePreferences(42L,"old",null));
+        verifyNoInteractions(store,extractor);
     }
 }

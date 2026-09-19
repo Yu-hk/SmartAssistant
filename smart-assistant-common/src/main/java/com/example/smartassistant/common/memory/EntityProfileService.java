@@ -70,8 +70,7 @@ public class EntityProfileService {
     public void put(Long userId, String category, String value) {
         if (userId == null || category == null || value == null) return;
         if (governedStore != null) {
-            governedStore.save(userId, governedStore.capture(userId), Map.of(category, value));
-            return;
+            throw new IllegalStateException("Entity request admission required");
         }
         String key = PROFILE_KEY_PREFIX + userId;
         redis.opsForHash().put(key, category, value);
@@ -85,8 +84,7 @@ public class EntityProfileService {
     public void putAll(Long userId, Map<String, String> facts) {
         if (userId == null || facts == null || facts.isEmpty()) return;
         if (governedStore != null) {
-            governedStore.save(userId, governedStore.capture(userId), facts);
-            return;
+            throw new IllegalStateException("Entity request admission required");
         }
         String key = PROFILE_KEY_PREFIX + userId;
         redis.opsForHash().putAll(key, new HashMap<>(facts));
@@ -126,10 +124,15 @@ public class EntityProfileService {
      * @param reply    Agent 回复原文（用于上下文）
      */
     public void extractAndStore(Long userId, String message, String reply) {
+        extractAndStore(userId,message,reply,null);
+    }
+
+    public void extractAndStore(Long userId,String message,String reply,String requestId) {
         if (userId == null || message == null || message.isBlank()) return;
 
         try {
-            long generation = governedStore == null ? 0L : governedStore.capture(userId);
+            if(governedStore!=null && (requestId==null || requestId.isBlank())) return;
+            long generation = governedStore == null ? 0L : governedStore.admittedGeneration(userId,requestId,message);
             Map<String, String> facts;
 
             // ⭐ 优先使用 LLM 提取器（更准确）
