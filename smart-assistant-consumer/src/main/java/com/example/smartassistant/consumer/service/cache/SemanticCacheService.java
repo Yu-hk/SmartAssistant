@@ -92,31 +92,8 @@ public class SemanticCacheService {
      * @return 相似答案 Mono（可能为空）
      */
     public Mono<String> searchSimilarAnswer(String question, String userId) {
-        long startTime = System.currentTimeMillis();
-        totalSemanticSearches.incrementAndGet();
-        
-        // 获取用户画像组 ID
-        String userGroupId = getUserGroupId(userId);
-        log.debug("[SemanticCache] 用户画像组: userId={}, groupId={}", userId, userGroupId);
-        
-        // ⭐ 方案C: 先通过 VectorSearchCacheService 查询（L2a + L2b），传递画像组信息
-        return vectorSearchCacheService.searchWithCache(question, userId, userGroupId)
-            .flatMap(answer -> {
-                if (answer != null) {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.info("[SemanticCache] ✅ 命中语义缓存（画像组={}）: duration={}ms", userGroupId, duration);
-                    
-                    semanticHitCounter.increment();
-                    semanticHits.incrementAndGet();
-                    
-                    return Mono.just(answer);
-                }
-                
-                // 未命中
-                log.debug("[SemanticCache] 语义缓存未命中（画像组={}）", userGroupId);
-                semanticMissCounter.increment();
-                return Mono.empty();
-            });
+        // Do not reuse pre-governance profile-derived answers across users/groups.
+        return Mono.empty();
     }
     
     /**
@@ -127,41 +104,8 @@ public class SemanticCacheService {
      * @param userId 用户ID（用于获取画像组）
      */
     public Mono<Void> storeAnswer(String question, String answer, String userId) {
-        // 获取用户画像组 ID
-        String userGroupId = getUserGroupId(userId);
-        
-        return Mono.fromRunnable(() -> {
-            try {
-                // 构建文档内容
-                String content = "Q: " + question + "\nA: " + answer;
-                
-                // 构建元数据（包含画像组信息）
-                Map<String, Object> metadata = new HashMap<>();
-                metadata.put("question", question);
-                metadata.put("answer", answer);
-                metadata.put("userId", userId);
-                metadata.put("userGroupId", userGroupId);  // ⭐ 存储画像组 ID
-                metadata.put("timestamp", System.currentTimeMillis());
-                metadata.put("cachedAt", java.time.LocalDateTime.now().toString());
-                
-                // 创建文档
-                Document document = Document.builder()
-                        .id(UUID.randomUUID().toString())
-                        .text(content)
-                        .metadata(metadata)
-                        .build();
-                
-                // 添加到向量存储
-                vectorStore.add(List.of(document));
-                
-                log.info("[SemanticCache] 💾 已存储到语义缓存（画像组={}）: userId={}, answerLength={}",
-                        userGroupId, userId, answer.length());
-                
-            } catch (Exception e) {
-                log.error("[SemanticCache] 存储答案失败: {}", e.getMessage(), e);
-                // 不抛出异常，避免影响主流程
-            }
-        });
+        // New cache writes must use SelectiveSemanticAnswerCache's explicit scope.
+        return Mono.empty();
     }
     
     /**

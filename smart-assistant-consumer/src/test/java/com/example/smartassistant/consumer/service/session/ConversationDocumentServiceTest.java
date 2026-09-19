@@ -45,6 +45,21 @@ class ConversationDocumentServiceTest {
 
     // ========== 阈值测试：内容不足 1000 字 ==========
 
+    @Test void productionWiringCannotCreateUnversionedMemoryCopies() throws Exception {
+        var fence=mock(com.example.smartassistant.consumer.service.recommendation.ProfileGenerationFence.class);
+        var production=new ConversationDocumentService(tempDir.toString(),summarizationService,fence);
+        var redis=mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(production,"redisTemplate",redis);
+        org.springframework.test.util.ReflectionTestUtils.setField(production,"redisEnabled",true);
+        production.saveValuableConversation(createCtx(5,"private preference".repeat(150)));
+        try(var files=Files.list(tempDir)){assertEquals(0,files.count());}
+        verifyNoInteractions(summarizationService,redis,fence);
+        assertNotNull(ConversationDocumentService.class.getConstructor(String.class,ConversationSummarizationService.class,
+                com.example.smartassistant.consumer.service.recommendation.ProfileGenerationFence.class)
+                .getAnnotation(org.springframework.beans.factory.annotation.Autowired.class));
+        assertNull(com.example.smartassistant.consumer.service.memory.MemoryVersionStore.class.getAnnotation(org.springframework.stereotype.Service.class));
+    }
+
     @Test
     void shortContent_fewTurns_shouldSaveRaw() throws Exception {
         ConversationValueService.ConversationValueContext ctx = createCtx(1, "北京天气怎么样？");

@@ -1,0 +1,16 @@
+.profile-privacy-dialog { padding: 0; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); border: 1px solid var(--nova-border-light); border-radius: 16px; background: var(--nova-bg-container, #fff); color: var(--nova-text-primary); }
+.profile-privacy-dialog::backdrop { background: rgb(0 0 0 / 50%); }
+.profile-privacy-content { padding: 24px; font-size: 14px; line-height: 1.7; }
+.profile-privacy-content header, .profile-privacy-content footer, .profile-privacy-content li { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.profile-privacy-content h2 { font-size: 20px; margin: 0; }
+.profile-privacy-content h3 { font-size: 16px; }
+.profile-privacy-content p { margin: 16px 0; }
+.profile-privacy-content ul { padding: 0; list-style: none; }
+.profile-privacy-content li { margin: 8px 0; }
+.profile-privacy-content .profile-privacy-notice { color: var(--nova-text-secondary); border-left: 3px solid #6b87b6; padding-left: 12px; }
+.profile-privacy-content .profile-privacy-confirm { display: flex; align-items: flex-start; gap: 10px; margin: 20px 0; }
+.profile-privacy-confirm input { margin-top: 6px; }
+.profile-privacy-content footer { flex-wrap: wrap; justify-content: flex-end; margin-top: 24px; }
+.profile-privacy-content button { display: inline-flex; width: auto; min-height: 36px; padding: 6px 12px; border: 1px solid var(--nova-border-light); border-radius: 8px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
+.profile-privacy-content button:disabled { opacity: .5; cursor: not-allowed; }
+.profile-privacy-content .profile-privacy-delete { background: #a92234; color: white; }

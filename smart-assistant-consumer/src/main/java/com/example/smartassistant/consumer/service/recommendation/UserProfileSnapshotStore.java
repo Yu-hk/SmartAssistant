@@ -41,6 +41,7 @@ public class UserProfileSnapshotStore {
 
     public Optional<Snapshot> load(Long userId) {
         if (userId == null) return Optional.empty();
+        generationFence.requireRecoverySafe();
         List<Snapshot> rows = jdbcTemplate.query(
                 "SELECT s.user_id, s.profile_version, s.schema_version, s.report::text, "
                         + "s.source_max_message_id, s.created_at, s.updated_at "

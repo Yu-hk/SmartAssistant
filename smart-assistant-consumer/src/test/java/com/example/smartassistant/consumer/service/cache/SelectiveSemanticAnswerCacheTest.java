@@ -25,6 +25,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SelectiveSemanticAnswerCacheTest {
+    @Test
+    void inactiveOrRecoveredAccountNeverReadsOrPublishesLegacyAnswerCache() {
+        var fence=mock(com.example.smartassistant.consumer.service.recommendation.ProfileGenerationFence.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(cache,"profileFence",fence);
+        org.mockito.Mockito.doThrow(new com.example.smartassistant.consumer.service.recommendation.ProfileGenerationFence.Rejected())
+            .when(fence).requireCurrent(42L,0);
+        assertThat(cache.find(42L,"退货条件是什么")).isNull();
+        cache.store(42L,"退货条件是什么",Map.of("result","synthetic","workflowStatus","COMPLETED",
+            "semanticCacheCategory","PRODUCT_CONSULTATION","semanticCacheEligible",true));
+        org.mockito.Mockito.verifyNoInteractions(values,zsets,verifier);
+    }
 
     @Test
     void userDocumentsNeverReadLegacyEntriesOrStoreEvenIfMarkedEligible() {

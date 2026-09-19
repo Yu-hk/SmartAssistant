@@ -14,6 +14,10 @@ import java.util.function.Supplier;
 public class ProfileGenerationFence {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.example.smartassistant.common.memory.ProfileRecoveryGuard recoveryGuard;
+
+    public void requireRecoverySafe() { if(recoveryGuard!=null) recoveryGuard.requireSafe(); }
 
     public ProfileGenerationFence(JdbcTemplate jdbc, PlatformTransactionManager manager) {
         this.jdbc = jdbc;
@@ -23,6 +27,7 @@ public class ProfileGenerationFence {
 
     public long capture(Long userId) {
         requireUser(userId);
+        requireRecoverySafe();
         try {
             return activeGeneration(jdbc.queryForMap(
                     "SELECT generation, analysis_enabled FROM profile_lifecycle WHERE user_id = ?", userId));
@@ -41,6 +46,7 @@ public class ProfileGenerationFence {
         if (expectedGeneration < 0) throw new Rejected();
         return transaction.execute(status -> {
             jdbc.execute("SET LOCAL lock_timeout = '500ms'");
+            requireRecoverySafe();
             jdbc.update("INSERT INTO profile_lifecycle (user_id) VALUES (?) ON CONFLICT (user_id) DO NOTHING", userId);
             long actual = activeGeneration(jdbc.queryForMap(
                     "SELECT generation, analysis_enabled FROM profile_lifecycle WHERE user_id = ? FOR UPDATE", userId));

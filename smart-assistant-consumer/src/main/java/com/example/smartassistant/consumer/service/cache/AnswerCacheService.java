@@ -121,83 +121,9 @@ public class AnswerCacheService {
     public Mono<String> getAnswerWithCache(String userId, String question,
                                            boolean isFirstFetch,
                                            Supplier<Mono<String>> llmCall) {
-        long startTime = System.currentTimeMillis();
-        String cacheKey = buildCacheKey(userId, question);
-        totalRequests.incrementAndGet();
-        
-        // L1: 检查 Redis 短期缓存
-        return redisTemplate.opsForValue().get(cacheKey)
-            .doOnSubscribe(s -> log.debug("[AnswerCache] L1: 检查 Redis 缓存: userId={}", userId))
-            .flatMap(cached -> {
-                long duration = System.currentTimeMillis() - startTime;
-                cacheLookupTimer.record(duration, java.util.concurrent.TimeUnit.MILLISECONDS);
-                cacheHitCounter.increment();
-                cacheHits.incrementAndGet();
-                
-                log.info("[AnswerCache] ✅ L1 命中 Redis 缓存: userId={}, duration={}ms",
-                        userId, duration);
-                
-                answerSizeDistribution.record(cached.length());
-                
-                // ⭐ 对 L1 命中的答案进行个性化重述，避免用户看到完全相同的回复
-                return personalizationService.personalizeAnswer(cached, question, userId)
-                    .doOnNext(rewritten -> 
-                        log.debug("[AnswerCache] L1 答案已个性化重述: userId={}", userId));
-            })
-            .switchIfEmpty(
-                // L1 未命中，尝试 L2: 语义缓存（按画像分组）
-                Mono.defer(() -> {
-                    log.debug("[AnswerCache] L1 未命中，尝试 L2 语义缓存（按画像分组）");
-                    
-                    return semanticCacheService.searchSimilarAnswer(question, userId)
-                        .flatMap(semanticResult -> {
-                            if (semanticResult != null) {
-                                // L2 命中
-                                long duration = System.currentTimeMillis() - startTime;
-                                cacheHitCounter.increment();
-                                cacheHits.incrementAndGet();
-                                
-                                log.info("[AnswerCache] ✅ L2 命中语义缓存: userId={}, duration={}ms, isFirstFetch={}",
-                                        userId, duration, isFirstFetch);
-                                
-                                // ⭐ 首次获取时，标记需要个性化（答案已通过 AnswerPersonalizationService 重述）
-                                answerSizeDistribution.record(semanticResult.length());
-                                return Mono.just(semanticResult);
-                            }
-                            
-                            // L2 也未命中，返回 empty 触发 L3
-                            return Mono.empty();
-                        });
-                })
-            )
-            .switchIfEmpty(
-                // L1 & L2 都未命中，调用 LLM (L3)
-                Mono.defer(() -> {
-                    long missStartTime = System.currentTimeMillis();
-                    log.debug("[AnswerCache] L1+L2 都未命中，调用 LLM (L3): userId={}", userId);
-                    
-                    return llmCall.get()
-                            .publishOn(Schedulers.boundedElastic())
-                        .doOnNext(answer -> {
-                            long missDuration = System.currentTimeMillis() - missStartTime;
-                            cacheMissCounter.increment();
-                            
-                            // 存入 L1: Redis 缓存
-                            redisTemplate.opsForValue()
-                                .set(cacheKey, answer, Duration.ofMinutes(l1TtlMinutes))
-                                .subscribe();
-                            
-                            // 存入 L2: 语义缓存（按画像分组存储）
-                            semanticCacheService.storeAnswer(question, answer, userId)
-                                .subscribe();
-                            
-                            answerSizeDistribution.record(answer.length());
-                            
-                            log.info("[AnswerCache] 💾 已缓存到 L1+L2: userId={}, ttl={}min, answerLength={}, llmDuration={}ms",
-                                    userId, l1TtlMinutes, answer.length(), missDuration);
-                        });
-                })
-            );
+        // Legacy cache bodies have no immutable profile generation/provenance.
+        // The live Router pipeline owns current, scope-checked semantic caching.
+        return Mono.defer(llmCall);
     }
 
     /**

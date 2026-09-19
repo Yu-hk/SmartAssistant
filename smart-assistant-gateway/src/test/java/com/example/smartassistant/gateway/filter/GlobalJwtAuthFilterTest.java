@@ -61,7 +61,8 @@ class GlobalJwtAuthFilterTest {
 
     @Test
     void speechRoutesRejectAnonymousAndForgedIdentityHeaders() {
-        for (String path : List.of("/api/speech/capabilities", "/api/speech/transcriptions", "/assistant/api/speech/transcriptions")) {
+        for (String path : List.of("/api/speech/capabilities", "/api/speech/transcriptions", "/assistant/api/speech/transcriptions",
+                "/api/privacy/profile", "/api/privacy/profile/deletions", "/assistant/api/privacy/profile/deletions")) {
             var exchange = MockServerWebExchange.from(MockServerHttpRequest.post(path)
                     .header("X-User-Id", "7").header("X-User-Role", "ROLE_ADMIN"));
             var chain = mock(GatewayFilterChain.class);

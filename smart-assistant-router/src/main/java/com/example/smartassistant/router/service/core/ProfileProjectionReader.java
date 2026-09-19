@@ -20,6 +20,8 @@ public class ProfileProjectionReader {
     private final JdbcTemplate jdbc;
     private final StringRedisTemplate redis;
     private final TransactionTemplate transaction;
+    @Autowired
+    private com.example.smartassistant.common.memory.ProfileRecoveryGuard recoveryGuard;
     static final DefaultRedisScript<String> READ = new DefaultRedisScript<>("""
         for i=1,3 do
           local t=redis.call('TYPE',KEYS[i]).ok
@@ -44,6 +46,10 @@ public class ProfileProjectionReader {
                 || jdbc==null || redis==null || transaction==null) return null;
         return transaction.execute(status->{
             jdbc.execute("SET LOCAL lock_timeout='100ms'");
+            if(recoveryGuard!=null) {
+                try { recoveryGuard.requireSafe(); }
+                catch(com.example.smartassistant.common.memory.ProfileRecoveryGuard.Unavailable unavailable) { return null; }
+            }
             var generations=jdbc.queryForList("""
                 SELECT l.generation FROM profile_lifecycle l
                 JOIN profile_request_admission a ON a.user_id=l.user_id AND a.generation=l.generation
@@ -60,5 +66,20 @@ public class ProfileProjectionReader {
     static String digest(String value) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
         catch(java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
+
+    /** Legacy cache entries have no request generation; never reuse them after
+     * the first erasure. Lock only the short Redis operation, not model calls. */
+    public <T> T baselineCache(Long user,java.util.function.Supplier<T> operation) {
+        if(user==null || user<=0 || jdbc==null || transaction==null) return null;
+        return transaction.execute(status->{
+            jdbc.execute("SET LOCAL lock_timeout='100ms'");
+            jdbc.execute("SET LOCAL statement_timeout='1s'");
+            if(recoveryGuard!=null) recoveryGuard.requireSafe();
+            jdbc.update("INSERT INTO profile_lifecycle(user_id) VALUES (?) ON CONFLICT(user_id) DO NOTHING",user);
+            var row=jdbc.queryForMap("SELECT generation,analysis_enabled FROM profile_lifecycle WHERE user_id=? FOR UPDATE",user);
+            if(((Number)row.get("generation")).longValue()!=0 || !Boolean.TRUE.equals(row.get("analysis_enabled"))) return null;
+            return operation.get();
+        });
     }
 }

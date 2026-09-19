@@ -64,10 +64,29 @@ jobs:
       - run: python -m unittest discover -s scripts -p 'test_profile_storage_inventory.py' -v
       - run: python -m unittest discover -s scripts -p 'test_profile_control_checkpoint.py' -v
       - run: python -m unittest discover -s scripts -p 'test_profile_control_outbox.py' -v
+      - run: python -m unittest discover -s scripts -p 'test_profile_control_recovery.py' -v
+      - run: python -m unittest discover -s scripts -p 'test_profile_log_ownership_audit.py' -v
+      - run: python -m unittest discover -s scripts -p 'test_profile_production_config.py' -v
       - name: Synthetic offline PostgreSQL backup restore drill
         run: |
           docker pull pgvector/pgvector:0.8.0-pg16
           python scripts/profile_restore_drill.py --image pgvector/pgvector:0.8.0-pg16
+          python scripts/profile_control_recovery_drill.py --image pgvector/pgvector:0.8.0-pg16
+
+  profile-privacy-auth:
+    name: Profile deletion authentication and UI contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - run: >-
+          mvn -B -pl smart-assistant-consumer,smart-assistant-gateway -am test
+          -Dtest=ProfilePrivacyAuthenticationTest,ProfilePrivacyControllerTest,UserRouteConfigurationTest,GlobalJwtAuthFilterTest,SentimentExecutionConfigTest
+          -Dsurefire.failIfNoSpecifiedTests=false
 
   react-behavior-baseline:
     name: ReAct ordered behavior baseline
@@ -199,6 +218,7 @@ jobs:
           npm run test:recovery
           node scripts/run-session-gate-tests.mjs
           npm run test:service-entry
+          node scripts/run-profile-privacy-tests.mjs
           npm run build
 
   session-gate:
@@ -237,12 +257,14 @@ jobs:
       - name: Verify ownership, deletion fencing and orphan recovery
         run: >-
             mvn -B -pl smart-assistant-consumer,smart-assistant-router -am test
-            -Dtest=AgentFlowTraceRedisIntegrationTest,ProfileCleanupServiceTest,ProfileCleanupIntegrationTest,ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,ProfileRedisPublicationIntegrationTest,ProfileProjectionReaderIntegrationTest,UserProfileContextAwaiterTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
+            -Dtest=ProfilePrivacyControllerTest,ProfileLegacyFilesTest,ProfileDerivedCleanupTest,AnswerPersonalizationPrivacyTest,ConversationDocumentServiceTest,SelectiveSemanticAnswerCacheTest,ProductNodeResultCacheTest,ProfileControlJournalTest,ProfileControlArchiveIntegrationTest,AgentFlowTraceRedisIntegrationTest,ProfileCleanupServiceTest,ProfileCleanupIntegrationTest,ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,ProfileRedisPublicationIntegrationTest,ProfileProjectionReaderIntegrationTest,UserProfileContextAwaiterTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
             -Dprofile.pg.integration=true -Dsurefire.failIfNoSpecifiedTests=false
       - run: |
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRequestRedisIntegrationTest.xml --minimum 12
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRedisPublicationIntegrationTest.xml --minimum 4
-          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCleanupIntegrationTest.xml --minimum 11
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCleanupIntegrationTest.xml --minimum 13
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileControlJournalTest.xml --minimum 9
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileControlArchiveIntegrationTest.xml --minimum 7
           python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.ProfileProjectionReaderIntegrationTest.xml --minimum 10
           python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.trace.AgentFlowTraceRedisIntegrationTest.xml --minimum 3
 
@@ -357,7 +379,7 @@ jobs:
         run: mvn -B -pl smart-assistant-product,smart-assistant-order -am -DskipTests install
       - name: Verify component scan boundaries
         run: |
-          mvn -B -pl smart-assistant-product test -Dtest="ProductApplicationScanBoundaryTest"
+          mvn -B -pl smart-assistant-product test -Dtest="ProductApplicationScanBoundaryTest,ProductJdbcStartupTest,RagProductionAutoConfigurationPrimaryTest"
           mvn -B -pl smart-assistant-order test -Dtest="OrderApplicationScanBoundaryTest"
 
   quality-gate:

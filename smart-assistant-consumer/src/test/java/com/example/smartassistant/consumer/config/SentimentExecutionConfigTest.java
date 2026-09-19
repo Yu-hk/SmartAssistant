@@ -16,8 +16,10 @@ class SentimentExecutionConfigTest {
     @Test void springWiresOptionalAnalyzerDependenciesAndIndependentBoundedExecutor() {
         ThreadPoolExecutor executor;
         try (var context = new AnnotationConfigApplicationContext()) {
-            context.registerBean(UserProfileService.class, () -> mock(UserProfileService.class));
-            context.registerBean(SentimentSnapshotStore.class, () -> mock(SentimentSnapshotStore.class));
+            // These are collaborators, not profile beans under wiring test. A
+            // bean definition would autowire inherited fields on Mockito mocks.
+            context.getBeanFactory().registerSingleton("userProfileService", mock(UserProfileService.class));
+            context.getBeanFactory().registerSingleton("sentimentSnapshotStore", mock(SentimentSnapshotStore.class));
             context.register(SentimentExecutionConfig.class, SentimentAnalysisService.class,
                     ConversationPreprocessingService.class);
             context.refresh();

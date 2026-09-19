@@ -35,6 +35,18 @@ spring:
                 redis-rate-limiter: "#{@redisRateLimiter}"
 
           routes:
+            - id: profile-privacy
+              uri: lb://consumer-service
+              predicates:
+                - Path=/api/privacy/**
+
+            - id: profile-privacy-prefixed
+              uri: lb://consumer-service
+              predicates:
+                - Path=/assistant/api/privacy/**
+              filters:
+                - StripPrefix=1
+
             - id: user-service
               uri: lb://user-service
               predicates:

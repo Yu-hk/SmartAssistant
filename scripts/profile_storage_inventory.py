@@ -19,6 +19,10 @@ MAX_ENTRIES = 100000
 MAX_SECONDS = 20
 
 
+def profile_candidate(name):
+    return name.endswith('-memory.md') or name in ('preferences.json','memories.json') or bool(re.fullmatch(r'\d{4}-\d{2}-\d{2}_.+\.md',name))
+
+
 def run(*args):
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
     if result.returncode: raise RuntimeError('Container metadata unavailable')
@@ -43,7 +47,7 @@ def scan_tree(path):
         info = path.lstat()
         if stat.S_ISREG(info.st_mode):
             row.update(status='REGULAR_FILE_METADATA_ONLY', entries=1, regularFiles=1,
-                       memoryFileCandidates=int(path.name.endswith('-memory.md')))
+                       memoryFileCandidates=int(profile_candidate(path.name)))
             return row
         if not stat.S_ISDIR(info.st_mode): return row
         device = info.st_dev; pending = [path]; deadline = time.monotonic() + MAX_SECONDS
@@ -65,13 +69,13 @@ def scan_tree(path):
                             item = os.lstat(entry.path)
                             if stat.S_ISLNK(item.st_mode):
                                 row['symlinksNotFollowed'] += 1
-                                row['memoryLinkCandidates'] += int(entry.name.endswith('-memory.md'))
+                                row['memoryLinkCandidates'] += int(profile_candidate(entry.name))
                             elif item.st_dev != device:
                                 row['nestedDevicesNotScanned'] += 1
                             elif stat.S_ISDIR(item.st_mode): pending.append(pathlib.Path(entry.path))
                             elif stat.S_ISREG(item.st_mode):
                                 row['regularFiles'] += 1
-                                row['memoryFileCandidates'] += int(entry.name.endswith('-memory.md'))
+                                row['memoryFileCandidates'] += int(profile_candidate(entry.name))
                             else: row['specialFilesNotRead'] += 1
                         except OSError: row['errors'] += 1
             except OSError: row['errors'] += 1

@@ -84,6 +84,7 @@ public class ConversationDocumentService {
     private static final long RETRY_INITIAL_DELAY_MS = 200;
 
     private final String basePath;
+    private boolean governedRuntime;
 
     // ★ 叙事摘要服务
     private final ConversationSummarizationService summarizationService;
@@ -102,6 +103,15 @@ public class ConversationDocumentService {
     @Autowired
     public ConversationDocumentService(
             @Value("${app.data.dir:data/users}") String basePath,
+            ConversationSummarizationService summarizationService,
+            com.example.smartassistant.consumer.service.recommendation.ProfileGenerationFence fence) {
+        this(basePath,summarizationService);
+        this.governedRuntime=true;
+    }
+
+    /** Offline legacy-format compatibility only; not selected by Spring. */
+    @Deprecated(forRemoval = true)
+    public ConversationDocumentService(String basePath,
             ConversationSummarizationService summarizationService) {
         this.basePath = basePath;
         this.summarizationService = summarizationService;
@@ -117,6 +127,9 @@ public class ConversationDocumentService {
      */
     @Async("taskExecutor")
     public void saveValuableConversation(ConversationValueService.ConversationValueContext ctx) {
+        // No immutable admission/generation accompanies this legacy callback.
+        // Do not create ungoverned summaries or user:memory:* mirrors online.
+        if(governedRuntime) return;
         int attempt = 0;
         Exception lastException = null;
         while (attempt < MAX_RETRY_ATTEMPTS) {

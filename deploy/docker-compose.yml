@@ -257,8 +257,20 @@ services:
     container_name: smart-consumer
     expose:
       - "8082"
+    volumes:
+      - type: bind
+        source: ${PROFILE_CONTROL_HOST_DIR:-/opt/smart-assistant-control}
+        target: /profile-control
+        bind:
+          create_host_path: false
     environment:
       PORT: 8082
+      PROFILE_CONTROL_ENABLED: "true"
+      PROFILE_CONTROL_DIRECTORY: /profile-control
+      PROFILE_CONTROL_SOURCE_ID: ${PROFILE_CONTROL_SOURCE_ID:?Initialize and verify the independent profile control journal first}
+      PROFILE_CLEANUP_ENABLED: ${PROFILE_CLEANUP_ENABLED:-false}
+      PROFILE_CLEANUP_LEGACY_ENABLED: ${PROFILE_CLEANUP_ENABLED:-false}
+      PROFILE_CLEANUP_DERIVED_ENABLED: ${PROFILE_CLEANUP_ENABLED:-false}
       JWT_SECRET: ${JWT_SECRET}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
@@ -327,8 +339,18 @@ services:
     container_name: smart-router
     expose:
       - "8083"
+    volumes:
+      - type: bind
+        source: ${PROFILE_CONTROL_HOST_DIR:-/opt/smart-assistant-control}
+        target: /profile-control
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       PORT: 8083
+      PROFILE_CONTROL_ENABLED: "true"
+      PROFILE_CONTROL_DIRECTORY: /profile-control
+      PROFILE_CONTROL_SOURCE_ID: ${PROFILE_CONTROL_SOURCE_ID:?Independent profile control source required}
       JWT_SECRET: ${JWT_SECRET}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
@@ -410,8 +432,18 @@ services:
     container_name: smart-order
     expose:
       - "8085"
+    volumes:
+      - type: bind
+        source: ${PROFILE_CONTROL_HOST_DIR:-/opt/smart-assistant-control}
+        target: /profile-control
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       PORT: 8085
+      PROFILE_CONTROL_ENABLED: "true"
+      PROFILE_CONTROL_DIRECTORY: /profile-control
+      PROFILE_CONTROL_SOURCE_ID: ${PROFILE_CONTROL_SOURCE_ID:?Independent profile control source required}
       JWT_SECRET: ${JWT_SECRET}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
@@ -461,8 +493,18 @@ services:
     container_name: smart-product
     expose:
       - "8084"
+    volumes:
+      - type: bind
+        source: ${PROFILE_CONTROL_HOST_DIR:-/opt/smart-assistant-control}
+        target: /profile-control
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       PORT: 8084
+      PROFILE_CONTROL_ENABLED: "true"
+      PROFILE_CONTROL_DIRECTORY: /profile-control
+      PROFILE_CONTROL_SOURCE_ID: ${PROFILE_CONTROL_SOURCE_ID:?Independent profile control source required}
       JWT_SECRET: ${JWT_SECRET}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}

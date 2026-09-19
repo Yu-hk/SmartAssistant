@@ -20,9 +20,10 @@ class StorageInventoryTest(unittest.TestCase):
     def test_counts_old_format_anywhere_without_body_or_member_name(self):
         folder=self.layer/'custom-path'/'private-user'; folder.mkdir(parents=True)
         (folder/'order-memory.md').write_text('private-preference')
+        (folder/'preferences.json').write_text('private-profile')
         with patch.object(pathlib.Path, 'open', side_effect=AssertionError('Payload read')):
             row=scan_tree(self.layer)
-        self.assertEqual('METADATA_ENUMERATED', row['status']); self.assertEqual(1,row['memoryFileCandidates'])
+        self.assertEqual('METADATA_ENUMERATED', row['status']); self.assertEqual(2,row['memoryFileCandidates'])
         self.assertNotIn('private', json.dumps(row))
 
     def test_broad_or_external_paths_rejected(self):

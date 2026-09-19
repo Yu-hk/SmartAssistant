@@ -17,6 +17,7 @@ class GovernedAgentMemoryTest {
         var store=mock(GovernedAgentMemoryStore.class);
         when(store.load("order","42")).thenReturn(Map.of("replyStyle","简洁 || 2026-09-19"));
         try(var context=new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            context.register(ProfileRecoveryGuard.class);
             context.registerBean(GovernedAgentMemoryStore.class,()->store);
             context.register(AgentMemoryService.class);context.refresh();
             assertTrue(context.getBean(AgentMemoryService.class).getAllFormatted("order","42").contains("POSTGRES_AGENT"));
