@@ -39,7 +39,8 @@ class ProfileRequestRedisIntegrationTest {
         publish(user,request,4,"READY:fixture","fixture-candidate",true,30);
         assertEquals(List.of("READY:fixture","fixture-candidate","DONE",user+"|4"),redis.opsForValue().multiGet(k.subList(0,4)));
         assertNotNull(redis.opsForZSet().score(k.get(4),request));
-        for(String key:k) assertTrue(redis.getExpire(key,TimeUnit.MILLISECONDS)>28000);
+        for(String key:k.subList(0,5)) assertTrue(redis.getExpire(key,TimeUnit.MILLISECONDS)>28000);
+        assertEquals(-1L,redis.getExpire(k.get(5)));
     }
     @Test void foreignOwnerCannotOverwriteOrAcquireIndex() {
         var k=keys(user,request); var foreign=keys(user+1,request);
@@ -47,6 +48,23 @@ class ProfileRequestRedisIntegrationTest {
         assertThrows(IllegalStateException.class,()->publish(user+1,request,0,"READY:foreign","foreign",true,30));
         assertEquals("PENDING",redis.opsForValue().get(k.get(0)));
         assertFalse(redis.hasKey(foreign.get(4))); assertFalse(redis.hasKey(k.get(1)));
+    }
+    @Test void pausedGenerationCannotPublishAndBarrierNeverExpires() {
+        var k=keys(user,request);
+        redis.opsForValue().set(k.get(5),"4|PAUSED");
+        assertThrows(IllegalStateException.class,()->publish(user,request,4,"READY:old",null,true,30));
+        assertThrows(IllegalStateException.class,()->publish(user,request,3,"READY:older",null,true,30));
+        assertFalse(redis.hasKey(k.get(0)));
+        publish(user,request,5,"READY:new",null,true,30);
+        assertEquals("5|ACTIVE",redis.opsForValue().get(k.get(5)));
+        assertEquals(-1L,redis.getExpire(k.get(5)));
+    }
+    @Test void generationsBeyondLuaPrecisionRemainOrdered() {
+        var k=keys(user,request);
+        redis.opsForValue().set(k.get(5),"9007199254740993|ACTIVE");
+        assertThrows(IllegalStateException.class,()->publish(user,request,9007199254740992L,"READY:old",null,true,30));
+        publish(user,request,9007199254740994L,"READY:new",null,true,30);
+        assertEquals("9007199254740994|ACTIVE",redis.opsForValue().get(k.get(5)));
     }
     @Test void differentGenerationCannotOverwriteSameRequest() {
         var k=keys(user,request); publish(user,request,4,"PENDING",null,false,30);

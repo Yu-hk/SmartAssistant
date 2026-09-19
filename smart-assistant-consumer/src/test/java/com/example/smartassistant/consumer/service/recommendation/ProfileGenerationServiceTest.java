@@ -84,15 +84,19 @@ class ProfileGenerationServiceTest {
         var admission=mock(ProfileAdmissionCoordinator.class);
         when(admission.admit(42L,"fixture","当前问题")).thenReturn(java.util.OptionalLong.of(3));
         ReflectionTestUtils.setField(service,"admissionCoordinator",admission);
+        var publicationFence=mock(ProfileGenerationFence.class);
+        when(publicationFence.write(anyLong(),anyLong(),any())).thenAnswer(call ->
+                ((java.util.function.Supplier<?>)call.getArgument(2)).get());
+        ReflectionTestUtils.setField(service,"publicationFence",publicationFence);
         ReflectionTestUtils.setField(service,"redisTemplate",redis);
         ReflectionTestUtils.setField(service,"profileExecutor",(java.util.concurrent.Executor)Runnable::run);
         assertEquals("",service.prefetchForRequest(42L,"当前问题","fixture").join());
         verify(extractor).extract(anyString(),anyString(),anyString());
         verify(redis,times(1)).execute(eq(ProfileRequestRedisStore.PUBLISH),anyList(),
                 eq("42|3"),eq(com.example.smartassistant.routing.contract.RoutingKeys.USER_PROFILE_PENDING),
-                eq(""),eq("0"),anyString(),eq("fixture"));
+                eq(""),eq("0"),anyString(),eq("fixture"),eq("3"));
         verify(redis,never()).execute(eq(ProfileRequestRedisStore.PUBLISH),anyList(),
-                anyString(),anyString(),anyString(),eq("1"),anyString(),anyString());
+                anyString(),anyString(),anyString(),eq("1"),anyString(),anyString(),anyString());
     }
     @Test void delayedPreparationKeepsAdmissionGenerationAndCannotStartAfterReset() {
         var store=mock(UserProfileSnapshotStore.class); var extractor=mock(LLMPreferenceExtractor.class);

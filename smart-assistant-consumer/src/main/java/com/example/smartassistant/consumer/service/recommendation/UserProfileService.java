@@ -71,6 +71,9 @@ public class UserProfileService {
     @Autowired
     private ProfileAdmissionCoordinator admissionCoordinator;
 
+    @Autowired
+    private ProfileGenerationFence publicationFence;
+
     @Autowired(required = false)
     @Qualifier("profileCommitExecutor")
     private Executor commitExecutor;
@@ -263,7 +266,8 @@ public class UserProfileService {
     }
 
     private void publishState(Long userId,String requestId,long generation,String state,String candidate,boolean done) {
-        new ProfileRequestRedisStore(redisTemplate).publish(userId,requestId,generation,state,candidate,done,prefetchTtl());
+        if (publicationFence == null) throw new IllegalStateException("Profile publication fence required");
+        new ProfileRequestRedisStore(redisTemplate,publicationFence).publish(userId,requestId,generation,state,candidate,done,prefetchTtl());
     }
 
     /** Emits a durable commit command after a turn has completed successfully. */
