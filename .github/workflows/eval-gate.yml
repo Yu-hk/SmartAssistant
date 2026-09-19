@@ -37,7 +37,7 @@ jobs:
           cache: 'maven'
       - run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-product,smart-assistant-order,smart-assistant-router -am test
-          -Dtest=UserGroupingServiceTest,GovernedAgentMemoryTest,OrderAgentControllerTest,ProfileAdmissionCoordinatorTest,EntityProfileGenerationTest,EntityProfileServiceTest,ProfileGovernanceTest,UserProfileQueryServiceTest,AgentMemoryServiceIntegrationTest,AgentMemoryFileConcurrencyTest,MemoryExtractorOptionalModelTest,UserProfilePrefetchTest,UserProfileSnapshotStoreTest,UserProfileCommitMessagingTest,ProfileCommitReferenceTest,ProfileGenerationServiceTest,ProfileGenerationFenceTest,UserProfileContextAwaiterTest,ProfileExecutionConfigTest,GraphNodeExecutionServiceTest,ProductSkillPackageConfigurationTest,OrderSkillPackageConfigurationTest,ProductBudgetRevisionTest,LightChatModelConfigTest,LLMPreferenceExtractorTest,RouterClientDnsRetryTest,ChatDispatchListenerTest
+          -Dtest=AgentFlowTraceStoreTest,PromptAuditAdvisorTest,TokenUsageAdvisorAuditTest,UserGroupingServiceTest,GovernedAgentMemoryTest,OrderAgentControllerTest,ProfileAdmissionCoordinatorTest,EntityProfileGenerationTest,EntityProfileServiceTest,ProfileGovernanceTest,UserProfileQueryServiceTest,AgentMemoryServiceIntegrationTest,AgentMemoryFileConcurrencyTest,MemoryExtractorOptionalModelTest,UserProfilePrefetchTest,UserProfileSnapshotStoreTest,UserProfileCommitMessagingTest,ProfileCommitReferenceTest,ProfileGenerationServiceTest,ProfileGenerationFenceTest,UserProfileContextAwaiterTest,ProfileExecutionConfigTest,GraphNodeExecutionServiceTest,ProductSkillPackageConfigurationTest,OrderSkillPackageConfigurationTest,ProductBudgetRevisionTest,LightChatModelConfigTest,LLMPreferenceExtractorTest,RouterClientDnsRetryTest,ChatDispatchListenerTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.memory.AgentMemoryFileConcurrencyTest.xml --minimum 7
       - uses: actions/upload-artifact@v4
@@ -59,6 +59,7 @@ jobs:
       - run: python -m unittest discover -s scripts -p 'test_integration_reports.py' -v
       - run: python -m unittest discover -s scripts -p 'test_release_artifacts.py' -v
       - run: python -m unittest discover -s scripts -p 'test_profile_restore_drill.py' -v
+      - run: python -m unittest discover -s scripts -p 'test_profile_backup_catalog.py' -v
       - name: Synthetic offline PostgreSQL backup restore drill
         run: |
           docker pull pgvector/pgvector:0.8.0-pg16
@@ -232,13 +233,14 @@ jobs:
       - name: Verify ownership, deletion fencing and orphan recovery
         run: >-
             mvn -B -pl smart-assistant-consumer,smart-assistant-router -am test
-            -Dtest=ProfileCleanupServiceTest,ProfileCleanupIntegrationTest,ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,ProfileRedisPublicationIntegrationTest,ProfileProjectionReaderIntegrationTest,UserProfileContextAwaiterTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
+            -Dtest=AgentFlowTraceRedisIntegrationTest,ProfileCleanupServiceTest,ProfileCleanupIntegrationTest,ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,ProfileRedisPublicationIntegrationTest,ProfileProjectionReaderIntegrationTest,UserProfileContextAwaiterTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
             -Dprofile.pg.integration=true -Dsurefire.failIfNoSpecifiedTests=false
       - run: |
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRequestRedisIntegrationTest.xml --minimum 12
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRedisPublicationIntegrationTest.xml --minimum 4
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCleanupIntegrationTest.xml --minimum 11
           python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.ProfileProjectionReaderIntegrationTest.xml --minimum 10
+          python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.trace.AgentFlowTraceRedisIntegrationTest.xml --minimum 3
 
   # 全模块编译完整性检查（不含测试，最快反馈构建是否破坏）
   compile-all:
