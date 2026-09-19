@@ -20,6 +20,9 @@ public class GovernedEntityProfileStore implements EntityProfileStore {
     }
 
     @Override public long capture(Long userId) { return fence.capture(userId); }
+    @Override public long admittedGeneration(Long userId,String requestId,String question) {
+        return new ProfileAdmissionStore(jdbc,fence).requireExisting(userId,requestId,question);
+    }
 
     @Override public void save(Long userId, long generation, Map<String, String> facts) {
         if (facts == null || facts.isEmpty()) return;

@@ -126,7 +126,7 @@ jobs:
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCommitCandidateIntegrationTest.xml --minimum 8
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCommitBrokerIntegrationTest.xml --minimum 2
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.GovernedEntityProfileIntegrationTest.xml --minimum 10
-          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileAdmissionIntegrationTest.xml --minimum 8
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileAdmissionIntegrationTest.xml --minimum 9
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.GovernedAgentMemoryIntegrationTest.xml --minimum 10
       - uses: actions/upload-artifact@v4
         if: always()
@@ -226,11 +226,12 @@ jobs:
       - name: Verify ownership, deletion fencing and orphan recovery
         run: >-
             mvn -B -pl smart-assistant-consumer,smart-assistant-router -am test
-            -Dtest=ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,ProfileRedisPublicationIntegrationTest,ProfileProjectionReaderIntegrationTest,UserProfileContextAwaiterTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
+            -Dtest=ProfileCleanupServiceTest,ProfileCleanupIntegrationTest,ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,ProfileRedisPublicationIntegrationTest,ProfileProjectionReaderIntegrationTest,UserProfileContextAwaiterTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
             -Dprofile.pg.integration=true -Dsurefire.failIfNoSpecifiedTests=false
       - run: |
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRequestRedisIntegrationTest.xml --minimum 12
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRedisPublicationIntegrationTest.xml --minimum 4
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCleanupIntegrationTest.xml --minimum 11
           python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.ProfileProjectionReaderIntegrationTest.xml --minimum 10
 
   # 全模块编译完整性检查（不含测试，最快反馈构建是否破坏）
