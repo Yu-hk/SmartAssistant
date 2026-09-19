@@ -5,7 +5,7 @@ public final class ProfileContextPolicy {
     public static final int MAX_REFERENCE_CHARS = 6000;
     private ProfileContextPolicy() { }
 
-    public enum Source { POSTGRES_SNAPSHOT, REQUEST_CANDIDATE, REDIS_ENTITY, POSTGRES_ENTITY, AGENT_FILE }
+    public enum Source { POSTGRES_SNAPSHOT, REQUEST_CANDIDATE, REDIS_ENTITY, POSTGRES_ENTITY, POSTGRES_AGENT, AGENT_FILE }
 
     public static String reference(Source source, String version, String updatedAt, String body) {
         if (body == null || body.isBlank()) return "";

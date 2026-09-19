@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Agent 独立记忆服务（本地 Markdown 文件存储）。
+ * Agent 独立记忆服务（生产使用受控 PG；单参数构造仅保留离线文件兼容）。
  *
  * <p>每条记忆在文件中附带保存日期，{@link #getAllFormatted(String, String)} 根据距今天数
  * 附加老化警告（7~30 天 ⚠️，超过 30 天 ⚠️⚠️ 可能已过时）。
@@ -56,10 +56,47 @@ public class AgentMemoryService {
     private static final int MAX_DISPLAY_ENTRIES = 10;
 
     private final Path basePath;
+    private final GovernedAgentMemoryStore governed;
+    private final java.util.concurrent.ExecutorService reads = new java.util.concurrent.ThreadPoolExecutor(
+            2,2,0,java.util.concurrent.TimeUnit.MILLISECONDS,new java.util.concurrent.SynchronousQueue<>(),
+            Thread.ofPlatform().daemon().name("agent-memory-read-",0).factory(),new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
 
-    public AgentMemoryService(@Value("${app.data.dir:data/users}") String basePath) {
+    /** Offline compatibility only. Production always uses the governed constructor. */
+    public AgentMemoryService(String basePath) {
         this.basePath = Paths.get(basePath).toAbsolutePath().normalize();
+        this.governed = null;
     }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AgentMemoryService(@Value("${app.data.dir:data/users}") String basePath, GovernedAgentMemoryStore governed) {
+        this.basePath = Paths.get(basePath).toAbsolutePath().normalize();
+        this.governed = java.util.Objects.requireNonNull(governed);
+    }
+
+    long admission(String agent,String userId,String requestId,String question) {
+        return governed==null?0:governed.admission(agent,userId,requestId,question);
+    }
+
+    void saveAdmitted(String agent,String userId,long generation,Map<String,String> facts) {
+        if(governed!=null) governed.save(agent,userId,generation,facts);
+        else facts.forEach((key,value)->save(agent,userId,key,value));
+    }
+
+    private Map<String,String> readMemories(String agent,String userId) throws IOException {
+        if(governed==null) return loadFile(getMemoryFile(agent,userId));
+        java.util.concurrent.Future<Map<String,String>> future=null;
+        try {
+            future=reads.submit(()->governed.load(agent,userId));
+            return future.get(100,java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch(InterruptedException interrupted) {
+            Thread.currentThread().interrupt(); throw new IOException("Optional memory read interrupted");
+        } catch(java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException | java.util.concurrent.RejectedExecutionException unavailable) {
+            throw new IOException("Optional memory unavailable");
+        } finally { if(future!=null && !future.isDone()) future.cancel(true); }
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void close() { reads.shutdownNow(); }
 
     public void save(String agent, String userId, String key, String value) {
         trySave(agent, userId, key, value);
@@ -67,6 +104,7 @@ public class AgentMemoryService {
 
     /** Internal acknowledgement distinguishes an accepted update from a best-effort rejection. */
     boolean trySave(String agent, String userId, String key, String value) {
+        if (governed != null) return false; // Legacy model-controlled writes have no request admission.
         if (agent == null || userId == null || key == null || !key.matches("[a-zA-Z][a-zA-Z0-9_]{0,63}")) return false;
         if (value == null || value.isBlank()) return false;
         try {
@@ -89,7 +127,7 @@ public class AgentMemoryService {
     public String get(String agent, String userId, String key) {
         if (agent == null || userId == null || key == null) return null;
         try {
-            Map<String, String> memories = loadFile(getMemoryFile(agent, userId));
+            Map<String, String> memories = readMemories(agent, userId);
             String raw = memories.get(key);
             if (raw == null) return null;
             return stripTimestamp(raw);
@@ -103,6 +141,7 @@ public class AgentMemoryService {
     }
 
     boolean tryDelete(String agent, String userId, String key) {
+        if (governed != null) return false; // Full erasure uses a separately authorized control plane.
         if (agent == null || userId == null || key == null) return false;
         try {
             Path file = getMemoryFile(agent, userId);
@@ -152,7 +191,8 @@ public class AgentMemoryService {
         sb.append("## 状态锚点\n");
         if (userId != null && !userId.isBlank() && !"null".equals(userId)) {
             sb.append("- 当前用户：").append(ProfileContextPolicy.singleLine(userId, 128)).append("\n");
-            sb.append("- 偏好状态：").append(hasMemory("order", userId) || hasMemory("product", userId)
+            if(governed!=null) sb.append("- 偏好状态：仅使用当前有效的可选历史参考\n");
+            else sb.append("- 偏好状态：").append(hasMemory("order", userId) || hasMemory("product", userId)
                     || hasMemory("general", userId) ? "有保存的偏好" : "无偏好").append("\n");
         } else {
             sb.append("- 当前用户：未登录访客\n");
@@ -184,7 +224,7 @@ public class AgentMemoryService {
     public String getAllFormatted(String agent, String userId, String context) {
         if (agent == null || userId == null) return "";
         try {
-            Map<String, String> memories = loadFile(getMemoryFile(agent, userId));
+            Map<String, String> memories = readMemories(agent, userId);
             if (memories.isEmpty()) return "";
 
             // ⭐ 按上下文相关性排序（关键词匹配，LLM-free 轻量语义选择）
@@ -246,11 +286,11 @@ public class AgentMemoryService {
                 if (sb.charAt(sb.length() - 2) == ',') {
                     sb.setLength(sb.length() - 2);
                 }
-                sb.append(" — 可调用 recallMemories 获取详情)\n");
+                sb.append(")\n");
             }
 
-            return ProfileContextPolicy.reference(ProfileContextPolicy.Source.AGENT_FILE,
-                    "legacy-file-v1", "逐条记录；未知时间不视为最新", sb.toString());
+            return ProfileContextPolicy.reference(governed==null?ProfileContextPolicy.Source.AGENT_FILE:ProfileContextPolicy.Source.POSTGRES_AGENT,
+                    governed==null?"legacy-file-v1":"agent-facts-v1", "逐条记录；未知时间不视为最新", sb.toString());
         } catch (Exception e) {
             return "";
         }
@@ -259,6 +299,7 @@ public class AgentMemoryService {
     public boolean hasMemory(String agent, String userId) {
         if (agent == null || userId == null) return false;
         try {
+            if (governed != null) return !readMemories(agent,userId).isEmpty();
             return Files.exists(getMemoryFile(agent, userId));
         } catch (Exception e) {
             return false;

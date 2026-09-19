@@ -346,8 +346,7 @@ public class OrderAgentController {
                         question, result, intent, userId, qr, null);
                 if (result != null && userId != null && !userId.isBlank() && !"null".equals(userId)) {
                     final String finalResult = result;
-                    CompletableFuture.runAsync(() ->
-                            memoryExtractor.extractFromConversation("order", userId, question, finalResult));
+                    memoryExtractor.extractAsync("order", userId, question, finalResult,requestId);
                 }
                 log.info("[OrderAgent] 只读订单知识已直接返回: intent={}, requestId={}, quality={}",
                         intent.getLabel(), requestId, quality.getStatus());
@@ -412,8 +411,7 @@ public class OrderAgentController {
             if (result != null && userId != null && !userId.isBlank() && !"null".equals(userId)) {
                 final String finalQuestion = question;
                 final String finalResult = result;
-                CompletableFuture.runAsync(() ->
-                    memoryExtractor.extractFromConversation("order", userId, finalQuestion, finalResult));
+                memoryExtractor.extractAsync("order", userId, finalQuestion, finalResult,requestId);
             }
             return DomainAgentResponse.of(
                     result != null ? result : "⚠️ Agent 返回空结果", quality);

@@ -70,6 +70,6 @@ class MemoryExtractorOptionalModelTest {
         MemoryExtractor extractor = new MemoryExtractor(provider, memoryService, aiChatService);
         extractor.extractFromConversation("product", "user-1", "我更喜欢华为", "已记住");
 
-        verify(memoryService).save("product", "user-1", "preferBrand", "华为");
+        verify(memoryService).saveAdmitted("product", "user-1", 0L, Map.of("preferBrand", "华为"));
     }
 }
