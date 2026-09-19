@@ -37,7 +37,7 @@ jobs:
           cache: 'maven'
       - run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-product,smart-assistant-order,smart-assistant-router -am test
-          -Dtest=ProfileGovernanceTest,UserProfileQueryServiceTest,AgentMemoryServiceIntegrationTest,AgentMemoryFileConcurrencyTest,MemoryExtractorOptionalModelTest,UserProfilePrefetchTest,UserProfileSnapshotStoreTest,UserProfileCommitMessagingTest,ProfileGenerationServiceTest,ProfileGenerationFenceTest,UserProfileContextAwaiterTest,ProfileExecutionConfigTest,GraphNodeExecutionServiceTest,ProductSkillPackageConfigurationTest,OrderSkillPackageConfigurationTest,ProductBudgetRevisionTest,LightChatModelConfigTest,LLMPreferenceExtractorTest,RouterClientDnsRetryTest,ChatDispatchListenerTest
+          -Dtest=ProfileGovernanceTest,UserProfileQueryServiceTest,AgentMemoryServiceIntegrationTest,AgentMemoryFileConcurrencyTest,MemoryExtractorOptionalModelTest,UserProfilePrefetchTest,UserProfileSnapshotStoreTest,UserProfileCommitMessagingTest,ProfileCommitReferenceTest,ProfileGenerationServiceTest,ProfileGenerationFenceTest,UserProfileContextAwaiterTest,ProfileExecutionConfigTest,GraphNodeExecutionServiceTest,ProductSkillPackageConfigurationTest,OrderSkillPackageConfigurationTest,ProductBudgetRevisionTest,LightChatModelConfigTest,LLMPreferenceExtractorTest,RouterClientDnsRetryTest,ChatDispatchListenerTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.memory.AgentMemoryFileConcurrencyTest.xml --minimum 7
       - uses: actions/upload-artifact@v4
@@ -97,7 +97,7 @@ jobs:
           RABBITMQ_DEFAULT_PASS: integration-test-only
         ports: ['15673:5672']
         options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-cmd "su-exec rabbitmq rabbitmq-diagnostics -q ping"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       PG_TEST_URL: jdbc:postgresql://127.0.0.1:15433/smartassistant_integration
@@ -116,13 +116,15 @@ jobs:
       - name: Run actual storage and fair-share contracts (no skip on failure)
         run: >-
           mvn -B -pl smart-assistant-consumer -am test
-          -Dtest=PgIntegrationSettingsTest,PgVectorKnowledgeBaseIntegrationTest,ChatDispatchBrokerIntegrationTest,ProfileGenerationFenceIntegrationTest
+          -Dtest=PgIntegrationSettingsTest,PgVectorKnowledgeBaseIntegrationTest,ChatDispatchBrokerIntegrationTest,ProfileGenerationFenceIntegrationTest,ProfileCommitCandidateIntegrationTest,ProfileCommitBrokerIntegrationTest
           -Dpg.integration=true -Dprofile.pg.integration=true -Dsurefire.failIfNoSpecifiedTests=false
       - name: Require executed integration suites
         run: |
           python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.rag.PgVectorKnowledgeBaseIntegrationTest.xml --minimum 7
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.dispatch.ChatDispatchBrokerIntegrationTest.xml
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileGenerationFenceIntegrationTest.xml --minimum 7
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCommitCandidateIntegrationTest.xml --minimum 8
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCommitBrokerIntegrationTest.xml --minimum 2
       - uses: actions/upload-artifact@v4
         if: always()
         with:
