@@ -4,6 +4,7 @@
 审计基线：PR #64。下述完整删除协议仍是拟议设计；已实现范围见 [代次隔离](profile-generation-fencing.md)。
 后续新 MQ 消息的内容隔离见 [画像提交引用消息](profile-reference-messages.md)，旧队列内容与跨存储清理尚未完成。
 请求级 Redis 发布及新用户索引见 [Redis 原子发布](profile-redis-publication.md)；它不是用户级删除屏障，仍不开放删除入口。
+Consumer 新实体事实已接入同一 PG 控制面，见 [实体画像隔离](profile-entity-fencing.md)。旧实体/文件副本与请求准入隔离仍未完成。
 
 ## 已确认的产品行为
 

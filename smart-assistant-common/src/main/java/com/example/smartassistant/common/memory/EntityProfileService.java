@@ -29,12 +29,21 @@ public class EntityProfileService {
 
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
+    private final EntityProfileStore governedStore;
 
     // ⭐ 可选的 LLM 提取器（输入：message+reply，输出：category→value 事实）
     private BiFunction<String, String, Map<String, String>> llmExtractor;
 
     public EntityProfileService(StringRedisTemplate redis) {
         this.redis = redis;
+        this.mapper = new ObjectMapper();
+        this.governedStore = null;
+    }
+
+    /** Production Consumer uses its PG lifecycle-controlled store, never the legacy Redis writer. */
+    public EntityProfileService(EntityProfileStore governedStore) {
+        this.governedStore = Objects.requireNonNull(governedStore);
+        this.redis = null;
         this.mapper = new ObjectMapper();
     }
 
@@ -60,6 +69,10 @@ public class EntityProfileService {
      */
     public void put(Long userId, String category, String value) {
         if (userId == null || category == null || value == null) return;
+        if (governedStore != null) {
+            governedStore.save(userId, governedStore.capture(userId), Map.of(category, value));
+            return;
+        }
         String key = PROFILE_KEY_PREFIX + userId;
         redis.opsForHash().put(key, category, value);
         redis.expire(key, PROFILE_TTL_DAYS, TimeUnit.DAYS);
@@ -71,6 +84,10 @@ public class EntityProfileService {
      */
     public void putAll(Long userId, Map<String, String> facts) {
         if (userId == null || facts == null || facts.isEmpty()) return;
+        if (governedStore != null) {
+            governedStore.save(userId, governedStore.capture(userId), facts);
+            return;
+        }
         String key = PROFILE_KEY_PREFIX + userId;
         redis.opsForHash().putAll(key, new HashMap<>(facts));
         redis.expire(key, PROFILE_TTL_DAYS, TimeUnit.DAYS);
@@ -82,6 +99,7 @@ public class EntityProfileService {
      */
     public String get(Long userId, String category) {
         if (userId == null || category == null) return null;
+        if (governedStore != null) return governedStore.read(userId).get(category);
         Object val = redis.opsForHash().get(PROFILE_KEY_PREFIX + userId, category);
         return val != null ? val.toString() : null;
     }
@@ -91,6 +109,7 @@ public class EntityProfileService {
      */
     public Map<String, String> getAll(Long userId) {
         if (userId == null) return Map.of();
+        if (governedStore != null) return governedStore.read(userId);
         Map<Object, Object> entries = redis.opsForHash().entries(PROFILE_KEY_PREFIX + userId);
         Map<String, String> result = new LinkedHashMap<>();
         entries.forEach((k, v) -> result.put(k.toString(), v != null ? v.toString() : ""));
@@ -110,6 +129,7 @@ public class EntityProfileService {
         if (userId == null || message == null || message.isBlank()) return;
 
         try {
+            long generation = governedStore == null ? 0L : governedStore.capture(userId);
             Map<String, String> facts;
 
             // ⭐ 优先使用 LLM 提取器（更准确）
@@ -120,10 +140,11 @@ public class EntityProfileService {
             }
 
             if (!facts.isEmpty()) {
-                putAll(userId, facts);
+                if (governedStore == null) putAll(userId, facts);
+                else governedStore.save(userId, generation, facts);
             }
         } catch (Exception e) {
-            log.warn("[Profile] 提取失败: {}", e.getMessage());
+            log.warn("[Profile] Optional entity extraction skipped: type={}", e.getClass().getSimpleName());
         }
     }
 
@@ -137,7 +158,7 @@ public class EntityProfileService {
             Map<String, String> facts = llmExtractor.apply(message, reply);
             return facts != null ? facts : Map.of();
         } catch (Exception e) {
-            log.warn("[Profile] LLM 提取失败，降级到关键词: {}", e.getMessage());
+            log.warn("[Profile] Entity model unavailable; keyword fallback: type={}", e.getClass().getSimpleName());
             return extractFactsWithKeywords(message);
         }
     }
@@ -254,7 +275,10 @@ public class EntityProfileService {
                 .map(e -> String.format("- %s: %s", ProfileContextPolicy.singleLine(e.getKey(), 80),
                         ProfileContextPolicy.singleLine(e.getValue(), 500)))
                 .collect(Collectors.joining("\n"));
-        return ProfileContextPolicy.reference(ProfileContextPolicy.Source.REDIS_ENTITY,
-                "legacy-kv-v1", "未知；Redis TTL 不等于事实更新时间", body);
+        return ProfileContextPolicy.reference(governedStore == null ? ProfileContextPolicy.Source.REDIS_ENTITY
+                        : ProfileContextPolicy.Source.POSTGRES_ENTITY,
+                governedStore == null ? "legacy-kv-v1" : "entity-facts-v1",
+                governedStore == null ? "未知；Redis TTL 不等于事实更新时间"
+                        : "未知；摘要不提供逐条事实时间，使用前需确认", body);
     }
 }
