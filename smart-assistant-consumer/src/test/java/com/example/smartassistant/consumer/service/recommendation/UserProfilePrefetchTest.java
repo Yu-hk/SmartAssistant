@@ -46,6 +46,7 @@ class UserProfilePrefetchTest {
         ValueOperations<String, String> values = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
         when(store.load(42L)).thenReturn(Optional.empty());
+        stubPublication(redis);
 
         var report = report("CREATE", "深度咨询", 65, List.of("便携"), List.of("价格"));
         String reportJson = objectMapper.writeValueAsString(report);
@@ -68,13 +69,15 @@ class UserProfilePrefetchTest {
 
         assertThat(result.join()).contains("【电商用户洞察】").contains("深度咨询");
         ArgumentCaptor<String> states = ArgumentCaptor.forClass(String.class);
-        verify(values, times(2)).set(eq(RoutingKeys.userProfileContext("request-profile")),
-                states.capture(), any(Duration.class));
+        ArgumentCaptor<String> candidates = ArgumentCaptor.forClass(String.class);
+        verify(redis, times(2)).execute(eq(ProfileRequestRedisStore.PUBLISH),
+                eq(ProfileRequestRedisStore.keys(42L, "request-profile")), eq("42|0"),
+                states.capture(), candidates.capture(), anyString(), eq("120000"), eq("request-profile"));
         assertThat(states.getAllValues().get(1))
                 .startsWith(RoutingKeys.USER_PROFILE_READY_PREFIX)
                 .contains("【电商用户洞察】");
-        verify(values).set(eq(RoutingKeys.userProfileCandidate("request-profile")),
-                anyString(), eq(Duration.ofSeconds(120)));
+        assertThat(candidates.getAllValues().getFirst()).isEmpty();
+        assertThat(candidates.getAllValues().getLast()).contains("request-profile", "深度咨询");
         verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList(), anyLong());
     }
 
@@ -171,7 +174,9 @@ class UserProfilePrefetchTest {
 
         service.commitAfterSuccessfulTurn(42L, "request-commit");
         verify(publisher).publish(candidate);
-        verify(redis).delete(RoutingKeys.userProfileCandidate("request-commit"));
+        verify(redis).execute(eq(ProfileRequestRedisStore.RETIRE),
+                eq(List.of(ProfileRequestRedisStore.ownerKey("request-commit"), RoutingKeys.userProfileCandidate("request-commit"))),
+                eq("42|0"), eq(objectMapper.writeValueAsString(candidate)));
 
         // The durable MQ payload is sufficient for persistence even after Redis is gone.
         ReflectionTestUtils.setField(service, "redisTemplate", null);
@@ -249,10 +254,12 @@ class UserProfilePrefetchTest {
         @SuppressWarnings("unchecked") ValueOperations<String, String> values = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
         var previous = report("CREATE", "深度咨询", 70, List.of("轻薄"), List.of("预算"));
+        stubPublication(redis);
         when(store.load(42L)).thenReturn(Optional.of(snapshot(42L, 3L, objectMapper.writeValueAsString(previous))));
         when(extractor.extract(anyString(), anyString(), anyString())).thenAnswer(ignored -> {
-            verify(values).set(eq(RoutingKeys.userProfileContext("saved")),
-                    org.mockito.ArgumentMatchers.startsWith(RoutingKeys.USER_PROFILE_READY_PREFIX), any(Duration.class));
+            verify(redis).execute(eq(ProfileRequestRedisStore.PUBLISH), eq(ProfileRequestRedisStore.keys(42L, "saved")),
+                    eq("42|0"), org.mockito.ArgumentMatchers.startsWith(RoutingKeys.USER_PROFILE_READY_PREFIX),
+                    eq(""), eq("0"), anyString(), eq("saved"));
             return LLMPreferenceExtractor.UserInsightReport.empty("用户画像分析超时");
         });
         UserProfileService service = service(extractor, store);
@@ -260,7 +267,8 @@ class UserProfilePrefetchTest {
         ReflectionTestUtils.setField(service, "profileExecutor", (Executor) Runnable::run);
         assertThat(service.prefetchForRequest(42L, "本轮预算2000", "saved").join())
                 .contains("轻薄", "本轮明确的预算", "冲突时忽略历史偏好");
-        verify(values, never()).set(eq(RoutingKeys.userProfileCandidate("saved")), anyString(), any(Duration.class));
+        verify(redis, never()).execute(eq(ProfileRequestRedisStore.PUBLISH), anyList(),
+                anyString(), anyString(), org.mockito.ArgumentMatchers.matches(".+"), anyString(), anyString(), anyString());
         verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList(), anyLong());
         // Same request is deduplicated, not reset to PENDING or analyzed a second time.
         service.prefetchForRequest(42L, "本轮预算2000", "saved").join();
@@ -286,12 +294,14 @@ class UserProfilePrefetchTest {
         var extractor = mock(LLMPreferenceExtractor.class);
         var store = mock(UserProfileSnapshotStore.class);
         var redis = mock(StringRedisTemplate.class);
-        when(redis.opsForValue()).thenThrow(new IllegalStateException("offline"));
+        when(redis.execute(eq(ProfileRequestRedisStore.PUBLISH), anyList(), any(Object[].class)))
+                .thenThrow(new IllegalStateException("offline"));
         UserProfileService service = service(extractor, store);
         ReflectionTestUtils.setField(service, "redisTemplate", redis);
         ReflectionTestUtils.setField(service, "profileExecutor", (Executor) Runnable::run);
         assertThat(service.prefetchForRequest(42L, "买平板", "unavailable").join()).isEmpty();
-        org.mockito.Mockito.verifyNoInteractions(store, extractor);
+        verify(store).captureGeneration(42L);
+        org.mockito.Mockito.verifyNoInteractions(extractor);
     }
 
     @Test
@@ -326,11 +336,15 @@ class UserProfilePrefetchTest {
                 report("CREATE", "深度咨询", 70, List.of("便携"), List.of("预算")), "选电脑", 1L, List.of(1L));
         when(values.get(RoutingKeys.userProfileCandidate("late")))
                 .thenReturn(null, objectMapper.writeValueAsString(candidate));
-        when(values.get(RoutingKeys.userProfileCandidate("late") + ":preparation-done")).thenReturn("DONE");
+        when(values.get(ProfileRequestRedisStore.doneKey("late"))).thenReturn("DONE");
         var service = service(mock(LLMPreferenceExtractor.class), mock(UserProfileSnapshotStore.class), publisher);
         ReflectionTestUtils.setField(service, "redisTemplate", redis);
         service.commitAfterSuccessfulTurn(42L, "late");
         verify(publisher).publish(candidate);
+    }
+
+    static void stubPublication(StringRedisTemplate redis) {
+        when(redis.execute(eq(ProfileRequestRedisStore.PUBLISH), anyList(), any(Object[].class))).thenReturn(1L);
     }
 
     private static UserProfileService service(
