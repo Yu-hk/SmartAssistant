@@ -130,19 +130,19 @@ public class UserProfileService {
     }
 
     private CompletableFuture<String> schedulePreparation(Long userId, String question, String requestId) {
-        String key = RoutingKeys.userProfileContext(requestId);
         try {
             return CompletableFuture
                     .supplyAsync(() -> {
+                        Long generation = null;
                         try {
-                            redisTemplate.opsForValue().set(key, RoutingKeys.USER_PROFILE_PENDING, prefetchTtl());
-                            long generation = profileStore.captureGeneration(userId);
+                            generation = profileStore.captureGeneration(userId);
+                            publishState(userId,requestId,generation,RoutingKeys.USER_PROFILE_PENDING,null,false);
                             PreparedProfile prepared = prepareProfile(userId, question, requestId, generation);
                             profileStore.requireGeneration(userId, generation);
-                            publishPrefetchResult(requestId, key, prepared, null);
+                            publishPrefetchResult(userId,requestId,generation,prepared,null);
                             return prepared.projection();
                         } catch (RuntimeException unavailable) {
-                            publishPrefetchResult(requestId, key, null, unavailable);
+                            if(generation!=null) publishPrefetchResult(userId,requestId,generation,null,unavailable);
                             return "";
                         }
                     }, profileExecutor);
@@ -158,8 +158,7 @@ public class UserProfileService {
         if (!savedProjection.isBlank()) {
             profileStore.requireGeneration(userId, generation);
             // Existing reliable context becomes available before history/model analysis begins.
-            redisTemplate.opsForValue().set(RoutingKeys.userProfileContext(requestId),
-                    RoutingKeys.USER_PROFILE_READY_PREFIX + savedProjection, prefetchTtl());
+            publishState(userId,requestId,generation,RoutingKeys.USER_PROFILE_READY_PREFIX + savedProjection,null,false);
         }
         if (question != null && !question.isBlank()) {
             try {
@@ -175,7 +174,7 @@ public class UserProfileService {
         return new PreparedProfile(savedProjection, null);
     }
 
-    private Duration prefetchTtl() { return Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)); }
+    private Duration prefetchTtl() { return Duration.ofSeconds(Math.max(30L, Math.min(600L,prefetchTtlSeconds))); }
 
     private static boolean shouldCommit(LLMPreferenceExtractor.UserInsightReport report) {
         return report != null && report.profileUpdate() != null
@@ -236,35 +235,30 @@ public class UserProfileService {
         throw new IllegalStateException("User profile update exhausted retries");
     }
 
-    private void publishPrefetchResult(String requestId, String key,
+    private void publishPrefetchResult(Long userId,String requestId,long generation,
                                        PreparedProfile prepared, Throwable error) {
         if (redisTemplate == null) return;
         try {
             String state;
+            String candidate=null;
             if (error != null) {
                 state = RoutingKeys.USER_PROFILE_FAILED;
             } else {
                 if (prepared != null && prepared.candidate() != null && shouldCommit(prepared.candidate().report())) {
-                    redisTemplate.opsForValue().set(
-                            RoutingKeys.userProfileCandidate(requestId),
-                            writeJson(prepared.candidate()),
-                            Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
+                    candidate=writeJson(prepared.candidate());
                 }
                 state = prepared == null || prepared.projection().isBlank() ? RoutingKeys.USER_PROFILE_EMPTY
                         : RoutingKeys.USER_PROFILE_READY_PREFIX + prepared.projection();
             }
-            redisTemplate.opsForValue().set(key, state,
-                    Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
-            redisTemplate.opsForValue().set(preparationDoneKey(requestId), "DONE", prefetchTtl());
+            profileStore.requireGeneration(userId,generation);
+            publishState(userId,requestId,generation,state,candidate,true);
         } catch (Exception publishError) {
-            log.error("[UserProfile] 发布画像预取结果失败: key={}, error={}",
-                    key, publishError.getMessage());
-            try {
-                redisTemplate.opsForValue().set(key, RoutingKeys.USER_PROFILE_FAILED,
-                        Duration.ofSeconds(Math.max(30L, prefetchTtlSeconds)));
-            } catch (Exception ignored) {
-            }
+            log.warn("[UserProfile] Atomic publication unavailable: type={}",publishError.getClass().getSimpleName());
         }
+    }
+
+    private void publishState(Long userId,String requestId,long generation,String state,String candidate,boolean done) {
+        new ProfileRequestRedisStore(redisTemplate).publish(userId,requestId,generation,state,candidate,done,prefetchTtl());
     }
 
     /** Emits a durable commit command after a turn has completed successfully. */
@@ -284,7 +278,7 @@ public class UserProfileService {
             if (candidate == null || !shouldCommit(candidate.report())) return;
             profileStore.requireGeneration(candidate.userId(), candidate.generation());
             commitPublisher.publish(candidate);
-            redisTemplate.delete(RoutingKeys.userProfileCandidate(requestId));
+            new ProfileRequestRedisStore(redisTemplate).retire(userId,requestId,candidate.generation(),writeJson(candidate));
         } catch (Exception error) {
             log.error("[UserProfile] 发布画像提交事件失败: userId={}, requestId={}, error={}",
                     userId, requestId, error.getMessage());
@@ -472,7 +466,7 @@ public class UserProfileService {
     }
 
     private static String preparationDoneKey(String requestId) {
-        return RoutingKeys.userProfileCandidate(requestId) + ":preparation-done";
+        return ProfileRequestRedisStore.doneKey(requestId);
     }
 
     public record PreparedProfileCandidate(

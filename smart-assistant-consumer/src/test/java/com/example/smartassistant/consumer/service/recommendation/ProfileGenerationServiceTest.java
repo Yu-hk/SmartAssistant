@@ -75,6 +75,7 @@ class ProfileGenerationServiceTest {
         var redis=mock(org.springframework.data.redis.core.StringRedisTemplate.class);
         @SuppressWarnings("unchecked") var values=(org.springframework.data.redis.core.ValueOperations<String,String>)mock(org.springframework.data.redis.core.ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
+        UserProfilePrefetchTest.stubPublication(redis);
         when(store.captureGeneration(42L)).thenReturn(3L);
         when(extractor.extract(anyString(),anyString(),anyString())).thenAnswer(call->{
             doThrow(new ProfileGenerationFence.Rejected()).when(store).requireGeneration(42L,3L); return report();
@@ -83,6 +84,11 @@ class ProfileGenerationServiceTest {
         ReflectionTestUtils.setField(service,"redisTemplate",redis);
         ReflectionTestUtils.setField(service,"profileExecutor",(java.util.concurrent.Executor)Runnable::run);
         assertEquals("",service.prefetchForRequest(42L,"当前问题","fixture").join());
-        verify(values,never()).set(eq(com.example.smartassistant.routing.contract.RoutingKeys.userProfileCandidate("fixture")),anyString(),any(java.time.Duration.class));
+        verify(extractor).extract(anyString(),anyString(),anyString());
+        verify(redis,times(1)).execute(eq(ProfileRequestRedisStore.PUBLISH),anyList(),
+                eq("42|3"),eq(com.example.smartassistant.routing.contract.RoutingKeys.USER_PROFILE_PENDING),
+                eq(""),eq("0"),anyString(),eq("fixture"));
+        verify(redis,never()).execute(eq(ProfileRequestRedisStore.PUBLISH),anyList(),
+                anyString(),anyString(),anyString(),eq("1"),anyString(),anyString());
     }
 }
