@@ -68,6 +68,9 @@ public class UserProfileService {
     @Qualifier("profilePreparationExecutor")
     private Executor profileExecutor;
 
+    @Autowired
+    private ProfileAdmissionCoordinator admissionCoordinator;
+
     @Autowired(required = false)
     @Qualifier("profileCommitExecutor")
     private Executor commitExecutor;
@@ -114,9 +117,8 @@ public class UserProfileService {
     }
 
     /**
-     * Starts request-scoped profile preparation without delaying Router planning.
-     * All storage/model work runs off the caller thread. Router has a short optional budget,
-     * not a mandatory barrier. Repeated admission of the same request does not reset its state.
+     * Admission waits at most its separate pre-queue budget; model execution stays on workers.
+     * Profile completion is not a mandatory barrier. Repeated admission does not reset its state.
      */
     public CompletableFuture<String> prefetchForRequest(
             Long userId, String question, String requestId) {
@@ -124,25 +126,28 @@ public class UserProfileService {
             return CompletableFuture.completedFuture("");
         }
 
-        if (redisTemplate == null || profileExecutor == null) return CompletableFuture.completedFuture("");
+        if (redisTemplate == null || profileExecutor == null || admissionCoordinator == null)
+            return CompletableFuture.completedFuture("");
         return preparations.get(new ProfileRequest(userId, requestId, questionFingerprint(question)), ignored ->
                 schedulePreparation(userId, question, requestId));
     }
 
     private CompletableFuture<String> schedulePreparation(Long userId, String question, String requestId) {
+        OptionalLong admission = admissionCoordinator.admit(userId, requestId, question);
+        if (admission.isEmpty()) return CompletableFuture.completedFuture("");
+        long generation = admission.getAsLong();
         try {
             return CompletableFuture
                     .supplyAsync(() -> {
-                        Long generation = null;
                         try {
-                            generation = profileStore.captureGeneration(userId);
+                            profileStore.requireGeneration(userId, generation);
                             publishState(userId,requestId,generation,RoutingKeys.USER_PROFILE_PENDING,null,false);
                             PreparedProfile prepared = prepareProfile(userId, question, requestId, generation);
                             profileStore.requireGeneration(userId, generation);
                             publishPrefetchResult(userId,requestId,generation,prepared,null);
                             return prepared.projection();
                         } catch (RuntimeException unavailable) {
-                            if(generation!=null) publishPrefetchResult(userId,requestId,generation,null,unavailable);
+                            publishPrefetchResult(userId,requestId,generation,null,unavailable);
                             return "";
                         }
                     }, profileExecutor);

@@ -7,6 +7,11 @@ import java.util.concurrent.*;
 /** Separate bounded bulkheads; optional profile work must never run on a chat caller. */
 @Configuration
 public class ProfileExecutionConfig {
+    @Bean(name = "profileAdmissionExecutor", destroyMethod = "shutdownNow")
+    public ExecutorService admission() {
+        return new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new SynchronousQueue<>(),
+                Thread.ofPlatform().daemon().name("profile-admit-", 0).factory(), new ThreadPoolExecutor.AbortPolicy());
+    }
     @Bean(name = "profilePreparationExecutor", destroyMethod = "shutdownNow")
     public ExecutorService preparation() { return pool("profile-prepare-"); }
     @Bean(name = "profileCommitExecutor", destroyMethod = "shutdownNow")
