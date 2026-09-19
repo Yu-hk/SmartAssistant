@@ -15,6 +15,7 @@ import time
 import uuid
 import tempfile
 from profile_control_checkpoint import encode, verify, sha256, paused_tombstones
+from profile_control_outbox_drill import exercise as exercise_outbox
 
 MIGRATIONS = ('20260902_add_ecommerce_user_profiles.sql', '20260918_add_profile_lifecycle.sql',
               '20260919_add_profile_request_admission.sql', '20260919_add_profile_commit_candidates.sql',
@@ -99,6 +100,26 @@ def drill(image, repo):
         for filename in MIGRATIONS:
             schema += (repo / 'docs/database/migrations' / filename).read_text(encoding='utf-8') + '\n'
         sql(schema)
+        # A third, disposable DB exercises the proposed transaction contract, never
+        # installing it into the source/restored databases or any production schema.
+        sql('CREATE DATABASE profile_control_outbox_fixture TEMPLATE profile_restore_drill_source;')
+        fixture_command = ['docker', 'exec', '-i', cid, 'psql', '--no-psqlrc', '-qAt',
+                           '-v', 'ON_ERROR_STOP=1', '-U', 'profile_fixture', '-d', 'profile_control_outbox_fixture']
+        def control_sql(text, success=True):
+            return command(fixture_command, text.encode('utf-8'), success).decode().strip()
+        def control_start(text, hold=False):
+            process = subprocess.Popen(fixture_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            process.stdin.write((text + '\n').encode('utf-8'))
+            process.stdin.flush()
+            if not hold:
+                process.stdin.close()
+                process.stdin = None
+            return process
+        outbox_schema = (repo / 'scripts/fixtures/profile_control_outbox.sql').read_text(encoding='utf-8')
+        # The same file must refuse even our other synthetic database.
+        sql(outbox_schema, success=False)
+        control_sql(outbox_schema)
+        outbox_checks = exercise_outbox(control_sql, control_start)
         sql("""INSERT INTO users VALUES(91001),(91002);
 INSERT INTO profile_lifecycle(user_id) VALUES(91001),(91002);
 CREATE TABLE fixture_conversations(user_id bigint,body text);
@@ -165,7 +186,7 @@ INSERT INTO profile_request_admission(user_id,request_hash,input_hash,generation
                 'atomic-rollback', 'tombstone-replay', 'idempotency', 'survivor-and-business-data-preserved',
                 'old-admission-rejected', 'stale-ledger-rejected', 'missing-ledger-rejected',
                 'separate-minimal-control-export', 'pinned-control-source-and-data-binding',
-                'wrong-control-artifact-rejected'],
+                'wrong-control-artifact-rejected', 'outbox-install-rejects-other-database'] + outbox_checks,
                 'productionRestoreCertified': False}
     finally:
         if cid:
