@@ -42,7 +42,7 @@ class ChatDispatchListenerTest {
         order.verify(router).callRouterRaw("查订单", "42", "session", "request", false);
         order.verify(store).finish(command, "RUNNING", "COMPLETED", result);
         order.verify(channel).basicAck(1L, false);
-        verify(profiles).prefetchForRequest(42L, "查订单", "request");
+        verifyNoInteractions(profiles);
     }
     @Test void redeliveryOfRunningAttemptIsDeadLetteredNotReexecuted() throws Exception {
         when(store.start(eq(command), anyLong())).thenReturn("RUNNING");
@@ -95,16 +95,15 @@ class ChatDispatchListenerTest {
         listener.receive(message(), channel);
         verify(router, times(1)).callRouterRaw(any(), any(), any(), any(), anyBoolean());
     }
-    @Test void optionalProfileIsScheduledWithoutRedisBarrierProbe() throws Exception {
+    @Test void queuedRequestNeverRestartsProfilePreparation() throws Exception {
         claimed();
         when(router.callRouterRaw(any(), any(), any(), any(), anyBoolean())).thenReturn(Map.of("result", "完成"));
         listener.receive(message(), channel);
-        var order = inOrder(profiles, router);
-        order.verify(profiles).prefetchForRequest(42L, "查订单", "request");
-        order.verify(router).callRouterRaw("查订单", "42", "session", "request", false);
+        verifyNoInteractions(profiles);
+        verify(router).callRouterRaw("查订单", "42", "session", "request", false);
         verify(redis, never()).hasKey(anyString());
     }
-    @Test void profileSchedulingFailureDoesNotDeadLetterBusinessRequest() throws Exception {
+    @Test void unavailableProfileSubsystemDoesNotDeadLetterBusinessRequest() throws Exception {
         claimed();
         when(profiles.prefetchForRequest(any(), any(), any())).thenThrow(new IllegalStateException("profile unavailable"));
         var result = Map.<String, Object>of("result", "订单查询完成");

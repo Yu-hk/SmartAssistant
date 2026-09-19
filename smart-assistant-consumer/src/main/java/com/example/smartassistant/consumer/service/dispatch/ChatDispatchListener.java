@@ -52,12 +52,8 @@ public class ChatDispatchListener {
             if (command.userId().toString().equals(redis.opsForValue().get(RoutingKeys.cancellation(command.requestId())))) {
                 result = PriorityRoutingDispatcher.cancelled();
             } else {
-                // Optional preparation is deduplicated and contains no caller-thread storage I/O.
-                try {
-                    profiles.prefetchForRequest(command.userId(), command.question(), command.requestId());
-                } catch (RuntimeException unavailable) {
-                    log.warn("[ChatDispatch] Optional profile skipped: requestId={}", command.requestId());
-                }
+                // Profile admission/preparation belongs to the pre-queue caller only.
+                // A queued request or restart must never recapture a newer generation here.
                 result = router.callRouterRaw(command.question(), command.userId().toString(), command.sessionId(),
                         command.requestId(), command.allowAnswerCache());
                 if (result != null && "CANCELLED".equals(result.get("workflowStatus"))) {

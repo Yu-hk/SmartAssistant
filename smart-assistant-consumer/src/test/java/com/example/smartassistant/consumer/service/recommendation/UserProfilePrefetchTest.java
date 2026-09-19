@@ -300,7 +300,8 @@ class UserProfilePrefetchTest {
         ReflectionTestUtils.setField(service, "redisTemplate", redis);
         ReflectionTestUtils.setField(service, "profileExecutor", (Executor) Runnable::run);
         assertThat(service.prefetchForRequest(42L, "买平板", "unavailable").join()).isEmpty();
-        verify(store).captureGeneration(42L);
+        verify(store, times(2)).requireGeneration(42L, 0L);
+        verify(store, never()).captureGeneration(anyLong());
         org.mockito.Mockito.verifyNoInteractions(extractor);
     }
 
@@ -356,6 +357,9 @@ class UserProfilePrefetchTest {
             LLMPreferenceExtractor extractor, UserProfileSnapshotStore store,
             UserProfileCommitPublisher publisher) {
         UserProfileService service = new UserProfileService(extractor, store, publisher);
+        var admission = mock(ProfileAdmissionCoordinator.class);
+        when(admission.admit(anyLong(), anyString(), anyString())).thenReturn(java.util.OptionalLong.of(0));
+        ReflectionTestUtils.setField(service, "admissionCoordinator", admission);
         ReflectionTestUtils.setField(service, "maxHistoryTurns", 20);
         ReflectionTestUtils.setField(service, "maxHistoryChars", 12000);
         ReflectionTestUtils.setField(service, "commitExecutor", (Executor) Runnable::run);
