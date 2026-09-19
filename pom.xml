@@ -34,6 +34,9 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Rebuild the plain JAR before Boot repackaging, even when only a
+             reactor dependency changed; never retain an old nested common JAR. -->
+        <maven.jar.forceCreation>true</maven.jar.forceCreation>
         <spring-ai.version>2.0.1</spring-ai.version>
         <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
         <spring-cloud.version>2025.1.2</spring-cloud.version>

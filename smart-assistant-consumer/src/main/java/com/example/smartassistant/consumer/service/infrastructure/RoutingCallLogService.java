@@ -26,6 +26,8 @@ public class RoutingCallLogService {
     private static final Logger log = LoggerFactory.getLogger(RoutingCallLogService.class);
     
     private final RoutingCallLogMapper callLogMapper;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.example.smartassistant.consumer.service.recommendation.ProfileDiagnosticFence diagnosticFence;
     
     public RoutingCallLogService(RoutingCallLogMapper callLogMapper) {
         this.callLogMapper = callLogMapper;
@@ -104,7 +106,8 @@ public class RoutingCallLogService {
             callLog.setLlmReceivedQuestion(PromptAuditSanitizer.sanitize(effectivePrompt));
             callLog.setToolCalls(ToolUsageHeaders.encode(toolUsage));
             
-            callLogMapper.insert(callLog);
+            if(diagnosticFence!=null) diagnosticFence.save(callLog,()->callLogMapper.insert(callLog));
+            else callLogMapper.insert(callLog); // Isolated mapper unit tests; Spring requires the fence.
             log.debug("[RoutingCallLog] 日志保存成功: userId={}, sessionId={}, requestId={}, agent={}",
                     userId, sessionId, requestId, routedAgent);
         } catch (Exception e) {
@@ -113,7 +116,7 @@ public class RoutingCallLogService {
             if (errorMsg != null && errorMsg.contains("关系 \"routing_call_log\" 不存在")) {
                 log.warn("[RoutingCallLog] ⚠️ routing_call_log 表不存在,跳过日志记录 (可执行 SQL 创建表或忽略此警告)");
             } else {
-                log.error("[RoutingCallLog] 日志保存失败: {}", e.getMessage());
+                log.error("[RoutingCallLog] 日志保存失败: type={}", e.getClass().getSimpleName());
             }
         }
     }

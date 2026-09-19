@@ -54,6 +54,23 @@ class ProfileProjectionReaderIntegrationTest {
     }
     @AfterEach void cleanup() { if(keys!=null) redis.delete(keys); jdbc.update("DELETE FROM users WHERE id=?",user); }
     @Test void activeAdmittedOwnedProjectionIsReadable() { assertEquals("READY\nprivate fixture",reader.read(user,request)); }
+    @Test void legacyCacheIsOnlyAvailableInTheOriginalActiveGeneration() {
+        var calls=new java.util.concurrent.atomic.AtomicInteger();
+        assertEquals("value",reader.baselineCache(user,()->{calls.incrementAndGet();return "value";}));
+        jdbc.update("UPDATE profile_lifecycle SET generation=1,analysis_enabled=false WHERE user_id=?",user);
+        assertNull(reader.baselineCache(user,()->{calls.incrementAndGet();return "unsafe";}));
+        jdbc.update("UPDATE profile_lifecycle SET generation=2,analysis_enabled=true WHERE user_id=?",user);
+        assertNull(reader.baselineCache(user,()->{calls.incrementAndGet();return "unsafe";}));
+        assertEquals(1,calls.get());
+    }
+    @Test void independentControlFailureNeverInvokesLegacyCacheCallback() {
+        var guard=org.mockito.Mockito.mock(com.example.smartassistant.common.memory.ProfileRecoveryGuard.class);
+        org.mockito.Mockito.doThrow(new IllegalStateException("unavailable")).when(guard).requireSafe();
+        org.springframework.test.util.ReflectionTestUtils.setField(reader,"recoveryGuard",guard);
+        var called=new java.util.concurrent.atomic.AtomicBoolean();
+        assertThrows(IllegalStateException.class,()->reader.baselineCache(user,()->{called.set(true);return "unsafe";}));
+        assertFalse(called.get());
+    }
     @Test void missingAdmissionRejectsEvenWithRestoredRedis() {
         jdbc.update("DELETE FROM profile_request_admission WHERE user_id=?",user);
         assertNull(reader.read(user,request));

@@ -58,6 +58,8 @@ public class SelectiveSemanticAnswerCache {
     private final double verifierConfidenceThreshold;
     private final int candidateLimit;
     private final int maxEntriesPerPartition;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.example.smartassistant.consumer.service.recommendation.ProfileGenerationFence profileFence;
 
     public SelectiveSemanticAnswerCache(
             StringRedisTemplate redisTemplate,
@@ -94,6 +96,7 @@ public class SelectiveSemanticAnswerCache {
         // No exact or approximate reuse of user-provided documents, including legacy entries.
         if (com.example.smartassistant.common.rag.source.UserDocumentContext.from(question).userOnly()) return null;
         try {
+            if(profileFence!=null) profileFence.requireCurrent(userId,0);
             long knowledgeVersion = knowledgeVersionManager.refreshCurrentVersion();
             List<String> partitions = List.of(
                     partition(PRODUCT, userId, 0L),
@@ -104,6 +107,7 @@ public class SelectiveSemanticAnswerCache {
                         redisTemplate.opsForValue().get(exactKey(partition, question)),
                         knowledgeVersion);
                 if (exact != null) {
+                    if(profileFence!=null) profileFence.requireCurrent(userId,0);
                     log.info("[ConsumerSemanticCache] Exact hit: scope={}", exact.scope());
                     return exact.toResponseMap();
                 }
@@ -157,9 +161,10 @@ public class SelectiveSemanticAnswerCache {
             }
             log.info("[ConsumerSemanticCache] Verified semantic hit: scope={}, similarity={}, confidence={}",
                     best.entry().scope(), format(best.score()), format(verification.confidence()));
+            if(profileFence!=null) profileFence.requireCurrent(userId,0);
             return best.entry().toResponseMap();
         } catch (Exception error) {
-            log.warn("[ConsumerSemanticCache] Lookup failed; continue to Router: {}", error.getMessage());
+            log.warn("[ConsumerSemanticCache] Lookup bypassed: type={}", error.getClass().getSimpleName());
             return null;
         }
     }
@@ -169,6 +174,7 @@ public class SelectiveSemanticAnswerCache {
         if (userId <= 0 || question == null || question.isBlank() || !eligible(response)) return;
         if (com.example.smartassistant.common.rag.source.UserDocumentContext.from(question).userOnly()) return;
         try {
+            if(profileFence!=null) profileFence.requireCurrent(userId,0);
             String scope = Objects.toString(response.get("semanticCacheCategory"), "NONE");
             Duration ttl = PRODUCT.equals(scope) ? productTtl : businessTtl;
             long knowledgeVersion = BUSINESS.equals(scope)
@@ -192,18 +198,24 @@ public class SelectiveSemanticAnswerCache {
                     now + ttl.toMillis(),
                     vector);
             String json = objectMapper.writeValueAsString(entry);
-            redisTemplate.opsForValue().set(exactKey(partition, question), json, ttl);
-            if (!vector.isEmpty()) {
-                redisTemplate.opsForValue().set(entryKey(partition, id), json, ttl);
-                String indexKey = indexKey(partition);
-                redisTemplate.opsForZSet().add(indexKey, id, now);
-                redisTemplate.expire(indexKey, ttl.plusMinutes(1));
-                trimIndex(indexKey);
-            }
+            java.util.function.Supplier<Void> publication=()->{
+                redisTemplate.opsForValue().set(exactKey(partition, question), json, ttl);
+                if (!vector.isEmpty()) {
+                    redisTemplate.opsForValue().set(entryKey(partition, id), json, ttl);
+                    String indexKey = indexKey(partition);
+                    redisTemplate.opsForZSet().add(indexKey, id, now);
+                    redisTemplate.expire(indexKey, ttl.plusMinutes(1));
+                    trimIndex(indexKey);
+                }
+                return null;
+            };
+            // This cache predates immutable request generations. Conservatively
+            // retire it for a user after the first erase, including a later reopen.
+            if(profileFence!=null) profileFence.write(userId,0,publication);else publication.get();
             log.info("[ConsumerSemanticCache] Stored: scope={}, volatile={}, ttlSeconds={}, knowledgeVersion={}",
                     scope, entry.volatileProduct(), ttl.toSeconds(), knowledgeVersion);
         } catch (Exception error) {
-            log.warn("[ConsumerSemanticCache] Store failed; response remains usable: {}", error.getMessage());
+            log.warn("[ConsumerSemanticCache] Store bypassed: type={}", error.getClass().getSimpleName());
         }
     }
 

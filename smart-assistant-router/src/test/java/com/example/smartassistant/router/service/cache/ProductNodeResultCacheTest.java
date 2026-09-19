@@ -22,6 +22,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ProductNodeResultCacheTest {
+    @Test @SuppressWarnings("unchecked")
+    void inactiveGenerationNeverReadsOrPublishesCachedNodeResults() {
+        var redis=mock(StringRedisTemplate.class);
+        ObjectProvider<StringRedisTemplate> provider=mock(ObjectProvider.class);when(provider.getIfAvailable()).thenReturn(redis);
+        var cache=new ProductNodeResultCache(provider,new ObjectMapper(),Duration.ofMinutes(1));
+        var guard=mock(com.example.smartassistant.router.service.core.ProfileProjectionReader.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(cache,"profileReader",guard);
+        var node=node("product","QUERY_HOT_PRODUCTS");
+        var result=new SubTaskResult("p1","fixture","product","synthetic",true);
+        result.setDomainQuality(DomainQualityResult.pass(1.0,"VERIFIED"));
+        assertThat(cache.find(node,42L,Map.of(),"",Map.of())).isNull();
+        cache.store(node,42L,Map.of(),"",Map.of(),result);
+        org.mockito.Mockito.verifyNoInteractions(redis);
+    }
 
     @Test
     @SuppressWarnings("unchecked")

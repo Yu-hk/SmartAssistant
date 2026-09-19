@@ -40,7 +40,9 @@ import java.util.UUID;
  *
  * <p>存储：{@code {basePath}/{userId}/memories.json}（JSON 数组）。</p>
  */
-@Service
+// Retired standalone file-format utility. Deliberately NOT a Spring bean: online
+// facts must use generation-fenced PostgreSQL stores, never memories.json.
+@Deprecated(forRemoval = true)
 public class MemoryVersionStore {
 
     private static final Logger log = LoggerFactory.getLogger(MemoryVersionStore.class);

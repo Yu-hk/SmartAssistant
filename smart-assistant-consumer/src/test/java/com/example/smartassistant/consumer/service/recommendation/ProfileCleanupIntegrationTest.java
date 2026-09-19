@@ -34,6 +34,7 @@ class ProfileCleanupIntegrationTest {
         service=coordinator(db(),cleaner);
         redisFixture.keys(fixture.user,redisFixture.request);
         redisFixture.cleanup.add("user:profile:"+fixture.user);
+        redisFixture.cleanup.add("user_profile:"+fixture.user);
     }
     @AfterEach void cleanup() { redisFixture.clean();fixture.cleanup(); }
     JdbcTemplate db() { return ProfileGenerationFenceIntegrationTest.jdbc; }
@@ -68,6 +69,7 @@ class ProfileCleanupIntegrationTest {
         db().update("INSERT INTO profile_agent_memory(user_id,agent,memory_key,memory_value,generation) VALUES (?,'order','style','concise',0)",fixture.user);
         db().update("INSERT INTO profile_commit_candidate(candidate_id,user_id,request_id,generation,payload,expires_at) VALUES (?,?,?,0,'{}',CURRENT_TIMESTAMP+INTERVAL '1 hour')",UUID.randomUUID().toString(),fixture.user,"candidate");
         ProfileRequestRedisIntegrationTest.redis.opsForHash().put("user:profile:"+fixture.user,"hobby","music");
+        ProfileRequestRedisIntegrationTest.redis.opsForValue().set("user_profile:"+fixture.user,"private legacy answer profile");
         UUID job=request(); assertTrue(service.runNext());assertFalse(service.runNext());
         for(String table:List.of("user_profile_snapshot","user_profile_change_log","profile_agent_memory","user_profile_entity_fact","profile_commit_candidate")) assertEquals(0L,count(table),table);
         assertEquals(1L,count("profile_request_admission"));
@@ -77,6 +79,7 @@ class ProfileCleanupIntegrationTest {
         assertEquals("1|PAUSED",ProfileRequestRedisIntegrationTest.redis.opsForValue().get(ProfileRequestRedisStore.barrierKey(fixture.user)));
         for(String key:ProfileRequestRedisStore.keys(fixture.user,redisFixture.request).subList(0,5)) assertFalse(ProfileRequestRedisIntegrationTest.redis.hasKey(key));
         assertFalse(ProfileRequestRedisIntegrationTest.redis.hasKey("user:profile:"+fixture.user));
+        assertFalse(ProfileRequestRedisIntegrationTest.redis.hasKey("user_profile:"+fixture.user));
         assertThrows(ProfileGenerationFence.Rejected.class,this::publish);
     }
     @Test void failedRedisTargetRetriesAfterServiceRestartWithoutRepeatingPgDeletion() {
@@ -150,11 +153,40 @@ class ProfileCleanupIntegrationTest {
         assertEquals("9007199254740993|PAUSED",ProfileRequestRedisIntegrationTest.redis.opsForValue().get(ProfileRequestRedisStore.barrierKey(fixture.user)));
         assertEquals(-1L,ProfileRequestRedisIntegrationTest.redis.getExpire(ProfileRequestRedisStore.barrierKey(fixture.user)));
     }
+    @Test void legacyAnswerProfileOwnershipAndUnexpectedTypesAreRespected() {
+        var redis=ProfileRequestRedisIntegrationTest.redis;
+        String owned="user_profile:"+fixture.user,foreign="user_profile:"+(fixture.user+1);
+        redisFixture.cleanup.add(foreign);
+        redis.opsForValue().set(foreign,"other user's private profile");
+        redis.opsForList().rightPush(owned,"unexpected storage type");
+        UUID job=request();service.runNext();
+        assertEquals("RETRY",receipt(job,"REDIS_INDEXED"));
+        assertEquals(1L,redis.opsForList().size(owned));
+        assertEquals("other user's private profile",redis.opsForValue().get(foreign));
+        redis.delete(owned);redis.opsForValue().set(owned,"owned legacy profile");
+        due(job);service.runNext();
+        assertEquals("SUCCEEDED",receipt(job,"REDIS_INDEXED"));
+        assertFalse(redis.hasKey(owned));
+        assertEquals("other user's private profile",redis.opsForValue().get(foreign));
+    }
     @Test void anotherUsersDataIsUnaffected() {
         var other=new ProfileGenerationFenceIntegrationTest();other.fixture();
         try {
             other.save(0);fixture.save(0);request();service.runNext();
             assertTrue(other.store.load(other.user).isPresent());assertEquals(0L,other.fence.capture(other.user));
         } finally {other.cleanup();}
+    }
+    @Test void ownAnswerAndSummaryPrefixesAreCleanedWithoutMatchingAnotherUser() {
+        var redis=ProfileRequestRedisIntegrationTest.redis;
+        for(String pattern:java.util.List.of("answer:%s:q","user:memory:%s:1","consumer:semantic-answer:v4:u%s:q","router:product-node:v2:u%s:q")) {
+            String own=pattern.formatted(fixture.user),other=pattern.formatted(fixture.user+1);
+            redisFixture.cleanup.add(own);redisFixture.cleanup.add(other);
+            redis.opsForValue().set(own,"owned synthetic");redis.opsForValue().set(other,"other synthetic");
+        }
+        UUID job=request();service.runNext();assertEquals("SUCCEEDED",receipt(job,"REDIS_INDEXED"));
+        for(String pattern:java.util.List.of("answer:%s:q","user:memory:%s:1","consumer:semantic-answer:v4:u%s:q","router:product-node:v2:u%s:q")) {
+            assertFalse(redis.hasKey(pattern.formatted(fixture.user)));
+            assertEquals("other synthetic",redis.opsForValue().get(pattern.formatted(fixture.user+1)));
+        }
     }
 }

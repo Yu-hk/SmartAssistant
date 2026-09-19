@@ -46,6 +46,8 @@ public class ProductNodeResultCache {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final Duration ttl;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.example.smartassistant.router.service.core.ProfileProjectionReader profileReader;
 
     public ProductNodeResultCache(
             ObjectProvider<StringRedisTemplate> redisProvider,
@@ -61,8 +63,9 @@ public class ProductNodeResultCache {
                               String userProfile, Map<String, SubTaskResult> completed) {
         if (redisTemplate == null || !eligible(node) || userId == null || userId <= 0) return null;
         try {
-            String json = redisTemplate.opsForValue().get(key(
-                    node, userId, resolvedInput, userProfile, completed));
+            String cacheKey=key(node,userId,resolvedInput,userProfile,completed);
+            java.util.function.Supplier<String> read=()->redisTemplate.opsForValue().get(cacheKey);
+            String json=profileReader==null?read.get():profileReader.baselineCache(userId,read);
             if (json == null || json.isBlank()) return null;
             Entry entry = objectMapper.readValue(json, Entry.class);
             if (entry.expiresAt() <= System.currentTimeMillis()) return null;
@@ -79,7 +82,7 @@ public class ProductNodeResultCache {
                     node.getOperation(), node.getId());
             return result;
         } catch (Exception error) {
-            log.warn("[ProductNodeCache] Lookup failed; execute product node: {}", error.getMessage());
+            log.warn("[ProductNodeCache] Lookup bypassed: type={}", error.getClass().getSimpleName());
             return null;
         }
     }
@@ -99,13 +102,13 @@ public class ProductNodeResultCache {
                     result.getResult(), result.getRealTitles(), result.getTagsByTitle(),
                     result.getStructuredData(), quality.getStatus(), quality.getScore(),
                     quality.getReasonCodes(), System.currentTimeMillis() + ttl.toMillis());
-            redisTemplate.opsForValue().set(
-                    key(node, userId, resolvedInput, userProfile, completed),
-                    objectMapper.writeValueAsString(entry), ttl);
+            String cacheKey=key(node,userId,resolvedInput,userProfile,completed),body=objectMapper.writeValueAsString(entry);
+            java.util.function.Supplier<Void> publish=()->{redisTemplate.opsForValue().set(cacheKey,body,ttl);return null;};
+            if(profileReader==null) publish.get();else profileReader.baselineCache(userId,publish);
             log.info("[ProductNodeCache] Stored: operation={}, nodeId={}, ttlSeconds={}",
                     node.getOperation(), node.getId(), ttl.toSeconds());
         } catch (Exception error) {
-            log.warn("[ProductNodeCache] Store failed; result remains usable: {}", error.getMessage());
+            log.warn("[ProductNodeCache] Store bypassed: type={}", error.getClass().getSimpleName());
         }
     }
 

@@ -15,6 +15,8 @@ import java.util.*;
 public class GovernedAgentMemoryStore {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
+    @Autowired
+    private ProfileRecoveryGuard recoveryGuard;
 
     @Autowired
     public GovernedAgentMemoryStore(ObjectProvider<JdbcTemplate> jdbc,
@@ -79,7 +81,10 @@ public class GovernedAgentMemoryStore {
         return result;
     }
 
-    private void ready() { if(jdbc==null || transaction==null) throw new Rejected(); }
+    private void ready() {
+        if(jdbc==null || transaction==null) throw new Rejected();
+        if(recoveryGuard!=null) recoveryGuard.requireSafe();
+    }
     private static String digest(String value) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
         catch(java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }

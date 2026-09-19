@@ -43,6 +43,7 @@ public class ProfileAdmissionStore {
     public long requireExisting(Long userId,String requestId,String question) {
         if(userId==null || userId<=0 || requestId==null || requestId.isBlank() || requestId.length()>128 || question==null)
             throw new ProfileGenerationFence.Rejected();
+        fence.requireRecoverySafe();
         var rows=jdbc.queryForList("""
             SELECT a.generation FROM profile_request_admission a
             JOIN profile_lifecycle l ON l.user_id=a.user_id AND l.generation=a.generation AND l.analysis_enabled

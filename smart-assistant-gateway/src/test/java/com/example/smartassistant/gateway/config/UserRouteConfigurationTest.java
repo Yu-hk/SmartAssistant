@@ -12,6 +12,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class UserRouteConfigurationTest {
+    @Test
+    void profilePrivacyUsesAuthenticatedConsumerRoutes() {
+        Properties properties=loadApplicationProperties();
+        assertTrue(routeHasPath(properties,"profile-privacy","/api/privacy/**"));
+        assertFalse(routeHasFilter(properties,"profile-privacy","StripPrefix"));
+        assertTrue(routeHasPath(properties,"profile-privacy-prefixed","/assistant/api/privacy/**"));
+        assertTrue(routeHasFilter(properties,"profile-privacy-prefixed","StripPrefix=1"));
+        assertFalse(properties.getProperty("gateway.security.white-list","").contains("privacy"));
+    }
 
     @Test
     void shouldRoutePrefixedAndBareUserPathsWithoutStrippingBareApiPrefix() {

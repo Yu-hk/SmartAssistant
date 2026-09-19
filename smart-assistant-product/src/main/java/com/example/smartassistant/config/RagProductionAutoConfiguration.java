@@ -26,6 +26,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,7 +35,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -197,32 +197,23 @@ public class RagProductionAutoConfiguration {
 
     /**
      * ⭐ 显式 JdbcTemplate Bean（从根级 {@code datasource.*} 读取）。
-     * <p>未配置 {@code datasource.url} 时返回 null（不注册 Bean），整体走内存模式。
+     * <p>未配置根级 {@code datasource.url} 时不声明此 Bean，允许 Boot 使用标准数据源。
      * 使用匿名 {@link DriverManagerDataSource}（非 Bean），避免注册 DataSource Bean 触发 Flyway 自动迁移。</p>
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(name="datasource.url")
     public JdbcTemplate ragProductionJdbcTemplate() {
-        if (datasourceUrl == null || datasourceUrl.isBlank()) {
-            log.info("[RagProd] 未配置 datasource.url，不创建 JdbcTemplate（内存模式）");
-            return null;
-        }
+        if (datasourceUrl == null || datasourceUrl.isBlank()) throw new IllegalStateException("Legacy datasource URL is empty");
         // 追加有界超时，避免 PG 不可达时连接挂起
         String url = datasourceUrl.contains("?")
                 ? datasourceUrl : datasourceUrl + "?connectTimeout=3&socketTimeout=10&loginTimeout=3";
-        try {
-            DriverManagerDataSource ds = new DriverManagerDataSource(url, datasourceUsername, datasourcePassword);
-            ds.setDriverClassName(datasourceDriver);
-            // 连通性预检（bounded）
-            try (Connection ignored = ds.getConnection()) {
-                // ok
-            }
-            log.info("[RagProd] JdbcTemplate 就绪（数据源={}）", datasourceUrl);
-            return new JdbcTemplate(ds);
-        } catch (Exception e) {
-            log.warn("[RagProd] 数据源不可达，JdbcTemplate 置空（内存模式）: {}", e.getMessage());
-            return null;
-        }
+        DriverManagerDataSource ds = new DriverManagerDataSource(url, datasourceUsername, datasourcePassword);
+        ds.setDriverClassName(datasourceDriver);
+        // Connectivity/fallback is checked by the knowledge backend, not bean creation.
+        // Returning null here leaves a JdbcTemplate definition that suppresses Boot's
+        // real template but breaks NamedParameterJdbcTemplate and all profile readers.
+        return new JdbcTemplate(ds);
     }
 
     /** 种子同步进 PG（增量 upsert，幂等） */
