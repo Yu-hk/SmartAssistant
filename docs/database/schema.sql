@@ -1673,6 +1673,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_external_identity_union_id
 -- Versioned e-commerce user profile snapshot. Existing installations use
 -- migrations/20260902_add_ecommerce_user_profiles.sql.
 -- Lifecycle foundation: existing installations also apply 20260918_add_profile_lifecycle.sql.
+-- Reference-only MQ staging: existing installations apply 20260919_add_profile_commit_candidates.sql.
+CREATE TABLE IF NOT EXISTS public.profile_commit_candidate (
+    candidate_id varchar(36) PRIMARY KEY,
+    user_id bigint NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    request_id varchar(128) NOT NULL,
+    generation bigint NOT NULL CHECK (generation >= 0),
+    payload jsonb,
+    created_at timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at timestamp without time zone NOT NULL,
+    completed_at timestamp without time zone,
+    UNIQUE (user_id, request_id, generation)
+);
+CREATE INDEX IF NOT EXISTS idx_profile_commit_candidate_expiry ON public.profile_commit_candidate (expires_at);
+
 CREATE TABLE IF NOT EXISTS public.profile_lifecycle (
     user_id BIGINT PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
     generation BIGINT NOT NULL DEFAULT 0 CHECK (generation >= 0),
