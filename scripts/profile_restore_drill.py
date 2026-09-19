@@ -13,6 +13,8 @@ import pathlib
 import subprocess
 import time
 import uuid
+import tempfile
+from profile_control_checkpoint import encode, verify, sha256, paused_tombstones
 
 MIGRATIONS = ('20260902_add_ecommerce_user_profiles.sql', '20260918_add_profile_lifecycle.sql',
               '20260919_add_profile_request_admission.sql', '20260919_add_profile_commit_candidates.sql',
@@ -79,9 +81,13 @@ def drill(image, repo):
         if meta['HostConfig']['NetworkMode'] != 'none' or meta['HostConfig'].get('Binds'):
             raise RuntimeError('Fixture isolation mismatch')
         for unused in range(45):
-            check = subprocess.run(['docker', 'exec', cid, 'pg_isready', '-U', 'profile_fixture'],
+            # initdb's temporary server accepts Unix connections before initialization
+            # completes. Require the final TCP server and the actual fixture database.
+            check = subprocess.run(['docker', 'exec', '-e', 'PGPASSWORD=synthetic-only', cid,
+                                    'psql', '--no-psqlrc', '-qAt', '-h', '127.0.0.1',
+                                    '-U', 'profile_fixture', '-d', 'profile_restore_drill_source', '-c', 'SELECT 1'],
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
-            if check.returncode == 0: break
+            if check.returncode == 0 and check.stdout.strip() == b'1': break
             time.sleep(1)
         else: raise RuntimeError('Fixture database unavailable')
         def sql(text, restored=False, success=True):
@@ -112,7 +118,23 @@ INSERT INTO profile_request_admission(user_id,request_hash,input_hash,generation
                         '-d', 'profile_restore_drill_source', '--no-owner', '--no-acl'])
         # External control-plane state survives independently of the older data backup.
         sql('UPDATE profile_lifecycle SET generation=1,analysis_enabled=false WHERE user_id=91001;')
-        ledger = [{'user_id': 91001, 'generation': 1}]
+        # Export minimal control rows separately from the older data dump. The expected
+        # digest is held by the synthetic caller, never trusted from the artifact itself.
+        controls = json.loads(sql("BEGIN READ ONLY; SELECT json_agg(r ORDER BY user_id) FROM "
+                                  "(SELECT user_id,generation,analysis_enabled FROM profile_lifecycle) r; COMMIT;"))
+        source_id = str(uuid.uuid4()); captured = int(time.time()); backup_hash = sha256(dump)
+        control_bytes = encode(source_id, backup_hash, captured, controls)
+        trusted_pin = sha256(control_bytes)
+        with tempfile.TemporaryDirectory(prefix='profile-control-fixture-') as folder:
+            control_file = pathlib.Path(folder) / 'checkpoint.json'
+            control_file.write_bytes(control_bytes)
+            control_file.chmod(0o600)
+            checkpoint = verify(control_file.read_bytes(), trusted_pin, source_id, backup_hash, captured, 60)
+        ledger = paused_tombstones(checkpoint)
+        altered = encode(source_id, backup_hash, captured - 1, controls)
+        try: verify(altered, trusted_pin, source_id, backup_hash, captured, 60)
+        except ValueError: pass
+        else: raise AssertionError('Different control artifact accepted with current trusted pin')
         assert sql('SELECT generation,analysis_enabled FROM profile_lifecycle WHERE user_id=91001') == '1|f'
         sql('CREATE DATABASE profile_restore_drill_restored;')
         sql(dump, True)
@@ -141,7 +163,9 @@ INSERT INTO profile_request_admission(user_id,request_hash,input_hash,generation
         return {'passed': True, 'syntheticOnly': True, 'network': 'none', 'payloadTables': list(PAYLOAD_TABLES),
                 'dumpSha256': hashlib.sha256(dump).hexdigest(), 'checks': ['real-dump-restore', 'older-data-reappears',
                 'atomic-rollback', 'tombstone-replay', 'idempotency', 'survivor-and-business-data-preserved',
-                'old-admission-rejected', 'stale-ledger-rejected', 'missing-ledger-rejected'],
+                'old-admission-rejected', 'stale-ledger-rejected', 'missing-ledger-rejected',
+                'separate-minimal-control-export', 'pinned-control-source-and-data-binding',
+                'wrong-control-artifact-rejected'],
                 'productionRestoreCertified': False}
     finally:
         if cid:
