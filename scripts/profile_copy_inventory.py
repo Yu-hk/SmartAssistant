@@ -10,7 +10,7 @@ import os
 import pathlib
 import subprocess
 
-PREFIXES = ('user:profile:', 'routing:user-profile-context:', 'routing:user-profile-candidate:',
+PREFIXES = ('user:profile:', 'user_profile:', 'user:memory:', 'answer:', 'personalization:hit_count:', 'vector_search:', 'routing:user-profile-context:', 'routing:user-profile-candidate:',
             'routing:user-profile-owner:', 'routing:user-profile-index:',
             'routing:user-profile-lifecycle:', 'routing:user-profile-done:',
             'router:product-node:v2:', 'consumer:semantic-answer:', 'routing:execution-graph:',

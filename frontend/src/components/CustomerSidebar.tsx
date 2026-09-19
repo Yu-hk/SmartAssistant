@@ -1,6 +1,7 @@
 import { Moon, Sun, Plus, X, MessageSquare, RotateCcw, Trash2, ChevronDown } from 'lucide-react';
 import { Session } from '../types';
 import { SERVICE_NAMES } from '../utils/serviceEntry';
+import { ProfilePrivacy } from './ProfilePrivacy';
 
 interface CustomerSidebarProps {
   sessions: Session[];
@@ -68,6 +69,7 @@ export function CustomerSidebar({
       </nav>
     </div>
     <div className="customer-sidebar-footer">
+      <ProfilePrivacy />
       <button type="button" onClick={onToggleTheme}>
         {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
         {theme === 'light' ? '深色模式' : '浅色模式'}

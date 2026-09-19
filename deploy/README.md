@@ -109,6 +109,11 @@ vim .env
 
 ### 5. 启动服务
 
+画像删除启用后，四个画像使用服务必须持续挂载同一个独立控制目录并固定
+`PROFILE_CONTROL_SOURCE_ID`，不能用空目录或旧备份覆盖。首次初始化、增量迁移、
+恢复演练和上线范围见 [生产画像删除与恢复保护](../docs/profile-production-deletion-20260919.md)。
+生产关闭删除入口只能设置 `PROFILE_CLEANUP_ENABLED=false`，不能关闭恢复保护或回退到无保护版本。
+
 ```bash
 cd /home/user/SmartAssistant/deploy
 

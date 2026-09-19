@@ -49,6 +49,7 @@ public class GovernedEntityProfileStore implements EntityProfileStore {
 
     @Override public Map<String, String> read(Long userId) {
         if (userId == null || userId <= 0) return Map.of();
+        fence.requireRecoverySafe();
         // One statement gives a consistent lifecycle/data snapshot; no unguarded Redis fallback.
         return jdbc.query("""
             SELECT f.category, f.fact_value FROM user_profile_entity_fact f

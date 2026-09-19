@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Internal, disabled-by-default cleanup coordinator. No HTTP deletion/resume endpoint exists. */
+/** Disabled-by-default, authenticated-owner cleanup coordinator. No resume endpoint. */
 @Service
 public class ProfileCleanupService {
     private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(ProfileCleanupService.class);
@@ -18,32 +18,51 @@ public class ProfileCleanupService {
     private final TransactionTemplate tx;
     private final ProfileRedisCleanup redis;
     private final boolean enabled;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ProfileControlArchive archive;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ProfileLegacyFiles legacy;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ProfileDerivedCleanup derived;
+    @Value("${profile.cleanup.derived-enabled:false}")
+    private boolean derivedEnabled;
     private static final List<String> AUTOMATED=List.of("POSTGRES_PROFILE","REDIS_INDEXED");
     public ProfileCleanupService(JdbcTemplate jdbc,PlatformTransactionManager manager,ProfileRedisCleanup redis,
             @Value("${profile.cleanup.enabled:false}") boolean enabled) {
         this.jdbc=jdbc;this.redis=redis;this.enabled=enabled;tx=new TransactionTemplate(manager);tx.setTimeout(5);
     }
 
-    /** Future authenticated adapter must supply the principal's own ID, never a request-body target. */
+    /** The authenticated adapter supplies the principal's own ID, never a request-body target. */
     public UUID request(Long principalUserId,UUID idempotencyKey) {
         if(!enabled) throw new IllegalStateException("Profile cleanup is not available");
         if(principalUserId==null || principalUserId<=0 || idempotencyKey==null) throw new IllegalArgumentException("Owner and idempotency key required");
+        if(archive!=null && archive.enabled()) archive.sync();
         return tx.execute(status->{
             limits();
             jdbc.update("INSERT INTO profile_lifecycle(user_id) VALUES (?) ON CONFLICT(user_id) DO NOTHING",principalUserId);
             jdbc.queryForMap("SELECT generation FROM profile_lifecycle WHERE user_id=? FOR UPDATE",principalUserId);
             var existing=jdbc.queryForList("SELECT job_id FROM profile_cleanup_job WHERE user_id=? AND idempotency_key=?",UUID.class,principalUserId,idempotencyKey);
             if(!existing.isEmpty()) return existing.getFirst();
+            if(archive!=null && archive.enabled()) {
+                var paused=jdbc.queryForList("""
+                    SELECT j.job_id FROM profile_cleanup_job j JOIN profile_lifecycle l
+                    ON l.user_id=j.user_id AND l.generation=j.generation
+                    WHERE j.user_id=? AND NOT l.analysis_enabled AND j.state<>'STALE'
+                    ORDER BY j.created_at DESC LIMIT 1
+                    """,UUID.class,principalUserId);
+                if(!paused.isEmpty()) return paused.getFirst();
+            }
             long generation=jdbc.queryForObject("""
                 UPDATE profile_lifecycle SET generation=generation+1,analysis_enabled=false,updated_at=CURRENT_TIMESTAMP
                 WHERE user_id=? RETURNING generation
                 """,Long.class,principalUserId);
             UUID job=UUID.randomUUID();
+            if(archive!=null && archive.enabled()) archive.append(job,principalUserId,generation,false);
             jdbc.update("INSERT INTO profile_cleanup_job(job_id,user_id,idempotency_key,generation,state) VALUES (?,?,?,?,'PAUSED')",job,principalUserId,idempotencyKey,generation);
-            for(String target:AUTOMATED)
+            for(String target:automated())
                 jdbc.update("INSERT INTO profile_cleanup_receipt(job_id,target,state) VALUES (?,?,'PENDING')",job,target);
             for(String target:List.of("LEGACY_STORAGE","DERIVED_COPIES","BACKUP_RESTORE"))
-                jdbc.update("INSERT INTO profile_cleanup_receipt(job_id,target,state,error_code) VALUES (?,?,'BLOCKED','INVENTORY_OR_ADAPTER_REQUIRED')",job,target);
+                if(!automated().contains(target)) jdbc.update("INSERT INTO profile_cleanup_receipt(job_id,target,state,error_code) VALUES (?,?,'BLOCKED','INVENTORY_OR_ADAPTER_REQUIRED')",job,target);
             return job;
         });
     }
@@ -55,6 +74,22 @@ public class ProfileCleanupService {
         if(rows.isEmpty()) return Map.of();
         var result=new java.util.LinkedHashMap<String,Object>(rows.getFirst());
         result.put("targets",jdbc.queryForList("SELECT target,state,attempts,error_code FROM profile_cleanup_receipt WHERE job_id=? ORDER BY target",job));
+        return result;
+    }
+
+    public boolean operational() {
+        if(!enabled || archive==null || !archive.enabled() || legacy==null || !legacy.enabled() || !derivedEnabled || derived==null) return false;
+        archive.sync();return true;
+    }
+
+    public Map<String,Object> overview(long user) {
+        if(user<=0) throw new IllegalArgumentException("Authenticated owner required");
+        var result=new java.util.LinkedHashMap<String,Object>();
+        result.put("available",operational());
+        var lifecycle=jdbc.queryForList("SELECT analysis_enabled FROM profile_lifecycle WHERE user_id=?",user);
+        result.put("analysisEnabled",lifecycle.isEmpty() || Boolean.TRUE.equals(lifecycle.getFirst().get("analysis_enabled")));
+        var jobs=jdbc.queryForList("SELECT job_id FROM profile_cleanup_job WHERE user_id=? ORDER BY created_at DESC LIMIT 1",UUID.class,user);
+        if(!jobs.isEmpty()) result.put("job",status(user,jobs.getFirst()));
         return result;
     }
 
@@ -75,7 +110,7 @@ public class ProfileCleanupService {
             """,UUID.class);
         if(jobs.isEmpty()) return false;
         UUID job=jobs.getFirst();
-        for(String target:AUTOMATED) {
+        for(String target:automated()) {
             try { runTarget(job,target); }
             catch(StaleCleanup stale) { markStale(job); }
             catch(RuntimeException failure) { retry(job,target); }
@@ -102,7 +137,16 @@ public class ProfileCleanupService {
                 jdbc.update("DELETE FROM user_profile_entity_fact WHERE user_id=?",user);
                 jdbc.update("DELETE FROM user_profile_change_log WHERE user_id=?",user);
                 jdbc.update("DELETE FROM user_profile_snapshot WHERE user_id=?",user);
-            } else redis.clean(user,generation);
+                if(derivedEnabled) jdbc.update("UPDATE routing_call_log SET llm_received_question=NULL WHERE user_id=?",user);
+            } else if("REDIS_INDEXED".equals(target)) redis.clean(user,generation);
+            else if("BACKUP_RESTORE".equals(target)) archive.requireArchived(user,generation);
+            else if("LEGACY_STORAGE".equals(target)) legacy.clean(user);
+            else if("DERIVED_COPIES".equals(target)) {
+                // Preserve original questions, replies, token/tool counts and business history.
+                // Late prompt writers take the same lifecycle lock and suppress new copies.
+                if(derived==null) throw new IllegalStateException("Derived cleanup adapter unavailable");
+                derived.clean(user);
+            } else throw new IllegalStateException("Unknown cleanup target");
             jdbc.update("UPDATE profile_cleanup_receipt SET state='SUCCEEDED',attempts=attempts+1,error_code=NULL,updated_at=CURRENT_TIMESTAMP WHERE job_id=? AND target=?",job,target);
         });
     }
@@ -134,5 +178,12 @@ public class ProfileCleanupService {
             """,job);
     }
     private void limits() { jdbc.execute("SET LOCAL lock_timeout='500ms'");jdbc.execute("SET LOCAL statement_timeout='3s'"); }
+    private List<String> automated() {
+        var result=new java.util.ArrayList<>(AUTOMATED);
+        if(derivedEnabled) result.add("DERIVED_COPIES");
+        if(archive!=null && archive.enabled()) result.add("BACKUP_RESTORE");
+        if(legacy!=null && legacy.enabled()) result.add("LEGACY_STORAGE");
+        return result;
+    }
     private static final class StaleCleanup extends RuntimeException { }
 }
