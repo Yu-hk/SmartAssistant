@@ -55,6 +55,9 @@
 本批不创建生产导出任务、不配置自动备份、不新增密钥、不开放删除入口。
 `LEGACY_STORAGE`、`DERIVED_COPIES`、`BACKUP_RESTORE` 继续 BLOCKED。
 
+后续已验证的事务控制事件及用户确认的同机目录方案见
+[画像控制事件事务演练](profile-control-outbox-20260919.md)。这仍不是生产独立备份验收。
+
 ## 验证与部署
 
 - 本地 57 项 Python 测试通过，其中新增存储清点 8 项、检查点合同 7 项。
