@@ -199,10 +199,23 @@ jobs:
         ports: ['6389:6379']
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 3s --health-retries 10
+            --health-interval 5s --health-timeout 3s --health-retries 10
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: smartassistant_profile_integration
+          POSTGRES_USER: integration
+          POSTGRES_PASSWORD: integration-test-only
+        ports: ['15434:5432']
+        options: >-
+          --health-cmd "pg_isready -U integration -d smartassistant_profile_integration"
+          --health-interval 3s --health-timeout 3s --health-retries 20
     env:
       RUN_REDIS_INTEGRATION_TESTS: 'true'
       TEST_REDIS_PORT: '6389'
+      PG_TEST_URL: jdbc:postgresql://127.0.0.1:15434/smartassistant_profile_integration
+      PG_TEST_USER: integration
+      PG_TEST_PASSWORD: integration-test-only
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -212,10 +225,13 @@ jobs:
           cache: 'maven'
       - name: Verify ownership, deletion fencing and orphan recovery
         run: >-
-          mvn -B -pl smart-assistant-consumer -am test
-          -Dtest=ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
-          -Dsurefire.failIfNoSpecifiedTests=false
-      - run: python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRequestRedisIntegrationTest.xml --minimum 10
+            mvn -B -pl smart-assistant-consumer,smart-assistant-router -am test
+            -Dtest=ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,ProfileRedisPublicationIntegrationTest,ProfileProjectionReaderIntegrationTest,UserProfileContextAwaiterTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
+            -Dprofile.pg.integration=true -Dsurefire.failIfNoSpecifiedTests=false
+      - run: |
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRequestRedisIntegrationTest.xml --minimum 12
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRedisPublicationIntegrationTest.xml --minimum 4
+          python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.ProfileProjectionReaderIntegrationTest.xml --minimum 10
 
   # 全模块编译完整性检查（不含测试，最快反馈构建是否破坏）
   compile-all:

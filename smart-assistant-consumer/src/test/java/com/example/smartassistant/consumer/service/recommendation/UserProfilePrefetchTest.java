@@ -72,7 +72,7 @@ class UserProfilePrefetchTest {
         ArgumentCaptor<String> candidates = ArgumentCaptor.forClass(String.class);
         verify(redis, times(2)).execute(eq(ProfileRequestRedisStore.PUBLISH),
                 eq(ProfileRequestRedisStore.keys(42L, "request-profile")), eq("42|0"),
-                states.capture(), candidates.capture(), anyString(), eq("120000"), eq("request-profile"));
+                states.capture(), candidates.capture(), anyString(), eq("120000"), eq("request-profile"), eq("0"));
         assertThat(states.getAllValues().get(1))
                 .startsWith(RoutingKeys.USER_PROFILE_READY_PREFIX)
                 .contains("【电商用户洞察】");
@@ -259,7 +259,7 @@ class UserProfilePrefetchTest {
         when(extractor.extract(anyString(), anyString(), anyString())).thenAnswer(ignored -> {
             verify(redis).execute(eq(ProfileRequestRedisStore.PUBLISH), eq(ProfileRequestRedisStore.keys(42L, "saved")),
                     eq("42|0"), org.mockito.ArgumentMatchers.startsWith(RoutingKeys.USER_PROFILE_READY_PREFIX),
-                    eq(""), eq("0"), anyString(), eq("saved"));
+                    eq(""), eq("0"), anyString(), eq("saved"), eq("0"));
             return LLMPreferenceExtractor.UserInsightReport.empty("用户画像分析超时");
         });
         UserProfileService service = service(extractor, store);
@@ -268,7 +268,7 @@ class UserProfilePrefetchTest {
         assertThat(service.prefetchForRequest(42L, "本轮预算2000", "saved").join())
                 .contains("轻薄", "本轮明确的预算", "冲突时忽略历史偏好");
         verify(redis, never()).execute(eq(ProfileRequestRedisStore.PUBLISH), anyList(),
-                anyString(), anyString(), org.mockito.ArgumentMatchers.matches(".+"), anyString(), anyString(), anyString());
+                anyString(), anyString(), org.mockito.ArgumentMatchers.matches(".+"), anyString(), anyString(), anyString(), anyString());
         verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList(), anyLong());
         // Same request is deduplicated, not reset to PENDING or analyzed a second time.
         service.prefetchForRequest(42L, "本轮预算2000", "saved").join();
@@ -360,6 +360,10 @@ class UserProfilePrefetchTest {
         var admission = mock(ProfileAdmissionCoordinator.class);
         when(admission.admit(anyLong(), anyString(), anyString())).thenReturn(java.util.OptionalLong.of(0));
         ReflectionTestUtils.setField(service, "admissionCoordinator", admission);
+        var publicationFence = mock(ProfileGenerationFence.class);
+        when(publicationFence.write(anyLong(),anyLong(),any())).thenAnswer(call ->
+                ((java.util.function.Supplier<?>) call.getArgument(2)).get());
+        ReflectionTestUtils.setField(service, "publicationFence", publicationFence);
         ReflectionTestUtils.setField(service, "maxHistoryTurns", 20);
         ReflectionTestUtils.setField(service, "maxHistoryChars", 12000);
         ReflectionTestUtils.setField(service, "commitExecutor", (Executor) Runnable::run);

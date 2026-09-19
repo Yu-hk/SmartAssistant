@@ -21,7 +21,7 @@ class ProfileRequestRedisStoreTest {
         var redis=mock(StringRedisTemplate.class); UserProfilePrefetchTest.stubPublication(redis);
         new ProfileRequestRedisStore(redis).publish(42L,"r",3,"READY:value","candidate",true,Duration.ofSeconds(120));
         verify(redis).execute(eq(ProfileRequestRedisStore.PUBLISH),eq(ProfileRequestRedisStore.keys(42L,"r")),
-                eq("42|3"),eq("READY:value"),eq("candidate"),eq("1"),eq("120000"),eq("r"));
+                eq("42|3"),eq("READY:value"),eq("candidate"),eq("1"),eq("120000"),eq("r"),eq("3"));
         verify(redis,never()).opsForValue();
     }
     @Test void rejectsMissingOrNegativeScriptAcknowledgement() {
@@ -33,5 +33,13 @@ class ProfileRequestRedisStoreTest {
         var redis=mock(StringRedisTemplate.class);
         when(redis.execute(eq(ProfileRequestRedisStore.PUBLISH),anyList(),any(Object[].class))).thenReturn(0L);
         assertDoesNotThrow(()->new ProfileRequestRedisStore(redis).publish(1L,"r",0,"P",null,false,Duration.ofSeconds(30)));
+    }
+    @Test void productionPublicationRequiresLockedGenerationBeforeRedis() {
+        var redis=mock(StringRedisTemplate.class);
+        var fence=mock(ProfileGenerationFence.class);
+        when(fence.write(eq(1L),eq(0L),any())).thenThrow(new ProfileGenerationFence.Rejected());
+        assertThrows(ProfileGenerationFence.Rejected.class,()->new ProfileRequestRedisStore(redis,fence)
+                .publish(1L,"r",0,"PENDING",null,false,Duration.ofSeconds(30)));
+        verifyNoInteractions(redis);
     }
 }
