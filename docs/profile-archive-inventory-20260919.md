@@ -45,3 +45,6 @@ TAR 为遍历目录头会在内存中进行有界解压，ZIP 只读取中央目
 并建立独立可信的删除控制记录备份；不存在其他备份不代表这种控制记录备份已经建立。
 真实恢复时必须重放这些记录，并在 PostgreSQL、Redis、MQ、文件与派生副本全部核验前保持业务关闭。
 `LEGACY_STORAGE`、`DERIVED_COPIES`、`BACKUP_RESTORE` 继续 BLOCKED；本批不开放全量画像删除。
+
+后续旧实例物理层清点、控制文件校验原型及生产落地边界见
+[存储与恢复控制进展](profile-storage-control-20260919.md)。
