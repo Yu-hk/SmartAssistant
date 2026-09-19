@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "test:service-entry": "node scripts/run-service-entry-tests.mjs",
     "test:recovery": "node scripts/run-workflow-recovery-tests.mjs",
     "test:voice": "node scripts/run-voice-input-tests.mjs",
     "test:voice-output": "node scripts/run-voice-output-tests.mjs",
