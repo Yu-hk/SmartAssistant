@@ -7,6 +7,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.TimeUnit;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -40,7 +46,59 @@ class AgentFlowTraceStoreTest {
         var merger = snapshot.nodes().stream()
                 .filter(node -> "__result_merger__".equals(node.id())).findFirst().orElseThrow();
         assertEquals("", merger.agent());
-        assertTrue(merger.summary().contains("product, order"));
+        assertEquals("已完成执行结果汇总", merger.summary());
+        assertEquals("", snapshot.question());
         assertEquals(4, snapshot.nodes().size());
+    }
+
+    @Test void writesOnlyMetadataAndSanitizesLegacyReads() throws Exception {
+        var redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked") ValueOperations<String,String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        var mapper = new ObjectMapper();
+        var store = new AgentFlowTraceStore(mapper, redis);
+        var graph = new IntentGraph("private-question", List.of(
+                new IntentGraph.IntentNode("n1", "private-profile-description", "product", List.of())));
+        store.start("req", graph.getQuestion(), null, graph);
+        var json = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(values).set(eq("routing:execution-graph:req"), json.capture(), eq(24L), eq(TimeUnit.HOURS));
+        assertFalse(json.getValue().contains("private-"));
+        var legacy = new com.example.smartassistant.router.model.AgentFlowSnapshot("req", "private-question", "model", "light", 12,
+                "completed", 1L, 2L, List.of(new com.example.smartassistant.router.model.AgentFlowSnapshot.Node(
+                "n1", "private-label", "product", "agent", "completed", "private-reply-profile", List.of(), 1L)), List.of());
+        when(values.get(anyString())).thenReturn(mapper.writeValueAsString(legacy));
+        assertFalse(mapper.writeValueAsString(store.get("req").orElseThrow()).contains("private-"));
+        store.complete("req", List.of(new SubTaskResult("n1","private-label","product","private-result",true)), List.of("product"), 4L);
+        verify(values, times(2)).set(anyString(), json.capture(), eq(24L), eq(TimeUnit.HOURS));
+        assertFalse(json.getValue().contains("private-"));
+    }
+
+    @Test void localFallbackExpiresAndIsBounded() {
+        var clock = new AtomicLong();
+        var store = new AgentFlowTraceStore(new ObjectMapper(), null, clock::get, 2);
+        var graph = new IntentGraph("q", List.of(new IntentGraph.IntentNode("n","task","product",List.of())));
+        for (int i=0;i<20;i++) store.start("r"+i,"q",null,graph);
+        @SuppressWarnings("unchecked") var cache = (com.github.benmanes.caffeine.cache.Cache<String, ?>)
+                org.springframework.test.util.ReflectionTestUtils.getField(store,"localFallback");
+        cache.cleanUp();
+        assertTrue(cache.estimatedSize()<=2);
+        clock.addAndGet(TimeUnit.HOURS.toNanos(25));
+        for (int i=0;i<20;i++) assertTrue(store.get("r"+i).isEmpty());
+    }
+
+    @Test void redisDeletionCannotResurrectLocalCopyAndFailureNeverContainsRawError() {
+        var redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked") ValueOperations<String,String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        var store = new AgentFlowTraceStore(new ObjectMapper(),redis);
+        var graph = new IntentGraph("q", List.of(new IntentGraph.IntentNode("n","task","product",List.of())));
+        store.start("r","q",null,graph);
+        when(values.get(anyString())).thenThrow(new IllegalStateException("private-error"));
+        store.fail("r","private-error");
+        assertTrue(store.get("r").orElseThrow().nodes().stream().noneMatch(n->n.summary().contains("private")));
+        doReturn(null).when(values).get(anyString());
+        assertTrue(store.get("r").isEmpty());
+        doThrow(new IllegalStateException("offline")).when(values).get(anyString());
+        assertTrue(store.get("r").isEmpty());
     }
 }

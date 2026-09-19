@@ -6,6 +6,9 @@ import com.example.smartassistant.router.model.SubTaskResult;
 import com.example.smartassistant.router.model.TaskAnalysisResult;
 import com.example.smartassistant.routing.contract.RoutingKeys;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Ticker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +16,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /** Stores the real LangGraph topology and its final node states for the admin console. */
@@ -27,12 +30,19 @@ public class AgentFlowTraceStore {
 
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
-    private final Map<String, AgentFlowSnapshot> localFallback = new ConcurrentHashMap<>();
+    private final Cache<String, AgentFlowSnapshot> localFallback;
 
+    @Autowired
     public AgentFlowTraceStore(ObjectMapper objectMapper,
                                @Autowired(required = false) StringRedisTemplate redisTemplate) {
+        this(objectMapper, redisTemplate, Ticker.systemTicker(), 1000);
+    }
+
+    AgentFlowTraceStore(ObjectMapper objectMapper, StringRedisTemplate redisTemplate, Ticker ticker, long capacity) {
         this.objectMapper = objectMapper;
         this.redisTemplate = redisTemplate;
+        this.localFallback = Caffeine.newBuilder().maximumSize(capacity)
+                .expireAfterWrite(Duration.ofHours(TTL_HOURS)).ticker(ticker).build();
     }
 
     public void start(String requestId, String question, TaskAnalysisResult analysis,
@@ -137,24 +147,65 @@ public class AgentFlowTraceStore {
             try {
                 String json = redisTemplate.opsForValue().get(RoutingKeys.executionGraph(requestId));
                 if (json != null && !json.isBlank()) {
-                    return Optional.of(objectMapper.readValue(json, AgentFlowSnapshot.class));
+                    // Legacy snapshots can contain personal model output. Never expose it on reads.
+                    return Optional.of(metadataOnly(objectMapper.readValue(json, AgentFlowSnapshot.class)));
                 }
+                // An authoritative miss/deletion must not be resurrected from process memory.
+                localFallback.invalidate(requestId);
+                return Optional.empty();
             } catch (Exception e) {
-                log.warn("[AgentFlow] Redis read failed: {}", e.getMessage());
+                log.warn("[AgentFlow] Redis read failed: type={}", e.getClass().getSimpleName());
             }
         }
-        return Optional.ofNullable(localFallback.get(requestId));
+        return Optional.ofNullable(localFallback.getIfPresent(requestId));
     }
 
     private void save(AgentFlowSnapshot snapshot) {
+        snapshot = metadataOnly(snapshot);
         localFallback.put(snapshot.requestId(), snapshot);
         if (redisTemplate == null) return;
         try {
             redisTemplate.opsForValue().set(RoutingKeys.executionGraph(snapshot.requestId()),
                     objectMapper.writeValueAsString(snapshot), TTL_HOURS, TimeUnit.HOURS);
         } catch (Exception e) {
-            log.warn("[AgentFlow] Redis write failed: {}", e.getMessage());
+            log.warn("[AgentFlow] Redis write failed: type={}", e.getClass().getSimpleName());
         }
+    }
+
+    /** Diagnostic copies retain topology, not user questions, generated descriptions or reply prose. */
+    static AgentFlowSnapshot metadataOnly(AgentFlowSnapshot snapshot) {
+        List<AgentFlowSnapshot.Node> nodes = snapshot.nodes().stream().map(node -> {
+            String agent = switch (safe(node.agent(), "")) {
+                case "product", "order", "knowledge", "general", "router-fallback" -> node.agent();
+                default -> "";
+            };
+            String label = switch (safe(node.type(), "")) {
+                case "planner" -> "意图拆解与节点分配";
+                case "merger" -> "汇总 Agent 执行结果";
+                default -> switch (agent) {
+                    case "product" -> "商品服务";
+                    case "order" -> "订单服务";
+                    case "knowledge" -> "知识检索";
+                    default -> "业务处理节点";
+                };
+            };
+            String summary = switch (safe(node.status(), "")) {
+                case "completed" -> "处理完成";
+                case "failed" -> "处理失败";
+                case "skipped" -> "未执行";
+                default -> "等待处理";
+            };
+            if ("merger".equals(node.type()) && "completed".equals(node.status())) {
+                summary = "已完成执行结果汇总";
+            }
+            return new AgentFlowSnapshot.Node(node.id(), label, agent, node.type(), node.status(),
+                    summary, node.dependsOn(), node.elapsedMs());
+        }).toList();
+        // Edge labels are fixed by topology rather than arbitrary descriptions from old data.
+        List<AgentFlowSnapshot.Edge> edges = snapshot.edges().stream().map(edge ->
+                new AgentFlowSnapshot.Edge(edge.from(), edge.to(), "依赖")).toList();
+        return new AgentFlowSnapshot(snapshot.requestId(), "", snapshot.modelName(), snapshot.modelTier(),
+                snapshot.questionChars(), snapshot.status(), snapshot.startedAt(), snapshot.completedAt(), nodes, edges);
     }
 
     private static List<String> terminalIds(IntentGraph graph) {
