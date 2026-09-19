@@ -131,6 +131,8 @@ public class UserProfileService {
     /**
      * Admission waits at most its separate pre-queue budget; model execution stays on workers.
      * Profile completion is not a mandatory barrier. Repeated admission does not reset its state.
+     * The future is completion-only (empty string for source compatibility). Profile bodies
+     * must only be read through the generation-fenced store, never from this deduplication cache.
      */
     public CompletableFuture<String> prefetchForRequest(
             Long userId, String question, String requestId) {
@@ -157,7 +159,7 @@ public class UserProfileService {
                             PreparedProfile prepared = prepareProfile(userId, question, requestId, generation);
                             profileStore.requireGeneration(userId, generation);
                             publishPrefetchResult(userId,requestId,generation,prepared,null);
-                            return prepared.projection();
+                            return "";
                         } catch (RuntimeException unavailable) {
                             publishPrefetchResult(userId,requestId,generation,null,unavailable);
                             return "";

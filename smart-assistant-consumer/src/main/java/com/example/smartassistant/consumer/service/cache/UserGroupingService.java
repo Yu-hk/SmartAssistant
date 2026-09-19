@@ -12,8 +12,6 @@ import com.example.smartassistant.consumer.service.recommendation.UserProfileSer
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
  * 用户画像分组服务
  *
@@ -21,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ul>
  *     <li>⭐ 基于用户画像（食物偏好、旅行偏好、预算范围、饮食限制）计算分组 ID</li>
  *     <li>只有相同画像组的用户，在发起语义相同的提问时才会触发语义缓存命中</li>
- *     <li>分组 ID 缓存在内存中（5 分钟），避免频繁查询数据库</li>
+ *     <li>每次从受生命周期约束的存储读取，不保留可能绕过暂停/清理的本地画像分组</li>
  * </ul>
  *
  * <p>分组维度：</p>
@@ -44,11 +42,6 @@ public class UserGroupingService {
 
     private final UserProfileService userProfileService;
 
-    // ⭐ 本地分组缓存（userId -> groupId），避免频繁查询 DB
-    // key: userId, value: [groupId, expireTimestamp]
-    private final ConcurrentHashMap<String, String[]> groupIdCache = new ConcurrentHashMap<>();
-    private static final long GROUP_CACHE_TTL_MS = 5 * 60 * 1000L;  // 5 分钟
-
     public UserGroupingService(UserProfileService userProfileService) {
         this.userProfileService = userProfileService;
     }
@@ -64,13 +57,6 @@ public class UserGroupingService {
             return "grp:anonymous";
         }
 
-        // 1. 先查本地缓存
-        String[] cached = groupIdCache.get(userId);
-        if (cached != null && System.currentTimeMillis() < Long.parseLong(cached[1])) {
-            log.debug("[UserGroup] 命中本地缓存: userId={}, groupId={}", userId, cached[0]);
-            return cached[0];
-        }
-
         // 2. 查询用户画像
         UserProfile profile = null;
         try {
@@ -80,28 +66,17 @@ public class UserGroupingService {
             // userId 是字符串（用户名）而非数字 ID，当前暂不支持按用户名查询画像
             log.debug("[UserGroup] userId 非数字，跳过画像查询: userId={}", userId);
         } catch (Exception e) {
-            log.warn("[UserGroup] 查询用户画像失败: userId={}, error={}", userId, e.getMessage());
+            log.warn("[UserGroup] 查询用户画像失败: type={}", e.getClass().getSimpleName());
         }
 
-        // 3. 计算分组 ID
-        String groupId = computeGroupId(userId, profile);
-
-        // 4. 写入本地缓存
-        groupIdCache.put(userId, new String[]{
-                groupId,
-                String.valueOf(System.currentTimeMillis() + GROUP_CACHE_TTL_MS)
-        });
-
-        log.debug("[UserGroup] 计算分组 ID: userId={}, groupId={}", userId, groupId);
-        return groupId;
+        return computeGroupId(userId, profile);
     }
 
     /**
      * 强制刷新用户分组缓存（用户画像更新后调用）
      */
     public void evictGroupCache(String userId) {
-        groupIdCache.remove(userId);
-        log.debug("[UserGroup] 已清除分组缓存: userId={}", userId);
+        // Compatibility hook; no process-local profile-derived cache remains.
     }
 
     /**
