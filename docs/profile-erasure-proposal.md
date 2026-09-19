@@ -3,6 +3,7 @@
 状态：已按用户确认的范围推进；第一阶段仅实现 PostgreSQL 代次隔离，尚未开放删除/恢复入口。
 审计基线：PR #64。下述完整删除协议仍是拟议设计；已实现范围见 [代次隔离](profile-generation-fencing.md)。
 后续新 MQ 消息的内容隔离见 [画像提交引用消息](profile-reference-messages.md)，旧队列内容与跨存储清理尚未完成。
+请求级 Redis 发布及新用户索引见 [Redis 原子发布](profile-redis-publication.md)；它不是用户级删除屏障，仍不开放删除入口。
 
 ## 已确认的产品行为
 
