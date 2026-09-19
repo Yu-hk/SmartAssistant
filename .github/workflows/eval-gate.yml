@@ -60,6 +60,7 @@ jobs:
       - run: python -m unittest discover -s scripts -p 'test_release_artifacts.py' -v
       - run: python -m unittest discover -s scripts -p 'test_profile_restore_drill.py' -v
       - run: python -m unittest discover -s scripts -p 'test_profile_backup_catalog.py' -v
+      - run: python -m unittest discover -s scripts -p 'test_profile_archive_inventory.py' -v
       - name: Synthetic offline PostgreSQL backup restore drill
         run: |
           docker pull pgvector/pgvector:0.8.0-pg16
