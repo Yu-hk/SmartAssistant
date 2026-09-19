@@ -7,6 +7,8 @@
 Consumer 新实体事实已接入同一 PG 控制面，见 [实体画像隔离](profile-entity-fencing.md)。
 电商画像已补 [入队前准入](profile-request-admission.md)，业务 MQ 不再重启画像分析；
 旧实体/文件副本及其他提取入口仍需治理，不把本批视作全量删除完成。
+订单 Agent 新记忆已转为 [受控 PG 事实](governed-agent-memory.md)，只接受已准入的本轮原话；
+历史文件仍需逐实例清理回执，未自动迁移或删除。
 
 ## 已确认的产品行为
 

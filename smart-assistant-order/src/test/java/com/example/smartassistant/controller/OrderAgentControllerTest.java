@@ -46,6 +46,7 @@ class OrderAgentControllerTest {
     private ContextOrchestrator orchestrator;
     private OrderAgentController controller;
     private StageTraceRecorder recorder;
+    private MemoryExtractor memoryExtractor;
 
     @BeforeEach
     void setUp() {
@@ -53,7 +54,7 @@ class OrderAgentControllerTest {
         intentService = mock(OrderIntentService.class);
         ragService = mock(OrderRagService.class);
         orchestrator = mock(ContextOrchestrator.class);
-        MemoryExtractor memoryExtractor = mock(MemoryExtractor.class);
+        memoryExtractor = mock(MemoryExtractor.class);
         controller = new OrderAgentController(agent, intentService, ragService, memoryExtractor, orchestrator);
         recorder = new StageTraceRecorder(null);
         controller.setStageTraceRecorder(recorder);
@@ -130,10 +131,12 @@ class OrderAgentControllerTest {
 
         String result = controller.processQuestion(Map.of(
                 "question", "商品退货退款需要满足哪些条件？",
+                "userId", "42",
                 "requestId", "req-refund-policy"));
 
         assertTrue(result.contains("7天内"));
         assertTrue(result.contains("商品完好"));
+        verify(memoryExtractor).extractAsync("order","42","商品退货退款需要满足哪些条件？",result,"req-refund-policy");
         verify(agent, never()).execute(anyString());
         assertEquals("SKIPPED", recorder.findByRequestId("req-refund-policy")
                 .lastStageOf(RagStage.GENERATION).status());
