@@ -84,6 +84,14 @@ def inventory():
             cursor = parts[0]; keys.update(parts[1:])
             if cursor == '0': complete = True; break
         redis_counts[prefix] = {'observedKeys': len(keys), 'scanComplete': complete}
+        if prefix == 'routing:execution-graph:':
+            # Metadata only: prove expiry bounds without fetching legacy diagnostic bodies.
+            ttls = [int(redis('PTTL', key)) for key in keys]
+            redis_counts[prefix]['retention'] = {
+                'withoutExpiry': sum(ttl == -1 for ttl in ttls),
+                'missingDuringScan': sum(ttl == -2 for ttl in ttls),
+                'over24Hours': sum(ttl > 86400000 for ttl in ttls),
+                'maxRemainingMs': max(ttls, default=0)}
     report['redis'] = redis_counts
     report['queueMetadata'] = run(['docker', 'exec', 'smart-rabbitmq', 'rabbitmqctl', '-q',
                                   'list_queues', 'name', 'messages_ready', 'messages_unacknowledged']).splitlines()

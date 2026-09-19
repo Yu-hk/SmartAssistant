@@ -64,6 +64,9 @@
 
 ## 生产发布验证
 
+后续诊断字段最小化、执行图过期核查及历史备份目录检查见
+[诊断副本治理进展](profile-diagnostics-20260919.md)。后续检查不改变本文的全量擦除验收边界。
+
 - 前端发布目录 `/opt/smart-assistant/releases/service-entry-20260919`；主资源 `index-CN1OtQ4D.js`。
   旧资源保留，入口 HTML 可单独回滚。
 - Consumer 发布目录 `/opt/smart-assistant/releases/profile-derived-20260919`；回滚备份

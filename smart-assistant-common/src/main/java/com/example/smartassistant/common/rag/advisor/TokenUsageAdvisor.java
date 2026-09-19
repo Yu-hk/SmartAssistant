@@ -34,7 +34,7 @@ import java.util.function.Supplier;
  * Token 用量监测 Advisor — 真实采集 LLM 调用的 token 用量、模型与耗时，
  * 并发布结构化 {@link AiAuditEvent} 落库，补齐调用级可观测闭环。
  * <p>
- * 与 {@code PromptAuditAdvisor}（审计 prompt 文本）分工：本 Advisor 负责
+ * 与 {@code PromptAuditAdvisor}（仅审计消息数量等元数据）分工：本 Advisor 负责
  * <b>量化指标采集与审计事件发布</b>，日志仅保留链路级 DEBUG 摘要。
  * </p>
  * <p>
