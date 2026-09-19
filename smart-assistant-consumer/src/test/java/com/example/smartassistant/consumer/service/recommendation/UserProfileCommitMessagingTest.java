@@ -27,8 +27,10 @@ class UserProfileCommitMessagingTest {
     @Test
     void publisherSendsPersistentRequestIdentifiedMessage() throws Exception {
         RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
+        ProfileCommitCandidateStore store=mock(ProfileCommitCandidateStore.class);
+        org.mockito.Mockito.when(store.stage(org.mockito.ArgumentMatchers.any())).thenReturn("11111111-1111-1111-1111-111111111111");
         UserProfileCommitPublisher publisher = new UserProfileCommitPublisher(
-                rabbitTemplate, objectMapper, "profile.exchange", "profile.commit", 1_000L);
+                rabbitTemplate, objectMapper, store, "profile.exchange", "profile.commit", 1_000L);
         doAnswer(invocation -> {
             CorrelationData correlation = invocation.getArgument(3);
             correlation.getFuture().complete(new CorrelationData.Confirm(true, null));
@@ -55,16 +57,24 @@ class UserProfileCommitMessagingTest {
                 message.getValue().getBody(), UserProfileCommitRequestedEvent.class);
         assertThat(event.userId()).isEqualTo(42L);
         assertThat(event.requestId()).isEqualTo("request-42");
-        assertThat(event.candidate()).isEqualTo(candidate);
+        assertThat(event.version()).isEqualTo("2");
+        assertThat(event.candidate()).isNull();
+        assertThat(event.candidateId()).isEqualTo("11111111-1111-1111-1111-111111111111");
+        assertThat(event.generation()).isZero();
+        assertThat(new String(message.getValue().getBody(),java.nio.charset.StandardCharsets.UTF_8))
+                .doesNotContain("推荐耳机","信息不足","report","latestUserMessage","\"candidate\"");
+        org.mockito.InOrder order=org.mockito.Mockito.inOrder(store,rabbitTemplate);
+        order.verify(store).stage(candidate);
+        order.verify(rabbitTemplate).send(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.any(Message.class),org.mockito.ArgumentMatchers.any(CorrelationData.class));
     }
 
     @Test
     void listenerDelegatesValidCommitEvent() throws Exception {
         UserProfileService service = mock(UserProfileService.class);
-        UserProfileCommitListener listener = new UserProfileCommitListener(objectMapper, service);
+        UserProfileCommitListener listener = new UserProfileCommitListener(objectMapper, service, mock(ProfileCommitCandidateStore.class));
         UserProfileService.PreparedProfileCandidate candidate = candidate("request-valid");
         byte[] body = objectMapper.writeValueAsBytes(new UserProfileCommitRequestedEvent(
-                UserProfileCommitRequestedEvent.CURRENT_VERSION,
+                UserProfileCommitRequestedEvent.LEGACY_VERSION,
                 42L, "request-valid", candidate, Instant.now()));
 
         listener.receive(MessageBuilder.withBody(body).build());
@@ -75,7 +85,7 @@ class UserProfileCommitMessagingTest {
     @Test
     void listenerRejectsUnsupportedEventVersion() throws Exception {
         UserProfileCommitListener listener = new UserProfileCommitListener(
-                objectMapper, mock(UserProfileService.class));
+                objectMapper, mock(UserProfileService.class), mock(ProfileCommitCandidateStore.class));
         byte[] body = objectMapper.writeValueAsBytes(new UserProfileCommitRequestedEvent(
                 "99", 42L, "request-invalid", candidate("request-invalid"), Instant.now()));
 
