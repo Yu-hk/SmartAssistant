@@ -81,6 +81,9 @@ class ProfileGenerationServiceTest {
             doThrow(new ProfileGenerationFence.Rejected()).when(store).requireGeneration(42L,3L); return report();
         });
         var service=service(extractor,store);
+        var admission=mock(ProfileAdmissionCoordinator.class);
+        when(admission.admit(42L,"fixture","当前问题")).thenReturn(java.util.OptionalLong.of(3));
+        ReflectionTestUtils.setField(service,"admissionCoordinator",admission);
         ReflectionTestUtils.setField(service,"redisTemplate",redis);
         ReflectionTestUtils.setField(service,"profileExecutor",(java.util.concurrent.Executor)Runnable::run);
         assertEquals("",service.prefetchForRequest(42L,"当前问题","fixture").join());
@@ -90,5 +93,36 @@ class ProfileGenerationServiceTest {
                 eq(""),eq("0"),anyString(),eq("fixture"));
         verify(redis,never()).execute(eq(ProfileRequestRedisStore.PUBLISH),anyList(),
                 anyString(),anyString(),anyString(),eq("1"),anyString(),anyString());
+    }
+    @Test void delayedPreparationKeepsAdmissionGenerationAndCannotStartAfterReset() {
+        var store=mock(UserProfileSnapshotStore.class); var extractor=mock(LLMPreferenceExtractor.class);
+        var redis=mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        var admission=mock(ProfileAdmissionCoordinator.class);
+        when(admission.admit(42L,"delayed","question")).thenReturn(java.util.OptionalLong.of(3));
+        var service=service(extractor,store);
+        var task=new java.util.concurrent.atomic.AtomicReference<Runnable>();
+        ReflectionTestUtils.setField(service,"admissionCoordinator",admission);
+        ReflectionTestUtils.setField(service,"redisTemplate",redis);
+        ReflectionTestUtils.setField(service,"profileExecutor",(java.util.concurrent.Executor)task::set);
+        var result=service.prefetchForRequest(42L,"question","delayed");
+        assertFalse(result.isDone());
+        doThrow(new ProfileGenerationFence.Rejected()).when(store).requireGeneration(42L,3L);
+        task.get().run();
+        assertEquals("",result.join());
+        verifyNoInteractions(extractor,redis);
+        verify(store,never()).captureGeneration(anyLong());
+        verify(admission,times(1)).admit(42L,"delayed","question");
+    }
+    @Test void failedAdmissionDoesNotScheduleModelOrRedisWork() {
+        var store=mock(UserProfileSnapshotStore.class); var extractor=mock(LLMPreferenceExtractor.class);
+        var redis=mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        var admission=mock(ProfileAdmissionCoordinator.class); var executor=mock(java.util.concurrent.Executor.class);
+        when(admission.admit(42L,"busy","question")).thenReturn(java.util.OptionalLong.empty());
+        var service=service(extractor,store);
+        ReflectionTestUtils.setField(service,"admissionCoordinator",admission);
+        ReflectionTestUtils.setField(service,"redisTemplate",redis);
+        ReflectionTestUtils.setField(service,"profileExecutor",executor);
+        assertEquals("",service.prefetchForRequest(42L,"question","busy").join());
+        verifyNoInteractions(store,extractor,redis,executor);
     }
 }
