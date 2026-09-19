@@ -6,6 +6,7 @@ import { useSessions } from './hooks/useSessions';
 import { useChat } from './hooks/useChat';
 import { useNotifications } from './hooks/useNotifications';
 import { getUserDisplayName } from './utils/userDisplay';
+import { serviceEntryDraft } from './utils/serviceEntry';
 
 import { CustomerSidebar } from './components/CustomerSidebar';
 import { SessionInsightPanel } from './components/SessionInsightPanel';
@@ -192,7 +193,7 @@ function CustomerApp() {
     sessions, setSessions, sessionActionError, setSessionActionError, blockingSessionId, setBlockingSessionId,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, deleteSession, createSession, closeSession, resumeSession, rateSession,
+    fetchSessions, deleteSession, closeSession, resumeSession, rateSession,
   } = useSessions();
 
   const [resolvingConflict, setResolvingConflict] = useState(false);
@@ -241,18 +242,20 @@ function CustomerApp() {
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
   const handleNewChat = useCallback(() => {
-    const sessionId = createSession();
+    if (isLoading) return;
+    setCurrentSessionId(null);
     setInputValue('');
     setSidebarOpen(false);
-    navigate(`/chat/${sessionId}`);
-  }, [createSession, navigate, setInputValue]);
+    navigate('/');
+  }, [isLoading, navigate, setInputValue, setCurrentSessionId]);
 
   const handleSelectAgent = useCallback((serviceName: string) => {
-    const sessionId = createSession(`${serviceName}咨询`);
-    setInputValue(`我需要${serviceName}：`);
+    if (isLoading) return;
+    setCurrentSessionId(null);
+    setInputValue(current => serviceEntryDraft(current, serviceName));
     setSidebarOpen(false);
-    navigate(`/chat/${sessionId}`);
-  }, [createSession, navigate, setInputValue]);
+    navigate('/');
+  }, [isLoading, navigate, setInputValue, setCurrentSessionId]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId);
@@ -296,6 +299,7 @@ function CustomerApp() {
         onDeleteSession={handleDeleteSession}
         onResumeSession={sessionId => { void handleResumeSession(sessionId); }}
         onSelectAgent={handleSelectAgent}
+        serviceEntryDisabled={isLoading}
         onToggleTheme={toggleTheme}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}

@@ -123,7 +123,7 @@ export function CustomerChatPage({
             </div>
 
             <CustomerChatInput
-              key={currentSession?.id || 'new'}
+              key={`composer:${currentSession?.id || 'new'}`}
               variant="home"
               voiceReplyEnabled={voiceReplyEnabled} onToggleVoiceReply={toggleVoiceReply} onVoiceStart={startVoiceInput}
               onVoiceBusyChange={setVoiceInputBusy}
@@ -139,7 +139,7 @@ export function CustomerChatPage({
             />
 
             <ScenarioExamples disabled={isClosed || isSuspended || isLoading} onSelect={onInputChange} />
-            <details className="home-documents" key={currentSession?.id || 'new'}>
+            <details className="home-documents" key={`documents:${currentSession?.id || 'new'}`}>
               <summary><FileText size={17} /><span>文档问答<small>导入资料，或试用示例文档</small></span><span className="home-documents-toggle" aria-hidden="true">+</span></summary>
               <DocumentExamples disabled={isClosed || isSuspended || isLoading}
                 hasDraft={Boolean(inputValue.trim())} onSelect={onInputChange} />

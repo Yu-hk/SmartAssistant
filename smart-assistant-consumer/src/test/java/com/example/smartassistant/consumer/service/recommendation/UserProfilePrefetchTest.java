@@ -67,7 +67,9 @@ class UserProfilePrefetchTest {
 
         scheduled.get().run();
 
-        assertThat(result.join()).contains("【电商用户洞察】").contains("深度咨询");
+        assertThat(result.join()).isEmpty(); // Completed/cached futures must not retain profile bodies.
+        assertThat(service.prefetchForRequest(42L, "帮我查热门商品", "request-profile"))
+                .isSameAs(result);
         ArgumentCaptor<String> states = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> candidates = ArgumentCaptor.forClass(String.class);
         verify(redis, times(2)).execute(eq(ProfileRequestRedisStore.PUBLISH),
@@ -266,7 +268,11 @@ class UserProfilePrefetchTest {
         ReflectionTestUtils.setField(service, "redisTemplate", redis);
         ReflectionTestUtils.setField(service, "profileExecutor", (Executor) Runnable::run);
         assertThat(service.prefetchForRequest(42L, "本轮预算2000", "saved").join())
-                .contains("轻薄", "本轮明确的预算", "冲突时忽略历史偏好");
+                .isEmpty();
+        verify(redis).execute(eq(ProfileRequestRedisStore.PUBLISH),
+                eq(ProfileRequestRedisStore.keys(42L, "saved")), eq("42|0"),
+                org.mockito.ArgumentMatchers.contains("轻薄"), eq(""), eq("1"),
+                anyString(), eq("saved"), eq("0"));
         verify(redis, never()).execute(eq(ProfileRequestRedisStore.PUBLISH), anyList(),
                 anyString(), anyString(), org.mockito.ArgumentMatchers.matches(".+"), anyString(), anyString(), anyString(), anyString());
         verify(store, never()).save(anyLong(), anyString(), anyLong(), any(), any(), anyList(), anyLong());

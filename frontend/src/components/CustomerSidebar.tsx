@@ -1,5 +1,6 @@
 import { Moon, Sun, Plus, X, MessageSquare, RotateCcw, Trash2, ChevronDown } from 'lucide-react';
 import { Session } from '../types';
+import { SERVICE_NAMES } from '../utils/serviceEntry';
 
 interface CustomerSidebarProps {
   sessions: Session[];
@@ -11,18 +12,18 @@ interface CustomerSidebarProps {
   onResumeSession: (id: string) => void;
   onSelectAgent: (name: string) => void;
   onToggleTheme: () => void;
+  serviceEntryDisabled?: boolean;
   isOpen?: boolean;
   onClose?: () => void;
 }
 
-const SERVICES = ['售前顾问', '技术支持', '订单助手', '投诉处理', '知识管家'];
 const STATUS_LABELS: Record<string, string> = {
   active: '进行中', suspended: '已暂停', human_transfer: '转人工', closed: '已结束',
 };
 
 export function CustomerSidebar({
   sessions, currentSessionId, theme, onNewChat, onSelectSession, onDeleteSession,
-  onResumeSession, onSelectAgent, onToggleTheme, isOpen = false, onClose,
+  onResumeSession, onSelectAgent, onToggleTheme, serviceEntryDisabled = false, isOpen = false, onClose,
 }: CustomerSidebarProps) {
   const suspended = sessions.filter(session => session.status === 'suspended');
   const regular = sessions.filter(session => session.status !== 'suspended');
@@ -53,7 +54,7 @@ export function CustomerSidebar({
     <div className="customer-navigation-scroll">
       <details className="customer-services">
         <summary>服务入口<ChevronDown size={14} /></summary>
-        <div>{SERVICES.map(name => <button key={name} type="button" onClick={() => onSelectAgent(name)}>{name}</button>)}</div>
+        <div>{SERVICE_NAMES.map(name => <button key={name} type="button" disabled={serviceEntryDisabled} onClick={() => onSelectAgent(name)}>{name}</button>)}</div>
       </details>
       <nav aria-label="我的会话">
         <h2 className="customer-nav-heading">我的会话 <span>{regular.length}</span></h2>
