@@ -24,15 +24,18 @@ public class UserProfileCommitPublisher {
     private final String exchange;
     private final String routingKey;
     private final long confirmTimeoutMs;
+    private final ProfileCommitCandidateStore candidates;
 
     public UserProfileCommitPublisher(
             RabbitTemplate rabbitTemplate,
             ObjectMapper objectMapper,
+            ProfileCommitCandidateStore candidates,
             @Value("${preference.commit.exchange}") String exchange,
             @Value("${preference.commit.routing-key}") String routingKey,
             @Value("${preference.commit.confirm-timeout-ms:5000}") long confirmTimeoutMs) {
         this.rabbitTemplate = rabbitTemplate;
         this.objectMapper = objectMapper;
+        this.candidates = candidates;
         this.exchange = exchange;
         this.routingKey = routingKey;
         this.confirmTimeoutMs = Math.max(100L, confirmTimeoutMs);
@@ -44,7 +47,7 @@ public class UserProfileCommitPublisher {
         Long userId = candidate.userId();
         String requestId = candidate.requestId();
         UserProfileCommitRequestedEvent event =
-                UserProfileCommitRequestedEvent.of(candidate);
+                UserProfileCommitRequestedEvent.reference(candidate, candidates.stage(candidate));
         try {
             Message message = MessageBuilder.withBody(objectMapper.writeValueAsBytes(event))
                     .setContentType(MessageProperties.CONTENT_TYPE_JSON)
