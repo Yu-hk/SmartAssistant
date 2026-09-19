@@ -17,7 +17,7 @@ class GovernedEntityProfileIntegrationTest {
     final ProfileGenerationFenceIntegrationTest fixture=new ProfileGenerationFenceIntegrationTest();
     GovernedEntityProfileStore store;
     @BeforeAll static void database() {
-        ProfileGenerationFenceIntegrationTest.database();
+        ProfileAdmissionIntegrationTest.database();
         Path path=Path.of("docs/database/migrations/20260919_add_profile_entity_facts.sql");
         if(!java.nio.file.Files.exists(path)) path=Path.of("..").resolve(path);
         new ResourceDatabasePopulator(new FileSystemResource(path)).execute(ProfileGenerationFenceIntegrationTest.ds);
@@ -28,9 +28,10 @@ class GovernedEntityProfileIntegrationTest {
     void save(long generation) { store.save(fixture.user,generation,Map.of("preference","便携")); }
     @Test void generationZeroRoundTripAndUpdate() {
         assertEquals(0,store.capture(fixture.user));
+        new ProfileAdmissionStore(db(),fixture.fence).admit(fixture.user,"entity-request","我喜欢便携");
         // Exercise the production bean factory: it must not instantiate the legacy Redis writer.
         new com.example.smartassistant.consumer.rag.EntityProfileConfig().entityProfileService(store)
-                .extractAndStore(fixture.user,"我喜欢便携","");
+                .extractAndStore(fixture.user,"我喜欢便携","","entity-request");
         assertEquals(Map.of("preference","便携"),store.read(fixture.user));
         store.save(fixture.user,0,Map.of("preference","轻薄"));
         assertEquals(Map.of("preference","轻薄"),store.read(fixture.user));

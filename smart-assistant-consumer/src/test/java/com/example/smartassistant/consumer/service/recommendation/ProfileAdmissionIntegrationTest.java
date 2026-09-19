@@ -35,6 +35,19 @@ class ProfileAdmissionIntegrationTest {
         store.admit(fixture.user,"request","original");
         assertThrows(ProfileGenerationFence.Rejected.class,()->store.admit(fixture.user,"request","changed"));
     }
+    @Test void existingOnlyLookupNeverMintsOrRebasesAdmission() {
+        assertThrows(ProfileGenerationFence.Rejected.class,()->store.requireExisting(fixture.user,"missing","question"));
+        assertEquals(0L,count());
+        store.admit(fixture.user,"request","question");
+        assertEquals(0L,store.requireExisting(fixture.user,"request","question"));
+        assertThrows(ProfileGenerationFence.Rejected.class,()->store.requireExisting(fixture.user,"request","changed"));
+        assertThrows(ProfileGenerationFence.Rejected.class,()->store.requireExisting(fixture.user+1,"request","question"));
+        fixture.pauseAndErase();
+        assertThrows(ProfileGenerationFence.Rejected.class,()->store.requireExisting(fixture.user,"request","question"));
+        resume();
+        assertThrows(ProfileGenerationFence.Rejected.class,()->store.requireExisting(fixture.user,"request","question"));
+        assertEquals(1L,count());
+    }
     @Test void pausedAccountCannotAdmitAnyRequest() {
         fixture.pauseAndErase();
         assertThrows(ProfileGenerationFence.Rejected.class,()->store.admit(fixture.user,"new","question"));

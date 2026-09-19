@@ -39,6 +39,19 @@ public class ProfileAdmissionStore {
         });
     }
 
+    /** Resolve only; never mint a receipt for delayed work. */
+    public long requireExisting(Long userId,String requestId,String question) {
+        if(userId==null || userId<=0 || requestId==null || requestId.isBlank() || requestId.length()>128 || question==null)
+            throw new ProfileGenerationFence.Rejected();
+        var rows=jdbc.queryForList("""
+            SELECT a.generation FROM profile_request_admission a
+            JOIN profile_lifecycle l ON l.user_id=a.user_id AND l.generation=a.generation AND l.analysis_enabled
+            WHERE a.user_id=? AND a.request_hash=? AND a.input_hash=?
+            """,Long.class,userId,digest(requestId),digest(question));
+        if(rows.size()!=1) throw new ProfileGenerationFence.Rejected();
+        return rows.getFirst();
+    }
+
     private static String digest(String value) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")

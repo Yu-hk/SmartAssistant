@@ -126,7 +126,7 @@ public class ChatConsumerService {
 
         // Step 3.5: 实体画像提取（异步，不阻塞主流程）
         if (userIdLong != null) {
-            entityProfileService.extractAndStore(userIdLong, question, response);
+            entityProfileService.extractAndStore(userIdLong, question, response, traceReqId);
         }
 
         // Step 3.6: 更新意图分布（优先使用 intentTag，降级到 agentName）

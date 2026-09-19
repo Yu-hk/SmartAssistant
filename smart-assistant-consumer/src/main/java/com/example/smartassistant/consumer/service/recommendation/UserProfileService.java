@@ -72,6 +72,9 @@ public class UserProfileService {
     private ProfileAdmissionCoordinator admissionCoordinator;
 
     @Autowired
+    private ProfileAdmissionStore admissionStore;
+
+    @Autowired
     private ProfileGenerationFence publicationFence;
 
     @Autowired(required = false)
@@ -101,11 +104,17 @@ public class UserProfileService {
      * 从问题中提取偏好信息并更新用户画像
      */
     public void extractAndUpdatePreferences(Long userId, String question, String extractedLocation) {
+        throw new ProfileGenerationFence.Rejected(); // Legacy callers have no immutable request admission.
+    }
+
+    public void extractAdmittedPreferences(Long userId,String question,String requestId) {
         if (userId == null || question == null) return;
         try {
-            commitCandidate(analyzeCandidate(userId, question, null));
+            if(admissionStore==null) throw new ProfileGenerationFence.Rejected();
+            long generation=admissionStore.requireExisting(userId,requestId,question);
+            commitCandidate(analyzeCandidate(userId,question,requestId,generation));
         } catch (Exception e) {
-            log.error("[UserProfile] 数据库画像更新失败: userId={}, error={}", userId, e.getMessage());
+            log.error("[UserProfile] 数据库画像更新失败: userId={}, type={}", userId, e.getClass().getSimpleName());
             throw e instanceof RuntimeException runtime ? runtime
                     : new IllegalStateException("Unable to persist user profile", e);
         }
@@ -191,11 +200,6 @@ public class UserProfileService {
 
     private String reliableProjection(String reportJson) {
         return UserProfileQueryService.candidate(reportJson);
-    }
-
-    private PreparedProfileCandidate analyzeCandidate(
-            Long userId, String question, String requestId) {
-        return analyzeCandidate(userId, question, requestId, profileStore.captureGeneration(userId));
     }
 
     private PreparedProfileCandidate analyzeCandidate(

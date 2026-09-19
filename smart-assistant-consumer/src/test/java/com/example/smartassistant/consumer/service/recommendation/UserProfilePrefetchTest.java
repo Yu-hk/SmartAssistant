@@ -116,7 +116,7 @@ class UserProfilePrefetchTest {
         when(extractor.extract(anyString(), anyString(), eq("我喜欢轻薄电脑")))
                 .thenReturn(report("CREATE", "深度咨询", 65,
                         List.of("便携办公"), List.of("重量顾虑")));
-        service.extractAndUpdatePreferences(42L, "我喜欢轻薄电脑", null);
+        service.extractAdmittedPreferences(42L, "我喜欢轻薄电脑", "first");
 
         assertThat(service.buildUserProfilePrompt(42L))
                 .contains("深度咨询", "便携办公", "重量顾虑")
@@ -132,7 +132,7 @@ class UserProfilePrefetchTest {
         when(extractor.extract(anyString(), anyString(), eq("售后没问题我就下单")))
                 .thenReturn(report("UPDATE", "临门一脚", 88,
                         List.of("购买意愿明确"), List.of("售后顾虑")));
-        service.extractAndUpdatePreferences(42L, "售后没问题我就下单", null);
+        service.extractAdmittedPreferences(42L, "售后没问题我就下单", "second");
 
         assertThat(current.get().profileVersion()).isEqualTo(2L);
         assertThat(current.get().reportJson())
@@ -357,6 +357,7 @@ class UserProfilePrefetchTest {
             LLMPreferenceExtractor extractor, UserProfileSnapshotStore store,
             UserProfileCommitPublisher publisher) {
         UserProfileService service = new UserProfileService(extractor, store, publisher);
+        ReflectionTestUtils.setField(service, "admissionStore", mock(ProfileAdmissionStore.class));
         var admission = mock(ProfileAdmissionCoordinator.class);
         when(admission.admit(anyLong(), anyString(), anyString())).thenReturn(java.util.OptionalLong.of(0));
         ReflectionTestUtils.setField(service, "admissionCoordinator", admission);
