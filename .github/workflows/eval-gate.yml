@@ -210,8 +210,9 @@ jobs:
       - name: Verify ownership, deletion fencing and orphan recovery
         run: >-
           mvn -B -pl smart-assistant-consumer -am test
-          -Dtest=ConversationGateServiceTest,ConversationGateRedisIntegrationTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
+          -Dtest=ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
           -Dsurefire.failIfNoSpecifiedTests=false
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRequestRedisIntegrationTest.xml --minimum 10
 
   # 全模块编译完整性检查（不含测试，最快反馈构建是否破坏）
   compile-all:
