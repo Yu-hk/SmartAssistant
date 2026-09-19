@@ -111,7 +111,8 @@ class AgentMemoryServiceIntegrationTest {
 
         // 验证截断提示
         assertTrue(formatted.contains("仅显示前"), "应显示截断提示");
-        assertTrue(formatted.contains("可调用 recallMemories 获取详情"), "应显示 key-only 索引");
+        assertTrue(formatted.contains("更多键名"), "应显示 key-only 索引");
+        assertFalse(formatted.contains("recallMemories"), "不能引导调用已关闭的旧工具");
 
         // 验证条目数不超过 5（MAX_DISPLAY_ENTRIES/2）
         long lines = formatted.lines().filter(l -> l.startsWith("-") || l.startsWith("⚠️")).count();

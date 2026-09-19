@@ -34,6 +34,19 @@ public class MemoryExtractor {
     private final ObjectProvider<ChatModel> chatModelProvider;
     private final AgentMemoryService memoryService;
     private final AiChatService aiChatService;
+    private final java.util.concurrent.ExecutorService extractionExecutor = new java.util.concurrent.ThreadPoolExecutor(
+            2,2,0,java.util.concurrent.TimeUnit.MILLISECONDS,new java.util.concurrent.SynchronousQueue<>(),
+            Thread.ofPlatform().daemon().name("agent-memory-",0).factory(),new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+
+    public void extractAsync(String agent,String userId,String question,String response,String requestId) {
+        try { extractionExecutor.execute(()->extractFromConversation(agent,userId,question,response,requestId)); }
+        catch(java.util.concurrent.RejectedExecutionException overloaded) {
+            log.debug("[MemoryExtractor] Optional extraction skipped: busy");
+        }
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void close() { extractionExecutor.shutdownNow(); }
 
     @Autowired
     public MemoryExtractor(ObjectProvider<ChatModel> chatModelProvider,
@@ -58,6 +71,10 @@ public class MemoryExtractor {
      * @param response Agent 回复
      */
     public void extractFromConversation(String agent, String userId, String question, String response) {
+        extractFromConversation(agent,userId,question,response,null);
+    }
+
+    public void extractFromConversation(String agent, String userId, String question, String response,String requestId) {
         if (agent == null || agent.isBlank() || userId == null || question == null || question.isBlank()) return;
 
         ChatModel chatModel = chatModelProvider.getIfAvailable();
@@ -69,6 +86,7 @@ public class MemoryExtractor {
         String prompt = buildExtractionPrompt(agent, question, response);
 
         try {
+            long generation=memoryService.admission(agent,userId,requestId,question);
             Map<String, String> preferences = aiChatService.entity(
                     chatModel,
                     prompt,
@@ -76,23 +94,25 @@ public class MemoryExtractor {
             if (preferences == null || preferences.isEmpty()) return;
 
             int saved = 0;
+            Map<String,String> batch=new java.util.LinkedHashMap<>();
             for (Map.Entry<String, String> entry : preferences.entrySet()) {
                 if (saved >= 10) break;
                 if (entry.getKey() == null || entry.getValue() == null) continue;
                 String key = entry.getKey().trim();
                 String value = entry.getValue().trim();
                 if (!key.isEmpty() && !value.isEmpty()) {
-                    memoryService.save(agent, userId, key, value);
+                    batch.put(key,value);
                     saved++;
                 }
             }
 
             if (saved > 0) {
+                memoryService.saveAdmitted(agent,userId,generation,batch);
                 log.info("[MemoryExtractor] 已处理 {} 条偏好候选: agent={}, userId={}", saved, agent, userId);
             }
 
         } catch (Exception e) {
-            log.debug("[MemoryExtractor] 提取失败: {}", e.getMessage());
+            log.debug("[MemoryExtractor] 提取未完成: errorType={}", e.getClass().getSimpleName());
         }
     }
 
