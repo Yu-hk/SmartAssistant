@@ -560,6 +560,7 @@ public class SmartReActAgent {
     /** Executes ReAct with an explicit request-scoped skill selection context. */
     public String execute(String userMessage, String systemPrompt, List<ToolCallback> tools,
                           SkillSelectionContext skillContext) {
+        AgentToolExecutor.requireNotInterrupted();
 		List<ToolCallback> effectiveTools = tools != null ? tools : List.of();
 		String enhancedPrompt = systemPrompt;
 
@@ -629,6 +630,7 @@ public class SmartReActAgent {
         List<String> phaseToolCallLog = new ArrayList<>();
 
         while (iteration < profile.maxIterations()) {
+            AgentToolExecutor.requireNotInterrupted();
             iteration++;
             long elapsed = System.currentTimeMillis() - startTime;
 
@@ -714,6 +716,7 @@ public class SmartReActAgent {
             ChatResponse response;
             long llmStart = System.currentTimeMillis();
             try {
+                AgentToolExecutor.requireNotInterrupted();
                 final List<Message> callMessages = messages;
                 final ToolCallingChatOptions callOptions = options;
 
@@ -732,6 +735,9 @@ public class SmartReActAgent {
                             .observe(() -> chatModel.call(new Prompt(callMessages, callOptions)));
                 }
             } catch (Exception e) {
+                if (e instanceof java.util.concurrent.CancellationException cancelled) throw cancelled;
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                AgentToolExecutor.requireNotInterrupted();
                 if (e instanceof PromptInjectionBlockedException pib) {
                     // ⭐ 内容安全护栏拦截：返回友好提示而非模型故障
                     log.warn("[SmartReActAgent] 输入被内容安全护栏拦截: {}", pib.getMessage());
@@ -783,6 +789,7 @@ public class SmartReActAgent {
                 metrics.recordTokenUsage(inTokens, outTokens);
             }
 
+            AgentToolExecutor.requireNotInterrupted();
             AssistantMessage assistantMsg = response.getResult().getOutput();
             var toolCalls = assistantMsg.getToolCalls();
             String answerText = assistantMsg.getText();
