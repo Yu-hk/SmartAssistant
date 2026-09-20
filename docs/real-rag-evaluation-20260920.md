@@ -69,4 +69,6 @@ python scripts/eval_rag.py --command '["java","-Xms64m","-Xmx640m","@smart-assis
 
 服务器使用 `scripts/run_server_rag_evaluation.py`，需要将探针包、评测脚本、数据集放在新的 `/opt/smart-assistant/releases/real-rag-eval-*` 目录中，显式指定预期 common JAR SHA-256。默认从当前 Consumer JAR 中读取公共依赖；`--candidate-jar` 仅允许该目录中的 `consumer.jar`，明确标记候选测试而非已经上线。已有报告拒绝覆盖。
 
+后续 DNS 复测增加 `--endpoint-mode internal-dns`，同时上传 `scripts/container_dns_policy.py` 到评测脚本同目录。此模式仅在核验后的 CNI 网络使用，向量端点为服务名，且读取探针实际 resolver 验证只包含网络 DNS；没有自动 IP 降级。默认 `inspected-ip` 保留为历史评测兼容模式，其结果仍不能证明服务名解析可靠性。详见 [容器 DNS 隔离记录](container-dns-20260920.md)。
+
 后续仍需独立留出题集、完整生产检索链路评测、答案事实/引用评审及多副本故障验证。隐私页面的真实浏览器视觉验收仍因浏览器连接两次超时而未完成，不能用 API 或组件测试代替。
