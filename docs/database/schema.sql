@@ -9,7 +9,7 @@
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
-SET transaction_timeout = 0;
+-- PG16 deployment baseline: transaction_timeout was introduced in PG17.
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -1780,9 +1780,9 @@ CREATE TABLE IF NOT EXISTS public.profile_agent_memory (
 CREATE INDEX IF NOT EXISTS idx_profile_agent_memory_expiry ON public.profile_agent_memory(expires_at);
 
 -- Internal cleanup foundation; disabled by default, no public erasure endpoint.
-CREATE TABLE IF NOT EXISTS profile_cleanup_job (
+CREATE TABLE IF NOT EXISTS public.profile_cleanup_job (
     job_id uuid PRIMARY KEY,
-    user_id bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id bigint NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     idempotency_key uuid NOT NULL,
     generation bigint NOT NULL CHECK (generation > 0),
     state varchar(24) NOT NULL CHECK (state IN ('PAUSED','PARTIAL','ONLINE_CLEANED','STALE')),
@@ -1790,8 +1790,8 @@ CREATE TABLE IF NOT EXISTS profile_cleanup_job (
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id,idempotency_key)
 );
-CREATE TABLE IF NOT EXISTS profile_cleanup_receipt (
-    job_id uuid NOT NULL REFERENCES profile_cleanup_job(job_id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS public.profile_cleanup_receipt (
+    job_id uuid NOT NULL REFERENCES public.profile_cleanup_job(job_id) ON DELETE CASCADE,
     target varchar(32) NOT NULL CHECK (target IN ('POSTGRES_PROFILE','REDIS_INDEXED','LEGACY_STORAGE','DERIVED_COPIES','BACKUP_RESTORE')),
     state varchar(16) NOT NULL CHECK (state IN ('PENDING','RETRY','SUCCEEDED','BLOCKED')),
     attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
@@ -1800,7 +1800,7 @@ CREATE TABLE IF NOT EXISTS profile_cleanup_receipt (
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(job_id,target)
 );
-CREATE INDEX IF NOT EXISTS idx_profile_cleanup_retry ON profile_cleanup_receipt(next_attempt_at)
+CREATE INDEX IF NOT EXISTS idx_profile_cleanup_retry ON public.profile_cleanup_receipt(next_attempt_at)
     WHERE state IN ('PENDING','RETRY');
 
 
