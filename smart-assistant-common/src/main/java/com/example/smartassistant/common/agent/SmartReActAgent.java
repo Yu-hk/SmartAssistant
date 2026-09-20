@@ -63,7 +63,7 @@ import java.util.stream.Collectors;
  * <h3>与 ReactAgent.call() 对比</h3>
  * <ul>
  *   <li>迭代次数限制 — 默认最多 10 轮工具调用（可按入口分级收紧）</li>
- *   <li>超时保护 — 默认 60 秒强制退出</li>
+ *   <li>超时保护 — 默认在循环边界检查 60 秒预算，不中断已发出的模型请求</li>
  *   <li>Token 预算 — 可追踪累积消耗，超过 80% 上下文窗口时自动终止</li>
  *   <li>同工具同参数去重 — 连续无增量检测基于「名称+参数」指纹，防故障重放风暴</li>
  *   <li>工具幻觉 — 不存在的工具名返回结构化错误，让 LLM 自纠正</li>
@@ -602,11 +602,8 @@ public class SmartReActAgent {
         messages.add(new SystemMessage(enhancedPrompt));
         messages.add(new UserMessage(userMessage));
 
-        long startTime = System.currentTimeMillis();
+        AgentExecutionBudget budget = new AgentExecutionBudget(profile, trackTokenBudget);
         int iteration = 0;
-        long totalInputTokens = 0;
-        long totalOutputTokens = 0;
-        long maxBudgetTokens = (long) (profile.contextWindow() * profile.tokenBudgetRatio());
 
         // ⭐ 工具循环检测：记录最近工具调用的哈希，用于检测连续无增量
         String lastToolCallHash = null;
@@ -632,10 +629,10 @@ public class SmartReActAgent {
         while (iteration < profile.maxIterations()) {
             AgentToolExecutor.requireNotInterrupted();
             iteration++;
-            long elapsed = System.currentTimeMillis() - startTime;
+            long elapsed = budget.elapsedMillis();
 
             // ⭐ 超时检查
-            if (elapsed > profile.timeoutMs()) {
+            if (budget.timeoutExceeded(elapsed)) {
                 log.warn("[SmartReActAgent] ⏰ 超时 ({}ms, 迭代 {} 次)", elapsed, iteration);
                 metrics.recordTimeout();
                 if (feedbackLog != null) {
@@ -649,11 +646,11 @@ public class SmartReActAgent {
             }
 
             // ⭐ Token 预算检查
-            if (trackTokenBudget && (totalInputTokens + totalOutputTokens) > maxBudgetTokens) {
+            if (budget.tokensExceeded()) {
                 log.warn("[SmartReActAgent] Token 预算耗尽 (输入={}, 输出={}, 上限={})",
-                        totalInputTokens, totalOutputTokens, maxBudgetTokens);
+                        budget.inputTokens(), budget.outputTokens(), budget.maxTokens());
                 recoveryService.logRecovery(AgentErrorCode.SYSTEM_BUDGET_EXCEEDED, RecoveryAction.CLARIFY_USER,
-                        "input=" + totalInputTokens + ", output=" + totalOutputTokens, iteration);
+                        "input=" + budget.inputTokens() + ", output=" + budget.outputTokens(), iteration);
                 return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_BUDGET_EXCEEDED, null);
             }
 
@@ -782,10 +779,9 @@ public class SmartReActAgent {
                     && response.getMetadata().getUsage() != null) {
                 int inTokens = response.getMetadata().getUsage().getPromptTokens();
                 int outTokens = response.getMetadata().getUsage().getCompletionTokens();
-                totalInputTokens += inTokens;
-                totalOutputTokens += outTokens;
+                budget.recordTokens(inTokens, outTokens);
                 log.debug("[SmartReActAgent] Token 累计: 输入={}, 输出={}",
-                        totalInputTokens, totalOutputTokens);
+                        budget.inputTokens(), budget.outputTokens());
                 metrics.recordTokenUsage(inTokens, outTokens);
             }
 
@@ -871,7 +867,7 @@ public class SmartReActAgent {
                     }
                     case FINALIZE -> {
                         log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
-                                iteration, elapsed, totalInputTokens, totalOutputTokens);
+                                iteration, elapsed, budget.inputTokens(), budget.outputTokens());
                         if (feedbackLog != null) {
                             String progress = noProgressCount > 0 ? "low" : "high";
                             feedbackLog.recordProgress(iteration, progress);
@@ -918,7 +914,7 @@ public class SmartReActAgent {
                         // CONTINUE / NO_INCREMENT（无工具调用时 NO_INCREMENT 无意义）
                         // → 视作最终回答返回，与原“短回答直接返回”行为一致
                         log.info("[SmartReActAgent] 最终回答 (迭代 {} 轮, 耗时 {}ms, Token 输入={}, 输出={})",
-                                iteration, elapsed, totalInputTokens, totalOutputTokens);
+                                iteration, elapsed, budget.inputTokens(), budget.outputTokens());
                         if (feedbackLog != null) {
                             String progress = noProgressCount > 0 ? "low" : "high";
                             feedbackLog.recordProgress(iteration, progress);
