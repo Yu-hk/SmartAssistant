@@ -29,6 +29,10 @@ jobs:
       - run: python -m unittest discover -s scripts -p test_rag_probe.py -v
         env:
           RAG_PROBE_JAVA_ARGS: smart-assistant-common/target/rag-probe/java.args
+      - run: javac -d smart-assistant-common/target/rag-probe scripts/java/ContainerDnsProbe.java
+      - run: python -m unittest discover -s scripts -p test_container_dns_probe.py -v
+        env:
+          DNS_PROBE_CLASSES: smart-assistant-common/target/rag-probe
 
   customer-reply-style:
     name: Customer reply style and safety
@@ -79,6 +83,7 @@ jobs:
       - run: python -m unittest discover -s scripts -p 'test_integration_reports.py' -v
       - run: python -m unittest discover -s scripts -p 'test_eval_rag.py' -v
       - run: python -m unittest discover -s scripts -p 'test_server_rag_evaluation.py' -v
+      - run: python -m unittest discover -s scripts -p 'test_container_dns_policy.py' -v
       - run: python -m unittest discover -s scripts -p 'test_release_artifacts.py' -v
       - run: python -m unittest discover -s scripts -p 'test_profile_restore_drill.py' -v
       - run: python -m unittest discover -s scripts -p 'test_profile_backup_catalog.py' -v

@@ -14,6 +14,7 @@ import tempfile
 import uuid
 import zipfile
 import eval_rag
+from container_dns_policy import internal_resolver, verify_resolvers
 
 def run(args, data=None, timeout=180):
     p=subprocess.run(args,input=data,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
@@ -32,6 +33,7 @@ def inspect(name): return json.loads(run(['docker','inspect',name]))[0]
 def main():
     p=argparse.ArgumentParser();p.add_argument('--root',required=True);p.add_argument('--expected-common',required=True)
     p.add_argument('--candidate-jar',help='Explicitly benchmark staged consumer.jar before production switch')
+    p.add_argument('--endpoint-mode',choices=['inspected-ip','internal-dns'],default='inspected-ip')
     p.add_argument('--repeats',type=int,default=3);args=p.parse_args()
     root=pathlib.Path(args.root)
     assert root.resolve()==root and root.parent==pathlib.Path('/opt/smart-assistant/releases')
@@ -42,6 +44,10 @@ def main():
     assert embedding['State']['Running']
     embedding_ip=ipaddress.ip_address(embedding['NetworkSettings']['Networks']['smart-network']['IPAddress'])
     assert embedding_ip.version==4 and embedding_ip.is_private
+    dns_gateway=None
+    if args.endpoint_mode=='internal-dns':
+        network=json.loads(run(['docker','network','inspect','smart-network']))[0]
+        dns_gateway=internal_resolver(network)
     source=pathlib.Path(next(m['Source'] for m in current['Mounts'] if m['Destination']=='/app/app.jar'))
     if args.candidate_jar:
         source=pathlib.Path(args.candidate_jar)
@@ -66,11 +72,13 @@ def main():
         def backend(request):
             label=uuid.uuid4().hex;cid=None
             try:
-                cid=run(['docker','create','-i','--network','smart-network','--memory','1g','--cpus','1',
+                dns_args=['--dns',dns_gateway] if dns_gateway else []
+                endpoint='http://smart-embedding-service:8091' if dns_gateway else 'http://'+str(embedding_ip)+':8091'
+                cid=run(['docker','create','-i','--network','smart-network']+dns_args+['--memory','1g','--cpus','1',
                     '--read-only','--cap-drop','ALL','--security-opt','no-new-privileges',
                     '--tmpfs','/tmp:rw,size=134217728','--label','smartassistant.rag-eval='+label,
                     '--mount','type=bind,source='+str(folder)+',target=/benchmark,readonly',
-                    '--env','RAG_EVAL_EMBEDDING_URL=http://'+str(embedding_ip)+':8091',
+                    '--env','RAG_EVAL_EMBEDDING_URL='+endpoint,
                     '--entrypoint','java','-w','/benchmark',current['Image'],
                     '-Xms64m','-Xmx640m','-XX:ActiveProcessorCount=1','-cp','.:BOOT-INF/lib/*','RagEvaluationProbe']).decode().strip()
                 state=inspect(cid)
@@ -79,7 +87,9 @@ def main():
                 assert all(m['Type']=='bind' or (m['Type']=='tmpfs' and m['Destination']=='/tmp') for m in state['Mounts'])
                 result=run(['docker','start','-ai',cid],json.dumps(request,ensure_ascii=False).encode('utf-8'),timeout=240)
                 assert inspect(cid)['State']['ExitCode']==0
-                return json.loads(result)
+                response=json.loads(result)
+                if dns_gateway: verify_resolvers(response['resolver_nameservers'],dns_gateway)
+                return response
             finally:
                 if cid:
                     state=inspect(cid)
@@ -95,7 +105,7 @@ def main():
         evidence={'common_sha256':args.expected_common,'runtime_image':current['Image'],
             'probe_sha256':hashlib.sha256((root/'probe.zip').read_bytes()).hexdigest(),
             'candidateOnly':bool(args.candidate_jar),'source_jar_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),
-            'embeddingContainerId':embedding['Id'],'embeddingEndpointMode':'inspected-private-ip-not-dns',
+            'embeddingContainerId':embedding['Id'],'embeddingEndpointMode':args.endpoint_mode,
             'backend':'real-embedding-public-seed-isolated-inmemory','productionDatabaseMounted':False,
             'removedTrialContainers':len(removed),'productionServiceRestarted':False}
         with (root/'runtime-evidence.json').open('x') as f:json.dump(evidence,f,indent=2)
