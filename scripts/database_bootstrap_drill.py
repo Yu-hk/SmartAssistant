@@ -66,11 +66,15 @@ def compare_snapshots(source, restored):
         raise AssertionError('Restored database differs from source')
 
 
-def drill(image, repo, report_path):
+def drill(image, repo, report_path, with_migrations=False):
     if report_path.exists():
         raise ValueError('Refusing to overwrite an existing report')
     # Read exact files before creating any container; do not silently sanitize SQL.
     inputs = {name: (repo / name).read_bytes() for name in FILES}
+    if with_migrations:
+        import database_upgrade_contract as upgrade_contract
+        inputs.update(upgrade_contract.load_inputs(repo))
+        inputs['scripts/profile_control_recovery.py'] = (repo / 'scripts/profile_control_recovery.py').read_bytes()
     image_id = json.loads(command(['docker', 'image', 'inspect', image]))[0]['Id']
     if not re.fullmatch(r'(sha256:)?[0-9a-f]{64}', image_id):
         raise ValueError('Immutable local image ID required')
@@ -106,15 +110,22 @@ def drill(image, repo, report_path):
         version = int(sql("SHOW server_version_num;"))
         if not 160000 <= version < 170000: raise ValueError('PG16 fixture required')
         report['serverVersionNum'] = version
-        for name, data in inputs.items():
+        for name in FILES:
             phase = name
-            sql(data)
+            sql(inputs[name])
         phase = 'bootstrap-contract'
         if [sql('SELECT count(*) FROM ' + qualified(t) + ';') for t in ['products', 'orders', 'user_coupons']] != ['6', '5', '9']:
             raise AssertionError('Expected public seed row counts')
         for table in ['profile_cleanup_job', 'profile_cleanup_receipt', 'profile_lifecycle', 'profile_request_admission']:
             if sql("SELECT to_regclass('" + qualified(table) + "') IS NOT NULL;") != 't':
                 raise AssertionError('Required bootstrap table missing')
+        if with_migrations:
+            phase = 'migration-contract'
+            report['upgrade'] = upgrade_contract.upgrade(sql, inputs)
+            sql('CREATE ROLE fixture_reader NOLOGIN; GRANT USAGE ON SCHEMA public TO fixture_reader; GRANT SELECT ON products TO fixture_reader;')
+            phase = 'source-business-contract'
+            report['sourceBehavior'] = upgrade_contract.behavior(sql)
+            upgrade_contract.prepare_recovery(sql)
         def snapshot(db):
             tables = sql("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;", db).splitlines()
             state = {}
@@ -125,6 +136,9 @@ def drill(image, repo, report_path):
             state['columns'] = sql("SELECT json_agg(x ORDER BY table_name,ordinal_position) FROM (SELECT table_name,column_name,ordinal_position,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema='public') x;", db)
             state['constraints'] = sql("SELECT json_agg(x ORDER BY relname,conname) FROM (SELECT c.relname,k.conname,pg_get_constraintdef(k.oid) AS definition FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public') x;", db)
             state['indexes'] = sql("SELECT json_agg(x ORDER BY tablename,indexname) FROM (SELECT tablename,indexname,indexdef FROM pg_indexes WHERE schemaname='public') x;", db)
+            state['functions'] = sql("SELECT json_agg(x ORDER BY definition) FROM (SELECT pg_get_functiondef(p.oid) AS definition FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.prokind IN ('f','p') AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e')) x;", db)
+            state['triggers'] = sql("SELECT json_agg(x ORDER BY definition) FROM (SELECT pg_get_triggerdef(t.oid) AS definition FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal) x;", db)
+            state['privileges'] = sql("SELECT json_agg(x ORDER BY relname) FROM (SELECT c.relname,c.relacl FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','S','v','m')) x;", db)
             for component in ['constraints', 'indexes']:
                 state[component] = canonical_varchar_literal_arrays(state[component])
             sequences = sql("SELECT sequencename FROM pg_sequences WHERE schemaname='public' ORDER BY sequencename;", db).splitlines()
@@ -133,7 +147,7 @@ def drill(image, repo, report_path):
         phase = 'source-snapshot'
         source, count = snapshot(SOURCE)
         phase = 'dump-restore'
-        dump = command(['docker', 'exec', cid, 'pg_dump', '-U', 'postgres', '-d', SOURCE, '--no-owner', '--no-acl'])
+        dump = command(['docker', 'exec', cid, 'pg_dump', '-U', 'postgres', '-d', SOURCE, '--no-owner'] + ([] if with_migrations else ['--no-acl']))
         sql('CREATE DATABASE ' + RESTORED + ';')
         sql(dump, RESTORED)
         phase = 'restore-contract'
@@ -146,7 +160,12 @@ def drill(image, repo, report_path):
                     report[component + 'Differences'] = [x for x in left + right if x not in left or x not in right]
         compare_snapshots(source, restored)
         if count != restored_count: raise AssertionError('Restored table count changed')
-        report.update(status='PASSED', phase='verified', tables=count, seededRows=20,
+        if with_migrations:
+            phase = 'restored-business-contract'
+            report['restoredBehavior'] = upgrade_contract.behavior(lambda text: sql(text, RESTORED))
+            phase = 'restored-control-replay'
+            report['controlRecovery'] = upgrade_contract.recovery_behavior(lambda text: sql(text, RESTORED))
+        report.update(status='PASSED', phase='verified', tables=count, initialSeedRows=20,
                       dumpSha256=hashlib.sha256(dump).hexdigest(), structureDataAndSequencesMatch=True)
     except Exception as error:
         report.update(phase=phase, errorType=type(error).__name__)
@@ -171,5 +190,6 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--image', required=True); p.add_argument('--repo', type=pathlib.Path, required=True)
     p.add_argument('--report', type=pathlib.Path, required=True)
+    p.add_argument('--with-migrations', action='store_true')
     args = p.parse_args()
-    print(json.dumps(drill(args.image, args.repo.resolve(), args.report)))
+    print(json.dumps(drill(args.image, args.repo.resolve(), args.report, args.with_migrations)))
