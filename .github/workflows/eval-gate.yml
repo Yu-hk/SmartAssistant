@@ -10,6 +10,25 @@ permissions:
   contents: read
 
 jobs:
+  database-bootstrap-restore:
+    name: PG16 bootstrap and logical restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s scripts -p test_database_bootstrap_drill.py -v
+      - run: docker pull pgvector/pgvector:0.8.0-pg16
+      - run: python scripts/database_bootstrap_drill.py --repo . --image pgvector/pgvector:0.8.0-pg16 --report database-bootstrap-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pg16-bootstrap-restore
+          path: database-bootstrap-report.json
+          if-no-files-found: error
+
   retrieval-probe-contract:
     name: Real retrieval probe contracts
     runs-on: ubuntu-latest
