@@ -35,9 +35,9 @@
 ## 恢复操作规程（不是自动开流量脚本）
 
 1. 停止 Gateway、User 和全部 Consumer/Router/Product/Order 实例，确认没有旧版本或旁路实例。保留独立控制目录，**禁止用备份覆盖该目录**。
-2. 先在无网络隔离数据库恢复备份，补齐当前增量 schema。历史真实备份只用于获批的隔离核验，不自动覆盖生产库。
+2. 先核对 [受支持基线](supported-recovery-baselines-20260921.md)，在无网络隔离数据库恢复获准备份，补齐对应增量 schema。未知版本、摘要不符一律拒绝自动升级；不得遍历迁移目录向未知数据库执行 SQL。历史真实备份只用于获批的隔离核验，不自动覆盖生产库。
 3. 使用提前保管的来源 UUID 校验独立控制文件。不要从已恢复数据库重新生成丢失的来源 pin。
-4. `scripts/profile_control_recovery.py --control-dir <独立目录> --expected-source-id <部署固定来源>` 默认只校验并输出数量。`--apply-container` 仅允许专用隔离恢复容器，或者显式 `--offline-production` 且生产业务容器全部停止。
+4. `scripts/profile_control_recovery.py --control-dir <独立目录> --expected-source-id <部署固定来源>` 默认只校验并输出数量。`--apply-container` 仅允许专用隔离恢复容器；生产还必须显式指定 `--offline-production --baseline production-backup-20260920 --backup /opt/smart-assistant/backups/latest-20260920/database.dump`，且生产业务容器全部停止。输入校验不证明目标数据库已由该备份恢复，必须保留隔离恢复和切换记录；不能拿一份获准备份给任意数据库背书。
 5. 重放会原子恢复暂停控制、清除旧画像/提示词派生内容、重新生成五项 PENDING 收据；保留原始聊天和其他业务数据。它**不会**宣称 Redis/文件也已清理，不会启动流量。
 6. 保持当前带恢复保护的版本和挂载，完成 Redis/遗留文件适配器检查与定向验证后，再开放 Gateway。不能回退到忽略独立控制的旧二进制。
 
