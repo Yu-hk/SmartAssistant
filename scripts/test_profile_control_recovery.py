@@ -4,13 +4,22 @@ import pathlib
 import tempfile
 import unittest
 import uuid
+from unittest.mock import patch
 from profile_control_recovery import journal,replay_sql
+import profile_control_recovery as recovery
 
 
 class RecoverySqlTest(unittest.TestCase):
     def setUp(self):
         self.source=str(uuid.uuid4())
         self.row=dict(sequence=1,event_id=str(uuid.uuid4()),source_id=self.source,user_id=91001,generation=1,analysis_enabled=False)
+    def test_production_cli_rejects_missing_or_unknown_baseline_before_control_or_database_access(self):
+        base=['recovery','--control-dir','/unread-control','--expected-source-id',self.source,
+              '--offline-production','--apply-container','smart-postgres']
+        for suffix,error in [([],SystemExit),(['--baseline','unknown','--backup','/unread-backup'],ValueError)]:
+            with patch('sys.argv',base+suffix),patch.object(recovery,'command') as command,patch.object(recovery,'small') as read:
+                with self.assertRaises(error):recovery.main()
+                command.assert_not_called();read.assert_not_called()
     def test_recovery_retains_accounts_and_admissions_but_reopens_all_cleanup_receipts(self):
         sql=replay_sql(self.source,[self.row])
         self.assertIn('llm_received_question=NULL',sql)

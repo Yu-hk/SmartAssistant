@@ -151,7 +151,16 @@ def main():
     parser.add_argument('--expected-source-id',required=True)
     parser.add_argument('--apply-container')
     parser.add_argument('--offline-production',action='store_true')
+    parser.add_argument('--baseline')
+    parser.add_argument('--backup',type=pathlib.Path)
     args=parser.parse_args()
+    if args.offline_production:
+        if not args.baseline or not args.backup or not args.apply_container:
+            parser.error('Offline production replay requires an approved baseline and backup input')
+        from recovery_baseline import verify_backup
+        verify_backup(args.backup,args.baseline)
+    elif args.baseline or args.backup:
+        parser.error('Baseline/backup arguments are reserved for offline production replay')
     # POSIX record lock interoperates with Java FileChannel.lock (not flock).
     import fcntl
     lock=args.control_dir/'writer.lock'
@@ -172,7 +181,8 @@ def main():
             elif meta['HostConfig']['NetworkMode']!='none' or meta['Config'].get('Labels',{}).get('smartassistant.profile-restore-isolated')!='true':
                 raise ValueError('Dedicated isolated restore fixture required')
             command(['docker','exec','-i',meta['Id'],'sh','-c','exec psql --no-psqlrc -qAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'],replay_sql(source,events).encode('utf-8'))
-            assert journal(args.control_dir,args.expected_source_id)==(source,events)
+            if journal(args.control_dir,args.expected_source_id)!=(source,events):
+                raise ValueError('Independent control history changed during recovery')
         print(json.dumps({'verifiedEvents':len(events),'controlledOwners':len(set(r['user_id'] for r in events)),
             'postgresReplayApplied':bool(args.apply_container),'trafficStarted':False,'allStoresVerified':False}))
     finally:os.close(fd)

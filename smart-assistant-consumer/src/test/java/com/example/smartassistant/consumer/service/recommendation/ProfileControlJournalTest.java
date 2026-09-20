@@ -84,7 +84,12 @@ class ProfileControlJournalTest {
         org.mockito.Mockito.when(jdbc.queryForMap(org.mockito.ArgumentMatchers.anyString())).thenReturn(Map.of("source_id",source,"last_sequence",1L));
         var row=new HashMap<String,Object>(Map.of("sequence",1L,"event_id",a.eventId(),"source_id",source,"user_id",92001L,"generation",1L,"analysis_enabled",false));
         org.mockito.Mockito.when(jdbc.queryForList(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.eq(1L))).thenReturn(List.of(row));
+        org.mockito.Mockito.when(jdbc.queryForObject(org.mockito.ArgumentMatchers.contains("LEFT JOIN profile_lifecycle"),org.mockito.ArgumentMatchers.eq(Long.class),org.mockito.ArgumentMatchers.eq(1L))).thenReturn(0L);
         var guard=new com.example.smartassistant.common.memory.ProfileRecoveryGuard(jdbc,true,root,source);
+        assertDoesNotThrow(guard::requireSafe);
+        org.mockito.Mockito.when(jdbc.queryForObject(org.mockito.ArgumentMatchers.contains("LEFT JOIN profile_lifecycle"),org.mockito.ArgumentMatchers.eq(Long.class),org.mockito.ArgumentMatchers.eq(1L))).thenReturn(1L,null,0L);
+        assertThrows(com.example.smartassistant.common.memory.ProfileRecoveryGuard.Unavailable.class,guard::requireSafe);
+        assertThrows(com.example.smartassistant.common.memory.ProfileRecoveryGuard.Unavailable.class,guard::requireSafe);
         assertDoesNotThrow(guard::requireSafe);
         org.mockito.Mockito.when(jdbc.queryForMap(org.mockito.ArgumentMatchers.anyString())).thenReturn(Map.of("source_id",source,"last_sequence",0L));
         assertThrows(com.example.smartassistant.common.memory.ProfileRecoveryGuard.Unavailable.class,guard::requireSafe);
@@ -104,6 +109,7 @@ class ProfileControlJournalTest {
         var rows=List.of(Map.<String,Object>of("sequence",1L,"event_id",a.eventId(),"source_id",source,"user_id",92001L,"generation",1L,"analysis_enabled",false),
                 Map.<String,Object>of("sequence",2L,"event_id",b.eventId(),"source_id",source,"user_id",92002L,"generation",1L,"analysis_enabled",false));
         org.mockito.Mockito.when(jdbc.queryForList(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.eq(2L))).thenReturn(rows);
+        org.mockito.Mockito.when(jdbc.queryForObject(org.mockito.ArgumentMatchers.contains("LEFT JOIN profile_lifecycle"),org.mockito.ArgumentMatchers.eq(Long.class),org.mockito.ArgumentMatchers.eq(2L))).thenReturn(0L);
         assertDoesNotThrow(guard::requireSafe);
         Files.delete(root.resolve(file(1)));assertThrows(com.example.smartassistant.common.memory.ProfileRecoveryGuard.Unavailable.class,guard::requireSafe);
     }

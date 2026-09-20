@@ -83,6 +83,19 @@ public class ProfileRecoveryGuard {
             previous=sha(data);
             if(sequence==acknowledged && !previous.equals(head[2])) throw new IOException("Invalid acknowledgement digest");
         }
+        // An intact outbox alone is insufficient: a partial restore can rewind
+        // the effective lifecycle without rewinding the archive or its sequence.
+        // Deleted accounts need no lifecycle row; their tombstones remain valid.
+        Long inconsistent=jdbc.queryForObject("""
+            SELECT count(*) FROM (
+                SELECT DISTINCT ON(user_id) user_id,generation,analysis_enabled
+                FROM profile_control_outbox WHERE sequence<=? ORDER BY user_id,sequence DESC
+            ) e JOIN users u ON u.id=e.user_id
+            LEFT JOIN profile_lifecycle l ON l.user_id=e.user_id
+            WHERE l.user_id IS NULL OR l.generation<>e.generation
+                OR l.analysis_enabled<>e.analysis_enabled
+            """,Long.class,highest);
+        if(inconsistent==null || inconsistent!=0) throw new IOException("Lifecycle behind independent controls");
         // Concurrent append/ACK is retried on the next optional profile attempt.
         if(!read("HEAD").equals(acknowledgement)) throw new IOException("Control history changed");
     }

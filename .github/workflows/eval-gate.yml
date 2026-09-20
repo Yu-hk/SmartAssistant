@@ -20,6 +20,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s scripts -p 'test_database_*py' -v
+      - run: python -m unittest discover -s scripts -p test_recovery_baseline.py -v
       - run: docker pull pgvector/pgvector:0.8.0-pg16
       - run: python scripts/database_bootstrap_drill.py --repo . --image pgvector/pgvector:0.8.0-pg16 --report database-bootstrap-report.json
       - run: python scripts/database_bootstrap_drill.py --repo . --image pgvector/pgvector:0.8.0-pg16 --with-migrations --report database-upgrade-report.json
@@ -276,6 +277,15 @@ jobs:
     name: Session deletion and Redis concurrency gate
     runs-on: ubuntu-latest
     services:
+      rabbitmq:
+        image: rabbitmq:4.1-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: integration
+          RABBITMQ_DEFAULT_PASS: integration-test-only
+        ports: ['15674:5672']
+        options: >-
+          --health-cmd "su-exec rabbitmq rabbitmq-diagnostics -q check_running && su-exec rabbitmq rabbitmq-diagnostics -q check_port_connectivity"
+          --health-interval 5s --health-timeout 5s --health-retries 20
       redis:
         image: redis:7.2.4
         ports: ['6389:6379']
@@ -295,6 +305,9 @@ jobs:
     env:
       RUN_REDIS_INTEGRATION_TESTS: 'true'
       TEST_REDIS_PORT: '6389'
+      CHAT_DISPATCH_TEST_RABBIT_PORT: '15674'
+      CHAT_DISPATCH_TEST_RABBIT_USERNAME: integration
+      CHAT_DISPATCH_TEST_RABBIT_PASSWORD: integration-test-only
       PG_TEST_URL: jdbc:postgresql://127.0.0.1:15434/smartassistant_profile_integration
       PG_TEST_USER: integration
       PG_TEST_PASSWORD: integration-test-only
@@ -308,14 +321,15 @@ jobs:
       - name: Verify ownership, deletion fencing and orphan recovery
         run: >-
             mvn -B -pl smart-assistant-consumer,smart-assistant-router -am test
-            -Dtest=ProfilePrivacyControllerTest,ProfileLegacyFilesTest,ProfileDerivedCleanupTest,AnswerPersonalizationPrivacyTest,ConversationDocumentServiceTest,SelectiveSemanticAnswerCacheTest,ProductNodeResultCacheTest,ProfileControlJournalTest,ProfileControlArchiveIntegrationTest,AgentFlowTraceRedisIntegrationTest,ProfileCleanupServiceTest,ProfileCleanupIntegrationTest,ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,ProfileRedisPublicationIntegrationTest,ProfileProjectionReaderIntegrationTest,UserProfileContextAwaiterTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
+            -Dtest=ProfileCrossStoreRecoveryIntegrationTest,ProfilePrivacyControllerTest,ProfileLegacyFilesTest,ProfileDerivedCleanupTest,AnswerPersonalizationPrivacyTest,ConversationDocumentServiceTest,SelectiveSemanticAnswerCacheTest,ProductNodeResultCacheTest,ProfileControlJournalTest,ProfileControlArchiveIntegrationTest,AgentFlowTraceRedisIntegrationTest,ProfileCleanupServiceTest,ProfileCleanupIntegrationTest,ConversationGateServiceTest,ConversationGateRedisIntegrationTest,ProfileRequestRedisStoreTest,ProfileRequestRedisIntegrationTest,ProfileRedisPublicationIntegrationTest,ProfileProjectionReaderIntegrationTest,UserProfileContextAwaiterTest,AdminControllerSessionAuthorizationTest,AdminServiceSessionIsolationTest
             -Dprofile.pg.integration=true -Dsurefire.failIfNoSpecifiedTests=false
       - run: |
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRequestRedisIntegrationTest.xml --minimum 12
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileRedisPublicationIntegrationTest.xml --minimum 4
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCleanupIntegrationTest.xml --minimum 13
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileControlJournalTest.xml --minimum 9
-          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileControlArchiveIntegrationTest.xml --minimum 7
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileControlArchiveIntegrationTest.xml --minimum 9
+          python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileCrossStoreRecoveryIntegrationTest.xml --minimum 1
           python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.ProfileProjectionReaderIntegrationTest.xml --minimum 10
           python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.trace.AgentFlowTraceRedisIntegrationTest.xml --minimum 3
 
