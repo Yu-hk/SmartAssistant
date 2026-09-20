@@ -9,6 +9,8 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 /** Standalone, read-only public seed benchmark; no Spring app or database bootstrapping. */
@@ -85,9 +87,14 @@ public class RagEvaluationProbe {
                                "latency_ms", (System.nanoTime() - start) / 1_000_000.0));
         }
         if (model.failed || model.dimensions == 0) throw new IllegalStateException("Embedding failed");
+        var resolverFile = Path.of("/etc/resolv.conf");
+        var resolvers = Files.exists(resolverFile) ? Files.readAllLines(resolverFile).stream()
+            .map(String::strip).filter(line -> line.startsWith("nameserver "))
+            .map(line -> line.split("\\s+")[1]).toList() : List.<String>of();
         output.println(mapper.writeValueAsString(Map.of("schema", 1,
             "backend", "seed-inmemory-bge-bm25-reranker", "embedding_verified", true,
             "embedding_dimensions", model.dimensions, "corpus", corpus,
+            "resolver_nameservers", resolvers,
             "corpus_sha256", HexFormat.of().formatHex(digest.digest()), "results", results)));
     }
 }

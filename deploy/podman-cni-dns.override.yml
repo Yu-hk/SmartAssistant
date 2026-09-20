@@ -1,0 +1,24 @@
+# Opt-in only for a verified Podman CNI smart-network. Do not apply blindly to Docker.
+# Derive SMART_INTERNAL_DNS from: podman network inspect smart-network | python scripts/container_dns_policy.py
+# Keep only the network resolver in application containers; it forwards public queries.
+x-internal-dns: &internal-dns
+  dns:
+    - ${SMART_INTERNAL_DNS:?Set SMART_INTERNAL_DNS to the verified CNI network gateway}
+
+services:
+  gateway:
+    <<: *internal-dns
+  user:
+    <<: *internal-dns
+  consumer:
+    <<: *internal-dns
+  router:
+    <<: *internal-dns
+  tool-registry:
+    <<: *internal-dns
+  order:
+    <<: *internal-dns
+  product:
+    <<: *internal-dns
+  embedding-service:
+    <<: *internal-dns
