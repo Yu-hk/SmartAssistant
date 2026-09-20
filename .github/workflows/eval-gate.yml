@@ -19,14 +19,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m unittest discover -s scripts -p test_database_bootstrap_drill.py -v
+      - run: python -m unittest discover -s scripts -p 'test_database_*py' -v
       - run: docker pull pgvector/pgvector:0.8.0-pg16
       - run: python scripts/database_bootstrap_drill.py --repo . --image pgvector/pgvector:0.8.0-pg16 --report database-bootstrap-report.json
+      - run: python scripts/database_bootstrap_drill.py --repo . --image pgvector/pgvector:0.8.0-pg16 --with-migrations --report database-upgrade-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: pg16-bootstrap-restore
-          path: database-bootstrap-report.json
+          path: |
+            database-bootstrap-report.json
+            database-upgrade-report.json
           if-no-files-found: error
 
   retrieval-probe-contract:
