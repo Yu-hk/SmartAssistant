@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Agent 工具执行器。
@@ -90,13 +91,14 @@ public class AgentToolExecutor {
 
     /**
      * 执行工具调用列表（支持并行）。
-     * <p>当工具数 > 1 且启用了并行执行时，使用 CompletableFuture 并行执行，
+     * <p>当工具数 > 1 且启用了并行执行时，使用可取消的 Future 并行执行，
      * 结果按入参 {@code toolCalls} 的顺序收集。</p>
      */
     public List<ToolResponseMessage.ToolResponse> execute(
             List<AssistantMessage.ToolCall> toolCalls,
             Map<String, ToolCallback> toolMap) {
 
+        requireNotInterrupted();
         String requestId = ToolLogContext.getRequestId();
 
         if (!parallelExecution || toolCalls.size() <= 1) {
@@ -105,50 +107,50 @@ public class AgentToolExecutor {
 
         log.info("[AgentToolExecutor] 并行执行 {} 个工具 (最大并发 {})", toolCalls.size(), profile.maxConcurrency());
 
-        List<CompletableFuture<ToolResponseMessage.ToolResponse>> futures = new ArrayList<>();
-        for (var tc : toolCalls) {
-            futures.add(CompletableFuture.supplyAsync(() -> {
-                try {
+        List<Future<ToolResponseMessage.ToolResponse>> futures = new ArrayList<>();
+        AtomicBoolean stopped = new AtomicBoolean();
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(profile.toolTimeoutMs());
+        ExecutorService executor = getExecutor();
+        try {
+            for (var tc : toolCalls) {
+                requireNotInterrupted();
+                futures.add(executor.submit(() -> {
                     toolConcurrencyLimiter.acquire();
                     try {
-                        return executeWithRetry(tc, toolMap, requestId);
+                        requireNotInterrupted();
+                        if (stopped.get()) throw new CancellationException("Tool batch stopped");
+                        return executeWithRetry(tc, toolMap, requestId, stopped);
                     } finally {
                         toolConcurrencyLimiter.release();
                     }
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new CompletionException(ie);
-                }
-            }, getExecutor()));
-        }
-
-        List<ToolResponseMessage.ToolResponse> results = new ArrayList<>();
-        try {
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .get(profile.toolTimeoutMs(), TimeUnit.MILLISECONDS);
-
-            for (var f : futures) {
-                results.add(f.get());
+                }));
             }
-        } catch (TimeoutException e) {
-            log.warn("[AgentToolExecutor] 工具批次超时 ({}ms)", profile.toolTimeoutMs());
-            for (var f : futures) {
-                if (f.isDone()) {
-                    try { results.add(f.get()); }
-                    catch (Exception ex) {
-                        results.add(timeoutError());
-                    }
-                } else {
-                    f.cancel(true);
-                    results.add(timeoutError());
+            List<ToolResponseMessage.ToolResponse> results = new ArrayList<>();
+            for (int i = 0; i < futures.size(); i++) {
+                requireNotInterrupted();
+                Future<ToolResponseMessage.ToolResponse> future = futures.get(i);
+                var call = toolCalls.get(i);
+                try {
+                    results.add(future.isDone() ? future.get()
+                            : future.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS));
+                } catch (TimeoutException e) {
+                    // Stop queued work before interrupting running callbacks. An interrupt is
+                    // not a rollback of a remote operation; never replay this batch serially.
+                    stopped.set(true);
+                    for (var pending : futures) if (!pending.isDone()) pending.cancel(true);
+                    results.add(unconfirmed(call, "TOOL_TIMEOUT"));
+                } catch (ExecutionException | CancellationException e) {
+                    results.add(unconfirmed(call, stopped.get() ? "TOOL_TIMEOUT" : "TOOL_EXECUTION_UNCONFIRMED"));
                 }
             }
-        } catch (Exception e) {
-            log.error("[AgentToolExecutor] 并行执行异常: {}", e.getMessage());
-            return executeSequential(toolCalls, toolMap, requestId);
+            return results;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CancellationException("Tool batch interrupted; outcome may be unconfirmed");
+        } finally {
+            stopped.set(true);
+            for (var future : futures) if (!future.isDone()) future.cancel(true);
         }
-
-        return results;
     }
 
     // ==================== 串行执行 ====================
@@ -160,7 +162,8 @@ public class AgentToolExecutor {
 
         List<ToolResponseMessage.ToolResponse> results = new ArrayList<>();
         for (var tc : toolCalls) {
-            results.add(executeWithRetry(tc, toolMap, requestId));
+            requireNotInterrupted();
+            results.add(executeWithRetry(tc, toolMap, requestId, new AtomicBoolean()));
         }
         return results;
     }
@@ -171,12 +174,12 @@ public class AgentToolExecutor {
      * 执行单个工具调用并自动重试（基于 ErrorRecoveryService 表驱动决策）。
      */
     private ToolResponseMessage.ToolResponse executeWithRetry(
-            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap, String requestId) {
+            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap, String requestId, AtomicBoolean stopped) {
         long startedAt = System.currentTimeMillis();
         ToolResponseMessage.ToolResponse response;
         ToolLogContext.enterExecutorManagedCall();
         try {
-            response = executeWithRetryInternal(tc, toolMap);
+            response = executeWithRetryInternal(tc, toolMap, stopped);
         } finally {
             ToolLogContext.exitExecutorManagedCall();
         }
@@ -187,8 +190,9 @@ public class AgentToolExecutor {
     }
 
     private ToolResponseMessage.ToolResponse executeWithRetryInternal(
-            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap) {
+            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap, AtomicBoolean stopped) {
 
+        requireNotInterrupted();
         ToolCallback callback = toolMap.get(tc.name());
         if (callback == null) {
             log.warn("[AgentToolExecutor] 未知工具: {}", tc.name());
@@ -232,12 +236,15 @@ public class AgentToolExecutor {
         String lastErrorCode = null;
 
         while (true) {
+            requireNotInterrupted();
+            if (stopped.get()) throw new CancellationException("Tool batch stopped");
             attempt++;
             try {
                 log.info("[AgentToolExecutor] 执行工具: {} (id={}, attempt={})",
                         tc.name(), tc.id(), attempt);
                 long toolStart = System.currentTimeMillis();
                 String result = callback.call(tc.arguments());
+                if (stopped.get()) throw new CancellationException("Tool batch stopped");
                 long elapsed = System.currentTimeMillis() - toolStart;
                 log.debug("[AgentToolExecutor] 工具 {} 完成 (耗时 {}ms)", tc.name(), elapsed);
 
@@ -275,7 +282,11 @@ public class AgentToolExecutor {
                 opsMetrics.recordToolCall("smart_react", false);
                 return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(), result);
 
+            } catch (CancellationException e) {
+                throw e;
             } catch (AgentException e) {
+                requireNotInterrupted();
+                if (stopped.get()) throw new CancellationException("Tool batch stopped");
                 lastErrorCode = e.getErrorCode().getCode();
                 if (recoveryService.shouldRetry(e.getErrorCode(), attempt)) {
                     long delay = recoveryService.getRetryDelayMs(e.getErrorCode(), attempt - 1);
@@ -294,6 +305,9 @@ public class AgentToolExecutor {
                 return new ToolResponseMessage.ToolResponse(tc.id(), tc.name(), e.toToolResultJson());
 
             } catch (Exception e) {
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                requireNotInterrupted();
+                if (stopped.get()) throw new CancellationException("Tool batch stopped");
                 lastException = e;
                 AgentErrorCode code = AgentErrorCode.TOOL_EXECUTION_ERROR;
                 if (recoveryService.shouldRetry(code, attempt)) {
@@ -315,6 +329,7 @@ public class AgentToolExecutor {
             }
         }
 
+        requireNotInterrupted();
         String reason = lastErrorCode != null
                 ? "工具返回错误: " + lastErrorCode
                 : (lastException != null ? lastException.getMessage() : "工具执行失败");
@@ -392,10 +407,17 @@ public class AgentToolExecutor {
         return str.length() > 64 ? str.substring(0, 64) + "..." : str;
     }
 
-    /** 超时错误响应。 */
-    private static ToolResponseMessage.ToolResponse timeoutError() {
-        return new ToolResponseMessage.ToolResponse("", "",
-                "{\"error_code\":\"TOOL_TIMEOUT\",\"message\":\"工具执行超时\",\"retryable\":true}");
+    /** Unknown outcome is not permission to repeat a potentially committed operation. */
+    private static ToolResponseMessage.ToolResponse unconfirmed(AssistantMessage.ToolCall call, String code) {
+        return new ToolResponseMessage.ToolResponse(call.id(), call.name(),
+                "{\"error_code\":\"" + code + "\",\"execution_status\":\"UNCONFIRMED\","
+                        + "\"message\":\"本次操作结果暂未确认，请核查原操作，不要重复提交\",\"retryable\":false}");
+    }
+
+    static void requireNotInterrupted() {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("Agent execution interrupted");
+        }
     }
 
     /** 转义澄清话术中的 JSON 特殊字符（反斜杠 / 双引号），用于手动拼接工具响应 JSON。 */
