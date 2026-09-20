@@ -141,4 +141,31 @@ class ProfileControlArchiveIntegrationTest {
         assertEquals(job,service.request(fixture.user,UUID.randomUUID()));
         assertEquals(1L,db().queryForObject("SELECT generation FROM profile_lifecycle WHERE user_id=?",Long.class,fixture.user));
     }
+    @Test void missingReceiptCannotBeReportedAsOnlineCleaned() {
+        ReflectionTestUtils.setField(service,"legacy",new ProfileLegacyFiles(disk.root.resolve("legacy-users").toString(),true));
+        UUID job=service.request(fixture.user,UUID.randomUUID());
+        db().update("DELETE FROM profile_cleanup_receipt WHERE job_id=? AND target='LEGACY_STORAGE'",job);
+        assertTrue(service.runNext());
+        assertEquals(4L,db().queryForObject("SELECT count(*) FROM profile_cleanup_receipt WHERE job_id=? AND state='SUCCEEDED'",Long.class,job));
+        assertEquals("PARTIAL",service.status(fixture.user,job).get("state"));
+        db().update("INSERT INTO profile_cleanup_receipt(job_id,target,state) VALUES (?,'LEGACY_STORAGE','PENDING')",job);
+        assertTrue(service.runNext());
+        assertEquals("ONLINE_CLEANED",service.status(fixture.user,job).get("state"));
+        db().update("DELETE FROM profile_cleanup_receipt WHERE job_id=? AND target='LEGACY_STORAGE'",job);
+        assertEquals("PARTIAL",service.status(fixture.user,job).get("state"));
+    }
+    @Test void intactArchiveCannotAuthorizeMissingOrReenabledLifecycle() {
+        service.request(fixture.user,UUID.randomUUID());archive.sync();
+        var guard=new ProfileRecoveryGuard(db(),true,disk.root,disk.source);
+        assertDoesNotThrow(guard::requireSafe);
+        try {
+            db().update("UPDATE profile_lifecycle SET analysis_enabled=true WHERE user_id=?",fixture.user);
+            assertThrows(ProfileRecoveryGuard.Unavailable.class,guard::requireSafe);
+            db().update("DELETE FROM profile_lifecycle WHERE user_id=?",fixture.user);
+            assertThrows(ProfileRecoveryGuard.Unavailable.class,guard::requireSafe);
+        } finally {
+            db().update("INSERT INTO profile_lifecycle(user_id,generation,analysis_enabled) VALUES (?,1,false) ON CONFLICT(user_id) DO UPDATE SET generation=1,analysis_enabled=false",fixture.user);
+        }
+        assertDoesNotThrow(guard::requireSafe);
+    }
 }

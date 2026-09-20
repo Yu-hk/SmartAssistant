@@ -73,7 +73,13 @@ public class ProfileCleanupService {
         var rows=jdbc.queryForList("SELECT job_id,generation,state FROM profile_cleanup_job WHERE job_id=? AND user_id=?",job,principalUserId);
         if(rows.isEmpty()) return Map.of();
         var result=new java.util.LinkedHashMap<String,Object>(rows.getFirst());
-        result.put("targets",jdbc.queryForList("SELECT target,state,attempts,error_code FROM profile_cleanup_receipt WHERE job_id=? ORDER BY target",job));
+        var targets=jdbc.queryForList("SELECT target,state,attempts,error_code FROM profile_cleanup_receipt WHERE job_id=? ORDER BY target",job);
+        result.put("targets",targets);
+        // A partial restore can remove receipts from an already completed job.
+        // Do not trust its cached aggregate state when returning user-visible status.
+        if("ONLINE_CLEANED".equals(result.get("state")) && (targets.size()!=5
+                || targets.stream().anyMatch(row->!"SUCCEEDED".equals(row.get("state")))))
+            result.put("state","PARTIAL");
         return result;
     }
 
@@ -171,7 +177,8 @@ public class ProfileCleanupService {
     }
     private void refresh(UUID job) {
         jdbc.update("""
-            UPDATE profile_cleanup_job j SET state=CASE WHEN EXISTS
+            UPDATE profile_cleanup_job j SET state=CASE WHEN
+              (SELECT count(*) FROM profile_cleanup_receipt r WHERE r.job_id=j.job_id)<>5 OR EXISTS
               (SELECT 1 FROM profile_cleanup_receipt r WHERE r.job_id=j.job_id AND r.state<>'SUCCEEDED')
               THEN 'PARTIAL' ELSE 'ONLINE_CLEANED' END,updated_at=CURRENT_TIMESTAMP
             WHERE j.job_id=? AND j.state<>'STALE'

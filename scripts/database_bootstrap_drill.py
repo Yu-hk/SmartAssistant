@@ -69,6 +69,8 @@ def compare_snapshots(source, restored):
 def drill(image, repo, report_path, with_migrations=False):
     if report_path.exists():
         raise ValueError('Refusing to overwrite an existing report')
+    from recovery_baseline import verify_repository
+    verify_repository(repo)
     # Read exact files before creating any container; do not silently sanitize SQL.
     inputs = {name: (repo / name).read_bytes() for name in FILES}
     if with_migrations:
