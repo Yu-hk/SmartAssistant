@@ -100,10 +100,11 @@ jobs:
           cache: 'maven'
       - run: >-
           mvn -B -pl smart-assistant-common -am test
-          -Dtest=SmartReActAgentBehaviorBaselineTest,SmartReActAgentToolCallbackTest,SmartReActAgentChatClientTest,SmartReActAgentPhaseGateTest,SmartReActAgentGradingTest,AgentLoopDecisionTest,AgentToolExecutorTest,AgentToolExecutorConcurrencyTest,ModelCallFailureTest
+          -Dtest=SmartReActAgentBehaviorBaselineTest,SmartReActAgentToolCallbackTest,SmartReActAgentChatClientTest,SmartReActAgentPhaseGateTest,SmartReActAgentGradingTest,AgentLoopDecisionTest,AgentExecutionBudgetTest,AgentToolExecutorTest,AgentToolExecutorConcurrencyTest,ModelCallFailureTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.SmartReActAgentBehaviorBaselineTest.xml --minimum 11
       - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.AgentToolExecutorConcurrencyTest.xml --minimum 7
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.AgentExecutionBudgetTest.xml --minimum 8
 
   storage-broker-integration:
     name: Real PostgreSQL and RabbitMQ contracts
