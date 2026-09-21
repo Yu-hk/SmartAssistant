@@ -311,7 +311,7 @@ public class RouteExecutionService {
     static String mergeFallbackPlannedResults(List<SubTaskResult> results) {
         if (results == null || results.isEmpty()) return "";
         StringBuilder merged = new StringBuilder();
-        for (SubTaskResult result : ResultMerger.applyMergePolicies(results)) {
+        for (SubTaskResult result : ResultMerger.deduplicateBrowseReplies(ResultMerger.applyMergePolicies(results))) {
             if (result == null || !result.isSuccess()
                     || result.getResult() == null || result.getResult().isBlank()) {
                 continue;

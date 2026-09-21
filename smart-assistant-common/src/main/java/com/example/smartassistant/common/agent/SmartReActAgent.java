@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
 /**
@@ -71,6 +72,9 @@ import java.util.stream.Collectors;
  * </ul>
  */
 public class SmartReActAgent {
+
+    // Monotonic, request-local budget clock; overridable only by package tests.
+    private LongSupplier nanoClock = System::nanoTime;
 
     private static final Logger log = LoggerFactory.getLogger(SmartReActAgent.class);
 
@@ -602,7 +606,7 @@ public class SmartReActAgent {
         messages.add(new SystemMessage(enhancedPrompt));
         messages.add(new UserMessage(userMessage));
 
-        AgentExecutionBudget budget = new AgentExecutionBudget(profile, trackTokenBudget);
+        AgentExecutionBudget budget = new AgentExecutionBudget(profile, trackTokenBudget, nanoClock);
         int iteration = 0;
 
         // ⭐ 工具循环检测：记录最近工具调用的哈希，用于检测连续无增量
@@ -632,18 +636,7 @@ public class SmartReActAgent {
             long elapsed = budget.elapsedMillis();
 
             // ⭐ 超时检查
-            if (budget.timeoutExceeded(elapsed)) {
-                log.warn("[SmartReActAgent] ⏰ 超时 ({}ms, 迭代 {} 次)", elapsed, iteration);
-                metrics.recordTimeout();
-                if (feedbackLog != null) {
-                    feedbackLog.recordFailure(iteration, "超时",
-                            "缩短单轮执行时间或增大超时阈值",
-                            "尝试拆解为多个子任务并行执行");
-                }
-                recoveryService.logRecovery(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, RecoveryAction.FALLBACK_AGENT,
-                        "elapsed=" + elapsed + "ms, iteration=" + iteration, iteration);
-                return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, null);
-            }
+            if (budget.expired()) return timeoutResponse(budget, iteration);
 
             // ⭐ Token 预算检查
             if (budget.tokensExceeded()) {
@@ -693,6 +686,8 @@ public class SmartReActAgent {
                 }
             }
 
+            // Compression may itself call a model. Never start more work after it used the budget.
+            if (budget.expired()) return timeoutResponse(budget, iteration);
             log.info("[SmartReActAgent] 第 {} 轮迭代开始 (已耗时 {}ms, 消息数 {})", iteration, elapsed, messages.size());
 
             metrics.recordIteration(iteration);
@@ -735,6 +730,7 @@ public class SmartReActAgent {
                 if (e instanceof java.util.concurrent.CancellationException cancelled) throw cancelled;
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
                 AgentToolExecutor.requireNotInterrupted();
+                if (budget.expired()) return timeoutResponse(budget, iteration);
                 if (e instanceof PromptInjectionBlockedException pib) {
                     // ⭐ 内容安全护栏拦截：返回友好提示而非模型故障
                     log.warn("[SmartReActAgent] 输入被内容安全护栏拦截: {}", pib.getMessage());
@@ -750,6 +746,7 @@ public class SmartReActAgent {
             metrics.recordInferenceLatency(llmElapsed);
 
             if (response == null || response.getResult() == null) {
+                if (budget.expired()) return timeoutResponse(budget, iteration);
                 log.warn("[SmartReActAgent] LLM 返回空");
                 // ⭐ P1-4 连续解析失败保护：评估器连续无效→暂停避免烧预算
                 consecutiveParseFailures++;
@@ -786,6 +783,8 @@ public class SmartReActAgent {
             }
 
             AgentToolExecutor.requireNotInterrupted();
+            // Keep consumed usage above, but reject late answers and never dispatch their tools.
+            if (budget.expired()) return timeoutResponse(budget, iteration);
             AssistantMessage assistantMsg = response.getResult().getOutput();
             var toolCalls = assistantMsg.getToolCalls();
             String answerText = assistantMsg.getText();
@@ -932,9 +931,13 @@ public class SmartReActAgent {
             messages.add(assistantMsg);
 
             // ⭐ 执行工具（支持并行，带追踪跨度）
+            if (budget.expired()) return timeoutResponse(budget, iteration);
             List<ToolResponseMessage.ToolResponse> toolResponses =
                     Observation.createNotStarted("agent-tool-execute", observationRegistry)
-                            .observe(() -> getAgentToolExecutor().execute(toolCalls, toolMap));
+                            .observe(() -> getAgentToolExecutor().execute(toolCalls, toolMap, budget::remainingNanos));
+
+            // Do not launch background compression or another iteration after tool work expired.
+            if (budget.expired()) return timeoutResponse(budget, iteration);
 
             // ⭐ G1 连续无增量检测：防止重复调同类工具陷入循环。
             // 哈希键加入参数指纹 —— 仅"名称 + 参数完全一致"判定为无增量，
@@ -1007,6 +1010,18 @@ public class SmartReActAgent {
                 "maxIterations=" + profile.maxIterations(), profile.maxIterations());
         return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_MAX_ITERATIONS, null);
     }
+    private String timeoutResponse(AgentExecutionBudget budget, int iteration) {
+        AgentToolExecutor.requireNotInterrupted();
+        metrics.recordTimeout();
+        if (feedbackLog != null) {
+            feedbackLog.recordFailure(iteration, "超时", "本次执行预算已耗尽", "核验已发出操作的结果，不自动重放");
+        }
+        // A timeout is not evidence of provider failure or permission to retry a write.
+        recoveryService.logRecovery(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, RecoveryAction.CLARIFY_USER,
+                "elapsed=" + budget.elapsedMillis() + "ms, iteration=" + iteration, iteration);
+        return recoveryService.resolveUserMessage(AgentErrorCode.SYSTEM_AGENT_TIMEOUT, null);
+    }
+
     private java.util.List<String> pendingCheckNames() {
         if (phaseChecks == null) return java.util.List.of();
         return phaseChecks.stream()

@@ -182,6 +182,16 @@ public class ProductStreamController {
                             "Question must not be blank", false));
         }
         String question = UserQuestionNormalizer.normalize(request.question());
+        String original = java.util.Objects.toString(request.input().get("_replyScopeQuestion"), "");
+        var originalBudget = ProductDiscoveryService.resolveBudget(original);
+        // Planner descriptions can omit or rewrite amounts. Explicit user constraints win
+        // for every catalog/analysis/recommendation stage, including ambiguous budgets.
+        if ((isAnalysisOrRecommendationRequest(request)
+                || "DISCOVER_PRODUCTS".equalsIgnoreCase(request.operation())
+                || "QUERY_HOT_PRODUCTS".equalsIgnoreCase(request.operation()))
+                && (originalBudget.max() != null || originalBudget.ambiguous())) {
+            question = UserQuestionNormalizer.normalize(original);
+        }
         ToolUsageCache.start(requestId);
         if ("RESOLVE_READ_ONLY_PRODUCT".equals(request.operation())) {
             var history = request.input().get("conversationHistory") instanceof List<?> values
@@ -300,8 +310,8 @@ public class ProductStreamController {
                 withUserProfile(question, request), requestId);
         if (response.quality().isFail()) {
             if (factQueryService != null && response.quality().getReasonCodes().stream().anyMatch(code -> code.startsWith("MODEL_"))) {
-                String original = java.util.Objects.toString(request.input().get("_replyScopeQuestion"), question);
-                var fallback = factQueryService.query(original, List.of(), requestId);
+                String fallbackQuestion = java.util.Objects.toString(request.input().get("_replyScopeQuestion"), question);
+                var fallback = factQueryService.query(fallbackQuestion, List.of(), requestId);
                 if (Boolean.TRUE.equals(fallback.data().get("handled")))
                     return executionResponse(requestId, fallback, false);
             }

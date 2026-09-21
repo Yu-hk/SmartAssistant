@@ -509,7 +509,9 @@ public class StreamingProductAgentService {
                     DomainQualityResult.pass(1.0, review ? "PRODUCT_STRUCTURED_RECOMMENDATION_VERIFIED" : "PRODUCT_STRUCTURED_ANALYSIS_VERIFIED"));
         } catch (Exception error) {
             // Never log model output, catalog contents or user profiles here.
-            log.warn("[ProductStructuredDecision] requestId={}, errorType={}", rid, error.getClass().getSimpleName());
+            log.warn("[ProductStructuredDecision] requestId={}, errorType={}, reasonCode={}", rid,
+                    error.getClass().getSimpleName(), error instanceof StructuredProductRecommendation.InvalidDecision invalid
+                            ? invalid.reasonCode() : "CATALOG_OR_MODEL_ERROR");
             return DomainAgentResponse.of("商品数据或分析结果未通过校验，请稍后重试。",
                     DomainQualityResult.fail("INVALID_STRUCTURED_PRODUCT_DECISION"));
         }
@@ -525,8 +527,13 @@ public class StreamingProductAgentService {
                     prompt, review ? Math.max(auditMaxTokens, recommendationMaxTokens) : analysisMaxTokens, rid);
             try { return facts.parse(raw); }
             catch (IllegalArgumentException invalid) {
+                log.info("[ProductDecisionRepair] requestId={}, attempt={}, reasonCode={}", rid, attempt + 1,
+                        invalid instanceof StructuredProductRecommendation.InvalidDecision typed
+                                ? typed.reasonCode() : "INVALID_SCHEMA");
                 if (attempt == 1) throw invalid;
-                prompt += "\n上次结构化决策未通过校验。请检查商品 code、可用证据和 eligible，仅返回规定字段，禁止价格或结论字段。";
+                prompt += "\n上次结构化决策未通过校验。"
+                        + (invalid instanceof StructuredProductRecommendation.InvalidDecision ? invalid.getMessage()
+                        : "请检查商品 code、可用证据和 eligible，仅返回规定字段，禁止价格或结论字段。");
             }
         }
         throw new IllegalStateException("Structured decision unavailable");

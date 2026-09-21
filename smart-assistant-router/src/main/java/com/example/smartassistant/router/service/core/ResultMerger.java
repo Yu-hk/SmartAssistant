@@ -3,6 +3,7 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import com.example.smartassistant.router.model.ExecutionPlan;
 import com.example.smartassistant.router.model.SubTaskResult;
+import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -81,6 +82,8 @@ public class ResultMerger {
         if (!conflicts.isEmpty()) {
             return appendWarning(conflictReply(conflicts), optionalWarning);
         }
+        mergeable = deduplicateBrowseReplies(mergeable);
+        if (mergeable.size() == 1) return appendWarning(mergeable.getFirst().getResult(), optionalWarning);
 
         // A single domain already owns the execution order and the factual wording of each
         // result. Re-sending those deterministic order results to an LLM adds seconds of
@@ -230,6 +233,22 @@ public class ResultMerger {
         if (results == null) return List.of();
         return results.stream().filter(result -> result != null
                 && result.isRequired() && !result.isSuccess()).toList();
+    }
+
+    /** Discovery browse results can be forwarded unchanged by analysis/recommendation nodes.
+     * Keep all audit results and conflict checks; collapse only identical terminal browse prose.
+     */
+    static List<SubTaskResult> deduplicateBrowseReplies(List<SubTaskResult> results) {
+        List<SubTaskResult> selected = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (SubTaskResult result : results) {
+            boolean browse = result != null && result.isSuccess()
+                    && result.getResult() != null && !result.getResult().isBlank()
+                    && "product".equals(AgentDiscoveryService.canonicalAgentName(result.getAgentName()))
+                    && Boolean.TRUE.equals(result.getStructuredData().get("browsingOnly"));
+            if (!browse || seen.add(result.getResult().trim())) selected.add(result);
+        }
+        return List.copyOf(selected);
     }
 
     static boolean isStructuredWorkflow(List<SubTaskResult> results) {
