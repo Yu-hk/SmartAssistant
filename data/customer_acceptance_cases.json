@@ -1,0 +1,18 @@
+[
+  {"id":"price-and-followup","turns":[
+    {"question":"AirPods Pro多少钱？有货吗？","rule":"price-stock","review":"核对目录价格与可售库存；不主动添加商品编码、分期或发货承诺。"},
+    {"question":"这个规格是多少","rule":"spec-only","review":"承接同一商品，只回答规格；不混入颜色、价格或热门销量。"}
+  ]},
+  {"id":"category-alias","turns":[
+    {"question":"我想买蓝牙耳机，预算两千以内，有什么可以推荐的？","rule":"nonempty","review":"按品类和预算查询，而非仅匹配商品名称；推荐理由必须有商品事实支持，无匹配则如实说明。"}
+  ]},
+  {"id":"popular-products","turns":[
+    {"question":"最近有什么热门商品？请说明热度的依据。","rule":"nonempty","review":"只使用站内可核验热度，不伪造全网趋势；不强行要求用户先提供商品名称。"}
+  ]},
+  {"id":"return-policy","turns":[
+    {"question":"七天无理由退货需要满足什么条件？请根据平台知识库说明。","rule":"policy","review":"回答通用政策而非索要订单号；保留可核验引用，不将平台说明扩大为所有商品均适用。"}
+  ]},
+  {"id":"own-orders","turns":[
+    {"question":"请查询我当前账号的订单列表。","rule":"nonempty","review":"仅查当前新注册测试账号，预期无订单；不展示其他账号的订单、不创建订单。"}
+  ]}
+]

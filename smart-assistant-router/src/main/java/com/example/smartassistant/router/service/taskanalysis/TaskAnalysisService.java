@@ -206,6 +206,25 @@ public class TaskAnalysisService {
             }
 
             TaskAnalysisResult result = parseJson(json);
+            if (PolicyPlanGuard.requiresRepair(modelSelectionQuestion, result)) {
+                log.info("[TaskAnalysis] Policy-only scope mismatch; requesting one bounded model repair");
+                try {
+                    modelResponse = modelRoutingService.callForIntent(finalPrompt,
+                            buildUserMessage(question, conversationHistory)
+                                    + "\n\n规划校验：当前用户只询问退换货政策。上次任务偏离了问题。请重新规划只读知识检索，"
+                                    + "使用具备 policy_qa 能力的健康 Agent 和 QUERY_PRODUCT，不要生成商品发现、推荐或订单操作；"
+                                    + "不要复制能力示例中的商品或用途。仅返回原协议 JSON。", modelSelectionQuestion);
+                } catch (RuntimeException unavailable) {
+                    throw com.example.smartassistant.common.error.ModelCallFailure.from(unavailable);
+                }
+                String repaired = extractJson(modelResponse.content());
+                if (repaired == null) return TaskAnalysisResult.empty();
+                result = parseJson(repaired);
+                if (PolicyPlanGuard.requiresRepair(modelSelectionQuestion, result)) {
+                    log.warn("[TaskAnalysis] Policy-only model repair rejected; no off-topic plan accepted");
+                    return TaskAnalysisResult.empty();
+                }
+            }
             result.setAnalysisModel(modelResponse.modelName());
             result.setAnalysisModelTier(modelResponse.modelTier());
             result.setAnalysisQuestionChars(modelResponse.questionChars());

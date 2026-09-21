@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
 
 /**
  * Agent 工具执行器。
@@ -97,19 +98,27 @@ public class AgentToolExecutor {
     public List<ToolResponseMessage.ToolResponse> execute(
             List<AssistantMessage.ToolCall> toolCalls,
             Map<String, ToolCallback> toolMap) {
+        return execute(toolCalls, toolMap, () -> Long.MAX_VALUE);
+    }
+
+    /** Remaining request budget also includes prior model/compression work. */
+    public List<ToolResponseMessage.ToolResponse> execute(
+            List<AssistantMessage.ToolCall> toolCalls,
+            Map<String, ToolCallback> toolMap, LongSupplier remainingNanos) {
 
         requireNotInterrupted();
         String requestId = ToolLogContext.getRequestId();
 
         if (!parallelExecution || toolCalls.size() <= 1) {
-            return executeSequential(toolCalls, toolMap, requestId);
+            return executeSequential(toolCalls, toolMap, requestId, remainingNanos);
         }
 
         log.info("[AgentToolExecutor] 并行执行 {} 个工具 (最大并发 {})", toolCalls.size(), profile.maxConcurrency());
 
         List<Future<ToolResponseMessage.ToolResponse>> futures = new ArrayList<>();
         AtomicBoolean stopped = new AtomicBoolean();
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(profile.toolTimeoutMs());
+        long deadline = System.nanoTime() + Math.max(0,
+                Math.min(TimeUnit.MILLISECONDS.toNanos(profile.toolTimeoutMs()), remainingNanos.getAsLong()));
         ExecutorService executor = getExecutor();
         try {
             for (var tc : toolCalls) {
@@ -119,7 +128,7 @@ public class AgentToolExecutor {
                     try {
                         requireNotInterrupted();
                         if (stopped.get()) throw new CancellationException("Tool batch stopped");
-                        return executeWithRetry(tc, toolMap, requestId, stopped);
+                        return executeWithRetry(tc, toolMap, requestId, stopped, remainingNanos);
                     } finally {
                         toolConcurrencyLimiter.release();
                     }
@@ -158,12 +167,12 @@ public class AgentToolExecutor {
     private List<ToolResponseMessage.ToolResponse> executeSequential(
             List<AssistantMessage.ToolCall> toolCalls,
             Map<String, ToolCallback> toolMap,
-            String requestId) {
+            String requestId, LongSupplier remainingNanos) {
 
         List<ToolResponseMessage.ToolResponse> results = new ArrayList<>();
         for (var tc : toolCalls) {
             requireNotInterrupted();
-            results.add(executeWithRetry(tc, toolMap, requestId, new AtomicBoolean()));
+            results.add(executeWithRetry(tc, toolMap, requestId, new AtomicBoolean(), remainingNanos));
         }
         return results;
     }
@@ -174,12 +183,14 @@ public class AgentToolExecutor {
      * 执行单个工具调用并自动重试（基于 ErrorRecoveryService 表驱动决策）。
      */
     private ToolResponseMessage.ToolResponse executeWithRetry(
-            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap, String requestId, AtomicBoolean stopped) {
+            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap, String requestId, AtomicBoolean stopped,
+            LongSupplier remainingNanos) {
+        if (remainingNanos.getAsLong() <= 0) return deadlineExceeded(tc, false);
         long startedAt = System.currentTimeMillis();
         ToolResponseMessage.ToolResponse response;
         ToolLogContext.enterExecutorManagedCall();
         try {
-            response = executeWithRetryInternal(tc, toolMap, stopped);
+            response = executeWithRetryInternal(tc, toolMap, stopped, remainingNanos);
         } finally {
             ToolLogContext.exitExecutorManagedCall();
         }
@@ -190,7 +201,8 @@ public class AgentToolExecutor {
     }
 
     private ToolResponseMessage.ToolResponse executeWithRetryInternal(
-            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap, AtomicBoolean stopped) {
+            AssistantMessage.ToolCall tc, Map<String, ToolCallback> toolMap, AtomicBoolean stopped,
+            LongSupplier remainingNanos) {
 
         requireNotInterrupted();
         ToolCallback callback = toolMap.get(tc.name());
@@ -238,6 +250,7 @@ public class AgentToolExecutor {
         while (true) {
             requireNotInterrupted();
             if (stopped.get()) throw new CancellationException("Tool batch stopped");
+            if (remainingNanos.getAsLong() <= 0) return deadlineExceeded(tc, attempt > 0);
             attempt++;
             try {
                 log.info("[AgentToolExecutor] 执行工具: {} (id={}, attempt={})",
@@ -265,6 +278,7 @@ public class AgentToolExecutor {
                 AgentErrorCode agentCode = AgentErrorCode.fromCode(errorCode);
                 if (agentCode != null && recoveryService.shouldRetry(agentCode, attempt)) {
                     long delay = recoveryService.getRetryDelayMs(agentCode, attempt - 1);
+                    if (!canWaitForRetry(delay, remainingNanos)) return deadlineExceeded(tc, true);
                     log.warn("[AgentToolExecutor] 工具返回错误(第{}次): tool={}, code={}, {}ms后重试",
                             attempt, tc.name(), errorCode, delay);
                     recoveryService.logRecovery(agentCode, recoveryService.resolve(agentCode),
@@ -290,6 +304,7 @@ public class AgentToolExecutor {
                 lastErrorCode = e.getErrorCode().getCode();
                 if (recoveryService.shouldRetry(e.getErrorCode(), attempt)) {
                     long delay = recoveryService.getRetryDelayMs(e.getErrorCode(), attempt - 1);
+                    if (!canWaitForRetry(delay, remainingNanos)) return deadlineExceeded(tc, true);
                     log.warn("[AgentToolExecutor] 工具异常(第{}次): tool={}, code={}, {}ms后重试",
                             attempt, tc.name(), e.getErrorCode().getCode(), delay);
                     recoveryService.logRecovery(e.getErrorCode(), recoveryService.resolve(e.getErrorCode()),
@@ -312,6 +327,7 @@ public class AgentToolExecutor {
                 AgentErrorCode code = AgentErrorCode.TOOL_EXECUTION_ERROR;
                 if (recoveryService.shouldRetry(code, attempt)) {
                     long delay = recoveryService.getRetryDelayMs(code, attempt - 1);
+                    if (!canWaitForRetry(delay, remainingNanos)) return deadlineExceeded(tc, true);
                     log.warn("[AgentToolExecutor] 工具异常(第{}次): tool={}, {}ms后重试",
                             attempt, tc.name(), delay);
                     try { Thread.sleep(delay); }
@@ -405,6 +421,17 @@ public class AgentToolExecutor {
     public static String truncate64(String str) {
         if (str == null) return "";
         return str.length() > 64 ? str.substring(0, 64) + "..." : str;
+    }
+
+    private static boolean canWaitForRetry(long delayMs, LongSupplier remainingNanos) {
+        return remainingNanos.getAsLong() > TimeUnit.MILLISECONDS.toNanos(Math.max(0, delayMs));
+    }
+
+    private static ToolResponseMessage.ToolResponse deadlineExceeded(AssistantMessage.ToolCall call, boolean attempted) {
+        if (attempted) return unconfirmed(call, "REQUEST_DEADLINE_EXCEEDED");
+        return new ToolResponseMessage.ToolResponse(call.id(), call.name(),
+                "{\"error_code\":\"REQUEST_DEADLINE_EXCEEDED\",\"execution_status\":\"NOT_STARTED\","
+                        + "\"message\":\"执行时间已用尽，本项操作未开始\",\"retryable\":false}");
     }
 
     /** Unknown outcome is not permission to repeat a potentially committed operation. */

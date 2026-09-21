@@ -28,6 +28,14 @@ public final class StructuredProductRecommendation {
                           BigDecimal rating, Long reviewCount, Long popularity, ProductFeatures features) { }
     public record Decision(boolean valid, String selectedCode, List<String> evidenceFields,
                            List<String> limitations, String correction) { }
+    public static final class InvalidDecision extends IllegalArgumentException {
+        private final String reasonCode;
+        InvalidDecision(String reasonCode, String instruction) {
+            super(instruction);
+            this.reasonCode = reasonCode;
+        }
+        public String reasonCode() { return reasonCode; }
+    }
     private final List<Product> products;
     private final BigDecimal budget;
     private final ProductDiscoveryService.BudgetResolution budgetResolution;
@@ -74,6 +82,12 @@ public final class StructuredProductRecommendation {
             row.put("price", p.price());
             row.put("status", status(p));
             row.put("eligible", eligible(p));
+            row.put("availableEvidenceFields", availableEvidenceFields(p));
+            List<String> limits = new ArrayList<>(List.of("NO_COMPARABLE_SPEC", "NEEDS_VERIFICATION"));
+            if (products.size() == 1) limits.add("SINGLE_CANDIDATE");
+            if (p.rating() == null) limits.add("MISSING_RATING");
+            if (question.matches("(?s).*(拍照|摄影|相机).*")) limits.add("NO_PHOTO_BENCHMARK");
+            row.put("allowedLimitations", limits);
             // Do not propagate a computed remainder into normal recommendation conclusions.
             if (detailsRequested && budget != null && p.price() != null) row.put("remainder", budget.subtract(p.price()));
             return row;
@@ -123,8 +137,28 @@ public final class StructuredProductRecommendation {
                     || limits.contains("MISSING_RATING") && selected.rating() != null) throw new IllegalArgumentException("Unsupported limitation");
             return new Decision(true, code, fields, limits, correction);
         } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid structured product decision", e);
+            // Stable, payload-free diagnostic/repair categories. Never expose model fields or JSON.
+            String message = Objects.toString(e.getMessage(), "");
+            if (message.startsWith("Unknown selected") || message.startsWith("Missing selected code"))
+                throw new InvalidDecision("UNKNOWN_PRODUCT", "selected_code 必须是 catalog 中的真实 code。");
+            if (message.startsWith("Selected product does not"))
+                throw new InvalidDecision("INELIGIBLE_PRODUCT", "只能选择 budgetAssessment.products 中 eligible=true 的商品。");
+            if (message.startsWith("Missing selected evidence") || message.startsWith("Invalid reference") || message.startsWith("Expected evidence"))
+                throw new InvalidDecision("INVALID_EVIDENCE", "evidence_fields 只能取所选商品的 availableEvidenceFields；limitations 只能取 allowedLimitations，不可重复。");
+            if (message.startsWith("Unsupported limitation"))
+                throw new InvalidDecision("INVALID_LIMITATION", "limitations 只能取所选商品的 allowedLimitations；SINGLE_CANDIDATE 按完整 catalog 数量判断，不是最终选择数量。");
+            throw new InvalidDecision("INVALID_SCHEMA", "严格返回一个符合协议的 JSON 对象，不增加价格、说明或其他字段；valid=true 时 issues 必须为空数组。");
         }
+    }
+
+    private static List<String> availableEvidenceFields(Product p) {
+        List<String> fields = new ArrayList<>();
+        if (!p.spec().isBlank()) fields.add("spec");
+        if (p.rating() != null) fields.add("rating");
+        if (p.reviewCount() != null) fields.add("reviewCount");
+        if (p.popularity() != null) fields.add("popularity");
+        if (p.features().documented()) fields.add("features");
+        return List.copyOf(fields);
     }
 
     public String renderAnalysis(Decision decision) {

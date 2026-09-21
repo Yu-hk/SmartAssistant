@@ -8,6 +8,7 @@ catalog 是唯一商品事实来源，budgetAssessment 是程序计算的预算�
 只输出一个 JSON 对象，不要 Markdown：
 {"valid":true,"selected_code":"目录中的真实code","evidence_fields":["spec"],"limitations":["NEEDS_VERIFICATION"],"issues":[],"correction_instruction":""}
 evidence_fields 只能选有实际值的字段：spec、rating、reviewCount、popularity、features；不要重复。
+每个商品的 availableEvidenceFields 和 allowedLimitations 由程序提供，必须从所选商品的这两个列表中取值。features 对象存在不等于具有可核实证据；SINGLE_CANDIDATE 表示整个 catalog 只有一个商品，不是“本轮选中一款”。未询问拍照时不要添加拍照专项限制。
 features 是带来源和核验时间的结构化参数。weightGrams 单位为克，batteryLifeHours 单位为小时且必须与 batteryLifeScenario 同场景比较；noiseCancelling=null 表示未知，不等于 false。不得从 spec 文案臆造这些参数。
 limitations 只能选：SINGLE_CANDIDATE（仅一个候选）、NO_COMPARABLE_SPEC、NO_PHOTO_BENCHMARK、MISSING_RATING（该候选无评分）、NEEDS_VERIFICATION。
 valid=false 时 selected_code 使用空字符串，evidence_fields 和 limitations 用空数组，issues 与 correction_instruction 说明需核实的问题，不要编造事实。
