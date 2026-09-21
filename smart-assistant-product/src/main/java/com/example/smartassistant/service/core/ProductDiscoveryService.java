@@ -17,7 +17,7 @@ public class ProductDiscoveryService {
     private static final int DEFAULT_LIMIT = 5;
     private static final int MAX_LIMIT = 10;
     private static final int HARD_CONSTRAINT_CANDIDATE_LIMIT = 20;
-    private static final String BUDGET_NUMBER = "((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)";
+    private static final String BUDGET_NUMBER = "((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|[零〇一二两三四五六七八九十百千万]+)";
     private static final Pattern BUDGET_PREFIX_PATTERN = Pattern.compile(
             "(?:预算\\s*(?:不超过|不高于|控制在|只有|仅有|改为|调整为|仅|为|是|在|[:：=]|<=|≤)?|最高|最多|不超过|不高于|控制在)"
                     + "\\s*[¥￥]?\\s*" + BUDGET_NUMBER + "\\s*(万|千|[kK])?\\s*元?");
@@ -312,11 +312,12 @@ public class ProductDiscoveryService {
                 if (old >= 0 && old >= current) continue;
                 String matched = matcher.group();
                 boolean revised = current >= 0 || matched.contains("改为") || matched.contains("调整为");
-                if (normalized.substring(matcher.end()).matches("(?s)^\\s*(?:-|—|~|～|至|到)\\s*\\d.*")) {
+                if (normalized.substring(matcher.end()).matches("(?s)^\\s*(?:-|—|~|～|至|到|或)\\s*[\\d零〇一二两三四五六七八九十百千万].*")) {
                     range = true;
                 }
                 BigDecimal value = extractBudget(matcher);
                 if (value != null) candidates.add(new Candidate(matcher.start(), value, revised));
+                else range = true; // An unparseable explicit budget is not an absent budget.
             }
         }
         candidates.sort(java.util.Comparator.comparingInt(Candidate::start));
@@ -336,7 +337,9 @@ public class ProductDiscoveryService {
 
     private static BigDecimal extractBudget(Matcher matcher) {
         try {
-            BigDecimal value = new BigDecimal(matcher.group(1).replace(",", ""));
+            String raw = matcher.group(1);
+            BigDecimal value = raw.matches("[零〇一二两三四五六七八九十百千万]+")
+                    ? chineseBudget(raw) : new BigDecimal(raw.replace(",", ""));
             String unit = matcher.group(2);
             if ("万".equals(unit)) value = value.multiply(BigDecimal.valueOf(10_000));
             if ("千".equals(unit) || "k".equalsIgnoreCase(unit)) {
@@ -346,6 +349,42 @@ public class ProductDiscoveryService {
         } catch (NumberFormatException ignored) {
             return null;
         }
+    }
+
+    /** Strict integer money notation; colloquial 三千五/一两千 must be clarified. */
+    private static BigDecimal chineseBudget(String raw) {
+        long total = 0, section = 0;
+        int digit = -1, lastUnit = 10000;
+        boolean zero = false, usedWan = false;
+        for (char c : raw.toCharArray()) {
+            int number = "零一二三四五六七八九".indexOf(c);
+            if (c == '〇') number = 0;
+            if (c == '两') number = 2;
+            if (number >= 0) {
+                if (number == 0) {
+                    if (digit >= 0) throw new NumberFormatException("Invalid Chinese budget");
+                    zero = true;
+                } else {
+                    if (digit >= 0) throw new NumberFormatException("Ambiguous Chinese budget");
+                    digit = number;
+                }
+                continue;
+            }
+            int unit = switch (c) { case '十' -> 10; case '百' -> 100; case '千' -> 1000; default -> 10000; };
+            if (unit == 10000) {
+                if (usedWan || section + Math.max(0, digit) == 0) throw new NumberFormatException("Invalid Chinese budget");
+                total = (section + Math.max(0, digit)) * unit;
+                section = 0; digit = -1; lastUnit = 10000; usedWan = true; zero = false;
+            } else {
+                if (unit >= lastUnit || digit < 0 && !(unit == 10 && section == 0 && !usedWan))
+                    throw new NumberFormatException("Invalid Chinese budget");
+                section += (digit < 0 ? 1 : digit) * unit;
+                digit = -1; lastUnit = unit; zero = false;
+            }
+        }
+        if (digit >= 0 && lastUnit > 10 && (section > 0 || usedWan) && !zero)
+            throw new NumberFormatException("Ambiguous Chinese budget");
+        return BigDecimal.valueOf(total + section + Math.max(0, digit));
     }
 
     private String normalizeCategory(String value) {

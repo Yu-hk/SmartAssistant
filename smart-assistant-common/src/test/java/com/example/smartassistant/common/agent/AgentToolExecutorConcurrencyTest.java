@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -21,6 +22,54 @@ import static org.mockito.Mockito.*;
 /** All callbacks are fixtures; no real order or remote service is invoked. */
 @Timeout(10)
 class AgentToolExecutorConcurrencyTest {
+    @Test void expiredSingleToolIsNotStartedOrRecordedAsUnconfirmed() {
+        ToolCallback tool = mock(ToolCallback.class);
+        var result = executor(1, 30000).execute(List.of(call("write")), Map.of("write", tool), () -> 0L);
+        verifyNoInteractions(tool);
+        assertThat(result.getFirst().id()).isEqualTo("id-write");
+        assertThat(result.getFirst().responseData()).contains("NOT_STARTED", "\"retryable\":false")
+                .doesNotContain("UNCONFIRMED");
+    }
+
+    @Test void sequentialBatchDoesNotStartNextToolAfterBudgetExpires() {
+        AtomicLong remaining = new AtomicLong(TimeUnit.SECONDS.toNanos(1));
+        ToolCallback first = mock(ToolCallback.class), second = mock(ToolCallback.class);
+        when(first.call("{}")).thenAnswer(i -> { remaining.set(0); return "confirmed"; });
+        var serial = new AgentToolExecutor(ReActProfile.DEFAULT, new AgentMetricsCollector() {},
+                ErrorRecoveryService.DEFAULT, new OpsMetrics(), false);
+        var results = serial.execute(List.of(call("first"), call("second")),
+                Map.of("first", first, "second", second), remaining::get);
+        verify(first).call("{}");
+        verifyNoInteractions(second);
+        assertThat(results.getFirst().responseData()).isEqualTo("confirmed");
+        assertThat(results.getLast().responseData()).contains("NOT_STARTED");
+    }
+
+    @Test void exhaustedBudgetNeverRetriesAnAttemptedOperation() {
+        AtomicLong remaining = new AtomicLong(TimeUnit.SECONDS.toNanos(1));
+        ToolCallback tool = mock(ToolCallback.class);
+        when(tool.call("{}")).thenAnswer(i -> {
+            remaining.set(0);
+            return "{\"error_code\":\"RAG_EMBEDDING_UNAVAILABLE\"}";
+        });
+        var results = executor(1, 30000).execute(List.of(call("read")), Map.of("read", tool), remaining::get);
+        verify(tool).call("{}");
+        assertThat(results.getFirst().responseData()).contains("REQUEST_DEADLINE_EXCEEDED", "UNCONFIRMED", "\"retryable\":false");
+    }
+
+    @Test void parallelWaitUsesSmallerRequestBudget() {
+        ToolCallback slow = mock(ToolCallback.class);
+        when(slow.call("{}")).thenAnswer(i -> {
+            new CountDownLatch(1).await(5, TimeUnit.SECONDS);
+            return "late";
+        });
+        long start = System.nanoTime();
+        var results = executor(2, 30000).execute(List.of(call("a"), call("b")),
+                Map.of("a", slow, "b", slow), () -> TimeUnit.MILLISECONDS.toNanos(100));
+        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)).isLessThan(3000);
+        assertThat(results).allSatisfy(r -> assertThat(r.responseData()).contains("TOOL_TIMEOUT", "\"retryable\":false"));
+    }
+
     private AgentToolExecutor executor(int concurrency, long timeout) {
         return new AgentToolExecutor(ReActProfile.DEFAULT.withMaxConcurrency(concurrency)
                 .withToolTimeoutMs(timeout), new AgentMetricsCollector() {},

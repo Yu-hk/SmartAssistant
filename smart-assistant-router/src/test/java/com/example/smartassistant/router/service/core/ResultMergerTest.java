@@ -11,6 +11,33 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ResultMergerTest {
+    @Test
+    void identicalForwardedBrowseRepliesAppearOnceWithoutHidingOtherResults() {
+        var browse = new SubTaskResult("discover", "热门商品", "product", "已核实的商品列表", true);
+        browse.setStructuredData(Map.of("browsingOnly", true));
+        var forwarded = new SubTaskResult("analysis", "浏览结果透传", "product", "已核实的商品列表", true);
+        forwarded.setStructuredData(Map.of("browsingOnly", true, "analysis", "已核实的商品列表"));
+        var other = new SubTaskResult("other", "其他商品", "product", "不同商品列表", true);
+        other.setStructuredData(Map.of("browsingOnly", true));
+        var order = new SubTaskResult("order", "订单结果", "order", "已核实的商品列表", true);
+        assertThat(ResultMerger.deduplicateBrowseReplies(List.of(browse, forwarded, other, order)))
+                .containsExactly(browse, other, order);
+        assertThat(List.of(browse, forwarded)).hasSize(2); // audit objects remain intact
+        var ai = org.mockito.Mockito.mock(com.example.smartassistant.common.rag.advisor.AiChatService.class);
+        var merger = new ResultMerger(org.mockito.Mockito.mock(org.springframework.ai.chat.model.ChatModel.class), ai);
+        assertThat(merger.merge("热门商品", List.of(browse, forwarded))).isEqualTo("已核实的商品列表");
+    }
+
+    @Test
+    void browseDeduplicationUsesTheSameAgentAliasesAsExecution() {
+        var browse = new SubTaskResult("discover", "热门商品", "product_agent", "已核实的商品列表", true);
+        browse.setStructuredData(Map.of("browsingOnly", true));
+        var forwarded = new SubTaskResult("analysis", "浏览结果透传", "product-agent-service", "已核实的商品列表", true);
+        forwarded.setStructuredData(Map.of("browsingOnly", true));
+        var ai = org.mockito.Mockito.mock(com.example.smartassistant.common.rag.advisor.AiChatService.class);
+        var merger = new ResultMerger(org.mockito.Mockito.mock(org.springframework.ai.chat.model.ChatModel.class), ai);
+        assertThat(merger.merge("热门商品", List.of(browse, forwarded))).isEqualTo("已核实的商品列表");
+    }
 
     @Test
     void publicFailureNeverIncludesInternalCodesNodeLabelsOrRawErrors() {

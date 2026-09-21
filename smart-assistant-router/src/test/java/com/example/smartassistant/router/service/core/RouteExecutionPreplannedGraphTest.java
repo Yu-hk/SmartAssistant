@@ -635,4 +635,15 @@ class RouteExecutionPreplannedGraphTest {
         assertFalse(merged.contains("### 说明订单操作"));
         assertTrue(merged.contains("申请售后"));
     }
+
+    @Test
+    void fallbackPlanDoesNotRepeatForwardedBrowseResultsOrHideOtherResults() {
+        var browse = new SubTaskResult("discover", "热门商品", "product_agent", "已核实的商品列表", true);
+        browse.setStructuredData(Map.of("browsingOnly", true));
+        var forwarded = new SubTaskResult("analysis", "浏览结果透传", "product_agent", "已核实的商品列表", true);
+        forwarded.setStructuredData(Map.of("browsingOnly", true));
+        var order = new SubTaskResult("order", "订单查询", "order_agent", "当前无订单", true);
+        assertEquals("已核实的商品列表\n\n当前无订单",
+                RouteExecutionService.mergeFallbackPlannedResults(List.of(browse, forwarded, order)));
+    }
 }

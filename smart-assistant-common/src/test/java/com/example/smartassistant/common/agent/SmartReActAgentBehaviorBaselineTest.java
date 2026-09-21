@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -143,6 +144,69 @@ class SmartReActAgentBehaviorBaselineTest {
         verifyNoInteractions(model);
         verify(tool, never()).call(anyString());
         assertThat(events).containsExactly("timeout");
+    }
+
+    @Test void modelReturningAfterDeadlineRecordsUsageButNeverStartsTool() {
+        AtomicLong clock = new AtomicLong();
+        SmartReActAgent agent = agent().withTimeoutMs(10);
+        ReflectionTestUtils.setField(agent, "nanoClock", (java.util.function.LongSupplier) clock::get);
+        var reply = response("", true, 10, 2);
+        when(model.call(any(Prompt.class))).thenAnswer(i -> {
+            clock.set(11_000_000L);
+            return reply;
+        });
+        ToolCallback tool = tool();
+        assertThat(agent.execute("查商品", "sys", List.of(tool))).isNotBlank();
+        verify(model).call(any(Prompt.class));
+        verify(tool, never()).call(anyString());
+        assertThat(events).containsExactly("iteration:1", "inference", "tokens:10:2", "timeout");
+    }
+
+    @Test void expiredFinalAnswerIsNotReturnedAsSuccess() {
+        AtomicLong clock = new AtomicLong();
+        SmartReActAgent agent = agent().withTimeoutMs(10);
+        ReflectionTestUtils.setField(agent, "nanoClock", (java.util.function.LongSupplier) clock::get);
+        var reply = response("迟到的答案", false, 10, 2);
+        when(model.call(any(Prompt.class))).thenAnswer(i -> {
+            clock.set(11_000_000L);
+            return reply;
+        });
+        assertThat(agent.execute("查商品", "sys", List.of())).isNotEqualTo("迟到的答案");
+        verify(model).call(any(Prompt.class));
+        assertThat(events).containsExactly("iteration:1", "inference", "tokens:10:2", "timeout");
+    }
+
+    @Test void modelExceptionAfterDeadlineDoesNotTriggerModelFailureFallback() {
+        AtomicLong clock = new AtomicLong();
+        SmartReActAgent agent = agent().withTimeoutMs(10);
+        ReflectionTestUtils.setField(agent, "nanoClock", (java.util.function.LongSupplier) clock::get);
+        when(model.call(any(Prompt.class))).thenAnswer(i -> {
+            clock.set(11_000_000L);
+            throw new IllegalStateException("fixture transport failed late");
+        });
+        assertThat(agent.execute("查商品", "sys", List.of())).isNotBlank();
+        verify(model).call(any(Prompt.class));
+        assertThat(events).containsExactly("iteration:1", "timeout");
+    }
+
+    @Test void compressionExhaustingBudgetDoesNotStartAnotherModelCall() {
+        AtomicLong clock = new AtomicLong();
+        SmartReActAgent agent = agent().withTimeoutMs(10).withCompress(true, 3, 1);
+        ReflectionTestUtils.setField(agent, "nanoClock", (java.util.function.LongSupplier) clock::get);
+        SummarizationAdvisor compressor = mock(SummarizationAdvisor.class);
+        when(compressor.compress(anyList())).thenAnswer(i -> {
+            clock.set(11_000_000L);
+            return new ArrayList<Message>(i.getArgument(0));
+        });
+        ReflectionTestUtils.setField(agent, "contextCompressor", compressor);
+        ReflectionTestUtils.setField(agent, "precomputedCompactFuture", new CompletableFuture<List<Message>>());
+        var reply = response("", true, 10, 2);
+        when(model.call(any(Prompt.class))).thenReturn(reply);
+        ToolCallback tool = tool();
+        assertThat(agent.execute("查商品", "sys", List.of(tool))).isNotBlank();
+        verify(model).call(any(Prompt.class));
+        verify(tool).call("{}");
+        assertThat(events).containsExactly("iteration:1", "inference", "tokens:10:2", "tool", "compress", "timeout");
     }
 
     @Test void alreadyCancelledRequestNeverCallsModelOrTools() {

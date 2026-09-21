@@ -29,6 +29,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ProductStreamControllerTest {
+    @Test
+    void discoveryRetainsOriginalBudgetWhenPlannerChangesDescription() {
+        var agent = mock(StreamingProductAgentService.class);
+        var discovery = mock(ProductDiscoveryService.class);
+        String original = "我想买蓝牙耳机，预算两千以内，有什么可以推荐的？";
+        when(discovery.discover(original, "耳机", null)).thenReturn(
+                new ProductDiscoveryService.DiscoveryResult("未找到", 0, false, List.of()));
+        var request = new AgentExecutionRequest("1.0", "budget-scope", "discover", "12", "DISCOVER_PRODUCTS",
+                "查询3000元以内耳机", Map.of("_replyScopeQuestion", original, "category", "耳机"),
+                List.of(), List.of(), null, null);
+        new ProductStreamController(agent, discovery).execute(request, null);
+        verify(discovery).discover(original, "耳机", null);
+        org.mockito.Mockito.verifyNoInteractions(agent);
+    }
 
     @Test
     void modelIsPreferredAndOnlyModelFailureEnablesFactFallback() {

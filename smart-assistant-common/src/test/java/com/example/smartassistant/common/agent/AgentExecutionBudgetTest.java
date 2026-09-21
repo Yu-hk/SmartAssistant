@@ -47,13 +47,16 @@ class AgentExecutionBudgetTest {
         assertThat(second.tokensExceeded()).isFalse();
         assertThat(second.elapsedMillis()).isZero();
     }
-    @Test void exactTimeoutBoundaryStillAllowsIteration() {
+    @Test void exactTimeoutBoundaryStopsNewWork() {
         var b = budget(true);
-        clock.addAndGet(10_999_999);
-        assertThat(b.elapsedMillis()).isEqualTo(10);
-        assertThat(b.timeoutExceeded(b.elapsedMillis())).isFalse();
+        clock.addAndGet(9_999_999);
+        assertThat(b.remainingNanos()).isEqualTo(1);
+        assertThat(b.expired()).isFalse();
         clock.incrementAndGet();
+        assertThat(b.elapsedMillis()).isEqualTo(10);
         assertThat(b.timeoutExceeded(b.elapsedMillis())).isTrue();
+        assertThat(b.remainingNanos()).isZero();
+        assertThat(b.expired()).isTrue();
     }
     @Test void nanoClockWrapRetainsElapsedDuration() {
         clock.set(Long.MAX_VALUE - 5_000_000);
@@ -71,5 +74,13 @@ class AgentExecutionBudgetTest {
         assertThat(b.tokensExceeded()).isFalse();
         b.recordTokens(1, 0);
         assertThat(b.tokensExceeded()).isTrue();
+    }
+    @Test void zeroTimeBudgetNeverStartsWork() {
+        assertThat(new AgentExecutionBudget(profile.withTimeoutMs(0), true, clock::get).expired()).isTrue();
+    }
+    @Test void remainingBudgetSaturatesAfterTimeout() {
+        var b = budget(true);
+        clock.addAndGet(100_000_000);
+        assertThat(b.remainingNanos()).isZero();
     }
 }

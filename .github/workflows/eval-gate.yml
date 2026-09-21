@@ -69,8 +69,12 @@ jobs:
           cache: 'maven'
       - run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-product,smart-assistant-order,smart-assistant-router -am test
-          -Dtest=CustomerReplyStyleTest,PromptBuilderTest,UserDocumentQaServiceTest,SentimentAnalysisServiceTest,OrderDeterministicExecutionServiceTest,OrderRagServiceTest,ProductCustomerServicePromptTest,ProductStreamControllerTest,StreamingProductAgentServiceTest,ResultMergerTest,ChatDispatchListenerTest,RouterClientDnsRetryTest,SelectiveSemanticAnswerCacheTest,TaskAnalysisPromptTest,RouteExecutionPreplannedGraphTest,GraphNodeExecutionServiceTest,RouterConversationContextTest,ProductNodeResultCacheTest,ModelCallFailureTest,ProductFactQueryServiceTest,ProductReadOnlyDispatcherTest,BusinessFallbackParserTest,ModelUnavailableWorkflowServiceTest,LangGraphRouteExecutionServiceTest
+          -Dtest=CustomerReplyStyleTest,PromptBuilderTest,UserDocumentQaServiceTest,SentimentAnalysisServiceTest,OrderDeterministicExecutionServiceTest,OrderRagServiceTest,ProductCustomerServicePromptTest,ProductStreamControllerTest,StreamingProductAgentServiceTest,StructuredProductRecommendationTest,ProductDiscoveryServiceTest,PolicyPlanGuardTest,ResultMergerTest,ChatDispatchListenerTest,RouterClientDnsRetryTest,SelectiveSemanticAnswerCacheTest,TaskAnalysisPromptTest,RouteExecutionPreplannedGraphTest,GraphNodeExecutionServiceTest,RouterConversationContextTest,ProductNodeResultCacheTest,ModelCallFailureTest,ProductFactQueryServiceTest,ProductReadOnlyDispatcherTest,BusinessFallbackParserTest,ModelUnavailableWorkflowServiceTest,LangGraphRouteExecutionServiceTest
           -Dsurefire.failIfNoSpecifiedTests=false
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-product/target/surefire-reports/TEST-com.example.smartassistant.service.core.StructuredProductRecommendationTest.xml --minimum 40
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.taskanalysis.PolicyPlanGuardTest.xml --minimum 3
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.ResultMergerTest.xml --minimum 13
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.RouteExecutionPreplannedGraphTest.xml --minimum 31
 
   profile-governance:
     name: Profile provenance and memory isolation
@@ -152,9 +156,10 @@ jobs:
           mvn -B -pl smart-assistant-common -am test
           -Dtest=SmartReActAgentBehaviorBaselineTest,SmartReActAgentToolCallbackTest,SmartReActAgentChatClientTest,SmartReActAgentPhaseGateTest,SmartReActAgentGradingTest,AgentLoopDecisionTest,AgentExecutionBudgetTest,AgentToolExecutorTest,AgentToolExecutorConcurrencyTest,ModelCallFailureTest
           -Dsurefire.failIfNoSpecifiedTests=false
-      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.SmartReActAgentBehaviorBaselineTest.xml --minimum 11
-      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.AgentToolExecutorConcurrencyTest.xml --minimum 7
-      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.AgentExecutionBudgetTest.xml --minimum 8
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.SmartReActAgentBehaviorBaselineTest.xml --minimum 15
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.AgentToolExecutorConcurrencyTest.xml --minimum 11
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.AgentExecutionBudgetTest.xml --minimum 10
+      - run: python3 -m unittest discover -s scripts -p test_customer_acceptance.py -v
 
   storage-broker-integration:
     name: Real PostgreSQL and RabbitMQ contracts

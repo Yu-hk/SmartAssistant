@@ -9,6 +9,42 @@ import java.math.BigDecimal;
 import static org.assertj.core.api.Assertions.*;
 
 class StructuredProductRecommendationTest {
+    @Test
+    void publishesOnlyAvailableEvidenceAndSafeRepairCategories() {
+        var facts = new StructuredProductRecommendation("预算两千以内推荐耳机",
+                List.of(Map.of("code", "EARPHONE", "name", "耳机", "price", 1999)));
+        var row = (Map<?, ?>) ((List<?>) facts.budgetData().get("products")).getFirst();
+        assertThat((List<?>) row.get("availableEvidenceFields")).isEmpty();
+        assertThat(row.get("allowedLimitations").toString()).contains("SINGLE_CANDIDATE", "MISSING_RATING")
+                .doesNotContain("NO_PHOTO_BENCHMARK");
+        String raw = "{\"valid\":true,\"selected_code\":\"EARPHONE\",\"evidence_fields\":[\"features\"],\"limitations\":[]}";
+        assertThatThrownBy(() -> facts.parse(raw)).isInstanceOf(StructuredProductRecommendation.InvalidDecision.class)
+                .hasMessageContaining("availableEvidenceFields");
+        try { facts.parse("{\"valid\":true,\"SECRET_FIELD\":1}"); }
+        catch (StructuredProductRecommendation.InvalidDecision failure) {
+            assertThat(failure.reasonCode()).isEqualTo("INVALID_SCHEMA");
+            assertThat(failure.getMessage()).doesNotContain("SECRET_FIELD");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"预算二千零五十元", "预算两千零五十元"})
+    void formalChineseAmountIsExact(String question) {
+        assertThat(ProductDiscoveryService.resolveBudget(question).max()).isEqualByComparingTo("2050");
+    }
+    @ParameterizedTest
+    @ValueSource(strings = {"我想买蓝牙耳机，预算两千以内，有什么可以推荐的？", "预算二千元", "两千元以内的耳机"})
+    void chineseBudgetRemainsAHardConstraint(String question) {
+        assertThat(ProductDiscoveryService.resolveBudget(question).max()).isEqualByComparingTo("2000");
+        assertThat(facts(question, 2499).hasEligibleProducts()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"预算三千五", "预算一两千", "预算二千到三千", "预算两千或三千"})
+    void uncertainChineseBudgetRequiresClarification(String question) {
+        assertThat(ProductDiscoveryService.resolveBudget(question).ambiguous()).isTrue();
+        assertThat(facts(question, 1999).hasEligibleProducts()).isFalse();
+    }
     private static final String DECISION = """
             {"valid":true,"selected_code":"PHONE","evidence_fields":["spec","rating","reviewCount"],
              "limitations":["SINGLE_CANDIDATE","NO_PHOTO_BENCHMARK"],"issues":[],"correction_instruction":""}
