@@ -30,6 +30,20 @@ import static org.mockito.Mockito.when;
 
 class ProductStreamControllerTest {
     @Test
+    void discoveryPreservesOriginalWeightEvenWithoutBudget() {
+        var agent = mock(StreamingProductAgentService.class);
+        var discovery = mock(ProductDiscoveryService.class);
+        String original = "重量上限为1公斤";
+        when(discovery.discover(original, "笔记本电脑", null)).thenReturn(
+                new ProductDiscoveryService.DiscoveryResult("未找到", 0, false, List.of()));
+        var request = new AgentExecutionRequest("1.0", "weight-scope", "discover", "12", "DISCOVER_PRODUCTS",
+                "筛选便携笔记本", Map.of("_replyScopeQuestion", original, "category", "笔记本电脑"),
+                List.of(), List.of(), null, null);
+        new ProductStreamController(agent, discovery).execute(request, null);
+        verify(discovery).discover(original, "笔记本电脑", null);
+        org.mockito.Mockito.verifyNoInteractions(agent);
+    }
+    @Test
     void discoveryRetainsOriginalBudgetWhenPlannerChangesDescription() {
         var agent = mock(StreamingProductAgentService.class);
         var discovery = mock(ProductDiscoveryService.class);
