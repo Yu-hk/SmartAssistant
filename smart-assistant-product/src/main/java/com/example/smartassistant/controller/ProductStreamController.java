@@ -183,13 +183,12 @@ public class ProductStreamController {
         }
         String question = UserQuestionNormalizer.normalize(request.question());
         String original = java.util.Objects.toString(request.input().get("_replyScopeQuestion"), "");
-        var originalBudget = ProductDiscoveryService.resolveBudget(original);
-        // Planner descriptions can omit or rewrite amounts. Explicit user constraints win
-        // for every catalog/analysis/recommendation stage, including ambiguous budgets.
+        // Planner descriptions can omit or rewrite constraints. Preserve chronological
+        // user context for every catalog/analysis/recommendation stage, even without money.
         if ((isAnalysisOrRecommendationRequest(request)
                 || "DISCOVER_PRODUCTS".equalsIgnoreCase(request.operation())
                 || "QUERY_HOT_PRODUCTS".equalsIgnoreCase(request.operation()))
-                && (originalBudget.max() != null || originalBudget.ambiguous())) {
+                && !original.isBlank()) {
             question = UserQuestionNormalizer.normalize(original);
         }
         ToolUsageCache.start(requestId);

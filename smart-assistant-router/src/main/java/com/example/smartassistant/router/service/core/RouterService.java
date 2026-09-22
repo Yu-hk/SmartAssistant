@@ -357,8 +357,10 @@ public class RouterService {
                 // ⭐ 多 Agent 协作（所有提问均走规划→执行→合并）
                 // 简单问题 plan() 返回单个子任务，merge() 直接返回
                 // 复杂问题自动分解为多个子任务并行执行
-                executionQuestion = addConversationContextIfNeeded(
-                        enhancedQuestion, conversationHistory);
+                // Preserve the user's actual revised values before a model rewrite can
+                // turn a short parameter answer into an independent generic question.
+                String contextualQuestion = addConversationContextIfNeeded(question, conversationHistory);
+                executionQuestion = contextualQuestion.equals(question) ? enhancedQuestion : contextualQuestion;
                 SemanticAnswerCachePolicy.Decision cacheDecision = semanticAnswerCachePolicy != null
                         ? semanticAnswerCachePolicy.resolve(taskAnalysis)
                         : SemanticAnswerCachePolicy.Decision.none("policy_unavailable");
@@ -517,7 +519,8 @@ public class RouterService {
     /** 保留有界用户历史以解析连续追问，避免上一轮也只有代词时丢失商品。 */
     static String addConversationContextIfNeeded(String question, List<String> history) {
         if (question == null || history == null || history.isEmpty()) return question;
-        boolean contextDependent = question.matches("(?s).*(如果|它|这个|那个|继续|还有|上面|前面|更看重|优先关注|呢[？?]?$).*" );
+        boolean contextDependent = question.matches("(?s).*(如果|它|这个|那个|继续|还有|上面|前面|更看重|优先关注|呢[？?]?$).*" )
+                || question.matches("(?s)^\\s*(?:重量上[限线]|预算(?:改为|调整为|为|是|[0-9零一二两三四五六七八九十])|金额|确认按.*条件|按.*条件).*" );
         if (!contextDependent) return question;
         StringBuilder userHistory = new StringBuilder();
         for (String message : history.subList(Math.max(0, history.size() - 10), history.size())) {
@@ -531,6 +534,8 @@ public class RouterService {
         return question + "\n\n[对话上下文]\n最近用户问题（按时间顺序，仅供解析指代）：\n" + userHistory
                 + "\n请延续上一轮讨论的对象回答当前问题，不要再次要求用户说明产品类型。"
                 + "历史仅用于解析商品指代和用户明确保留的约束，回答维度以本轮用户问题为准；"
+                + "同一条件以最近一轮用户明确提供的值为准，未修改的筛选条件继续保留，不要重复追问已给出的值。"
+                + "确认筛选只授权只读商品查询，不代表确认下单；历史下单意愿不能作为本轮写操作授权。"
                 + "用户已切换商品时，以最近明确提及的商品为准。"
                 + "不要继承上一轮助手主动提及的颜色、价格等内容，也不要重复用户本轮未问的信息。";
     }

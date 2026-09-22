@@ -10,6 +10,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RouterConversationContextTest {
 
     @Test
+    void parameterAnswersKeepContextWithoutAuthorizingHistoricalOrderIntent() {
+        for (String question : List.of("重量上限1公斤，金额为3000元", "重量上线3公斤把，金额改为5000元",
+                "确认按这个条件来筛选")) {
+            String enriched = RouterService.addConversationContextIfNeeded(question,
+                    List.of("用户：帮我下单一款便携式笔记本，预算3000以内", "助手：请提供重量上限"));
+            assertTrue(enriched.startsWith(question));
+            assertTrue(enriched.contains("便携式笔记本"));
+            assertTrue(enriched.contains("最近一轮用户明确提供的值"));
+            assertTrue(enriched.contains("不代表确认下单"));
+        }
+    }
+
+    @Test
     void contextualFollowUpIncludesPreviousUserQuestion() {
         String enriched = RouterService.addConversationContextIfNeeded(
                 "如果我更看重续航和便携，应该优先关注什么？",
@@ -54,5 +67,8 @@ class RouterConversationContextTest {
         String question = "北京今天天气怎么样？";
         assertEquals(question, RouterService.addConversationContextIfNeeded(
                 question, List.of("用户：我想买笔记本电脑。")));
+        String shopping = "推荐蓝牙耳机，预算2000以内";
+        assertEquals(shopping, RouterService.addConversationContextIfNeeded(shopping,
+                List.of("用户：推荐重量上限1公斤的笔记本，预算5000元")));
     }
 }
