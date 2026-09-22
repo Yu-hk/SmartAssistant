@@ -19,7 +19,7 @@ public class ProductDiscoveryService {
     private static final int HARD_CONSTRAINT_CANDIDATE_LIMIT = 20;
     private static final String BUDGET_NUMBER = "((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|[零〇一二两三四五六七八九十百千万]+)";
     private static final Pattern BUDGET_PREFIX_PATTERN = Pattern.compile(
-            "(?:预算\\s*(?:不超过|不高于|控制在|只有|仅有|改为|调整为|仅|为|是|在|[:：=]|<=|≤)?|最高|最多|不超过|不高于|控制在)"
+            "(?:(?:预算|金额)\\s*(?:不超过|不高于|控制在|只有|仅有|改为|调整为|仅|为|是|在|[:：=]|<=|≤)?|最高|最多|不超过|不高于|控制在)"
                     + "\\s*[¥￥]?\\s*" + BUDGET_NUMBER + "\\s*(万|千|[kK])?\\s*元?");
     private static final Pattern BUDGET_SUFFIX_PATTERN = Pattern.compile(
             "(?<![\\d.,])[¥￥]?\\s*" + BUDGET_NUMBER + "\\s*(万|千|[kK])?\\s*元?\\s*(?:以内|以下|之内)");
@@ -83,8 +83,8 @@ public class ProductDiscoveryService {
     /** Category-aware discovery. A specific category always gets a candidate pool, not limit=1. */
     public DiscoveryResult discover(String query, String requestedCategory, Integer requestedLimit) {
         String normalizedQuery = UserQuestionNormalizer.normalize(query);
-        String category = normalizeCategory(requestedCategory);
-        if (category.isBlank()) category = detectCategory(normalizedQuery);
+        String category = detectCategory(normalizedQuery);
+        if (category.isBlank()) category = normalizeCategory(requestedCategory);
         ProductFeatureRequest featureRequest = ProductFeatureRequest.parse(normalizedQuery);
         BudgetResolution budget = resolveBudget(normalizedQuery);
         BigDecimal maxBudget = budget.max();
@@ -290,6 +290,15 @@ public class ProductDiscoveryService {
     }
 
     public static BudgetResolution resolveBudget(String query) {
+        List<String> turns = ProductQueryContext.turns(query);
+        for (int i = turns.size() - 1; i >= 0; i--) {
+            BudgetResolution budget = resolveTurnBudget(turns.get(i));
+            if (budget.max() != null || budget.ambiguous()) return budget;
+        }
+        return new BudgetResolution(null, false);
+    }
+
+    private static BudgetResolution resolveTurnBudget(String query) {
         if (query == null || query.isBlank()) return new BudgetResolution(null, false);
         String normalized = com.example.smartassistant.service.quality.ProductMoneySyntax.normalize(query);
         // Physical dimensions are not money: e.g. 不超过1.3kg must not become a 1300-yuan budget.
@@ -395,9 +404,19 @@ public class ProductDiscoveryService {
     }
 
     private String detectCategory(String value) {
+        List<String> turns = ProductQueryContext.turns(value);
+        for (int i = turns.size() - 1; i >= 0; i--) {
+            String category = detectTurnCategory(turns.get(i));
+            if (!category.isBlank()) return category;
+        }
+        return "";
+    }
+
+    private String detectTurnCategory(String value) {
         if (value == null || value.isBlank()) return "";
         String normalized = value.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
         List<String> categories = listProductCategories();
+        if (normalized.contains("笔记本") && categories.contains("笔记本电脑")) return "笔记本电脑";
 
         // Prefer an explicit category occurring in the question. The longest
         // match wins when the catalog contains nested category names.
