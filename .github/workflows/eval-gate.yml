@@ -246,7 +246,7 @@ jobs:
       - name: Verify persistent product features and management authorization
         run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-gateway -am test
-          -Dtest=ProductFeatureExtractorTest,AdminProductIntakeTest,AdminProductFeaturePersistenceTest,AdminProductFeatureControllerTest,AdminControllerSessionAuthorizationTest,AdminServiceStorageInitializationTest,GlobalJwtAuthFilterTest
+          -Dtest=ProductFeatureExtractorTest,AdminProductIntakeTest,AdminProductFeaturePersistenceTest,AdminProductFeatureControllerTest,AdminControllerSessionAuthorizationTest,AdminServiceStorageInitializationTest,GlobalJwtAuthFilterTest,VisitRecordServiceTest
           -Dsurefire.failIfNoSpecifiedTests=false
 
   # 语音转写与聊天解耦：鉴权、有界音频和浏览器生命周期回归。
@@ -281,6 +281,7 @@ jobs:
           npm run test:service-entry
           node scripts/run-clarification-tests.mjs
           node scripts/run-profile-privacy-tests.mjs
+          npm run test:visits
           npm run build
 
   session-gate:

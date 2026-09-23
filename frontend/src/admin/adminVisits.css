@@ -1,0 +1,17 @@
+.visit-note { color: var(--text-secondary, #64748b); font-size: 13px; line-height: 1.7; margin: -8px 0 20px; }
+.visit-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+.visit-metric { padding: 22px; display: flex; align-items: flex-start; gap: 16px; }
+.visit-metric svg { color: #3b82f6; }
+.visit-metric span { font-size: 13px; }
+.visit-metric strong { display: block; font-size: 28px; margin-top: 6px; }
+.visit-modules { padding: 22px; margin-bottom: 20px; }
+.visit-modules h2 { font-size: 16px; margin: 0 0 16px; }
+.visit-module-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.visit-module-grid button { color: inherit; background: transparent; border: 1px solid var(--border-color, #94a3b84d); border-radius: 8px; padding: 14px; text-align: left; cursor: pointer; }
+.visit-module-grid button:hover { border-color: #3b82f6; }
+.visit-module-grid strong, .visit-module-grid small { display: block; margin-top: 8px; }
+.visit-module-grid small, .visit-secondary { opacity: .7; font-size: 12px; }
+.visit-secondary { display: block; margin-top: 4px; }
+.visit-tabs { display: flex; gap: 8px; }
+.visit-selection { padding: 12px 20px; font-size: 13px; }
+@media (max-width: 640px) { .visit-metrics { grid-template-columns: 1fr; gap: 8px; } .visit-metric { padding: 16px; } }
