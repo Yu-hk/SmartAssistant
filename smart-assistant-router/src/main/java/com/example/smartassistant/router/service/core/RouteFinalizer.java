@@ -148,6 +148,7 @@ public class RouteFinalizer {
         DomainQualityResult domainQuality = result.getDomainQuality() != null
                 ? result.getDomainQuality() : DomainQualityResult.unknown();
         boolean clarification = Boolean.TRUE.equals(result.getClarification())
+                || result.getClarificationRequest() != null
                 || ClarificationReplyDetector.isRequiredParameterClarification(result.getResult());
         result.setClarification(clarification);
         normalizeRoutingMetadata(result, clarification);

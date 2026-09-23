@@ -16,9 +16,13 @@ class ModelUnavailableWorkflowServiceTest {
         analysis.setSubIntents(List.of(Map.of("id", "explain", "description", "说明退款要求",
                 "target_agent", "order", "operation", "EXPLAIN_ORDER_REQUIREMENTS")));
         var plan = RouteExecutionService.buildExecutionPlan("申请退款 ORD-TEST", analysis, "refund-explain");
-        String answer = RouteExecutionService.builtInOrderPreparationReply(plan.nodes().getFirst().description());
-        assertThat(answer).contains("退款", "没有修改订单").doesNotContain("下单", "收货地址", "成交金额");
-        assertThat(plan.nodes().getFirst().accessMode()).isEqualTo(ExecutionPlan.AccessMode.READ);
+        var node = plan.nodes().getFirst();
+        assertThat(plan.toIntentGraph().getQuestion()).isEqualTo("申请退款 ORD-TEST");
+        assertThat(node.targetAgent()).isEqualTo(RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT);
+        assertThat(node.operation()).isEqualTo("EXPLAIN_ORDER_REQUIREMENTS");
+        assertThat(node.description()).contains("订单执行层").doesNotContain("下单", "收货地址", "成交金额");
+        assertThat(node.requiredSlots()).isEmpty();
+        assertThat(node.accessMode()).isEqualTo(ExecutionPlan.AccessMode.READ);
     }
     private final AgentCallerService caller = mock(AgentCallerService.class);
     private final RouteExecutionService execution = mock(RouteExecutionService.class);

@@ -293,14 +293,18 @@ public class ProductStreamController {
                                 1.0, "PRODUCT_DISCOVERY_DATA")
                     : com.example.smartassistant.common.quality.DomainQualityResult.pass(
                             1.0, "EMPTY_PRODUCT_CATALOG"));
-            Map<String, Object> data = Map.of(
+            Map<String, Object> data = new LinkedHashMap<>(Map.of(
                     "products", discovery.products(),
                     "productCount", discovery.productCount(),
                     "popularityBased", discovery.popularityBased(),
                     "scenarioEvidenceLimited", discovery.scenarioEvidenceLimited(),
                     "category", discovery.category(),
                     "clarificationRequired", discovery.clarificationRequired(),
-                    "browsingOnly", discovery.browsingOnly());
+                    "browsingOnly", discovery.browsingOnly()));
+            if (discovery.clarificationRequired() && !discovery.missingFields().isEmpty()) {
+                data.put("clarificationRequest", new com.example.smartassistant.common.agent.protocol.ClarificationRequest(
+                        "product", "DISCOVER_PRODUCTS", discovery.missingFields()).toMap());
+            }
             return executionResponse(requestId, AgentExecutionResponse.success(
                     response.answer(), data, response.quality()), true);
         }

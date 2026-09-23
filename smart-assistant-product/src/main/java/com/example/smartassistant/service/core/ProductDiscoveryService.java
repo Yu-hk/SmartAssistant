@@ -88,11 +88,13 @@ public class ProductDiscoveryService {
         ProductFeatureRequest featureRequest = ProductFeatureRequest.parse(normalizedQuery);
         BudgetResolution budget = resolveBudget(normalizedQuery);
         BigDecimal maxBudget = budget.max();
-        if (budget.ambiguous()) return clarification(budget.clarification(), category);
+        if (budget.ambiguous()) return clarification(budget.clarification(), category, List.of("budget"));
         boolean inStockOnly = asksForAvailableStock(normalizedQuery);
         if (!featureRequest.clarification().isBlank()) {
             String prefix = category.isBlank() ? "你想选购哪类商品？我会保留已提供的预算和特征。" : "";
-            return clarification(prefix + featureRequest.clarification(), category);
+            var fields = new java.util.ArrayList<>(featureRequest.missingFields());
+            if (!fields.isEmpty() && category.isBlank()) fields.addFirst("product");
+            return clarification(prefix + featureRequest.clarification(), category, fields);
         }
         if (category.isBlank() && featureRequest.constraints().active()) {
             List<String> matchingCategories = productBackend.listMatchingCategories(new ProductBackend.ProductDiscoveryCriteria(
@@ -102,7 +104,7 @@ public class ProductDiscoveryService {
             if (distinct.size() == 1) category = distinct.getFirst();
             else return clarification(distinct.isEmpty()
                     ? "现有结构化目录证据不足以确定商品类型。你想选购哪类商品？我会保留已提供的预算和特征。"
-                    : "符合这些特征的商品涉及" + String.join("、", distinct) + "，你想选购哪类商品？", "");
+                    : "符合这些特征的商品涉及" + String.join("、", distinct) + "，你想选购哪类商品？", "", List.of("product"));
         }
         boolean popularityRequest = asksForPopularity(normalizedQuery);
         boolean browsingOnly = popularityRequest && category.isBlank()
@@ -111,9 +113,7 @@ public class ProductDiscoveryService {
         if (category.isBlank() && !popularityRequest
                 && normalizedQuery.matches("(?s).*(?:推荐|想买|选购|想要|需要|预算|轻便|便携|续航).*")
                 && !normalizedQuery.matches(".*(?:商品列表|有什么商品|有哪些商品).*")) {
-            return new DiscoveryResult("你想选购哪类商品，主要用来做什么？"
-                    + "我会结合你已提供的预算和特征继续筛选。", 0, false, List.of(),
-                    false, "", true, false);
+            return clarification("您想选购哪类商品？我会结合您已提供的预算和特征继续筛选。", "", List.of("product"));
         }
 
         int requested = requestedLimit == null
@@ -213,8 +213,8 @@ public class ProductDiscoveryService {
                 || query.contains("畅销") || query.contains("排行") || query.contains("流行");
     }
 
-    private static DiscoveryResult clarification(String answer, String category) {
-        return new DiscoveryResult(answer, 0, false, List.of(), false, category, true, false);
+    private static DiscoveryResult clarification(String answer, String category, List<String> fields) {
+        return new DiscoveryResult(answer, 0, false, List.of(), false, category, true, false, fields);
     }
 
     private static List<ProductBackend.ProductSummary> unavailableCatalog() {
@@ -237,10 +237,19 @@ public class ProductDiscoveryService {
             boolean scenarioEvidenceLimited,
             String category,
             boolean clarificationRequired,
-            boolean browsingOnly) {
+            boolean browsingOnly,
+            List<String> missingFields) {
         public DiscoveryResult {
             products = products != null ? List.copyOf(products) : List.of();
             category = category == null ? "" : category;
+            missingFields = missingFields == null ? List.of() : List.copyOf(missingFields);
+        }
+
+        public DiscoveryResult(String answer, int productCount, boolean popularityBased,
+                List<ProductBackend.ProductSummary> products, boolean scenarioEvidenceLimited,
+                String category, boolean clarificationRequired, boolean browsingOnly) {
+            this(answer, productCount, popularityBased, products, scenarioEvidenceLimited, category,
+                    clarificationRequired, browsingOnly, List.of());
         }
 
         public DiscoveryResult(String answer, int productCount, boolean popularityBased,

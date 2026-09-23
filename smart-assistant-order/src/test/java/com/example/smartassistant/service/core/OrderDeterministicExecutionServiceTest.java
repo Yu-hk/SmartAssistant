@@ -229,9 +229,10 @@ class OrderDeterministicExecutionServiceTest {
         AgentExecutionResponse response = service.execute(request(
                 "CREATE_ORDER", "下单", Map.of("product_name", "耳机")));
 
-        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.FAILED);
-        assertThat(response.error().code()).isEqualTo("ORDER_INFORMATION_INCOMPLETE");
-        assertThat(response.error().message()).contains("成交金额", "收货人姓名", "联系电话", "收货地址");
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        var contract = com.example.smartassistant.common.agent.protocol.ClarificationRequest.read(response.data().get("clarificationRequest"));
+        assertThat(contract.fields()).containsExactly("recipientName", "recipientPhone", "shippingAddress");
+        assertThat(response.answer()).contains("收货人姓名", "联系电话", "收货地址");
         verify(orderData, never()).insertOrder(org.mockito.ArgumentMatchers.any());
     }
 

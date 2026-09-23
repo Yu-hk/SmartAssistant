@@ -121,13 +121,19 @@ public class GraphNodeExecutionService {
         progress(eventsKey, "node_started", "节点[" + node.getDescription() + "]开始执行", targetAgent);
 
         if (RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT.equals(targetAgent)) {
-            SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(), null,
-                    RouteExecutionService.builtInOrderPreparationReply(node.getDescription()),
-                    true, List.of(), Map.of());
+            // Preparation is a read-only Order capability, never a Router-generated field list.
+            var input = new LinkedHashMap<String, Object>(resolveInput(node, completed));
+            input.put("_operation", node.getOperation());
+            var response = agentCallerService.callAgentAndExtractTitles("order",
+                    new com.example.smartassistant.common.agent.protocol.AgentExecutionRequest(
+                            "1.0", requestId, node.getId(), String.valueOf(userId), "CLARIFY_INPUT",
+                            originalQuestion != null ? originalQuestion : node.getDescription(), input,
+                            List.of(), List.of(), null, null));
+            SubTaskResult result = new SubTaskResult(node.getId(), node.getDescription(), "order",
+                    response.getResponse(), !response.getDomainQuality().isFail(), List.of(), Map.of());
+            result.setDomainQuality(response.getDomainQuality());
+            result.setStructuredData(response.getData());
             result.setSystemNodeType(SubTaskResult.SystemNodeType.ORDER_PREPARATION);
-            result.setDomainQuality(
-                    com.example.smartassistant.common.quality.DomainQualityResult.pass(
-                            1.0, "BUILTIN_ORDER_PREPARATION_GUIDANCE"));
             return result;
         }
 

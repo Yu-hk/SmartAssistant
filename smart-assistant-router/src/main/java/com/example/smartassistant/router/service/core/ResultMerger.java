@@ -85,6 +85,11 @@ public class ResultMerger {
         mergeable = deduplicateBrowseReplies(mergeable);
         if (mergeable.size() == 1) return appendWarning(mergeable.getFirst().getResult(), optionalWarning);
 
+        if (mergeable.stream().anyMatch(r -> r.getStructuredData().containsKey("clarificationRequest"))) {
+            // A merger must not replace a domain's question while the form keeps different fields.
+            return appendWarning(fallbackMerge(mergeable), optionalWarning);
+        }
+
         // A single domain already owns the execution order and the factual wording of each
         // result. Re-sending those deterministic order results to an LLM adds seconds of
         // latency and can accidentally rewrite lifecycle states (for example, 待发货 → 已支付).
