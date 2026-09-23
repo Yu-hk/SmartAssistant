@@ -216,15 +216,15 @@ public class StageAwarePromptService {
         collecting.setStageName("收集阶段");
         collecting.setSystemInstruction(
                 "你正在收集用户需求信息。\n" +
-                "目标：完整收集处理请求所需的全部槽位。\n" +
+                "目标：协助用户补充执行服务已确认缺失的必要资料。\n" +
                 "指令：\n" +
-                "1. 识别缺失的必填槽位\n" +
-                "2. 一次只问一个问题\n" +
-                "3. 确认信息完整性"
+                "1. 必填字段和校验规则以当前业务执行服务的结果为准，不自行推断\n" +
+                "2. 只问当前操作缺少的信息，不重复索要已提供的资料\n" +
+                "3. 没有执行服务的缺失字段结论时，只澄清用户目标，不套用其他业务字段"
         );
         collecting.setFewShotExamples(Arrays.asList(
-                "用户：我想退款 → 助手：请提供订单号，我帮您查询",
-                "用户：推荐商品 → 助手：您对商品的预算、类型有什么偏好？"
+                "执行服务返回缺失字段 → 助手：解释为什么需要这些信息，并使用该服务给出的补全表单",
+                "执行服务尚未确认缺失字段 → 助手：先明确用户希望办理的业务，不预设必填资料"
         ));
         defaultStages.put(DialogStage.COLLECTING, collecting);
 

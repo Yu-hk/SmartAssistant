@@ -72,6 +72,17 @@ class OrderAgentControllerTest {
     }
 
     @Test
+    void fallbackPreparationDoesNotInvokeModelRetrievalOrMutation() {
+        var request = new AgentExecutionRequest("1.0", "fallback", "prepare", "12", "PREPARE_FALLBACK",
+                "下单耳机", Map.of("amount", 1), List.of(), List.of(), null, null);
+        var result = controller.execute(request, null);
+        assertEquals(AgentExecutionResponse.Status.SUCCEEDED, result.getBody().status());
+        assertNotNull(result.getBody().data().get("clarificationRequest"));
+        assertFalse(result.getBody().data().containsKey("preparedAction"));
+        verifyNoInteractions(agent, intentService, ragService, memoryExtractor, orchestrator);
+    }
+
+    @Test
     @DisplayName("无证据拒答：检索被拒时应短路返回拒答消息且不调用 LLM")
     void noEvidence_shouldRejectWithoutCallingAgent() {
         when(ragService.retrieveWithQualityResult(any(), anyString()))

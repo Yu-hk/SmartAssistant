@@ -21,6 +21,6 @@ class OrderClarificationServiceTest {
     @Test void listAndCompletePreparationDoNotInventMissingFields() {
         assertFalse(OrderClarificationService.prepare("QUERY_ORDER_LIST", Map.of()).data().containsKey("clarificationRequest"));
         assertFalse(OrderClarificationService.prepare("CREATE_ORDER", Map.of("product_name", "耳机", "recipient_name", "测试",
-                "recipient_phone", "13800000000", "shipping_address", "测试路1号")).data().containsKey("clarificationRequest"));
+                "recipient_phone", "13800000000", "shipping_address", "北京市测试路1号")).data().containsKey("clarificationRequest"));
     }
 }

@@ -182,6 +182,10 @@ public class OrderAgentController {
                             "Question must not be blank", false));
         }
 
+        if ("PREPARE_FALLBACK".equals(request.operation())) {
+            return typedResponse(com.example.smartassistant.service.core.OrderFallbackPreparationService.prepare(
+                    request.question()), requestId);
+        }
         if ("CLARIFY_INPUT".equals(request.operation())) {
             String operation = java.util.Objects.toString(request.input().get("_operation"), "");
             if (operation.isBlank() || "EXPLAIN_ORDER_REQUIREMENTS".equals(operation)) {

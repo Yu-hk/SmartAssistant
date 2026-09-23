@@ -42,6 +42,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Agent Caller Service - 调用 Provider Agent
@@ -430,7 +431,9 @@ public class AgentCallerService {
                     response = restTemplate.postForEntity(processUri, entity, String.class);
                 }
             } catch (HttpClientErrorException e) {
-                if ("RESOLVE_READ_ONLY_PRODUCT".equals(protocolRequest.operation())) throw e;
+                // Read-only preparation must never degrade to a legacy model endpoint
+                // which could interpret the user's original question as a mutation.
+                if (Set.of("RESOLVE_READ_ONLY_PRODUCT", "CLARIFY_INPUT", "PREPARE_FALLBACK").contains(protocolRequest.operation())) throw e;
                 if (e.getStatusCode().value() != 404 && e.getStatusCode().value() != 405) throw e;
                 // Rolling deployment compatibility: an old Agent may not expose /execute yet.
                 URI legacyUri = buildLegacyProcessUri(baseUrl, canonicalName, question);

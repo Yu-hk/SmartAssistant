@@ -29,9 +29,21 @@ class ModelUnavailableWorkflowServiceTest {
     private final ProductReadOnlyDispatcher product = mock(ProductReadOnlyDispatcher.class);
     private final ModelUnavailableWorkflowService service = new ModelUnavailableWorkflowService(new BusinessFallbackParser(), product, caller, execution);
     private RouteRequest request(String q) { return new RouteRequest(12L, q, "s", false, "r"); }
+    private void prepare(String operation, Map<String, Object> input, String description) {
+        when(caller.callAgentAndExtractTitles(eq("order"), any(com.example.smartassistant.common.agent.protocol.AgentExecutionRequest.class)))
+                .thenAnswer(call -> {
+                    var request = (com.example.smartassistant.common.agent.protocol.AgentExecutionRequest) call.getArgument(1);
+                    assertThat(request.operation()).isEqualTo("PREPARE_FALLBACK");
+                    assertThat(request.input()).isEmpty();
+                    assertThat(request.idempotencyKey()).isNull();
+                    return new AgentCallResult("准备完毕", List.of(), Map.of(), DomainQualityResult.pass(1, "ORDER_FALLBACK_PREPARED"),
+                            Map.of("preparedAction", Map.of("operation", operation, "input", input, "description", description)));
+                });
+    }
     @Test void writeUsesApprovalAndNeverRunsAfterAnExistingExecution() {
         service.handle(request("取消订单 ORD-1001；原因：重复下单"), List.of(), false);
         verifyNoInteractions(execution, caller);
+        prepare("CANCEL_ORDER", Map.of("order_id", "ORD-1001", "reason", "重复下单"), "取消订单 ORD-1001；原因：重复下单");
         when(execution.executeDeterministicFallback(any(), eq(12L))).thenAnswer(call -> {
             ExecutionPlan plan = call.getArgument(0);
             assertThat(plan.nodes().getFirst().approvalRequired()).isTrue();
@@ -45,14 +57,22 @@ class ModelUnavailableWorkflowServiceTest {
         assertThat(service.handle(request("取消订单 ORD-1001；原因：重复下单"), List.of(), true).getWorkflowStatus()).isEqualTo(RoutingResult.WorkflowStatus.AWAITING_APPROVAL);
     }
     @Test void missingReasonDoesNotCreateApprovalOrReuseHistoryReason() {
+        var contract = new com.example.smartassistant.common.agent.protocol.ClarificationRequest("order", "REFUND_ORDER", List.of("reason"));
+        when(caller.callAgentAndExtractTitles(eq("order"), any(com.example.smartassistant.common.agent.protocol.AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("请补充原因", List.of(), Map.of(), DomainQualityResult.pass(1, "CLARIFY"),
+                        Map.of("clarificationRequest", contract.toMap())));
         for (String question : List.of("取消订单 ORD-1001", "申请退款 ORD-1001")) {
             var response = service.handle(request(question), List.of("原因：重复下单"), true);
             assertThat(response.getWorkflowStatus()).isEqualTo(RoutingResult.WorkflowStatus.CLARIFICATION);
             assertThat(response.getResult()).contains("原因");
+            assertThat(response.getClarificationRequest()).isEqualTo(contract);
         }
-        verifyNoInteractions(execution, caller, product);
+        verifyNoInteractions(execution, product);
+        verify(caller, times(2)).callAgentAndExtractTitles(eq("order"), argThat((com.example.smartassistant.common.agent.protocol.AgentExecutionRequest r) ->
+                r.input().isEmpty() && !r.question().contains("重复下单") && r.operation().equals("PREPARE_FALLBACK")));
     }
     @Test void refundReasonIsPassedToApprovedOrderNodeWithoutModelCalls() {
+        prepare("REFUND_ORDER", Map.of("order_id", "ORD-1001", "reason", "商品不合适"), "申请退款 ORD-1001；原因：商品不合适");
         when(execution.executeDeterministicFallback(any(), eq(12L))).thenAnswer(call -> {
             ExecutionPlan plan = call.getArgument(0);
             var node = plan.nodes().getFirst();
@@ -64,10 +84,12 @@ class ModelUnavailableWorkflowServiceTest {
         });
         assertThat(service.handle(request("申请退款 ORD-1001；原因：商品不合适"), List.of(), true).getWorkflowStatus())
                 .isEqualTo(RoutingResult.WorkflowStatus.AWAITING_APPROVAL);
-        verifyNoInteractions(caller, product);
+        verifyNoInteractions(product);
     }
     @Test void orderAmountComesFromVerifiedCatalogAndMissingQuoteStops() {
         String q = "下单：AirPods Pro；数量：1；收货人：测试甲；电话：13800138000；地址：北京市测试路一号";
+        prepare("CREATE_ORDER", Map.of("product_name", "AirPods Pro", "recipient_name", "测试甲", "recipient_phone", "13800138000",
+                "shipping_address", "北京市测试路一号"), "下单 1 件 AirPods Pro");
         when(caller.callAgentAndExtractTitles(eq("product"), any(com.example.smartassistant.common.agent.protocol.AgentExecutionRequest.class)))
                 .thenReturn(new AgentCallResult("已查询", List.of(), Map.of(), DomainQualityResult.pass(1, "FACT"), Map.of()));
         assertThat(service.handle(request(q), List.of(), true).getResult()).contains("没有创建订单");
@@ -85,8 +107,19 @@ class ModelUnavailableWorkflowServiceTest {
         verify(execution).executeDeterministicFallback(any(), eq(12L));
     }
     @Test void unsupportedAndClarificationDoNotInvokeModelsOrWrites() {
+        when(caller.callAgentAndExtractTitles(eq("order"), any(com.example.smartassistant.common.agent.protocol.AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("请确认要办理的售后业务", List.of(), Map.of(), DomainQualityResult.pass(1, "CLARIFY"),
+                        Map.of("clarificationRequired", true)));
         assertThat(service.handle(request("退单"), List.of(), true).getWorkflowStatus()).isEqualTo(RoutingResult.WorkflowStatus.CLARIFICATION);
         assertThat(service.handle(request("写一首诗"), List.of(), true).getResult()).contains("未能准确处理");
-        verifyNoInteractions(execution, caller, product);
+        verifyNoInteractions(execution, product);
+    }
+    @Test void failedOrUnrecognizedDomainProposalNeverWrites() {
+        when(caller.callAgentAndExtractTitles(eq("order"), any(com.example.smartassistant.common.agent.protocol.AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("暂不可用", List.of(), Map.of(), DomainQualityResult.fail("UNAVAILABLE"), Map.of()));
+        assertThat(service.handle(request("不要取消订单 ORD-1001"), List.of(), true).getWorkflowStatus()).isEqualTo(RoutingResult.WorkflowStatus.FAILED);
+        prepare("DELETE_ALL", Map.of(), "invalid action");
+        assertThat(service.handle(request("取消订单 ORD-1001"), List.of(), true).getWorkflowStatus()).isEqualTo(RoutingResult.WorkflowStatus.FAILED);
+        verifyNoInteractions(execution, product);
     }
 }
