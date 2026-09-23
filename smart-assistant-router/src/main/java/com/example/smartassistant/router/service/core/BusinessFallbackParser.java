@@ -9,6 +9,9 @@ import java.util.*;
 /** Coarse fallback dispatch only. Field extraction, validation and replies belong to the Agent. */
 @Component
 public class BusinessFallbackParser {
+    private final FallbackDispatchSchema schema;
+    public BusinessFallbackParser() { this(FallbackDispatchSchema.defaultSchema()); }
+    BusinessFallbackParser(FallbackDispatchSchema schema) { this.schema = schema; }
     public enum Kind { PRODUCT_QUERY, ORDER, UNKNOWN }
     public record Parsed(Kind kind, String question) { }
     public Parsed parse(String raw) {
@@ -20,11 +23,9 @@ public class BusinessFallbackParser {
             for (Lexeme token; (token = segmenter.next()) != null;) tokens.add(token.getLexemeText());
         } catch (Exception failure) { return new Parsed(Kind.UNKNOWN, q); }
         if (tokens.isEmpty()) return new Parsed(Kind.UNKNOWN, q);
-        if (tokens.stream().anyMatch(t -> Set.of("下单", "购买", "取消", "退款", "退单", "退货").contains(t))
-                || q.matches("(?s).*(下单|购买|取消订单|退款|退单|退货).*"))
+        if (schema.matches("order", tokens, q))
             return new Parsed(Kind.ORDER, q);
-        if (tokens.stream().anyMatch(t -> Set.of("价格", "多少钱", "规格", "颜色", "库存", "有货", "货").contains(t))
-                || q.matches(".*(多少钱|有货吗|规格|颜色).*"))
+        if (schema.matches("product", tokens, q))
             return new Parsed(Kind.PRODUCT_QUERY, q);
         return new Parsed(Kind.UNKNOWN, q);
     }

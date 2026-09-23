@@ -17,6 +17,9 @@ public class ProductDiscoveryService {
     private static final int DEFAULT_LIMIT = 5;
     private static final int MAX_LIMIT = 10;
     private static final int HARD_CONSTRAINT_CANDIDATE_LIMIT = 20;
+    private static final ProductDiscoverySchema DISCOVERY_SCHEMA = ProductDiscoverySchema.defaultSchema();
+    private static final ProductDiscoveryIntentParser INTENT_PARSER = new ProductDiscoveryIntentParser(
+            DISCOVERY_SCHEMA, ProductFeatureSchema.defaultSchema());
     private static final String BUDGET_NUMBER = "((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|[零〇一二两三四五六七八九十百千万]+)";
     private static final Pattern BUDGET_PREFIX_PATTERN = Pattern.compile(
             "(?:(?:预算|金额)\\s*(?:不超过|不高于|控制在|只有|仅有|改为|调整为|仅|为|是|在|[:：=]|<=|≤)?|最高|最多|不超过|不高于|控制在)"
@@ -45,35 +48,18 @@ public class ProductDiscoveryService {
     /** Returns true only for generic discovery requests, not specific product recommendations. */
     public boolean supports(String query) {
         if (query == null || query.isBlank()) return false;
-        String normalized = UserQuestionNormalizer.normalize(query)
-                .replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        String normalized = UserQuestionNormalizer.normalize(query);
+        ProductDiscoveryIntent intent = INTENT_PARSER.parse(normalized);
         boolean categoryRequest = !detectCategory(normalized).isBlank();
-        boolean popularityRequest = asksForPopularity(normalized);
-        boolean hardConstraintRequest = resolveBudget(normalized).max() != null || resolveBudget(normalized).ambiguous()
-                || normalized.contains("只看") || normalized.contains("仅看")
-                || normalized.contains("限定");
-        ProductFeatureRequest features = ProductFeatureRequest.parse(normalized);
-        if ((features.constraints().active() || !features.clarification().isBlank())
-                && normalized.matches(".*(?:多少|怎么样|吗|么|[?？]).*")
-                && !normalized.matches(".*(?:推荐|想买|选购|筛选|只看|不超过|至少|≤|≥|以内).*")) return false;
-        if (features.constraints().active() || !features.clarification().isBlank()
-                && normalized.matches(".*(?:推荐|想买|选购|需要|轻便|便携|长续航|续航长).*")) return true;
-        return (popularityRequest && (normalized.contains("商品") || normalized.contains("推荐")
-                    || normalized.contains("买") || normalized.contains("流行")))
-                || normalized.matches(".*(?:推荐|想买|选购|想要|需要).*(?:轻便|便携|续航|降噪|拍照|预算).*")
-                || normalized.matches(".*(?:轻便|便携).*续航.*|.*续航.*(?:轻便|便携).*")
-                || (normalized.contains("预算") && hardConstraintRequest)
-                || normalized.contains("热门商品")
-                || normalized.contains("热销商品")
-                || normalized.contains("畅销商品")
-                || normalized.contains("商品排行榜")
-                || normalized.contains("商品排行")
-                || normalized.contains("有什么商品")
-                || normalized.contains("有哪些商品")
-                || normalized.contains("商品列表")
-                || normalized.matches(".*推荐(?:一些|一款|几款|几个|点)?商品.*")
-                || (categoryRequest && (popularityRequest || normalized.contains("推荐")
-                        || hardConstraintRequest));
+        if (intent.hasFeatureInterest() && intent.detailQuestion() && !intent.recommendation()
+                && !intent.categoryRestricted()) return false;
+        return intent.catalogBrowse() || intent.recommendation() && (categoryRequest
+                || intent.hasFeatureInterest() || intent.hardConstraintRequested()
+                || DISCOVERY_SCHEMA.contains("intent.catalog", normalized))
+                || intent.hasFeatureInterest() && (intent.recommendation() || intent.categoryRestricted())
+                || !intent.detailQuestion() && (intent.hasFeatureInterest()
+                || intent.budget().max() != null || intent.budget().ambiguous())
+                || categoryRequest && (intent.popularity() || intent.hardConstraintRequested());
     }
 
     public DiscoveryResult discover(String query, Integer requestedLimit) {
@@ -85,11 +71,12 @@ public class ProductDiscoveryService {
         String normalizedQuery = UserQuestionNormalizer.normalize(query);
         String category = detectCategory(normalizedQuery);
         if (category.isBlank()) category = normalizeCategory(requestedCategory);
-        ProductFeatureRequest featureRequest = ProductFeatureRequest.parse(normalizedQuery);
-        BudgetResolution budget = resolveBudget(normalizedQuery);
+        ProductDiscoveryIntent intent = INTENT_PARSER.parse(normalizedQuery);
+        ProductFeatureRequest featureRequest = intent.features();
+        BudgetResolution budget = intent.budget();
         BigDecimal maxBudget = budget.max();
         if (budget.ambiguous()) return clarification(budget.clarification(), category, List.of("budget"));
-        boolean inStockOnly = asksForAvailableStock(normalizedQuery);
+        boolean inStockOnly = intent.inStockOnly();
         if (!featureRequest.clarification().isBlank()) {
             String prefix = category.isBlank() ? "你想选购哪类商品？我会保留已提供的预算和特征。" : "";
             var fields = new java.util.ArrayList<>(featureRequest.missingFields());
@@ -106,13 +93,12 @@ public class ProductDiscoveryService {
                     ? "现有结构化目录证据不足以确定商品类型。你想选购哪类商品？我会保留已提供的预算和特征。"
                     : "符合这些特征的商品涉及" + String.join("、", distinct) + "，你想选购哪类商品？", "", List.of("product"));
         }
-        boolean popularityRequest = asksForPopularity(normalizedQuery);
+        boolean popularityRequest = intent.popularity();
         boolean browsingOnly = popularityRequest && category.isBlank()
-                && !isScenarioSpecific(normalizedQuery)
-                && !normalizedQuery.matches(".*(?:一款|一个|最适合|帮我选).*");
+                && !intent.scenarioSpecific() && !intent.singleChoice();
         if (category.isBlank() && !popularityRequest
-                && normalizedQuery.matches("(?s).*(?:推荐|想买|选购|想要|需要|预算|轻便|便携|续航).*")
-                && !normalizedQuery.matches(".*(?:商品列表|有什么商品|有哪些商品).*")) {
+                && (intent.recommendation() || intent.hasFeatureInterest() || intent.hardConstraintRequested())
+                && !intent.catalogBrowse()) {
             return clarification("您想选购哪类商品？我会结合您已提供的预算和特征继续筛选。", "", List.of("product"));
         }
 
@@ -149,10 +135,16 @@ public class ProductDiscoveryService {
         }
 
         boolean hasPopularityData = products.stream().anyMatch(product -> product.popularity() > 0);
-        boolean asksForPopularity = asksForPopularity(normalizedQuery);
-        boolean scenarioEvidenceLimited = isScenarioSpecific(normalizedQuery);
+        boolean asksForPopularity = intent.popularity();
+        List<String> qualitativeLabels = ProductFeatureSchema.defaultSchema()
+                .preferenceLabels(featureRequest.qualitativePreferences());
+        boolean scenarioEvidenceLimited = intent.scenarioSpecific() || !qualitativeLabels.isEmpty();
         StringBuilder answer = new StringBuilder();
-        if (scenarioEvidenceLimited) {
+        if (!qualitativeLabels.isEmpty()) {
+            answer.append("您提到的").append(String.join("、", qualitativeLabels))
+                    .append("属于选购偏好。当前目录没有可核实的对应偏好标签，")
+                    .append("以下仅供同品类浏览，不能据此确认符合您的偏好：\n");
+        } else if (scenarioEvidenceLimited) {
             answer.append("以下仅是当前目录中的可售候选。目录没有可验证的场景适配字段，")
                     .append("因此不能把热度直接等同于适合该办公或会议场景：\n");
         } else if (asksForPopularity && hasPopularityData) {
@@ -196,7 +188,10 @@ public class ProductDiscoveryService {
             }
             answer.append('\n');
         }
-        if (scenarioEvidenceLimited) {
+        if (!qualitativeLabels.isEmpty()) {
+            answer.append("\n若您有明确的重量上限或具体使用需求，可以告诉我；")
+                    .append("有可核实规格后，我再帮您筛选。");
+        } else if (scenarioEvidenceLimited) {
             answer.append("\n若用于多人办公室或视频会议，请继续确认并发使用人数、摄像头、麦克风、")
                     .append("扬声器、接口和预算要求；在这些规格得到验证前，不应把上述候选表述为最终推荐。");
         } else {
@@ -205,12 +200,6 @@ public class ProductDiscoveryService {
         }
         return new DiscoveryResult(answer.toString().trim(), products.size(), hasPopularityData,
                 products, scenarioEvidenceLimited, category, false, browsingOnly);
-    }
-
-    private static boolean asksForPopularity(String query) {
-        if (query == null) return false;
-        return query.contains("热门") || query.contains("热销")
-                || query.contains("畅销") || query.contains("排行") || query.contains("流行");
     }
 
     private static DiscoveryResult clarification(String answer, String category, List<String> fields) {
@@ -275,26 +264,20 @@ public class ProductDiscoveryService {
         }
     }
 
-    private static boolean asksForAvailableStock(String query) {
-        if (query == null || query.isBlank()) return false;
-        String normalized = query.replaceAll("\\s+", "");
-        return normalized.contains("只看有货") || normalized.contains("仅看有货")
-                || normalized.contains("现货") || normalized.contains("库存充足")
-                || normalized.contains("可以立即下单");
-    }
-
     private static boolean isAvailableStock(String stock) {
         if (stock == null || stock.isBlank()) return false;
-        return !stock.contains("缺货") && !stock.contains("无货") && !stock.contains("售罄");
+        return !DISCOVERY_SCHEMA.unavailableStock(stock);
     }
 
     public static BigDecimal extractMaxBudget(String query) {
         return resolveBudget(query).max();
     }
 
-    public record BudgetResolution(BigDecimal max, boolean ambiguous) {
+    public record BudgetResolution(BigDecimal max, boolean ambiguous, String issue) {
+        public BudgetResolution(BigDecimal max, boolean ambiguous) { this(max, ambiguous, ""); }
         public String clarification() {
-            return ambiguous ? "您提到了多个预算或预算范围，请确认本次购买的预算上限是多少元？我会按您确认的金额筛选。" : "";
+            return !issue.isBlank() ? issue : ambiguous
+                    ? "您提到了多个预算或预算范围，请确认本次购买的预算上限是多少元？我会按您确认的金额筛选。" : "";
         }
     }
 
@@ -334,6 +317,10 @@ public class ProductDiscoveryService {
                     range = true;
                 }
                 BigDecimal value = extractBudget(matcher);
+                String following = normalized.substring(matcher.end()).stripLeading();
+                if (DISCOVERY_SCHEMA.terms("budget.unsupported-currencies").stream()
+                        .anyMatch(following::startsWith))
+                    return new BudgetResolution(null, true, DISCOVERY_SCHEMA.budgetMessage("currency"));
                 if (value != null) candidates.add(new Candidate(matcher.start(), value, revised));
                 else range = true; // An unparseable explicit budget is not an absent budget.
             }
@@ -341,10 +328,17 @@ public class ProductDiscoveryService {
         candidates.sort(java.util.Comparator.comparingInt(Candidate::start));
         // Explicit revisions win; conflicting unqualified limits require confirmation.
         Candidate revision = candidates.stream().filter(Candidate::current).reduce((a, b) -> b).orElse(null);
-        if (revision != null && !range) return new BudgetResolution(revision.value(), false);
+        if (revision != null && !range) return validatedBudget(revision.value());
         var values = candidates.stream().map(c -> c.value().stripTrailingZeros()).distinct().toList();
         if (range || values.size() > 1) return new BudgetResolution(null, true);
-        return new BudgetResolution(values.isEmpty() ? null : values.getFirst(), false);
+        return values.isEmpty() ? new BudgetResolution(null, false) : validatedBudget(values.getFirst());
+    }
+
+    private static BudgetResolution validatedBudget(BigDecimal value) {
+        if (value.compareTo(DISCOVERY_SCHEMA.budgetMinimum()) < 0
+                || value.compareTo(DISCOVERY_SCHEMA.budgetMaximum()) > 0)
+            return new BudgetResolution(null, true, DISCOVERY_SCHEMA.budgetMessage("invalid"));
+        return new BudgetResolution(value, false);
     }
 
     private static int lastMarker(String text, String... markers) {
@@ -407,7 +401,7 @@ public class ProductDiscoveryService {
 
     private String normalizeCategory(String value) {
         if (value == null || value.isBlank()) return "";
-        if (List.of("商品", "全部", "不限", "所有商品").contains(value.trim())) return "";
+        if (DISCOVERY_SCHEMA.terms("category.all").contains(value.trim())) return "";
         String canonical = detectCategory(value);
         return canonical.isBlank() ? value.trim() : canonical;
     }
@@ -425,7 +419,11 @@ public class ProductDiscoveryService {
         if (value == null || value.isBlank()) return "";
         String normalized = value.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
         List<String> categories = listProductCategories();
-        if (normalized.contains("笔记本") && categories.contains("笔记本电脑")) return "笔记本电脑";
+        for (String alias : DISCOVERY_SCHEMA.categoryAliases()) {
+            String[] mapping = alias.split(":", 2);
+            if (mapping.length == 2 && normalized.contains(mapping[0]) && categories.contains(mapping[1]))
+                return mapping[1];
+        }
 
         // Prefer an explicit category occurring in the question. The longest
         // match wins when the catalog contains nested category names.
@@ -451,13 +449,4 @@ public class ProductDiscoveryService {
                 .toLowerCase(Locale.ROOT);
     }
 
-    private static boolean isScenarioSpecific(String query) {
-        if (query == null || query.isBlank()) return false;
-        String normalized = query.replaceAll("\\s+", "");
-        return normalized.contains("适合") || normalized.contains("用于")
-                || normalized.contains("使用场景") || normalized.contains("适用场景")
-                || normalized.contains("采购方案") || normalized.contains("办公室")
-                || normalized.contains("办公") || normalized.contains("视频会议")
-                || normalized.contains("会议室");
-    }
 }
