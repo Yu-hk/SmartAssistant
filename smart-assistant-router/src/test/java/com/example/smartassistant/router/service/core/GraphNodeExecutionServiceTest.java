@@ -403,6 +403,34 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
+    void refundPreparationPreservesOriginalQuestionAndOrderOwnedFields() {
+        var analysis = com.example.smartassistant.router.model.TaskAnalysisResult.empty();
+        analysis.setIntentCategory("ORDER");
+        analysis.setSubIntents(List.of(Map.of("id", "explain", "description", "说明退款要求",
+                "target_agent", "order", "operation", "EXPLAIN_ORDER_REQUIREMENTS")));
+        var plan = RouteExecutionService.buildExecutionPlan("申请退款 ORD-TEST", analysis, "refund-explain");
+        var graph = plan.toIntentGraph();
+        var contract = new com.example.smartassistant.common.agent.protocol.ClarificationRequest(
+                "order", "REFUND_ORDER", List.of("reason"));
+        when(agentCallerService.callAgentAndExtractTitles(eq("order"), any(AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("请补充退款原因，尚未提交退款。", List.of(), Map.of(),
+                        DomainQualityResult.pass(1, "ORDER_INPUT_CLARIFICATION"),
+                        Map.of("clarificationRequest", contract.toMap())));
+
+        var result = service.execute(graph.getRootNodes().getFirst(), Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "refund-explain", null, null, null, graph.getQuestion());
+
+        var request = ArgumentCaptor.forClass(AgentExecutionRequest.class);
+        verify(agentCallerService).callAgentAndExtractTitles(eq("order"), request.capture());
+        assertThat(request.getValue().operation()).isEqualTo("CLARIFY_INPUT");
+        assertThat(request.getValue().question()).isEqualTo("申请退款 ORD-TEST");
+        assertThat(request.getValue().input()).containsEntry("_operation", "EXPLAIN_ORDER_REQUIREMENTS");
+        assertThat(request.getValue().idempotencyKey()).isNull();
+        assertThat(result.getResult()).contains("退款原因").doesNotContain("下单", "收货地址", "成交金额");
+        assertThat(result.getStructuredData()).containsEntry("clarificationRequest", contract.toMap());
+    }
+
+    @Test
     void classifiesOnlyTransientTransportFailuresAsRetryable() {
         assertThat(GraphNodeExecutionService.classifyException(null))
                 .isEqualTo(SubTaskResult.ErrorType.FATAL_FAILED);
