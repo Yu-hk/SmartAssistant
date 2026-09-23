@@ -212,6 +212,7 @@ public class RouteExecutionService {
                 .executionMode(attribution.executionMode())
                 .participatingAgents(attribution.participatingAgents())
                 .workflowStatus(attribution.workflowStatus())
+                .clarificationRequest(DomainClarificationRelay.select(results))
                 .domainQuality(domainQuality).build(), emotion);
     }
 
@@ -398,20 +399,7 @@ public class RouteExecutionService {
             boolean explainOrderPreparation = "EXPLAIN_ORDER_REQUIREMENTS".equals(operation)
                     || incompleteOrderMutation;
             if (explainOrderPreparation) {
-                if (incompleteOrderMutation && analysis.getMissingSlots() != null
-                        && !analysis.getMissingSlots().isEmpty()) {
-                    description = "执行" + operation + "前还需要补充："
-                            + String.join("、", analysis.getMissingSlots())
-                            + "。只追问缺失信息，本次不得执行任何写操作。";
-                } else if (Set.of("REFUND_ORDER", "CANCEL_ORDER", "APPLY_AFTER_SALES").contains(operation)
-                        || question.matches("(?s).*(退款|退单|退货|取消订单).*")) {
-                    description = "【售后操作说明】请提供订单号和具体诉求，先核实订单归属、当前状态及相关原因，"
-                            + "核对后再请用户确认；目前没有修改订单或提交退款。";
-                } else {
-                    description = "说明后续下单所需信息（只说明，不执行）：明确列出具体商品及金额、"
-                            + "收货人姓名、联系电话、收货地址；用户ID由登录态提供，商品类型可选。"
-                            + "如果用户尚未选定商品，要求用户从商品查询结果中选择。";
-                }
+                description = "由订单执行层核验当前操作的必要资料，只补充缺失信息，不执行写操作。";
             }
             String agent = explainOrderPreparation
                     ? ExecutionPlan.Domain.BUILTIN_ORDER_PREPARATION.agentName()
@@ -460,7 +448,7 @@ public class RouteExecutionService {
 
             nodes.add(new ExecutionPlan.TaskNode(
                     rawNode.nodeId(), agent, operation, scopedDescription, input,
-                    dependencies, accessMode, analysis.getMissingSlots(), idempotencyKey,
+                    dependencies, accessMode, List.of(), idempotencyKey,
                     approvalRequired, criteria, mergePolicy, required,
                     outputSchema, inputBindings));
         }
@@ -506,6 +494,7 @@ public class RouteExecutionService {
         return RoutingResult.builder().result(answer).intentTag("ORDER")
                 .agentName(attribution.agentName()).participatingAgents(attribution.participatingAgents())
                 .executionMode(attribution.executionMode()).workflowStatus(attribution.workflowStatus())
+                .clarificationRequest(DomainClarificationRelay.select(results))
                 .domainQuality(aggregateDomainQuality(results)).semanticCacheCategory("NONE").build();
     }
 
@@ -779,6 +768,26 @@ public class RouteExecutionService {
                 .domainQuality(domainQuality)
                 .build();
         return routeFinalizer.finalizeRouting(result, request, rawQuestion, emotion);
+    }
+
+    /** Domain input preparation has no permission to perform Order mutations. */
+    public RoutingResult clarifyInputs(String agent, TaskAnalysisResult analysis, RouteRequest request, String question) {
+        if (!Set.of("product", "order").contains(agent)) return null;
+        var response = agentCallerService.callAgentAndExtractTitles(agent,
+                new com.example.smartassistant.common.agent.protocol.AgentExecutionRequest(
+                        "1.0", request.getRequestId(), "input-preparation", String.valueOf(request.getUserId()),
+                        "order".equals(agent) ? "CLARIFY_INPUT" : "ANSWER", question,
+                        analysis.getEntities() == null ? Map.of() : analysis.getEntities(),
+                        List.of(), List.of(), null, null));
+        var contract = com.example.smartassistant.common.agent.protocol.ClarificationRequest.read(
+                response.getData().get("clarificationRequest"));
+        if (contract != null && !agent.equals(contract.domain())) contract = null;
+        return RoutingResult.builder().agentName(agent).result(response.getResponse())
+                .domainQuality(response.getDomainQuality()).clarificationRequest(contract)
+                .clarification(contract != null).intentTag(analysis.getIntentCategory())
+                .workflowStatus(contract != null ? RoutingResult.WorkflowStatus.CLARIFICATION
+                        : response.getDomainQuality().isFail() ? RoutingResult.WorkflowStatus.FAILED
+                        : RoutingResult.WorkflowStatus.COMPLETED).build();
     }
 
     // ==================== 内联兜底 ====================

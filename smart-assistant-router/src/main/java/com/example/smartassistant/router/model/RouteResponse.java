@@ -84,6 +84,8 @@ public class RouteResponse {
     @Builder.Default
     private Boolean clarification = false;
 
+    private com.example.smartassistant.common.agent.protocol.ClarificationRequest clarificationRequest;
+
     /** Measured token usage for the complete Router/Agent request chain. */
     private Long promptTokens;
 

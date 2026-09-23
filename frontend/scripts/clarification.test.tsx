@@ -33,6 +33,16 @@ test('field-specific client checks match server policy and keep signed payload',
   assert.equal(normalizeClarificationForm({ ...form, expiresAt: 1 }), undefined);
 });
 
+test('order preparation uses delivery controls with matching validation', () => {
+  const order = normalizeClarificationForm({ version: 2, token: 'permit', expiresAt: Date.now() + 60000,
+    fields: ['recipientName', 'recipientPhone', 'shippingAddress'].map(key => ({ key })) })!;
+  const values = { recipientName: '测试用户', recipientPhone: '13800000000', shippingAddress: '北京市测试路1号' };
+  assert.match(clarificationReply(order, values)!, /收货人姓名为测试用户/);
+  assert.equal(clarificationReply(order, { ...values, recipientPhone: '123' }), null);
+  assert.equal(clarificationReply(order, { ...values, shippingAddress: 'x'.repeat(201) }), null);
+  assert.equal(normalizeClarificationForm({ ...order, fields: [{ key: 'amount' }] }), undefined);
+});
+
 async function withDom(run: (container: HTMLElement) => Promise<void>) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'https://form.test' });
   const saved = new Map<string, PropertyDescriptor | undefined>();

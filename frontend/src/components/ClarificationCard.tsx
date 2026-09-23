@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { clarificationReply, type ClarificationFormData, type ClarificationSubmission } from '../utils/clarificationForm';
+import { clarificationMaxLengths, clarificationReply, type ClarificationFormData, type ClarificationSubmission } from '../utils/clarificationForm';
 import './clarification-card.css';
 
 export function ClarificationCard({ form, disabled, onSubmit }: {
@@ -29,14 +29,16 @@ export function ClarificationCard({ form, disabled, onSubmit }: {
       {form.fields.map(field => <label key={field.key}>
         <span>{field.label}{field.unit && `（${field.unit}）`}</span>
         <input name={field.key} aria-label={field.label} type="text"
-          inputMode={field.type === 'number' ? 'decimal' : 'text'} maxLength={120}
+          inputMode={field.key === 'recipientPhone' ? 'tel' : field.type === 'number' ? 'decimal' : 'text'} maxLength={clarificationMaxLengths[field.key]}
           autoComplete="off" required value={values[field.key] || ''}
           onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />
         <small>{field.key === 'weight' ? '0.001–1000 公斤，最多 3 位小数'
           : field.key === 'budget' ? '0.01–10000000 元，最多 2 位小数'
           : field.key === 'quantity' ? '1–10000 件，填写整数'
-          : field.key === 'orderNumber' ? '以 ORD- 开头的订单编号'
-          : field.key === 'city' ? '填写城市或地区名称，最多 40 字' : '填写商品名称或品类，最多 100 字'}</small>
+          : field.key === 'orderNumber' ? '以 ORD- 或 BULK- 开头的订单编号'
+          : field.key === 'recipientPhone' ? '填写 11 位中国大陆手机号码'
+          : field.key === 'afterSalesType' ? '填写：退货、换货或维修'
+          : `填写${field.label}，最多 ${clarificationMaxLengths[field.key]} 字`}</small>
       </label>)}
       <div className="clarification-actions">
         <button type="submit">{submitted ? '已提交' : '补充并继续'}</button>

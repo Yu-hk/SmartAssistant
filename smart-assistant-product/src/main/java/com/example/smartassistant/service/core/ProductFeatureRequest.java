@@ -8,7 +8,10 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /** Conservative deterministic extraction; vague, unsupported or conflicting bounds are clarified. */
-public record ProductFeatureRequest(ProductFeatureConstraints constraints, String clarification) {
+public record ProductFeatureRequest(ProductFeatureConstraints constraints, String clarification, List<String> missingFields) {
+    public ProductFeatureRequest(ProductFeatureConstraints constraints, String clarification) {
+        this(constraints, clarification, List.of());
+    }
     private static final String NUMBER = "(\\d+(?:\\.\\d+)?)";
     private static final String WEIGHT_UNIT = "(kg|千克|公斤|克|g)";
     private static final Pattern WEIGHT = Pattern.compile(
@@ -76,7 +79,11 @@ public record ProductFeatureRequest(ProductFeatureConstraints constraints, Strin
         }
         if (!missing.isEmpty()) return new ProductFeatureRequest(ProductFeatureConstraints.NONE,
                 "为了帮您准确筛选，还想确认一下" + String.join("、", missing) + "。"
-                        + (battery != null && scenarios.size() != 1 ? "不同续航测试场景不能直接比较。" : ""));
+                        + (battery != null && scenarios.size() != 1 ? "不同续航测试场景不能直接比较。" : ""),
+                // Only the weight bound has a supported control. Do not silently turn
+                // battery/scenario/alternative questions into unrelated required inputs.
+                missing.stream().allMatch(item -> item.equals("可接受的重量上限（例如重量不超过1.3公斤）")
+                        || item.equals("唯一的重量上限")) ? List.of("weight") : List.of());
         return new ProductFeatureRequest(new ProductFeatureConstraints(weight, battery,
                 scenarios.size() == 1 ? scenarios.getFirst() : "", anc), "");
     }

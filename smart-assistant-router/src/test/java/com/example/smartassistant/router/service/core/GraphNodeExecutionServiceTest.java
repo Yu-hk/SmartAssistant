@@ -380,7 +380,9 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
-    void executesBuiltinPreparationWithoutCallingRemoteAgent() {
+    void delegatesPreparationToReadOnlyOrderCapability() {
+        when(agentCallerService.callAgentAndExtractTitles(eq("order"), any(AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("请补充收货信息。", List.of(), Map.of(), DomainQualityResult.pass(1, "ORDER_INPUT_CLARIFICATION")));
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "prepare", "准备订单", RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT, List.of());
 
@@ -388,12 +390,44 @@ class GraphNodeExecutionServiceTest {
                 1L, null, "request");
 
         assertThat(result.isSuccess()).isTrue();
-        assertThat(result.getAgentName()).isNull();
+        assertThat(result.getAgentName()).isEqualTo("order");
+        var request = ArgumentCaptor.forClass(AgentExecutionRequest.class);
+        verify(agentCallerService).callAgentAndExtractTitles(eq("order"), request.capture());
+        assertThat(request.getValue().operation()).isEqualTo("CLARIFY_INPUT");
+        assertThat(request.getValue().idempotencyKey()).isNull();
         assertThat(result.getSystemNodeType())
                 .isEqualTo(SubTaskResult.SystemNodeType.ORDER_PREPARATION);
         verify(agentCallerService, never()).callAgentAndExtractTitles(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void refundPreparationPreservesOriginalQuestionAndOrderOwnedFields() {
+        var analysis = com.example.smartassistant.router.model.TaskAnalysisResult.empty();
+        analysis.setIntentCategory("ORDER");
+        analysis.setSubIntents(List.of(Map.of("id", "explain", "description", "说明退款要求",
+                "target_agent", "order", "operation", "EXPLAIN_ORDER_REQUIREMENTS")));
+        var plan = RouteExecutionService.buildExecutionPlan("申请退款 ORD-TEST", analysis, "refund-explain");
+        var graph = plan.toIntentGraph();
+        var contract = new com.example.smartassistant.common.agent.protocol.ClarificationRequest(
+                "order", "REFUND_ORDER", List.of("reason"));
+        when(agentCallerService.callAgentAndExtractTitles(eq("order"), any(AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("请补充退款原因，尚未提交退款。", List.of(), Map.of(),
+                        DomainQualityResult.pass(1, "ORDER_INPUT_CLARIFICATION"),
+                        Map.of("clarificationRequest", contract.toMap())));
+
+        var result = service.execute(graph.getRootNodes().getFirst(), Map.of(), new ConcurrentHashMap<>(),
+                1L, null, "refund-explain", null, null, null, graph.getQuestion());
+
+        var request = ArgumentCaptor.forClass(AgentExecutionRequest.class);
+        verify(agentCallerService).callAgentAndExtractTitles(eq("order"), request.capture());
+        assertThat(request.getValue().operation()).isEqualTo("CLARIFY_INPUT");
+        assertThat(request.getValue().question()).isEqualTo("申请退款 ORD-TEST");
+        assertThat(request.getValue().input()).containsEntry("_operation", "EXPLAIN_ORDER_REQUIREMENTS");
+        assertThat(request.getValue().idempotencyKey()).isNull();
+        assertThat(result.getResult()).contains("退款原因").doesNotContain("下单", "收货地址", "成交金额");
+        assertThat(result.getStructuredData()).containsEntry("clarificationRequest", contract.toMap());
     }
 
     @Test
@@ -561,7 +595,11 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
-    void incompleteOrderMutationAsksOnlyForMissingFieldsAndDoesNotCallAgent() {
+    void incompleteOrderMutationUsesDomainFieldsNotRouterProse() {
+        when(agentCallerService.callAgentAndExtractTitles(eq("order"), any(AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("还需要您补充退款原因，会请您确认是否提交。", List.of(), Map.of(),
+                        DomainQualityResult.pass(1, "ORDER_INPUT_CLARIFICATION"), Map.of("clarificationRequest",
+                        Map.of("domain", "order", "operation", "REFUND_ORDER", "fields", List.of("reason")))));
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "prepare-refund",
                 "仅执行这个子任务：执行REFUND_ORDER前还需要补充：退款原因。只追问缺失信息，本次不得执行任何写操作。\n不得违反操作约束。",
@@ -571,6 +609,7 @@ class GraphNodeExecutionServiceTest {
                 1L, null, "request");
 
         assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getStructuredData()).containsKey("clarificationRequest");
         assertThat(result.getResult()).contains("还需要您补充退款原因")
                 .contains("会请您确认是否提交")
                 .doesNotContain("收货人姓名", "REFUND_ORDER", "写操作", "只追问");

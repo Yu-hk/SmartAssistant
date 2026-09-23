@@ -128,7 +128,7 @@ class RouteExecutionPreplannedGraphTest {
                 graph.getAllNodes().stream()
                 .map(IntentGraph.IntentNode::getTargetAgent).toList());
         assertTrue(graph.getAllNodes().stream().toList().get(1).getDescription()
-                .contains("收货人姓名、联系电话、收货地址"));
+                .contains("由订单执行层核验"));
         IntentGraph.IntentNode productNode = graph.getAllNodes().stream().toList().get(0);
         assertTrue(productNode.getDescription().startsWith("查询当前热门商品列表"));
         assertEquals("查询当前热门商品列表", productNode.getDescription());
@@ -274,8 +274,8 @@ class RouteExecutionPreplannedGraphTest {
         assertNotNull(graph);
         IntentGraph.IntentNode second = graph.getAllNodes().stream().toList().get(1);
         assertEquals(RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT, second.getTargetAgent());
-        assertTrue(second.getDescription().contains("只说明，不执行"));
-        assertTrue(second.getDescription().contains("具体商品及金额"));
+        assertTrue(second.getDescription().contains("不执行写操作"));
+        assertTrue(second.getDescription().contains("由订单执行层核验"));
     }
 
     @Test
