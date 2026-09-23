@@ -60,6 +60,25 @@ class GlobalJwtAuthFilterTest {
     // ========== 精确匹配 ==========
 
     @Test
+    void visitorCollectionDoesNotTrustBrowserIdentityAndAdminRecordsAreProtected() {
+        var publicExchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/public/visits")
+                .header("X-User-Id", "2").header("X-User-Role", "ROLE_ADMIN"));
+        GatewayFilterChain publicChain = exchange -> {
+            assertNull(exchange.getRequest().getHeaders().getFirst("X-User-Id"));
+            assertNull(exchange.getRequest().getHeaders().getFirst("X-User-Role"));
+            return Mono.empty();
+        };
+        filter.filter(publicExchange, publicChain).block();
+        for (String path : List.of("/api/visits", "/api/admin/visits")) {
+            var exchange = MockServerWebExchange.from(MockServerHttpRequest.get(path));
+            var chain = mock(GatewayFilterChain.class);
+            filter.filter(exchange, chain).block();
+            assertEquals(401, exchange.getResponse().getStatusCode().value());
+            verifyNoInteractions(chain);
+        }
+    }
+
+    @Test
     void speechRoutesRejectAnonymousAndForgedIdentityHeaders() {
         for (String path : List.of("/api/speech/capabilities", "/api/speech/transcriptions", "/assistant/api/speech/transcriptions",
                 "/api/privacy/profile", "/api/privacy/profile/deletions", "/assistant/api/privacy/profile/deletions")) {

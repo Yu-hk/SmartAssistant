@@ -22,7 +22,10 @@ import {
   Workflow,
 } from 'lucide-react';
 
+import { usePageVisit } from '../hooks/usePageVisit';
+
 export function LoginPage() {
+  usePageVisit();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
