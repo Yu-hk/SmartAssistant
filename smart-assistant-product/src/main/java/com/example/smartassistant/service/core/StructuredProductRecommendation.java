@@ -68,7 +68,7 @@ public final class StructuredProductRecommendation {
     private boolean eligible(Product p) {
         return !budgetResolution.ambiguous() && p.price() != null && (budget == null || p.price().compareTo(budget) <= 0)
                 && featureRequest.clarification().isBlank() && featureRequest.constraints().matches(p.features())
-                && !p.stock().matches("(?i)(?:.*(?:缺货|无货|售罄|售完|out.of.stock).*|0(?:\\.0+)?)");
+                && !ProductDiscoverySchema.defaultSchema().unavailableStock(p.stock());
     }
 
     public Map<String, Object> budgetData() {
@@ -86,7 +86,8 @@ public final class StructuredProductRecommendation {
             List<String> limits = new ArrayList<>(List.of("NO_COMPARABLE_SPEC", "NEEDS_VERIFICATION"));
             if (products.size() == 1) limits.add("SINGLE_CANDIDATE");
             if (p.rating() == null) limits.add("MISSING_RATING");
-            if (question.matches("(?s).*(拍照|摄影|相机).*")) limits.add("NO_PHOTO_BENCHMARK");
+            if (ProductRecommendationAspectSchema.defaultSchema().questionMentions("photography", question))
+                limits.add("NO_PHOTO_BENCHMARK");
             row.put("allowedLimitations", limits);
             // Do not propagate a computed remainder into normal recommendation conclusions.
             if (detailsRequested && budget != null && p.price() != null) row.put("remainder", budget.subtract(p.price()));
@@ -191,14 +192,8 @@ public final class StructuredProductRecommendation {
                 out.append("这些记录满足你明确给出的特征条件；标称续航不保证实际使用时长。\n");
             }
         }
-        List<String> relatedFeatures = new ArrayList<>();
-        if (question.matches(".*(?:拍照|摄影|相机).*")
-                && p.spec().matches(".*(?:摄像|镜头|光学|像素|相机).*") ) relatedFeatures.add("拍照");
-        if (question.contains("降噪") && p.spec().contains("降噪")) relatedFeatures.add("降噪");
-        if (question.matches(".*(?:续航|电池).*")
-                && p.spec().matches(".*(?:续航|电池|mAh|Wh).*") ) relatedFeatures.add("续航");
-        if (question.matches(".*(?:轻便|便携|重量).*")
-                && p.spec().matches(".*(?:重量|轻|克|kg).*") ) relatedFeatures.add("便携性");
+        List<String> relatedFeatures = ProductRecommendationAspectSchema.defaultSchema()
+                .relatedLabels(question, p.spec());
         if (!relatedFeatures.isEmpty()) {
             out.append("与你提到的").append(String.join("、", relatedFeatures))
                     .append("相关的目录规格是：").append(p.spec())

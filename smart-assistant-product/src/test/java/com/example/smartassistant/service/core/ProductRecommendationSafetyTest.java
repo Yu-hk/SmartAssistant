@@ -118,7 +118,8 @@ class ProductRecommendationSafetyTest {
         var facts = new StructuredProductRecommendation("轻便续航长的手机", List.of(Map.of(
                 "code", "A", "name", "手机A", "price", 1000, "spec", "蓝色")));
         assertThat(facts.hasEligibleProducts()).isFalse();
-        assertThat(facts.noEligibleAnswer()).contains("重量上限", "最低续航")
+        assertThat(facts.noEligibleAnswer()).contains("最低续航")
+                .doesNotContain("重量上限")
                 .doesNotContain("你提到的续航", "满足长续航", "库存充足");
     }
 

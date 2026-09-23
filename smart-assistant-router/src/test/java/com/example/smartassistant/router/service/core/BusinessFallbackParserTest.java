@@ -24,4 +24,13 @@ class BusinessFallbackParserTest {
         for (String question : new String[]{"", "随便聊聊", "下单" + "长".repeat(500)})
             assertThat(parser.parse(question).kind()).isEqualTo(BusinessFallbackParser.Kind.UNKNOWN);
     }
+    @Test void vocabularyCanBeExtendedWithoutChangingParser() {
+        var properties = new java.util.Properties();
+        properties.setProperty("order.tokens", "下单");
+        properties.setProperty("order.phrases", "下单");
+        properties.setProperty("product.tokens", "选品");
+        properties.setProperty("product.phrases", "挑选商品");
+        var configured = new BusinessFallbackParser(new FallbackDispatchSchema(properties));
+        assertThat(configured.parse("帮我挑选商品").kind()).isEqualTo(BusinessFallbackParser.Kind.PRODUCT_QUERY);
+    }
 }
