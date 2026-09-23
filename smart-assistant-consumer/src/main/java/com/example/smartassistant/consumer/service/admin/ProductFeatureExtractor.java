@@ -1,6 +1,7 @@
 package com.example.smartassistant.consumer.service.admin;
 
 import org.springframework.stereotype.Component;
+import com.example.smartassistant.common.product.ProductFeatureDomainLimits;
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -9,10 +10,15 @@ import java.util.regex.Pattern;
 @Component
 public class ProductFeatureExtractor {
     public static final String VERSION = "intake-rules-v1";
+    private static final ProductIntakeSchema SCHEMA = ProductIntakeSchema.defaultSchema();
+    private static final ProductFeatureDomainLimits LIMITS = ProductFeatureDomainLimits.defaultLimits();
     private static final Pattern WEIGHT = Pattern.compile(
-            "(?:整机净重|机身净重|设备净重|净重|机身重量|整机重量|重量)\\s*[:：]?\\s*(\\d+(?:\\.\\d+)?)\\s*(kg|公斤|千克|克|g)(?![a-z])", Pattern.CASE_INSENSITIVE);
+            "(?:" + SCHEMA.alternatives("weight.aliases") + ")\\s*[:：]?\\s*(\\d+(?:\\.\\d+)?)\\s*("
+                    + SCHEMA.alternatives("weight.kilogram-units") + "|"
+                    + SCHEMA.alternatives("weight.gram-units") + ")(?![a-z])", Pattern.CASE_INSENSITIVE);
     private static final Pattern RUNTIME = Pattern.compile(
-            "(?:续航(?:时间|时长)?|播放(?:时间|时长)?|听歌(?:时间|时长)?)\\s*[:：]?\\s*(\\d+(?:\\.\\d+)?)\\s*(?:小时|h)(?![a-z])", Pattern.CASE_INSENSITIVE);
+            "(?:" + SCHEMA.alternatives("battery.aliases") + ")\\s*[:：]?\\s*(\\d+(?:\\.\\d+)?)\\s*(?:"
+                    + SCHEMA.alternatives("battery.units") + ")(?![a-z])", Pattern.CASE_INSENSITIVE);
     private static final Pattern UNCERTAIN = Pattern.compile("约|左右|大概|大约|最长|最高|最多|至少|不超过|小于|低于|大于|高于|以内|以下|以上|[<>≤≥~～]|\\d\\s*[-至到]\\s*\\d");
     private static final Pattern WEIGHT_OTHER = Pattern.compile("包装|毛重|充电盒|单耳|每只|每侧|含盒|带盒|含配件|含键盘");
     private static final Pattern BATTERY_OTHER = Pattern.compile("充电盒|配合充电|总续航|充电时间|待机|包装");
@@ -52,10 +58,10 @@ public class ProductFeatureExtractor {
                     }
                     if (UNCERTAIN.matcher(clause).find()) { weightUncertain = true; continue; }
                     BigDecimal value = new BigDecimal(weight.group(1));
-                    if (Set.of("kg", "公斤", "千克").contains(weight.group(2).toLowerCase(Locale.ROOT)))
+                    if (SCHEMA.values("weight.kilogram-units").contains(weight.group(2).toLowerCase(Locale.ROOT)))
                         value = value.multiply(BigDecimal.valueOf(1000));
                     value = value.stripTrailingZeros();
-                    if (valid(value, 3, "9999999.999")) weights.put(value, evidence);
+                    if (valid(value, LIMITS.weightMaxScale(), LIMITS.maximumWeightGrams())) weights.put(value, evidence);
                     else { weightUncertain = true; warnings.add("重量超出允许范围或精度，请核对原文。"); }
                 }
                 var runtime = RUNTIME.matcher(clause);
@@ -66,7 +72,8 @@ public class ProductFeatureExtractor {
                     }
                     String scenario = scenario(clause);
                     BigDecimal hours = new BigDecimal(runtime.group(1)).stripTrailingZeros();
-                    if (scenario == null || UNCERTAIN.matcher(clause).find() || !valid(hours, 2, "999999.99")) {
+                    if (scenario == null || UNCERTAIN.matcher(clause).find()
+                            || !valid(hours, LIMITS.batteryMaxScale(), LIMITS.maximumBatteryHours())) {
                         batteryUncertain = true;
                         continue;
                     }
@@ -99,17 +106,19 @@ public class ProductFeatureExtractor {
         return new Extraction(VERSION, features, Collections.unmodifiableMap(evidence), List.copyOf(warnings));
     }
 
-    private static boolean valid(BigDecimal value, int scale, String max) {
-        return value.signum() > 0 && value.scale() <= scale && value.compareTo(new BigDecimal(max)) <= 0;
+    private static boolean valid(BigDecimal value, int scale, BigDecimal max) {
+        return value.signum() > 0 && value.scale() <= scale && value.compareTo(max) <= 0;
     }
 
     private static String scenario(String text) {
         Set<String> scenarios = new HashSet<>();
-        if (text.contains("视频播放") || text.contains("播放视频") || text.contains("视频续航")) scenarios.add("video_playback");
-        boolean audio = text.contains("听歌") || text.contains("音乐播放") || text.contains("音频播放");
-        if (audio && Pattern.compile("(?:开启|打开|启用)(?:主动)?降噪").matcher(text).find()) scenarios.add("audio_anc_on");
-        if (audio && Pattern.compile("(?:关闭|关掉|停用)(?:主动)?降噪").matcher(text).find()) scenarios.add("audio_anc_off");
-        if (text.contains("综合使用") || text.contains("混合使用") || text.contains("综合续航")) scenarios.add("mixed_use");
+        if (SCHEMA.contains("scenario.video", text)) scenarios.add("video_playback");
+        boolean audio = SCHEMA.contains("scenario.audio", text);
+        if (audio && Pattern.compile("(?:" + SCHEMA.alternatives("scenario.anc-on")
+                + ")(?:主动)?降噪").matcher(text).find()) scenarios.add("audio_anc_on");
+        if (audio && Pattern.compile("(?:" + SCHEMA.alternatives("scenario.anc-off")
+                + ")(?:主动)?降噪").matcher(text).find()) scenarios.add("audio_anc_off");
+        if (SCHEMA.contains("scenario.mixed", text)) scenarios.add("mixed_use");
         return scenarios.size() == 1 ? scenarios.iterator().next() : null;
     }
 }

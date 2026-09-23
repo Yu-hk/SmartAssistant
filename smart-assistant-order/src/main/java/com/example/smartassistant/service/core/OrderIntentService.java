@@ -16,7 +16,6 @@ import org.springframework.stereotype.Service;
 import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 
-import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -48,6 +47,7 @@ public class OrderIntentService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderIntentService.class);
     private static final Pattern ORDER_ID = Pattern.compile("(?i)\\bORD-[A-Z0-9-]+\\b");
+    private static final OrderIntentVocabulary VOCABULARY = OrderIntentVocabulary.defaultVocabulary();
 
     private final AiChatService aiChatService;
     private final ChatModel lightModel;
@@ -130,10 +130,10 @@ public class OrderIntentService {
             return IntentType.OTHER;
         }
         if (ORDER_ID.matcher(message).find()) {
-            if (containsAny(message, List.of("查物流", "查询物流", "查看物流", "物流信息", "物流轨迹"))) {
+            if (VOCABULARY.contains("read.tracking", message)) {
                 return IntentType.TRACK_LOGISTICS;
             }
-            if (containsAny(message, List.of("查询", "查看", "看看", "状态", "详情", "订单信息"))) {
+            if (VOCABULARY.contains("read.order-detail", message)) {
                 return IntentType.QUERY_ORDER;
             }
         }
@@ -143,23 +143,16 @@ public class OrderIntentService {
     static boolean isReadOnlyOrderListQuery(String message) {
         if (message == null || message.isBlank() || hasWriteOperation(message)) return false;
         String normalized = message.replaceAll("[\\s，,。.!！?？]", "");
-        boolean readVerb = containsAny(normalized, List.of(
-                "查看", "查询", "列出", "显示", "看看", "有哪些", "有没有"));
-        boolean ownedOrderScope = containsAny(normalized, List.of(
-                "我的订单", "本人订单", "订单列表", "订单记录", "历史订单", "已有订单"))
-                || (normalized.contains("我") && normalized.contains("订单"));
+        boolean readVerb = VOCABULARY.contains("read.verbs", normalized);
+        boolean ownedOrderScope = VOCABULARY.contains("read.owned-scopes", normalized)
+                || (VOCABULARY.contains("read.owner-pronouns", normalized)
+                && VOCABULARY.contains("read.order-nouns", normalized));
         return ownedOrderScope && (readVerb
-                || normalized.equals("我的订单") || normalized.equals("订单列表"));
+                || VOCABULARY.exact("read.bare-scopes", normalized));
     }
 
     private static boolean hasWriteOperation(String message) {
-        return containsAny(message, List.of(
-                "帮我下单", "替我下单", "我要下单", "立即下单", "现在下单", "直接下单", "创建订单",
-                "确认支付", "立即支付", "支付订单", "帮我支付",
-                "帮我取消", "替我取消", "我要取消", "立即取消", "取消订单",
-                "帮我退款", "我要退款", "办理退款", "发起退款", "申请退款",
-                "帮我退货", "我要退货", "办理退货", "发起退货", "申请退货",
-                "帮我发货", "立即发货", "执行发货", "确认收货"));
+        return VOCABULARY.contains("write.operations", message);
     }
 
     /**
@@ -173,61 +166,41 @@ public class OrderIntentService {
     static boolean isRefundPolicyQuestion(String message) {
         if (message == null || message.isBlank()) return false;
 
-        boolean refundTopic = containsAny(message, List.of("退款", "退货", "退钱"));
+        boolean refundTopic = VOCABULARY.contains("refund.topic", message);
         if (!refundTopic) return false;
 
         // 明确针对本人订单发起操作或查询处理进度，仍需走 REFUND 并收集订单号。
-        boolean actionOrStatus = containsAny(message, List.of(
-                "我要退款", "我想退款", "帮我退款", "给我退款", "办理退款", "发起退款",
-                "我要退货", "我想退货", "帮我退货", "给我退货", "办理退货", "发起退货",
-                "我的退款", "退款进度", "退款状态", "退款到哪", "退货进度", "退货状态"));
+        boolean actionOrStatus = VOCABULARY.contains("refund.action-status", message);
         if (actionOrStatus) return false;
 
-        return containsAny(message, List.of(
-                "条件", "政策", "规则", "流程", "要求", "材料", "资格", "时效", "期限",
-                "多久到账", "多久", "多长时间", "怎么", "如何", "能不能", "是否可以",
-                "需要满足", "需要哪些", "需要什么", "几天"));
+        return VOCABULARY.contains("refund.policy-questions", message);
     }
 
     static boolean isOrderLifecycleGuidance(String message) {
         if (message == null || message.isBlank() || ORDER_ID.matcher(message).find()) return false;
 
-        boolean asksForExplanation = containsAny(message, List.of(
-                "如何", "怎么", "怎样", "说明", "介绍", "流程", "规则", "条件",
-                "需要什么", "需要哪些", "以后", "后续", "操作指南"));
+        boolean asksForExplanation = VOCABULARY.contains("guidance.explanation", message);
         if (!asksForExplanation) return false;
 
-        boolean requestsImmediateAction = containsAny(message, List.of(
-                "帮我取消", "给我取消", "替我取消", "我要取消", "立即取消", "现在取消",
-                "帮我退款", "给我退款", "替我退款", "我要退款", "立即退款", "发起退款",
-                "帮我退货", "替我退货", "我要退货", "发起退货"));
+        boolean requestsImmediateAction = VOCABULARY.contains("guidance.action", message);
         if (requestsImmediateAction) return false;
 
         int topics = 0;
-        if (containsAny(message, List.of("查询订单", "订单查询", "订单状态", "物流查询"))) topics++;
-        if (containsAny(message, List.of("取消订单", "订单取消"))) topics++;
-        if (containsAny(message, List.of("售后", "退款", "退货"))) topics++;
+        if (VOCABULARY.contains("guidance.query-topic", message)) topics++;
+        if (VOCABULARY.contains("guidance.cancel-topic", message)) topics++;
+        if (VOCABULARY.contains("guidance.after-sales-topic", message)) topics++;
         boolean onlyRefundTopic = topics == 1
-                && containsAny(message, List.of("退款", "退货", "退钱"));
+                && VOCABULARY.contains("refund.topic", message);
         return topics >= 2 || (topics == 1 && !onlyRefundTopic);
     }
 
     static boolean isOrderPreparationGuidance(String message) {
         if (message == null || message.isBlank() || ORDER_ID.matcher(message).find()) return false;
-        boolean beforeCreation = containsAny(message, List.of(
-                "下单前", "创建订单前", "订单创建前", "准备下单", "最终选定商品"));
-        boolean asksForChecklist = containsAny(message, List.of(
-                "哪些信息", "什么信息", "确认哪些", "需要确认", "需要准备", "需要提供",
-                "需确认", "确认的信息", "确认信息", "资料", "清单"));
-        boolean requestsImmediateCreation = containsAny(message, List.of(
-                "帮我下单", "替我下单", "立即下单", "现在下单", "直接下单"));
+        boolean beforeCreation = VOCABULARY.contains("preparation.before", message);
+        boolean asksForChecklist = VOCABULARY.contains("preparation.checklist", message);
+        boolean requestsImmediateCreation = VOCABULARY.contains("preparation.immediate", message);
         return beforeCreation && asksForChecklist && !requestsImmediateCreation;
     }
-
-    private static boolean containsAny(String value, List<String> markers) {
-        return markers.stream().anyMatch(value::contains);
-    }
-
 
     /**
      * 订单意图枚举。
