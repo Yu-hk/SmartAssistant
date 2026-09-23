@@ -8,7 +8,7 @@ class UpgradeContractTests(unittest.TestCase):
     def test_inventory_complete_and_explicit_dependencies(self):
         repo = pathlib.Path(__file__).resolve().parents[1]
         inputs = contract.load_inputs(repo)
-        self.assertEqual(len(inputs), 27)
+        self.assertEqual(len(inputs), 28)
         for before, after in [('20260914_add_product_structured_features', '20260914_add_product_intake'),
                               ('20260918_add_profile_lifecycle', '20260919_add_profile_control_archive'),
                               ('20260827_add_workflow_recovery_jobs', '20260827_add_workflow_recovery_result')]:
@@ -24,6 +24,14 @@ class UpgradeContractTests(unittest.TestCase):
             directory = pathlib.Path(folder) / 'docs/database/migrations'
             directory.mkdir(parents=True)
             with self.assertRaises(ValueError): contract.load_inputs(pathlib.Path(folder))
+
+    def test_visit_migration_matches_runtime_schema(self):
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        migration = (repo / 'docs/database/migrations/20260923_add_site_visits.sql').read_text(encoding='utf-8')
+        runtime = (repo / 'smart-assistant-consumer/src/main/resources/db/visit-records.sql').read_text(encoding='utf-8')
+        def statements(text):
+            return '\n'.join(line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith('--'))
+        self.assertEqual(statements(migration), statements(runtime))
 
     def test_transaction_wrappers_are_explicit_not_arbitrary_stripping(self):
         name = '20260914_add_product_intake'
