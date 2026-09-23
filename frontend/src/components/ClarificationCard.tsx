@@ -17,7 +17,7 @@ export function ClarificationCard({ form, disabled, onSubmit }: {
     if (disabled || submitting.current) return;
     const reply = clarificationReply(form, values);
     if (!reply) { setError(form.expiresAt <= Date.now() ? '表单已过期，请刷新会话或改用文字回复。'
-      : '请检查必填信息、数值范围及订单号格式，不要在字段中填写操作指令。'); return; }
+      : '请按各字段下方的提示检查必填信息、格式和范围，不要在字段中填写操作指令。'); return; }
     submitting.current = true;
     setSubmitted(true);
     setError('');

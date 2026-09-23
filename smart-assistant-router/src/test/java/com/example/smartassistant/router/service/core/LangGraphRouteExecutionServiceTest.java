@@ -80,8 +80,8 @@ class LangGraphRouteExecutionServiceTest {
 
     @Test
     void deterministicFallbackWriteStillPausesAndRequiresOwnerApproval() {
-        var parsed = new BusinessFallbackParser().parse("取消订单 ORD-1001；原因：不需要了");
-        var input = new java.util.LinkedHashMap<String, Object>(parsed.input());
+        // A domain-prepared proposal still goes through the same owner approval gate.
+        var input = new java.util.LinkedHashMap<String, Object>(Map.of("order_id", "ORD-1001", "reason", "不需要了"));
         input.put("_deterministicFallback", true);
         var write = new ExecutionPlan.TaskNode("fallback-write", ExecutionPlan.Domain.ORDER, "CANCEL_ORDER",
                 "取消订单 ORD-1001；原因：不需要了", input,

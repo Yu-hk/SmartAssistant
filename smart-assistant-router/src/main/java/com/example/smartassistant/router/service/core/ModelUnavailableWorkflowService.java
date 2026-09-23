@@ -3,6 +3,7 @@ package com.example.smartassistant.router.service.core;
 import com.example.smartassistant.router.model.*;
 import com.example.smartassistant.router.service.agent.AgentCallerService;
 import com.example.smartassistant.common.agent.protocol.AgentExecutionRequest;
+import com.example.smartassistant.common.agent.protocol.ClarificationRequest;
 import com.example.smartassistant.common.quality.DomainQualityResult;
 import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
@@ -27,13 +28,39 @@ public class ModelUnavailableWorkflowService {
         }
         if (parsed.kind() == BusinessFallbackParser.Kind.UNKNOWN) return unavailable();
         if (!allowWrites) return message("这次处理尚未确认完成，我没有重新提交订单操作。请先查看原请求或联系人工客服核实。", false);
-        if (parsed.kind() == BusinessFallbackParser.Kind.CLARIFY) return message(parsed.reply(), true);
         if (request.getUserId() == null || request.getRequestId() == null || request.getRequestId().isBlank())
             return message("请登录后再办理订单业务，本次没有修改订单。", false);
-        Map<String, Object> input = new LinkedHashMap<>(parsed.input());
+        // Order owns grammar, required fields, data validation and customer-facing guidance.
+        // No mutation or model call is allowed in PREPARE_FALLBACK.
+        var preparation = caller.callAgentAndExtractTitles("order", new AgentExecutionRequest(
+                AgentExecutionRequest.CURRENT_VERSION, request.getRequestId(), "fallback-prepare", request.getUserId().toString(),
+                "PREPARE_FALLBACK", request.getQuestion(), Map.of(), List.of(), List.of(),
+                System.currentTimeMillis() + 5000, null));
+        var contract = ClarificationRequest.read(preparation.getData().get(ClarificationRequest.DATA_KEY));
+        if (contract != null && !"order".equals(contract.domain())) return unavailable();
+        if (!preparation.getDomainQuality().isPass()
+                || contract != null || Boolean.TRUE.equals(preparation.getData().get("clarificationRequired"))) {
+            boolean clarification = preparation.getDomainQuality().isPass()
+                    && (contract != null || Boolean.TRUE.equals(preparation.getData().get("clarificationRequired")));
+            var result = message(preparation.getResponse(), clarification);
+            result.setAgentName("order");
+            result.setDomainQuality(preparation.getDomainQuality());
+            result.setClarificationRequest(clarification ? contract : null);
+            return result;
+        }
+        if (!(preparation.getData().get("preparedAction") instanceof Map<?, ?> action)
+                || !(action.get("operation") instanceof String operation)
+                || !Set.of("CREATE_ORDER", "CANCEL_ORDER", "REFUND_ORDER").contains(operation)
+                || !(action.get("input") instanceof Map<?, ?> preparedInput)
+                || !(action.get("description") instanceof String description) || description.isBlank())
+            return unavailable();
+        Map<String, Object> input = new LinkedHashMap<>();
+        for (var entry : preparedInput.entrySet()) {
+            if (!(entry.getKey() instanceof String key) || key.startsWith("_")) return unavailable();
+            input.put(key, entry.getValue());
+        }
         input.put("_deterministicFallback", true);
-        String description;
-        if (parsed.kind() == BusinessFallbackParser.Kind.CREATE_ORDER) {
+        if ("CREATE_ORDER".equals(operation)) {
             var quote = caller.callAgentAndExtractTitles("product", new AgentExecutionRequest(
                     AgentExecutionRequest.CURRENT_VERSION, request.getRequestId(), "fallback-quote", request.getUserId().toString(),
                     "RESOLVE_READ_ONLY_PRODUCT", input.get("product_name") + "多少钱？有货吗？",
@@ -44,11 +71,10 @@ public class ModelUnavailableWorkflowService {
                 return message("暂时无法核实这款商品的价格和可售库存，本次没有创建订单。请稍后再试或联系人工客服。", false);
             input.put("product_name", name);
             input.put("amount", new BigDecimal(amount.toString()));
-            description = "下单 1 件“" + name + "”，金额 " + amount + " 元；收货人：" + input.get("recipient_name")
-                    + "；电话：" + input.get("recipient_phone") + "；地址：" + input.get("shipping_address");
-        } else description = (parsed.kind() == BusinessFallbackParser.Kind.CANCEL_ORDER ? "取消订单 " : "申请退款 ")
-                + input.get("order_id") + "；原因：" + input.get("reason");
-        var write = new ExecutionPlan.TaskNode("fallback-write", ExecutionPlan.Domain.ORDER, parsed.kind().name(), description,
+            // Enrich the Order-owned proposal with the verified Product quote for approval.
+            description += "\n已核实商品：“" + name + "”，金额 " + amount + " 元。";
+        }
+        var write = new ExecutionPlan.TaskNode("fallback-write", ExecutionPlan.Domain.ORDER, operation, description,
                 input, List.of(), ExecutionPlan.AccessMode.WRITE, List.of(), request.getRequestId() + ":fallback-write",
                 true, null, ExecutionPlan.MergePolicy.APPEND);
         var plan = new ExecutionPlan(request.getRequestId(), request.getQuestion(), List.of("用户确认前不得修改订单"), List.of(write));
