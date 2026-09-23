@@ -23,6 +23,17 @@ import static org.mockito.Mockito.when;
 @EnabledIfEnvironmentVariable(named = "RUN_REDIS_INTEGRATION_TESTS", matches = "true")
 class ConversationGateRedisIntegrationTest {
 
+    @Test void formCannotReopenClosedSessionOrTakeOwnershipOfAnotherSession() {
+        var first = gate.acquire("900013", "form", "r1"); gate.release(first);
+        var accepted = gate.acquireExisting("900013", "form", "r2");
+        org.junit.jupiter.api.Assertions.assertTrue(accepted.acquired()); gate.release(accepted);
+        gate.close("900013", "form");
+        assertEquals(ConversationGateService.GateStatus.SESSION_CLOSED, gate.acquireExisting("900013", "form", "r3").status());
+        var next = gate.acquire("900013", "other", "r4"); gate.release(next);
+        assertEquals(ConversationGateService.GateStatus.SESSION_CLOSED, gate.acquireExisting("900013", "form", "r5").status());
+        assertEquals("other", redisTemplate.opsForValue().get("conversation:gate:{900013}:active"));
+    }
+
     @Test
     void deletingCompletedSessionReleasesOwnerAndFencesNewRequests() {
         var active = gate.acquire("900010", "old", "r1");
@@ -168,7 +179,7 @@ class ConversationGateRedisIntegrationTest {
 
     private static void clearTestKeys() {
         if (redisTemplate == null) return;
-        for (String id : List.of("900001", "900002", "900003", "900010", "900011", "900012")) {
+        for (String id : List.of("900001", "900002", "900003", "900010", "900011", "900012", "900013")) {
             var keys = redisTemplate.keys("conversation:gate:{" + id + "}:*");
             if (keys != null && !keys.isEmpty()) redisTemplate.delete(keys);
         }

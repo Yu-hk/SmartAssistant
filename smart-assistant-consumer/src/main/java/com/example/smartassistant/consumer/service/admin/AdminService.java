@@ -1304,12 +1304,10 @@ public class AdminService {
             String promptSnapshot,
             Boolean toolUsageComplete,
             List<ToolUsageCache.ToolCall> toolCalls) {
-        /** Reconstruct display metadata on authorized history reads; no duplicate sensitive-data store. */
+        /** Signed current-turn forms are restored separately after an authorized history read. */
         @com.fasterxml.jackson.annotation.JsonProperty("clarificationForm")
         public com.example.smartassistant.consumer.service.core.ClarificationForm clarificationForm() {
-            return "assistant".equals(role)
-                    ? com.example.smartassistant.consumer.service.core.ClarificationForm.fromReply(content, null, status)
-                    : null;
+            return null;
         }
     }
 

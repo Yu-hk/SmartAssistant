@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react';
-import { clarificationReply, type ClarificationFormData } from '../utils/clarificationForm';
+import { clarificationReply, type ClarificationFormData, type ClarificationSubmission } from '../utils/clarificationForm';
 import './clarification-card.css';
 
 export function ClarificationCard({ form, disabled, onSubmit }: {
-  form: ClarificationFormData; disabled: boolean; onSubmit: (text: string) => void;
+  form: ClarificationFormData; disabled: boolean; onSubmit: (text: string, submission: ClarificationSubmission) => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(form.fields.map(field => [field.key, field.value])));
@@ -16,11 +16,12 @@ export function ClarificationCard({ form, disabled, onSubmit }: {
     event.preventDefault();
     if (disabled || submitting.current) return;
     const reply = clarificationReply(form, values);
-    if (!reply) { setError('请补全信息；数值须大于 0，购买数量须为整数。'); return; }
+    if (!reply) { setError(form.expiresAt <= Date.now() ? '表单已过期，请刷新会话或改用文字回复。'
+      : '请检查必填信息、数值范围及订单号格式，不要在字段中填写操作指令。'); return; }
     submitting.current = true;
     setSubmitted(true);
     setError('');
-    onSubmit(reply);
+    onSubmit(reply, { token: form.token, values });
   }}>
     <strong>补充一下，方便继续为您处理</strong>
     <p className="clarification-note">只需填写以下信息，也可以直接用文字回复。</p>
@@ -31,6 +32,11 @@ export function ClarificationCard({ form, disabled, onSubmit }: {
           inputMode={field.type === 'number' ? 'decimal' : 'text'} maxLength={120}
           autoComplete="off" required value={values[field.key] || ''}
           onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />
+        <small>{field.key === 'weight' ? '0.001–1000 公斤，最多 3 位小数'
+          : field.key === 'budget' ? '0.01–10000000 元，最多 2 位小数'
+          : field.key === 'quantity' ? '1–10000 件，填写整数'
+          : field.key === 'orderNumber' ? '以 ORD- 开头的订单编号'
+          : field.key === 'city' ? '填写城市或地区名称，最多 40 字' : '填写商品名称或品类，最多 100 字'}</small>
       </label>)}
       <div className="clarification-actions">
         <button type="submit">{submitted ? '已提交' : '补充并继续'}</button>

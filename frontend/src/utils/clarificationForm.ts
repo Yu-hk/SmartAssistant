@@ -5,7 +5,8 @@ export interface ClarificationField {
   unit: string;
   value: string;
 }
-export interface ClarificationFormData { version: 1; fields: ClarificationField[] }
+export interface ClarificationFormData { version: 2; token: string; expiresAt: number; fields: ClarificationField[] }
+export interface ClarificationSubmission { token: string; values: Record<string, string> }
 
 const definitions: Record<string, [string, 'text' | 'number', string]> = {
   weight: ['重量上限', 'number', '公斤'], budget: ['预算上限', 'number', '元'],
@@ -16,7 +17,9 @@ const definitions: Record<string, [string, 'text' | 'number', string]> = {
 /** Reject unknown schema/fields; server output cannot inject arbitrary form controls or actions. */
 export function normalizeClarificationForm(raw: unknown): ClarificationFormData | undefined {
   const form = raw as Partial<ClarificationFormData> | null;
-  if (form?.version !== 1 || !Array.isArray(form.fields) || !form.fields.length || form.fields.length > 6) return;
+  if (form?.version !== 2 || typeof form.token !== 'string' || !form.token || form.token.length > 4096
+      || typeof form.expiresAt !== 'number' || !Number.isFinite(form.expiresAt) || form.expiresAt <= Date.now()
+      || !Array.isArray(form.fields) || !form.fields.length || form.fields.length > 6) return;
   const seen = new Set<string>();
   const fields: ClarificationField[] = [];
   for (const field of form.fields) {
@@ -26,17 +29,25 @@ export function normalizeClarificationForm(raw: unknown): ClarificationFormData 
     fields.push({ key: field.key, label, type, unit,
       value: typeof field.value === 'string' ? field.value.slice(0, 120) : '' });
   }
-  return { version: 1, fields };
+  return { version: 2, token: form.token, expiresAt: form.expiresAt, fields };
 }
 
 export function clarificationReply(form: ClarificationFormData, values: Record<string, string>): string | null {
+  if (form.expiresAt <= Date.now() || Object.keys(values).length !== form.fields.length) return null;
   const parts: string[] = [];
   for (const field of form.fields) {
     const value = (values[field.key] || '').trim();
     if (!value || value.length > 120 || /[\r\n]/.test(value)) return null;
-    if (field.type === 'number' && (!/^\d+(?:\.\d{1,3})?$/.test(value)
-        || Number(value) <= 0 || Number(value) > 1e9
-        || (field.key === 'quantity' && !Number.isInteger(Number(value))))) return null;
+    if (field.type === 'number') {
+      const [min, max, decimals] = field.key === 'weight' ? [0.001, 1000, 3]
+        : field.key === 'budget' ? [0.01, 10000000, 2] : [1, 10000, 0];
+      if (!/^\d+(?:\.\d+)?$/.test(value) || Number(value) < min || Number(value) > max
+          || (value.split('.')[1]?.length || 0) > decimals) return null;
+    } else if (field.key === 'orderNumber') {
+      if (!/^ORD-[A-Za-z0-9-]{1,64}$/.test(value)) return null;
+    } else if (value.length > (field.key === 'city' ? 40 : 100)
+        || !/^[\p{L}\p{N} .·（）()＋+/-]+$/u.test(value)
+        || /下单|退款|付款|确认|同意|忽略|执行|删除/.test(value)) return null;
     // Use the existing domain grammar (预算为…), not the longer display label.
     const label = field.key === 'budget' ? '预算' : field.label;
     parts.push(`${label}为${value}${field.unit}`);

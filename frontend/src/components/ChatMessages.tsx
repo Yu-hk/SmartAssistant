@@ -9,7 +9,7 @@ import { publicRecoveryError } from '../utils/workflowRecovery';
 import { ClarificationCard } from './ClarificationCard';
 
 interface ChatMessagesProps {
-  onClarificationSubmit?: (text: string) => void;
+  onClarificationSubmit?: (text: string, submission: import('../utils/clarificationForm').ClarificationSubmission) => void;
   isLoading?: boolean;
   playback?: ReturnType<typeof useVoiceOutput>;
   messages: Message[];

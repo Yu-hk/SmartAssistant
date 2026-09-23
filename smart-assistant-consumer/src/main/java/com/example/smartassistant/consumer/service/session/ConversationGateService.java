@@ -32,6 +32,7 @@ public class ConversationGateService {
     private static final DefaultRedisScript<String> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
             if redis.call('EXISTS', KEYS[6]) == 1 then return 'SESSION_CLOSED||0|' end
             local active = redis.call('GET', KEYS[1])
+            if ARGV[9] == 'existing' and active ~= ARGV[1] then return 'SESSION_CLOSED||0|' end
             redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', ARGV[7])
 
             if not active then
@@ -192,6 +193,20 @@ public class ConversationGateService {
     }
 
     public GateDecision acquire(String userId, String sessionId, String requestId) {
+        return acquire(userId, sessionId, requestId, false);
+    }
+
+    /** Form permits cannot implicitly reopen a closed, expired or suspended session. */
+    public GateDecision acquireExisting(String userId, String sessionId, String requestId) {
+        return acquire(userId, sessionId, requestId, true);
+    }
+
+    public boolean isActiveSession(String userId, String sessionId) {
+        try { return sessionId != null && sessionId.equals(redisTemplate.opsForValue().get(activeKey(userId))); }
+        catch (RuntimeException unavailable) { return false; }
+    }
+
+    private GateDecision acquire(String userId, String sessionId, String requestId, boolean existingOnly) {
         requireText(userId, "userId");
         requireText(sessionId, "sessionId");
         requireText(requestId, "requestId");
@@ -205,14 +220,15 @@ public class ConversationGateService {
                             suspendedDetailsKey(userId), requestIndexKey(userId, requestId), deletedKey(userId, sessionId)),
                     sessionId, requestId, token, Long.toString(now),
                     Long.toString(activeTtl.toMillis()), Long.toString(requestTtl.toMillis()),
-                    Long.toString(now - suspendedTtl.toMillis()), Long.toString(suspendedTtl.toMillis()));
+                    Long.toString(now - suspendedTtl.toMillis()), Long.toString(suspendedTtl.toMillis()),
+                    existingOnly ? "existing" : "new-or-existing");
             GateDecision decision = GateDecision.parse(result, userId, sessionId, requestId);
             recordState(decision);
             return decision;
         } catch (RuntimeException error) {
             log.error("[ConversationGate] acquire failed: userId={}, sessionId={}, error={}",
                     userId, sessionId, error.getMessage());
-            return failClosed
+            return failClosed || existingOnly
                     ? new GateDecision(GateStatus.UNAVAILABLE, userId, sessionId, requestId, null, 0, null)
                     : new GateDecision(GateStatus.ACQUIRED, userId, sessionId, requestId, sessionId, 0, token);
         }

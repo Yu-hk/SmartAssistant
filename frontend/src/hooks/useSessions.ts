@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Session, Message, SessionStatus, normalizeIntentType } from '../types';
 import { sessions as sessionApi } from '../api';
-import { ApiError } from '../api/client';
+import { ApiError, authenticatedFetch } from '../api/client';
 import { normalizeTelemetry } from '../utils/sessionTelemetry';
 import { normalizeClarificationForm } from '../utils/clarificationForm';
 
@@ -118,6 +118,17 @@ export function useSessions() {
       const payload = data as any;
       const msgs = Array.isArray(payload.messages) ? payload.messages : [];
       const messages: Message[] = msgs.map(normalizeMessage);
+      const last = messages.at(-1);
+      if (last?.role === 'assistant' && last.deliveryStatus === 'completed' && last.requestId
+          && normalizeSessionStatus((payload.session ?? payload).status) === 'active') {
+        try {
+          const response = await authenticatedFetch('/api/math/stream/clarification-form', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, requestId: last.requestId }),
+          });
+          if (response.ok) last.clarificationForm = normalizeClarificationForm((await response.json()).form);
+        } catch { /* Optional forms must not prevent authorized history reads. */ }
+      }
       setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, messages } : s));
 
       // The customer endpoint returns the session fields at top level, while older

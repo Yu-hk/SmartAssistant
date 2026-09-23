@@ -67,6 +67,9 @@ public class StreamChatController {
     private final ConversationPreprocessingService preprocessingService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Autowired(required = false)
+    private com.example.smartassistant.consumer.service.core.ClarificationService clarificationService;
+
     @Autowired
     private com.example.smartassistant.consumer.service.dispatch.PriorityRoutingDispatcher priorityDispatcher;
 
@@ -132,6 +135,13 @@ public class StreamChatController {
             String lastEventId,
             HttpServletResponse response) {
 
+        streamChatInternal(message, requestId, sessionId, showThinking, priority, lastEventId, response, null);
+    }
+
+    private void streamChatInternal(String message, String requestId, String sessionId, boolean showThinking,
+            int priority, String lastEventId, HttpServletResponse response,
+            com.example.smartassistant.consumer.service.core.ClarificationService.Submission clarification) {
+
         String normalizedMessage = UserQuestionNormalizer.normalize(message);
         String decisionKey = (requestId != null && !requestId.isBlank()) ? requestId : sessionId;
         String effectiveSessionId = effectiveSessionId(sessionId, decisionKey);
@@ -143,9 +153,16 @@ public class StreamChatController {
                 createBus(response, requestId, normalizedMessage).sendError("会话或请求标识不能为空");
                 return;
             }
-            lease = conversationGateService.acquire(
-                    resolveUserId(), effectiveSessionId, decisionKey);
+            lease = clarification == null ? conversationGateService.acquire(resolveUserId(), effectiveSessionId, decisionKey)
+                    : conversationGateService.acquireExisting(resolveUserId(), effectiveSessionId, decisionKey);
             if (!lease.acquired()) {
+                if (clarification != null) {
+                    response.setStatus(422);
+                    var rejectedBus = createBus(response, requestId, "");
+                    rejectedBus.sendError("表单所属会话已失效或正在处理中，请刷新会话后重试。");
+                    rejectedBus.close();
+                    return;
+                }
                 sendGateEvent(lease, response, requestId, normalizedMessage, lastEventId);
                 return;
             }
@@ -153,6 +170,18 @@ public class StreamChatController {
 
         try (ConversationGateService.Heartbeat ignored = conversationGateService != null && lease != null
                 ? conversationGateService.heartbeat(lease) : () -> { }) {
+            if (clarification != null) {
+                try {
+                    if (clarificationService == null) throw new IllegalArgumentException("补充信息服务暂不可用，请使用文字回复。");
+                    normalizedMessage = clarificationService.accept(resolveUserId(), effectiveSessionId, clarification);
+                } catch (IllegalArgumentException invalid) {
+                    response.setStatus(422);
+                    var rejectedBus = createBus(response, requestId, "");
+                    rejectedBus.sendError(invalid.getMessage());
+                    rejectedBus.close();
+                    return;
+                }
+            }
             executeStreamChat(normalizedMessage, requestId, sessionId, showThinking, priority,
                     lastEventId, response);
         } finally {
@@ -265,10 +294,13 @@ public class StreamChatController {
                 Map<String, Object> responsePayload = new LinkedHashMap<>();
                 responsePayload.put("type", "response");
                 responsePayload.put("content", result);
-                responsePayload.put("clarificationForm",
-                        com.example.smartassistant.consumer.service.core.ClarificationForm.fromReply(
-                                result, message, decision.get("error") != null ? "FAILED"
-                                        : workflowStatus != null ? workflowStatus : "COMPLETED"));
+                if (clarificationService != null) {
+                    var issued = clarificationService.issue(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                            decisionKey, message, result, decision.get("error") != null ? "FAILED"
+                                    : workflowStatus != null ? workflowStatus : "COMPLETED");
+                    responsePayload.put("clarificationForm", issued.form());
+                    tokenUsage = TokenUsageExtractor.merge(tokenUsage, issued.usage());
+                }
                 if (agentName != null && !agentName.isBlank()) {
                     responsePayload.put("agentName", agentName);
                 }
@@ -408,8 +440,36 @@ public class StreamChatController {
                 ? (Boolean) request.get("showThinking") : true;
         // MQ priority is derived from server sentiment. Ignore client claims, including malformed values.
         int priority = RequestQueueService.PRIORITY_NORMAL;
+        com.example.smartassistant.consumer.service.core.ClarificationService.Submission clarification = null;
+        if (request.containsKey("clarification")) {
+            try {
+                clarification = objectMapper.convertValue(request.get("clarification"),
+                        com.example.smartassistant.consumer.service.core.ClarificationService.Submission.class);
+                if (clarification == null) throw new IllegalArgumentException();
+            } catch (IllegalArgumentException invalid) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                        "补充信息格式不正确");
+            }
+        }
         streamChatInternal(message, requestId, sessionId, showThinking, priority,
-                null, response);
+                null, response, clarification);
+    }
+
+    @PostMapping("/clarification-form")
+    public Map<String, Object> restoreClarification(@RequestBody Map<String, String> request) {
+        if (clarificationService == null) return java.util.Collections.singletonMap("form", null);
+        if (conversationGateService == null || !conversationGateService.isActiveSession(resolveUserId(), request.get("sessionId")))
+            return java.util.Collections.singletonMap("form", null);
+        try {
+            var last = clarificationService.latest(resolveUserId(), request.get("sessionId"));
+            if (!Objects.equals(last.getRequestId(), request.get("requestId")))
+                return java.util.Collections.singletonMap("form", null);
+            var issued = clarificationService.issue(resolveUserId(), last.getSessionId(), last.getRequestId(),
+                    last.getUserInput(), last.getResponseSummary(), last.getStatus());
+            return java.util.Collections.singletonMap("form", issued.form());
+        } catch (IllegalArgumentException denied) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
+        }
     }
 
     @PostMapping("/chat/cancel")

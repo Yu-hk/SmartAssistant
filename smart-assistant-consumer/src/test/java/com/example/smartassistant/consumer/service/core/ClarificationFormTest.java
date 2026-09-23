@@ -40,12 +40,12 @@ class ClarificationFormTest {
         assertNull(ClarificationForm.fromReply("请提供密码和验证码。", "", "SUCCESS"));
     }
 
-    @Test void historySerializesTheSameFormWithoutNewStorage() throws Exception {
+    @Test void historyDoesNotReconstructUnsignedLegacyForms() throws Exception {
         var message = new com.example.smartassistant.consumer.service.admin.AdminService.SessionMessage(
                 "a", "assistant", "请提供城市。", "", "r", "fallback", "SUCCESS", null,
                 null, null, null, null, null, java.util.List.of());
         var json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(
                 new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(message));
-        assertEquals("city", json.path("clarificationForm").path("fields").get(0).path("key").asText());
+        assertTrue(json.path("clarificationForm").isNull());
     }
 }
