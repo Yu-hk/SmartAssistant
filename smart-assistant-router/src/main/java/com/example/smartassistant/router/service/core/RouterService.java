@@ -305,6 +305,11 @@ public class RouterService {
                 if (shouldShortCircuitForClarification(taskAnalysis)) {
                     String clarificationReply = String.join("\n", taskAnalysis.getClarificationQuestions());
                     String clarificationAgent = declaredClarificationAgent(taskAnalysis);
+                    if (Set.of("product", "order").contains(clarificationAgent)) {
+                        var domainReply = routeExecutionService.clarifyInputs(clarificationAgent,
+                                taskAnalysis, request, enhancedQuestion);
+                        if (domainReply != null) return finalizeRouting(domainReply, request, enhancedQuestion, emotion);
+                    }
                     RoutingResult clarification = RoutingResult.builder()
                             .result(clarificationReply)
                             .agentName(clarificationAgent)

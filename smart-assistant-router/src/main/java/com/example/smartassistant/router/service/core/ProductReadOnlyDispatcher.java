@@ -33,6 +33,8 @@ public class ProductReadOnlyDispatcher {
             return RoutingResult.builder().result(response.getResponse()).agentName("product")
                     .intentTag("PRODUCT").confidence(1.0).domainQuality(response.getDomainQuality())
                     .clarification(clarification).semanticCacheCategory("NONE")
+                    .clarificationRequest(com.example.smartassistant.common.agent.protocol.ClarificationRequest.read(
+                            response.getData().get("clarificationRequest")))
                     .executionMode(RoutingResult.ExecutionMode.SINGLE_AGENT)
                     .workflowStatus(clarification ? RoutingResult.WorkflowStatus.CLARIFICATION : RoutingResult.WorkflowStatus.COMPLETED)
                     .build();

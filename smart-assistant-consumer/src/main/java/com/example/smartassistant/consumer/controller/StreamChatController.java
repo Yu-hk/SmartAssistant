@@ -296,7 +296,7 @@ public class StreamChatController {
                 responsePayload.put("content", result);
                 if (clarificationService != null) {
                     var issued = clarificationService.issue(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                            decisionKey, message, result, decision.get("error") != null ? "FAILED"
+                            decisionKey, decision.get("clarificationRequest"), decision.get("error") != null ? "FAILED"
                                     : workflowStatus != null ? workflowStatus : "COMPLETED");
                     responsePayload.put("clarificationForm", issued.form());
                     tokenUsage = TokenUsageExtractor.merge(tokenUsage, issued.usage());
@@ -464,9 +464,8 @@ public class StreamChatController {
             var last = clarificationService.latest(resolveUserId(), request.get("sessionId"));
             if (!Objects.equals(last.getRequestId(), request.get("requestId")))
                 return java.util.Collections.singletonMap("form", null);
-            var issued = clarificationService.issue(resolveUserId(), last.getSessionId(), last.getRequestId(),
-                    last.getUserInput(), last.getResponseSummary(), last.getStatus());
-            return java.util.Collections.singletonMap("form", issued.form());
+            return java.util.Collections.singletonMap("form", clarificationService.restore(
+                    resolveUserId(), last.getSessionId(), last.getRequestId()));
         } catch (IllegalArgumentException denied) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
         }

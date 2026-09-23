@@ -85,8 +85,11 @@ public class ProductFactQueryService {
     }
     private static String known(String value) { return value == null || value.isBlank() ? "暂未提供" : value; }
     private static AgentExecutionResponse handled(String answer, List<?> products, boolean clarification) {
-        return AgentExecutionResponse.success(answer,
-                Map.of("handled", true, "deterministic", true, "products", products, "clarificationRequired", clarification),
+        Map<String, Object> data = new LinkedHashMap<>(Map.of("handled", true, "deterministic", true,
+                "products", products, "clarificationRequired", clarification));
+        if (clarification) data.put("clarificationRequest",
+                new com.example.smartassistant.common.agent.protocol.ClarificationRequest("product", "QUERY_PRODUCT", List.of("product")).toMap());
+        return AgentExecutionResponse.success(answer, data,
                 DomainQualityResult.pass(1.0, "PRODUCT_CATALOG_FACTS"));
     }
     private static AgentExecutionResponse unhandled() {
