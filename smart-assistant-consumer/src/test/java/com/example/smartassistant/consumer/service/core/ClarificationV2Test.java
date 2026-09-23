@@ -17,6 +17,9 @@ import static org.mockito.ArgumentMatchers.*;
 
 class ClarificationV2Test {
     @Test void fieldSpecificBoundsAndInjectionRejection() {
+        assertEquals("100000000", ClarificationPolicy.field("budget").max());
+        assertEquals("补充信息：预算为20000000元。",
+                ClarificationPolicy.reply(List.of("budget"), Map.of("budget", "20000000")));
         assertEquals("补充信息：重量上限为3公斤；预算为5000元。",
                 ClarificationPolicy.reply(List.of("weight", "budget"), Map.of("weight", "3.000", "budget", "5000.00")));
         for (var pair : List.of(new String[]{"weight", "1001"}, new String[]{"weight", "0"},

@@ -9,7 +9,7 @@ import java.util.Properties;
 import java.util.Locale;
 import java.math.BigDecimal;
 
-/** Business vocabulary only; it cannot define hard filters or override validation. */
+/** Versioned domain vocabulary; hard-filter structure and numeric validation remain in Java. */
 public final class ProductDiscoverySchema {
     private static final ProductDiscoverySchema DEFAULT = load();
     private final Properties properties;
@@ -32,6 +32,8 @@ public final class ProductDiscoverySchema {
         String normalized = stock.toLowerCase(Locale.ROOT).trim();
         return normalized.matches("0(?:\\.0+)?") || contains("stock.unavailable", normalized);
     }
+
+    public List<String> unavailableStockTerms() { return terms("stock.unavailable"); }
 
     public List<String> categoryAliases() { return terms("category.alias.notebook"); }
     public BigDecimal budgetMinimum() { return new BigDecimal(value("budget.min-yuan")); }

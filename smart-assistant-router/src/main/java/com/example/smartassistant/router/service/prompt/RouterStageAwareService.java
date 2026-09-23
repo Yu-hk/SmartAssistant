@@ -1,7 +1,5 @@
 package com.example.smartassistant.router.service.prompt;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 
@@ -17,8 +15,6 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class RouterStageAwareService {
-
-    private static final Logger log = LoggerFactory.getLogger(RouterStageAwareService.class);
 
     // ==================== 对话阶段 ====================
 
@@ -85,33 +81,6 @@ public class RouterStageAwareService {
                 - 不要在用户未确认时执行高风险操作
                 """;
         };
-    }
-
-    /**
-     * 根据对话轮次和意图推断当前阶段。
-     */
-    public DialogStage inferStage(int turnCount, String intentTag, String lastReply) {
-        if (turnCount <= 1 || intentTag == null) {
-            return DialogStage.GREETING;
-        }
-
-        // 包含确认关键词的回复 → CONFIRMING
-        if (lastReply != null && (
-                lastReply.contains("确认") || lastReply.contains("请核对") ||
-                lastReply.contains("是否") && lastReply.contains("？") ||
-                lastReply.contains("对吗") || lastReply.contains("可以吗"))) {
-            return DialogStage.CONFIRMING;
-        }
-
-        // 查询/推荐类意图 → PROCESSING
-        if (intentTag.contains("查询") || intentTag.contains("推荐") ||
-                intentTag.contains("分析") || intentTag.contains("搜索") ||
-                intentTag.contains("计算")) {
-            return DialogStage.PROCESSING;
-        }
-
-        // 其他 → COLLECTING
-        return DialogStage.COLLECTING;
     }
 
     /**

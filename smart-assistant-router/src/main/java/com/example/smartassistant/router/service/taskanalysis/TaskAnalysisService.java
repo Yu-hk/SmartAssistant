@@ -175,16 +175,13 @@ public class TaskAnalysisService {
 
         long start = System.currentTimeMillis();
         try {
-            // ⭐ P2 对话阶段感知：推断当前阶段，注入聚焦指令
-            int turnCount = conversationHistory != null ? (conversationHistory.size() / 2) + 1 : 1;
-            var stage = stageAwareService.inferStage(turnCount, null,
-                    conversationHistory != null && !conversationHistory.isEmpty()
-                            ? conversationHistory.get(conversationHistory.size() - 1) : null);
-
             // ⭐ 动态构建 prompt：检索与用户问题最相关的意图定义，替换全量硬编码
             //     多轮场景：注入对话历史，提升指代消解和意图连贯性
             String basePrompt = buildDynamicPrompt(question, conversationHistory);
-            String finalPrompt = stageAwareService.wrapPrompt(basePrompt, stage);
+            // Intent analysis is always a processing step. The execution layer owns
+            // clarification/approval state; previous reply wording cannot determine it.
+            String finalPrompt = stageAwareService.wrapPrompt(basePrompt,
+                    RouterStageAwareService.DialogStage.PROCESSING);
             ModelRoutingService.IntentModelResponse modelResponse;
             try {
                 modelResponse = modelRoutingService.callForIntent(

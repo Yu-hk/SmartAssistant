@@ -78,6 +78,25 @@ public class OrderDataProviderImpl implements OrderDataProvider {
     }
 
     @Override
+    public String findCatalogProductCategory(String productName) {
+        if (productName == null || productName.isBlank()) return null;
+        try {
+            List<String> categories = jdbcTemplate.query("""
+                    SELECT DISTINCT BTRIM(to_jsonb(p)->>'category') AS category
+                      FROM products p
+                     WHERE UPPER(BTRIM(p.product_name)) = UPPER(BTRIM(?))
+                       AND NULLIF(BTRIM(to_jsonb(p)->>'category'), '') IS NOT NULL
+                     ORDER BY category
+                     LIMIT 2
+                    """, (rs, rowNum) -> rs.getString("category"), productName);
+            return categories.size() == 1 ? categories.getFirst() : null;
+        } catch (org.springframework.dao.DataAccessException unavailable) {
+            // Classification is optional; catalog failure must not fabricate a category.
+            return null;
+        }
+    }
+
+    @Override
     public List<Map<String, Object>> queryOrdersByUserId(Long userId, String status,
                                                          int limit, int offset) {
         if (userId == null) {
