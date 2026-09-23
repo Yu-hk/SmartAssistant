@@ -321,9 +321,28 @@ class JdbcProductBackendTest {
                 .contains("p.price <= CAST(? AS NUMERIC)")
                 .contains("CAST(? AS BOOLEAN) = FALSE")
                 .contains("p.stock")
-                .contains("'售罄'");
+                .contains("POSITION(CAST(? AS TEXT) IN LOWER(BTRIM(p.stock))) = 0")
+                .doesNotContain("NOT IN ('缺货'");
         assertThat(arguments.getValue())
-                .contains("笔记本电脑", new BigDecimal("9000"), true, 5);
+                .contains("笔记本电脑", new BigDecimal("9000"), true, "售罄", "售完", "未知", "out_of_stock", 5);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void categoryInferenceUsesTheSameConfiguredStockExclusions() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of("耳机"));
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc);
+
+        assertThat(backend.listMatchingCategories(new ProductBackend.ProductDiscoveryCriteria(
+                "", "只看有货", null, true, 5))).containsExactly("耳机");
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> values = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), values.capture());
+        assertThat(sql.getValue()).contains("POSITION(CAST(? AS TEXT) IN LOWER(BTRIM(p.stock))) = 0")
+                .doesNotContain("NOT IN ('缺货'");
+        assertThat(values.getValue()).contains(true, "售完", "未知", "out_of_stock");
     }
 
     private static ResultSet productRow() throws Exception {

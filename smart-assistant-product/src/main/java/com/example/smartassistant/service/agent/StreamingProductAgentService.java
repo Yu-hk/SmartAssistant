@@ -215,15 +215,11 @@ public class StreamingProductAgentService {
                                     discovery.answer() + "\n\n[Flash 分析结果]\n" + analysis.answer(),
                                     catalog, rid);
                             if (!recommendation.quality().isFail()) {
-                                if (isPopularityRequest(userMessage)
-                                        && isRecommendationDeferral(recommendation.answer())) {
-                                    log.info("[StreamingProductAgent] 热门请求的模型结论要求补充条件，"
-                                            + "回退站内排行榜: requestId={}", rid);
-                                } else {
-                                    answer = recommendation.answer();
-                                    generatedQuality = recommendation.quality();
-                                    analysisApplied = true;
-                                }
+                                // The structured decision parser already requires a verified
+                                // selected product. Do not classify rendered prose by keywords.
+                                answer = recommendation.answer();
+                                generatedQuality = recommendation.quality();
+                                analysisApplied = true;
                                 generationStatus = StageSpan.STATUS_OK;
                             }
                         }
@@ -381,23 +377,6 @@ public class StreamingProductAgentService {
             return DomainAgentResponse.of("处理失败: " + e.getMessage(),
                     DomainQualityResult.fail("PRODUCT_EXECUTION_ERROR"));
         }
-    }
-
-    private static boolean isPopularityRequest(String message) {
-        if (message == null || message.isBlank()) return false;
-        String normalized = message.replaceAll("\\s+", "");
-        return normalized.contains("热门") || normalized.contains("热销")
-                || normalized.contains("畅销") || normalized.contains("排行");
-    }
-
-    private static boolean isRecommendationDeferral(String answer) {
-        if (answer == null || answer.isBlank()) return true;
-        return answer.contains("无法形成唯一推荐")
-                || answer.contains("无法可靠推荐")
-                || answer.contains("暂不推荐唯一商品")
-                || answer.contains("不能推荐唯一商品")
-                || answer.contains("需要补充用户")
-                || answer.contains("需补充用户");
     }
 
     static String normalizePublicRagAnswer(String answer) {

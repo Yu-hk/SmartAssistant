@@ -17,8 +17,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import org.mockito.ArgumentCaptor;
 
 class TaskAnalysisPromptTest {
+    @Test
+    void intentAnalysisUsesTypedProcessingStageForEveryTurn() {
+        ModelRoutingService model = mock(ModelRoutingService.class);
+        when(model.callForIntent(anyString(), anyString(), anyString()))
+                .thenReturn(new ModelRoutingService.IntentModelResponse("{}", "test", "LIGHT", 1, 1));
+        TaskAnalysisService service = new TaskAnalysisService(model, null, null,
+                new RouterStageAwareService(), null);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "enabled", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "maxEntityEntries", 20);
+
+        service.analyze("查询商品", List.of("用户：你好", "助手：请确认收货地址？"));
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(model).callForIntent(prompt.capture(), anyString(), eq("查询商品"));
+        assertTrue(prompt.getValue().contains("当前阶段：处理"));
+        assertFalse(prompt.getValue().contains("当前阶段：接待"));
+    }
+
     @Test
     void buildsPromptWithoutRecursiveOverloadLoop() throws Exception {
         IntentRetriever retriever = mock(IntentRetriever.class);

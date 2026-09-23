@@ -31,6 +31,9 @@ public interface OrderDataProvider {
     /** Find an order by the durable idempotency request ID. */
     OrderDTO findOrderByRequestId(String requestId);
 
+    /** Exact-name catalog category; null when absent or ambiguous. Never infer from brand words. */
+    default String findCatalogProductCategory(String productName) { return null; }
+
     /** Query orders owned by a user, optionally filtered by status, with pagination. */
     List<Map<String, Object>> queryOrdersByUserId(Long userId, String status, int limit, int offset);
 

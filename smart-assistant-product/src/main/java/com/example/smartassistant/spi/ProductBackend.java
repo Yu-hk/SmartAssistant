@@ -102,9 +102,8 @@ public interface ProductBackend {
 
     private static boolean isAvailableStock(String stock) {
         if (stock == null || stock.isBlank()) return false;
-        String normalized = stock.trim();
-        return !normalized.contains("缺货") && !normalized.contains("无货")
-                && !normalized.contains("售罄");
+        return !com.example.smartassistant.service.core.ProductDiscoverySchema.defaultSchema()
+                .unavailableStock(stock);
     }
 
     record ProductDiscoveryCriteria(

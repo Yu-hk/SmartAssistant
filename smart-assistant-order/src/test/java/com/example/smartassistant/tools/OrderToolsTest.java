@@ -195,6 +195,25 @@ class OrderToolsTest {
     }
 
     @Test
+    void createOrderUsesVerifiedCatalogCategoryRatherThanNameOrModelGuess() {
+        when(orderData.findCatalogProductCategory("AirPods 礼品版")).thenReturn("音频设备");
+        orderTools.createOrder(1L, "AirPods 礼品版", new BigDecimal("999"),
+                "张三", "13800138000", "北京市测试路", "定制商品");
+        ArgumentCaptor<OrderDTO> saved = ArgumentCaptor.forClass(OrderDTO.class);
+        verify(orderData).insertOrder(saved.capture());
+        assertEquals("音频设备", saved.getValue().getProductType());
+    }
+
+    @Test
+    void createOrderDoesNotInventCategoryWhenCatalogHasNoVerifiedMatch() {
+        orderTools.createOrder(1L, "AirPods 礼品版", new BigDecimal("999"),
+                "张三", "13800138000", "北京市测试路", "定制商品");
+        ArgumentCaptor<OrderDTO> saved = ArgumentCaptor.forClass(OrderDTO.class);
+        verify(orderData).insertOrder(saved.capture());
+        assertEquals("其他", saved.getValue().getProductType());
+    }
+
+    @Test
     @DisplayName("createOrder should replay the committed order after worker recovery")
     void should_replayCommittedOrder_when_taskLeaseIsRecovered() {
         OrderDTO committed = createOrderDTO("ORD-RECOVERED", S_PENDING_PAY,
@@ -309,6 +328,8 @@ class OrderToolsTest {
         String result = orderTools.cancelOrder(orderId, reason);
 
         assertTrue(result.contains("已取消"), "Result should indicate cancellation");
+        assertFalse(result.contains("3-7"));
+        assertTrue(result.contains("以原支付渠道的实际处理结果为准"));
         assertEquals(S_CANCELLED, order.getStatus(), "Order status should be updated to cancelled");
         verify(orderData).updateOrderById(order);
     }
@@ -357,6 +378,8 @@ class OrderToolsTest {
         String result = orderTools.applyRefund(orderId, reason);
 
         assertTrue(result.contains("已确认"), "Result should indicate refund confirmed");
+        assertFalse(result.contains("3-7"));
+        assertTrue(result.contains("以原支付渠道的实际处理结果为准"));
         verify(orderData).insertRefund(any());
         verify(orderData).updateStatusByOrderId(orderId, S_REFUNDING);
     }
