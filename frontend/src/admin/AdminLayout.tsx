@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Sun,
   UserRound,
+  UsersRound,
   X,
 } from 'lucide-react';
 import { clearAuth, logout, type AuthUser } from '../api/auth';
@@ -28,6 +29,7 @@ interface AdminLayoutProps {
 }
 
 const NAV_ITEMS = [
+  { to: '/admin/visits', label: '访问记录', description: '访客与模块浏览', icon: UsersRound },
   { to: '/admin/overview', label: '数据总览', description: '运营与质量指标', icon: BarChart3 },
   { to: '/admin/conversations', label: '用户对话', description: '全局会话与审计', icon: MessageSquareText },
   { to: '/admin/knowledge', label: '知识库', description: '问答内容维护', icon: BookOpenText },
@@ -35,6 +37,7 @@ const NAV_ITEMS = [
 ];
 
 const PAGE_TITLES: Record<string, string> = {
+  '/admin/visits': '访问记录',
   '/admin/overview': '数据总览',
   '/admin/conversations': '用户对话',
   '/admin/knowledge': '知识库',

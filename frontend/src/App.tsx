@@ -7,6 +7,8 @@ import { useChat } from './hooks/useChat';
 import { useNotifications } from './hooks/useNotifications';
 import { getUserDisplayName } from './utils/userDisplay';
 import { serviceEntryDraft } from './utils/serviceEntry';
+import { usePageVisit } from './hooks/usePageVisit';
+import { trackServiceEntry } from './api/visits';
 
 import { CustomerSidebar } from './components/CustomerSidebar';
 import { SessionInsightPanel } from './components/SessionInsightPanel';
@@ -183,6 +185,7 @@ function AuthRoute({
 }
 
 function CustomerApp() {
+  usePageVisit();
   const navigate = useNavigate();
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
   const authUser = getAuthUser();
@@ -251,6 +254,7 @@ function CustomerApp() {
 
   const handleSelectAgent = useCallback((serviceName: string) => {
     if (isLoading) return;
+    void trackServiceEntry(serviceName);
     setCurrentSessionId(null);
     setInputValue(current => serviceEntryDraft(current, serviceName));
     setSidebarOpen(false);

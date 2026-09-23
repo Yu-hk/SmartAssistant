@@ -3,6 +3,9 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { getAuthUser } from '../api/auth';
 import { useTheme } from '../hooks/useTheme';
 import { AdminLayout } from './AdminLayout';
+import { usePageVisit } from '../hooks/usePageVisit';
+
+const AdminVisitsPage = lazy(() => import('./AdminVisitsPage').then(module => ({ default: module.AdminVisitsPage })));
 
 const AdminOverviewPage = lazy(() => import('./AdminOverviewPage').then(module => ({
   default: module.AdminOverviewPage,
@@ -24,6 +27,7 @@ const AdminProductsPage = lazy(() => import('./AdminProductsPage').then(module =
  * from initializing customer session and chat state.
  */
 export function AdminApp() {
+  usePageVisit();
   const { theme, toggleTheme } = useTheme();
   const [refreshVersion, setRefreshVersion] = useState(0);
 
@@ -39,6 +43,7 @@ export function AdminApp() {
         <Routes>
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<AdminOverviewPage refreshVersion={refreshVersion} />} />
+          <Route path="visits" element={<AdminVisitsPage refreshVersion={refreshVersion} />} />
         <Route path="conversations" element={<AdminConversationsPage refreshVersion={refreshVersion} />} />
         <Route path="knowledge" element={<AdminKnowledgePage refreshVersion={refreshVersion} />} />
         <Route path="products" element={<AdminProductsPage />} />
