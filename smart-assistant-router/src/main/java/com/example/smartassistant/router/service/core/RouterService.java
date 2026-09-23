@@ -520,7 +520,7 @@ public class RouterService {
     static String addConversationContextIfNeeded(String question, List<String> history) {
         if (question == null || history == null || history.isEmpty()) return question;
         boolean contextDependent = question.matches("(?s).*(如果|它|这个|那个|继续|还有|上面|前面|更看重|优先关注|呢[？?]?$).*" )
-                || question.matches("(?s)^\\s*(?:重量上[限线]|预算(?:改为|调整为|为|是|[0-9零一二两三四五六七八九十])|金额|确认按.*条件|按.*条件).*" );
+                || question.matches("(?s)^\\s*(?:补充信息：|重量上[限线]|预算(?:改为|调整为|为|是|[0-9零一二两三四五六七八九十])|金额|确认按.*条件|按.*条件).*" );
         if (!contextDependent) return question;
         StringBuilder userHistory = new StringBuilder();
         for (String message : history.subList(Math.max(0, history.size() - 10), history.size())) {

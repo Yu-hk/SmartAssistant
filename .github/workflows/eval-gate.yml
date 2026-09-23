@@ -264,7 +264,7 @@ jobs:
       - name: Test authenticated speech boundary
         run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-gateway -am test
-          -Dtest=SpeechRecognitionServiceTest,SpeechControllerTest,SpeechSynthesisServiceTest,SpeechOutputControllerTest,GlobalJwtAuthFilterTest
+            -Dtest=SpeechRecognitionServiceTest,SpeechControllerTest,SpeechSynthesisServiceTest,SpeechOutputControllerTest,GlobalJwtAuthFilterTest,ClarificationFormTest,StreamChatControllerPersistenceTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - name: Test recorder lifecycle and build frontend
         working-directory: frontend
@@ -275,6 +275,7 @@ jobs:
           npm run test:recovery
           node scripts/run-session-gate-tests.mjs
           npm run test:service-entry
+          node scripts/run-clarification-tests.mjs
           node scripts/run-profile-privacy-tests.mjs
           npm run build
 

@@ -12,7 +12,7 @@ class RouterConversationContextTest {
     @Test
     void parameterAnswersKeepContextWithoutAuthorizingHistoricalOrderIntent() {
         for (String question : List.of("重量上限1公斤，金额为3000元", "重量上线3公斤把，金额改为5000元",
-                "确认按这个条件来筛选")) {
+                "确认按这个条件来筛选", "补充信息：重量上限为3公斤；预算为5000元。本次仅补充信息，不代表确认下单、付款或退款。")) {
             String enriched = RouterService.addConversationContextIfNeeded(question,
                     List.of("用户：帮我下单一款便携式笔记本，预算3000以内", "助手：请提供重量上限"));
             assertTrue(enriched.startsWith(question));

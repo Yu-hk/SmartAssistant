@@ -15,6 +15,7 @@ import { authenticatedFetch } from '../api/client';
 import { applyTelemetryEvent } from '../utils/sessionTelemetry';
 import { recoveryErrorMessage, publicRecoveryError } from '../utils/workflowRecovery';
 import { getAuthToken } from '../api/authStorage';
+import { normalizeClarificationForm } from '../utils/clarificationForm';
 
 interface UseChatOptions {
   currentSession: Session | undefined;
@@ -334,6 +335,8 @@ export function useChat(options: UseChatOptions) {
             updateAssistantMessage(current => ({
               ...current,
               content: fullContent,
+              clarificationForm: data.type === 'response'
+                ? normalizeClarificationForm(data.clarificationForm) : current.clarificationForm,
               toolCalls: [...currentToolCalls],
               contentBlocks: [...contentBlocks],
             }));

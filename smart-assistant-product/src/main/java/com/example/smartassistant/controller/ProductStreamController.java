@@ -305,8 +305,10 @@ public class ProductStreamController {
                     response.answer(), data, response.quality()), true);
         }
         ToolUsageCache.start(requestId);
+        // Fixed product facts must not inherit historical shopping constraints from the
+        // profile. Analysis/recommendation receive advisory profile in a separate context above.
         DomainAgentResponse response = streamingAgentService.executeWithQuality(
-                withUserProfile(question, request), requestId);
+                question, requestId);
         if (response.quality().isFail()) {
             if (factQueryService != null && response.quality().getReasonCodes().stream().anyMatch(code -> code.startsWith("MODEL_"))) {
                 String fallbackQuestion = java.util.Objects.toString(request.input().get("_replyScopeQuestion"), question);
@@ -412,12 +414,6 @@ public class ProductStreamController {
             context.append('\n');
         });
         return context.toString().trim();
-    }
-
-    private static String withUserProfile(String question, AgentExecutionRequest request) {
-        String userProfile = textInput(request, RoutingKeys.USER_PROFILE_INPUT);
-        if (userProfile.isBlank()) return question;
-        return question + "\n\n[用户画像]\n" + userProfile;
     }
 
     /**

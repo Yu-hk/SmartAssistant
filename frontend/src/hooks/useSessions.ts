@@ -3,6 +3,7 @@ import { Session, Message, SessionStatus, normalizeIntentType } from '../types';
 import { sessions as sessionApi } from '../api';
 import { ApiError } from '../api/client';
 import { normalizeTelemetry } from '../utils/sessionTelemetry';
+import { normalizeClarificationForm } from '../utils/clarificationForm';
 
 function normalizeSessionStatus(value: unknown): SessionStatus {
   const status = String(value ?? '').trim().toUpperCase();
@@ -50,6 +51,7 @@ function normalizeMessage(raw: any): Message {
     id: raw.id,
     role: raw.role,
     content: raw.content,
+    clarificationForm: normalizeClarificationForm(raw.clarificationForm),
     model: raw.model,
     intent: raw.intent ? normalizeIntentType(raw.intent) : undefined,
     requestId,
