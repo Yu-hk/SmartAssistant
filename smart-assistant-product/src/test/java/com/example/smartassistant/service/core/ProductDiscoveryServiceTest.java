@@ -31,6 +31,20 @@ class ProductDiscoveryServiceTest {
         assertThat(service.supports("现在有什么热门商品")).isTrue();
         assertThat(service.supports("给我一份商品列表")).isTrue();
         assertThat(service.supports("推荐无线耳机")).isTrue();
+        assertThat(service.supports("推荐适合商务办公的轻便笔记本")).isTrue();
+        assertThat(service.supports("这款电脑的重量是多少？")).isFalse();
+    }
+
+    @Test
+    void qualitativePreferencesStayAdvisoryWhenCatalogHasNoMatchingEvidence() {
+        var result = service.discover("推荐轻便商务笔记本", 3);
+
+        assertThat(result.productCount()).isPositive();
+        assertThat(result.scenarioEvidenceLimited()).isTrue();
+        assertThat(result.answer()).contains("便携、商务", "仅供同品类浏览", "不能据此确认符合您的偏好")
+                .doesNotContain("符合轻便", "适合商务");
+        assertThat(ProductFeatureRequest.parse("便携商务笔记本").qualitativePreferences())
+                .containsExactlyInAnyOrder("portability", "business");
     }
 
     @Test
@@ -167,6 +181,16 @@ class ProductDiscoveryServiceTest {
 
         assertThat(result.productCount()).isZero();
         assertThat(result.answer()).contains("手机", "不超过1000元", "调整预算或品类");
+    }
+
+    @Test
+    void rejectsInvalidBudgetBoundsAndUnsupportedCurrencyBeforeCatalogQuery() {
+        for (String question : List.of("预算0元买耳机", "预算200000000元买耳机", "预算1000美元买耳机")) {
+            var result = service.discover(question, 5);
+            assertThat(result.clarificationRequired()).isTrue();
+            assertThat(result.products()).isEmpty();
+            assertThat(result.answer()).contains("预算");
+        }
     }
 
     @Test

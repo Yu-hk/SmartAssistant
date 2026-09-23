@@ -62,4 +62,11 @@ class ProductFeatureExtractorTest {
     @Test void oversizedInputIsBoundedBeforeExtraction() {
         assertThatThrownBy(() -> extractor.extract("a".repeat(10001), "")).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test void sharedDomainBoundsRejectImplausibleFacts() {
+        var result = extractor.extract("净重2000kg，综合使用续航2000小时", "");
+        assertThat(result.features().weightGrams()).isNull();
+        assertThat(result.features().batteryLifeHours()).isNull();
+        assertThat(result.warnings()).anyMatch(w -> w.contains("重量超出允许范围"));
+    }
 }

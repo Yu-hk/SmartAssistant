@@ -7,13 +7,15 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ProductClarificationScopeTest {
-    @Test void portableRecommendationOnlyAsksForItsUnresolvedWeight() {
+    @Test void portableRecommendationIsAQualitativePreferenceNotAWeightQuestion() {
         var backend = mock(ProductBackend.class);
         when(backend.listProductCategories()).thenReturn(List.of("笔记本电脑"));
+        when(backend.listPopularProducts(any(ProductBackend.ProductDiscoveryCriteria.class))).thenReturn(List.of());
         var service = new ProductDiscoveryService(backend);
         var result = service.discover("推荐便携笔记本，预算3000元", 5);
-        assertTrue(result.clarificationRequired());
-        assertEquals(List.of("weight"), result.missingFields());
+        assertFalse(result.clarificationRequired());
+        assertTrue(result.missingFields().isEmpty());
+        verify(backend).listPopularProducts(argThat(criteria -> criteria.keyword().contains("便携")));
         assertTrue(service.discover("推荐笔记本，重量不超过3公斤，预算3000元", 5).missingFields().isEmpty());
     }
     @Test void unsupportedFeatureQuestionsStayTextInsteadOfInventingFields() {
