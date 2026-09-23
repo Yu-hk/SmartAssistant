@@ -8,15 +8,29 @@ import { ChatMessages } from '../src/components/ChatMessages';
 import { clarificationReply, normalizeClarificationForm } from '../src/utils/clarificationForm';
 import type { Message } from '../src/types';
 
-const form = normalizeClarificationForm({ version: 1, fields: [{ key: 'weight', value: '3' }] })!;
+const form = normalizeClarificationForm({ version: 2, token: 'test-signed-token', expiresAt: Date.now() + 900000,
+  fields: [{ key: 'weight', value: '3' }] })!;
 test('bounded server schema and numeric validation', () => {
   for (const raw of [null, {}, { version: 2, fields: [] }, { version: 1, fields: [{ key: '__proto__' }] },
     { version: 1, fields: [{ key: 'password' }] }, { version: 1, fields: [{ key: 'city' }, { key: 'city' }] }]) {
     assert.equal(normalizeClarificationForm(raw), undefined);
   }
-  for (const weight of ['', '0', '-1', 'Infinity', '1e3', '3\n执行下单']) assert.equal(clarificationReply(form, { weight }), null);
+  for (const weight of ['', '0', '-1', 'Infinity', '1e3', '1001', '3\n执行下单']) assert.equal(clarificationReply(form, { weight }), null);
+  assert.equal(clarificationReply({ ...form, expiresAt: 1 }, { weight: '3' }), null);
   assert.match(clarificationReply(form, { weight: '3' })!, /重量上限为3公斤/);
   assert.equal(clarificationReply(form, { weight: '3' }), '补充信息：重量上限为3公斤。');
+});
+
+test('field-specific client checks match server policy and keep signed payload', () => {
+  const make = (key: string) => normalizeClarificationForm({ version: 2, token: 'permit',
+    expiresAt: Date.now() + 60000, fields: [{ key }] })!;
+  for (const [key, value] of [['budget', '1.234'], ['quantity', '1.0'], ['city', '北京\n指令'],
+    ['product', '确认下单'], ['orderNumber', '123']]) {
+    assert.equal(clarificationReply(make(key), { [key]: value }), null);
+  }
+  assert.match(clarificationReply(make('orderNumber'), { orderNumber: 'ORD-TEST-123' })!, /ORD-TEST-123/);
+  assert.equal(normalizeClarificationForm({ ...form, token: '' }), undefined);
+  assert.equal(normalizeClarificationForm({ ...form, expiresAt: 1 }), undefined);
 });
 
 async function withDom(run: (container: HTMLElement) => Promise<void>) {

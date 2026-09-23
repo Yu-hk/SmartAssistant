@@ -23,7 +23,8 @@ interface CustomerChatPageProps {
   queuePosition: number | null;
   queueEstimatedWait: number | null;
   progressMessage: string;
-  onSendMessage: (message: string, sessionIdOverride?: string, onNavigate?: (path: string) => void, voiceReply?: boolean) => void;
+  onSendMessage: (message: string, sessionIdOverride?: string, onNavigate?: (path: string) => void, voiceReply?: boolean,
+    clarification?: import('../utils/clarificationForm').ClarificationSubmission) => void;
   onStop: () => void;
   onInputChange: (value: string) => void;
   onPermissionAllow: () => void;
@@ -179,7 +180,10 @@ export function CustomerChatPage({
               <SessionExecutionSteps key={currentSession!.id} messages={currentSession!.messages} defaultOpen={false} />
             </div>
             <ChatMessages
-              onClarificationSubmit={handleSend}
+              onClarificationSubmit={(text, submission) => {
+                playback.stop(); allowAutoReply.current = false;
+                onSendMessage(text, undefined, undefined, false, submission);
+              }}
               isLoading={isLoading}
               playback={voiceInputBusy ? undefined : playback}
               messages={currentSession!.messages}

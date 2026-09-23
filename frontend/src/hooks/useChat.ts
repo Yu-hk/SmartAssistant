@@ -66,6 +66,7 @@ export function useChat(options: UseChatOptions) {
     sessionIdOverride?: string,
     onNavigate?: (path: string) => void,
     voiceReply = false,
+    clarification?: import('../utils/clarificationForm').ClarificationSubmission,
   ) => {
     if (!messageContent.trim() || isLoading) return;
 
@@ -140,7 +141,7 @@ export function useChat(options: UseChatOptions) {
     try {
       await streamWithFetch(
         messageContent, sessionId!, workflowRequestId, selectedModel,
-        tempAssistantMessageId,
+        tempAssistantMessageId, clarification,
       );
     } catch (error) {
       console.error('Chat error:', error);
@@ -152,10 +153,12 @@ export function useChat(options: UseChatOptions) {
               m.id === tempAssistantMessageId
                 ? {
                   ...m,
-                  content: '这次回复没能完整送达。请先查看原请求的结果，避免重复提交业务操作。',
+                  content: error instanceof Error && error.message === 'CLARIFICATION_REJECTED'
+                    ? '补充信息未通过校验或表单已失效，本次没有发起业务处理。请刷新会话后检查表单，也可以直接用文字补充。'
+                    : '这次回复没能完整送达。请先查看原请求的结果，避免重复提交业务操作。',
                   isStreaming: false,
                   deliveryStatus: 'failed',
-                  recoverable: Boolean(m.requestId),
+                  recoverable: !(error instanceof Error && error.message === 'CLARIFICATION_REJECTED') && Boolean(m.requestId),
                 }
                 : m
             ),
@@ -179,6 +182,7 @@ export function useChat(options: UseChatOptions) {
     requestId: string,
     model: string,
     assistantMessageId: string,
+    clarification?: import('../utils/clarificationForm').ClarificationSubmission,
   ): Promise<void> => {
     let fullContent = '';
     let currentToolCalls: ToolCall[] = [];
@@ -507,10 +511,12 @@ export function useChat(options: UseChatOptions) {
           sessionId,
           requestId,
           model,
+          ...(clarification ? { clarification } : {}),
         }),
         signal: controller.signal,
       });
       if (!response.ok) {
+        if (clarification && [400, 422].includes(response.status)) throw new Error('CLARIFICATION_REJECTED');
         throw new Error(`流式请求失败: HTTP ${response.status}`);
       }
       if (!response.body) {
