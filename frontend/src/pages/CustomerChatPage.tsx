@@ -179,6 +179,8 @@ export function CustomerChatPage({
               <SessionExecutionSteps key={currentSession!.id} messages={currentSession!.messages} defaultOpen={false} />
             </div>
             <ChatMessages
+              onClarificationSubmit={handleSend}
+              isLoading={isLoading}
               playback={voiceInputBusy ? undefined : playback}
               messages={currentSession!.messages}
               models={[]}

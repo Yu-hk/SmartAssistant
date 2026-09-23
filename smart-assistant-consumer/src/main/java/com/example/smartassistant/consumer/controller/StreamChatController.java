@@ -265,6 +265,10 @@ public class StreamChatController {
                 Map<String, Object> responsePayload = new LinkedHashMap<>();
                 responsePayload.put("type", "response");
                 responsePayload.put("content", result);
+                responsePayload.put("clarificationForm",
+                        com.example.smartassistant.consumer.service.core.ClarificationForm.fromReply(
+                                result, message, decision.get("error") != null ? "FAILED"
+                                        : workflowStatus != null ? workflowStatus : "COMPLETED"));
                 if (agentName != null && !agentName.isBlank()) {
                     responsePayload.put("agentName", agentName);
                 }
