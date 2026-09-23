@@ -1303,7 +1303,15 @@ public class AdminService {
             Long totalTokens,
             String promptSnapshot,
             Boolean toolUsageComplete,
-            List<ToolUsageCache.ToolCall> toolCalls) {}
+            List<ToolUsageCache.ToolCall> toolCalls) {
+        /** Reconstruct display metadata on authorized history reads; no duplicate sensitive-data store. */
+        @com.fasterxml.jackson.annotation.JsonProperty("clarificationForm")
+        public com.example.smartassistant.consumer.service.core.ClarificationForm clarificationForm() {
+            return "assistant".equals(role)
+                    ? com.example.smartassistant.consumer.service.core.ClarificationForm.fromReply(content, null, status)
+                    : null;
+        }
+    }
 
     public record SatisfactionResult(String sessionId, int rating, String comment) {}
 

@@ -6,8 +6,11 @@ import { RefreshCw } from 'lucide-react';
 import { VoiceReplyControls } from './VoiceReplyControls';
 import { useVoiceOutput } from '../hooks/useVoiceOutput';
 import { publicRecoveryError } from '../utils/workflowRecovery';
+import { ClarificationCard } from './ClarificationCard';
 
 interface ChatMessagesProps {
+  onClarificationSubmit?: (text: string) => void;
+  isLoading?: boolean;
   playback?: ReturnType<typeof useVoiceOutput>;
   messages: Message[];
   models: Model[];
@@ -27,6 +30,8 @@ interface ChatMessagesProps {
 }
 
 export function ChatMessages({ 
+  onClarificationSubmit,
+  isLoading = false,
   playback,
   messages, 
   models, 
@@ -225,6 +230,13 @@ export function ChatMessages({
             {/* 助手消息 */}
             {message.role === 'assistant' && renderAssistantContent(message)}
 
+            {message.role === 'assistant' && idx === messages.length - 1
+              && !message.isStreaming && message.deliveryStatus === 'completed'
+              && message.clarificationForm && sessionStatus === 'active' && onClarificationSubmit && (
+                <ClarificationCard key={message.id} form={message.clarificationForm}
+                  disabled={isLoading} onSubmit={onClarificationSubmit} />
+              )}
+
             {message.role === 'assistant' && message.requestId
               && ((message.recoverable && recoveryAvailable) || message.recoveryStatus || message.recoveryError)
               && onRecoverMessage && (
@@ -253,6 +265,7 @@ export function ChatMessages({
               {message.role === 'assistant'
                 && idx === lastAssistantIndex
                 && !message.isStreaming
+                && !message.clarificationForm
                 && Boolean(message.content || message.contentBlocks?.length)
                 && !message.content.trimStart().startsWith('⚠️')
                 && sessionStatus === 'active'

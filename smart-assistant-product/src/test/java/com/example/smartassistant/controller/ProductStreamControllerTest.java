@@ -477,6 +477,23 @@ class ProductStreamControllerTest {
     }
 
     @Test
+    void factualQueryCannotBecomeWeightDiscoveryFromPreviousShoppingProfile() {
+        StreamingProductAgentService service = mock(StreamingProductAgentService.class);
+        ProductStreamController controller = new ProductStreamController(service);
+        String question = "AirPods Pro多少钱？有货吗？";
+        AgentExecutionRequest request = new AgentExecutionRequest(
+                "1.0", "fact-profile", "product-query", "42", "QUERY_PRODUCT", question,
+                Map.of(RoutingKeys.USER_PROFILE_INPUT,
+                        "此前推荐便携笔记本，预算3000，重量上限为3公斤；例子重量不超过1.3公斤。"),
+                List.of(), List.of(), null, null, Map.of(),
+                "shopping", 1, "sha256:v1", 0, "fact-profile");
+        when(service.executeWithQuality(question, "fact-profile"))
+                .thenReturn(DomainAgentResponse.of("售价1999元，有货", DomainQualityResult.pass(1.0, "FACTS")));
+        assertEquals("售价1999元，有货", controller.execute(request, null).getBody().answer());
+        verify(service).executeWithQuality(question, "fact-profile");
+    }
+
+    @Test
     void recommendationNodePublishesStableStructuredRecommendation() {
         StreamingProductAgentService service = mock(StreamingProductAgentService.class);
         ProductStreamController controller = new ProductStreamController(service);

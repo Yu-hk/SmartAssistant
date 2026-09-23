@@ -120,6 +120,7 @@ export type ContentBlock =
   | { type: 'tool_use'; toolCall: ToolCall };
 
 export interface Message {
+  clarificationForm?: import('./utils/clarificationForm').ClarificationFormData;
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;

@@ -42,6 +42,26 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class StreamChatControllerPersistenceTest {
 
+    @Test
+    void sendsStructuredMissingInformationAlongsideNormalReply() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        when(preprocessingService.prepare(42L, "owned", "form", "推荐便携笔记本"))
+                .thenReturn(com.example.smartassistant.consumer.service.sentiment.TurnInsight.unknown("TIMEOUT", 750));
+        when(routerClient.waitForDecisionFromRedis(eq("form"), eq(60_000L), any(Runnable.class)))
+                .thenReturn(Map.of("agentName", "product", "result", "请补充可接受的重量上限。",
+                        "workflowStatus", "CLARIFICATION"));
+        StreamChatController controller = new StreamChatController(routerClient, agentStreamClient,
+                requestQueueService, routingCallLogService, null, preprocessingService);
+        var response = new MockHttpServletResponse();
+        controller.streamChatPost(Map.of("message", "推荐便携笔记本", "requestId", "form", "sessionId", "owned"), response);
+        String events = response.getContentAsString();
+        assertTrue(events.contains("\"clarificationForm\":{\"version\":1"));
+        assertTrue(events.contains("\"key\":\"weight\""));
+        assertTrue(events.contains("event: done"));
+    }
+
     @Mock private RouterClient routerClient;
     @Mock private AgentStreamClient agentStreamClient;
     @Mock private RequestQueueService requestQueueService;
