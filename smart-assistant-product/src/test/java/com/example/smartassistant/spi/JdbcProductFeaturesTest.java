@@ -1,12 +1,15 @@
 package com.example.smartassistant.spi;
 
+import com.example.smartassistant.service.core.ProductDiscoverySchema;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.mockito.ArgumentCaptor;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -43,8 +46,13 @@ class JdbcProductFeaturesTest {
         verify(jdbc).query(sql.capture(), any(RowMapper.class), args.capture());
         String conditions = sql.getValue().substring(sql.getValue().indexOf("WHERE"), sql.getValue().indexOf("ORDER BY"));
         assertThat(conditions).contains("weight_grams", "battery_life_hours", "battery_life_scenario", "noise_cancelling", "feature_source", "features_verified_at");
-        assertThat(args.getValue()).containsExactly("耳机", "耳机", new BigDecimal("1000"), new BigDecimal("1000"), true,
-                new BigDecimal("300"), new BigDecimal("25"), "audio_anc_on", true, 1);
+        List<Object> expectedArgs = new ArrayList<>(List.of("耳机", "耳机", new BigDecimal("1000"),
+                new BigDecimal("1000"), true));
+        expectedArgs.addAll(ProductDiscoverySchema.defaultSchema().unavailableStockTerms().stream()
+                .map(term -> term.toLowerCase(Locale.ROOT)).toList());
+        expectedArgs.addAll(List.of(new BigDecimal("300"), new BigDecimal("25"), "audio_anc_on", true, 1));
+        assertThat(args.getValue()).containsExactly(expectedArgs.toArray());
+        assertThat(conditions).contains("POSITION(CAST(? AS TEXT) IN LOWER(BTRIM(p.stock))) = 0");
         assertThat(sql.getValue()).doesNotContain("__FEATURE_FILTER__");
     }
 
