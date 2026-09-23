@@ -85,8 +85,7 @@ public class OrderDeterministicExecutionService {
             return queryOrderList(request);
         }
         if (orderId == null) {
-            return AgentExecutionResponse.failure(
-                    "ORDER_ID_REQUIRED", "请提供需要查询的订单号", false);
+            return OrderClarificationService.prepare(operation, request.input());
         }
 
         OrderDTO order = orderData.findOrderByOrderId(orderId);
@@ -135,6 +134,8 @@ public class OrderDeterministicExecutionService {
                 "联系电话", contactPhone,
                 "收货地址", shippingAddress);
         if (!missing.isEmpty()) {
+            var preparation = OrderClarificationService.prepare("CREATE_ORDER", request.input());
+            if (preparation.data().containsKey("clarificationRequest")) return preparation;
             return missingFieldsFailure(missing);
         }
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
@@ -173,7 +174,7 @@ public class OrderDeterministicExecutionService {
 
     private AgentExecutionResponse cancelOrder(AgentExecutionRequest request, OrderDTO order) {
         String reason = stringInput(request.input(), "reason", "cancel_reason", "cancelReason");
-        if (reason == null) return missingFieldsFailure(List.of("退单原因"));
+        if (reason == null) return OrderClarificationService.prepare("CANCEL_ORDER", withOrderId(request, order));
         if (!OrderStatus.from(order.getStatus())
                 .map(status -> status.canTransitionTo(OrderStatus.CANCELLED)).orElse(false)) {
             return AgentExecutionResponse.failure("INVALID_ORDER_STATUS",
@@ -194,7 +195,7 @@ public class OrderDeterministicExecutionService {
 
     private AgentExecutionResponse refundOrder(AgentExecutionRequest request, OrderDTO order) {
         String reason = stringInput(request.input(), "reason", "refund_reason", "refundReason");
-        if (reason == null) return missingFieldsFailure(List.of("退款原因"));
+        if (reason == null) return OrderClarificationService.prepare("REFUND_ORDER", withOrderId(request, order));
         if (!OrderStatus.from(order.getStatus())
                 .map(status -> status.canTransitionTo(OrderStatus.REFUNDING)).orElse(false)) {
             return AgentExecutionResponse.failure("INVALID_ORDER_STATUS",
@@ -221,7 +222,7 @@ public class OrderDeterministicExecutionService {
         List<String> missing = missingFields(
                 "售后类型", requestType,
                 "售后原因", reason);
-        if (!missing.isEmpty()) return missingFieldsFailure(missing);
+        if (!missing.isEmpty()) return OrderClarificationService.prepare("APPLY_AFTER_SALES", withOrderId(request, order));
         if (OrderStatus.CANCELLED.matches(order.getStatus())) {
             return AgentExecutionResponse.failure("INVALID_ORDER_STATUS",
                     "已取消订单不能申请售后", false);
@@ -236,6 +237,12 @@ public class OrderDeterministicExecutionService {
                 });
         return writeResult(result, WorkflowOperation.APPLY_AFTER_SALES, order,
                 Map.of("afterSalesType", requestType, "afterSalesRequestId", requestId));
+    }
+
+    private static Map<String, Object> withOrderId(AgentExecutionRequest request, OrderDTO order) {
+        var input = new LinkedHashMap<>(request.input());
+        input.put("order_id", order.getOrderId());
+        return input;
     }
 
     private AgentExecutionResponse writeResult(String result, WorkflowOperation operation,

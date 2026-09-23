@@ -380,7 +380,9 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
-    void executesBuiltinPreparationWithoutCallingRemoteAgent() {
+    void delegatesPreparationToReadOnlyOrderCapability() {
+        when(agentCallerService.callAgentAndExtractTitles(eq("order"), any(AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("请补充收货信息。", List.of(), Map.of(), DomainQualityResult.pass(1, "ORDER_INPUT_CLARIFICATION")));
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "prepare", "准备订单", RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT, List.of());
 
@@ -388,7 +390,11 @@ class GraphNodeExecutionServiceTest {
                 1L, null, "request");
 
         assertThat(result.isSuccess()).isTrue();
-        assertThat(result.getAgentName()).isNull();
+        assertThat(result.getAgentName()).isEqualTo("order");
+        var request = ArgumentCaptor.forClass(AgentExecutionRequest.class);
+        verify(agentCallerService).callAgentAndExtractTitles(eq("order"), request.capture());
+        assertThat(request.getValue().operation()).isEqualTo("CLARIFY_INPUT");
+        assertThat(request.getValue().idempotencyKey()).isNull();
         assertThat(result.getSystemNodeType())
                 .isEqualTo(SubTaskResult.SystemNodeType.ORDER_PREPARATION);
         verify(agentCallerService, never()).callAgentAndExtractTitles(
@@ -561,7 +567,11 @@ class GraphNodeExecutionServiceTest {
     }
 
     @Test
-    void incompleteOrderMutationAsksOnlyForMissingFieldsAndDoesNotCallAgent() {
+    void incompleteOrderMutationUsesDomainFieldsNotRouterProse() {
+        when(agentCallerService.callAgentAndExtractTitles(eq("order"), any(AgentExecutionRequest.class)))
+                .thenReturn(new AgentCallResult("还需要您补充退款原因，会请您确认是否提交。", List.of(), Map.of(),
+                        DomainQualityResult.pass(1, "ORDER_INPUT_CLARIFICATION"), Map.of("clarificationRequest",
+                        Map.of("domain", "order", "operation", "REFUND_ORDER", "fields", List.of("reason")))));
         IntentGraph.IntentNode node = new IntentGraph.IntentNode(
                 "prepare-refund",
                 "仅执行这个子任务：执行REFUND_ORDER前还需要补充：退款原因。只追问缺失信息，本次不得执行任何写操作。\n不得违反操作约束。",
@@ -571,6 +581,7 @@ class GraphNodeExecutionServiceTest {
                 1L, null, "request");
 
         assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getStructuredData()).containsKey("clarificationRequest");
         assertThat(result.getResult()).contains("还需要您补充退款原因")
                 .contains("会请您确认是否提交")
                 .doesNotContain("收货人姓名", "REFUND_ORDER", "写操作", "只追问");

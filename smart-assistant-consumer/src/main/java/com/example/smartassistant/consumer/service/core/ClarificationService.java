@@ -3,6 +3,7 @@ package com.example.smartassistant.consumer.service.core;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.smartassistant.consumer.entity.RoutingCallLog;
 import com.example.smartassistant.consumer.mapper.RoutingCallLogMapper;
+import com.example.smartassistant.common.agent.protocol.ClarificationRequest;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,29 +19,54 @@ import java.util.*;
 @Service
 public class ClarificationService {
     private final SecretKey key;
-    private final ClarificationPlanner planner;
+    private final com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
     private final RoutingCallLogMapper logs;
     private final StringRedisTemplate redis;
     public ClarificationService(@Value("${jwt.secret:${JWT_SECRET:}}") String secret,
-                                ClarificationPlanner planner, RoutingCallLogMapper logs, StringRedisTemplate redis) {
-        this.planner = planner; this.logs = logs; this.redis = redis;
+                                RoutingCallLogMapper logs, StringRedisTemplate redis) {
+        this.logs = logs; this.redis = redis;
         this.key = secret != null && secret.length() >= 32
                 ? Keys.hmacShaKeyFor(digest("clarification-form-v2:" + secret)) : null;
     }
     public record Form(int version, String token, long expiresAt, List<ClarificationPolicy.Field> fields) { }
     public record Submission(String token, Map<String, String> values) { }
     public record Issued(Form form, com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor.TokenUsage usage) { }
-    public Issued issue(String owner, String session, String sourceRequest, String question, String reply, String status) {
+    public Issued issue(String owner, String session, String sourceRequest, Object domainRequest, String status) {
         var empty = new com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor.TokenUsage(0L, 0L, 0L);
         if (key == null || owner == null || session == null || sourceRequest == null) return new Issued(null, empty);
-        var plan = planner.plan(question, reply, status);
-        if (plan.keys().isEmpty()) return new Issued(null, plan.usage());
+        var contract = ClarificationRequest.read(domainRequest);
+        if (contract == null || !Set.of("SUCCESS", "COMPLETED", "CLARIFICATION").contains(Objects.toString(status, "")))
+            return new Issued(null, empty);
         long expiresAt = System.currentTimeMillis() + Duration.ofMinutes(15).toMillis();
+        try {
+            // Store only schema identifiers, not questions, replies, tokens or submitted values.
+            // History can replay this exact domain decision, never classify old prose again.
+            redis.opsForValue().set(permitKey(owner, session, sourceRequest),
+                    json.writeValueAsString(Map.of("request", contract.toMap(), "expiresAt", expiresAt)), Duration.ofMinutes(15));
+            return new Issued(sign(owner, session, sourceRequest, contract, expiresAt), empty);
+        } catch (Exception unavailable) { return new Issued(null, empty); }
+    }
+    private Form sign(String owner, String session, String sourceRequest, ClarificationRequest contract, long expiresAt) {
         String token = Jwts.builder().subject(owner).claim("purpose", "clarification-v2")
-                .claim("session", session).claim("source", sourceRequest).claim("fields", plan.keys())
+                .claim("session", session).claim("source", sourceRequest).claim("fields", contract.fields())
+                .claim("domain", contract.domain()).claim("operation", contract.operation())
                 .id(UUID.randomUUID().toString()).expiration(new Date(expiresAt)).signWith(key).compact();
-        return new Issued(new Form(2, token, expiresAt,
-                plan.keys().stream().map(ClarificationPolicy::field).toList()), plan.usage());
+        return new Form(2, token, expiresAt, contract.fields().stream().map(ClarificationPolicy::field).toList());
+    }
+    public Form restore(String owner, String session, String sourceRequest) {
+        if (key == null) return null;
+        try {
+            String stored = redis.opsForValue().get(permitKey(owner, session, sourceRequest));
+            if (stored == null || stored.length() > 2048) return null;
+            var envelope = json.readTree(stored);
+            var contract = ClarificationRequest.read(json.convertValue(envelope.get("request"), Map.class));
+            long expiresAt = envelope.path("expiresAt").asLong();
+            if (contract == null || expiresAt <= System.currentTimeMillis()) return null;
+            return sign(owner, session, sourceRequest, contract, expiresAt);
+        } catch (Exception unavailable) { return null; }
+    }
+    private static String permitKey(String owner, String session, String sourceRequest) {
+        return "clarification:permit:" + HexFormat.of().formatHex(digest(owner + ":" + session + ":" + sourceRequest));
     }
     /** Read only the owner's current turn. Deleted, old and foreign sessions fail closed. */
     public RoutingCallLog latest(String owner, String session) {
@@ -61,6 +87,8 @@ public class ClarificationService {
             if (raw == null || raw.stream().anyMatch(value -> !(value instanceof String))) throw invalid();
             List<String> keys = new ArrayList<>();
             for (Object value : raw) keys.add((String) value);
+            // Old unscoped permits are deliberately rejected after this rollout.
+            new ClarificationRequest(claims.get("domain", String.class), claims.get("operation", String.class), keys);
             String message = ClarificationPolicy.reply(keys, submission.values());
             var last = latest(owner, session);
             if (!Objects.equals(last.getRequestId(), claims.get("source"))

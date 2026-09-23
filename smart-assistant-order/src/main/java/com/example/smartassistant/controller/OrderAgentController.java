@@ -182,6 +182,21 @@ public class OrderAgentController {
                             "Question must not be blank", false));
         }
 
+        if ("CLARIFY_INPUT".equals(request.operation())) {
+            String operation = java.util.Objects.toString(request.input().get("_operation"), "");
+            if (operation.isBlank() || "EXPLAIN_ORDER_REQUIREMENTS".equals(operation)) {
+                operation = switch (intentService.detect(request.question())) {
+                    case CREATE_ORDER, ORDER_PREPARATION_GUIDANCE -> "CREATE_ORDER";
+                    case CANCEL -> "CANCEL_ORDER";
+                    case REFUND -> "REFUND_ORDER";
+                    case TRACK_LOGISTICS -> "TRACK_LOGISTICS";
+                    default -> "";
+                };
+            }
+            return typedResponse(com.example.smartassistant.service.core.OrderClarificationService.prepare(
+                    operation, request.input()), requestId);
+        }
+
         if (deterministicExecutionService != null
                 && deterministicExecutionService.supports(request.operation())) {
             long startedAt = System.currentTimeMillis();

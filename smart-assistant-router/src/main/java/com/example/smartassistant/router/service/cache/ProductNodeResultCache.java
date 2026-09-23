@@ -92,6 +92,8 @@ public class ProductNodeResultCache {
                       SubTaskResult result) {
         if (redisTemplate == null || !eligible(node) || userId == null || userId <= 0
                 || result == null || !result.isSuccess()
+                || Boolean.TRUE.equals(result.getStructuredData().get("clarificationRequired"))
+                || result.getStructuredData().containsKey("clarificationRequest")
                 || result.getResult() == null || result.getResult().isBlank()
                 || result.getDomainQuality() == null
                 || result.getDomainQuality().isFail()

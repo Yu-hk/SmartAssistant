@@ -55,7 +55,7 @@ class StreamChatControllerPersistenceTest {
         StreamChatController controller = new StreamChatController(routerClient, agentStreamClient,
                 requestQueueService, routingCallLogService, null, preprocessingService);
         var forms = org.mockito.Mockito.mock(com.example.smartassistant.consumer.service.core.ClarificationService.class);
-        when(forms.issue(eq("42"), eq("owned"), eq("form"), any(), any(), eq("CLARIFICATION")))
+        when(forms.issue(eq("42"), eq("owned"), eq("form"), any(), eq("CLARIFICATION")))
                 .thenReturn(new com.example.smartassistant.consumer.service.core.ClarificationService.Issued(
                         new com.example.smartassistant.consumer.service.core.ClarificationService.Form(2, "signed", 9999999999999L,
                                 List.of(com.example.smartassistant.consumer.service.core.ClarificationPolicy.field("weight"))),

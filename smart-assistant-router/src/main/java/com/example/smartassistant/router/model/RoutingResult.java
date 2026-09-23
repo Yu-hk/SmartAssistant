@@ -94,6 +94,9 @@ public class RoutingResult {
     @Builder.Default
     private Boolean clarification = false;
 
+    /** Only a domain executor can produce this operation-scoped input contract. */
+    private com.example.smartassistant.common.agent.protocol.ClarificationRequest clarificationRequest;
+
     /**
      * 情绪等级（NONE 表示未检测到情绪风险）
      */

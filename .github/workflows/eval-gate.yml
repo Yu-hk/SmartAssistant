@@ -75,6 +75,10 @@ jobs:
       - run: python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.taskanalysis.PolicyPlanGuardTest.xml --minimum 3
       - run: python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.ResultMergerTest.xml --minimum 13
       - run: python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.RouteExecutionPreplannedGraphTest.xml --minimum 31
+      - run: >-
+          mvn -B -pl smart-assistant-consumer,smart-assistant-product,smart-assistant-order,smart-assistant-router -am test
+          -Dtest=ClarificationV2Test,DomainClarificationRelayTest,OrderClarificationServiceTest,ProductClarificationScopeTest
+          -Dsurefire.failIfNoSpecifiedTests=false
 
   profile-governance:
     name: Profile provenance and memory isolation

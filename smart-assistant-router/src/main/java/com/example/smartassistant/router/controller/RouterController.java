@@ -112,6 +112,7 @@ public class RouterController {
                     .semanticCacheEligible(Boolean.TRUE.equals(
                             routingResult.getSemanticCacheEligible()))
                     .clarification(Boolean.TRUE.equals(routingResult.getClarification()))
+                    .clarificationRequest(routingResult.getClarificationRequest())
                     .promptTokens(tokenUsage != null ? tokenUsage.promptTokens() : null)
                     .completionTokens(tokenUsage != null ? tokenUsage.completionTokens() : null)
                     .totalTokens(tokenUsage != null ? tokenUsage.totalTokens() : null)
@@ -314,6 +315,7 @@ public class RouterController {
                 .confidence(routingResult.getConfidence() != null ? routingResult.getConfidence() : 0.9)
                 .routingMethod("LLM_ROUTING")
                 .clarification(Boolean.TRUE.equals(routingResult.getClarification()))
+                .clarificationRequest(routingResult.getClarificationRequest())
                 .build();
 
         log.info("[Router Test API] 测试路由完成: latency={}ms, resultLength={}",
