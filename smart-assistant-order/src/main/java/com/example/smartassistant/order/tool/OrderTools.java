@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,6 +58,9 @@ public class OrderTools {
     private final OrderDataProvider orderData;
     private final ReadBeforeEditGuard readGuard;
     private final TaskLogService taskLogService;
+
+    @Value("${order.refund.processing-notice:退款到账时间以原支付渠道的实际处理结果为准。}")
+    private String refundProcessingNotice = "退款到账时间以原支付渠道的实际处理结果为准。";
 
     public OrderTools(OrderDataProvider orderData,
                       ReadBeforeEditGuard readGuard,
@@ -105,7 +109,7 @@ public class OrderTools {
             @ToolParam(description = "收货人姓名") String contactName,
             @ToolParam(description = "收货人电话") String contactPhone,
             @ToolParam(description = "收货地址") String shippingAddress,
-            @ToolParam(description = "商品类型，如 电子产品/定制商品/生鲜食品，留空则自动识别", required = false) String productType) {
+            @ToolParam(description = "商品类型仅供参考；系统以商品目录中已核实的类别为准", required = false) String productType) {
         log.info("[OrderTool] 创建订单: userId={}, productName={}, amount={}", userId, productName, amount);
 
         String requestId = idempotentRequestId("createOrder", userId, productName, amount, shippingAddress);
@@ -122,7 +126,9 @@ public class OrderTools {
                             System.currentTimeMillis() % 1000000,
                             ORDER_ID_COUNTER.incrementAndGet() % 10000);
 
-                    String type = (productType != null && !productType.isBlank()) ? productType : inferProductType(productName);
+                    String verifiedCategory = orderData.findCatalogProductCategory(productName);
+                    String type = verifiedCategory != null && !verifiedCategory.isBlank()
+                            ? verifiedCategory : "其他";
 
                     OrderDTO order = OrderDTO.builder()
                             .orderId(orderId)
@@ -278,8 +284,9 @@ public class OrderTools {
                         取消原因：%s
                         状态：已取消
                         
-                        如为已付款订单，退款将在 3-7 个工作日原路返回。""",
-                orderId, order.getProductName(), order.getAmount().toPlainString(), reason);
+                        如为已付款订单，请在订单详情核实退款状态；%s""",
+                orderId, order.getProductName(), order.getAmount().toPlainString(), reason,
+                refundProcessingNotice);
     }
 
     // ==================== Ship ====================
@@ -527,9 +534,9 @@ public class OrderTools {
 
             log.info("[OrderTool] ✅ 退款已确认并执行: orderId={}", orderId);
             return String.format(
-                    "✅ 退款申请已确认并提交。\n订单：%s\n商品：%s\n金额：¥%s\n状态：退款中\n签收日期：%s\n退款原因：%s\n\n退款申请已受理，预计 3-7 个工作日到账。",
+                    "✅ 退款申请已确认并提交。\n订单：%s\n商品：%s\n金额：¥%s\n状态：退款中\n签收日期：%s\n退款原因：%s\n\n%s",
                     orderId, order.getProductName(), order.getAmount().toPlainString(),
-                    deliveredDateStr, reason);
+                    deliveredDateStr, reason, refundProcessingNotice);
         }
 
         orderData.createApproval(orderId, "refund", reason);
@@ -650,7 +657,7 @@ public class OrderTools {
             case "已签收" ->
                     "💡 提示：商品已签收。如有售后问题，可申请退款。";
             case "退款中" ->
-                    "💡 提示：退款处理中，预计 3-7 个工作日到账。";
+                    "💡 提示：" + refundProcessingNotice;
             default -> null;
         };
     }
@@ -670,26 +677,6 @@ public class OrderTools {
         } catch (JsonProcessingException e) {
             return trajectory;
         }
-    }
-
-    private String inferProductType(String productName) {
-        if (productName == null) return "其他";
-        String name = productName.toLowerCase();
-        if (name.contains("iphone") || name.contains("airpods") || name.contains("macbook")
-                || name.contains("apple") || name.contains("ipad") || name.contains("watch")
-                || name.contains("手机") || name.contains("电脑") || name.contains("耳机")
-                || name.contains("平板")) {
-            return "电子产品";
-        }
-        if (name.contains("生鲜") || name.contains("食品") || name.contains("水果")
-                || name.contains("零食") || name.contains("饮料")) {
-            return "生鲜食品";
-        }
-        if (name.contains("定制") || name.contains("刻字") || name.contains("礼品")
-                || name.contains("礼物")) {
-            return "定制商品";
-        }
-        return "其他";
     }
 
     private String getLogisticsStatusText(String status) {

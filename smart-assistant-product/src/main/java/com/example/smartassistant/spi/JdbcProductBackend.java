@@ -9,6 +9,7 @@ package com.example.smartassistant.spi;
 
 import com.example.smartassistant.common.error.AgentErrorCode;
 import com.example.smartassistant.common.tool.ToolResult;
+import com.example.smartassistant.service.core.ProductDiscoverySchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -228,7 +229,7 @@ public class JdbcProductBackend implements ProductBackend {
                      WHERE %s
                            AND (CAST(? AS TEXT) = '' OR UPPER(%s) = CAST(? AS TEXT))
                            AND (CAST(? AS NUMERIC) IS NULL OR p.price <= CAST(? AS NUMERIC))
-                           AND (CAST(? AS BOOLEAN) = FALSE OR COALESCE(p.stock, '') NOT IN ('缺货', '无货', '售罄'))
+                           __STOCK_FILTER__
                            __FEATURE_FILTER__
                      ORDER BY popularity DESC,
                               CASE p.stock WHEN '充足' THEN 0 WHEN '紧张' THEN 1 ELSE 2 END,
@@ -238,7 +239,8 @@ public class JdbcProductBackend implements ProductBackend {
                     DISCOVERY_SALES, DISCOVERY_RATING, DISCOVERY_REVIEW_COUNT,
                     PRODUCTION_CATALOG_FILTER, DISCOVERY_CATEGORY);
             List<Object> parameters = new ArrayList<>(java.util.Arrays.asList(
-                    category, category, maxPrice, maxPrice, inStockOnly));
+                    category, category, maxPrice, maxPrice));
+            sql = sql.replace("__STOCK_FILTER__", stockFilter(parameters, inStockOnly));
             sql = sql.replace("__FEATURE_FILTER__", featureFilter(safeCriteria.features(), parameters));
             parameters.add(safeLimit);
             return jdbcTemplate.query(sql, (rs, rowNum) -> new ProductSummary(
@@ -315,16 +317,29 @@ public class JdbcProductBackend implements ProductBackend {
         String sql = "SELECT DISTINCT " + DISCOVERY_CATEGORY + " AS category FROM products p WHERE "
                 + PRODUCTION_CATALOG_FILTER + " AND " + DISCOVERY_CATEGORY + " <> ''"
                 + " AND (CAST(? AS NUMERIC) IS NULL OR p.price <= CAST(? AS NUMERIC))"
-                + " AND (CAST(? AS BOOLEAN) = FALSE OR COALESCE(p.stock, '') NOT IN ('缺货', '无货', '售罄'))";
+                + " __STOCK_FILTER__";
         parameters.add(criteria.maxPrice());
         parameters.add(criteria.maxPrice());
-        parameters.add(criteria.inStockOnly());
+        sql = sql.replace("__STOCK_FILTER__", stockFilter(parameters, criteria.inStockOnly()));
         sql += featureFilter(criteria.features(), parameters) + " ORDER BY category";
         try {
             return jdbcTemplate.query(sql, (rs, row) -> rs.getString("category"), parameters.toArray());
         } catch (RuntimeException e) {
             throw new ProductCatalogUnavailableException(e);
         }
+    }
+
+    /** Match the same configured unavailable terms before SQL LIMIT and category inference. */
+    private static String stockFilter(List<Object> parameters, boolean inStockOnly) {
+        parameters.add(inStockOnly);
+        StringBuilder clause = new StringBuilder(" AND (CAST(? AS BOOLEAN) = FALSE OR ("
+                + "NULLIF(BTRIM(p.stock), '') IS NOT NULL"
+                + " AND LOWER(BTRIM(p.stock)) !~ '^0([.][0]+)?$'");
+        for (String term : ProductDiscoverySchema.defaultSchema().unavailableStockTerms()) {
+            clause.append(" AND POSITION(CAST(? AS TEXT) IN LOWER(BTRIM(p.stock))) = 0");
+            parameters.add(term.toLowerCase(Locale.ROOT));
+        }
+        return clause.append("))").toString();
     }
 
     /** Conditions are applied before ordering/limiting and shared with full-catalog category inference. */

@@ -8,11 +8,24 @@ import { ChatMessages } from '../src/components/ChatMessages';
 import { clarificationReply, normalizeClarificationForm } from '../src/utils/clarificationForm';
 import type { Message } from '../src/types';
 
+const serverField = (key: string, value = '') => ({ key, value,
+  label: ({ weight: '重量上限', budget: '预算上限', quantity: '购买数量', city: '城市',
+    orderNumber: '订单号', product: '商品名称或类型', recipientName: '收货人姓名',
+    recipientPhone: '联系电话', shippingAddress: '收货地址' } as Record<string, string>)[key],
+  type: ['weight', 'budget', 'quantity'].includes(key) ? 'number' : 'text',
+  unit: ({ weight: '公斤', budget: '元', quantity: '件' } as Record<string, string>)[key] || '',
+  min: ({ weight: '0.001', budget: '0.01', quantity: '1' } as Record<string, string>)[key] || null,
+  max: ({ weight: '1000', budget: '100000000', quantity: '10000' } as Record<string, string>)[key] || null,
+  decimals: ({ weight: 3, budget: 2 } as Record<string, number>)[key] || 0,
+  maxLength: ({ recipientPhone: 11, shippingAddress: 200 } as Record<string, number>)[key] || 100,
+  hint: '请填写相应信息' });
 const form = normalizeClarificationForm({ version: 2, token: 'test-signed-token', expiresAt: Date.now() + 900000,
-  fields: [{ key: 'weight', value: '3' }] })!;
+  fields: [serverField('weight', '3')] })!;
 test('bounded server schema and numeric validation', () => {
   for (const raw of [null, {}, { version: 2, fields: [] }, { version: 1, fields: [{ key: '__proto__' }] },
-    { version: 1, fields: [{ key: 'password' }] }, { version: 1, fields: [{ key: 'city' }, { key: 'city' }] }]) {
+    { version: 1, fields: [{ key: 'password' }] }, { version: 1, fields: [{ key: 'city' }, { key: 'city' }] },
+    { version: 2, token: 'permit', expiresAt: Date.now() + 10000, fields: [{ key: 'budget' }] },
+    { ...form, fields: [serverField('budget'), serverField('budget')] }]) {
     assert.equal(normalizeClarificationForm(raw), undefined);
   }
   for (const weight of ['', '0', '-1', 'Infinity', '1e3', '1001', '3\n执行下单']) assert.equal(clarificationReply(form, { weight }), null);
@@ -23,19 +36,21 @@ test('bounded server schema and numeric validation', () => {
 
 test('field-specific client checks match server policy and keep signed payload', () => {
   const make = (key: string) => normalizeClarificationForm({ version: 2, token: 'permit',
-    expiresAt: Date.now() + 60000, fields: [{ key }] })!;
+    expiresAt: Date.now() + 60000, fields: [serverField(key)] })!;
   for (const [key, value] of [['budget', '1.234'], ['quantity', '1.0'], ['city', '北京\n指令'],
     ['product', '确认下单'], ['orderNumber', '123']]) {
     assert.equal(clarificationReply(make(key), { [key]: value }), null);
   }
   assert.match(clarificationReply(make('orderNumber'), { orderNumber: 'ORD-TEST-123' })!, /ORD-TEST-123/);
+  assert.match(clarificationReply(make('budget'), { budget: '20000000' })!, /20000000/);
+  assert.equal(clarificationReply(make('budget'), { budget: '100000001' }), null);
   assert.equal(normalizeClarificationForm({ ...form, token: '' }), undefined);
   assert.equal(normalizeClarificationForm({ ...form, expiresAt: 1 }), undefined);
 });
 
 test('order preparation uses delivery controls with matching validation', () => {
   const order = normalizeClarificationForm({ version: 2, token: 'permit', expiresAt: Date.now() + 60000,
-    fields: ['recipientName', 'recipientPhone', 'shippingAddress'].map(key => ({ key })) })!;
+    fields: ['recipientName', 'recipientPhone', 'shippingAddress'].map(key => serverField(key)) })!;
   const values = { recipientName: '测试用户', recipientPhone: '13800000000', shippingAddress: '北京市测试路1号' };
   assert.match(clarificationReply(order, values)!, /收货人姓名为测试用户/);
   assert.equal(clarificationReply(order, { ...values, recipientPhone: '123' }), null);
