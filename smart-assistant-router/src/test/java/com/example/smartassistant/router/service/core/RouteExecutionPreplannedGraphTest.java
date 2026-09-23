@@ -31,14 +31,17 @@ class RouteExecutionPreplannedGraphTest {
     }
 
     @Test
-    void missingFieldReplyHidesInternalNamesAndDoesNotRepeatPlannerInstructions() {
-        String reply = RouteExecutionService.builtInOrderPreparationReply(
-                "执行REFUND_ORDER前还需要补充：order_id、reason。只追问缺失信息，本次不得执行任何写操作。");
-        assertTrue(reply.contains("订单号、原因"));
-        assertTrue(reply.contains("目前还没有提交"));
-        assertFalse(reply.contains("REFUND_ORDER"));
-        assertFalse(reply.contains("只追问"));
-        assertFalse(reply.contains("order_id"));
+    void plannerMissingSlotsNeverBecomeRouterGeneratedBusinessFields() {
+        TaskAnalysisResult analysis = new TaskAnalysisResult();
+        analysis.setNeedsClarification(true);
+        analysis.setMissingSlots(List.of("weight", "budget", "order_id"));
+        analysis.setSubIntents(List.of(Map.of("id", "create", "description", "下单",
+                "target_agent", "order", "operation", "CREATE_ORDER")));
+        var node = RouteExecutionService.buildExecutionPlan("下单耳机", analysis, "prepare").nodes().getFirst();
+        assertTrue(node.requiredSlots().isEmpty());
+        assertFalse(node.description().contains("weight"));
+        assertFalse(node.description().contains("budget"));
+        assertEquals(RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT, node.targetAgent());
     }
 
     @Test
@@ -285,7 +288,7 @@ class RouteExecutionPreplannedGraphTest {
                 List.of(), Map.of());
         var checklist = new com.example.smartassistant.router.model.SubTaskResult(
                 "t2", "说明下单资料", RouteExecutionService.BUILTIN_ORDER_PREPARATION_AGENT,
-                RouteExecutionService.builtInOrderPreparationReply(), true, List.of(), Map.of());
+                "请补充收货人姓名、联系电话。本次未创建订单。", true, List.of(), Map.of());
 
         String merged = RouteExecutionService.mergeOrderPreparationResults(List.of(product, checklist));
 

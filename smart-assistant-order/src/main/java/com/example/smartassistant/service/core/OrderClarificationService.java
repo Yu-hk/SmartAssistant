@@ -50,6 +50,9 @@ public final class OrderClarificationService {
         return switch (key) {
             case "orderNumber" -> text.matches("(?:ORD|BULK)-[A-Za-z0-9-]{1,64}");
             case "recipientPhone" -> text.matches("1[3-9][0-9]{9}");
+            case "recipientName" -> text.length() <= 40 && text.chars().noneMatch(Character::isISOControl);
+            case "shippingAddress" -> text.length() >= 6 && text.length() <= 200 && text.chars().noneMatch(Character::isISOControl);
+            case "afterSalesType" -> Set.of("退货", "换货", "维修").contains(text);
             default -> text.length() <= 200 && text.chars().noneMatch(Character::isISOControl);
         };
     }

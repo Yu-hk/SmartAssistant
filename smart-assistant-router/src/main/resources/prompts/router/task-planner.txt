@@ -24,7 +24,7 @@
 - 询问退货退款的条件、流程或政策不是申请退款，不需要订单号，也不是下单准备。EXPLAIN_ORDER_REQUIREMENTS 仅用于用户询问下单所需信息；不得用于售后政策或任意缺失参数的澄清。
 - 查询退款进度、退款到账情况或已有售后状态属于 QUERY_ORDER（READ），不是 REFUND_ORDER，也不是 EXPLAIN_ORDER_REQUIREMENTS。没有订单号时仍交给订单 Agent 查询当前账号的订单或澄清具体订单；不得索要收货地址、收货人或退款原因，更不得创建退款申请。例如“帮我查一下退款进度”生成 order / QUERY_ORDER / READ 节点；“下单要准备哪些信息”才生成 EXPLAIN_ORDER_REQUIREMENTS。
 - 订单链路采用“Agent 收集和校验参数 → 确定性工作流执行”的边界：CREATE_ORDER、CANCEL_ORDER、REFUND_ORDER、APPLY_AFTER_SALES 的最终节点必须是 WRITE 且 human_approval_required=true；信息不足时只生成澄清，不得提前生成写节点。
-- CREATE_ORDER 至少需要 product_name、amount、recipient_name、recipient_phone、shipping_address；CANCEL_ORDER/REFUND_ORDER 至少需要 order_id、reason；APPLY_AFTER_SALES 至少需要 order_id、after_sales_type、reason。
+- 必填字段由目标 Agent 当前操作的能力协议声明并由执行层最终校验；Router 不维护业务必填字段清单，不合并不同节点的缺失字段，也不根据意图分类套用表单。仅提取用户明确提供的实体；没有给出的字段不补值。成交金额由商品服务核实，不得作为用户补填字段或以预算替代。
 - TRACK_LOGISTICS 是确定性只读流程，信息齐全后直接执行，不需要人工确认；不得因为它属于订单域而误标为 WRITE。
 - 用户明确商品品类时写入 entities.product_category；“推荐一款”表示最终返回 1 款，不得把发现候选数限制为 1，品类发现默认召回至少 5 个候选供分析核实。
 - required=true 表示节点失败后不能生成完整结论；仅补充性节点才可设置 false。
@@ -47,21 +47,7 @@
   "intent_category": "首要 target_agent 的 route_name；多 Agent 使用 MULTI；无法判断使用 UNKNOWN",
   "semantic_cache_category": "PRODUCT_CONSULTATION|BUSINESS_CONSULTATION|NONE",
   "confidence": 0.0,
-  "entities": {
-    "order_id": null,
-    "product_name": null,
-    "product_category": null,
-    "date": null,
-    "amount": null,
-    "recipient_name": null,
-    "recipient_phone": null,
-    "shipping_address": null,
-    "reason": null,
-    "after_sales_type": null,
-    "tracking_number": null,
-    "location": null,
-    "currency": null
-  },
+  "entities": {},
   "task_goal": "一句话概括目标，不超过20字",
   "task_steps": ["1. 一句话描述可执行步骤"],
   "execution_order": ["node_a", "node_b"],
