@@ -32,7 +32,8 @@ ORDER = '''20260809_add_admin_console_state
 20260919_add_profile_commit_candidates
 20260919_add_profile_entity_facts
 20260919_add_profile_request_admission
-20260919_add_profile_control_archive'''.splitlines()
+20260919_add_profile_control_archive
+20260923_add_site_visits'''.splitlines()
 WRAPPED = frozenset(('20260831_expand_product_catalog', '20260914_add_product_structured_features',
                      '20260914_add_product_intake', '20260919_add_profile_control_archive'))
 
