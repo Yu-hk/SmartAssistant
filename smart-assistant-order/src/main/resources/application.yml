@@ -4,6 +4,8 @@ server:
   port: 8085
 
 order:
+  refund:
+    processing-notice: ${ORDER_REFUND_PROCESSING_NOTICE:退款到账时间以原支付渠道的实际处理结果为准。}
   agent:
     # 核心订单工具默认常驻；扩展分析/记忆/知识库/SQL/优惠券工具按需开启，
     # 避免模型请求携带过大的工具 Schema。

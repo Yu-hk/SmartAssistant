@@ -126,7 +126,6 @@ public class OrderDeterministicExecutionService {
                 "recipient_phone", "contact_phone", "contactPhone");
         String shippingAddress = stringInput(request.input(),
                 "shipping_address", "shippingAddress", "address");
-        String productType = stringInput(request.input(), "product_type", "productType");
         List<String> missing = missingFields(
                 "商品名称", productName,
                 "成交金额", amount,
@@ -153,7 +152,7 @@ public class OrderDeterministicExecutionService {
                     OrderDTO order = OrderDTO.builder()
                             .orderId(orderId).userId(userId).productName(productName)
                             .amount(amount).status(OrderStatus.PENDING_PAYMENT.value())
-                            .productType(productType != null ? productType : "其他")
+                            .productType(verifiedCategory(productName))
                             .contactName(contactName).contactPhone(contactPhone)
                             .shippingAddress(shippingAddress).carrier("").trackingNo("")
                             .requestId(durableRequestId).createdAt(LocalDateTime.now())
@@ -170,6 +169,11 @@ public class OrderDeterministicExecutionService {
         data.put("criteriaSatisfied", true);
         return AgentExecutionResponse.success(result, data,
                 DomainQualityResult.pass(1.0, "DETERMINISTIC_ORDER_CREATE"));
+    }
+
+    private String verifiedCategory(String productName) {
+        String category = orderData.findCatalogProductCategory(productName);
+        return category == null || category.isBlank() ? "其他" : category;
     }
 
     private AgentExecutionResponse cancelOrder(AgentExecutionRequest request, OrderDTO order) {

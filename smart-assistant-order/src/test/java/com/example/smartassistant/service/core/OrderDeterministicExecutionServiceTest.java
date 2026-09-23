@@ -200,6 +200,7 @@ class OrderDeterministicExecutionServiceTest {
 
     @Test
     void createOrderCommitsTypedFieldsWithoutEnteringAgentToolLoop() {
+        when(orderData.findCatalogProductCategory("Aurora 无线降噪耳机")).thenReturn("耳机");
         AtomicReference<OrderDTO> inserted = new AtomicReference<>();
         when(orderData.findOrderByRequestId("req-1:query:create"))
                 .thenAnswer(ignored -> inserted.get());
@@ -222,6 +223,7 @@ class OrderDeterministicExecutionServiceTest {
                 .containsEntry("criteriaSatisfied", true);
         assertThat(inserted.get().getUserId()).isEqualTo(1050L);
         assertThat(inserted.get().getStatus()).isEqualTo("待付款");
+        assertThat(inserted.get().getProductType()).isEqualTo("耳机");
     }
 
     @Test

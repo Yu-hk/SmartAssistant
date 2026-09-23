@@ -12,10 +12,16 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 
 @ExtendWith(MockitoExtension.class)
 class OrderDataProviderImplTest {
@@ -58,5 +64,17 @@ class OrderDataProviderImplTest {
                 sql.capture(), eq(42L), eq("已发货"), eq(5), eq(10));
         assertThat(sql.getValue())
                 .contains("AND status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void catalogCategoryRequiresOneDistinctExactNameMatch() {
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("AirPods Pro")))
+                .thenReturn(List.of("耳机"), List.of("耳机", "配件"));
+        assertThat(provider.findCatalogProductCategory("AirPods Pro")).isEqualTo("耳机");
+        assertThat(provider.findCatalogProductCategory("AirPods Pro")).isNull();
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate, org.mockito.Mockito.times(2)).query(sql.capture(), any(RowMapper.class), eq("AirPods Pro"));
+        assertThat(sql.getValue()).contains("UPPER(BTRIM(p.product_name)) = UPPER(BTRIM(?))", "LIMIT 2");
     }
 }
