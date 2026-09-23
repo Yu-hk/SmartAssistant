@@ -86,6 +86,17 @@ test('disabled form and text alternative never send requests', async () => withD
   } finally { await act(async () => root.unmount()); }
 }));
 
+test('product form validation does not ask for an unrelated order number', async () => withDom(async container => {
+  const root = createRoot(container);
+  try {
+    const invalid = { ...form, fields: form.fields.map(field => ({ ...field, value: '-1' })) };
+    await act(async () => root.render(<ClarificationCard form={invalid} disabled={false} onSubmit={() => assert.fail('invalid form submitted')} />));
+    await act(async () => container.querySelector('form')!.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.match(container.querySelector('[role=alert]')!.textContent!, /各字段下方的提示/);
+    assert.doesNotMatch(container.querySelector('[role=alert]')!.textContent!, /订单号/);
+  } finally { await act(async () => root.unmount()); }
+}));
+
 test('only last completed assistant in active session can collect information; no closing rating', async () => withDom(async container => {
   const root = createRoot(container);
   const assistant: Message = { id: 'a', role: 'assistant', content: '请补充重量上限。', timestamp: new Date(),

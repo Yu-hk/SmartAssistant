@@ -77,7 +77,7 @@ jobs:
       - run: python3 scripts/verify_integration_reports.py smart-assistant-router/target/surefire-reports/TEST-com.example.smartassistant.router.service.core.RouteExecutionPreplannedGraphTest.xml --minimum 31
       - run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-product,smart-assistant-order,smart-assistant-router -am test
-          -Dtest=ClarificationV2Test,DomainClarificationRelayTest,OrderClarificationServiceTest,ProductClarificationScopeTest
+          -Dtest=ClarificationV2Test,DomainClarificationRelayTest,OrderClarificationServiceTest,OrderFallbackPreparationServiceTest,OrderAgentControllerTest,StageAwarePromptServiceTest,AgentCallerPreparationBoundaryTest,ProductClarificationScopeTest
           -Dsurefire.failIfNoSpecifiedTests=false
 
   profile-governance:

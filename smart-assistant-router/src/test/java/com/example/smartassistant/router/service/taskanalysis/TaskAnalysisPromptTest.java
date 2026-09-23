@@ -72,6 +72,9 @@ class TaskAnalysisPromptTest {
         assertTrue(prompt.contains("从 Nacos 的健康实例缓存中发现 Agent"));
         assertTrue(prompt.contains("{{NACOS_AGENT_CATALOG}}"));
         assertFalse(prompt.contains("## 商品推荐并下单的强制链路"));
+        assertTrue(prompt.contains("必填字段由目标 Agent 当前操作的能力协议声明"));
+        assertFalse(prompt.contains("CREATE_ORDER 至少需要"));
+        assertFalse(prompt.contains("\"recipient_name\": null"));
     }
 
     @Test
