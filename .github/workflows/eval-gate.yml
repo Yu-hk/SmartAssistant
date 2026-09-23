@@ -264,7 +264,7 @@ jobs:
       - name: Test authenticated speech boundary
         run: >-
           mvn -B -pl smart-assistant-consumer,smart-assistant-gateway -am test
-          -Dtest=SpeechRecognitionServiceTest,SpeechControllerTest,SpeechSynthesisServiceTest,SpeechOutputControllerTest,GlobalJwtAuthFilterTest,ClarificationFormTest,StreamChatControllerPersistenceTest
+          -Dtest=SpeechRecognitionServiceTest,SpeechControllerTest,SpeechSynthesisServiceTest,SpeechOutputControllerTest,GlobalJwtAuthFilterTest,ClarificationFormTest,ClarificationV2Test,StreamChatControllerPersistenceTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - name: Test recorder lifecycle and build frontend
         working-directory: frontend

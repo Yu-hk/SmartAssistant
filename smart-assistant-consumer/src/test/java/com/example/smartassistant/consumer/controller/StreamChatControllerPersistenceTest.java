@@ -54,12 +54,50 @@ class StreamChatControllerPersistenceTest {
                         "workflowStatus", "CLARIFICATION"));
         StreamChatController controller = new StreamChatController(routerClient, agentStreamClient,
                 requestQueueService, routingCallLogService, null, preprocessingService);
+        var forms = org.mockito.Mockito.mock(com.example.smartassistant.consumer.service.core.ClarificationService.class);
+        when(forms.issue(eq("42"), eq("owned"), eq("form"), any(), any(), eq("CLARIFICATION")))
+                .thenReturn(new com.example.smartassistant.consumer.service.core.ClarificationService.Issued(
+                        new com.example.smartassistant.consumer.service.core.ClarificationService.Form(2, "signed", 9999999999999L,
+                                List.of(com.example.smartassistant.consumer.service.core.ClarificationPolicy.field("weight"))),
+                        new com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor.TokenUsage(1L, 1L, 2L)));
+        ReflectionTestUtils.setField(controller, "clarificationService", forms);
         var response = new MockHttpServletResponse();
         controller.streamChatPost(Map.of("message", "推荐便携笔记本", "requestId", "form", "sessionId", "owned"), response);
         String events = response.getContentAsString();
-        assertTrue(events.contains("\"clarificationForm\":{\"version\":1"));
+        assertTrue(events.contains("\"clarificationForm\":{\"version\":2"));
         assertTrue(events.contains("\"key\":\"weight\""));
         assertTrue(events.contains("event: done"));
+    }
+
+    @Test void invalidStructuredSubmissionNeverDispatchesBusiness() throws Exception {
+        var request = new MockHttpServletRequest(); request.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        var controller = new StreamChatController(routerClient, agentStreamClient,
+                requestQueueService, routingCallLogService, null, preprocessingService);
+        var forms = org.mockito.Mockito.mock(com.example.smartassistant.consumer.service.core.ClarificationService.class);
+        ReflectionTestUtils.setField(controller, "clarificationService", forms);
+        when(forms.accept(eq("42"), eq("owned"), any())).thenThrow(new IllegalArgumentException("表单已失效"));
+        var response = new MockHttpServletResponse();
+        controller.streamChatPost(Map.of("message", "确认下单", "requestId", "attempt", "sessionId", "owned",
+                "clarification", Map.of("token", "tampered", "values", Map.of("weight", "-1"))), response);
+        assertEquals(422, response.getStatus());
+        org.mockito.Mockito.verifyNoInteractions(routerClient, preprocessingService, routingCallLogService);
+    }
+
+    @Test void formSubmissionRequiresExistingActiveSessionBeforeModelOrBusiness() throws Exception {
+        var request = new MockHttpServletRequest(); request.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        var controller = new StreamChatController(routerClient, agentStreamClient, requestQueueService, routingCallLogService, null, preprocessingService);
+        ReflectionTestUtils.setField(controller, "conversationGateService", conversationGateService);
+        when(conversationGateService.acquireExisting("42", "closed", "attempt"))
+                .thenReturn(new ConversationGateService.GateDecision(ConversationGateService.GateStatus.SESSION_CLOSED,
+                        "42", "closed", "attempt", null, 0, null));
+        var response = new MockHttpServletResponse();
+        controller.streamChatPost(Map.of("message", "补充信息", "requestId", "attempt", "sessionId", "closed",
+                "clarification", Map.of("token", "old", "values", Map.of("weight", "3"))), response);
+        assertEquals(422, response.getStatus());
+        org.mockito.Mockito.verifyNoInteractions(routerClient, preprocessingService, routingCallLogService);
+        verify(conversationGateService, never()).acquire(any(), any(), any());
     }
 
     @Mock private RouterClient routerClient;
