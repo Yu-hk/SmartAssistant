@@ -52,7 +52,7 @@ export async function resumeSession(sessionId: string): Promise<{
   return apiClient.post(`/sessions/${sessionId}/resume`, {});
 }
 
-/** 提交满意度并结束会话 */
+/** 仅提交满意度；结束会话须另行调用 closeSession 以释放服务端占用。 */
 export async function rateSession(
   sessionId: string,
   score: number,

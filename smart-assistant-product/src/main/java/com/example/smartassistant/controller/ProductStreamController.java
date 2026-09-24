@@ -201,7 +201,7 @@ public class ProductStreamController {
                     : factQueryService.query(question, history, requestId);
             return executionResponse(requestId, response, true);
         }
-        if (isAnalysisOrRecommendationRequest(request)) {
+        if (isAnalysisOrRecommendationRequest(request) && !isDetailOnly(question)) {
             AgentNodeOutput terminal = verifiedDiscoveryReply(request);
             if (terminal != null) {
                 Map<String, Object> data = new LinkedHashMap<>(terminal.data());
@@ -267,7 +267,7 @@ public class ProductStreamController {
                     response.answer(), data, response.quality()),
                     response.quality().getReasonCodes().contains("NO_ELIGIBLE_VERIFIED_PRODUCT"));
         }
-        if (productDiscoveryService != null && isDiscoveryRequest(request)) {
+        if (productDiscoveryService != null && isDiscoveryRequest(request, question)) {
             Integer limit = integerInput(request, "candidateLimit", "candidate_limit", "limit");
             String category = textInput(request, "product_category", "category", "product_name");
             long started = System.nanoTime();
@@ -356,10 +356,15 @@ public class ProductStreamController {
         return builder.body(response);
     }
 
-    private boolean isDiscoveryRequest(AgentExecutionRequest request) {
+    private boolean isDiscoveryRequest(AgentExecutionRequest request, String question) {
+        if (isDetailOnly(question)) return false;
         return WorkflowOperation.QUERY_HOT_PRODUCTS.code().equalsIgnoreCase(request.operation())
                 || WorkflowOperation.DISCOVER_PRODUCTS.code().equalsIgnoreCase(request.operation())
-                || productDiscoveryService.supports(request.question());
+                || productDiscoveryService.supports(question);
+    }
+
+    private boolean isDetailOnly(String question) {
+        return productDiscoveryService != null && productDiscoveryService.isDetailOnly(question);
     }
 
     private static Integer integerInput(AgentExecutionRequest request, String... keys) {

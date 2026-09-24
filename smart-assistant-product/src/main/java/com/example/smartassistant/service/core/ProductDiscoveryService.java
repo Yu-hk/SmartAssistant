@@ -48,7 +48,10 @@ public class ProductDiscoveryService {
     /** Returns true only for generic discovery requests, not specific product recommendations. */
     public boolean supports(String query) {
         if (query == null || query.isBlank()) return false;
-        String normalized = UserQuestionNormalizer.normalize(query);
+        // Routing is decided by this turn. Historical shopping constraints may
+        // help a real discovery request, but cannot turn a specification/stock
+        // follow-up into another recommendation.
+        String normalized = UserQuestionNormalizer.normalize(ProductQueryContext.current(query));
         ProductDiscoveryIntent intent = INTENT_PARSER.parse(normalized);
         boolean categoryRequest = !detectCategory(normalized).isBlank();
         if (intent.hasFeatureInterest() && intent.detailQuestion() && !intent.recommendation()
@@ -60,6 +63,15 @@ public class ProductDiscoveryService {
                 || !intent.detailQuestion() && (intent.hasFeatureInterest()
                 || intent.budget().max() != null || intent.budget().ambiguous())
                 || categoryRequest && (intent.popularity() || intent.hardConstraintRequested());
+    }
+
+    /** A model-planned browse operation must not override a present-turn facts request. */
+    public boolean isDetailOnly(String query) {
+        if (query == null || query.isBlank()) return false;
+        ProductDiscoveryIntent intent = INTENT_PARSER.parse(
+                UserQuestionNormalizer.normalize(ProductQueryContext.current(query)));
+        return intent.detailQuestion() && !intent.recommendation()
+                && !intent.catalogBrowse() && !intent.hardConstraintRequested();
     }
 
     public DiscoveryResult discover(String query, Integer requestedLimit) {
