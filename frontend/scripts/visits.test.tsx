@@ -47,10 +47,14 @@ test('administrator page renders visitor records and opens a filtered browsing t
   try {
     await act(async () => root.render(<AdminVisitsPage refreshVersion={0} />));
     assert.match(document.querySelector('table')!.textContent!, /测试访客/);
+    assert.deepEqual([...document.querySelectorAll('tbody td')].map(cell => cell.getAttribute('data-label')),
+      ['访客 / 用户', '首次访问', '最近访问', '访问次数', '模块数', '操作']);
     const trail = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('浏览轨迹'))!;
     await act(async () => trail.click());
     assert.ok(requests.at(-1)?.includes(`visitor=${visitor}`));
     assert.match(document.querySelector('table')!.textContent!, /订单助手.*服务入口.*Edge/);
+    assert.deepEqual([...document.querySelectorAll('tbody td')].map(cell => cell.getAttribute('data-label')),
+      ['访客 / 用户', '功能模块', '访问类型', '浏览器 / 设备', '访问时间']);
     assert.equal(document.querySelector<HTMLButtonElement>('button[aria-label="下一页"]')!.disabled, true);
   } finally {
     await act(async () => root.unmount());
