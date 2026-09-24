@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 
 import { useTheme } from './hooks/useTheme';
@@ -9,6 +9,9 @@ import { getUserDisplayName } from './utils/userDisplay';
 import { serviceEntryDraft } from './utils/serviceEntry';
 import { usePageVisit } from './hooks/usePageVisit';
 import { trackServiceEntry } from './api/visits';
+import { sessions as sessionApi } from './api';
+import { ApiError } from './api/client';
+import { prepareConversationSwitch } from './utils/conversationSwitch';
 
 import { CustomerSidebar } from './components/CustomerSidebar';
 import { SessionInsightPanel } from './components/SessionInsightPanel';
@@ -196,10 +199,11 @@ function CustomerApp() {
     sessions, setSessions, sessionActionError, setSessionActionError, blockingSessionId, setBlockingSessionId,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, deleteSession, closeSession, resumeSession, rateSession,
+    fetchSessions, deleteSession, closeSession, rateSession,
   } = useSessions();
 
   const [resolvingConflict, setResolvingConflict] = useState(false);
+  const preparingSend = useRef(false);
   const handleConversationConflict = useCallback((id: string) => {
     setBlockingSessionId(id);
     void fetchSessions();
@@ -210,10 +214,31 @@ function CustomerApp() {
     const suspendedId = currentSessionId;
     setResolvingConflict(true);
     try {
-      if (!await closeSession(blockingSessionId)) return;
-      if (await resumeSession(suspendedId)) setBlockingSessionId(null);
-      await fetchSessions();
+      await switchConversation(suspendedId);
     } finally { setResolvingConflict(false); }
+  };
+
+  const switchConversation = async (targetSessionId: string | null): Promise<boolean> => {
+    setSessionActionError(null);
+    try {
+      const result = await prepareConversationSwitch(targetSessionId, sessionApi);
+      setSessions(previous => previous.map(session => result.closedSessionIds.includes(session.id)
+        ? { ...session, status: 'closed' }
+        : result.resumed && session.id === targetSessionId
+          ? { ...session, status: 'active' }
+          : session));
+      setBlockingSessionId(null);
+      await fetchSessions();
+      return true;
+    } catch (error) {
+      setSessionActionError(error instanceof ApiError && error.status === 409
+        ? '另一条对话仍在处理请求。请先停止生成或等待完成，再切换会话。'
+        : error instanceof Error && !(error instanceof ApiError)
+          ? error.message
+          : '暂时无法切换会话，请稍后再试。');
+      await fetchSessions();
+      return false;
+    }
   };
 
   const { notifications, markRead: markNotificationRead } = useNotifications({ setSessions });
@@ -232,6 +257,19 @@ function CustomerApp() {
     setCurrentSessionId,
     onConversationConflict: handleConversationConflict,
   });
+
+  const handleSendMessage = async (...args: Parameters<typeof sendMessage>) => {
+    if (preparingSend.current || isLoading || !args[0]?.trim()) return;
+    preparingSend.current = true;
+    try {
+      const targetSessionId = args[1] || currentSessionId;
+      if ((!targetSessionId || currentSession?.status === 'suspended')
+          && !await switchConversation(targetSessionId)) return;
+      await sendMessage(...args);
+    } finally {
+      preparingSend.current = false;
+    }
+  };
 
   // URL 同步
   useEffect(() => {
@@ -284,13 +322,13 @@ function CustomerApp() {
   }, [closeSession, currentSession?.status, currentSessionId]);
 
   const handleResumeSession = useCallback(async (sessionId: string) => {
-    const resumed = await resumeSession(sessionId);
+    const resumed = await switchConversation(sessionId);
     if (!resumed) return;
     setCurrentSessionId(sessionId);
     setInputValue('');
     setSidebarOpen(false);
     navigate(`/chat/${sessionId}`);
-  }, [navigate, resumeSession, setCurrentSessionId, setInputValue]);
+  }, [navigate, setCurrentSessionId, setInputValue, switchConversation]);
 
   return (
     <div className="workbench-shell relative z-10">
@@ -386,7 +424,7 @@ function CustomerApp() {
               queuePosition={queuePosition}
               queueEstimatedWait={queueEstimatedWait}
               progressMessage={progressMessage}
-              onSendMessage={sendMessage}
+              onSendMessage={handleSendMessage}
               onStop={handleStop}
               onInputChange={setInputValue}
               onPermissionAllow={handlePermissionAllow}
