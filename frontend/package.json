@@ -6,6 +6,7 @@
     "test:visits": "node scripts/run-visits-tests.mjs",
     "test:service-entry": "node scripts/run-service-entry-tests.mjs",
     "test:session-rating": "node --import tsx --test scripts/session-rating.test.tsx",
+    "test:session-switch": "node --import tsx --test scripts/conversation-switch.test.ts",
     "test:recovery": "node scripts/run-workflow-recovery-tests.mjs",
     "test:voice": "node scripts/run-voice-input-tests.mjs",
     "test:voice-output": "node scripts/run-voice-output-tests.mjs",
