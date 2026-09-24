@@ -239,6 +239,21 @@ export function useSessions() {
         return false;
       }
     }
+    // A rating alone does not release the server-side conversation gate. Only
+    // the close endpoint can do that; do not claim the session is closed if it
+    // rejects the transition (for example while a request is still running).
+    try {
+      await sessionApi.closeSession(sessionId);
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 404) {
+        console.error(e);
+        setSessions(prev => prev.map(s => s.id === sessionId
+          ? { ...s, satisfaction: score }
+          : s));
+        setSessionActionError('评价已保存，但会话未能结束；请点击“结束会话”重试。');
+        return false;
+      }
+    }
     setSessions(prev => prev.map(s => s.id === sessionId
       ? { ...s, satisfaction: score, status: 'closed' }
       : s));
