@@ -29,7 +29,8 @@ export function ClarificationCard({ form, disabled, onSubmit }: {
       {form.fields.map(field => <label key={field.key}>
         <span>{field.label}{field.unit && `（${field.unit}）`}</span>
         <input name={field.key} aria-label={field.label} type="text"
-          inputMode={field.key === 'recipientPhone' ? 'tel' : field.type === 'number' ? 'decimal' : 'text'} maxLength={field.maxLength}
+          inputMode={field.key === 'recipientPhone' ? 'tel' : field.type === 'number' ? 'decimal' : 'text'}
+          minLength={field.minLength} maxLength={field.maxLength}
           autoComplete="off" required value={values[field.key] || ''}
           onChange={event => setValues(previous => ({ ...previous, [field.key]: event.target.value }))} />
         <small>{field.type === 'number' ? `${field.hint}（${field.min}–${field.max}${field.unit}）`
