@@ -5,7 +5,6 @@ import com.example.smartassistant.common.gateway.llm.LLMCallConfig;
 import com.example.smartassistant.common.gateway.llm.LLMCallResult;
 import com.example.smartassistant.router.model.DiscoveredAgent;
 import com.example.smartassistant.router.model.IntentGraph;
-import com.example.smartassistant.router.model.SubTask;
 import com.example.smartassistant.router.service.agent.AgentDiscoveryService;
 import com.example.smartassistant.router.service.taskanalysis.IntentDef;
 import com.example.smartassistant.router.service.taskanalysis.IntentRetriever;
@@ -23,13 +22,7 @@ import java.util.stream.Collectors;
 /**
  * 任务分解服务。
  * 通过 AgentDiscoveryService 动态发现可用 Agent，无需硬编码。
- * <p>
- * 支持两种分解模式：
- * <ul>
- *   <li>{@link #plan(String)} — 旧版扁平列表（已弃用）</li>
- *   <li>{@link #planToGraph(String)} — 新版图结构，含依赖关系</li>
- * </ul>
- * </p>
+ * 使用 {@link #planToGraph(String)} 返回带依赖关系的图结构。
  */
 @Component
 public class TaskPlannerService {
@@ -137,50 +130,6 @@ public class TaskPlannerService {
                     node.isHumanApprovalRequired(), node.getOperation(), node.getInput(),
                     node.getConstraints(), node.getIdempotencyKey());
         }).toList();
-    }
-
-    /**
-     * 旧版扁平任务分解（已弃用）。
-     * <p>
-     * 请使用 {@link #planToGraph(String)} 替代，后者返回带依赖关系的图结构。
-     *
-     * @deprecated 使用 {@link #planToGraph(String)} 替代
-     */
-    @Deprecated
-    public List<SubTask> plan(String question) {
-        String agentList = buildAgentList();
-        if (agentList.isEmpty()) {
-            log.warn("[TaskPlanner] 无可用 Agent，使用整句");
-            return List.of(new SubTask("t1", question, findFallbackAgent(question)));
-        }
-
-        String fallback = findFallbackAgent(question);
-        String prompt = String.format("""
-                将用户的问题分配给最合适的助理。
-
-                助理（只能从以下选择）：
-                %s
-
-                输出格式（每行一条）：子任务ID|描述|助理名
-                示例：t1|查询订单状态|order_agent
-
-                要求：只能从上面的助理名单中选择，不要自创。不匹配时使用兜底：%s
-
-                用户：%s
-                """, agentList, fallback, question);
-
-        try {
-            String response = callPlanner(prompt);
-            List<SubTask> tasks = parseTasks(response);
-            if (tasks.isEmpty()) {
-                log.warn("[TaskPlanner] LLM 返回格式异常，使用整句。响应: {}", response);
-                return List.of(new SubTask("t1", question, fallback));
-            }
-            return tasks;
-        } catch (Exception e) {
-            log.warn("[TaskPlanner] LLM 分解失败: {}", e.getMessage());
-            return List.of(new SubTask("t1", question, fallback));
-        }
     }
 
     // ==================== 图格式解析 ====================
@@ -442,36 +391,5 @@ public class TaskPlannerService {
             throw new IllegalStateException("task planner model failed: " + result.errorMessage());
         }
         return result.content();
-    }
-
-    private List<SubTask> parseTasks(String response) {
-        List<SubTask> tasks = new ArrayList<>();
-        if (response == null || response.isBlank()) return tasks;
-
-        // ⭐ 先尝试标准格式解析：id|desc|agent
-        Pattern standardPattern = Pattern.compile("(\\w+)\\|([^|]+)\\|([^|\\n]+)");
-        Matcher matcher = standardPattern.matcher(response);
-        while (matcher.find()) {
-            String id = matcher.group(1).trim();
-            String desc = matcher.group(2).trim();
-            String agent = matcher.group(3).trim();
-            tasks.add(new SubTask(id, desc, agent));
-        }
-        
-        // ⭐ 如果标准解析成功，直接返回
-        if (!tasks.isEmpty()) return tasks;
-        
-        // ⭐ 标准解析失败（如 LLM 输出多余字段），尝试灵活解析：
-        //   取每行最后一个 | 后的内容作为 agent，第一个 | 前的内容作为 id
-        Pattern flexiblePattern = Pattern.compile("^(.+?)\\|(.+)\\|(.+)$", Pattern.MULTILINE);
-        Matcher flexMatcher = flexiblePattern.matcher(response);
-        while (flexMatcher.find()) {
-            String id = flexMatcher.group(1).trim();
-            String desc = flexMatcher.group(2).trim();
-            String agent = flexMatcher.group(3).trim();
-            tasks.add(new SubTask(id, desc, agent));
-        }
-        
-        return tasks;
     }
 }
