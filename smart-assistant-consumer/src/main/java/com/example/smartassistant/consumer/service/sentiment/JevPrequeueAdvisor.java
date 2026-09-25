@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 
 /** Pre-MQ advisory only: bounded Jev signals plus a deterministic risk floor. */
 @Component
-public final class JevPrequeueAdvisor {
+public class JevPrequeueAdvisor {
     private static final Map<String, Object> QUESTIONS = JevQuestionCatalog.load(
             JevPrequeueAdvisor.class, "/jev/prequeue-questions.json");
     private static final Pattern RISK = loadRiskPattern();

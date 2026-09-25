@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
 
 /** Optional, bounded TypeSafe/Jev observation. A decision is never business authorization. */
 @Component
-public final class JevDecisionClient {
+public class JevDecisionClient {
     private static final Logger log = LoggerFactory.getLogger(JevDecisionClient.class);
     private static final URI ENDPOINT = URI.create("https://api.typesafe.ai/v1/systemone");
     private static final Pattern EMAIL = Pattern.compile("(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}");

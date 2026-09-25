@@ -3,14 +3,29 @@ package com.example.smartassistant.service.core;
 import com.example.smartassistant.common.jev.JevDecisionClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
+
+import java.net.URI;
 
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class JevOrderIntentAdvisorTest {
+    @Test
+    void jevComponentsCanBeSubclassProxiedBySpringAop() {
+        JevDecisionClient client = new JevDecisionClient(new ObjectMapper(), false, "", "jev-latest", 600,
+                URI.create("http://127.0.0.1:1/v1/systemone"));
+        for (Object target : new Object[]{client, new JevOrderIntentAdvisor(client)}) {
+            ProxyFactory factory = new ProxyFactory(target);
+            factory.setProxyTargetClass(true);
+            assertDoesNotThrow(() -> { factory.getProxy(); });
+        }
+    }
+
     @Test
     void onlyHighConfidenceReadOnlyLabelsCanBeReturned() throws Exception {
         JevDecisionClient client = mock(JevDecisionClient.class);
