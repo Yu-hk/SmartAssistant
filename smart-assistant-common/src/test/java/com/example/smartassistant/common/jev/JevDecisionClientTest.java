@@ -7,13 +7,25 @@ import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class JevDecisionClientTest {
+    @Test
+    void connectionDeadlineUsesTheBoundedRequestBudget() throws Exception {
+        var client = new JevDecisionClient(new ObjectMapper(), true, "test-only-key", "jev-latest", 1800,
+                URI.create("http://127.0.0.1:1/v1/systemone"));
+        var field = JevDecisionClient.class.getDeclaredField("http");
+        field.setAccessible(true);
+        var http = (HttpClient) field.get(client);
+        assertEquals(Duration.ofMillis(1800), http.connectTimeout().orElseThrow());
+    }
+
     @Test
     void disabledNeverCallsProvider() {
         var client = new JevDecisionClient(new ObjectMapper(), false, "", "jev-latest", 500,

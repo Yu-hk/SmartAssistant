@@ -66,7 +66,10 @@ public class JevDecisionClient {
         this.timeoutMs = Math.max(100, Math.min(2500, timeoutMs));
         this.endpoint = endpoint;
         HttpClient.Builder builder = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofMillis(Math.min(this.timeoutMs, 500)));
+                // The request deadline already bounds the whole call. A shorter
+                // fixed connection deadline caused cold production connections
+                // to fail before the provider could answer.
+                .connectTimeout(Duration.ofMillis(this.timeoutMs));
         if (proxyUrl != null && !proxyUrl.isBlank()) {
             URI proxy = URI.create(proxyUrl);
             if (proxy.getHost() == null || proxy.getPort() < 1)
