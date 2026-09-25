@@ -4,6 +4,7 @@ import com.example.smartassistant.consumer.service.recommendation.UserProfileSer
 import com.example.smartassistant.consumer.service.sentiment.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.concurrent.*;
 
@@ -76,6 +77,44 @@ class ConversationPreprocessingServiceTest {
         assertEquals("ANALYSIS_FAILED", result.reason());
         assertNull(result.level());
         assertEquals("业务回复", result.adaptReply("业务回复"));
+    }
+
+    @Test void prequeueAdvisorResultReachesDispatchInsight() {
+        var service = service(1000);
+        JevPrequeueAdvisor advisor = mock(JevPrequeueAdvisor.class);
+        ReflectionTestUtils.setField(service, "jevAdvisor", advisor);
+        when(analyzer.analyze("订单被重复扣款了")).thenReturn(neutral);
+        when(advisor.augment(eq("订单被重复扣款了"), eq("request"), any()))
+                .thenAnswer(call -> {
+                    TurnInsight baseline = call.getArgument(2);
+                    return new TurnInsight(baseline.status(), baseline.level(), baseline.label(),
+                            baseline.confidence(), false, false, baseline.responseStrategy(),
+                            "ELEVATED", "DETERMINISTIC_RISK", 0, false);
+                });
+
+        TurnInsight result = service.prepare(42L, "session", "request", "订单被重复扣款了");
+
+        assertEquals("ELEVATED", result.suggestedPriority());
+        assertEquals("DETERMINISTIC_RISK", result.reason());
+    }
+
+    @Test void baselineFailureStillRunsPrequeueRiskAdvisor() {
+        var service = service(1000);
+        JevPrequeueAdvisor advisor = mock(JevPrequeueAdvisor.class);
+        ReflectionTestUtils.setField(service, "jevAdvisor", advisor);
+        when(analyzer.analyze("订单被重复扣款了")).thenThrow(new IllegalStateException("model unavailable"));
+        when(advisor.augment(eq("订单被重复扣款了"), eq("request"), any()))
+                .thenAnswer(call -> {
+                    TurnInsight baseline = call.getArgument(2);
+                    assertEquals("UNKNOWN", baseline.status());
+                    return new TurnInsight(baseline.status(), null, baseline.label(), 0,
+                            false, false, baseline.responseStrategy(), "ELEVATED", "DETERMINISTIC_RISK", 0, false);
+                });
+
+        TurnInsight result = service.prepare(42L, "session", "request", "订单被重复扣款了");
+
+        assertEquals("ELEVATED", result.suggestedPriority());
+        assertEquals("DETERMINISTIC_RISK", result.reason());
     }
 
     @Test void saturatedExecutorStillStartsProfile() {
