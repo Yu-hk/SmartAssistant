@@ -8,7 +8,7 @@ import java.util.Map;
 
 /** Model-failure fallback for read-only intent hints, not permission to mutate orders. */
 @Component
-public final class JevOrderIntentAdvisor {
+public class JevOrderIntentAdvisor {
     private static final Map<String, Object> QUESTIONS = JevQuestionCatalog.load(
             JevOrderIntentAdvisor.class, "/jev/order-read-intent-questions.json");
     private final JevDecisionClient client;

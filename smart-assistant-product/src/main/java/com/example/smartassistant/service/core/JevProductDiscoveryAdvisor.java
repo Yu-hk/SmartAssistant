@@ -8,7 +8,7 @@ import java.util.Map;
 
 /** Semantic hint for uncertain, read-only product discovery; never supplies catalog facts. */
 @Component
-public final class JevProductDiscoveryAdvisor {
+public class JevProductDiscoveryAdvisor {
     private static final Map<String, Object> QUESTIONS = JevQuestionCatalog.load(
             JevProductDiscoveryAdvisor.class, "/jev/product-discovery-questions.json");
     private final JevDecisionClient client;
