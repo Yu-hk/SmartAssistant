@@ -180,17 +180,19 @@ public class RouteExecutionService {
 
         storeSseEvent(eventsKey, "summarizing", "正在整合多源信息...", null);
 
-        boolean hasBuiltInOrderPreparation = results.stream()
+        List<SubTaskResult> visibleResults = PurchasePrerequisiteGuard.visibleResults(results);
+        boolean checkoutDeferred = visibleResults.size() != results.size();
+        boolean hasBuiltInOrderPreparation = visibleResults.stream()
                 .anyMatch(result -> result.getSystemNodeType()
                         == SubTaskResult.SystemNodeType.ORDER_PREPARATION);
-        String merged = hasBuiltInOrderPreparation
-                ? mergeOrderPreparationResults(results)
+        String merged = checkoutDeferred || hasBuiltInOrderPreparation
+                ? mergeOrderPreparationResults(visibleResults)
                 : fallbackPlanned
-                        ? mergeFallbackPlannedResults(results)
-                        : resultMerger.merge(question, results, requestId);
+                        ? mergeFallbackPlannedResults(visibleResults)
+                        : resultMerger.merge(question, visibleResults, requestId);
         long elapsed = System.currentTimeMillis() - start;
 
-        ResultAttribution attribution = determineResultAttribution(results);
+        ResultAttribution attribution = determineResultAttribution(visibleResults);
         if (agentFlowTraceStore != null) {
             agentFlowTraceStore.complete(flowId, results, attribution.participatingAgents(), elapsed);
         }
@@ -205,14 +207,14 @@ public class RouteExecutionService {
         log.info("[Collaborative] 协作完成: {} 个子任务, 耗时={}ms, 结果长度={}",
                 results.size(), elapsed, merged.length());
 
-        DomainQualityResult domainQuality = aggregateDomainQuality(results);
+        DomainQualityResult domainQuality = aggregateDomainQuality(visibleResults);
 
         return routeFinalizer.applyEmotion(RoutingResult.builder()
                 .result(merged).agentName(attribution.agentName()).confidence(0.8)
                 .executionMode(attribution.executionMode())
                 .participatingAgents(attribution.participatingAgents())
                 .workflowStatus(attribution.workflowStatus())
-                .clarificationRequest(DomainClarificationRelay.select(results))
+                .clarificationRequest(DomainClarificationRelay.select(visibleResults))
                 .domainQuality(domainQuality).build(), emotion);
     }
 
@@ -487,15 +489,16 @@ public class RouteExecutionService {
         if (!ExecutionPlanValidator.validate(plan).valid()) return ModelUnavailableWorkflowService.unavailable();
         List<SubTaskResult> results = executeGraph(plan.toIntentGraph(), userId,
                 RoutingKeys.sseEvents(plan.executionId()), plan.executionId());
-        ResultAttribution attribution = determineResultAttribution(results);
-        String answer = results.stream().filter(SubTaskResult::isSuccess).map(SubTaskResult::getResult)
+        List<SubTaskResult> visibleResults = PurchasePrerequisiteGuard.visibleResults(results);
+        ResultAttribution attribution = determineResultAttribution(visibleResults);
+        String answer = visibleResults.stream().filter(SubTaskResult::isSuccess).map(SubTaskResult::getResult)
                 .filter(Objects::nonNull).collect(java.util.stream.Collectors.joining("\n\n"));
         if (answer.isBlank()) answer = "暂时无法完成该订单流程，请先核实原请求的处理状态，再联系人工客服。";
         return RoutingResult.builder().result(answer).intentTag("ORDER")
                 .agentName(attribution.agentName()).participatingAgents(attribution.participatingAgents())
                 .executionMode(attribution.executionMode()).workflowStatus(attribution.workflowStatus())
-                .clarificationRequest(DomainClarificationRelay.select(results))
-                .domainQuality(aggregateDomainQuality(results)).semanticCacheCategory("NONE").build();
+                .clarificationRequest(DomainClarificationRelay.select(visibleResults))
+                .domainQuality(aggregateDomainQuality(visibleResults)).semanticCacheCategory("NONE").build();
     }
 
     private static String buildScopedDescription(String description, String agent,

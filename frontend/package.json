@@ -12,6 +12,7 @@
     "test:login": "node scripts/run-login-page-tests.mjs",
     "test:feishu": "node --import tsx --test scripts/feishu-qr-login.test.ts",
     "test:scenarios": "node scripts/run-scenario-examples-tests.mjs",
+    "test:clarification": "node --import tsx --test scripts/clarification-form.test.ts",
     "dev": "vite",
     "dev:legacy-server": "tsx watch server/index.ts",
     "dev:client": "vite",
