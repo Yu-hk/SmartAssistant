@@ -213,6 +213,14 @@ mcp:
       - users
       - user_sessions
 
+# Optional read-only intent fallback; never authorizes order mutation.
+jev:
+  enabled: ${JEV_ENABLED:false}
+  api-key: ${TYPESAFE_API_KEY:}
+  model: ${JEV_MODEL:jev-latest}
+  timeout-ms: ${JEV_TIMEOUT_MS:600}
+  proxy-url: ${JEV_PROXY_URL:}
+
 # Logging 配置（输出到文件，供 Loki 收集）⭐
 logging:
   file:

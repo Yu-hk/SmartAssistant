@@ -13,10 +13,11 @@ import java.util.Map;
  * Extracts provider-reported token usage propagated by the Router service.
  *
  * <p>Token usage crosses service/JVM boundaries in the Router response. The
- * Consumer must therefore never rely on its process-local {@code
- * TokenUsageCache}. This extractor accepts the current camel-case contract and
- * the common snake-case / nested usage variants to keep rolling deployments
- * compatible.</p>
+ * Consumer must therefore never use its process-local {@code
+ * TokenUsageCache} as a substitute for downstream usage. Locally executed
+ * decision calls may be merged separately with this routed snapshot. This
+ * extractor accepts the current camel-case contract and the common snake-case
+ * / nested usage variants to keep rolling deployments compatible.</p>
  */
 public final class TokenUsageExtractor {
 

@@ -268,7 +268,7 @@ public class ProductStreamController {
                     response.answer(), data, response.quality()),
                     response.quality().getReasonCodes().contains("NO_ELIGIBLE_VERIFIED_PRODUCT"));
         }
-        if (productDiscoveryService != null && isDiscoveryRequest(request)) {
+        if (productDiscoveryService != null && isDiscoveryRequest(request, requestId)) {
             Integer limit = integerInput(request, "candidateLimit", "candidate_limit", "limit");
             String category = textInput(request, "product_category", "category", "product_name");
             long started = System.nanoTime();
@@ -357,10 +357,10 @@ public class ProductStreamController {
         return builder.body(response);
     }
 
-    private boolean isDiscoveryRequest(AgentExecutionRequest request) {
+    private boolean isDiscoveryRequest(AgentExecutionRequest request, String requestId) {
         return WorkflowOperation.QUERY_HOT_PRODUCTS.code().equalsIgnoreCase(request.operation())
                 || WorkflowOperation.DISCOVER_PRODUCTS.code().equalsIgnoreCase(request.operation())
-                || productDiscoveryService.supports(request.question());
+                || productDiscoveryService.supports(request.question(), requestId);
     }
 
     private static Integer integerInput(AgentExecutionRequest request, String... keys) {

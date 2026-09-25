@@ -498,6 +498,14 @@ bge:
   vocab:
     path: ${BGE_VOCAB_PATH:D:\\workspace\\SmartAssistant\\models\\tokenizer.json}
 
+# Optional external decision signal. Keep disabled until data-transfer approval and key rotation.
+jev:
+  enabled: ${JEV_ENABLED:false}
+  api-key: ${TYPESAFE_API_KEY:}
+  model: ${JEV_MODEL:jev-latest}
+  timeout-ms: ${JEV_TIMEOUT_MS:600}
+  proxy-url: ${JEV_PROXY_URL:}
+
 # Logging 配置（输出到文件，供 Loki 收集）⭐
 logging:
   file:

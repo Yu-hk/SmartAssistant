@@ -20,6 +20,11 @@ public record TurnInsight(String status, Integer level, String label, int confid
         return !"ANALYZED".equals(status) || level != null && level >= 3 || escalated || handoffRequested;
     }
 
+    public TurnInsight withLatency(long elapsedMs) {
+        return new TurnInsight(status, level, label, confidence, escalated, handoffRequested,
+                responseStrategy, suggestedPriority, reason, elapsedMs, stateRecorded);
+    }
+
     /** Fixed wording only; never alters the original question or promises a nonexistent human transfer. */
     public String adaptReply(String reply) {
         if (reply == null || reply.isBlank() || !"ANALYZED".equals(status)) return reply;

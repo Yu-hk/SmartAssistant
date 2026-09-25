@@ -5,6 +5,7 @@
 package com.example.smartassistant.consumer.service.core;
 
 import com.example.smartassistant.common.memory.EntityProfileService;
+import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.consumer.service.sentiment.SentimentAnalysisService;
 import com.example.smartassistant.consumer.service.sentiment.TurnInsight;
 import org.junit.jupiter.api.BeforeEach;
@@ -130,6 +131,26 @@ class ChatConsumerServiceTest {
                 eq("ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("今天晴朗"),
                 eq(60L), eq(15L), eq(75L), eq("北京天气"), isNull());
         verify(userProfileService).commitAfterSuccessfulTurn(42L, "request-2");
+    }
+
+    @Test
+    void jevPrequeueTokensAreIncludedInConversationTotal() {
+        when(sessionManagementService.getOrCreateThreadId("42")).thenReturn("thread-42");
+        when(routerClient.callRouterRaw("查询订单", "42", "session-jev", "request-jev", true))
+                .thenReturn(Map.of("result", "已查询", "agentName", "order",
+                        "promptTokens", 40, "completionTokens", 10, "totalTokens", 50));
+        TokenUsageCache.record("request-jev", 3, 2, 5);
+
+        var response = chatConsumerService.calculateWithSession(
+                "42", "查询订单", "session-jev", "request-jev");
+
+        assertEquals(43L, response.get("promptTokens"));
+        assertEquals(12L, response.get("completionTokens"));
+        assertEquals(55L, response.get("totalTokens"));
+        verify(routingCallLogService).saveLog(
+                eq(42L), eq("session-jev"), eq("查询订单"), eq("order"),
+                eq("ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("已查询"),
+                eq(43L), eq(12L), eq(55L), eq("查询订单"), isNull());
     }
 
     @Test

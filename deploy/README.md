@@ -97,6 +97,11 @@ vim .env
 | `NACOS_PASSWORD` | Nacos 密码 | ✅ |
 | `JWT_SECRET` | JWT 签名密钥（建议 256 位随机字符串） | ✅ |
 
+Jev 辅助决策默认关闭。确需启用时，完成第三方数据传输审批与密钥轮换后，
+在服务器环境文件中设置 `JEV_ENABLED=true`、`TYPESAFE_API_KEY`；
+不要把密钥提交到仓库。配置、回滚方式和执行边界见
+[Jev 辅助决策接入](../docs/jev-advisory-integration.md)。
+
 ### 第三方登录配置
 
 微信、钉钉、飞书登录默认关闭。先在各平台创建网页应用并登记回调地址，再在 `deploy/.env` 中填写对应的 `CLIENT_ID`、`CLIENT_SECRET`，最后把该渠道的 `OAUTH_*_ENABLED` 改为 `true`：

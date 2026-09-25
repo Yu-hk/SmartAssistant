@@ -28,6 +28,8 @@ public class ProductDiscoveryService {
             "(?<![\\d.,])[¥￥]?\\s*" + BUDGET_NUMBER + "\\s*(万|千|[kK])?\\s*元?\\s*(?:以内|以下|之内)");
 
     private final ProductBackend productBackend;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private JevProductDiscoveryAdvisor jevAdvisor;
 
     public ProductDiscoveryService(ProductBackend productBackend) {
         this.productBackend = productBackend;
@@ -47,19 +49,27 @@ public class ProductDiscoveryService {
 
     /** Returns true only for generic discovery requests, not specific product recommendations. */
     public boolean supports(String query) {
+        return supports(query, null);
+    }
+
+    /** Jev may widen an uncertain read-only discovery route, never override an explicit fact query. */
+    public boolean supports(String query, String requestId) {
         if (query == null || query.isBlank()) return false;
         String normalized = UserQuestionNormalizer.normalize(query);
         ProductDiscoveryIntent intent = INTENT_PARSER.parse(normalized);
         boolean categoryRequest = !detectCategory(normalized).isBlank();
         if (intent.hasFeatureInterest() && intent.detailQuestion() && !intent.recommendation()
                 && !intent.categoryRestricted()) return false;
-        return intent.catalogBrowse() || intent.recommendation() && (categoryRequest
+        boolean deterministic = intent.catalogBrowse() || intent.recommendation() && (categoryRequest
                 || intent.hasFeatureInterest() || intent.hardConstraintRequested()
                 || DISCOVERY_SCHEMA.contains("intent.catalog", normalized))
                 || intent.hasFeatureInterest() && (intent.recommendation() || intent.categoryRestricted())
                 || !intent.detailQuestion() && (intent.hasFeatureInterest()
                 || intent.budget().max() != null || intent.budget().ambiguous())
                 || categoryRequest && (intent.popularity() || intent.hardConstraintRequested());
+        if (deterministic) return true;
+        return !intent.detailQuestion() && (categoryRequest || intent.hasFeatureInterest())
+                && jevAdvisor != null && jevAdvisor.suggestsDiscovery(normalized, requestId);
     }
 
     public DiscoveryResult discover(String query, Integer requestedLimit) {
