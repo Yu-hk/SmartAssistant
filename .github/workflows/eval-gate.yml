@@ -241,6 +241,8 @@ jobs:
           mvn -B -pl smart-assistant-product -am test
           -Dtest=ProductStructuredFeaturesTest,JdbcProductFeaturesTest,StructuredProductRecommendationTest,ProductRecommendationSafetyTest,ProductBudgetClaimVerifierTest,ProductBudgetDerivationVerifierTest,PromptManagerDataAnalysisTest,ProductPriceFaithfulnessTest,HallucinationDetectorTest,FaithfulnessGuardTest,ContextFaithfulnessCheckerTest,ProductToolEvidenceScopeTest,ProductStreamControllerTest,StreamingProductAgentServiceTest,ProductDomainQualityValidatorTest,ProductToolsTest,ProductDiscoveryServiceTest,JdbcProductBackendTest,InMemoryProductBackendTest,ProductCustomerServicePromptTest,ProductSkillPackageConfigurationTest,ProductPublicAnswerTest
           -Dsurefire.failIfNoSpecifiedTests=false
+      - name: Enforce product evidence policy coverage
+        run: python3 scripts/verify_jacoco_class.py smart-assistant-product/target/site/jacoco/jacoco.xml com/example/smartassistant/service/core/ProductEvidenceResponsePolicy --instruction-minimum 0.85 --branch-minimum 0.70
       - name: Verify final SSE token selection
         run: python3 -m unittest discover -s scripts -p test_chat_telemetry.py -v
       - name: Verify persistent product features and management authorization
@@ -475,12 +477,26 @@ jobs:
         run: |
           mvn -B -pl smart-assistant-router -am -DskipTests install
           mvn -B -pl smart-assistant-router clean verify -Dtest="RouterControllerIdentityTest,RouterControllerTokenUsageTest,RouterSingleIntentFastPathTest,BgeOnnxEmbeddingServiceTest,RouteLangGraphExecutionTest,RouterCachedRouteHintTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest" -Djacoco.haltOnFailure=true -Djacoco.instruction.minimum=0.14 -Djacoco.branch.minimum=0.09
+      - name: Verify extracted consumer service coverage
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_verify_jacoco_class.py'
+          mvn -B -pl smart-assistant-consumer -am clean test -Dtest="AdminServiceFaqImportTest,AdminFaqServicePersistenceTest,StreamTurnRecorderTest,StreamChatControllerPersistenceTest,RedisSseProgressForwarderTest" -Dsurefire.failIfNoSpecifiedTests=false
+          python3 scripts/verify_jacoco_class.py smart-assistant-consumer/target/site/jacoco/jacoco.xml com/example/smartassistant/consumer/service/admin/AdminFaqService --instruction-minimum 0.80 --branch-minimum 0.60
+          python3 scripts/verify_jacoco_class.py smart-assistant-consumer/target/site/jacoco/jacoco.xml com/example/smartassistant/consumer/service/session/StreamTurnRecorder --instruction-minimum 0.80 --branch-minimum 0.65
+          python3 scripts/verify_jacoco_class.py smart-assistant-consumer/target/site/jacoco/jacoco.xml com/example/smartassistant/consumer/streaming/RedisSseProgressForwarder --instruction-minimum 0.80 --branch-minimum 0.60
       - name: Upload jacoco coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-router-report
           path: smart-assistant-router/target/site/jacoco/
+          if-no-files-found: warn
+      - name: Upload consumer coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-consumer-services-report
+          path: smart-assistant-consumer/target/site/jacoco/
           if-no-files-found: warn
 
 # 说明：
