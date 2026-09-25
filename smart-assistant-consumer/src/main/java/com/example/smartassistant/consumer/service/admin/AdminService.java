@@ -27,14 +27,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Persistent administration and user-session service.
@@ -48,16 +46,14 @@ public class AdminService {
 
     private static final Logger log = LoggerFactory.getLogger(AdminService.class);
     private static final int MAX_PAGE_SIZE = 100;
-    private static final int MAX_FAQ_IMPORT_SIZE = 500;
-    private static final int MAX_FAQ_ANSWER_LENGTH = 20_000;
-    private static final Set<String> FAQ_IMPORT_TYPES = Set.of("json", "csv", "markdown");
-
     private final JdbcTemplate jdbcTemplate;
     private final DatabaseDialect dialect;
+    private final AdminFaqService faqService;
 
     public AdminService(JdbcTemplate jdbcTemplate, DatabaseDialect dialect) {
         this.jdbcTemplate = jdbcTemplate;
         this.dialect = dialect;
+        this.faqService = new AdminFaqService(jdbcTemplate);
     }
 
     /**
@@ -105,7 +101,7 @@ public class AdminService {
                     "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
             ensureColumn("admin_faq", "source_name", "VARCHAR(255)");
             ensureColumn("admin_faq", "source_type", "VARCHAR(32) NOT NULL DEFAULT 'manual'");
-            seedDefaultFaqs();
+            faqService.seedDefaults();
         } catch (Exception e) {
             // The application can still serve chat traffic if a deployment role
             // temporarily lacks DDL permission. The documented migration remains
@@ -731,217 +727,32 @@ public class AdminService {
     // ==================== Persistent FAQ / knowledge entries ====================
 
     public List<FaqItem> getFaqs() {
-        try {
-            return jdbcTemplate.queryForList(
-                            "SELECT id, category, question, answer, keywords, source_name, source_type, " +
-                                    "hit_count, created_at, updated_at " +
-                                    "FROM admin_faq ORDER BY updated_at DESC, id DESC")
-                    .stream().map(this::mapFaq).toList();
-        } catch (Exception e) {
-            log.error("[Admin] FAQ list query failed", e);
-            throw new IllegalStateException("Unable to load administration knowledge base", e);
-        }
+        return faqService.getFaqs();
     }
 
     @Transactional
     public FaqItem createFaq(Map<String, String> body) {
-        String question = valueOrDefault(body.get("question"), "");
-        String answer = valueOrDefault(body.get("answer"), "");
-        if (question.isBlank() || answer.isBlank()) {
-            throw new IllegalArgumentException("question and answer are required");
-        }
-        try {
-            jdbcTemplate.update(
-                    "INSERT INTO admin_faq (category, question, answer, keywords, source_type, created_at, updated_at) " +
-                            "VALUES (?, ?, ?, ?, 'manual', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    valueOrDefault(body.get("category"), "general"),
-                    question,
-                    answer,
-                    valueOrDefault(body.get("keywords"), ""));
-        } catch (DuplicateKeyException duplicate) {
-            throw new IllegalArgumentException("an FAQ with the same question already exists");
-        }
-        return findFaqByQuestion(question)
-                .orElseThrow(() -> new IllegalStateException("FAQ insert succeeded but could not be read"));
+        return faqService.createFaq(body);
     }
 
     @Transactional
     public FaqItem updateFaq(String id, Map<String, String> body) {
-        Long faqId = parseId(id);
-        if (faqId == null) {
-            return null;
-        }
-        Optional<FaqItem> current = findFaq(faqId);
-        if (current.isEmpty()) {
-            return null;
-        }
-        FaqItem existing = current.get();
-        String question = valueOrDefault(body.get("question"), existing.question());
-        String answer = valueOrDefault(body.get("answer"), existing.answer());
-        if (question.isBlank() || answer.isBlank()) {
-            throw new IllegalArgumentException("question and answer are required");
-        }
-        jdbcTemplate.update(
-                "UPDATE admin_faq SET category = ?, question = ?, answer = ?, keywords = ?, " +
-                        "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                valueOrDefault(body.get("category"), existing.category()),
-                question,
-                answer,
-                valueOrDefault(body.get("keywords"), existing.keywords()),
-                faqId);
-        return findFaq(faqId).orElse(null);
+        return faqService.updateFaq(id, body);
     }
 
-    /**
-     * Imports a client-parsed external knowledge file as one atomic batch.
-     * Duplicate questions are skipped by default or updated when overwrite is enabled.
-     */
     @Transactional
-    public FaqImportResult importFaqs(
-            String sourceName,
-            String sourceType,
-            boolean overwrite,
-            List<Map<String, String>> items) {
-        String normalizedSourceName = valueOrDefault(sourceName, "external-knowledge");
-        String normalizedSourceType = valueOrDefault(sourceType, "").toLowerCase(Locale.ROOT);
-        if (normalizedSourceName.isBlank() || normalizedSourceName.length() > 255) {
-            throw new IllegalArgumentException("sourceName is required and must not exceed 255 characters");
-        }
-        if (!FAQ_IMPORT_TYPES.contains(normalizedSourceType)) {
-            throw new IllegalArgumentException("sourceType must be json, csv, or markdown");
-        }
-        if (items == null || items.isEmpty()) {
-            throw new IllegalArgumentException("at least one knowledge item is required");
-        }
-        if (items.size() > MAX_FAQ_IMPORT_SIZE) {
-            throw new IllegalArgumentException("a single import cannot exceed " + MAX_FAQ_IMPORT_SIZE + " items");
-        }
-
-        int created = 0;
-        int updated = 0;
-        int skipped = 0;
-        Set<String> seenQuestions = new HashSet<>();
-        for (int index = 0; index < items.size(); index++) {
-            Map<String, String> item = items.get(index);
-            if (item == null) {
-                throw new IllegalArgumentException("knowledge item " + (index + 1) + " is empty");
-            }
-            String question = validateImportField(item.get("question"), "question", index, 500, true);
-            String answer = validateImportField(item.get("answer"), "answer", index, MAX_FAQ_ANSWER_LENGTH, true);
-            String category = validateImportField(item.get("category"), "category", index, 50, false);
-            String keywords = validateImportField(item.get("keywords"), "keywords", index, 1000, false);
-            if (category.isBlank()) category = "general";
-
-            String questionKey = question.toLowerCase(Locale.ROOT);
-            if (!seenQuestions.add(questionKey)) {
-                skipped++;
-                continue;
-            }
-            Long existingId = findFaqIdByQuestionIgnoreCase(question);
-            if (existingId != null) {
-                if (!overwrite) {
-                    skipped++;
-                    continue;
-                }
-                jdbcTemplate.update(
-                        "UPDATE admin_faq SET category = ?, question = ?, answer = ?, keywords = ?, " +
-                                "source_name = ?, source_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                        category, question, answer, keywords,
-                        normalizedSourceName, normalizedSourceType, existingId);
-                updated++;
-                continue;
-            }
-            jdbcTemplate.update(
-                    "INSERT INTO admin_faq (category, question, answer, keywords, source_name, source_type, " +
-                            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    category, question, answer, keywords, normalizedSourceName, normalizedSourceType);
-            created++;
-        }
-        return new FaqImportResult(items.size(), created, updated, skipped);
+    public FaqImportResult importFaqs(String sourceName, String sourceType, boolean overwrite,
+                                      List<Map<String, String>> items) {
+        return faqService.importFaqs(sourceName, sourceType, overwrite, items);
     }
 
     public boolean deleteFaq(String id) {
-        Long faqId = parseId(id);
-        return faqId != null && jdbcTemplate.update("DELETE FROM admin_faq WHERE id = ?", faqId) > 0;
+        return faqService.deleteFaq(id);
     }
 
     public boolean hitFaq(String id) {
-        Long faqId = parseId(id);
-        return faqId != null && jdbcTemplate.update(
-                "UPDATE admin_faq SET hit_count = hit_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                faqId) > 0;
+        return faqService.hitFaq(id);
     }
-
-    private Optional<FaqItem> findFaq(Long id) {
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT id, category, question, answer, keywords, source_name, source_type, " +
-                        "hit_count, created_at, updated_at " +
-                        "FROM admin_faq WHERE id = ?", id);
-        return rows.stream().findFirst().map(this::mapFaq);
-    }
-
-    private Optional<FaqItem> findFaqByQuestion(String question) {
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT id, category, question, answer, keywords, source_name, source_type, " +
-                        "hit_count, created_at, updated_at " +
-                        "FROM admin_faq WHERE question = ?", question);
-        return rows.stream().findFirst().map(this::mapFaq);
-    }
-
-    private Long findFaqIdByQuestionIgnoreCase(String question) {
-        List<Long> ids = jdbcTemplate.queryForList(
-                "SELECT id FROM admin_faq WHERE LOWER(question) = LOWER(?) ORDER BY id LIMIT 1",
-                Long.class,
-                question);
-        return ids.isEmpty() ? null : ids.getFirst();
-    }
-
-    private static String validateImportField(
-            String value,
-            String field,
-            int index,
-            int maxLength,
-            boolean required) {
-        String normalized = valueOrDefault(value, "");
-        if (required && normalized.isBlank()) {
-            throw new IllegalArgumentException("knowledge item " + (index + 1) + " requires " + field);
-        }
-        if (normalized.length() > maxLength) {
-            throw new IllegalArgumentException(
-                    "knowledge item " + (index + 1) + " field " + field + " exceeds " + maxLength + " characters");
-        }
-        return normalized;
-    }
-
-    private void seedDefaultFaqs() {
-        seedFaq("order", "怎么查询我的订单？",
-                "登录后可以查询当前账号的订单列表；查询某一笔订单时，请选择对应订单，所需资料以订单服务提示为准。",
-                "订单查询,订单状态,物流");
-        seedFaq("order", "如何申请退款？",
-                "了解退款政策无需提供订单号；办理具体订单的退款时，请选择对应订单，订单服务会核实状态并提示所需资料。",
-                "退款,退货,取消订单");
-        seedFaq("product", "如何查询商品信息？",
-                "可以告诉我商品名称、品类或您的使用需求，我会查询相关商品；如需进一步明确条件，商品服务会提示您补充。",
-                "商品查询,商品信息,价格");
-        seedFaq("general", "你们有哪些服务？",
-                "我可以帮助查询订单、商品信息和常见问题。",
-                "服务,功能,帮助");
-    }
-
-    private void seedFaq(String category, String question, String answer, String keywords) {
-        if (queryLong("SELECT COUNT(*) FROM admin_faq WHERE question = ?", question) > 0) {
-            return;
-        }
-        try {
-            jdbcTemplate.update(
-                    "INSERT INTO admin_faq (category, question, answer, keywords, created_at, updated_at) " +
-                            "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                    category, question, answer, keywords);
-        } catch (DuplicateKeyException ignored) {
-            // Multiple consumer instances may seed concurrently.
-        }
-    }
-
     // ==================== Costs ====================
 
     public Map<String, Object> getCosts() {
@@ -1044,21 +855,6 @@ public class AdminService {
         return map;
     }
 
-    private FaqItem mapFaq(Map<String, Object> row) {
-        String sourceType = stringValue(row, "source_type");
-        return new FaqItem(
-                Objects.toString(row.get("id"), ""),
-                stringValue(row, "category"),
-                stringValue(row, "question"),
-                stringValue(row, "answer"),
-                stringValue(row, "keywords"),
-                stringValue(row, "source_name"),
-                sourceType.isBlank() ? "manual" : sourceType,
-                longValue(row, "hit_count"),
-                timestampValue(row.get("created_at")),
-                timestampValue(row.get("updated_at")));
-    }
-
     private long queryLong(String sql, Object... args) {
         Number result = jdbcTemplate.queryForObject(sql, Number.class, args);
         return result == null ? 0L : result.longValue();
@@ -1149,18 +945,6 @@ public class AdminService {
             result.add(byDate.getOrDefault(date, new DailyStats(date, 0, null)));
         }
         return result;
-    }
-
-    private static String valueOrDefault(String value, String defaultValue) {
-        return value == null ? defaultValue : value.trim();
-    }
-
-    private static Long parseId(String id) {
-        try {
-            return Long.valueOf(id);
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
     }
 
     private static String truncate(String value, int maxLength) {
