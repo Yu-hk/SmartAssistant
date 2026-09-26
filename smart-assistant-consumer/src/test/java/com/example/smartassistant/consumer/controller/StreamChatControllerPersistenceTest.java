@@ -416,7 +416,7 @@ class StreamChatControllerPersistenceTest {
             verify(routingCallLogService).saveLog(
                     eq(42L), eq("session-only"), eq("session-only"), eq("recommend something"),
                     eq("product_service"), eq("STREAM_ROUTER_SERVICE"), anyLong(),
-                    eq("SUCCESS"), eq((String) null), eq(50L), eq(15L), eq(65L),
+                    eq("SUCCESS"), eq("streamed answer"), eq(50L), eq(15L), eq(65L),
                     eq("recommend something"), isNull());
             verify(requestQueueService).complete("session-only");
         } finally {

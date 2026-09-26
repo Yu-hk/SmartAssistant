@@ -22,6 +22,10 @@ public final class RedisSseProgressForwarder {
     }
 
     public boolean forwardList(SseEventBus bus, String eventsKey) {
+        return forwardList(bus, eventsKey, null);
+    }
+
+    public boolean forwardList(SseEventBus bus, String eventsKey, Cursor cursor) {
         try {
             while (true) {
                 String payload = redis.opsForList().leftPop(eventsKey);
@@ -29,6 +33,7 @@ public final class RedisSseProgressForwarder {
                 String type = extractType(payload);
                 if (!"done".equals(type)) {
                     bus.send(SseEvent.raw(type, payload));
+                    if (cursor != null) cursor.record(type, payload);
                 }
             }
             return true;
@@ -52,7 +57,7 @@ public final class RedisSseProgressForwarder {
                 String type = extractType(payload);
                 if (!"done".equals(type)) {
                     bus.send(SseEvent.raw(type, payload));
-                    cursor.forwardedAny = true;
+                    cursor.record(type, payload);
                 }
             }
         } catch (Exception error) {
@@ -74,9 +79,17 @@ public final class RedisSseProgressForwarder {
     public static final class Cursor {
         private String lastRecordId = "0-0";
         private boolean forwardedAny;
+        private final VisibleReplyAccumulator reply = new VisibleReplyAccumulator();
+
+        void record(String type, String payload) {
+            forwardedAny = true;
+            reply.accept(type, payload);
+        }
 
         public boolean forwardedAny() {
             return forwardedAny;
         }
+
+        public String replyText() { return reply.text(); }
     }
 }

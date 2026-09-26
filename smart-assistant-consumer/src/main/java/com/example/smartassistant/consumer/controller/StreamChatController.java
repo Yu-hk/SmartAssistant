@@ -21,6 +21,7 @@ import com.example.smartassistant.consumer.service.infrastructure.ToolUsageExtra
 import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import com.example.smartassistant.consumer.service.session.ConversationGateService;
 import com.example.smartassistant.consumer.service.session.StreamTurnRecorder;
+import com.example.smartassistant.consumer.service.dispatch.ChatDispatchStore;
 import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.common.util.UserQuestionNormalizer;
 import com.example.smartassistant.routing.contract.RoutingKeys;
@@ -335,19 +336,28 @@ public class StreamChatController {
             String eventsKey = RoutingKeys.sseEvents(requestId);
             if (progressCursor.forwardedAny()) {
                 injectTokenUsageEvent(bus, tokenUsage);
-                bus.sendDone();
+                String visibleReply = progressCursor.replyText();
+                if (visibleReply.isBlank()) {
+                    bus.sendError("本次处理没有返回可展示的回复，请先核实原请求状态，避免重复提交。");
+                } else {
+                    bus.sendDone();
+                }
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                        decisionKey, message, agentName, null, startedAt, "SUCCESS", tokenUsage, toolUsage);
+                        decisionKey, message, agentName, visibleReply.isBlank() ? null : visibleReply,
+                        startedAt, visibleReply.isBlank() ? "FAILED" : "SUCCESS", tokenUsage, toolUsage);
                 return;
             }
             Long eventCount = redisTemplate.opsForList().size(eventsKey);
             if (eventCount != null && eventCount > 0) {
                 logger.info("[StreamChat] 多 Agent SSE: {} 条", eventCount);
-                boolean forwarded = progressForwarder.forwardList(bus, eventsKey);
+                boolean forwarded = progressForwarder.forwardList(bus, eventsKey, progressCursor);
                 injectTokenUsageEvent(bus, tokenUsage);
-                bus.sendDone();
+                String visibleReply = progressCursor.replyText();
+                if (forwarded && !visibleReply.isBlank()) bus.sendDone();
+                else bus.sendError("本次处理没有返回可展示的回复，请先核实原请求状态，避免重复提交。");
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                        decisionKey, message, agentName, null, startedAt, forwarded ? "SUCCESS" : "FAILED",
+                        decisionKey, message, agentName, visibleReply.isBlank() ? null : visibleReply,
+                        startedAt, forwarded && !visibleReply.isBlank() ? "SUCCESS" : "FAILED",
                         tokenUsage, toolUsage);
                 return;
             }
@@ -388,10 +398,13 @@ public class StreamChatController {
                             forwardResult.completionTokens(),
                             forwardResult.totalTokens()));
             injectTokenUsageEvent(bus, combinedUsage);
-            bus.sendDone();
+            if (forwardResult.success() && !forwardResult.responseSummary().isBlank()) bus.sendDone();
+            else bus.sendError("本次回复未完整送达，请先核实原请求状态，避免重复提交。");
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                    decisionKey, message, agentName, null, startedAt,
-                    forwardResult.success() ? "SUCCESS" : "FAILED", combinedUsage, toolUsage);
+                    decisionKey, message, agentName,
+                    forwardResult.responseSummary().isBlank() ? null : forwardResult.responseSummary(),
+                    startedAt, forwardResult.success() && !forwardResult.responseSummary().isBlank()
+                            ? "SUCCESS" : "FAILED", combinedUsage, toolUsage);
         } finally {
             if (decisionKey != null && !decisionKey.isBlank()) {
                 requestQueueService.complete(decisionKey);
@@ -583,10 +596,14 @@ public class StreamChatController {
                 return priorityDispatcher.route(message, resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                         decisionKey, insight, decisionTimeoutFor(message),
                         () -> progressForwarder.forwardStream(bus, RoutingKeys.sseStream(decisionKey), progressCursor));
+            } catch (ChatDispatchStore.SessionDispatchBusyException busy) {
+                logger.info("[StreamChat] Session request already queued or running: requestId={}", decisionKey);
+                return com.example.smartassistant.consumer.service.dispatch.PriorityRoutingDispatcher.failure(
+                        "SESSION_REQUEST_BUSY", "当前对话上一条请求仍在处理中，请先查看结果，避免重复提交。");
             } catch (Exception error) {
                 logger.warn("[StreamChat] MQ dispatch unavailable: requestId={}, errorType={}", decisionKey, error.getClass().getSimpleName());
                 return com.example.smartassistant.consumer.service.dispatch.PriorityRoutingDispatcher.failure(
-                        "DISPATCH_UNAVAILABLE", "暂时无法进入处理队列，或当前账号已有请求正在处理，请稍后查看原请求。");
+                        "DISPATCH_UNAVAILABLE", "处理队列暂时无法确认本次请求，请稍后查看原请求状态，避免重复提交。");
             }
         }
         // ⚠️ 先触发路由决策写入 Redis（修复原"只等待、不触发"导致永久失败的问题）
@@ -688,7 +705,7 @@ public class StreamChatController {
         } catch (Exception e) {
             logger.error("[StreamChat] 转发失败: {}", e.getMessage());
             bus.sendError(e.getMessage());
-            return new SseEventBus.ForwardResult(false, null, null, null);
+            return new SseEventBus.ForwardResult(false, null, null, null, "");
         }
     }
 

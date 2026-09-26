@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Session, Message, SessionStatus, normalizeIntentType } from '../types';
 import { sessions as sessionApi } from '../api';
 import { ApiError, authenticatedFetch } from '../api/client';
@@ -66,7 +66,8 @@ export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
-  const [blockingSessionId, setBlockingSessionId] = useState<string | null>(null);
+  const [sessionsLoadState, setSessionsLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const loadedMessageVersions = useRef(new Set<string>());
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
@@ -75,21 +76,26 @@ export function useSessions() {
       const data = await sessionApi.fetchSessions();
       // 兼容 API 返回 { sessions: [...] } 或直接返回数组
       const sessionList = Array.isArray(data) ? data : (data as any).sessions || [];
-      if (sessionList.length > 0) {
-        const loaded: Session[] = sessionList.map(normalizeSession);
-        setSessions(prev => {
-          const remoteIds = new Set(loaded.map(session => session.id));
-          const localOnly = prev.filter(session => !remoteIds.has(session.id));
-          const mergedRemote = loaded.map(remote => {
-            const local = prev.find(session => session.id === remote.id);
-            return local?.messages.length
-              ? { ...remote, messages: local.messages }
-              : remote;
-          });
-          return [...localOnly, ...mergedRemote];
+      const loaded: Session[] = sessionList.map(normalizeSession);
+      setSessions(prev => {
+        const remoteIds = new Set(loaded.map(session => session.id));
+        const localOnly = prev.filter(session => !remoteIds.has(session.id) &&
+          session.messages.some(message => message.isStreaming));
+        const mergedRemote = loaded.map(remote => {
+          const local = prev.find(session => session.id === remote.id);
+          return local?.messages.length
+            ? { ...remote, messages: local.messages }
+            : remote;
         });
-      }
-    } catch (e) { console.error('fetchSessions error:', e); }
+        return [...localOnly, ...mergedRemote];
+      });
+      setSessionsLoadState('ready');
+      return loaded;
+    } catch (e) {
+      console.error('fetchSessions error:', e);
+      setSessionsLoadState('error');
+      return null;
+    }
   }, []);
 
   const createSession = useCallback((title = '新对话'): string => {
@@ -207,15 +213,6 @@ export function useSessions() {
       await sessionApi.resumeSession(sessionId);
     } catch (e) {
       console.error(e);
-      if (e instanceof ApiError && e.body) {
-        try {
-          const detail = JSON.parse(e.body);
-          if (typeof detail.activeSessionId === 'string' && detail.activeSessionId) {
-            setBlockingSessionId(detail.activeSessionId);
-            void fetchSessions();
-          }
-        } catch { /* Keep the original error visible. */ }
-      }
       setSessionActionError(e instanceof ApiError
         ? e.message
         : '恢复会话失败，请稍后重试。');
@@ -224,9 +221,8 @@ export function useSessions() {
     setSessions(prev => prev.map(s => s.id === sessionId
       ? { ...s, status: 'active' }
       : s));
-    setBlockingSessionId(null);
     return true;
-  }, [fetchSessions]);
+  }, []);
 
   const rateSession = useCallback(async (sessionId: string, score: number) => {
     setSessionActionError(null);
@@ -261,13 +257,18 @@ export function useSessions() {
     if (currentSessionId) {
       const session = sessions.find(s => s.id === currentSessionId);
       if (session && session.messages.length === 0) {
-        loadSessionMessages(currentSessionId);
+        const version = `${currentSessionId}:${session.messageCount ?? 0}`;
+        if (!loadedMessageVersions.current.has(version)) {
+          loadedMessageVersions.current.add(version);
+          void loadSessionMessages(currentSessionId);
+        }
       }
     }
   }, [currentSessionId, sessions, loadSessionMessages]);
 
   return {
-    sessions, setSessions, sessionActionError, setSessionActionError, blockingSessionId, setBlockingSessionId,
+    sessionsLoadState,
+    sessions, setSessions, sessionActionError, setSessionActionError,
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, loadSessionMessages, createSession,

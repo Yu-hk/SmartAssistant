@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 
 import { useTheme } from './hooks/useTheme';
@@ -188,33 +188,18 @@ function CustomerApp() {
   usePageVisit();
   const navigate = useNavigate();
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
+  const initialRouteSessionId = useRef(urlSessionId);
   const authUser = getAuthUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [accountSessionLoadState, setAccountSessionLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
 
   const { theme, toggleTheme } = useTheme();
   const {
-    sessions, setSessions, sessionActionError, setSessionActionError, blockingSessionId, setBlockingSessionId,
+    sessions, setSessions, sessionsLoadState, sessionActionError, setSessionActionError,
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, deleteSession, closeSession, resumeSession, rateSession,
   } = useSessions();
-
-  const [resolvingConflict, setResolvingConflict] = useState(false);
-  const handleConversationConflict = useCallback((id: string) => {
-    setBlockingSessionId(id);
-    void fetchSessions();
-  }, [fetchSessions, setBlockingSessionId]);
-
-  const resolveConversationConflict = async () => {
-    if (!blockingSessionId || !currentSessionId || resolvingConflict) return;
-    const suspendedId = currentSessionId;
-    setResolvingConflict(true);
-    try {
-      if (!await closeSession(blockingSessionId)) return;
-      if (await resumeSession(suspendedId)) setBlockingSessionId(null);
-      await fetchSessions();
-    } finally { setResolvingConflict(false); }
-  };
 
   const { notifications, markRead: markNotificationRead } = useNotifications({ setSessions });
 
@@ -230,7 +215,7 @@ function CustomerApp() {
     selectedModel: 'deepseek-v4-flash',
     setSessions,
     setCurrentSessionId,
-    onConversationConflict: handleConversationConflict,
+    onGateRejected: setSessionActionError,
   });
 
   // URL 同步
@@ -241,8 +226,27 @@ function CustomerApp() {
     );
   }, [urlSessionId, setCurrentSessionId]);
 
-  // 初始加载
-  useEffect(() => { fetchSessions(); }, [fetchSessions]);
+  // A URL deep link is accepted only if the authenticated account can list it.
+  useEffect(() => {
+    let disposed = false;
+    void (async () => {
+      const loaded = await fetchSessions();
+      if (disposed) return;
+      if (!loaded) {
+        setAccountSessionLoadState('error');
+        return;
+      }
+      const initialId = initialRouteSessionId.current;
+      const initialSessionIsVisible = Boolean(initialId && loaded.some(session => session.id === initialId));
+      if (initialId && !initialSessionIsVisible) {
+        setCurrentSessionId(null);
+        setSessionActionError('原聊天链接已失效，请从会话列表重新选择。');
+        navigate('/', { replace: true });
+      }
+      setAccountSessionLoadState('ready');
+    })();
+    return () => { disposed = true; };
+  }, [fetchSessions, navigate, setCurrentSessionId, setSessionActionError]);
 
   const handleNewChat = useCallback(() => {
     if (isLoading) return;
@@ -361,24 +365,11 @@ function CustomerApp() {
               </div>
             </header>
 
-            {blockingSessionId && currentSession?.status === 'suspended' && (
-              <div role="alert" className="conversation-conflict">
-                <p>账号有另一条未结束的对话。您可以查看它，或结束占用后恢复本会话；正在处理的请求不会被强行关闭。</p>
-                <div className="conversation-conflict-actions">
-                  {sessions.some(s => s.id === blockingSessionId) && <button type="button"
-                    onClick={() => { setCurrentSessionId(blockingSessionId); navigate(`/chat/${blockingSessionId}`); }}>
-                    查看占用对话
-                  </button>}
-                  <button type="button" disabled={resolvingConflict} onClick={() => void resolveConversationConflict()}>
-                    {resolvingConflict ? '正在恢复…' : '结束占用并恢复本会话'}
-                  </button>
-                </div>
-              </div>
-            )}
             {/* 聊天区域 */}
             <CustomerChatPage
               sessions={sessions}
               currentSession={currentSession}
+              sessionsLoadState={sessionsLoadState === 'error' ? 'error' : accountSessionLoadState}
               isLoading={isLoading}
               inputValue={inputValue}
               permissionRequest={permissionRequest}
