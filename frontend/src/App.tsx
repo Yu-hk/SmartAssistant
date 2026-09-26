@@ -195,7 +195,7 @@ function CustomerApp() {
 
   const { theme, toggleTheme } = useTheme();
   const {
-    sessions, setSessions, sessionsLoadState, sessionActionError, setSessionActionError,
+    sessions, setSessions, sessionsLoadState, sessionActionError, setSessionActionError, deletingSessionIds,
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, deleteSession, closeSession, resumeSession, rateSession,
@@ -300,6 +300,7 @@ function CustomerApp() {
     <div className="workbench-shell relative z-10">
       <CustomerSidebar
         sessions={sessions}
+        deletingSessionIds={deletingSessionIds}
         currentSessionId={currentSessionId}
         theme={theme}
         onNewChat={handleNewChat}

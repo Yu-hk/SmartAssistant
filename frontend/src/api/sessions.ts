@@ -1,7 +1,7 @@
 /**
  * 会话（Session）相关 API
  */
-import { apiClient } from './client';
+import { apiClient, ApiError } from './client';
 import type { Session, FaqItem, WorkflowRecoveryJob } from '../types';
 
 export interface ChatRequest {
@@ -38,6 +38,28 @@ export async function fetchSession(sessionId: string): Promise<{ session: Sessio
 /** 删除会话 */
 export async function deleteSession(sessionId: string): Promise<void> {
   return apiClient.del(`/sessions/${sessionId}`);
+}
+
+/** A running turn may outlive the page that started it. Wait for its gate to
+ * release instead of making the user repeatedly click Delete. Never bypass
+ * the server's busy check or interrupt the business request. */
+export async function deleteSessionWhenIdle(
+  sessionId: string,
+  wait: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  maxBusyRetries = 20,
+): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await deleteSession(sessionId);
+      return;
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 409) throw error;
+      if (attempt >= maxBusyRetries) {
+        throw new ApiError(409, '这段对话仍在处理请求，暂时无法删除。请稍后再试；系统不会强制中断正在执行的操作。');
+      }
+      await wait(2_000);
+    }
+  }
 }
 
 /** 主动结束会话（无需评分） */
