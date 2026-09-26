@@ -66,8 +66,14 @@ export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
+  const [deletingSessionIds, setDeletingSessionIds] = useState<string[]>([]);
   const [sessionsLoadState, setSessionsLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const loadedMessageVersions = useRef(new Set<string>());
+  const deletionInProgress = useRef(new Set<string>());
+  const latestSessions = useRef(sessions);
+  const latestCurrentSessionId = useRef(currentSessionId);
+  latestSessions.current = sessions;
+  latestCurrentSessionId.current = currentSessionId;
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
@@ -164,28 +170,36 @@ export function useSessions() {
   }, []);
 
   const deleteSession = useCallback(async (sessionId: string): Promise<string | null> => {
+    if (deletionInProgress.current.has(sessionId)) return null;
+    deletionInProgress.current.add(sessionId);
+    setDeletingSessionIds(prev => [...prev, sessionId]);
     setSessionActionError(null);
     try {
-      await sessionApi.deleteSession(sessionId);
-    } catch (e) {
-      // 本地新建会话在首次发送前不会落库，后端 404 时仍应允许从列表移除。
-      if (!(e instanceof ApiError) || e.status !== 404) {
-        console.error(e);
-        setSessionActionError(e instanceof ApiError ? e.message : '删除对话失败，请稍后重试。');
-        return null;
+      try {
+        await sessionApi.deleteSessionWhenIdle(sessionId);
+      } catch (e) {
+        // A local unsaved session, or one deleted in another browser, is
+        // already absent on the server and may be removed from this list.
+        if (!(e instanceof ApiError) || e.status !== 404) throw e;
       }
-    }
 
-    setSessions(prev => prev.filter(s => s.id !== sessionId));
-    const remaining = sessions.filter(s => s.id !== sessionId);
-    if (currentSessionId !== sessionId) return null;
-    if (remaining.length > 0) {
-      setCurrentSessionId(remaining[0].id);
-      return `/chat/${remaining[0].id}`;
+      const remaining = latestSessions.current.filter(s => s.id !== sessionId);
+      const wasCurrent = latestCurrentSessionId.current === sessionId;
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      if (!wasCurrent) return null;
+      const nextId = remaining[0]?.id ?? null;
+      latestCurrentSessionId.current = nextId;
+      setCurrentSessionId(nextId);
+      return nextId ? `/chat/${nextId}` : '/';
+    } catch (e) {
+      console.error(e);
+      setSessionActionError(e instanceof ApiError ? e.message : '删除对话失败，请稍后重试。');
+      return null;
+    } finally {
+      deletionInProgress.current.delete(sessionId);
+      setDeletingSessionIds(prev => prev.filter(id => id !== sessionId));
     }
-    setCurrentSessionId(null);
-    return '/';
-  }, [sessions, currentSessionId]);
+  }, []);
 
   const closeSession = useCallback(async (sessionId: string) => {
     setSessionActionError(null);
@@ -268,7 +282,7 @@ export function useSessions() {
 
   return {
     sessionsLoadState,
-    sessions, setSessions, sessionActionError, setSessionActionError,
+    sessions, setSessions, sessionActionError, setSessionActionError, deletingSessionIds,
     currentSessionId, setCurrentSessionId,
     currentSession,
     fetchSessions, loadSessionMessages, createSession,

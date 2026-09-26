@@ -316,10 +316,10 @@ public class StreamChatController {
                 String responseJson = objectMapper.writeValueAsString(responsePayload);
                 bus.send(SseEvent.raw("response", responseJson));
                 injectTokenUsageEvent(bus, tokenUsage);
-                bus.sendDone();
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                         decisionKey, message, agentName, result, startedAt,
                         decision.get("error") != null ? "FAILED" : "SUCCESS", tokenUsage, toolUsage);
+                bus.sendDone();
             } catch (Exception e) {
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                         decisionKey, message, agentName, null, startedAt, "FAILED");
@@ -337,14 +337,14 @@ public class StreamChatController {
             if (progressCursor.forwardedAny()) {
                 injectTokenUsageEvent(bus, tokenUsage);
                 String visibleReply = progressCursor.replyText();
+                persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
+                        decisionKey, message, agentName, visibleReply.isBlank() ? null : visibleReply,
+                        startedAt, visibleReply.isBlank() ? "FAILED" : "SUCCESS", tokenUsage, toolUsage);
                 if (visibleReply.isBlank()) {
                     bus.sendError("本次处理没有返回可展示的回复，请先核实原请求状态，避免重复提交。");
                 } else {
                     bus.sendDone();
                 }
-                persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
-                        decisionKey, message, agentName, visibleReply.isBlank() ? null : visibleReply,
-                        startedAt, visibleReply.isBlank() ? "FAILED" : "SUCCESS", tokenUsage, toolUsage);
                 return;
             }
             Long eventCount = redisTemplate.opsForList().size(eventsKey);
@@ -353,12 +353,12 @@ public class StreamChatController {
                 boolean forwarded = progressForwarder.forwardList(bus, eventsKey, progressCursor);
                 injectTokenUsageEvent(bus, tokenUsage);
                 String visibleReply = progressCursor.replyText();
-                if (forwarded && !visibleReply.isBlank()) bus.sendDone();
-                else bus.sendError("本次处理没有返回可展示的回复，请先核实原请求状态，避免重复提交。");
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                         decisionKey, message, agentName, visibleReply.isBlank() ? null : visibleReply,
                         startedAt, forwarded && !visibleReply.isBlank() ? "SUCCESS" : "FAILED",
                         tokenUsage, toolUsage);
+                if (forwarded && !visibleReply.isBlank()) bus.sendDone();
+                else bus.sendError("本次处理没有返回可展示的回复，请先核实原请求状态，避免重复提交。");
                 return;
             }
         }
@@ -398,13 +398,13 @@ public class StreamChatController {
                             forwardResult.completionTokens(),
                             forwardResult.totalTokens()));
             injectTokenUsageEvent(bus, combinedUsage);
-            if (forwardResult.success() && !forwardResult.responseSummary().isBlank()) bus.sendDone();
-            else bus.sendError("本次回复未完整送达，请先核实原请求状态，避免重复提交。");
             persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                     decisionKey, message, agentName,
                     forwardResult.responseSummary().isBlank() ? null : forwardResult.responseSummary(),
                     startedAt, forwardResult.success() && !forwardResult.responseSummary().isBlank()
                             ? "SUCCESS" : "FAILED", combinedUsage, toolUsage);
+            if (forwardResult.success() && !forwardResult.responseSummary().isBlank()) bus.sendDone();
+            else bus.sendError("本次回复未完整送达，请先核实原请求状态，避免重复提交。");
         } finally {
             if (decisionKey != null && !decisionKey.isBlank()) {
                 requestQueueService.complete(decisionKey);

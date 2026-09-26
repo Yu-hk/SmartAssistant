@@ -38,6 +38,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
 
 @ExtendWith(MockitoExtension.class)
 class StreamChatControllerPersistenceTest {
@@ -213,11 +214,20 @@ class StreamChatControllerPersistenceTest {
                 routerClient, agentStreamClient, requestQueueService,
                 routingCallLogService, null);
         ReflectionTestUtils.setField(controller, "userProfileService", userProfileService);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        doAnswer(invocation -> {
+            assertFalse(response.getContentAsString().contains("event: done"),
+                    "A completed SSE reply must not precede its durable conversation log");
+            return null;
+        }).when(routingCallLogService).saveLog(
+                eq(42L), eq("session-a"), eq("request-1"), eq("查询热门商品"), eq("product_service"),
+                eq("STREAM_ROUTER_SERVICE"), anyLong(), eq("SUCCESS"), eq("当前有 3 个热门商品"),
+                eq(24L), eq(6L), eq(30L), eq("查询热门商品"), isNull());
 
         controller.streamChatPost(Map.of(
                 "message", "查询热门商品",
                 "requestId", "request-1",
-                "sessionId", "session-a"), new MockHttpServletResponse());
+                "sessionId", "session-a"), response);
 
         verify(routerClient).triggerRoutingDecision(
                 eq("查询热门商品"), eq("42"), eq("request-1"));

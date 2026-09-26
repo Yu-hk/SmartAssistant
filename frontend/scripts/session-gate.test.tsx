@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { useSessions } from '../src/hooks/useSessions';
 import { useChat } from '../src/hooks/useChat';
+import { deleteSessionWhenIdle } from '../src/api/sessions';
 
 test('transport failure uses a helpful public message without encouraging duplicate operations', async () => {
  const dom = new JSDOM('<div id="root"></div>', {url:'https://gate.test'});
@@ -148,18 +149,21 @@ test('a fast account gate rejection is visible even when the stream ends immedia
  } finally {await act(async()=>root.unmount());for(const [name,descriptor] of saved){if(descriptor)Object.defineProperty(globalThis,name,descriptor);else Reflect.deleteProperty(globalThis,name);}dom.window.close();}
 });
 
-test('legacy suspended sessions remain explicit, while busy deletion stays visible', async () => {
+test('legacy suspended sessions remain explicit, while a busy deletion waits and succeeds', async () => {
  const dom = new JSDOM('<div id="root"></div>', {url:'https://gate.test'});
  const saved = new Map<string, PropertyDescriptor | undefined>();
  const set = (name: string, value: unknown) => { saved.set(name, Object.getOwnPropertyDescriptor(globalThis,name)); Object.defineProperty(globalThis,name,{value,writable:true,configurable:true}); };
  for (const [name,value] of Object.entries({window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,sessionStorage:dom.window.sessionStorage,IS_REACT_ACT_ENVIRONMENT:true})) set(name,value);
  let hooks: ReturnType<typeof useSessions>, chat: ReturnType<typeof useChat>;
  const requests: string[]=[];
+ let deleteAttempts = 0;
  set('fetch', async (input: RequestInfo|URL, init?:RequestInit) => {
    const url=String(input);requests.push(url);
    if(url.includes('/stream/chat')) return new Response('event: conversation_suspended\ndata: {"type":"conversation_suspended","activeSessionId":"owner","sessionId":"new"}\n\nevent: done\ndata: {"type":"done"}\n\n',{headers:{'Content-Type':'text/event-stream'}});
    if(url.endsWith('/resume')) return new Response(JSON.stringify({message:'暂时无法恢复会话'}),{status:503});
-   if(init?.method==='DELETE') return new Response(JSON.stringify({message:'当前对话仍在处理请求'}),{status:409});
+   if(init?.method==='DELETE') return ++deleteAttempts === 1
+     ? new Response(JSON.stringify({message:'当前对话仍在处理请求'}),{status:409})
+     : Response.json({success:true});
    if(url.endsWith('/sessions')) return Response.json([{id:'owner',title:'占用对话',status:'ACTIVE_IDLE'}]);
    return Response.json({id:'new',status:'SUSPENDED',messages:[]});
  });
@@ -180,6 +184,33 @@ test('legacy suspended sessions remain explicit, while busy deletion stays visib
    assert.match(hooks!.sessionActionError!,/无法恢复/);
    await act(async()=>{await hooks!.fetchSessions();});
    await act(async()=>{await hooks!.deleteSession('owner');});
-   assert.ok(hooks!.sessions.some(s=>s.id==='owner'));assert.match(hooks!.sessionActionError!,/仍在处理/);
+   assert.equal(deleteAttempts,2);
+   assert.ok(!hooks!.sessions.some(s=>s.id==='owner'));
+   assert.equal(hooks!.sessionActionError,null);
  } finally {await act(async()=>root.unmount());for(const [name,descriptor] of saved){if(descriptor)Object.defineProperty(globalThis,name,descriptor);else Reflect.deleteProperty(globalThis,name);}dom.window.close();}
+});
+
+test('busy deletion has a finite retry limit and never bypasses the server gate', async () => {
+ const originalFetch = globalThis.fetch;
+ const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+ const originalSessionStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+ const dom = new JSDOM('', {url:'https://gate.test'});
+ Object.defineProperty(globalThis, 'localStorage', {value:dom.window.localStorage,configurable:true});
+ Object.defineProperty(globalThis, 'sessionStorage', {value:dom.window.sessionStorage,configurable:true});
+ let attempts = 0;
+ globalThis.fetch = async () => {
+   attempts++;
+   return new Response(JSON.stringify({message:'正在处理'}), {status:409,headers:{'Content-Type':'application/json'}});
+ };
+ try {
+   await assert.rejects(deleteSessionWhenIdle('busy-session', async()=>{}, 2), /仍在处理请求/);
+   assert.equal(attempts,3);
+ } finally {
+   globalThis.fetch=originalFetch;
+   if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage);
+   else Reflect.deleteProperty(globalThis, 'localStorage');
+   if (originalSessionStorage) Object.defineProperty(globalThis, 'sessionStorage', originalSessionStorage);
+   else Reflect.deleteProperty(globalThis, 'sessionStorage');
+   dom.window.close();
+ }
 });
