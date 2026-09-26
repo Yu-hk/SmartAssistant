@@ -62,7 +62,7 @@ public class ChatDispatchStore {
         String result = redis.execute(RESERVE, keys(command), fingerprint, json(command), key(command.requestId()), Long.toString(TTL_SECONDS),
                 json(PriorityRoutingDispatcher.failure("QUEUE_TIMEOUT", "排队超时，本轮尚未执行。")), Long.toString(System.currentTimeMillis()));
         if ("CONFLICT".equals(result)) throw new IllegalArgumentException("Request ID belongs to different input or identity");
-        if ("BUSY".equals(result)) throw new IllegalStateException("当前账号已有请求在排队或执行，请等待该请求完成。");
+        if ("BUSY".equals(result)) throw new SessionDispatchBusyException();
         if (result == null) throw new IllegalStateException("Dispatch reservation unavailable");
         try { return mapper.readValue(result, ChatDispatchCommand.class); }
         catch (Exception error) { throw new IllegalStateException("Invalid dispatch reservation", error); }
@@ -101,9 +101,16 @@ public class ChatDispatchStore {
         catch (Exception error) { throw new IllegalStateException("Invalid dispatch command", error); }
     }
 
+    public static final class SessionDispatchBusyException extends IllegalStateException {
+        public SessionDispatchBusyException() {
+            super("当前对话已有请求在排队或执行，请等待该请求完成。");
+        }
+    }
+
     private List<String> keys(ChatDispatchCommand command) {
-        // One cluster hash slot permits atomic request binding plus per-user admission.
-        return List.of(key(command.requestId()), "chat:dispatch:v1:{dispatch}:user:" + command.userId());
+        // One cluster hash slot permits atomic request binding plus per-session admission.
+        return List.of(key(command.requestId()), "chat:dispatch:v1:{dispatch}:session:"
+                + command.userId() + ":" + digest(command.sessionId()));
     }
     private String key(String requestId) { return "chat:dispatch:v1:{dispatch}:request:" + digest(requestId); }
     private String json(Object value) {

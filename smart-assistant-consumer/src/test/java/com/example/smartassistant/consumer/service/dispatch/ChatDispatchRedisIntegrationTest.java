@@ -35,9 +35,11 @@ class ChatDispatchRedisIntegrationTest {
         if (connection != null) connection.destroy();
     }
     private ChatDispatchCommand command(long owner, long expiry) {
-        var command = new ChatDispatchCommand(owner, "test-session", "test-" + UUID.randomUUID(), "查询测试订单", false, 0, expiry);
-        keys.add(ReflectionTestUtils.invokeMethod(store, "key", command.requestId()));
-        keys.add("chat:dispatch:v1:{dispatch}:user:" + owner);
+        return command(owner, "test-session", expiry);
+    }
+    private ChatDispatchCommand command(long owner, String sessionId, long expiry) {
+        var command = new ChatDispatchCommand(owner, sessionId, "test-" + UUID.randomUUID(), "查询测试订单", false, 0, expiry);
+        keys.addAll(Objects.requireNonNull(ReflectionTestUtils.invokeMethod(store, "keys", command)));
         return command;
     }
     @Test void concurrentDeliveriesProduceOneExecutionOwnerAndDurableResult() throws Exception {
@@ -55,14 +57,17 @@ class ChatDispatchRedisIntegrationTest {
         assertEquals("完成", store.result(command).get("result"));
         assertEquals("COMPLETED", store.start(command, System.currentTimeMillis()));
     }
-    @Test void accountAdmissionAndRequestBindingPreventCrossSessionOrCrossUserReuse() {
+    @Test void sessionAdmissionAllowsOtherSessionsButPreventsRequestReuse() {
         var command = command(userId, System.currentTimeMillis() + 30000);
         store.reserve(command);
         assertThrows(IllegalStateException.class, () -> store.reserve(command(userId, System.currentTimeMillis() + 30000)));
+        var other = command(userId, "other-session", System.currentTimeMillis() + 30000);
+        assertDoesNotThrow(() -> store.reserve(other));
         assertThrows(IllegalArgumentException.class, () -> store.reserve(new ChatDispatchCommand(userId,
                 "other-session", command.requestId(), command.question(), false, 0, command.expiresAt())));
         assertThrows(SecurityException.class, () -> store.ownedCommand(userId - 1, command.requestId()));
         assertTrue(store.finish(command, "QUEUED", "CANCELLED", PriorityRoutingDispatcher.cancelled()));
+        assertTrue(store.finish(other, "QUEUED", "CANCELLED", PriorityRoutingDispatcher.cancelled()));
         assertDoesNotThrow(() -> store.reserve(command(userId, System.currentTimeMillis() + 30000)));
         assertEquals("CANCELLED", store.start(command, System.currentTimeMillis()));
     }

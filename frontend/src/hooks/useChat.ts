@@ -23,11 +23,12 @@ interface UseChatOptions {
   selectedModel: string;
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
   setCurrentSessionId: (id: string | null) => void;
-  onConversationConflict?: (sessionId: string) => void;
+  onGateRejected?: (message: string) => void;
 }
 
 export function useChat(options: UseChatOptions) {
-  const { currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId, onConversationConflict } = options;
+  const { currentSession, currentSessionId, selectedModel, setSessions, setCurrentSessionId,
+    onGateRejected } = options;
 
   const [isLoading, setIsLoading] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -70,7 +71,12 @@ export function useChat(options: UseChatOptions) {
   ) => {
     if (!messageContent.trim() || isLoading) return;
 
+    // A deep link may point at a conversation that this account has not loaded
+    // (or does not own). Never enter loading state without a message container.
+    if (currentSessionId && !currentSession && !sessionIdOverride) return;
+
     let sessionId = sessionIdOverride || currentSessionId;
+    let newSession = false;
 
     const tempUserMessageId = crypto.randomUUID();
     const tempAssistantMessageId = crypto.randomUUID();
@@ -96,11 +102,13 @@ export function useChat(options: UseChatOptions) {
       voiceReply,
     };
 
-    // 如果没有会话，本地生成 sessionId 直接开聊（微服务未提供会话创建端点，dev/demo 模式）
+    // First create the draft locally so the pending message is visible; persist
+    // the session before submitting the first request to the backend.
     if (!sessionId) {
       const newSessionId = crypto.randomUUID();
       sessionId = newSessionId;
-      const newSession: Session = {
+      newSession = true;
+      const sessionDraft: Session = {
         id: newSessionId,
         title: messageContent.slice(0, 30),
         model: selectedModel,
@@ -113,9 +121,8 @@ export function useChat(options: UseChatOptions) {
         createdAt: new Date(),
         messages: [userMessage, assistantMessage],
       };
-      setSessions(prev => [newSession, ...prev]);
+      setSessions(prev => [sessionDraft, ...prev]);
       setCurrentSessionId(newSessionId);
-      onNavigate?.(`/chat/${newSessionId}`);
     } else {
       setSessions(prev => prev.map(s => {
         if (s.id === sessionId) {
@@ -136,9 +143,15 @@ export function useChat(options: UseChatOptions) {
     setQueueEstimatedWait(null);
     setProgressMessage('正在连接服务…');
     activeRequestIdRef.current = workflowRequestId;
+    let requestSubmitted = false;
 
     // ⭐ 使用 fetch 读取 SSE，以便携带 Bearer Token
     try {
+      if (newSession) {
+        await sessionApi.createSession(sessionId!);
+        onNavigate?.(`/chat/${sessionId}`);
+      }
+      requestSubmitted = true;
       await streamWithFetch(
         messageContent, sessionId!, workflowRequestId, selectedModel,
         tempAssistantMessageId, clarification,
@@ -155,10 +168,14 @@ export function useChat(options: UseChatOptions) {
                   ...m,
                   content: error instanceof Error && error.message === 'CLARIFICATION_REJECTED'
                     ? '补充信息未通过校验或表单已失效，本次没有发起业务处理。请刷新会话后检查表单，也可以直接用文字补充。'
+                    : !requestSubmitted
+                      ? '暂时没能创建会话，本次问题没有提交处理。请刷新页面后再试。'
                     : '这次回复没能完整送达。请先查看原请求的结果，避免重复提交业务操作。',
                   isStreaming: false,
                   deliveryStatus: 'failed',
-                  recoverable: !(error instanceof Error && error.message === 'CLARIFICATION_REJECTED') && Boolean(m.requestId),
+                  recoverable: requestSubmitted
+                    && !(error instanceof Error && error.message === 'CLARIFICATION_REJECTED')
+                    && Boolean(m.requestId),
                 }
                 : m
             ),
@@ -192,6 +209,13 @@ export function useChat(options: UseChatOptions) {
     let realAssistantMessageId = assistantMessageId;
     let isDone = false;
     let isGateStopped = false;
+
+    const rejectBeforeProcessing = (notice: string) => {
+      // The gate has not submitted this turn to a business handler. Keep the
+      // draft available while making the reason visible outside message history.
+      setInputValue(current => current.trim() ? current : message);
+      onGateRejected?.(notice);
+    };
 
     const updateAssistantMessage = (updater: (message: Message) => Message) => {
       setSessions(prev => prev.map(current => {
@@ -228,9 +252,16 @@ export function useChat(options: UseChatOptions) {
     const url = '/api/math/stream/chat';
     const controller = new AbortController();
     streamAbortRef.current = controller;
+    let timedOut = false;
+    let recoveredReply: string | null = null;
+    let checkingStatus = false;
+    let lastStreamEventAt = Date.now();
+    let statusTimer: ReturnType<typeof setInterval> | undefined;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 
     // ⭐ 通用事件处理：解析 SSE 的 data JSON
     const handleEvent = (event: { data: string; type: string }) => {
+        lastStreamEventAt = Date.now();
         try {
           const parsed = JSON.parse(event.data);
           const data = parsed?.data && typeof parsed.data === 'object'
@@ -367,16 +398,14 @@ export function useChat(options: UseChatOptions) {
             }));
 
           } else if (data.type === 'conversation_suspended' || data.type === 'conversation_frozen') {
-            if (typeof data.activeSessionId === 'string' && data.activeSessionId) {
-              onConversationConflict?.(data.activeSessionId);
-            }
+            rejectBeforeProcessing('这段旧会话仍标记为暂停，请从左侧会话列表恢复后再试。');
             isGateStopped = true;
             setProgressMessage('');
             setQueuePosition(data.queuePosition || null);
             setQueueEstimatedWait(null);
             updateAssistantMessage(current => ({
               ...current,
-              content: '当前账号正在使用其他对话。本对话已暂停，上下文会保留；关闭当前活跃对话后可继续。',
+              content: '这段旧会话仍标记为暂停，上下文已保留；请恢复后继续。',
               isStreaming: false,
               deliveryStatus: 'stopped',
               recoverable: false,
@@ -388,6 +417,7 @@ export function useChat(options: UseChatOptions) {
             ));
 
           } else if (data.type === 'conversation_closed') {
+            rejectBeforeProcessing('这段对话已结束或被删除，请新建会话后再发送。');
             isGateStopped = true;
             setProgressMessage('');
             updateAssistantMessage(current => ({ ...current,
@@ -397,6 +427,7 @@ export function useChat(options: UseChatOptions) {
             setSessions(prev => prev.map(session => session.id === realSessionId || session.id === sessionId
               ? { ...session, status: 'closed' } : session));
           } else if (data.type === 'request_blocked') {
+            rejectBeforeProcessing('上一条问题还在处理中，请先查看原回复，暂时不要重复发送。');
             isGateStopped = true;
             setProgressMessage('');
             updateAssistantMessage(current => ({
@@ -408,6 +439,7 @@ export function useChat(options: UseChatOptions) {
             }));
 
           } else if (data.type === 'request_in_progress') {
+            rejectBeforeProcessing('原请求仍在处理中，请查看原对话中的进展，暂时不要重复发送。');
             isGateStopped = true;
             setProgressMessage('原请求仍在处理中…');
             updateAssistantMessage(current => ({
@@ -419,6 +451,7 @@ export function useChat(options: UseChatOptions) {
             }));
 
           } else if (data.type === 'conversation_gate_unavailable') {
+            rejectBeforeProcessing('暂时无法确认会话状态，本次问题没有进入业务处理。请稍后刷新页面查看原对话。');
             isDone = true;
             setProgressMessage('');
             updateAssistantMessage(current => ({
@@ -500,6 +533,37 @@ export function useChat(options: UseChatOptions) {
     };
 
     try {
+      // A lost SSE connection must not leave the page spinning forever. Query the
+      // original request ID; never submit the business operation a second time.
+      statusTimer = setInterval(() => {
+        if (isDone || controller.signal.aborted || checkingStatus) return;
+        checkingStatus = true;
+        const statusController = new AbortController();
+        const statusDeadline = setTimeout(() => statusController.abort(), 5000);
+        void authenticatedFetch(`/api/math/stream/chat/requests/${encodeURIComponent(requestId)}`, {
+          signal: statusController.signal,
+        }).then(async response => {
+          if (!response.ok || isDone || controller.signal.aborted) return;
+          const status = await response.json() as { status?: string; reply?: string };
+          if (isDone || controller.signal.aborted) return;
+          if (status.status === 'QUEUED') setProgressMessage('请求已排队，正在等待处理…');
+          if (status.status === 'RUNNING') setProgressMessage('原请求仍在处理中，请勿重复发送…');
+          if (status.status === 'UNCERTAIN') setProgressMessage('处理结果尚未确认，请先核实原请求…');
+          if (status.status === 'COMPLETED' && status.reply?.trim() && !fullContent
+              && Date.now() - lastStreamEventAt >= 30000) {
+            recoveredReply = status.reply;
+            controller.abort();
+          }
+        }).catch(() => undefined).finally(() => {
+          clearTimeout(statusDeadline);
+          checkingStatus = false;
+        });
+      }, 15000);
+      deadlineTimer = setTimeout(() => {
+        if (isDone || controller.signal.aborted) return;
+        timedOut = true;
+        controller.abort();
+      }, 210000);
       const response = await authenticatedFetch(url, {
         method: 'POST',
         headers: {
@@ -554,6 +618,22 @@ export function useChat(options: UseChatOptions) {
     } catch (error) {
       if (controller.signal.aborted) {
         setProgressMessage('');
+        if (recoveredReply) {
+          updateAssistantMessage(current => ({
+            ...current, content: recoveredReply!, isStreaming: false,
+            deliveryStatus: 'completed', recoverable: false,
+            contentBlocks: [{ type: 'text', text: recoveredReply! }],
+          }));
+          return;
+        }
+        if (timedOut) {
+          updateAssistantMessage(current => ({
+            ...current,
+            content: '等待回复超时，原请求可能仍在处理中。请先查看原请求状态，不要重复提交下单或退款。',
+            isStreaming: false, deliveryStatus: 'failed', recoverable: true,
+          }));
+          return;
+        }
         updateAssistantMessage(current => ({
           ...current,
           isStreaming: false,
@@ -564,10 +644,12 @@ export function useChat(options: UseChatOptions) {
       }
       throw error;
     } finally {
+      if (statusTimer) clearInterval(statusTimer);
+      if (deadlineTimer) clearTimeout(deadlineTimer);
       if (streamAbortRef.current === controller) streamAbortRef.current = null;
     }
   }, [setSessions, setFaqSuggestions, setPermissionRequest, setQueuePosition,
-    setQueueEstimatedWait, setProgressMessage, onConversationConflict]);
+    setQueueEstimatedWait, setProgressMessage, onGateRejected]);
 
   // 权限处理
   const handlePermissionAllow = useCallback(async () => {

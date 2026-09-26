@@ -23,7 +23,7 @@ import static org.mockito.Mockito.when;
 @EnabledIfEnvironmentVariable(named = "RUN_REDIS_INTEGRATION_TESTS", matches = "true")
 class ConversationGateRedisIntegrationTest {
 
-    @Test void formCannotReopenClosedSessionOrTakeOwnershipOfAnotherSession() {
+    @Test void formCannotReopenClosedSessionButOtherSessionRemainsIndependent() {
         var first = gate.acquire("900013", "form", "r1"); gate.release(first);
         var accepted = gate.acquireExisting("900013", "form", "r2");
         org.junit.jupiter.api.Assertions.assertTrue(accepted.acquired()); gate.release(accepted);
@@ -31,11 +31,12 @@ class ConversationGateRedisIntegrationTest {
         assertEquals(ConversationGateService.GateStatus.SESSION_CLOSED, gate.acquireExisting("900013", "form", "r3").status());
         var next = gate.acquire("900013", "other", "r4"); gate.release(next);
         assertEquals(ConversationGateService.GateStatus.SESSION_CLOSED, gate.acquireExisting("900013", "form", "r5").status());
-        assertEquals("other", redisTemplate.opsForValue().get("conversation:gate:{900013}:active"));
+        var third = gate.acquire("900013", "third", "r6");
+        org.junit.jupiter.api.Assertions.assertTrue(third.acquired()); gate.release(third);
     }
 
     @Test
-    void deletingCompletedSessionReleasesOwnerAndFencesNewRequests() {
+    void deletingCompletedSessionFencesOnlyThatSession() {
         var active = gate.acquire("900010", "old", "r1");
         assertEquals(ConversationGateService.CloseStatus.BUSY, gate.beginDeletion("900010", "old").status());
         gate.release(active);
@@ -46,9 +47,10 @@ class ConversationGateRedisIntegrationTest {
         var next = gate.acquire("900010", "new", "r3");
         org.junit.jupiter.api.Assertions.assertTrue(next.acquired());
         gate.release(next);
-        // An old finalizer must not clear a different session's ownership.
+        // An old finalizer must not affect another conversation.
         gate.finishDeletion(deletion, true);
-        assertEquals("new", redisTemplate.opsForValue().get("conversation:gate:{900010}:active"));
+        var anotherTurn = gate.acquire("900010", "new", "r4");
+        org.junit.jupiter.api.Assertions.assertTrue(anotherTurn.acquired()); gate.release(anotherTurn);
     }
 
     @Test
@@ -61,21 +63,10 @@ class ConversationGateRedisIntegrationTest {
     }
 
     @Test
-    void staleMissingOwnerRequiresGraceAndCannotInterruptRunningWork() {
-        var store = mock(ConversationGateStateStore.class);
-        when(store.staleOwnerReason("900012", "old")).thenReturn("MISSING");
-        var isolated = new ConversationGateService(redisTemplate);
-        ReflectionTestUtils.setField(isolated, "stateStore", store);
-        try {
-            redisTemplate.opsForValue().set("conversation:gate:{900012}:active", "old", Duration.ofMinutes(30));
-            assertEquals(ConversationGateService.GateStatus.SESSION_SUSPENDED, isolated.acquire("900012", "new", "r1").status());
-            redisTemplate.expire("conversation:gate:{900012}:active", Duration.ofMinutes(28));
-            redisTemplate.opsForValue().set("conversation:gate:{900012}:running:old", "r0|token", Duration.ofMinutes(1));
-            assertEquals(ConversationGateService.GateStatus.SESSION_SUSPENDED, isolated.acquire("900012", "new", "r2").status());
-            redisTemplate.delete("conversation:gate:{900012}:running:old");
-            var acquired = isolated.acquire("900012", "new", "r3");
-            org.junit.jupiter.api.Assertions.assertTrue(acquired.acquired()); isolated.release(acquired);
-        } finally { isolated.shutdownHeartbeatScheduler(); }
+    void legacyAccountOwnerDoesNotBlockNewConversation() {
+        redisTemplate.opsForValue().set("conversation:gate:{900012}:active", "old", Duration.ofMinutes(30));
+        var acquired = gate.acquire("900012", "new", "r1");
+        org.junit.jupiter.api.Assertions.assertTrue(acquired.acquired()); gate.release(acquired);
     }
 
     private static LettuceConnectionFactory connectionFactory;
@@ -91,12 +82,9 @@ class ConversationGateRedisIntegrationTest {
         redisTemplate.afterPropertiesSet();
         clearTestKeys();
         gate = new ConversationGateService(redisTemplate);
-        ReflectionTestUtils.setField(gate, "activeTtl", Duration.ofMinutes(5));
         ReflectionTestUtils.setField(gate, "requestTtl", Duration.ofMinutes(1));
-        ReflectionTestUtils.setField(gate, "suspendedTtl", Duration.ofMinutes(1));
         ConversationGateStateStore stateStore = mock(ConversationGateStateStore.class);
-        when(stateStore.isSuspended("900003", "session-b")).thenReturn(true);
-        when(stateStore.isSuspended("900003", "session-c")).thenReturn(true);
+        when(stateStore.isOpen("900013", "form")).thenReturn(true);
         ReflectionTestUtils.setField(gate, "stateStore", stateStore);
     }
 
@@ -108,14 +96,11 @@ class ConversationGateRedisIntegrationTest {
     }
 
     @Test
-    void twentySessionsForOneUserProduceExactlyOneOwner() throws Exception {
+    void twentySessionsForOneUserCanAllRun() throws Exception {
         List<ConversationGateService.GateDecision> decisions = race(20, index ->
                 gate.acquire("900001", "session-" + index, "request-" + index));
 
-        assertEquals(1, decisions.stream().filter(ConversationGateService.GateDecision::acquired).count());
-        assertEquals(19, decisions.stream()
-                .filter(decision -> decision.status() == ConversationGateService.GateStatus.SESSION_SUSPENDED)
-                .count());
+        assertEquals(20, decisions.stream().filter(ConversationGateService.GateDecision::acquired).count());
         decisions.stream().filter(ConversationGateService.GateDecision::acquired).forEach(gate::release);
     }
 
@@ -132,23 +117,34 @@ class ConversationGateRedisIntegrationTest {
     }
 
     @Test
-    void closingActiveSessionWaitsForUserToChooseWhichSuspendedSessionToResume() {
+    void requestIdCannotBeReboundToAnotherSessionWhileRunning() {
+        var first = gate.acquire("900012", "session-a", "shared-request");
+        org.junit.jupiter.api.Assertions.assertTrue(first.acquired());
+        assertEquals(ConversationGateService.GateStatus.REQUEST_BLOCKED,
+                gate.acquire("900012", "session-b", "shared-request").status());
+        org.junit.jupiter.api.Assertions.assertTrue(gate.release(first));
+        var second = gate.acquire("900012", "session-b", "shared-request");
+        org.junit.jupiter.api.Assertions.assertTrue(second.acquired());
+        gate.release(second);
+    }
+
+    @Test
+    void closingOneSessionDoesNotCloseAnother() {
         ConversationGateService.GateDecision active =
                 gate.acquire("900003", "session-a", "request-a");
         gate.release(active);
-        assertEquals(ConversationGateService.GateStatus.SESSION_SUSPENDED,
-                gate.acquire("900003", "session-b", "request-b").status());
-        assertEquals(ConversationGateService.GateStatus.SESSION_SUSPENDED,
-                gate.acquire("900003", "session-c", "request-c").status());
+        var other = gate.acquire("900003", "session-c", "request-c");
+        org.junit.jupiter.api.Assertions.assertTrue(other.acquired());
 
         assertEquals(ConversationGateService.CloseStatus.CLOSED,
                 gate.close("900003", "session-a").status());
-        assertEquals(ConversationGateService.ResumeStatus.RESUMED,
-                gate.resume("900003", "session-c").status());
-
-        ConversationGateService.ResumeDecision conflict = gate.resume("900003", "session-b");
-        assertEquals(ConversationGateService.ResumeStatus.CONFLICT, conflict.status());
-        assertEquals("session-c", conflict.activeSessionId());
+        assertEquals(ConversationGateService.CloseStatus.BUSY,
+                gate.close("900003", "session-c").status());
+        gate.release(other);
+        assertEquals(ConversationGateService.GateStatus.SESSION_CLOSED,
+                gate.acquire("900003", "session-a", "request-after-close").status());
+        var next = gate.acquire("900003", "session-c", "request-next");
+        org.junit.jupiter.api.Assertions.assertTrue(next.acquired()); gate.release(next);
     }
 
     private static List<ConversationGateService.GateDecision> race(

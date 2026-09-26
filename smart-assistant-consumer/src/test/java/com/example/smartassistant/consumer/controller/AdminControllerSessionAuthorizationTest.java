@@ -6,6 +6,7 @@ package com.example.smartassistant.consumer.controller;
 
 import com.example.smartassistant.consumer.service.admin.AdminService;
 import com.example.smartassistant.consumer.service.session.ConversationGateService;
+import com.example.smartassistant.consumer.service.session.ConversationGateStateStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -70,12 +71,36 @@ class AdminControllerSessionAuthorizationTest {
     @Mock
     private ConversationGateService conversationGateService;
 
+    @Mock
+    private ConversationGateStateStore conversationGateStateStore;
+
     private AdminController controller;
 
     @BeforeEach
     void setUp() {
         controller = new AdminController(adminService);
         ReflectionTestUtils.setField(controller, "conversationGateService", conversationGateService);
+        ReflectionTestUtils.setField(controller, "conversationGateStateStore", conversationGateStateStore);
+    }
+
+    @Test
+    void activeSessionLookupIsScopedToAuthenticatedUser() {
+        when(conversationGateService.activeConversation("7"))
+                .thenReturn(new ConversationGateService.ActiveConversation("session-a", true));
+        assertEquals(HttpStatus.OK, controller.getActiveSession(7L).getStatusCode());
+        verify(conversationGateService).activeConversation("7");
+    }
+
+    @Test
+    void firstSessionIsPersistedBeforeSendingAndCannotReopenClosedSession() {
+        String id = "c13b9ac6-b0d4-4d29-914b-19ff2394f81f";
+        assertEquals(HttpStatus.OK, controller.createSession(7L, Map.of("sessionId", id)).getStatusCode());
+        verify(conversationGateStateStore).create("7", id);
+        assertEquals(HttpStatus.BAD_REQUEST,
+                controller.createSession(7L, Map.of("sessionId", "not-a-uuid")).getStatusCode());
+        org.mockito.Mockito.doThrow(new IllegalStateException("closed"))
+                .when(conversationGateStateStore).create("7", id);
+        assertEquals(HttpStatus.CONFLICT, controller.createSession(7L, Map.of("sessionId", id)).getStatusCode());
     }
 
     @Test

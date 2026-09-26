@@ -64,6 +64,28 @@ class AdminServiceSessionIsolationTest {
     }
 
     @Test
+    void firstTurnConversationIsVisibleBeforeItsRoutingLogExists() {
+        when(jdbcTemplate.queryForObject(anyString(), eq(Number.class), any(Object[].class)))
+                .thenReturn(0);
+        when(jdbcTemplate.queryForList(startsWith("WITH aggregated"), any(Object[].class)))
+                .thenReturn(List.of());
+        Map<String, Object> pending = new LinkedHashMap<>();
+        pending.put("session_id", "draft-session");
+        pending.put("status", "ACTIVE_RUNNING");
+        pending.put("updated_at", "2026-09-25T10:00:00");
+        pending.put("username", "alice");
+        when(jdbcTemplate.queryForList(startsWith("SELECT s.session_id"), eq(7L), any()))
+                .thenReturn(List.of(pending));
+
+        List<Map<String, Object>> sessions = adminService.getSessions(7L);
+
+        assertEquals(1, sessions.size());
+        assertEquals("draft-session", sessions.getFirst().get("sessionId"));
+        assertEquals("ACTIVE_RUNNING", sessions.getFirst().get("status"));
+        assertEquals(0, sessions.getFirst().get("messageCount"));
+    }
+
+    @Test
     void adminSessionSearchReturnsStablePagedContract() {
         when(jdbcTemplate.queryForObject(anyString(), eq(Number.class), any(Object[].class)))
                 .thenReturn(3);

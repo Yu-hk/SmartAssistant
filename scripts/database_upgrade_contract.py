@@ -33,7 +33,8 @@ ORDER = '''20260809_add_admin_console_state
 20260919_add_profile_entity_facts
 20260919_add_profile_request_admission
 20260919_add_profile_control_archive
-20260923_add_site_visits'''.splitlines()
+20260923_add_site_visits
+20260926_allow_independent_conversations'''.splitlines()
 WRAPPED = frozenset(('20260831_expand_product_catalog', '20260914_add_product_structured_features',
                      '20260914_add_product_intake', '20260919_add_profile_control_archive'))
 
@@ -134,13 +135,19 @@ INSERT INTO conversation_session_state(user_id,session_id,status)
 def behavior(sql):
     """Exercise real constraints/trigger in a transaction, then undo fixture rows."""
     statements = [
-        ("INSERT INTO conversation_session_state(user_id,session_id,status) VALUES(92001,'duplicate','ACTIVE_IDLE');", '23505'),
+        ("INSERT INTO conversation_session_state(user_id,session_id,status) VALUES(92001,'fixture-running','ACTIVE_IDLE');", '23505'),
         ("UPDATE products SET weight_grams=-1 WHERE product_code='AIRPODS-PRO';", '23514'),
         ("INSERT INTO order_after_sales(request_id,order_id,user_id,request_type,reason) VALUES('fixture','missing-order',92001,'refund','fixture');", '23503'),
         ("INSERT INTO workflow_versions(workflow_key,version,status,definition) VALUES('fixture',1,'PUBLISHED','{}');", '23514'),
     ]
     for statement, state in statements:
         reject(sql, 'BEGIN; ' + statement + ' ROLLBACK;', state)
+    require(sql("""BEGIN;
+INSERT INTO conversation_session_state(user_id,session_id,status)
+ VALUES(92001,'parallel-conversation','ACTIVE_IDLE');
+SELECT count(*) FROM conversation_session_state WHERE user_id=92001
+ AND status IN ('ACTIVE_IDLE','ACTIVE_RUNNING');
+ROLLBACK;"""), '2', 'Independent conversations blocked')
     require(sql("""BEGIN;
 INSERT INTO restaurant_reviews_vector(restaurant_id,restaurant_name,city,review_text,updated_at)
  VALUES('fixture','fixture','fixture','synthetic','2000-01-01');

@@ -324,6 +324,7 @@ public class SseEventBus {
         if ("error".equals(eventType) || "timeout".equals(eventType)) {
             usage.markUpstreamFailure();
         }
+        usage.reply.accept(eventType, data);
         if (eventType != null) event.event(eventType);
         if (data != null) event.data(data);
         send(event);
@@ -331,13 +332,15 @@ public class SseEventBus {
 
     /** Result of forwarding a stream while capturing its usage metadata. */
     public record ForwardResult(boolean success, Long promptTokens,
-                                Long completionTokens, Long totalTokens) {
+                                Long completionTokens, Long totalTokens,
+                                String responseSummary) {
         public boolean tracked() {
             return totalTokens != null;
         }
     }
 
     private static final class TokenUsageAccumulator {
+        private final VisibleReplyAccumulator reply = new VisibleReplyAccumulator();
         private Long promptTokens;
         private Long completionTokens;
         private Long totalTokens;
@@ -368,7 +371,7 @@ public class SseEventBus {
 
         ForwardResult result(boolean success) {
             return new ForwardResult(success && !upstreamFailed,
-                    promptTokens, completionTokens, totalTokens);
+                    promptTokens, completionTokens, totalTokens, reply.text());
         }
 
         void markUpstreamFailure() {

@@ -16,7 +16,8 @@ test('shortcuts replace only generated prompts, preserving custom drafts',()=>{
  assert.equal(serviceEntryDraft('','unknown'),'');
 });
 
-async function withDom(run:(container:HTMLElement,errors:string[])=>Promise<void>){
+async function withDom(run:(container:HTMLElement,errors:string[])=>Promise<void>,
+ fixture?:{sessions?:Record<string,unknown>[]}){
  const dom=new JSDOM('<div id="root"></div>',{url:'https://service-entry.test'});
  const saved=new Map<string,PropertyDescriptor|undefined>();
  const set=(name:string,value:unknown)=>{saved.set(name,Object.getOwnPropertyDescriptor(globalThis,name));Object.defineProperty(globalThis,name,{value,writable:true,configurable:true});};
@@ -26,7 +27,10 @@ async function withDom(run:(container:HTMLElement,errors:string[])=>Promise<void
   if(url.endsWith('/auth/me'))return Response.json({userId:42,username:'fixture',role:'ROLE_USER'});
   if(url.includes('capabilities'))return Response.json({available:false});
   if(url.endsWith('/stream'))return new Response('',{headers:{'Content-Type':'text/event-stream'}});
-  if(url.endsWith('/sessions')||url.includes('unread'))return Response.json([]);
+  if(url.endsWith('/sessions'))return Response.json(fixture?.sessions??[]);
+  if(fixture?.sessions?.some(session=>url.endsWith(`/sessions/${session.id}`)))
+   return Response.json({session:fixture.sessions.find(session=>url.endsWith(`/sessions/${session.id}`)),messages:[]});
+  if(url.includes('unread'))return Response.json([]);
   throw new Error('Unexpected diagnostic request '+url);
  });
  dom.window.HTMLElement.prototype.scrollIntoView=()=>{};
@@ -64,3 +68,41 @@ test('switching legacy empty sessions never accumulates composers or document pa
   }
  }finally{await act(async()=>root.unmount());}
 }));
+
+test('an existing conversation can send independently of other account conversations',async()=>withDom(async(container)=>{
+ const root=createRoot(container),noop=()=>{};
+ const session={id:'other-session',title:'已有会话',status:'active',intent:'unknown',createdAt:new Date(),
+  messages:[{id:'message-1',role:'assistant',content:'已有回复',timestamp:new Date()}]} as Session;
+ try{
+  await act(async()=>root.render(<MemoryRouter><CustomerChatPage sessions={[session]} currentSession={session}
+   isLoading={false} inputValue="还想问价格" permissionRequest={null} faqSuggestions={[]}
+   queuePosition={null} queueEstimatedWait={null} progressMessage="" onSendMessage={noop}
+   onStop={noop} onInputChange={noop} onPermissionAllow={noop} onPermissionDeny={noop}
+   onRecoverMessage={noop} recoveryAvailable={false} onRateSession={noop}/></MemoryRouter>));
+  assert.equal((container.querySelector('.chat-composer-action.is-send') as HTMLButtonElement).disabled,false);
+  assert.equal((container.querySelector('textarea[aria-label="输入你的问题"]') as HTMLTextAreaElement).disabled,false);
+ }finally{await act(async()=>root.unmount());}
+}));
+
+test('an invalid deep link returns home without switching to another conversation',async()=>withDom(async(container)=>{
+ const root=createRoot(container);
+ try{
+  await act(async()=>root.render(<MemoryRouter initialEntries={['/chat/old-link']}><App/></MemoryRouter>));
+  assert.match(container.textContent||'',/原聊天链接已失效/);
+  assert.equal(container.querySelector('.customer-session.is-active .customer-session-select'),null);
+ }finally{await act(async()=>root.unmount());}
+},{sessions:[{id:'owner',sessionId:'owner',title:'当前会话',status:'ACTIVE_IDLE',messageCount:0,
+ createdAt:'2026-09-25T00:00:00Z'}]}));
+
+test('a valid deep link remains independently available while another conversation exists',async()=>withDom(async(container)=>{
+ const root=createRoot(container);
+ try{
+  await act(async()=>root.render(<MemoryRouter initialEntries={['/chat/older']}><App/></MemoryRouter>));
+  assert.equal(container.querySelector('.customer-session.is-active .customer-session-select')?.getAttribute('title'),'旧会话');
+  assert.doesNotMatch(container.textContent||'',/账号有另一条未结束的对话/);
+  assert.equal((container.querySelector('textarea[aria-label="输入你的问题"]') as HTMLTextAreaElement).disabled,false);
+ }finally{await act(async()=>root.unmount());}
+},{sessions:[
+ {id:'older',sessionId:'older',title:'旧会话',status:'ACTIVE_IDLE',messageCount:0,createdAt:'2026-09-24T00:00:00Z'},
+ {id:'owner',sessionId:'owner',title:'当前会话',status:'ACTIVE_IDLE',messageCount:0,createdAt:'2026-09-25T00:00:00Z'},
+]}));

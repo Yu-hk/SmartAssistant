@@ -25,6 +25,11 @@ export async function fetchSessions(): Promise<Session[]> {
   return Array.isArray(resp) ? resp : (resp.sessions ?? []);
 }
 
+/** Persist an empty conversation before its first business request. */
+export async function createSession(sessionId: string): Promise<void> {
+  await apiClient.post('/sessions', { sessionId });
+}
+
 /** 获取单个会话详情（含消息） */
 export async function fetchSession(sessionId: string): Promise<{ session: Session; messages: any[] }> {
   return apiClient.get<{ session: Session; messages: any[] }>(`/sessions/${sessionId}`);

@@ -9,6 +9,7 @@ package com.example.smartassistant.consumer.controller;
 
 import com.example.smartassistant.consumer.service.admin.AdminService;
 import com.example.smartassistant.consumer.service.session.ConversationGateService;
+import com.example.smartassistant.consumer.service.session.ConversationGateStateStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +47,9 @@ public class AdminController {
 
     @Autowired(required = false)
     private ConversationGateService conversationGateService;
+
+    @Autowired(required = false)
+    private ConversationGateStateStore conversationGateStateStore;
 
     public AdminController(AdminService adminService) {
         this.adminService = adminService;
@@ -185,6 +189,36 @@ public class AdminController {
         return ResponseEntity.ok(adminService.getSessions(userId));
     }
 
+    @GetMapping("/sessions/active")
+    public ResponseEntity<?> getActiveSession(@RequestHeader("X-User-Id") Long userId) {
+        if (conversationGateService == null) return ResponseEntity.status(503).build();
+        try {
+            return ResponseEntity.ok(conversationGateService.activeConversation(userId.toString()));
+        } catch (RuntimeException unavailable) {
+            log.warn("[Sessions] active conversation lookup unavailable for userId={}", userId);
+            return ResponseEntity.status(503).build();
+        }
+    }
+
+    @PostMapping("/sessions")
+    public ResponseEntity<?> createSession(@RequestHeader("X-User-Id") Long userId,
+                                           @RequestBody Map<String, Object> body) {
+        if (conversationGateStateStore == null) return ResponseEntity.status(503).build();
+        Object rawId = body.get("sessionId");
+        if (!(rawId instanceof String sessionId) || !sessionId.matches("[0-9a-fA-F-]{36}")) {
+            return badRequest("sessionId must be a UUID");
+        }
+        try {
+            java.util.UUID.fromString(sessionId);
+            conversationGateStateStore.create(userId.toString(), sessionId);
+            return ResponseEntity.ok(Map.of("sessionId", sessionId));
+        } catch (IllegalArgumentException invalid) {
+            return badRequest("sessionId must be a UUID");
+        } catch (IllegalStateException closed) {
+            return ResponseEntity.status(409).body(Map.of("message", "这段对话已结束，请新建会话"));
+        }
+    }
+
     @GetMapping("/sessions/{id}")
     public ResponseEntity<?> getSession(
             @PathVariable String id,
@@ -287,8 +321,7 @@ public class AdminController {
             case CONFLICT -> ResponseEntity.status(409).body(Map.of(
                     "success", false,
                     "status", "CONFLICT",
-                    "activeSessionId", decision.activeSessionId() == null ? "" : decision.activeSessionId(),
-                    "message", "已有进行中的会话，请先结束后再恢复"));
+                    "message", "这段会话仍有请求在处理中，请等待本轮结束后再恢复"));
             case NOT_SUSPENDED -> ResponseEntity.status(409).body(Map.of(
                     "success", false,
                     "status", "NOT_SUSPENDED",
