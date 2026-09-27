@@ -103,7 +103,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY}
       chat:
         options:
-          model: ${DEEPSEEK_CHAT_MODEL:deepseek-v4-flash}
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-flash}
           temperature: 0.1
 
     alibaba:
@@ -135,10 +135,10 @@ tool-registry:
 # 模型名仅由环境配置，Router/Common 不绑定具体供应商。
 tier:
   light:
-    model: ${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}}
+    model: ${MODEL_LIGHT:${DEEPSEEK_LIGHT_MODEL:deepseek-flash}}
     temperature: 0.1
   standard:
-    model: ${MODEL_STANDARD:${DEEPSEEK_STANDARD_MODEL:deepseek-v4-flash}}
+    model: ${MODEL_STANDARD:${DEEPSEEK_STANDARD_MODEL:deepseek-flash}}
     temperature: 0.3
   heavy:
     model: ${MODEL_HEAVY:${DEEPSEEK_REASONING_MODEL:deepseek-v4-pro}}

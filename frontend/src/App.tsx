@@ -212,7 +212,7 @@ function CustomerApp() {
   } = useChat({
     currentSession,
     currentSessionId,
-    selectedModel: 'deepseek-v4-flash',
+    selectedModel: 'deepseek-flash',
     setSessions,
     setCurrentSessionId,
     onGateRejected: setSessionActionError,

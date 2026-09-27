@@ -107,7 +107,7 @@
 |------|------|
 | 多 Agent 并行执行是否有超时 | ✅ `agentTimeoutMs` 默认 30s |
 | 是否有 Token 预算上限 | ✅ `SmartReActAgent` Token 预算追踪（`DEFAULT_TOKEN_BUDGET_RATIO = 0.8`） |
-| 是否按请求复杂度控制模型成本 | ✅ 短请求使用 `deepseek-v4-flash`，长请求使用 `deepseek-v4-pro`，阈值可配置 |
+| 是否按请求复杂度控制模型成本 | ✅ 短请求使用 `deepseek-flash`（V4.1 Flash），长请求使用 `deepseek-v4-pro`，阈值可配置 |
 | DAG 并行度是否有上限 | ✅ `parallelExecutor` 有界线程池 |
 
 **结论**：✅ 通过。通过 Flash/Pro 分层、超时、重试与有界并行控制多 Agent 成本放大风险。

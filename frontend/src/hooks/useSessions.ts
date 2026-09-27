@@ -30,7 +30,7 @@ function normalizeSession(raw: any): Session {
   return {
     id: raw.id ?? raw.sessionId ?? raw.session_id,
     title: raw.title || '未命名对话',
-    model: raw.model || raw.modelName || raw.model_name || 'deepseek-v4-flash',
+    model: raw.model || raw.modelName || raw.model_name || 'deepseek-flash',
     sdk_session_id: raw.sdkSessionId ?? raw.sdk_session_id ?? null,
     intent: normalizeIntentType(raw.intent),
     status: normalizeSessionStatus(raw.status),
