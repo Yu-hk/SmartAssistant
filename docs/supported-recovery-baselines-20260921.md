@@ -7,16 +7,20 @@
 
 | 基线 | 允许输入 | 验证路径 |
 | --- | --- | --- |
-| `consolidated-20260920` | 固定摘要的仓库 schema 与 seed | 独立 PG16 初始化、27 个有序迁移、漂移拒绝、逻辑备份恢复及业务契约 |
+| `consolidated-20260920` | 9 月 20 日固定摘要的仓库 schema 与 seed | 仅对对应历史输入验签；不得用此名称放行后续 schema |
+| `independent-conversations-20260926` | 9 月 26 日独立会话索引调整后的仓库 schema 与原 seed | 固定摘要校验、独立 PG16 初始化及迁移/恢复演练；未知变更仍拒绝 |
 | `production-backup-20260920` | 已清点的最新 `database.dump` | 固定摘要与 PGDMP 格式校验；37 表隔离恢复已有记录；恢复后另做独立控制重放与派生清理 |
 | 其他版本 | 不支持 | 拒绝自动执行，先补可信快照、迁移记录和隔离验收，再评审登记 |
 
 摘要常量保存在 `scripts/recovery_baseline.py`，不会从待恢复文件中自动计算后信任。
 仓库 SQL 仅允许 Git 的 CRLF/LF 转换，其他变化需要重新评审；生产 dump 按原始字节验证。
+独立会话迁移移除了每用户仅一条活跃会话的唯一索引，改为 `(user_id, status, updated_at)` 普通索引；
+因此将新仓库 schema 登记为独立基线，旧基线的摘要保持不变。新名称只代表仓库 SQL，
+不扩大 `production-backup-20260920` 对生产备份的认可范围。
 后续备份轮换不是自动升级白名单：新备份须重新清点、隔离恢复并更新固定摘要。
 
 ```sh
-python3 scripts/recovery_baseline.py --baseline consolidated-20260920 --repo .
+python3 scripts/recovery_baseline.py --baseline independent-conversations-20260926 --repo .
 python3 scripts/recovery_baseline.py --baseline production-backup-20260920 \
   --backup /opt/smart-assistant/backups/latest-20260920/database.dump
 ```

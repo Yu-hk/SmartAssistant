@@ -9,11 +9,20 @@ import json
 import pathlib
 import stat
 
-REPOSITORY_BASELINE = 'consolidated-20260920'
+REPOSITORY_BASELINE = 'independent-conversations-20260926'
+LEGACY_REPOSITORY_BASELINE = 'consolidated-20260920'
 PRODUCTION_BASELINE = 'production-backup-20260920'
 SQL_SHA256 = {
-    'docs/database/schema.sql': '1e5243a35285394136ff7f7a1f0b5a21281ba3526bf2659e046ba01b3e755939',
+    'docs/database/schema.sql': 'd36460fdc80c6246c7d5a2e85cb632fb8dba8d1abe21e7e0f1c403390abfc477',
     'docs/database/seed_data.sql': '0c9d401a4919362f9fdc7e2171708b298ee8940e5ebaf31087fb4cd22abda757',
+}
+LEGACY_SQL_SHA256 = {
+    'docs/database/schema.sql': '1e5243a35285394136ff7f7a1f0b5a21281ba3526bf2659e046ba01b3e755939',
+    'docs/database/seed_data.sql': SQL_SHA256['docs/database/seed_data.sql'],
+}
+REPOSITORY_SHA256 = {
+    REPOSITORY_BASELINE: SQL_SHA256,
+    LEGACY_REPOSITORY_BASELINE: LEGACY_SQL_SHA256,
 }
 BACKUP_SHA256 = 'bb95f8a6020707eaa8fe447427318d06c704107a5faae99e36c99a1030533571'
 
@@ -24,8 +33,9 @@ def validate_name(name, expected):
 
 
 def verify_repository(repo, baseline=REPOSITORY_BASELINE):
-    validate_name(baseline, REPOSITORY_BASELINE)
-    for name, expected in SQL_SHA256.items():
+    if baseline not in REPOSITORY_SHA256:
+        raise ValueError('Unsupported recovery baseline; explicit review required')
+    for name, expected in REPOSITORY_SHA256[baseline].items():
         # Git may check out CRLF on Windows; no other normalization is allowed.
         raw = (repo / name).read_bytes().replace(b'\r\n', b'\n')
         if hashlib.sha256(raw).hexdigest() != expected:
