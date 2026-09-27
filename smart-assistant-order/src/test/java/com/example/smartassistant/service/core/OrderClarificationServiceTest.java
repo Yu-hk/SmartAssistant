@@ -4,8 +4,19 @@ import com.example.smartassistant.common.agent.protocol.ClarificationRequest;
 import org.junit.jupiter.api.Test;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class OrderClarificationServiceTest {
+    @Test void explicitContactDifferenceIsFlaggedWithoutReplacingCurrentInput() {
+        var history = mock(OrderCheckoutHistoryService.class);
+        var input = Map.<String, Object>of("product", "耳机", "recipientName", "张三",
+                "recipientPhone", "13900000000", "shippingAddress", "北京市朝阳区建国路1号");
+        when(history.conflicts(7L, input)).thenReturn(List.of("recipientPhone"));
+        var response = OrderClarificationService.prepare("CREATE_ORDER", input, "7", history);
+        assertTrue(response.answer().contains("联系电话与单笔历史订单资料不一致"));
+        assertEquals("13900000000", input.get("recipientPhone"));
+    }
     @Test void createCollectsDeliveryDataNotRecommendationOrServerPrice() {
         var response = OrderClarificationService.prepare("CREATE_ORDER", Map.of("product_name", "AirPods Pro", "budget", "2000", "weight", "3"));
         var contract = ClarificationRequest.read(response.data().get("clarificationRequest"));

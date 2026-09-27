@@ -11,7 +11,8 @@ export interface ClarificationField {
   maxLength: number;
   hint: string;
 }
-export interface ClarificationFormData { version: 2; token: string; expiresAt: number; fields: ClarificationField[] }
+export interface ClarificationFormData { version: 2; token: string; expiresAt: number;
+  domain?: string; operation?: string; fields: ClarificationField[] }
 export interface ClarificationSubmission { token: string; values: Record<string, string> }
 
 // This allowlist limits which controls may be rendered; business labels and bounds come from the server.
@@ -51,7 +52,10 @@ export function normalizeClarificationForm(raw: unknown): ClarificationFormData 
       hint: field.hint,
       value: typeof field.value === 'string' ? field.value.slice(0, field.maxLength) : '' });
   }
-  return { version: 2, token: form.token, expiresAt: form.expiresAt, fields };
+  const orderScope = form.domain === 'order' && form.operation === 'CREATE_ORDER'
+    && fields.some(field => ['recipientName', 'recipientPhone', 'shippingAddress'].includes(field.key));
+  return { version: 2, token: form.token, expiresAt: form.expiresAt,
+    domain: orderScope ? 'order' : undefined, operation: orderScope ? 'CREATE_ORDER' : undefined, fields };
 }
 
 export function clarificationReply(form: ClarificationFormData, values: Record<string, string>): string | null {
