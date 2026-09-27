@@ -1,0 +1,36 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "会话链接校验与恢复",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [940, 540]
+  },
+  "lanes": [
+    { "id": "browser", "label": "用户与前端路由" },
+    { "id": "server", "label": "Consumer 会话 API" },
+    { "id": "outcome", "label": "展示与异常" }
+  ],
+  "mainPath": ["openLink", "currentId", "sessionList", "listCheck", "sessionDetail", "showSession"],
+  "nodes": [
+    { "id": "openLink", "lane": "browser", "col": 0, "type": "frontend", "label": "打开 /chat/:id" },
+    { "id": "currentId", "lane": "browser", "col": 1, "type": "frontend", "label": "读取当前路由 ID", "width": 124 },
+    { "id": "sessionList", "lane": "server", "col": 2, "type": "backend", "label": "GET /api/sessions", "width": 138 },
+    { "id": "listCheck", "lane": "browser", "col": 3, "type": "frontend", "label": "检查列表归属" },
+    { "id": "sessionDetail", "lane": "server", "col": 4, "type": "backend", "label": "GET /api/sessions/:id", "width": 164 },
+    { "id": "showSession", "lane": "browser", "col": 5, "type": "frontend", "label": "显示该会话", "sublabel": "清除旧提示" },
+    { "id": "invalidLink", "lane": "outcome", "col": 5, "type": "security", "label": "提示失效并回首页", "sublabel": "仅 403 / 404", "width": 132 },
+    { "id": "temporaryError", "lane": "outcome", "col": 4, "type": "frontend", "label": "保留链接待重试", "sublabel": "其他错误" }
+  ],
+  "edges": [
+    { "from": "openLink", "to": "currentId" },
+    { "from": "currentId", "to": "sessionList", "label": "请求列表" },
+    { "from": "sessionList", "to": "listCheck", "label": "当前账号可见" },
+    { "from": "listCheck", "to": "sessionDetail", "label": "列表暂缺" },
+    { "from": "sessionDetail", "to": "showSession", "label": "详情存在" },
+    { "from": "listCheck", "to": "showSession", "label": "列表命中", "role": "branch" },
+    { "from": "sessionDetail", "to": "invalidLink", "label": "403 / 404", "role": "error" },
+    { "from": "sessionDetail", "to": "temporaryError", "label": "网络或服务错误", "role": "error" }
+  ]
+}

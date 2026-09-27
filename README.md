@@ -36,6 +36,8 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 下单资料缺失时，Order 仅提出下单域必需字段；用户可手填，或主动从本人已确认的历史订单中选择收货信息。历史资料有差异、或本次填写与单笔历史订单不一致时必须核对，不能静默覆盖。补全资料不等于授权下单，写操作仍需最终审批。详见 [下单收货信息补全与确认流程图](docs/architecture/order-checkout-history.workflow.html)。
 
+会话深链按当前 `/chat/:sessionId` 验证，不能复用首次打开的旧 ID。列表暂未出现新会话时再查询会话详情；只有详情明确返回 403/404 才提示失效并回首页，网络或服务错误保留链接供重试。重新选择会话或新建会话会清除旧提示。流程见 [会话链接校验与恢复](docs/architecture/session-link-validation.workflow.html)。
+
 语义答案缓存只覆盖短时效商品咨询和文档绑定的业务咨询，其他场景不进入缓存；完整边界见 [语义答案缓存策略](docs/semantic-cache-policy.md)。
 
 设计与边界：[情绪并行预处理](docs/architecture/sentiment-preprocessing.md) · [MQ 优先级调度](docs/architecture/chat-priority-mq.md) · [可选画像与等待上限](docs/architecture/optional-user-profile.md)。

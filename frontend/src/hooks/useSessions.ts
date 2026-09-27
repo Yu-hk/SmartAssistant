@@ -104,6 +104,17 @@ export function useSessions() {
     }
   }, []);
 
+  // A session may be persisted before it appears in the list response. A
+  // missing list row alone is not proof that a deep link is invalid.
+  const ensureSessionListed = useCallback(async (sessionId: string) => {
+    const data = await sessionApi.fetchSession(sessionId);
+    const payload = data as any;
+    const session = normalizeSession(payload.session ?? payload);
+    if (session.id !== sessionId) throw new Error('会话详情与链接不一致');
+    setSessions(previous => previous.some(item => item.id === sessionId)
+      ? previous : [session, ...previous]);
+  }, []);
+
   const createSession = useCallback((title = '新对话'): string => {
     const sessionId = crypto.randomUUID();
     const session: Session = {
@@ -285,7 +296,7 @@ export function useSessions() {
     sessions, setSessions, sessionActionError, setSessionActionError, deletingSessionIds,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, loadSessionMessages, createSession,
+    fetchSessions, ensureSessionListed, loadSessionMessages, createSession,
     deleteSession, closeSession, resumeSession, rateSession,
     updateSessionModel, updateSession, updateSessionMessages,
   };
