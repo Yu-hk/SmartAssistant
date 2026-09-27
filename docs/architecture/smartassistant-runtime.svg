@@ -481,15 +481,15 @@ rect.c-bg-rect { fill: var(--bg); }
         <text x="317.625" y="299" class="t-muted" font-size="9" text-anchor="middle">认证与业务 API 路由</text>
         </g>
 
-        <g id="node-chat-admission" data-node-id="chat-admission" data-node-label="Consumer 接入" tabindex="0" role="button" aria-label="聚焦Consumer 接入，对话治理 · 商品录入, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="对话治理 · 商品录入" data-node-tag="对话治理" data-node-context="架构组件">
-          <title>Consumer 接入 · 对话治理 · 商品录入 · 架构组件 · 对话治理</title>
+        <g id="node-chat-admission" data-node-id="chat-admission" data-node-label="Consumer 接入" tabindex="0" role="button" aria-label="聚焦Consumer 接入，对话治理 · 排队接入, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="对话治理 · 排队接入" data-node-tag="对话治理" data-node-context="架构组件">
+          <title>Consumer 接入 · 对话治理 · 排队接入 · 架构组件 · 对话治理</title>
           <rect x="462" y="240" width="148.5" height="90" rx="6" class="c-mask"/>
           <rect x="462" y="240" width="148.5" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(468 246) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" x="536.25" y="283" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Consumer 接入</text>
-        <text x="536.25" y="299" class="t-muted" font-size="9" text-anchor="middle">对话治理 · 商品录入</text>
+        <text x="536.25" y="299" class="t-muted" font-size="9" text-anchor="middle">对话治理 · 排队接入</text>
         <text x="536.25" y="322" class="t-backend" font-size="7" text-anchor="middle">对话治理</text>
         </g>
 

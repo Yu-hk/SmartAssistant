@@ -1,4 +1,4 @@
-package com.example.smartassistant.consumer.service.admin;
+package com.example.smartassistant.intake.service.admin;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.HttpStatus;

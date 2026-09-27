@@ -1,4 +1,4 @@
-package com.example.smartassistant.consumer.service.admin;
+package com.example.smartassistant.intake.service.admin;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -65,7 +65,7 @@ class AdminProductFeaturePersistenceTest {
         JdbcTemplate jdbc = initialize();
         var service = new AdminProductFeatureService(jdbc, CLOCK);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new com.example.smartassistant.consumer.controller.AdminProductFeatureController(service)).build();
+                new com.example.smartassistant.intake.controller.AdminProductFeatureController(service)).build();
         String path = "/api/admin/products/FEATURE-TEST-A/features";
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(path)
                 .header("X-User-Role", "ROLE_ADMIN").header("X-User-Id", "7")
@@ -74,7 +74,7 @@ class AdminProductFeaturePersistenceTest {
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.revision").value(1));
         jdbc.execute("SHUTDOWN");
         var newMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new com.example.smartassistant.consumer.controller.AdminProductFeatureController(
+                new com.example.smartassistant.intake.controller.AdminProductFeatureController(
                         new AdminProductFeatureService(connect(), CLOCK))).build();
         newMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path)
                 .header("X-User-Role", "ROLE_ADMIN").header("X-User-Id", "7"))

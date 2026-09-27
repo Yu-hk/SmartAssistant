@@ -1,4 +1,4 @@
-package com.example.smartassistant.consumer.service.admin;
+package com.example.smartassistant.intake.service.admin;
 
 import java.io.IOException;
 import java.io.InputStreamReader;

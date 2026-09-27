@@ -1,4 +1,4 @@
-package com.example.smartassistant.consumer.service.admin;
+package com.example.smartassistant.intake.service.admin;
 
 import org.springframework.stereotype.Component;
 import com.example.smartassistant.common.product.ProductFeatureDomainLimits;

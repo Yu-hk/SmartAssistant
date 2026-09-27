@@ -19,8 +19,10 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 ## 运行时架构
 
 <p align="center">
-  <img src="docs/architecture/smartassistant-runtime.svg" alt="SmartAssistant 高层运行时架构" width="100%">
+  <img src="docs/architecture/smartassistant-runtime.architecture.visual-check.1440x900.light.png" alt="SmartAssistant 高层运行时架构：含独立商品录入服务" width="100%">
 </p>
+
+[交互式架构图](docs/architecture/smartassistant-runtime.architecture.html)可查看节点来源与关系；商品录入的详细路径见下方独立录入服务架构图。
 
 启用 MQ 时的主请求路径是 `React → Gateway → Consumer 接入 → RabbitMQ → Consumer 执行器 → Router → 业务 Agent`。图中的 Consumer 接入和执行器属于同一服务，Product / Order 则是两个独立领域服务；模型与检索节点是逻辑依赖组，不是新增的统一微服务。
 
@@ -32,7 +34,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 6. PostgreSQL/pgvector 保存业务、画像版本与向量数据；Redis 保存短期上下文、缓存、执行权和检查点。RabbitMQ 还承担画像提交与工作流恢复等独立队列。
 7. Nacos 提供服务注册发现，监控配置覆盖 Prometheus、Grafana、Loki 与链路追踪。高层图省略共享依赖的其他访问边与监控连线，完整配置见 `deploy/docker-compose.yml`。
 
-管理员商品录入是独立管理 API 路径：简介/规格规则提取 → 预览与人工核对 → Consumer 同事务保存商品、参数及审计。该流程不经聊天 MQ/Router，也不调用大模型；Product 推荐时读取已存事实，未知参数不猜测。详见 [商品录入与推荐读取架构](docs/architecture/product-intake.md) 和 [线上部署验收](docs/product-intake-deployment-verification.md)。
+管理员商品录入由独立的 `data-intake-service` 承载：简介/规格规则提取 → 预览与人工核对 → 同事务保存商品、参数及审计。Gateway 保留 `/api/admin/products/**` 路径并校验管理员身份；录入不经 Consumer、聊天 MQ/Router 或大模型。Product 推荐时读取已存事实，未知参数不猜测。FAQ 导入与维护仍在 Consumer，后续单独拆分。详见 [录入服务架构图](docs/architecture/data-intake-service.architecture.html)、[商品录入与推荐读取架构](docs/architecture/product-intake.md)、[本次发布与回滚](docs/data-intake-service-rollout.md)及[2026-09-28 生产验证](docs/data-intake-production-verification-20260928.md)；[2026-09-14 的部署验收](docs/product-intake-deployment-verification.md)仅对应拆分前实现。
 
 下单资料缺失时，Order 仅提出下单域必需字段；用户可手填，或主动从本人已确认的历史订单中选择收货信息。历史资料有差异、或本次填写与单笔历史订单不一致时必须核对，不能静默覆盖。补全资料不等于授权下单，写操作仍需最终审批。详见 [下单收货信息补全与确认流程图](docs/architecture/order-checkout-history.workflow.html)。
 
@@ -51,7 +53,8 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 | --- | --- |
 | `smart-assistant-gateway/` | API 网关，默认端口 8081 |
 | `smart-assistant-router/` | 意图识别、任务分发、Agent 协调与最终兜底 |
-| `smart-assistant-consumer/` | 对话、情绪预处理、用户画像、MQ 调度、商品录入与参数持久化、反馈与运营接口 |
+| `smart-assistant-consumer/` | 对话、情绪预处理、用户画像、MQ 调度、反馈与运营接口 |
+| `smart-assistant-data-intake/` | 管理员商品录入、确定性参数提取、目录写入与参数维护 |
 | `smart-assistant-user/` | 用户、认证与权限 |
 | `smart-assistant-order/` | 订单查询与订单工具 |
 | `smart-assistant-product/` | 商品检索、商品知识库与推荐 |
@@ -152,6 +155,7 @@ GitHub Actions 会执行：
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
 - [架构图生成与验证记录](docs/architecture/runtime-diagram-verification.md)
 - [商品录入与推荐读取架构](docs/architecture/product-intake.md)
+- [独立录入服务架构图](docs/architecture/data-intake-service.architecture.html)
 - [系统设计](docs/system_design.md)
 - [架构演进路线](docs/architecture-roadmap.md)
 - [RAG 生产化设计](docs/rag-production/ARCHITECTURE.md)

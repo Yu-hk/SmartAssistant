@@ -1,0 +1,42 @@
+server:
+  port: 8092
+  shutdown: graceful
+
+spring:
+  application:
+    name: data-intake-service
+  config:
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties]
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/a2a_system}
+    username: ${SPRING_DATASOURCE_USERNAME:${POSTGRES_USER:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:}}
+    driver-class-name: org.postgresql.Driver
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    nacos:
+      config:
+        import-check:
+          enabled: false
+      discovery:
+        enabled: true
+        server-addr: ${SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

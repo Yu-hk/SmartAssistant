@@ -1,6 +1,6 @@
-package com.example.smartassistant.consumer.controller;
+package com.example.smartassistant.intake.controller;
 
-import com.example.smartassistant.consumer.service.admin.AdminProductFeatureService;
+import com.example.smartassistant.intake.service.admin.AdminProductFeatureService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;

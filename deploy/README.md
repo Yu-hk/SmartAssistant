@@ -2,7 +2,7 @@
 
 ## 推荐云服务器配置
 
-SmartAssistant 包含 8 个微服务，并使用 DeepSeek API、PostgreSQL、Redis 与 Nacos，最低推荐配置：
+SmartAssistant 包含 9 个微服务，并使用 DeepSeek API、PostgreSQL、Redis 与 Nacos，最低推荐配置：
 
 | 配置等级 | 规格 | 适用场景 | 参考价格（月） |
 |----------|------|----------|----------------|
@@ -30,7 +30,7 @@ SmartAssistant 包含 8 个微服务，并使用 DeepSeek API、PostgreSQL、Red
                         ├── /healthz → Gateway /actuator/health
                         └── /* → 前端静态文件 (frontend/dist/)
 
-Gateway → Nacos 服务发现 → User / Consumer / Router / Tool Registry / Order / Product / Embedding
+Gateway → Nacos 服务发现 → User / Consumer / Data Intake / Router / Tool Registry / Order / Product / Embedding
 
 基础设施：PostgreSQL / Redis / Nacos / Zipkin；LLM 通过 DeepSeek API 调用
 ```
@@ -193,6 +193,7 @@ sudo systemctl enable --now smart-assistant-cert-renew.timer
 | Nginx | 80/443 | ✅ 80/443 | 唯一对外入口 |
 | Gateway | 8081 | ❌ | API 网关 |
 | Consumer | 8082 | ❌ | SSE 聊天入口 |
+| Data Intake | 8092 | ❌ | 管理员商品录入与参数维护 |
 | Router | 8083 | ❌ | 智能路由 |
 | Product | 8084 | ❌ | 商品智能体 |
 | Order | 8085 | ❌ | 订单智能体 |
@@ -207,6 +208,8 @@ sudo systemctl enable --now smart-assistant-cert-renew.timer
 ---
 
 ## 运维命令
+
+PostgreSQL 仅绑定宿主机回环地址 `127.0.0.1:5432`，应用通过容器内网访问；云防火墙/安全组还须拒绝 5432 公网入站。商品录入服务的分阶段启动、验收和回滚见 [独立服务发布与回滚](../docs/data-intake-service-rollout.md)。
 
 ```bash
 # 查看所有服务状态
@@ -245,7 +248,7 @@ docker compose up -d smart-router
 | Redis | - | ~50MB |
 | Nacos | 512M | ~350MB |
 | PostgreSQL | - | ~200MB |
-| 8 x 后端服务 | 各 512M | ~2GB 总计 |
+| 9 x 后端服务 | 各 512M | ~2-3GB 总计 |
 | **总计** | | **~3-5GB** |
 
 ---

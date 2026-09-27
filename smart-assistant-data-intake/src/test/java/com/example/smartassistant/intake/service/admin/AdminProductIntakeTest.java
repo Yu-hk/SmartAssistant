@@ -1,6 +1,6 @@
-package com.example.smartassistant.consumer.service.admin;
+package com.example.smartassistant.intake.service.admin;
 
-import com.example.smartassistant.consumer.controller.AdminProductIntakeController;
+import com.example.smartassistant.intake.controller.AdminProductIntakeController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;

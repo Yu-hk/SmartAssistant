@@ -22,7 +22,7 @@
 | vite (声明范围) | `^5.0.10` |
 | tailwindcss (声明范围) | `^3.4.17` |
 
-Maven 模块共 11 个；以下端口来自各模块 application.yml 默认声明。
+Maven 模块共 12 个；以下端口来自各模块 application.yml 默认声明。
 
 | 模块 | 默认端口 / 类型 |
 | --- | --- |
@@ -31,6 +31,7 @@ Maven 模块共 11 个；以下端口来自各模块 application.yml 默认声�
 | `smart-assistant-tool-runtime` | 共享库（无独立端口） |
 | `smart-assistant-embedding-service` | 8091 |
 | `smart-assistant-consumer` | 8082 |
+| `smart-assistant-data-intake` | 8092 |
 | `smart-assistant-router` | 8083 |
 | `smart-assistant-order` | 8085 |
 | `smart-assistant-product` | 8084 |
@@ -55,6 +56,7 @@ CI 执行不带 `--write` 的检查，文档与声明不一致即失败。
 Consumer 接入与执行器是同一个服务，不要再拆算为两个部署单元。
 Router 负责规划、协调与兜底；通用工具实现位于 tool-runtime，通过 tool-registry 暴露。
 没有独立 General 或 Recommend 服务。User 负责账号、认证、权限，电商画像的业务所有者是 Consumer。
+管理员商品录入与参数维护由独立 `data-intake-service` 承载，经 Gateway 管理路径调用，不进入对话/MQ 链；FAQ 导入仍在 Consumer。
 
 - 情绪推理默认预算 750ms；画像为可选增强，商品节点默认最多额外等待 500ms，同轮复用选择结果。
 - MQ 使用 RabbitMQ 4.1 Quorum 普通/高优先级、预取 1、手工 ACK；不确定写操作进入核查，不自动重做订单操作。

@@ -106,7 +106,7 @@ services:
     image: pgvector/pgvector:0.8.0-pg16
     container_name: smart-postgres
     ports:
-      - "0.0.0.0:5432:5432"
+      - "127.0.0.1:5432:5432"
     expose:
       - "5432"
     environment:
@@ -330,6 +330,44 @@ services:
       timeout: 5s
       retries: 3
       start_period: 120s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  data-intake:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE_NAME: smart-assistant-data-intake
+    container_name: smart-data-intake
+    expose:
+      - "8092"
+    environment:
+      PORT: 8092
+      JAVA_OPTS: -Dfile.encoding=UTF-8 -Xms64m -Xmx256m
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://smart-postgres:5432/${POSTGRES_DB:-a2a_system}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER_ADDR: smart-nacos:8848
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
+    networks:
+      - smart-network
+    depends_on:
+      nacos:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8092/actuator/health/readiness"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     restart: unless-stopped
     deploy:
       resources:

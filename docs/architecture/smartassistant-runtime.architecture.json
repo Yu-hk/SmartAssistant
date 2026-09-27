@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/Yu-hk/SmartAssistant",
-      "revision": "773401019a0cbd81f5ec2ff6135d1062923bc295"
+      "revision": "ed16018ac91e9581ea5c1c6490cd6eb2ee31f539"
     },
     "viewBox": [
       1320,
@@ -28,6 +28,15 @@
     "gapY": 90
   },
   "components": [
+    {
+      "id": "data-intake",
+      "type": "backend",
+      "label": "Data Intake",
+      "sublabel": "商品录入 · 参数维护",
+      "row": 0,
+      "col": 0,
+      "size": [148.5, 90]
+    },
     {
       "id": "web-client",
       "type": "frontend",
@@ -72,7 +81,7 @@
       "id": "chat-admission",
       "type": "backend",
       "label": "Consumer 接入",
-      "sublabel": "对话治理 · 商品录入",
+      "sublabel": "对话治理 · 排队接入",
       "row": 1,
       "col": 2,
       "size": [
@@ -88,10 +97,6 @@
         {
           "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/dispatch/PriorityRoutingDispatcher.java",
           "label": "优先级调度入口"
-        },
-        {
-          "path": "smart-assistant-consumer/src/main/java/com/example/smartassistant/consumer/service/admin/AdminProductIntakeService.java",
-          "label": "录入提取与原子持久化"
         }
       ]
     },
@@ -301,10 +306,18 @@
   ],
   "connections": [
     {
+      "id": "api-intake",
+      "from": "api-entry",
+      "to": "data-intake",
+      "label": "管理员商品 API",
+      "variant": "security"
+    },
+    {
       "id": "web-api",
       "from": "web-client",
       "to": "api-entry",
       "label": "HTTPS",
+      "labelDy": 24,
       "variant": "emphasis"
     },
     {
@@ -405,9 +418,9 @@
     },
     {
       "dot": "emerald",
-      "title": "商品录入提取，推荐读取事实",
+      "title": "商品录入独立，推荐读取事实",
       "items": [
-        "简介/规格规则提取、人工核对后，Consumer 同事务保存商品、参数与审计。",
+        "Data Intake 规则提取、人工核对后，同事务保存商品、参数与审计。",
         "Product 读取共享目录筛选与说明理由；不等待录入提取，未知参数不猜测。",
         "仅绘主调用边；共享依赖访问另见录入架构。General 已移除，Router 内置兜底。"
       ]

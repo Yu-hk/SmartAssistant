@@ -24,6 +24,7 @@
         <module>smart-assistant-tool-runtime</module>
         <module>smart-assistant-embedding-service</module>  <!-- ⭐ 独立嵌入服务 -->
         <module>smart-assistant-consumer</module>
+        <module>smart-assistant-data-intake</module>
         <module>smart-assistant-router</module>
         <module>smart-assistant-order</module>
         <module>smart-assistant-product</module>
