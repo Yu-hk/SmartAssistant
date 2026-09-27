@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 
 import { useTheme } from './hooks/useTheme';
@@ -9,6 +9,7 @@ import { getUserDisplayName } from './utils/userDisplay';
 import { serviceEntryDraft } from './utils/serviceEntry';
 import { usePageVisit } from './hooks/usePageVisit';
 import { trackServiceEntry } from './api/visits';
+import { ApiError } from './api/client';
 
 import { CustomerSidebar } from './components/CustomerSidebar';
 import { SessionInsightPanel } from './components/SessionInsightPanel';
@@ -188,7 +189,6 @@ function CustomerApp() {
   usePageVisit();
   const navigate = useNavigate();
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
-  const initialRouteSessionId = useRef(urlSessionId);
   const authUser = getAuthUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [accountSessionLoadState, setAccountSessionLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -198,7 +198,7 @@ function CustomerApp() {
     sessions, setSessions, sessionsLoadState, sessionActionError, setSessionActionError, deletingSessionIds,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, deleteSession, closeSession, resumeSession, rateSession,
+    fetchSessions, ensureSessionListed, deleteSession, closeSession, resumeSession, rateSession,
   } = useSessions();
 
   const { notifications, markRead: markNotificationRead } = useNotifications({ setSessions });
@@ -226,7 +226,8 @@ function CustomerApp() {
     );
   }, [urlSessionId, setCurrentSessionId]);
 
-  // A URL deep link is accepted only if the authenticated account can list it.
+  // Validate the current route, not the URL captured on the first render. A
+  // newly persisted conversation may also appear in detail before the list.
   useEffect(() => {
     let disposed = false;
     void (async () => {
@@ -236,41 +237,56 @@ function CustomerApp() {
         setAccountSessionLoadState('error');
         return;
       }
-      const initialId = initialRouteSessionId.current;
-      const initialSessionIsVisible = Boolean(initialId && loaded.some(session => session.id === initialId));
-      if (initialId && !initialSessionIsVisible) {
-        setCurrentSessionId(null);
-        setSessionActionError('原聊天链接已失效，请从会话列表重新选择。');
-        navigate('/', { replace: true });
+      const routeId = urlSessionId;
+      if (routeId && !loaded.some(session => session.id === routeId)) {
+        try {
+          await ensureSessionListed(routeId);
+        } catch (error) {
+          if (disposed) return;
+          if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+            setCurrentSessionId(null);
+            setSessionActionError('原聊天链接已失效，请从会话列表重新选择。');
+            navigate('/', { replace: true });
+          } else {
+            setAccountSessionLoadState('error');
+            setSessionActionError('暂时无法核实这段对话，请稍后刷新页面。');
+          }
+          return;
+        }
       }
+      if (disposed) return;
+      if (routeId) setSessionActionError(null);
       setAccountSessionLoadState('ready');
     })();
     return () => { disposed = true; };
-  }, [fetchSessions, navigate, setCurrentSessionId, setSessionActionError]);
+  }, [ensureSessionListed, fetchSessions, navigate, setCurrentSessionId, setSessionActionError, urlSessionId]);
 
   const handleNewChat = useCallback(() => {
     if (isLoading) return;
+    setSessionActionError(null);
     setCurrentSessionId(null);
     setInputValue('');
     setSidebarOpen(false);
     navigate('/');
-  }, [isLoading, navigate, setInputValue, setCurrentSessionId]);
+  }, [isLoading, navigate, setInputValue, setCurrentSessionId, setSessionActionError]);
 
   const handleSelectAgent = useCallback((serviceName: string) => {
     if (isLoading) return;
+    setSessionActionError(null);
     void trackServiceEntry(serviceName);
     setCurrentSessionId(null);
     setInputValue(current => serviceEntryDraft(current, serviceName));
     setSidebarOpen(false);
     navigate('/');
-  }, [isLoading, navigate, setInputValue, setCurrentSessionId]);
+  }, [isLoading, navigate, setInputValue, setCurrentSessionId, setSessionActionError]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
+    setSessionActionError(null);
     setCurrentSessionId(sessionId);
     setInputValue('');
     setSidebarOpen(false);
     navigate(`/chat/${sessionId}`);
-  }, [navigate, setCurrentSessionId, setInputValue]);
+  }, [navigate, setCurrentSessionId, setInputValue, setSessionActionError]);
 
   const handleDeleteSession = useCallback(async (sessionId: string) => {
     const navigateTo = await deleteSession(sessionId);
