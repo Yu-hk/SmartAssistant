@@ -17,7 +17,7 @@ test('shortcuts replace only generated prompts, preserving custom drafts',()=>{
 });
 
 async function withDom(run:(container:HTMLElement,errors:string[])=>Promise<void>,
- fixture?:{sessions?:Record<string,unknown>[]}){
+ fixture?:{sessions?:Record<string,unknown>[],detailSessions?:Record<string,unknown>[]}){
  const dom=new JSDOM('<div id="root"></div>',{url:'https://service-entry.test'});
  const saved=new Map<string,PropertyDescriptor|undefined>();
  const set=(name:string,value:unknown)=>{saved.set(name,Object.getOwnPropertyDescriptor(globalThis,name));Object.defineProperty(globalThis,name,{value,writable:true,configurable:true});};
@@ -28,8 +28,10 @@ async function withDom(run:(container:HTMLElement,errors:string[])=>Promise<void
   if(url.includes('capabilities'))return Response.json({available:false});
   if(url.endsWith('/stream'))return new Response('',{headers:{'Content-Type':'text/event-stream'}});
   if(url.endsWith('/sessions'))return Response.json(fixture?.sessions??[]);
-  if(fixture?.sessions?.some(session=>url.endsWith(`/sessions/${session.id}`)))
-   return Response.json({session:fixture.sessions.find(session=>url.endsWith(`/sessions/${session.id}`)),messages:[]});
+  const detail=[...(fixture?.sessions??[]),...(fixture?.detailSessions??[])]
+   .find(session=>url.endsWith(`/sessions/${session.id}`));
+  if(url.includes('/sessions/') && detail)return Response.json({session:detail,messages:[]});
+  if(url.includes('/sessions/'))return Response.json({message:'Conversation not found'},{status:404});
   if(url.includes('unread'))return Response.json([]);
   throw new Error('Unexpected diagnostic request '+url);
  });
@@ -93,6 +95,16 @@ test('an invalid deep link returns home without switching to another conversatio
  }finally{await act(async()=>root.unmount());}
 },{sessions:[{id:'owner',sessionId:'owner',title:'当前会话',status:'ACTIVE_IDLE',messageCount:0,
  createdAt:'2026-09-25T00:00:00Z'}]}));
+
+test('a newly saved conversation remains open before it appears in the list',async()=>withDom(async(container)=>{
+ const root=createRoot(container);
+ try{
+  await act(async()=>root.render(<MemoryRouter initialEntries={['/chat/newly-saved']}><App/></MemoryRouter>));
+  assert.equal(container.querySelector('.customer-session.is-active .customer-session-select')?.getAttribute('title'),'新会话');
+  assert.doesNotMatch(container.textContent||'',/原聊天链接已失效/);
+ }finally{await act(async()=>root.unmount());}
+},{sessions:[],detailSessions:[{id:'newly-saved',sessionId:'newly-saved',title:'新会话',status:'ACTIVE_IDLE',
+ messageCount:0,createdAt:'2026-09-27T00:00:00Z'}]}));
 
 test('a valid deep link remains independently available while another conversation exists',async()=>withDom(async(container)=>{
  const root=createRoot(container);
