@@ -34,6 +34,8 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 管理员商品录入是独立管理 API 路径：简介/规格规则提取 → 预览与人工核对 → Consumer 同事务保存商品、参数及审计。该流程不经聊天 MQ/Router，也不调用大模型；Product 推荐时读取已存事实，未知参数不猜测。详见 [商品录入与推荐读取架构](docs/architecture/product-intake.md) 和 [线上部署验收](docs/product-intake-deployment-verification.md)。
 
+下单资料缺失时，Order 仅提出下单域必需字段；用户可手填，或主动从本人已确认的历史订单中选择收货信息。历史资料有差异、或本次填写与单笔历史订单不一致时必须核对，不能静默覆盖。补全资料不等于授权下单，写操作仍需最终审批。详见 [下单收货信息补全与确认流程图](docs/architecture/order-checkout-history.workflow.html)。
+
 语义答案缓存只覆盖短时效商品咨询和文档绑定的业务咨询，其他场景不进入缓存；完整边界见 [语义答案缓存策略](docs/semantic-cache-policy.md)。
 
 设计与边界：[情绪并行预处理](docs/architecture/sentiment-preprocessing.md) · [MQ 优先级调度](docs/architecture/chat-priority-mq.md) · [可选画像与等待上限](docs/architecture/optional-user-profile.md)。
@@ -120,6 +122,8 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 生产部署的唯一入口是 `deploy/docker-compose.yml`。部署前必须通过环境变量注入真实密钥，禁止把 `.env`、数据库转储、运行日志或用户会话数据提交到仓库。
 
+新功能按以下顺序交付：本地测试通过 → 发布到线上服务器并用真实页面及接口验收 → 验收无误后推送并合并远程分支。涉及业务流程环节变化时，同时更新架构图和 README。其他远程功能分支须逐支核对变更、验证功能、确认已合并且不再使用后，才关闭该分支；不能仅因分支较旧批量删除。生产验收失败时停止合并并按[发布回滚检查单](docs/deployment-rollback-runbook.md)处理。
+
 参考：
 
 - [生产部署说明](deploy/README.md)
@@ -142,6 +146,7 @@ GitHub Actions 会执行：
 ## 文档
 
 - [交互式运行时架构图](docs/architecture/smartassistant-runtime.architecture.html)
+- [下单收货信息补全与确认流程图](docs/architecture/order-checkout-history.workflow.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
 - [架构图生成与验证记录](docs/architecture/runtime-diagram-verification.md)
 - [商品录入与推荐读取架构](docs/architecture/product-intake.md)
