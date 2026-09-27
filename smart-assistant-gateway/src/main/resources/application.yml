@@ -96,6 +96,20 @@ spring:
               predicates:
                 - Path=/api/speech/**
 
+            # Catalog writes are owned by the intake service, not the chat consumer.
+            # Keep both public path forms ahead of the generic /api/admin/** route.
+            - id: data-intake-products
+              uri: lb://data-intake-service
+              predicates:
+                - Path=/api/admin/products,/api/admin/products/**
+
+            - id: data-intake-products-prefixed
+              uri: lb://data-intake-service
+              predicates:
+                - Path=/assistant/api/admin/products,/assistant/api/admin/products/**
+              filters:
+                - StripPrefix=1
+
             - id: consumer-service-bare
               uri: lb://consumer-service
               predicates:

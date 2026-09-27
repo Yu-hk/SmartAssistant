@@ -247,8 +247,8 @@ jobs:
         run: python3 -m unittest discover -s scripts -p test_chat_telemetry.py -v
       - name: Verify persistent product features and management authorization
         run: >-
-          mvn -B -pl smart-assistant-consumer,smart-assistant-gateway -am test
-          -Dtest=ProductFeatureExtractorTest,AdminProductIntakeTest,AdminProductFeaturePersistenceTest,AdminProductFeatureControllerTest,AdminControllerSessionAuthorizationTest,AdminServiceStorageInitializationTest,GlobalJwtAuthFilterTest,VisitRecordServiceTest
+          mvn -B -pl smart-assistant-data-intake,smart-assistant-consumer,smart-assistant-gateway -am test
+          -Dtest=DataIntakeApplicationTest,DataIntakeRouteConfigurationTest,ProductFeatureExtractorTest,AdminProductIntakeTest,AdminProductFeaturePersistenceTest,AdminProductFeatureControllerTest,AdminControllerSessionAuthorizationTest,AdminServiceStorageInitializationTest,GlobalJwtAuthFilterTest,VisitRecordServiceTest
           -Dsurefire.failIfNoSpecifiedTests=false
 
   # 语音转写与聊天解耦：鉴权、有界音频和浏览器生命周期回归。
