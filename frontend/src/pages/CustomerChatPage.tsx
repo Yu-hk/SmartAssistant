@@ -16,6 +16,7 @@ import { useVoiceOutput } from '../hooks/useVoiceOutput';
 interface CustomerChatPageProps {
   sessions: Session[];
   currentSession: Session | undefined;
+  sessionsLoadState?: 'loading' | 'ready' | 'error';
   isLoading: boolean;
   inputValue: string;
   permissionRequest: PermissionRequest | null;
@@ -36,6 +37,7 @@ interface CustomerChatPageProps {
 
 export function CustomerChatPage({
   currentSession,
+  sessionsLoadState = 'ready',
   isLoading,
   inputValue,
   permissionRequest,
@@ -120,7 +122,11 @@ export function CustomerChatPage({
                 ? '该会话已结束，请从左侧新建会话后继续。'
                 : isSuspended
                   ? '该会话已暂停且上下文已保留；请从左侧暂停列表中主动恢复。'
-                  : '查订单、选商品、查资料，从一个问题开始。'}</p>
+                  : sessionsLoadState === 'loading'
+                    ? '正在加载您的会话，请稍候…'
+                    : sessionsLoadState === 'error'
+                      ? '会话暂时无法加载，请刷新页面后再发送。'
+                      : '查订单、选商品、查资料，从一个问题开始。'}</p>
             </div>
 
             <CustomerChatInput
@@ -130,7 +136,7 @@ export function CustomerChatPage({
               onVoiceBusyChange={setVoiceInputBusy}
               inputValue={inputValue}
               isLoading={isLoading}
-              disabled={isClosed || isSuspended}
+              disabled={isClosed || isSuspended || sessionsLoadState !== 'ready'}
               disabledMessage={isSuspended
                 ? '该会话已暂停，请从左侧暂停列表中选择恢复'
                 : undefined}
@@ -139,10 +145,11 @@ export function CustomerChatPage({
               onChange={onInputChange}
             />
 
-            <ScenarioExamples disabled={isClosed || isSuspended || isLoading} onSelect={onInputChange} />
+            {isLoading && progressMessage && <p role="status" className="home-progress">{progressMessage}</p>}
+            <ScenarioExamples disabled={isClosed || isSuspended || isLoading || sessionsLoadState !== 'ready'} onSelect={onInputChange} />
             <details className="home-documents" key={`documents:${currentSession?.id || 'new'}`}>
               <summary><FileText size={17} /><span>文档问答<small>导入资料，或试用示例文档</small></span><span className="home-documents-toggle" aria-hidden="true">+</span></summary>
-              <DocumentExamples disabled={isClosed || isSuspended || isLoading}
+              <DocumentExamples disabled={isClosed || isSuspended || isLoading || sessionsLoadState !== 'ready'}
                 hasDraft={Boolean(inputValue.trim())} onSelect={onInputChange} />
             </details>
           </section>
@@ -213,7 +220,8 @@ export function CustomerChatPage({
           key={currentSession?.id || 'new'}
           inputValue={inputValue}
           isLoading={isLoading}
-          disabled={currentSession?.status === 'closed' || currentSession?.status === 'suspended'}
+          disabled={currentSession?.status === 'closed' || currentSession?.status === 'suspended'
+            || sessionsLoadState !== 'ready'}
           disabledMessage={currentSession?.status === 'suspended'
             ? '该会话已暂停，请从左侧暂停列表中选择恢复'
             : undefined}

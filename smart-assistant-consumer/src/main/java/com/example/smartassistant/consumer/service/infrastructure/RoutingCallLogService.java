@@ -13,7 +13,6 @@ import com.example.smartassistant.consumer.entity.RoutingCallLog;
 import com.example.smartassistant.consumer.mapper.RoutingCallLogMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 /**
@@ -33,10 +32,8 @@ public class RoutingCallLogService {
         this.callLogMapper = callLogMapper;
     }
     
-    /**
-     * 异步保存路由调用日志
-     */
-    @Async("asyncRouteExecutor")
+    /** Persist before the request releases its session gate. A delayed insert
+     * can otherwise recreate a conversation after DELETE has returned 200. */
     public void saveLog(Long userId, String sessionId, String userInput, String routedAgent,
                        String routeMethod, Long latencyMs, String status) {
         saveLog(userId, sessionId, userInput, routedAgent, routeMethod,
@@ -47,7 +44,6 @@ public class RoutingCallLogService {
      * Persist a completed chat turn, including the actual routed capability and
      * a bounded response body used by session detail views.
      */
-    @Async("asyncRouteExecutor")
     public void saveLog(Long userId, String sessionId, String userInput, String routedAgent,
                         String routeMethod, Long latencyMs, String status,
                         String responseSummary) {
@@ -59,7 +55,6 @@ public class RoutingCallLogService {
      * Persist a completed turn with nullable provider-reported token usage.
      * Null represents unknown/uncollected telemetry; measured zero is retained.
      */
-    @Async("asyncRouteExecutor")
     public void saveLog(Long userId, String sessionId, String userInput, String routedAgent,
                         String routeMethod, Long latencyMs, String status,
                         String responseSummary, Long promptTokens,
@@ -70,7 +65,6 @@ public class RoutingCallLogService {
     }
 
     /** Persist the effective prompt and argument-free tool invocation telemetry. */
-    @Async("asyncRouteExecutor")
     public void saveLog(Long userId, String sessionId, String userInput, String routedAgent,
                         String routeMethod, Long latencyMs, String status,
                         String responseSummary, Long promptTokens,
@@ -82,7 +76,6 @@ public class RoutingCallLogService {
     }
 
     /** Persist a turn with its independent workflow execution ID. */
-    @Async("asyncRouteExecutor")
     public void saveLog(Long userId, String sessionId, String requestId,
                         String userInput, String routedAgent,
                         String routeMethod, Long latencyMs, String status,

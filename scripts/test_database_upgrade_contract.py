@@ -8,7 +8,7 @@ class UpgradeContractTests(unittest.TestCase):
     def test_inventory_complete_and_explicit_dependencies(self):
         repo = pathlib.Path(__file__).resolve().parents[1]
         inputs = contract.load_inputs(repo)
-        self.assertEqual(len(inputs), 28)
+        self.assertEqual(len(inputs), 29)
         for before, after in [('20260914_add_product_structured_features', '20260914_add_product_intake'),
                               ('20260918_add_profile_lifecycle', '20260919_add_profile_control_archive'),
                               ('20260827_add_workflow_recovery_jobs', '20260827_add_workflow_recovery_result')]:
@@ -61,15 +61,15 @@ class UpgradeContractTests(unittest.TestCase):
         def sql(statement):
             calls.append(statement)
             state = next((state for marker, state in [
-                ("'duplicate'", '23505'), ('weight_grams=-1', '23514'),
+                ("'fixture-running','ACTIVE_IDLE'", '23505'), ('weight_grams=-1', '23514'),
                 ("'missing-order'", '23503'), ('workflow_versions', '23514'),
                 ('SET ROLE fixture_reader; UPDATE', '42501'),
                 ('SET ROLE fixture_reader; SELECT * FROM users', '42501')]
                 if marker in statement), None)
             if state: raise RuntimeError('Fixture command failed SQLSTATE=' + state)
-            return 't'
+            return '2' if "'parallel-conversation'" in statement else 't'
         self.assertTrue(contract.behavior(sql)['writeAndUserReadDenied'])
-        self.assertEqual(len(calls), 8)
+        self.assertEqual(len(calls), 9)
 
 
 if __name__ == '__main__': unittest.main()

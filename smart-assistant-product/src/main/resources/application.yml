@@ -258,3 +258,11 @@ product:
       enabled: true            # 查询侧「实体-关系图检索」Handler 开关（并入 RAG Pipeline）
       ingest-seed:
         enabled: true          # 启动时将种子文档（产品/订单）抽取进知识图谱（异步 best-effort）
+
+# Optional read-only discovery hint; product facts still come from the catalog.
+jev:
+  enabled: ${JEV_ENABLED:false}
+  api-key: ${TYPESAFE_API_KEY:}
+  model: ${JEV_MODEL:jev-latest}
+  timeout-ms: ${JEV_TIMEOUT_MS:600}
+  proxy-url: ${JEV_PROXY_URL:}

@@ -59,7 +59,7 @@ class OrderAgentControllerTest {
         recorder = new StageTraceRecorder(null);
         controller.setStageTraceRecorder(recorder);
 
-        when(intentService.detect(anyString())).thenReturn(IntentType.QUERY_ORDER);
+        when(intentService.detect(anyString(), nullable(String.class))).thenReturn(IntentType.QUERY_ORDER);
         // buildEnhancedMessage 调用真实实现（mock 默认返回 null 会触发 NPE）
         when(ragService.buildEnhancedMessage(any(com.example.smartassistant.common.rag.RetrievalQualityResult.class), anyString()))
                 .thenCallRealMethod();
@@ -134,7 +134,7 @@ class OrderAgentControllerTest {
     void refundPolicy_shouldReturnKnowledgeWithoutCallingAgent() {
         RetrievalQualityResult policy = RetrievalQualityResult.highQuality(
                 "【退款与退货政策】\n商品签收后7天内，商品完好且附件齐全可申请退货。", 0.95);
-        when(intentService.detect(anyString())).thenReturn(IntentType.REFUND_POLICY);
+        when(intentService.detect(anyString(), nullable(String.class))).thenReturn(IntentType.REFUND_POLICY);
         when(ragService.retrieveWithQualityResult(eq(IntentType.REFUND_POLICY), anyString()))
                 .thenReturn(policy);
         when(ragService.buildRefundPolicyAnswer(policy))
@@ -158,7 +158,7 @@ class OrderAgentControllerTest {
     void orderGuidance_shouldReturnReadOnlyGuideWithoutCallingAgent() {
         RetrievalQualityResult guidance = RetrievalQualityResult.highQuality(
                 "【订单生命周期操作说明】\n查询订单、取消订单和申请售后均需先确认目标订单。", 1.0);
-        when(intentService.detect(anyString())).thenReturn(IntentType.ORDER_GUIDANCE);
+        when(intentService.detect(anyString(), nullable(String.class))).thenReturn(IntentType.ORDER_GUIDANCE);
         when(ragService.retrieveWithQualityResult(eq(IntentType.ORDER_GUIDANCE), anyString()))
                 .thenReturn(guidance);
         when(ragService.buildOrderGuidanceAnswer(guidance))
@@ -181,7 +181,7 @@ class OrderAgentControllerTest {
     void orderPreparation_shouldReturnChecklistWithoutCallingAgent() {
         RetrievalQualityResult guidance = RetrievalQualityResult.highQuality(
                 "【下单前信息清单】\n商品、数量、收货人姓名；当前不会执行下单，也不会创建测试订单。", 1.0);
-        when(intentService.detect(anyString())).thenReturn(IntentType.ORDER_PREPARATION_GUIDANCE);
+        when(intentService.detect(anyString(), nullable(String.class))).thenReturn(IntentType.ORDER_PREPARATION_GUIDANCE);
         when(ragService.retrieveWithQualityResult(eq(IntentType.ORDER_PREPARATION_GUIDANCE), anyString()))
                 .thenReturn(guidance);
         when(ragService.buildOrderGuidanceAnswer(guidance)).thenReturn(guidance.getContent());
@@ -246,7 +246,7 @@ class OrderAgentControllerTest {
         OrderAgentController fastController = new OrderAgentController(
                 agent, intentService, ragService, mock(MemoryExtractor.class), orchestrator,
                 new OrderDomainQualityValidator(), deterministic);
-        when(intentService.detect("查看我的订单列表")).thenReturn(IntentType.QUERY_ORDER);
+        when(intentService.detect(eq("查看我的订单列表"), nullable(String.class))).thenReturn(IntentType.QUERY_ORDER);
         when(deterministic.supports("QUERY_ORDER")).thenReturn(true);
         when(deterministic.execute(any(AgentExecutionRequest.class))).thenReturn(
                 AgentExecutionResponse.success("当前没有查询到你的订单。",

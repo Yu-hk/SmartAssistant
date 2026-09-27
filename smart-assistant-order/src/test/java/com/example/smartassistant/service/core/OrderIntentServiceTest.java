@@ -4,13 +4,17 @@ import com.example.smartassistant.common.prompt.PromptManager;
 import com.example.smartassistant.common.rag.advisor.AiChatService;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.test.util.ReflectionTestUtils;
+import com.example.smartassistant.common.jev.JevDecisionClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class OrderIntentServiceTest {
 
@@ -45,6 +49,28 @@ class OrderIntentServiceTest {
                 service.detect("帮我创建订单并立即支付"));
         assertEquals(OrderIntentService.IntentType.OTHER,
                 service.detect("取消订单 ORD-1001"));
+    }
+
+    @Test
+    void jevFallbackCannotAuthorizeWriteWhenPrimaryModelFails() throws Exception {
+        AiChatService aiChatService = mock(AiChatService.class);
+        PromptManager promptManager = mock(PromptManager.class);
+        when(promptManager.orderIntentClassifier()).thenReturn("classify");
+        when(aiChatService.entity(any(), anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("model unavailable"));
+        JevDecisionClient client = mock(JevDecisionClient.class);
+        var answer = new ObjectMapper().readTree(
+                "{\"intent\":{\"choice\":\"TRACK_LOGISTICS\",\"confidence\":0.98},\"write_request\":{\"noul\":0.01}}");
+        when(client.evaluate(anyString(), any(), anyString()))
+                .thenReturn(Optional.of(new JevDecisionClient.Decision(answer)));
+        OrderIntentService service = new OrderIntentService(
+                aiChatService, mock(ChatModel.class), promptManager);
+        ReflectionTestUtils.setField(service, "jevAdvisor", new JevOrderIntentAdvisor(client));
+
+        assertEquals(OrderIntentService.IntentType.TRACK_LOGISTICS,
+                service.detect("我的包裹现在走到哪一步了", "read-request"));
+        assertEquals(OrderIntentService.IntentType.OTHER,
+                service.detect("我要退款", "write-request"));
     }
 
     @Test

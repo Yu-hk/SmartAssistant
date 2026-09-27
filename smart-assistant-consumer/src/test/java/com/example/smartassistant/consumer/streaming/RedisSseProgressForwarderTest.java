@@ -30,7 +30,9 @@ class RedisSseProgressForwarderTest {
         when(list.leftPop("events")).thenReturn(
                 "{\"type\":\"response\",\"content\":\"ok\"}", "{\"type\":\"done\"}", null);
 
-        assertThat(forwarder.forwardList(bus, "events")).isTrue();
+        var cursor = new RedisSseProgressForwarder.Cursor();
+        assertThat(forwarder.forwardList(bus, "events", cursor)).isTrue();
+        assertThat(cursor.replyText()).isEqualTo("ok");
         var event = org.mockito.ArgumentCaptor.forClass(SseEvent.class);
         verify(bus).send(event.capture());
         assertThat(event.getValue().render()).contains("event: response").doesNotContain("event: done");
@@ -55,6 +57,7 @@ class RedisSseProgressForwarderTest {
         forwarder.forwardStream(bus, "progress", cursor);
 
         assertThat(cursor.forwardedAny()).isTrue();
+        assertThat(cursor.replyText()).isEmpty();
         var event = org.mockito.ArgumentCaptor.forClass(SseEvent.class);
         verify(bus).send(event.capture());
         assertThat(event.getValue().render()).contains("event: step").doesNotContain("event: done");

@@ -16,6 +16,13 @@ import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 
 class ClarificationV2Test {
+    @Test void shippingAddressUsesSharedMinimumAndRejectsCityOnly() {
+        assertEquals(6, ClarificationPolicy.field("shippingAddress").minLength());
+        assertThrows(IllegalArgumentException.class, () -> ClarificationPolicy.reply(
+                List.of("shippingAddress"), Map.of("shippingAddress", "北京市")));
+        assertEquals("补充信息：收货地址为北京市海淀区测试路1号。", ClarificationPolicy.reply(
+                List.of("shippingAddress"), Map.of("shippingAddress", "北京市海淀区测试路1号")));
+    }
     @Test void fieldSpecificBoundsAndInjectionRejection() {
         assertEquals("100000000", ClarificationPolicy.field("budget").max());
         assertEquals("补充信息：预算为20000000元。",

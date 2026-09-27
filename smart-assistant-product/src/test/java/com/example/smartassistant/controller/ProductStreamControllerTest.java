@@ -361,7 +361,7 @@ class ProductStreamControllerTest {
     void unifiedDiscoveryEndpointReturnsProductsAsStructuredData() {
         StreamingProductAgentService service = mock(StreamingProductAgentService.class);
         ProductDiscoveryService discovery = mock(ProductDiscoveryService.class);
-        when(discovery.supports("查询热门商品")).thenReturn(true);
+        when(discovery.supports(eq("查询热门商品"), anyString())).thenReturn(true);
         when(discovery.discover(eq("查询热门商品"), anyString(), eq(3))).thenReturn(
                 new ProductDiscoveryService.DiscoveryResult(
                         "1. 降噪耳机（SKU-100） — ¥599", 1, true,
@@ -388,7 +388,7 @@ class ProductStreamControllerTest {
         StreamingProductAgentService service = mock(StreamingProductAgentService.class);
         ProductDiscoveryService discovery = mock(ProductDiscoveryService.class);
         String question = "查询热门商品并判断是否适合视频会议，不要虚构参数";
-        when(discovery.supports(question)).thenReturn(true);
+        when(discovery.supports(eq(question), anyString())).thenReturn(true);
         when(discovery.discover(eq(question), anyString(), isNull())).thenReturn(
                 new ProductDiscoveryService.DiscoveryResult(
                         "目录证据不足，不能把热门等同于适合。", 1, true,

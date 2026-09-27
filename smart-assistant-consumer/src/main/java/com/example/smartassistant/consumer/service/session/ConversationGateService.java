@@ -18,10 +18,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Distributed, user-scoped conversation gate.
- *
- * <p>One user may own one interactive session. That session may execute one turn at a time.
- * Other sessions are recorded as suspended and never reach profile/model/tool execution.</p>
+ * Distributed, per-session turn gate. A user can have multiple independent
+ * conversations, but a single conversation executes only one turn at a time.
  */
 @Service
 public class ConversationGateService {
@@ -30,46 +28,30 @@ public class ConversationGateService {
     private static final String PREFIX = "conversation:gate:";
 
     private static final DefaultRedisScript<String> ACQUIRE_SCRIPT = new DefaultRedisScript<>("""
-            if redis.call('EXISTS', KEYS[6]) == 1 then return 'SESSION_CLOSED||0|' end
-            local active = redis.call('GET', KEYS[1])
-            if ARGV[9] == 'existing' and active ~= ARGV[1] then return 'SESSION_CLOSED||0|' end
-            redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', ARGV[7])
-
-            if not active then
-              active = ARGV[1]
-              redis.call('SET', KEYS[1], active, 'PX', ARGV[5])
-            elseif active == ARGV[1] then
-              redis.call('PEXPIRE', KEYS[1], ARGV[5])
+            if redis.call('EXISTS', KEYS[3]) == 1 then return 'SESSION_CLOSED||0|' end
+            local indexed = redis.call('GET', KEYS[2])
+            if indexed then
+              local indexedSeparator = string.find(indexed, '|', 1, true)
+              local indexedSession = indexedSeparator and string.sub(indexed, 1, indexedSeparator - 1) or indexed
+              if indexedSession ~= ARGV[4] then return 'REQUEST_BLOCKED||1|' end
             end
-
-            if active ~= ARGV[1] then
-              redis.call('ZADD', KEYS[3], 'NX', ARGV[4], ARGV[1])
-              redis.call('HSET', KEYS[4], ARGV[1], ARGV[2])
-              redis.call('PEXPIRE', KEYS[3], ARGV[8])
-              redis.call('PEXPIRE', KEYS[4], ARGV[8])
-              local rank = redis.call('ZRANK', KEYS[3], ARGV[1])
-              return 'SESSION_SUSPENDED|' .. active .. '|' .. tostring((rank or 0) + 1) .. '|'
-            end
-
-            redis.call('ZREM', KEYS[3], ARGV[1])
-            redis.call('HDEL', KEYS[4], ARGV[1])
-            local running = redis.call('GET', KEYS[2])
+            local running = redis.call('GET', KEYS[1])
             if not running then
-              local lease = ARGV[2] .. '|' .. ARGV[3]
-              redis.call('SET', KEYS[2], lease, 'PX', ARGV[6])
-              redis.call('SET', KEYS[5], ARGV[1] .. '|' .. ARGV[3], 'PX', ARGV[6])
-              return 'ACQUIRED|' .. active .. '|0|' .. ARGV[3]
+              local lease = ARGV[1] .. '|' .. ARGV[2]
+              redis.call('SET', KEYS[1], lease, 'PX', ARGV[3])
+              redis.call('SET', KEYS[2], ARGV[4] .. '|' .. ARGV[2], 'PX', ARGV[3])
+              return 'ACQUIRED||0|' .. ARGV[2]
             end
 
             local separator = string.find(running, '|', 1, true)
             local runningRequest = separator and string.sub(running, 1, separator - 1) or running
             local runningToken = separator and string.sub(running, separator + 1) or ''
-            if runningRequest == ARGV[2] then
-              redis.call('PEXPIRE', KEYS[2], ARGV[6])
-              redis.call('SET', KEYS[5], ARGV[1] .. '|' .. runningToken, 'PX', ARGV[6])
-              return 'REATTACHED|' .. active .. '|0|' .. runningToken
+            if runningRequest == ARGV[1] then
+              redis.call('PEXPIRE', KEYS[1], ARGV[3])
+              redis.call('SET', KEYS[2], ARGV[4] .. '|' .. runningToken, 'PX', ARGV[3])
+              return 'REATTACHED||0|' .. runningToken
             end
-            return 'REQUEST_BLOCKED|' .. active .. '|1|'
+            return 'REQUEST_BLOCKED||1|'
             """, String.class);
 
     private static final DefaultRedisScript<Long> RELEASE_SCRIPT = new DefaultRedisScript<>("""
@@ -83,11 +65,9 @@ public class ConversationGateService {
             """, Long.class);
 
     private static final DefaultRedisScript<Long> RENEW_SCRIPT = new DefaultRedisScript<>("""
-            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
-            if redis.call('GET', KEYS[2]) ~= ARGV[2] .. '|' .. ARGV[3] then return 0 end
-            redis.call('PEXPIRE', KEYS[1], ARGV[4])
-            redis.call('PEXPIRE', KEYS[2], ARGV[5])
-            redis.call('PEXPIRE', KEYS[3], ARGV[5])
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] .. '|' .. ARGV[2] then return 0 end
+            redis.call('PEXPIRE', KEYS[1], ARGV[3])
+            redis.call('PEXPIRE', KEYS[2], ARGV[3])
             return 1
             """, Long.class);
 
@@ -109,31 +89,15 @@ public class ConversationGateService {
             """, String.class);
 
     private static final DefaultRedisScript<String> CLOSE_SCRIPT = new DefaultRedisScript<>("""
-            local active = redis.call('GET', KEYS[1])
-            if active ~= ARGV[1] then
-              redis.call('ZREM', KEYS[3], ARGV[1])
-              redis.call('HDEL', KEYS[4], ARGV[1])
-              return 'NOT_ACTIVE|'
-            end
-            if redis.call('EXISTS', KEYS[2]) == 1 then return 'BUSY|' .. active end
-            redis.call('DEL', KEYS[1])
+            if redis.call('EXISTS', KEYS[1]) == 1 then return 'BUSY|' end
+            redis.call('SET', KEYS[2], '1', 'PX', ARGV[1])
             return 'CLOSED|'
             """, String.class);
 
     private static final DefaultRedisScript<String> RESUME_SCRIPT = new DefaultRedisScript<>("""
-            if redis.call('EXISTS', KEYS[4]) == 1 then return 'NOT_SUSPENDED|' end
-            local active = redis.call('GET', KEYS[1])
-            if active then
-              if active == ARGV[1] then
-                redis.call('PEXPIRE', KEYS[1], ARGV[2])
-                return 'ALREADY_ACTIVE|' .. active
-              end
-              return 'CONFLICT|' .. active
-            end
-            redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
-            redis.call('ZREM', KEYS[2], ARGV[1])
-            redis.call('HDEL', KEYS[3], ARGV[1])
-            return 'RESUMED|' .. ARGV[1]
+            if redis.call('EXISTS', KEYS[1]) == 1 then return 'NOT_SUSPENDED|' end
+            if redis.call('EXISTS', KEYS[2]) == 1 then return 'CONFLICT|' end
+            return 'RESUMED|'
             """, String.class);
 
     // Reserve deletion before SQL changes. New turns cannot slip between the busy check and delete.
@@ -151,23 +115,6 @@ public class ConversationGateService {
             redis.call('HDEL', KEYS[4], ARGV[2])
             return 1
             """, Long.class);
-    private static final DefaultRedisScript<Long> CLEAR_STALE_SCRIPT = new DefaultRedisScript<>("""
-            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
-            if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
-            local ttl = redis.call('PTTL', KEYS[1])
-            if ARGV[2] == 'MISSING' and (ttl < 0 or ttl > tonumber(ARGV[3])) then return 0 end
-            redis.call('DEL', KEYS[1])
-            return 1
-            """, Long.class);
-
-    private static final DefaultRedisScript<Long> ROLLBACK_RESUME_SCRIPT = new DefaultRedisScript<>("""
-            if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
-            redis.call('DEL', KEYS[1])
-            redis.call('ZADD', KEYS[2], ARGV[2], ARGV[1])
-            redis.call('PEXPIRE', KEYS[2], ARGV[3])
-            redis.call('PEXPIRE', KEYS[3], ARGV[3])
-            return 1
-            """, Long.class);
 
     private final StringRedisTemplate redisTemplate;
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(
@@ -176,14 +123,8 @@ public class ConversationGateService {
     @Autowired(required = false)
     private ConversationGateStateStore stateStore;
 
-    @Value("${session.exclusive.active-ttl:30m}")
-    private Duration activeTtl = Duration.ofMinutes(30);
-
     @Value("${session.exclusive.request-ttl:5m}")
     private Duration requestTtl = Duration.ofMinutes(5);
-
-    @Value("${session.exclusive.suspended-ttl:10m}")
-    private Duration suspendedTtl = Duration.ofMinutes(10);
 
     @Value("${session.exclusive.fail-closed:true}")
     private boolean failClosed = true;
@@ -196,32 +137,43 @@ public class ConversationGateService {
         return acquire(userId, sessionId, requestId, false);
     }
 
-    /** Form permits cannot implicitly reopen a closed, expired or suspended session. */
+    /** Form permits cannot implicitly create or reopen a conversation. */
     public GateDecision acquireExisting(String userId, String sessionId, String requestId) {
         return acquire(userId, sessionId, requestId, true);
     }
 
     public boolean isActiveSession(String userId, String sessionId) {
-        try { return sessionId != null && sessionId.equals(redisTemplate.opsForValue().get(activeKey(userId))); }
+        try {
+            return sessionId != null && stateStore != null && stateStore.isOpen(userId, sessionId)
+                    && !Boolean.TRUE.equals(redisTemplate.hasKey(deletedKey(userId, sessionId)));
+        }
         catch (RuntimeException unavailable) { return false; }
     }
+
+    /** Legacy endpoint shape; there is no longer one account-wide active owner. */
+    public ActiveConversation activeConversation(String userId) {
+        requireText(userId, "userId");
+        return new ActiveConversation(null, false);
+    }
+
+    public record ActiveConversation(String sessionId, boolean requestRunning) { }
 
     private GateDecision acquire(String userId, String sessionId, String requestId, boolean existingOnly) {
         requireText(userId, "userId");
         requireText(sessionId, "sessionId");
         requireText(requestId, "requestId");
         String token = UUID.randomUUID().toString();
-        long now = System.currentTimeMillis();
         try {
-            reconcileStaleOwner(userId, sessionId);
+            if (stateStore != null && (stateStore.isClosed(userId, sessionId)
+                    || stateStore.isSuspended(userId, sessionId)
+                    || existingOnly && !stateStore.isOpen(userId, sessionId))) {
+                return new GateDecision(GateStatus.SESSION_CLOSED, userId, sessionId,
+                        requestId, null, 0, null);
+            }
             String result = redisTemplate.execute(
                     ACQUIRE_SCRIPT,
-                    List.of(activeKey(userId), runningKey(userId, sessionId), suspendedKey(userId),
-                            suspendedDetailsKey(userId), requestIndexKey(userId, requestId), deletedKey(userId, sessionId)),
-                    sessionId, requestId, token, Long.toString(now),
-                    Long.toString(activeTtl.toMillis()), Long.toString(requestTtl.toMillis()),
-                    Long.toString(now - suspendedTtl.toMillis()), Long.toString(suspendedTtl.toMillis()),
-                    existingOnly ? "existing" : "new-or-existing");
+                    List.of(runningKey(userId, sessionId), requestIndexKey(userId, requestId), deletedKey(userId, sessionId)),
+                    requestId, token, Long.toString(requestTtl.toMillis()), sessionId);
             GateDecision decision = GateDecision.parse(result, userId, sessionId, requestId);
             recordState(decision);
             return decision;
@@ -254,7 +206,7 @@ public class ConversationGateService {
         }
     }
 
-    /** Keeps the active-session and running-turn leases alive while a blocking workflow is executing. */
+    /** Keeps a running turn lease alive while a blocking workflow is executing. */
     public Heartbeat heartbeat(GateDecision lease) {
         if (lease == null || !lease.acquired()) return () -> { };
         long intervalMs = Math.max(1_000L, Math.min(30_000L, requestTtl.toMillis() / 3));
@@ -267,10 +219,8 @@ public class ConversationGateService {
         try {
             Long renewed = redisTemplate.execute(
                     RENEW_SCRIPT,
-                    List.of(activeKey(lease.userId()), runningKey(lease.userId(), lease.sessionId()),
-                            requestIndexKey(lease.userId(), lease.requestId())),
-                    lease.sessionId(), lease.requestId(), lease.leaseToken(),
-                    Long.toString(activeTtl.toMillis()), Long.toString(requestTtl.toMillis()));
+                    List.of(runningKey(lease.userId(), lease.sessionId()), requestIndexKey(lease.userId(), lease.requestId())),
+                    lease.requestId(), lease.leaseToken(), Long.toString(requestTtl.toMillis()));
             if (renewed == null || renewed != 1L) {
                 log.warn("[ConversationGate] lease renewal rejected: userId={}, sessionId={}, requestId={}",
                         lease.userId(), lease.sessionId(), lease.requestId());
@@ -318,9 +268,8 @@ public class ConversationGateService {
         try {
             String result = redisTemplate.execute(
                     CLOSE_SCRIPT,
-                    List.of(activeKey(userId), runningKey(userId, sessionId), suspendedKey(userId),
-                            suspendedDetailsKey(userId)),
-                    sessionId);
+                    List.of(runningKey(userId, sessionId), deletedKey(userId, sessionId)),
+                    Long.toString(Duration.ofDays(1).toMillis()));
             CloseDecision decision = CloseDecision.parse(result);
             if (decision.status() == CloseStatus.CLOSED && stateStore != null) {
                 stateStore.closed(userId, sessionId);
@@ -340,7 +289,7 @@ public class ConversationGateService {
         try {
             Long result = redisTemplate.execute(BEGIN_DELETE_SCRIPT,
                     List.of(runningKey(userId, sessionId), deletedKey(userId, sessionId)),
-                    token, Long.toString(activeTtl.toMillis()));
+                    token, Long.toString(Duration.ofMinutes(30).toMillis()));
             return new DeletionLease(result != null && result == 1 ? CloseStatus.CLOSED : CloseStatus.BUSY,
                     userId, sessionId, token);
         } catch (RuntimeException error) {
@@ -365,24 +314,10 @@ public class ConversationGateService {
         }
     }
 
-    private void reconcileStaleOwner(String userId, String requestedSession) {
-        if (stateStore == null) return;
-        String active = redisTemplate.opsForValue().get(activeKey(userId));
-        if (active == null || active.equals(requestedSession)) return;
-        String stale = stateStore.staleOwnerReason(userId, active);
-        if (stale == null) return;
-        // A just-acquired session may not yet have its durable mirror. Missing records need a grace period.
-        redisTemplate.execute(CLEAR_STALE_SCRIPT,
-                List.of(activeKey(userId), runningKey(userId, active), deletedKey(userId, active)),
-                active, stale, Long.toString(Math.max(0, activeTtl.toMillis() - 60_000)));
-    }
-
     public record DeletionLease(CloseStatus status, String userId, String sessionId, String token) { }
 
     /**
-     * Explicitly restores a suspended session. The Redis script is the concurrency
-     * boundary, while the durable state check prevents restoring another user's or
-     * an already closed session.
+     * Restores a legacy suspended session independently of other conversations.
      */
     public ResumeDecision resume(String userId, String sessionId) {
         requireText(userId, "userId");
@@ -391,42 +326,24 @@ public class ConversationGateService {
             return new ResumeDecision(ResumeStatus.UNAVAILABLE, null);
         }
         try {
-            reconcileStaleOwner(userId, sessionId);
             if (!stateStore.isSuspended(userId, sessionId)) {
                 return new ResumeDecision(ResumeStatus.NOT_SUSPENDED, null);
             }
             String result = redisTemplate.execute(
                     RESUME_SCRIPT,
-                    List.of(activeKey(userId), suspendedKey(userId), suspendedDetailsKey(userId), deletedKey(userId, sessionId)),
-                    sessionId, Long.toString(activeTtl.toMillis()));
+                    List.of(deletedKey(userId, sessionId), runningKey(userId, sessionId)));
             ResumeDecision decision = ResumeDecision.parse(result);
             if (decision.status() == ResumeStatus.RESUMED
                     || decision.status() == ResumeStatus.ALREADY_ACTIVE) {
-                try {
-                    stateStore.resumed(userId, sessionId);
-                } catch (RuntimeException durableStateError) {
-                    rollbackResume(userId, sessionId);
-                    throw durableStateError;
-                }
+                stateStore.resumed(userId, sessionId);
+                redisTemplate.opsForZSet().remove(suspendedKey(userId), sessionId);
+                redisTemplate.opsForHash().delete(suspendedDetailsKey(userId), sessionId);
             }
             return decision;
         } catch (RuntimeException error) {
             log.error("[ConversationGate] resume failed: userId={}, sessionId={}, error={}",
                     userId, sessionId, error.getMessage());
             return new ResumeDecision(ResumeStatus.UNAVAILABLE, null);
-        }
-    }
-
-    private void rollbackResume(String userId, String sessionId) {
-        try {
-            redisTemplate.execute(
-                    ROLLBACK_RESUME_SCRIPT,
-                    List.of(activeKey(userId), suspendedKey(userId), suspendedDetailsKey(userId)),
-                    sessionId, Long.toString(System.currentTimeMillis()),
-                    Long.toString(suspendedTtl.toMillis()));
-        } catch (RuntimeException rollbackError) {
-            log.error("[ConversationGate] resume rollback failed: userId={}, sessionId={}, error={}",
-                    userId, sessionId, rollbackError.getMessage());
         }
     }
 

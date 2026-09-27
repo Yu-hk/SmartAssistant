@@ -29,6 +29,7 @@ import com.example.smartassistant.common.tool.ToolLogContext;
 import com.example.smartassistant.service.core.OrderIntentService;
 import com.example.smartassistant.service.core.OrderIntentService.IntentType;
 import com.example.smartassistant.service.core.OrderDeterministicExecutionService;
+import com.example.smartassistant.service.core.OrderCheckoutHistoryService;
 import com.example.smartassistant.service.core.OrderRagService;
 import com.example.smartassistant.service.quality.OrderDomainQualityValidator;
 import org.slf4j.Logger;
@@ -72,6 +73,8 @@ public class OrderAgentController {
     private final ContextOrchestrator orchestrator;
     private final OrderDomainQualityValidator domainQualityValidator;
     private final OrderDeterministicExecutionService deterministicExecutionService;
+    @Autowired(required = false)
+    private OrderCheckoutHistoryService checkoutHistory;
 
     /** ⭐ P1 全阶段 trace 记录器（可选，null 时跳过 trace） */
     @Autowired(required = false)
@@ -189,7 +192,7 @@ public class OrderAgentController {
         if ("CLARIFY_INPUT".equals(request.operation())) {
             String operation = java.util.Objects.toString(request.input().get("_operation"), "");
             if (operation.isBlank() || "EXPLAIN_ORDER_REQUIREMENTS".equals(operation)) {
-                operation = switch (intentService.detect(request.question())) {
+                operation = switch (intentService.detect(request.question(), requestId)) {
                     case CREATE_ORDER, ORDER_PREPARATION_GUIDANCE -> "CREATE_ORDER";
                     case CANCEL -> "CANCEL_ORDER";
                     case REFUND -> "REFUND_ORDER";
@@ -198,7 +201,7 @@ public class OrderAgentController {
                 };
             }
             return typedResponse(com.example.smartassistant.service.core.OrderClarificationService.prepare(
-                    operation, request.input()), requestId);
+                    operation, request.input(), request.userId(), checkoutHistory), requestId);
         }
 
         if (deterministicExecutionService != null
@@ -293,7 +296,7 @@ public class OrderAgentController {
 
         try {
             // Step 1: 意图识别
-            IntentType intent = intentService.detect(question);
+            IntentType intent = intentService.detect(question, requestId);
             // ⭐ G4 运营指标：记录一次订单域应答（无答案率分母）
             opsMetrics.recordAnswer("order", intent.getLabel());
 

@@ -7,10 +7,12 @@ export interface ClarificationField {
   min: string | null;
   max: string | null;
   decimals: number;
+  minLength: number;
   maxLength: number;
   hint: string;
 }
-export interface ClarificationFormData { version: 2; token: string; expiresAt: number; fields: ClarificationField[] }
+export interface ClarificationFormData { version: 2; token: string; expiresAt: number;
+  domain?: string; operation?: string; fields: ClarificationField[] }
 export interface ClarificationSubmission { token: string; values: Record<string, string> }
 
 // This allowlist limits which controls may be rendered; business labels and bounds come from the server.
@@ -29,11 +31,15 @@ export function normalizeClarificationForm(raw: unknown): ClarificationFormData 
   const seen = new Set<string>();
   const fields: ClarificationField[] = [];
   for (const field of form.fields) {
+    // Forms issued before this validation rule remain readable until their short expiry.
+    const minLength = field?.minLength === undefined
+      ? (field?.key === 'shippingAddress' ? 6 : 1) : field.minLength;
     if (!field || !Object.prototype.hasOwnProperty.call(fieldTypes, field.key) || seen.has(field.key)
         || field.type !== fieldTypes[field.key] || typeof field.label !== 'string' || !field.label
         || field.label.length > 40 || typeof field.unit !== 'string' || field.unit.length > 10
         || typeof field.hint !== 'string' || field.hint.length > 100
         || !Number.isInteger(field.maxLength) || field.maxLength < 1 || field.maxLength > 200
+        || !Number.isInteger(minLength) || minLength < 1 || minLength > field.maxLength
         || !Number.isInteger(field.decimals) || field.decimals < 0 || field.decimals > 6) return;
     if (field.type === 'number') {
       if (typeof field.min !== 'string' || typeof field.max !== 'string'
@@ -42,11 +48,14 @@ export function normalizeClarificationForm(raw: unknown): ClarificationFormData 
     } else if (field.min !== null || field.max !== null) return;
     seen.add(field.key);
     fields.push({ key: field.key, label: field.label, type: field.type, unit: field.unit,
-      min: field.min, max: field.max, decimals: field.decimals, maxLength: field.maxLength,
+      min: field.min, max: field.max, decimals: field.decimals, minLength, maxLength: field.maxLength,
       hint: field.hint,
       value: typeof field.value === 'string' ? field.value.slice(0, field.maxLength) : '' });
   }
-  return { version: 2, token: form.token, expiresAt: form.expiresAt, fields };
+  const orderScope = form.domain === 'order' && form.operation === 'CREATE_ORDER'
+    && fields.some(field => ['recipientName', 'recipientPhone', 'shippingAddress'].includes(field.key));
+  return { version: 2, token: form.token, expiresAt: form.expiresAt,
+    domain: orderScope ? 'order' : undefined, operation: orderScope ? 'CREATE_ORDER' : undefined, fields };
 }
 
 export function clarificationReply(form: ClarificationFormData, values: Record<string, string>): string | null {
@@ -54,7 +63,7 @@ export function clarificationReply(form: ClarificationFormData, values: Record<s
   const parts: string[] = [];
   for (const field of form.fields) {
     const value = (values[field.key] || '').trim();
-    if (!value || (values[field.key] || '').length > field.maxLength
+    if (value.length < field.minLength || (values[field.key] || '').length > field.maxLength
         || /[\u0000-\u001f\u007f-\u009f]/.test(values[field.key] || '')) return null;
     if (field.type === 'number') {
       if (!/^\d+(?:\.\d+)?$/.test(value) || Number(value) < Number(field.min)

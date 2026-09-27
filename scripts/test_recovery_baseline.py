@@ -9,6 +9,10 @@ class BaselineTests(unittest.TestCase):
     def test_repository_baseline_and_crlf_checkout(self):
         repo = pathlib.Path(__file__).resolve().parents[1]
         self.assertEqual(baseline.verify_repository(repo), baseline.REPOSITORY_BASELINE)
+        with self.assertRaisesRegex(ValueError, 'baseline changed'):
+            baseline.verify_repository(repo, baseline.LEGACY_REPOSITORY_BASELINE)
+        with self.assertRaisesRegex(ValueError, 'Unsupported recovery baseline'):
+            baseline.verify_repository(repo, 'unknown')
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             for name in baseline.SQL_SHA256:

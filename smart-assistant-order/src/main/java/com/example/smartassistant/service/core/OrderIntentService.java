@@ -52,6 +52,8 @@ public class OrderIntentService {
     private final AiChatService aiChatService;
     private final ChatModel lightModel;
     private final PromptManager promptManager;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private JevOrderIntentAdvisor jevAdvisor;
 
     public OrderIntentService(AiChatService aiChatService,
                               @Qualifier("lightChatModel") ChatModel lightModel,
@@ -68,6 +70,10 @@ public class OrderIntentService {
      * @return 意图类型，无法识别时返回 {@link IntentType#OTHER}
      */
     public IntentType detect(String message) {
+        return detect(message, null);
+    }
+
+    public IntentType detect(String message, String requestId) {
         if (message == null || message.isBlank()) {
             return IntentType.OTHER;
         }
@@ -114,6 +120,12 @@ public class OrderIntentService {
                 log.warn("[OrderIntent] 模型识别失败，降级到只读意图 {}: {}",
                         fallback, e.getMessage());
                 return fallback;
+            }
+            // Jev only widens the read-only fallback. The domain's deterministic
+            // write-operation guard remains authoritative even when Jev is confident.
+            if (!hasWriteOperation(message) && jevAdvisor != null) {
+                IntentType advised = jevAdvisor.detectReadOnly(message, requestId);
+                if (advised != IntentType.OTHER) return advised;
             }
             log.warn("[OrderIntent] 识别失败，保持 OTHER（禁止降级触发写操作）: {}", e.getMessage());
             return IntentType.OTHER;

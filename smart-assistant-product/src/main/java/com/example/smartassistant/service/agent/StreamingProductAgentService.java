@@ -188,7 +188,7 @@ public class StreamingProductAgentService {
 
             // Generic catalog/popularity questions are deterministic data queries, not RAG questions.
             // Handle them before RAG so an empty semantic retrieval cannot reject a valid discovery request.
-            if (productDiscoveryService != null && productDiscoveryService.supports(userMessage)) {
+            if (productDiscoveryService != null && productDiscoveryService.supports(userMessage, rid)) {
                 long discoveryStart = System.currentTimeMillis();
                 ProductDiscoveryService.DiscoveryResult discovery =
                         productDiscoveryService.discover(userMessage, null);

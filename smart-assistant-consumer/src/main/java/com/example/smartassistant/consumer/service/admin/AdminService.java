@@ -327,7 +327,27 @@ public class AdminService {
             return List.of();
         }
         SessionPage page = searchSessionsInternal(null, userId, null, null, 0, MAX_PAGE_SIZE);
-        return page.items().stream().map(this::legacySessionMap).toList();
+        List<Map<String, Object>> sessions = new ArrayList<>(
+                page.items().stream().map(this::legacySessionMap).toList());
+        // A conversation exists before its first routed turn is complete. Do not hide
+        // it from a second browser merely because routing_call_log is still empty.
+        List<Map<String, Object>> pending = jdbcTemplate.queryForList(
+                "SELECT s.session_id, s.status, s.updated_at, u.username " +
+                        "FROM conversation_session_state s LEFT JOIN users u ON u.id = s.user_id " +
+                        "WHERE s.user_id = ? AND NOT EXISTS (SELECT 1 FROM routing_call_log r " +
+                        "WHERE r.user_id = s.user_id AND r.session_id = s.session_id) " +
+                        "ORDER BY s.updated_at DESC LIMIT ?", userId, MAX_PAGE_SIZE);
+        for (Map<String, Object> row : pending) {
+            String id = stringValue(row, "session_id");
+            String updatedAt = timestampValue(row.get("updated_at"));
+            sessions.add(legacySessionMap(new SessionSummary(id, userId,
+                    stringValue(row, "username"), "新会话", null, "general",
+                    stringValue(row, "status"), null, "", 0, null, 0, 0,
+                    false, updatedAt, updatedAt)));
+        }
+        sessions.sort((left, right) -> Objects.toString(right.get("updatedAt"), "")
+                .compareTo(Objects.toString(left.get("updatedAt"), "")));
+        return sessions;
     }
 
     public SessionPage searchAdminSessions(
@@ -463,7 +483,18 @@ public class AdminService {
                                 "FROM routing_call_log WHERE session_id = ? AND " + ownership +
                                 " ORDER BY created_at, id", sessionId, userId);
         if (logs.isEmpty()) {
-            return Optional.empty();
+            if (userId == null) return Optional.empty();
+            List<Map<String, Object>> state = jdbcTemplate.queryForList(
+                    "SELECT s.status, s.updated_at, u.username FROM conversation_session_state s " +
+                            "LEFT JOIN users u ON u.id = s.user_id " +
+                            "WHERE s.user_id = ? AND s.session_id = ?", userId, sessionId);
+            if (state.isEmpty()) return Optional.empty();
+            Map<String, Object> row = state.getFirst();
+            String timestamp = timestampValue(row.get("updated_at"));
+            return Optional.of(new SessionDetail(sessionId, userId,
+                    stringValue(row, "username"), "新会话", null, "general",
+                    stringValue(row, "status"), null, "", 0,
+                    null, null, null, 0, 0, false, timestamp, timestamp, List.of()));
         }
 
         String username = null;
@@ -590,14 +621,11 @@ public class AdminService {
         }
         int deleted = jdbcTemplate.update(
                 "DELETE FROM routing_call_log WHERE session_id = ? AND user_id = ?", sessionId, userId);
-        if (deleted == 0) {
-            return false;
-        }
         jdbcTemplate.update(
                 "DELETE FROM conversation_feedback WHERE session_id = ? AND user_id = ?", sessionId, userId);
-        jdbcTemplate.update(
+        int deletedState = jdbcTemplate.update(
                 "DELETE FROM conversation_session_state WHERE session_id = ? AND user_id = ?", sessionId, userId);
-        return true;
+        return deleted > 0 || deletedState > 0;
     }
 
     @Transactional
@@ -701,6 +729,8 @@ public class AdminService {
     private boolean ownsSession(String sessionId, Long userId) {
         return queryLong(
                 "SELECT COUNT(*) FROM routing_call_log WHERE session_id = ? AND user_id = ?",
+                sessionId, userId) > 0 || queryLong(
+                "SELECT COUNT(*) FROM conversation_session_state WHERE session_id = ? AND user_id = ?",
                 sessionId, userId) > 0;
     }
 

@@ -5,6 +5,7 @@ import com.example.smartassistant.consumer.service.recommendation.UserProfileSer
 import com.example.smartassistant.consumer.service.sentiment.SentimentAnalysisService;
 import com.example.smartassistant.consumer.service.sentiment.SentimentSnapshotStore;
 import com.example.smartassistant.consumer.service.sentiment.TurnInsight;
+import com.example.smartassistant.consumer.service.sentiment.JevPrequeueAdvisor;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,8 @@ public class ConversationPreprocessingService {
     private final UserProfileService profiles;
     private final ExecutorService executor;
     private final long timeoutMs;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private JevPrequeueAdvisor jevAdvisor;
 
     public ConversationPreprocessingService(SentimentAnalysisService analyzer, SentimentSnapshotStore snapshots,
             UserProfileService profiles, @Qualifier("sentimentExecutor") ExecutorService executor,
@@ -63,11 +66,21 @@ public class ConversationPreprocessingService {
 
         // Do not classify imported evidence as the user's emotional expression.
         String userText = UserDocumentContext.from(question).question();
-        Future<SentimentAnalysisService.SentimentResult> future = null;
+        Future<TurnInsight> future = null;
         TurnInsight insight;
         try {
             try {
-                future = executor.submit(() -> analyzer.analyze(userText));
+                future = executor.submit(() -> {
+                    TurnInsight baseline;
+                    try {
+                        baseline = TurnInsight.analyzed(analyzer.analyze(userText), 0);
+                    } catch (RuntimeException unavailable) {
+                        // Business-risk signals must remain available if the baseline
+                        // emotion model fails; an unavailable model is not neutral.
+                        baseline = TurnInsight.unknown("ANALYSIS_FAILED", 0);
+                    }
+                    return jevAdvisor != null ? jevAdvisor.augment(userText, requestId, baseline) : baseline;
+                });
             } catch (RejectedExecutionException overloaded) {
                 // Optional profile preparation still starts independently.
             }
@@ -77,7 +90,7 @@ public class ConversationPreprocessingService {
             } else {
                 long remaining = timeoutMs - elapsed(started);
                 if (remaining <= 0) throw new TimeoutException();
-                insight = TurnInsight.analyzed(future.get(remaining, TimeUnit.MILLISECONDS), elapsed(started));
+                insight = future.get(remaining, TimeUnit.MILLISECONDS).withLatency(elapsed(started));
             }
         } catch (TimeoutException error) {
             insight = TurnInsight.unknown("TIMEOUT", elapsed(started));

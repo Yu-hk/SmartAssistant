@@ -5,6 +5,7 @@ import { ProfilePrivacy } from './ProfilePrivacy';
 
 interface CustomerSidebarProps {
   sessions: Session[];
+  deletingSessionIds?: string[];
   currentSessionId: string | null;
   theme: 'light' | 'dark';
   onNewChat: () => void;
@@ -23,7 +24,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function CustomerSidebar({
-  sessions, currentSessionId, theme, onNewChat, onSelectSession, onDeleteSession,
+  sessions, deletingSessionIds = [], currentSessionId, theme, onNewChat, onSelectSession, onDeleteSession,
   onResumeSession, onSelectAgent, onToggleTheme, serviceEntryDisabled = false, isOpen = false, onClose,
 }: CustomerSidebarProps) {
   const suspended = sessions.filter(session => session.status === 'suspended');
@@ -34,12 +35,15 @@ export function CustomerSidebar({
       <button type="button" className="customer-session-select" onClick={() => onSelectSession(session.id)}
         aria-current={session.id === currentSessionId ? 'page' : undefined} title={session.title}>
         <MessageSquare size={15} aria-hidden="true" />
-        <span><strong>{session.title}</strong><small>{STATUS_LABELS[session.status] || session.status}</small></span>
+        <span><strong>{session.title}</strong><small>{deletingSessionIds.includes(session.id)
+          ? '等待当前请求结束后删除…' : STATUS_LABELS[session.status] || session.status}</small></span>
       </button>
       <div className="customer-session-actions">
         {session.status === 'suspended' && <button type="button" onClick={() => onResumeSession(session.id)}
           title="恢复会话" aria-label={`恢复会话：${session.title}`}><RotateCcw size={14} /></button>}
-        <button type="button" onClick={() => onDeleteSession(session.id)} title="删除会话"
+        <button type="button" onClick={() => onDeleteSession(session.id)}
+          disabled={deletingSessionIds.includes(session.id)}
+          title={deletingSessionIds.includes(session.id) ? '等待当前请求结束后删除' : '删除会话'}
           aria-label={`删除会话：${session.title}`}><Trash2 size={14} /></button>
       </div>
     </div>

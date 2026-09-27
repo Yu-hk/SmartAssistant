@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Session, Message, SessionStatus, normalizeIntentType } from '../types';
 import { sessions as sessionApi } from '../api';
 import { ApiError, authenticatedFetch } from '../api/client';
@@ -66,7 +66,14 @@ export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
-  const [blockingSessionId, setBlockingSessionId] = useState<string | null>(null);
+  const [deletingSessionIds, setDeletingSessionIds] = useState<string[]>([]);
+  const [sessionsLoadState, setSessionsLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const loadedMessageVersions = useRef(new Set<string>());
+  const deletionInProgress = useRef(new Set<string>());
+  const latestSessions = useRef(sessions);
+  const latestCurrentSessionId = useRef(currentSessionId);
+  latestSessions.current = sessions;
+  latestCurrentSessionId.current = currentSessionId;
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
@@ -75,21 +82,37 @@ export function useSessions() {
       const data = await sessionApi.fetchSessions();
       // 兼容 API 返回 { sessions: [...] } 或直接返回数组
       const sessionList = Array.isArray(data) ? data : (data as any).sessions || [];
-      if (sessionList.length > 0) {
-        const loaded: Session[] = sessionList.map(normalizeSession);
-        setSessions(prev => {
-          const remoteIds = new Set(loaded.map(session => session.id));
-          const localOnly = prev.filter(session => !remoteIds.has(session.id));
-          const mergedRemote = loaded.map(remote => {
-            const local = prev.find(session => session.id === remote.id);
-            return local?.messages.length
-              ? { ...remote, messages: local.messages }
-              : remote;
-          });
-          return [...localOnly, ...mergedRemote];
+      const loaded: Session[] = sessionList.map(normalizeSession);
+      setSessions(prev => {
+        const remoteIds = new Set(loaded.map(session => session.id));
+        const localOnly = prev.filter(session => !remoteIds.has(session.id) &&
+          session.messages.some(message => message.isStreaming));
+        const mergedRemote = loaded.map(remote => {
+          const local = prev.find(session => session.id === remote.id);
+          return local?.messages.length
+            ? { ...remote, messages: local.messages }
+            : remote;
         });
-      }
-    } catch (e) { console.error('fetchSessions error:', e); }
+        return [...localOnly, ...mergedRemote];
+      });
+      setSessionsLoadState('ready');
+      return loaded;
+    } catch (e) {
+      console.error('fetchSessions error:', e);
+      setSessionsLoadState('error');
+      return null;
+    }
+  }, []);
+
+  // A session may be persisted before it appears in the list response. A
+  // missing list row alone is not proof that a deep link is invalid.
+  const ensureSessionListed = useCallback(async (sessionId: string) => {
+    const data = await sessionApi.fetchSession(sessionId);
+    const payload = data as any;
+    const session = normalizeSession(payload.session ?? payload);
+    if (session.id !== sessionId) throw new Error('会话详情与链接不一致');
+    setSessions(previous => previous.some(item => item.id === sessionId)
+      ? previous : [session, ...previous]);
   }, []);
 
   const createSession = useCallback((title = '新对话'): string => {
@@ -158,28 +181,36 @@ export function useSessions() {
   }, []);
 
   const deleteSession = useCallback(async (sessionId: string): Promise<string | null> => {
+    if (deletionInProgress.current.has(sessionId)) return null;
+    deletionInProgress.current.add(sessionId);
+    setDeletingSessionIds(prev => [...prev, sessionId]);
     setSessionActionError(null);
     try {
-      await sessionApi.deleteSession(sessionId);
-    } catch (e) {
-      // 本地新建会话在首次发送前不会落库，后端 404 时仍应允许从列表移除。
-      if (!(e instanceof ApiError) || e.status !== 404) {
-        console.error(e);
-        setSessionActionError(e instanceof ApiError ? e.message : '删除对话失败，请稍后重试。');
-        return null;
+      try {
+        await sessionApi.deleteSessionWhenIdle(sessionId);
+      } catch (e) {
+        // A local unsaved session, or one deleted in another browser, is
+        // already absent on the server and may be removed from this list.
+        if (!(e instanceof ApiError) || e.status !== 404) throw e;
       }
-    }
 
-    setSessions(prev => prev.filter(s => s.id !== sessionId));
-    const remaining = sessions.filter(s => s.id !== sessionId);
-    if (currentSessionId !== sessionId) return null;
-    if (remaining.length > 0) {
-      setCurrentSessionId(remaining[0].id);
-      return `/chat/${remaining[0].id}`;
+      const remaining = latestSessions.current.filter(s => s.id !== sessionId);
+      const wasCurrent = latestCurrentSessionId.current === sessionId;
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      if (!wasCurrent) return null;
+      const nextId = remaining[0]?.id ?? null;
+      latestCurrentSessionId.current = nextId;
+      setCurrentSessionId(nextId);
+      return nextId ? `/chat/${nextId}` : '/';
+    } catch (e) {
+      console.error(e);
+      setSessionActionError(e instanceof ApiError ? e.message : '删除对话失败，请稍后重试。');
+      return null;
+    } finally {
+      deletionInProgress.current.delete(sessionId);
+      setDeletingSessionIds(prev => prev.filter(id => id !== sessionId));
     }
-    setCurrentSessionId(null);
-    return '/';
-  }, [sessions, currentSessionId]);
+  }, []);
 
   const closeSession = useCallback(async (sessionId: string) => {
     setSessionActionError(null);
@@ -207,15 +238,6 @@ export function useSessions() {
       await sessionApi.resumeSession(sessionId);
     } catch (e) {
       console.error(e);
-      if (e instanceof ApiError && e.body) {
-        try {
-          const detail = JSON.parse(e.body);
-          if (typeof detail.activeSessionId === 'string' && detail.activeSessionId) {
-            setBlockingSessionId(detail.activeSessionId);
-            void fetchSessions();
-          }
-        } catch { /* Keep the original error visible. */ }
-      }
       setSessionActionError(e instanceof ApiError
         ? e.message
         : '恢复会话失败，请稍后重试。');
@@ -224,9 +246,8 @@ export function useSessions() {
     setSessions(prev => prev.map(s => s.id === sessionId
       ? { ...s, status: 'active' }
       : s));
-    setBlockingSessionId(null);
     return true;
-  }, [fetchSessions]);
+  }, []);
 
   const rateSession = useCallback(async (sessionId: string, score: number) => {
     setSessionActionError(null);
@@ -261,16 +282,21 @@ export function useSessions() {
     if (currentSessionId) {
       const session = sessions.find(s => s.id === currentSessionId);
       if (session && session.messages.length === 0) {
-        loadSessionMessages(currentSessionId);
+        const version = `${currentSessionId}:${session.messageCount ?? 0}`;
+        if (!loadedMessageVersions.current.has(version)) {
+          loadedMessageVersions.current.add(version);
+          void loadSessionMessages(currentSessionId);
+        }
       }
     }
   }, [currentSessionId, sessions, loadSessionMessages]);
 
   return {
-    sessions, setSessions, sessionActionError, setSessionActionError, blockingSessionId, setBlockingSessionId,
+    sessionsLoadState,
+    sessions, setSessions, sessionActionError, setSessionActionError, deletingSessionIds,
     currentSessionId, setCurrentSessionId,
     currentSession,
-    fetchSessions, loadSessionMessages, createSession,
+    fetchSessions, ensureSessionListed, loadSessionMessages, createSession,
     deleteSession, closeSession, resumeSession, rateSession,
     updateSessionModel, updateSession, updateSessionMessages,
   };

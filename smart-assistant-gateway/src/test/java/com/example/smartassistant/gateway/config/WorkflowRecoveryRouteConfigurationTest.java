@@ -12,6 +12,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WorkflowRecoveryRouteConfigurationTest {
 
     @Test
+    void shouldRouteCustomerCheckoutHistoryToOrderWithoutStrippingIdentity() {
+        Properties properties = loadApplicationProperties();
+        String historyPrefix = routePrefix(properties, "order-checkout-history");
+        assertTrue(routeHasPath(properties, historyPrefix, "/api/order/checkout-history"));
+        assertFalse(routeHasFilter(properties, historyPrefix, "StripPrefix"));
+    }
+
+    @Test
     void shouldRouteBareRecoveryEndpointsToRouterBeforeBroadAdminRoute() {
         Properties properties = loadApplicationProperties();
         String recoveryPrefix = routePrefix(properties, "router-workflow-recovery-bare");

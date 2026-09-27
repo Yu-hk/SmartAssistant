@@ -13,10 +13,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.scheduling.annotation.Async;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,6 +26,16 @@ class RoutingCallLogServiceTest {
 
     @Mock
     private RoutingCallLogMapper mapper;
+
+    @Test
+    void sessionLogsCannotBeQueuedAfterTheirDeletionGateIsReleased() {
+        for (var method : RoutingCallLogService.class.getDeclaredMethods()) {
+            if (method.getName().equals("saveLog")) {
+                assertFalse(method.isAnnotationPresent(Async.class),
+                        "Session log writes must finish before a conversation can be deleted");
+            }
+        }
+    }
 
     @Test
     void persistsActualAgentAndBoundedResponseSummary() {

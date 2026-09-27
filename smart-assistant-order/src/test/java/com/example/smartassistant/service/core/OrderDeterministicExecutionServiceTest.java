@@ -239,6 +239,20 @@ class OrderDeterministicExecutionServiceTest {
     }
 
     @Test
+    void createOrderWithCityOnlyAddressDoesNotWrite() {
+        AgentExecutionResponse response = service.execute(request(
+                "CREATE_ORDER", "下单", Map.of(
+                        "product_name", "测试耳机", "amount", "1299.00",
+                        "recipient_name", "测试用户", "recipient_phone", "13800000000",
+                        "shipping_address", "北京市")));
+        assertThat(response.status()).isEqualTo(AgentExecutionResponse.Status.SUCCEEDED);
+        var contract = com.example.smartassistant.common.agent.protocol.ClarificationRequest.read(
+                response.data().get("clarificationRequest"));
+        assertThat(contract.fields()).containsExactly("shippingAddress");
+        verify(orderData, never()).insertOrder(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void cancelOrderUsesStateMachineAndOwnershipBeforeMutation() {
         OrderDTO order = order("待付款");
         when(orderData.findOrderByOrderId("ORD-1001")).thenReturn(order);

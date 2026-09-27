@@ -99,6 +99,11 @@ public final class TokenUsageCache {
         return aggregate != null ? aggregate.snapshot() : null;
     }
 
+    /** Distinguishes an attempted but unmeasured call from no local model call. */
+    public static boolean hasEntry(String requestId) {
+        return validKey(requestId) && CACHE.containsKey(requestId);
+    }
+
     public record TokenUsage(Long promptTokens, Long completionTokens, Long totalTokens) {
     }
 

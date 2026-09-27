@@ -226,12 +226,8 @@ CREATE TABLE IF NOT EXISTS conversation_session_state (
 );
 CREATE INDEX IF NOT EXISTS idx_conversation_session_state_status
     ON conversation_session_state(status, updated_at);
-CREATE UNIQUE INDEX IF NOT EXISTS uk_conversation_one_active_per_user
-    ON conversation_session_state(user_id)
-    WHERE status IN ('ACTIVE_IDLE', 'ACTIVE_RUNNING');
-CREATE INDEX IF NOT EXISTS idx_conversation_suspended_fifo
-    ON conversation_session_state(user_id, updated_at)
-    WHERE status = 'SUSPENDED';
+CREATE INDEX IF NOT EXISTS idx_conversation_user_status
+    ON conversation_session_state(user_id, status, updated_at);
 
 -- Persistent FAQ / knowledge entries used by the administration console.
 CREATE TABLE IF NOT EXISTS admin_faq (

@@ -406,13 +406,8 @@ CREATE TABLE public.conversation_session_state (
 CREATE INDEX idx_conversation_session_state_status
     ON public.conversation_session_state USING btree (status, updated_at);
 
-CREATE UNIQUE INDEX uk_conversation_one_active_per_user
-    ON public.conversation_session_state USING btree (user_id)
-    WHERE ((status)::text = ANY ((ARRAY['ACTIVE_IDLE'::character varying, 'ACTIVE_RUNNING'::character varying])::text[]));
-
-CREATE INDEX idx_conversation_suspended_fifo
-    ON public.conversation_session_state USING btree (user_id, updated_at)
-    WHERE ((status)::text = 'SUSPENDED'::text);
+CREATE INDEX idx_conversation_user_status
+    ON public.conversation_session_state USING btree (user_id, status, updated_at);
 
 
 --

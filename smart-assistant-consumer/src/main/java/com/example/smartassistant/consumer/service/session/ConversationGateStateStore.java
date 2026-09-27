@@ -9,7 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/** Durable lifecycle mirror and database-level exclusivity backstop. */
+/** Durable lifecycle mirror for independent conversations. */
 @Service
 public class ConversationGateStateStore {
 
@@ -18,6 +18,44 @@ public class ConversationGateStateStore {
 
     public ConversationGateStateStore(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    /** Persist an empty conversation before its first request enters the queue. */
+    public void create(String userId, String sessionId) {
+        Long numericUserId = numericUserId(userId);
+        if (numericUserId == null) throw new IllegalArgumentException("userId must be numeric");
+        try {
+            jdbcTemplate.update("INSERT INTO conversation_session_state " +
+                            "(user_id, session_id, status, closed_at, updated_at) " +
+                            "VALUES (?, ?, 'CREATED', NULL, CURRENT_TIMESTAMP)",
+                    numericUserId, sessionId);
+        } catch (DuplicateKeyException existing) {
+            // Retrying session creation must never reopen a closed or suspended conversation.
+            if (isClosed(userId, sessionId)) {
+                throw new IllegalStateException("Session is closed");
+            }
+        }
+    }
+
+    public boolean isClosed(String userId, String sessionId) {
+        Long numericUserId = numericUserId(userId);
+        if (numericUserId == null) return false;
+        List<String> statuses = jdbcTemplate.queryForList(
+                "SELECT status FROM conversation_session_state WHERE user_id = ? AND session_id = ?",
+                String.class, numericUserId, sessionId);
+        return statuses.stream().anyMatch("CLOSED"::equalsIgnoreCase);
+    }
+
+    public boolean isOpen(String userId, String sessionId) {
+        Long numericUserId = numericUserId(userId);
+        if (numericUserId == null) return false;
+        List<String> statuses = jdbcTemplate.queryForList(
+                "SELECT status FROM conversation_session_state WHERE user_id = ? AND session_id = ?",
+                String.class, numericUserId, sessionId);
+        return statuses.stream().anyMatch(status ->
+                !"CLOSED".equalsIgnoreCase(status)
+                        && !"SUSPENDED".equalsIgnoreCase(status)
+                        && !"FROZEN".equalsIgnoreCase(status));
     }
 
     public void record(ConversationGateService.GateDecision decision) {
@@ -84,12 +122,7 @@ public class ConversationGateStateStore {
     }
 
     private void activate(Long userId, String sessionId, String status) {
-        // Short transaction-free statements are intentional: never retain a DB lock during model execution.
-        jdbcTemplate.update("UPDATE conversation_session_state " +
-                        "SET status = 'SUSPENDED', updated_at = CURRENT_TIMESTAMP " +
-                        "WHERE user_id = ? AND session_id <> ? " +
-                        "AND status IN ('ACTIVE', 'ACTIVE_IDLE', 'ACTIVE_RUNNING')",
-                userId, sessionId);
+        // Activation changes only this conversation; other sessions remain independent.
         upsert(userId, sessionId, status);
     }
 

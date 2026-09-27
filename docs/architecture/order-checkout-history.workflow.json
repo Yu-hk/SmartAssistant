@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "下单收货信息补全与确认流程",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "legend": { "mode": "hidden" },
+    "output": "order-checkout-history.workflow.html"
+  },
+  "lanes": [
+    { "id": "customer", "label": "用户与表单" },
+    { "id": "domain", "label": "Order 与 Router" }
+  ],
+  "mainPath": ["checkoutRequest", "fieldCheck", "missingForm", "ownerHistory", "contactReview", "catalogPreflight", "finalApproval", "orderWrite"],
+  "nodes": [
+    { "id": "checkoutRequest", "lane": "customer", "col": 0, "type": "external", "label": "提出下单需求", "sublabel": "商品与已知收货资料" },
+    { "id": "fieldCheck", "lane": "domain", "col": 1, "type": "backend", "label": "Order 校验缺项", "sublabel": "只索取下单所需字段" },
+    { "id": "missingForm", "lane": "customer", "col": 2, "type": "frontend", "label": "补全表单", "sublabel": "手填或主动选历史" },
+    { "id": "ownerHistory", "lane": "domain", "col": 2, "type": "database", "label": "读取本人订单", "sublabel": "JWT 归属 · 最多 3 组" },
+    { "id": "contactReview", "lane": "customer", "col": 3, "type": "security", "label": "核对收货资料", "sublabel": "差异提醒 · 明确替换" },
+    { "id": "catalogPreflight", "lane": "domain", "col": 4, "type": "backend", "label": "商品核实", "sublabel": "目录事实 · 资料冲突提示" },
+    { "id": "finalApproval", "lane": "customer", "col": 4, "type": "security", "label": "最终下单审批", "sublabel": "用户再次确认写操作" },
+    { "id": "orderWrite", "lane": "domain", "col": 5, "type": "backend", "label": "执行已确认操作", "sublabel": "执行时重新核验" }
+  ],
+  "edges": [
+    { "id": "requestFields", "from": "checkoutRequest", "to": "fieldCheck", "variant": "emphasis" },
+    { "id": "showMissing", "from": "fieldCheck", "to": "missingForm", "label": "仅缺失字段", "variant": "emphasis" },
+    { "id": "fetchHistory", "from": "missingForm", "to": "ownerHistory", "label": "用户主动读取", "variant": "security" },
+    { "id": "offerHistory", "from": "ownerHistory", "to": "contactReview", "label": "有效历史资料", "variant": "default" },
+    { "id": "manualFallback", "from": "missingForm", "to": "contactReview", "label": "手填或无历史", "variant": "dashed", "role": "branch" },
+    { "id": "submitChecked", "from": "contactReview", "to": "catalogPreflight", "label": "核对后提交", "variant": "emphasis" },
+    { "id": "approveWrite", "from": "catalogPreflight", "to": "finalApproval", "label": "价格库存可核实", "variant": "security" },
+    { "id": "executeOrder", "from": "finalApproval", "to": "orderWrite", "label": "明确同意", "variant": "security" }
+  ]
+}
+

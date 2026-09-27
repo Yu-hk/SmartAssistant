@@ -78,6 +78,12 @@ spring:
               predicates:
                 - Path=/api/admin/execution-dag/**
 
+            # Authenticated customer's own historical checkout suggestions.
+            - id: order-checkout-history
+              uri: lb://order-service
+              predicates:
+                - Path=/api/order/checkout-history
+
             # 工作流恢复接口由 router-service 提供。显式裸路径必须放在
             # consumer-service-bare 的 /api/admin/** 泛匹配之前。
             - id: router-workflow-recovery-bare
