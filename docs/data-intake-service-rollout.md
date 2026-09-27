@@ -21,4 +21,4 @@
 
 2026-09-14 的 [原商品录入验收](product-intake-deployment-verification.md)仅验证拆分前版本，不代表本次服务迁移的线上验收结果。
 
-2026-09-28 的现网使用挂载 JAR 容器，已按“新服务先启动 → Gateway 再切流”完成；因候选 Consumer JAR 包含大量无关变化，暂未重建 Consumer。实测结果与当前限制见 [本次生产验证](data-intake-production-verification-20260928.md)。现网已存在手动启动的 `smart-data-intake`，切勿直接再执行 Compose 的 `up data-intake`：同名容器会冲突。待统一迁回 Compose 时，应在维护窗口先核对并接管该容器。
+2026-09-28 的现网使用挂载 JAR 容器，已按“新服务先启动 → Gateway 再切流 → Consumer 版本对比后升级”完成。实测结果、回滚顺序与当前浏览器验收限制见 [本次生产验证](data-intake-production-verification-20260928.md)。现网已存在手动启动的 `smart-data-intake`，切勿直接再执行 Compose 的 `up data-intake`：同名容器会冲突。待统一迁回 Compose 时，应在维护窗口先核对并接管该容器。
