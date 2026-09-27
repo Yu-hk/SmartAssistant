@@ -277,7 +277,7 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      CONSUMER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-v4-flash}
+      CONSUMER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-flash}
       JEV_ENABLED: ${JEV_ENABLED:-false}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
       JEV_MODEL: ${JEV_MODEL:-jev-latest}
@@ -362,7 +362,7 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      ROUTER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-v4-flash}
+      ROUTER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-flash}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1}
       TOOL_REGISTRY_URL: http://smart-tool-registry:8088
@@ -455,7 +455,7 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?NACOS_PASSWORD must be set}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       SPRING_AI_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      ORDER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-v4-flash}
+      ORDER_LIGHT_MODEL_NAME: ${MODEL_LIGHT:-deepseek-flash}
       JEV_ENABLED: ${JEV_ENABLED:-false}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
       JEV_MODEL: ${JEV_MODEL:-jev-latest}

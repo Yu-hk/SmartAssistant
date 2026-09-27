@@ -147,7 +147,7 @@ spring:
       api-key: ${DEEPSEEK_API_KEY}
       chat:
         options:
-          model: ${DEEPSEEK_CHAT_MODEL:deepseek-v4-flash}
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-flash}
           temperature: 0.1
     
     # ⭐ MCP Server 配置（内嵌在 Consumer 中）
