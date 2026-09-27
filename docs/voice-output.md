@@ -29,12 +29,11 @@ Consumer 环境变量：
 SPEECH_TTS_ENABLED=true
 SPEECH_TTS_MODEL=qwen-audio-3.0-tts-flash
 SPEECH_TTS_VOICE=longanhuan_v3.6
+SPEECH_TTS_ENDPOINT=https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer
 # SPEECH_TTS_API_KEY 留空时使用 SPEECH_API_KEY，必须是具备模型权限的普通百炼密钥。
-# 可选 SPEECH_TTS_ENDPOINT，默认北京地域原生 HTTP TTS 接口：
-# https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer
 ```
 
-默认关闭。密钥只通过服务端私有环境注入，不放入前端、Git 或日志。本版不是 OpenAI-compatible chat completions 协议，不能仅替换 ASR 的模型名。
+默认关闭。将 `<WorkspaceId>` 替换为该密钥所属业务空间控制台展示的 DashScope 地址，并与 ASR 使用同一地域；Docker Compose 会显式传递 `SPEECH_TTS_ENDPOINT`。密钥只通过服务端私有环境注入，不放入前端、Git 或日志。本版不是 OpenAI-compatible chat completions 协议，不能仅替换 ASR 的模型名。上线前用合成短句验证 TTS 返回音频并可被 ASR 识别。
 
 - `GET /api/speech/output-capabilities`：登录后返回 `{enabled,maxCharacters}`。
 - 原生模型请求设置 MP3、24 kHz 和 AI 合成标识。供应商返回音频地址后，仅允许北京官方结果桶，升级为 HTTPS，禁止重定向，不携带模型 Authorization 下载。
