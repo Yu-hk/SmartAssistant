@@ -1,6 +1,6 @@
-package com.example.smartassistant.consumer.controller;
+package com.example.smartassistant.intake.controller;
 
-import com.example.smartassistant.consumer.service.admin.AdminProductFeatureService;
+import com.example.smartassistant.intake.service.admin.AdminProductFeatureService;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.MediaType;
