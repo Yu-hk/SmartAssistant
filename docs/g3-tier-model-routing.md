@@ -1,4 +1,4 @@
-# DeepSeek V4 分层模型路由
+# DeepSeek 分层模型路由
 
 ## 目标
 
@@ -8,15 +8,17 @@
 
 | 档位 | 默认模型 | 使用场景 |
 |------|----------|----------|
-| LIGHT | `deepseek-v4-flash` | 短问题、摘要及轻量辅助任务 |
-| STANDARD | `deepseek-v4-flash` | 普通业务问答及 Pro 失败后的降级 |
+| LIGHT | `deepseek-flash`（V4.1 Flash） | 短问题、摘要及轻量辅助任务 |
+| STANDARD | `deepseek-flash`（V4.1 Flash） | 普通业务问答及 Pro 失败后的降级 |
 | HEAVY | `deepseek-v4-pro` | 长问题、多意图拆解及复杂推理 |
+
+DeepSeek 官方将 `deepseek-v4-flash` 保留为临时兼容别名，最新 Flash 的正式 API ID 为 `deepseek-flash`；Pro 当前仍使用 `deepseek-v4-pro`。两种 ID 应按实际 API 提供商分别配置，不可直接套用到阿里云百炼端点。
 
 Router 的任务分析以 Unicode 字符数选择档位。默认阈值为 160，可通过 `DEEPSEEK_PRO_MIN_CHARS` 调整；旧变量 `DEEPSEEK_REASONER_MIN_CHARS` 仍作为兼容回退。
 
 ```text
-当前问题 < 阈值  ──> V4 Flash
-当前问题 >= 阈值 ──> V4 Pro ──失败──> V4 Flash
+当前问题 < 阈值  ──> V4.1 Flash
+当前问题 >= 阈值 ──> V4 Pro ──失败──> V4.1 Flash
 ```
 
 LIGHT 与 STANDARD 默认指向同一个 Flash 模型。`TieredModelRouter` 会按模型名去重，因此降级时不会重复调用同一模型。
@@ -26,10 +28,10 @@ LIGHT 与 STANDARD 默认指向同一个 Flash 模型。`TieredModelRouter` 会�
 ```yaml
 tier:
   light:
-    model: ${DEEPSEEK_LIGHT_MODEL:deepseek-v4-flash}
+    model: ${DEEPSEEK_LIGHT_MODEL:deepseek-flash}
     temperature: 0.1
   standard:
-    model: ${DEEPSEEK_STANDARD_MODEL:deepseek-v4-flash}
+    model: ${DEEPSEEK_STANDARD_MODEL:deepseek-flash}
     temperature: 0.3
   heavy:
     model: ${DEEPSEEK_REASONING_MODEL:deepseek-v4-pro}
@@ -42,6 +44,8 @@ router:
 ```
 
 现有 `DEEPSEEK_LIGHT_MODEL`、`DEEPSEEK_STANDARD_MODEL` 和 `DEEPSEEK_REASONING_MODEL` 变量继续保留，以兼容已有部署配置。
+
+模型 ID 以 [DeepSeek 官方模型与价格说明](https://api-docs.deepseek.com/quick_start/pricing/)为准；更新生产环境前，先用不含真实用户信息的最小请求验证新 ID，并保留原模型配置用于回滚。
 
 ## 调用链
 
