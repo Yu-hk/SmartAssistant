@@ -15,6 +15,7 @@ import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLog
 import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
 import com.example.smartassistant.consumer.service.infrastructure.ToolUsageExtractor;
 import com.example.smartassistant.common.audit.ToolUsageCache;
+import com.example.smartassistant.common.audit.TokenUsageCache;
 import com.example.smartassistant.common.memory.EntityProfileService;
 import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import com.example.smartassistant.consumer.service.session.SessionManagementService;
@@ -121,7 +122,8 @@ public class ChatConsumerService {
         String response = insight.adaptReply((String) routeResponse.getOrDefault("result", ""));
         String routedAgent = (String) routeResponse.getOrDefault("agentName", null);
         String intentTag = (String) routeResponse.get("intentTag");  // ⭐ 读取意图标签
-        TokenUsageExtractor.TokenUsage tokenUsage = TokenUsageExtractor.extract(routeResponse);
+        TokenUsageExtractor.TokenUsage tokenUsage = mergeLocalDecisionUsage(
+                traceReqId, TokenUsageExtractor.extract(routeResponse));
         ToolUsageCache.ToolUsage toolUsage = ToolUsageExtractor.extract(routeResponse);
 
         // Step 3.5: 实体画像提取（异步，不阻塞主流程）
@@ -194,7 +196,8 @@ public class ChatConsumerService {
         // Step 3.5: 更新意图分布
         String routedAgent = (String) response.get("agentName");
         String intentTag = (String) response.get("intentTag");
-        TokenUsageExtractor.TokenUsage tokenUsage = TokenUsageExtractor.extract(response);
+        TokenUsageExtractor.TokenUsage tokenUsage = mergeLocalDecisionUsage(
+                traceReqId, TokenUsageExtractor.extract(response));
         ToolUsageCache.ToolUsage toolUsage = ToolUsageExtractor.extract(response);
         tokenUsage.copyTo(response);
         ToolUsageExtractor.copyTo(toolUsage, response);
@@ -229,6 +232,15 @@ public class ChatConsumerService {
 
         tracingService.endTrace();
         return response;
+    }
+
+    private static TokenUsageExtractor.TokenUsage mergeLocalDecisionUsage(
+            String requestId, TokenUsageExtractor.TokenUsage routed) {
+        if (!TokenUsageCache.hasEntry(requestId)) return routed;
+        TokenUsageCache.TokenUsage local = TokenUsageCache.consume(requestId);
+        if (local == null) return TokenUsageExtractor.TokenUsage.unknown();
+        return TokenUsageExtractor.merge(routed, new TokenUsageExtractor.TokenUsage(
+                local.promptTokens(), local.completionTokens(), local.totalTokens()));
     }
 
     /**

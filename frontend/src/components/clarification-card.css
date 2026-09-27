@@ -8,3 +8,9 @@
 .clarification-actions button[type=submit] { color: white; background: var(--nova-accent); }
 .clarification-card fieldset:disabled { opacity: .6; }
 .clarification-note { font-size: 12px; color: var(--nova-text-secondary); margin: 6px 0 0; }
+.clarification-history { display: grid; gap: 8px; margin-top: 12px; }
+.clarification-history button { justify-self: start; padding: 7px 10px; border: 1px solid var(--nova-border); border-radius: 8px; background: transparent; color: var(--nova-accent); cursor: pointer; }
+.clarification-history-option { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--nova-border); border-radius: 8px; overflow-wrap: anywhere; font-size: 13px; }
+.clarification-history p { margin: 0; font-size: 12px; color: var(--nova-text-secondary); }
+.clarification-card .clarification-history-confirm { flex: 1 1 100%; flex-direction: row; align-items: center; }
+.clarification-card .clarification-history-confirm input { width: auto; min-height: auto; }

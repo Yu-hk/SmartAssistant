@@ -137,6 +137,9 @@ public class OrderDeterministicExecutionService {
             if (preparation.data().containsKey("clarificationRequest")) return preparation;
             return missingFieldsFailure(missing);
         }
+        if (!com.example.smartassistant.common.agent.protocol.OrderShippingAddressPolicy.usable(shippingAddress)) {
+            return OrderClarificationService.prepare("CREATE_ORDER", request.input());
+        }
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             return AgentExecutionResponse.failure(
                     "INVALID_ORDER_AMOUNT", "成交金额必须大于 0", false);
