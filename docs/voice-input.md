@@ -19,11 +19,11 @@ Consumer 环境变量（不允许放入 `VITE_*` 或前端）：
 ```dotenv
 SPEECH_ENABLED=true
 SPEECH_MODEL=qwen3-asr-flash
-SPEECH_API_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-# SPEECH_API_KEY 使用对应地域的百炼 Key；不设置则复用 DASHSCOPE_API_KEY。
+SPEECH_API_BASE_URL=https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+# SPEECH_API_KEY 使用该业务空间、该地域的百炼 Key；不设置则复用 DASHSCOPE_API_KEY。
 ```
 
-默认开关关闭，未配置密钥时返回明确的不可用状态，前端不请求麦克风。密钥必须具备该模型的访问权限和可用额度，普通 DeepSeek 聊天模型密钥不能用于此接口。也可以把 base URL 改为百炼同地域业务空间专属域名。
+默认开关关闭，未配置密钥时返回明确的不可用状态，前端不请求麦克风。密钥必须具备该模型的访问权限和可用额度，普通 DeepSeek 聊天模型密钥不能用于此接口。复制该密钥所在业务空间控制台展示的 OpenAI 兼容地址；密钥与 Host 不匹配时会返回 401，不应仅因看到 `sk-ws-` 前缀就认为可用。上线前用合成语音验证识别结果。
 
 使用普通百炼按量付费密钥（新版前缀 `sk-ws-`），不要将个人 Token Plan 的 `sk-sp-` 密钥配置到网站后端：个人套餐有调用场景限制，且套餐与通用 API 地址不能混用。`qwen-audio-3.0-asr-flash` 与本版 `qwen3-asr-flash` 是不同接口契约，不能只替换模型名。密钥应以私有环境变量或权限为 `0600` 的服务端配置注入，不提交仓库，不暴露给前端。
 
