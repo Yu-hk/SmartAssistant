@@ -19,12 +19,12 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 ## 运行时架构
 
 <p align="center">
-  <a href="docs/architecture/smartassistant-runtime.architecture.html" title="打开交互式架构图">
+  <a href="https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html" title="在线打开交互式架构图">
     <img src="docs/architecture/smartassistant-runtime.architecture.visual-check.1440x900.light.png" alt="SmartAssistant 高层运行时架构：含独立商品录入服务；点击查看交互版" width="100%">
   </a>
 </p>
 
-**[打开交互式架构图（HTML）](docs/architecture/smartassistant-runtime.architecture.html)** · 上图仅为静态预览，图中的按钮不可点击。点击图片也可进入交互版文件；在 GitHub 上查看时，请下载该 HTML 文件并用浏览器打开，才能使用主题、演示和导出等功能。商品录入的详细路径见下方独立录入服务架构图。
+**[在线打开交互式架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)** · 上图仅为静态预览，图中的按钮不可点击；点击图片可打开在线交互版。需要离线查看时，可[下载 HTML 文件](docs/architecture/smartassistant-runtime.architecture.html)并在浏览器中打开。商品录入的详细路径见下方独立录入服务架构图。
 
 启用 MQ 时的主请求路径是 `React → Gateway → Consumer 接入 → RabbitMQ → Consumer 执行器 → Router → 业务 Agent`。图中的 Consumer 接入和执行器属于同一服务，Product / Order 则是两个独立领域服务；模型与检索节点是逻辑依赖组，不是新增的统一微服务。
 
