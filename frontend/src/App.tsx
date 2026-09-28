@@ -200,7 +200,6 @@ function CustomerApp() {
     currentSession,
     fetchSessions, ensureSessionListed, deleteSession, closeSession, resumeSession, rateSession,
   } = useSessions();
-
   const { notifications, markRead: markNotificationRead } = useNotifications({ setSessions });
 
   const {

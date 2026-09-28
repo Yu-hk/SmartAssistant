@@ -8,6 +8,12 @@ import java.util.function.Predicate;
 final class ProductQueryContext {
     private ProductQueryContext() {}
 
+    static String current(String question) {
+        if (question == null) return "";
+        int marker = question.indexOf("[对话上下文]");
+        return marker < 0 ? question : question.substring(0, marker).trim();
+    }
+
     static List<String> turns(String question) {
         if (question == null || question.isBlank()) return List.of();
         int marker = question.indexOf("[对话上下文]");

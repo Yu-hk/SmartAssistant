@@ -30,6 +30,32 @@ import static org.mockito.Mockito.when;
 
 class ProductStreamControllerTest {
     @Test
+    void specificationFollowUpDoesNotBecomeDiscoveryBecauseHistoryRecommendedLaptop() {
+        var agent = mock(StreamingProductAgentService.class);
+        var discovery = new ProductDiscoveryService(new com.example.smartassistant.spi.InMemoryProductBackend());
+        String current = "这个规格是什么？只说规格，不用介绍颜色";
+        String question = current + "\n\n[对话上下文]\n最近用户问题（仅供解析指代）：\n"
+                + "用户：推荐一款预算3000元、重量不超过2公斤的笔记本电脑\n"
+                + "用户：AirPods Pro多少钱？有货吗？\n请延续上一轮讨论的对象回答当前问题。";
+        when(agent.executeWithQuality(anyString(), eq("fact-follow-up"))).thenReturn(
+                DomainAgentResponse.of("规格已核实。", DomainQualityResult.pass(1, "VERIFIED")));
+        var request = new AgentExecutionRequest("1.0", "fact-follow-up", "query", "12", "QUERY_PRODUCT",
+                question, Map.of(), List.of(), List.of(), null, null);
+        assertEquals("规格已核实。", new ProductStreamController(agent, discovery)
+                .execute(request, null).getBody().answer());
+        verify(agent).executeWithQuality(anyString(), eq("fact-follow-up"));
+
+        var misplanned = new AgentExecutionRequest("1.0", "fact-follow-up", "query", "12", "DISCOVER_PRODUCTS",
+                question, Map.of(), List.of(), List.of(), null, null);
+        assertEquals("规格已核实。", new ProductStreamController(agent, discovery)
+                .execute(misplanned, null).getBody().answer());
+        var misplannedRecommendation = new AgentExecutionRequest("1.0", "fact-follow-up", "query", "12",
+                "RECOMMEND_PRODUCT", question, Map.of(), List.of(), List.of(), null, null);
+        assertEquals("规格已核实。", new ProductStreamController(agent, discovery)
+                .execute(misplannedRecommendation, null).getBody().answer());
+    }
+
+    @Test
     void discoveryPreservesOriginalWeightEvenWithoutBudget() {
         var agent = mock(StreamingProductAgentService.class);
         var discovery = mock(ProductDiscoveryService.class);

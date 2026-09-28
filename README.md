@@ -42,6 +42,8 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 会话深链按当前 `/chat/:sessionId` 验证，不能复用首次打开的旧 ID。列表暂未出现新会话时再查询会话详情；只有详情明确返回 403/404 才提示失效并回首页，网络或服务错误保留链接供重试。重新选择会话或新建会话会清除旧提示。流程见 [会话链接校验与恢复](docs/architecture/session-link-validation.workflow.html)。
 
+同一账号下的会话彼此独立：切换或新建会话不自动关闭其他活动会话；发送、处理中校验与恢复只针对目标会话。用户评分写入成功后，前端再请求关闭被评分的会话以释放服务端占用；若关闭失败，保留评分和真实会话状态并提示重试，不把它显示为已结束。前端入口页使用禁止缓存的响应头，避免旧版页面引用失效资源。详见 [独立会话与评分关闭流程](docs/architecture/independent-session-rating.workflow.html)。
+
 语义答案缓存只覆盖短时效商品咨询和文档绑定的业务咨询，其他场景不进入缓存；完整边界见 [语义答案缓存策略](docs/semantic-cache-policy.md)。
 
 设计与边界：[情绪并行预处理](docs/architecture/sentiment-preprocessing.md) · [MQ 优先级调度](docs/architecture/chat-priority-mq.md) · [可选画像与等待上限](docs/architecture/optional-user-profile.md)。

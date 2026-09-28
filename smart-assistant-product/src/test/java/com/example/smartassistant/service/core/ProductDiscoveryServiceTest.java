@@ -33,6 +33,12 @@ class ProductDiscoveryServiceTest {
         assertThat(service.supports("推荐无线耳机")).isTrue();
         assertThat(service.supports("推荐适合商务办公的轻便笔记本")).isTrue();
         assertThat(service.supports("这款电脑的重量是多少？")).isFalse();
+        String history = "\n\n[对话上下文]\n最近用户问题（仅供解析指代）：\n"
+                + "用户：推荐一款预算3000元、重量不超过2公斤的笔记本电脑\n"
+                + "用户：AirPods Pro多少钱？有货吗？\n请延续上一轮讨论的对象回答当前问题。";
+        assertThat(service.supports("这个规格是什么？只说规格，不用介绍颜色" + history)).isFalse();
+        assertThat(service.supports("推荐一款轻便笔记本" + history)).isTrue();
+        assertThat(service.isDetailOnly("这个规格是什么？只说规格，不用介绍颜色" + history)).isTrue();
     }
 
     @Test
