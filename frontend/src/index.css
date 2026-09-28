@@ -2199,6 +2199,14 @@ t-chat-sender::part(send-btn):disabled,
 .admin-button.ghost { color: var(--admin-text-muted); background: transparent; border-color: transparent; }
 .admin-button.danger { color: #c73442; background: rgba(220, 53, 69, .07); border-color: rgba(220, 53, 69, .24); }
 .admin-button.danger:hover:not(:disabled) { color: #fff; background: #ca3544; }
+.admin-profile-search { display: flex; align-items: end; gap: 12px; padding: 18px; margin-bottom: 18px; }
+.admin-profile-search .admin-form-field { min-width: min(420px, 100%); }
+.admin-profile-pager { display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 14px; }
+.admin-profile-detail { margin-top: 20px; padding: 20px; overflow-wrap: anywhere; }
+.admin-profile-detail h3 { margin-top: 22px; }
+.admin-profile-detail li { margin: 7px 0; }
+.admin-profile-cleanup { display: grid; gap: 12px; max-width: 580px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--admin-border); }
+.admin-profile-cleanup .admin-button { justify-self: start; }
 
 /* Shared state and panel */
 .admin-state {
