@@ -37,7 +37,42 @@ public class ProfileCleanupService {
         if(!enabled) throw new IllegalStateException("Profile cleanup is not available");
         if(principalUserId==null || principalUserId<=0 || idempotencyKey==null) throw new IllegalArgumentException("Owner and idempotency key required");
         if(archive!=null && archive.enabled()) archive.sync();
+        return tx.execute(status->createJob(principalUserId,idempotencyKey));
+    }
+
+    /** Admin action and immutable audit are committed atomically with the pause/job. */
+    public UUID requestForAdmin(long actor,long target,String expectedUsername,String reason,UUID actionId) {
+        if(!enabled) throw new IllegalStateException("Profile cleanup is not available");
+        if(actor<=0 || target<=0 || actor==target || actionId==null || expectedUsername==null || reason==null
+                || expectedUsername.isBlank() || !List.of("USER_REQUEST","SECURITY_INCIDENT","DATA_CORRECTION","OTHER").contains(reason))
+            throw new IllegalArgumentException("Invalid admin cleanup request");
+        if(archive!=null && archive.enabled()) archive.sync();
         return tx.execute(status->{
+            limits();
+            var operator=jdbc.queryForList("SELECT role FROM users WHERE id=? FOR UPDATE",actor);
+            if(operator.isEmpty() || !"ROLE_ADMIN".equals(operator.getFirst().get("role")))
+                throw new SecurityException("Administrator role required");
+            var user=jdbc.queryForList("SELECT username,role FROM users WHERE id=? FOR UPDATE",target);
+            if(user.isEmpty() || !"ROLE_USER".equals(user.getFirst().get("role"))
+                    || !expectedUsername.equals(user.getFirst().get("username")))
+                throw new IllegalArgumentException("Target account changed; verify again");
+            var existing=jdbc.queryForList("SELECT actor_user_id,target_user_id,reason_code,job_id FROM profile_admin_cleanup_audit WHERE action_id=?",actionId);
+            if(!existing.isEmpty()) {
+                var row=existing.getFirst();
+                if(((Number)row.get("actor_user_id")).longValue()!=actor
+                        || ((Number)row.get("target_user_id")).longValue()!=target
+                        || !reason.equals(row.get("reason_code")))
+                    throw new IllegalArgumentException("Idempotency key already used for another action");
+                return (UUID)row.get("job_id");
+            }
+            UUID job=createJob(target,actionId);
+            jdbc.update("INSERT INTO profile_admin_cleanup_audit(action_id,actor_user_id,target_user_id,reason_code,job_id) VALUES (?,?,?,?,?)",
+                    actionId,actor,target,reason,job);
+            return job;
+        });
+    }
+
+    private UUID createJob(Long principalUserId,UUID idempotencyKey) {
             limits();
             jdbc.update("INSERT INTO profile_lifecycle(user_id) VALUES (?) ON CONFLICT(user_id) DO NOTHING",principalUserId);
             jdbc.queryForMap("SELECT generation FROM profile_lifecycle WHERE user_id=? FOR UPDATE",principalUserId);
@@ -64,7 +99,6 @@ public class ProfileCleanupService {
             for(String target:List.of("LEGACY_STORAGE","DERIVED_COPIES","BACKUP_RESTORE"))
                 if(!automated().contains(target)) jdbc.update("INSERT INTO profile_cleanup_receipt(job_id,target,state,error_code) VALUES (?,?,'BLOCKED','INVENTORY_OR_ADAPTER_REQUIRED')",job,target);
             return job;
-        });
     }
 
     /** Ownership-constrained status, with no deleted content in jobs or receipts. */
