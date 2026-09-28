@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "画像管理：管理员读取与代清理",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1380, 820]
+  },
+  "components": [
+    { "id": "adminUi", "type": "frontend", "label": "管理员页面", "sublabel": "筛选用户 · 确认清理", "pos": [50, 235], "size": [175, 78] },
+    { "id": "gateway", "type": "cloud", "label": "Gateway", "sublabel": "/api/admin/profiles", "pos": [290, 235], "size": [175, 78] },
+    { "id": "adminAuth", "type": "security", "label": "独立管理员鉴权", "sublabel": "令牌 · 撤销 · 当前角色", "pos": [530, 235], "size": [190, 78] },
+    { "id": "adminApi", "type": "backend", "label": "画像管理 API", "sublabel": "只读元数据 / 代清理", "pos": [785, 235], "size": [190, 78] },
+    { "id": "profileDb", "type": "database", "label": "PostgreSQL", "sublabel": "生命周期 · 任务 · 审计", "pos": [1060, 110], "size": [200, 78] },
+    { "id": "cleanup", "type": "backend", "label": "清理协调器", "sublabel": "锁定目标 · 同事务登记", "pos": [785, 415], "size": [190, 78] },
+    { "id": "worker", "type": "backend", "label": "异步清理器", "sublabel": "逐目标处理并写回执", "pos": [1060, 415], "size": [200, 78] },
+    { "id": "targets", "type": "database", "label": "画像存储与缓存", "sublabel": "PostgreSQL · Redis · 派生副本", "pos": [1060, 570], "size": [200, 78] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Consumer 服务", "wraps": ["adminAuth", "adminApi", "cleanup", "worker"] }
+  ],
+  "connections": [
+    { "from": "adminUi", "to": "gateway", "label": "管理请求", "variant": "emphasis" },
+    { "from": "gateway", "to": "adminAuth", "label": "转发" },
+    { "from": "adminAuth", "to": "adminApi", "label": "验证通过", "variant": "security" },
+    { "from": "adminApi", "to": "profileDb", "label": "查询元数据", "variant": "emphasis" },
+    { "from": "adminApi", "to": "cleanup", "label": "确认后代清理", "variant": "security", "labelAt": [880, 327] },
+    { "from": "cleanup", "to": "worker", "label": "异步任务", "variant": "dashed" },
+    { "from": "worker", "to": "targets", "label": "清理并写回执", "variant": "dashed", "labelAt": [1160, 507] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "查看", "items": ["管理员只获取画像元数据、清理任务和审计；不返回画像原文。"] },
+    { "dot": "rose", "title": "代清理", "items": ["核对目标用户名后，同事务暂停分析、建任务并写审计；后台逐目标清理。"] }
+  ]
+}
