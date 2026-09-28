@@ -32,6 +32,7 @@ const NAV_ITEMS = [
   { to: '/admin/visits', label: '访问记录', description: '访客与模块浏览', icon: UsersRound },
   { to: '/admin/overview', label: '数据总览', description: '运营与质量指标', icon: BarChart3 },
   { to: '/admin/conversations', label: '用户对话', description: '全局会话与审计', icon: MessageSquareText },
+  { to: '/admin/profiles', label: '画像管理', description: '生命周期与清理审计', icon: ShieldCheck },
   { to: '/admin/knowledge', label: '知识库', description: '问答内容维护', icon: BookOpenText },
   { to: '/admin/products', label: '商品录入', description: '资料与结构化参数', icon: Package },
 ];
@@ -40,6 +41,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/admin/visits': '访问记录',
   '/admin/overview': '数据总览',
   '/admin/conversations': '用户对话',
+  '/admin/profiles': '画像管理',
   '/admin/knowledge': '知识库',
   '/admin/products': '商品录入',
 };

@@ -1798,4 +1798,17 @@ CREATE TABLE IF NOT EXISTS public.profile_cleanup_receipt (
 CREATE INDEX IF NOT EXISTS idx_profile_cleanup_retry ON public.profile_cleanup_receipt(next_attempt_at)
     WHERE state IN ('PENDING','RETRY');
 
+-- Administrator-initiated cleanup audit survives account/profile cleanup.
+CREATE TABLE IF NOT EXISTS public.profile_admin_cleanup_audit (
+    action_id uuid PRIMARY KEY,
+    actor_user_id bigint NOT NULL,
+    target_user_id bigint NOT NULL,
+    reason_code varchar(32) NOT NULL CHECK (reason_code IN
+        ('USER_REQUEST','SECURITY_INCIDENT','DATA_CORRECTION','OTHER')),
+    job_id uuid NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_profile_admin_cleanup_audit_target
+    ON public.profile_admin_cleanup_audit(target_user_id,created_at DESC);
+
 
