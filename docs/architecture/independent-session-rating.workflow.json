@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "独立会话与评分关闭流程",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "browser", "label": "浏览器与会话界面" },
+    { "id": "consumer", "label": "Consumer 会话服务" },
+    { "id": "outcome", "label": "独立会话与异常" }
+  ],
+  "mainPath": ["selectSession", "sendQuestion", "sessionGate", "showReply", "submitRating", "closeRated"],
+  "nodes": [
+    { "id": "selectSession", "lane": "browser", "col": 0, "type": "frontend", "label": "选择当前会话", "sublabel": "仅更新目标 ID" },
+    { "id": "sendQuestion", "lane": "browser", "col": 1, "type": "frontend", "label": "发送问题", "sublabel": "目标会话独立" },
+    { "id": "sessionGate", "lane": "consumer", "col": 2, "type": "backend", "label": "校验目标会话", "sublabel": "处理中只限本会话" },
+    { "id": "showReply", "lane": "browser", "col": 3, "type": "frontend", "label": "显示回复", "sublabel": "保留其他会话" },
+    { "id": "submitRating", "lane": "browser", "col": 4, "type": "frontend", "label": "提交服务评分", "sublabel": "仅当前会话" },
+    { "id": "closeRated", "lane": "consumer", "col": 5, "type": "backend", "label": "关闭已评分会话", "sublabel": "释放服务端占用" },
+    { "id": "switchOther", "lane": "outcome", "col": 4, "type": "frontend", "label": "切换其他会话", "sublabel": "不自动关闭" },
+    { "id": "closeRetry", "lane": "outcome", "col": 5, "type": "security", "label": "关闭失败待重试", "sublabel": "保留评分与真实状态", "width": 148 }
+  ],
+  "edges": [
+    { "from": "selectSession", "to": "sendQuestion" },
+    { "from": "sendQuestion", "to": "sessionGate", "label": "按 ID 请求" },
+    { "from": "sessionGate", "to": "showReply", "label": "本会话完成" },
+    { "from": "showReply", "to": "submitRating", "label": "用户评价" },
+    { "from": "submitRating", "to": "closeRated", "label": "保存评分后关闭" },
+    { "from": "showReply", "to": "switchOther", "label": "可继续别的会话", "role": "branch" },
+    { "from": "closeRated", "to": "closeRetry", "label": "关闭失败", "role": "error" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "隔离边界", "items": ["发送和占用校验只作用于目标会话", "切换会话不关闭账号下其他活动会话"] },
+    { "dot": "emerald", "title": "评分收尾", "items": ["评分写入成功后再请求关闭当前会话", "关闭失败时保留真实状态并提示重试"] }
+  ]
+}

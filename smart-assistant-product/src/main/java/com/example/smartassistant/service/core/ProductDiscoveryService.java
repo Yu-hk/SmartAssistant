@@ -55,7 +55,10 @@ public class ProductDiscoveryService {
     /** Jev may widen an uncertain read-only discovery route, never override an explicit fact query. */
     public boolean supports(String query, String requestId) {
         if (query == null || query.isBlank()) return false;
-        String normalized = UserQuestionNormalizer.normalize(query);
+        // Routing is decided by this turn. Historical shopping constraints may
+        // help a real discovery request, but cannot turn a specification/stock
+        // follow-up into another recommendation.
+        String normalized = UserQuestionNormalizer.normalize(ProductQueryContext.current(query));
         ProductDiscoveryIntent intent = INTENT_PARSER.parse(normalized);
         boolean categoryRequest = !detectCategory(normalized).isBlank();
         if (intent.hasFeatureInterest() && intent.detailQuestion() && !intent.recommendation()
@@ -70,6 +73,15 @@ public class ProductDiscoveryService {
         if (deterministic) return true;
         return !intent.detailQuestion() && (categoryRequest || intent.hasFeatureInterest())
                 && jevAdvisor != null && jevAdvisor.suggestsDiscovery(normalized, requestId);
+    }
+
+    /** A model-planned browse operation must not override a present-turn facts request. */
+    public boolean isDetailOnly(String query) {
+        if (query == null || query.isBlank()) return false;
+        ProductDiscoveryIntent intent = INTENT_PARSER.parse(
+                UserQuestionNormalizer.normalize(ProductQueryContext.current(query)));
+        return intent.detailQuestion() && !intent.recommendation()
+                && !intent.catalogBrowse() && !intent.hardConstraintRequested();
     }
 
     public DiscoveryResult discover(String query, Integer requestedLimit) {
