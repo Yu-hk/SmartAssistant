@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "管理员代用户清理画像",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "admin", "label": "管理控制台" },
+    { "id": "service", "label": "Consumer 验证、事务与清理" }
+  ],
+  "mainPath": ["select", "verify", "target", "commit", "clean", "review"],
+  "nodes": [
+    { "id": "select", "lane": "admin", "col": 0, "type": "frontend", "label": "选择用户", "sublabel": "原因与用户名确认" },
+    { "id": "verify", "lane": "service", "col": 1, "type": "security", "label": "验证管理员", "sublabel": "JWT、撤销状态与当前角色" },
+    { "id": "target", "lane": "service", "col": 2, "type": "security", "label": "核对目标", "sublabel": "锁定账号并匹配用户名" },
+    { "id": "commit", "lane": "service", "col": 3, "type": "database", "label": "暂停并记审计", "sublabel": "同事务写任务与审计" },
+    { "id": "clean", "lane": "service", "col": 4, "type": "backend", "label": "异步清理", "sublabel": "按目标写回执" },
+    { "id": "review", "lane": "admin", "col": 5, "type": "frontend", "label": "查看进度", "sublabel": "任务、回执与审计" }
+  ],
+  "edges": [
+    { "from": "select", "to": "verify", "label": "管理员请求", "role": "main" },
+    { "from": "verify", "to": "target", "label": "权限通过", "role": "main" },
+    { "from": "target", "to": "commit", "label": "目标一致", "role": "main" },
+    { "from": "commit", "to": "clean", "label": "清理任务", "role": "async" },
+    { "from": "clean", "to": "review", "label": "回执状态", "role": "main" }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "安全边界", "items": ["用户自助清理入口保留；管理员仅能代普通用户清理", "画像原文不进入管理页；代清理和审计同事务提交"] }
+  ]
+}

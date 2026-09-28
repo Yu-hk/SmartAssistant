@@ -8,10 +8,11 @@ class UpgradeContractTests(unittest.TestCase):
     def test_inventory_complete_and_explicit_dependencies(self):
         repo = pathlib.Path(__file__).resolve().parents[1]
         inputs = contract.load_inputs(repo)
-        self.assertEqual(len(inputs), 29)
+        self.assertEqual(len(inputs), 30)
         for before, after in [('20260914_add_product_structured_features', '20260914_add_product_intake'),
                               ('20260918_add_profile_lifecycle', '20260919_add_profile_control_archive'),
-                              ('20260827_add_workflow_recovery_jobs', '20260827_add_workflow_recovery_result')]:
+                              ('20260827_add_workflow_recovery_jobs', '20260827_add_workflow_recovery_result'),
+                              ('20260919_add_profile_cleanup_jobs', '20260928_add_profile_admin_cleanup_audit')]:
             self.assertLess(contract.ORDER.index(before), contract.ORDER.index(after))
         for path, data in inputs.items():
             sql = contract.migration_sql(pathlib.Path(path).stem, data)

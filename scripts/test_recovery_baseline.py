@@ -10,6 +10,8 @@ class BaselineTests(unittest.TestCase):
         repo = pathlib.Path(__file__).resolve().parents[1]
         self.assertEqual(baseline.verify_repository(repo), baseline.REPOSITORY_BASELINE)
         with self.assertRaisesRegex(ValueError, 'baseline changed'):
+            baseline.verify_repository(repo, baseline.PREVIOUS_REPOSITORY_BASELINE)
+        with self.assertRaisesRegex(ValueError, 'baseline changed'):
             baseline.verify_repository(repo, baseline.LEGACY_REPOSITORY_BASELINE)
         with self.assertRaisesRegex(ValueError, 'Unsupported recovery baseline'):
             baseline.verify_repository(repo, 'unknown')
