@@ -53,7 +53,7 @@ export function AdminProfilesPage({ refreshVersion }: { refreshVersion: number }
   };
 
   return <div className="admin-page admin-profiles-page">
-    <AdminPageIntro eyebrow="PRIVACY" title="画像管理" description="仅展示画像元数据、生命周期和清理审计；不展示画像原文。用户自助清理入口仍保留。" />
+    <AdminPageIntro eyebrow="PRIVACY" title="画像管理" description="仅展示画像元数据、生命周期和清理审计；不展示画像原文。" />
     <form className="admin-panel admin-profile-search" onSubmit={event => { event.preventDefault();setPage(0);setQuery(search); }}>
       <label className="admin-form-field"><span>按用户名搜索</span><input value={search} onChange={event => setSearch(event.target.value)} maxLength={100} /></label>
       <button className="admin-button primary" type="submit">查询</button>

@@ -38,7 +38,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 下单资料缺失时，Order 仅提出下单域必需字段；用户可手填，或主动从本人已确认的历史订单中选择收货信息。历史资料有差异、或本次填写与单笔历史订单不一致时必须核对，不能静默覆盖。补全资料不等于授权下单，写操作仍需最终审批。详见 [下单收货信息补全与确认流程图](docs/architecture/order-checkout-history.workflow.html)。
 
-管理员后台的“画像管理”提供跨用户的画像元数据、分析开关状态、清理任务与回执、代清理审计；不返回画像原文。管理员代用户清理前需选择原因并输入目标用户名确认，Consumer 独立验证访问令牌、撤销状态和数据库当前管理员角色，再锁定目标普通用户账号核对用户名；暂停分析、创建清理任务和写入审计在同一事务中完成，后续异步清理沿用用户自助清理链路。用户自己的“画像与隐私”入口仍保留。上线前先执行 `docs/database/migrations/20260928_add_profile_admin_cleanup_audit.sql`，然后更新 Consumer 与前端。详见 [画像管理员代清理流程图](docs/architecture/profile-admin-management.workflow.html)和[生产验收记录](docs/profile-admin-production-verification-20260928.md)。
+管理员后台的“画像管理”提供跨用户的画像元数据、分析开关状态、清理任务与回执、代清理审计；不返回画像原文。管理员代用户清理前需选择原因并输入目标用户名确认，Consumer 独立验证访问令牌、撤销状态和数据库当前管理员角色，再锁定目标普通用户账号核对用户名；暂停分析、创建清理任务和写入审计在同一事务中完成，后续异步清理逐目标写回执。普通用户侧栏不再展示“画像与隐私”入口，原有本人身份校验的接口暂时保留以兼容旧客户端。数据库迁移见 `docs/database/migrations/20260928_add_profile_admin_cleanup_audit.sql`。详见[画像管理架构图](docs/architecture/profile-admin-management.architecture.html)、[首次生产验收](docs/profile-admin-production-verification-20260928.md)及[用户入口移除验收](docs/profile-customer-entry-removal-verification-20260928.md)。
 
 会话深链按当前 `/chat/:sessionId` 验证，不能复用首次打开的旧 ID。列表暂未出现新会话时再查询会话详情；只有详情明确返回 403/404 才提示失效并回首页，网络或服务错误保留链接供重试。重新选择会话或新建会话会清除旧提示。流程见 [会话链接校验与恢复](docs/architecture/session-link-validation.workflow.html)。
 

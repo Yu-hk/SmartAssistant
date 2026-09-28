@@ -95,6 +95,7 @@ test('minimal sidebar preserves accessible selection, delete, resume and service
   assert.match(html, /<details class="customer-services">/);
   assert.match(html, /aria-label="删除会话：查询我的订单"/);
   assert.match(html, /aria-label="恢复会话：商品咨询"/);
+  assert.doesNotMatch(html, /画像与隐私|清除画像/);
   buttons(CustomerSidebar(props)).forEach(button => button.props.onClick());
   for (const expected of ['new', 'close', 'theme', 'select:active-1', 'delete:active-1',
     'select:paused-1', 'delete:paused-1', 'resume:paused-1', 'service:订单助手']) {
