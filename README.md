@@ -24,7 +24,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
   </a>
 </p>
 
-**[在线打开交互式架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)** · 上图仅为静态预览，图中的按钮不可点击；点击图片可打开在线交互版。需要离线查看时，可[下载 HTML 文件](docs/architecture/smartassistant-runtime.architecture.html)并在浏览器中打开。商品录入的详细路径见下方独立录入服务架构图。
+**[在线打开交互式架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)** · **[查看全部架构与流程图](https://yu-hk.github.io/SmartAssistant/)**。上图仅为静态预览，图中的按钮不可点击；点击图片可打开在线交互版。仓库中的 [HTML 源文件](docs/architecture/smartassistant-runtime.architecture.html)可下载后离线打开。
 
 启用 MQ 时的主请求路径是 `React → Gateway → Consumer 接入 → RabbitMQ → Consumer 执行器 → Router → 业务 Agent`。图中的 Consumer 接入和执行器属于同一服务，Product / Order 则是两个独立领域服务；模型与检索节点是逻辑依赖组，不是新增的统一微服务。
 
@@ -36,15 +36,15 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 6. PostgreSQL/pgvector 保存业务、画像版本与向量数据；Redis 保存短期上下文、缓存、执行权和检查点。RabbitMQ 还承担画像提交与工作流恢复等独立队列。
 7. Nacos 提供服务注册发现，监控配置覆盖 Prometheus、Grafana、Loki 与链路追踪。高层图省略共享依赖的其他访问边与监控连线，完整配置见 `deploy/docker-compose.yml`。
 
-管理员商品录入由独立的 `data-intake-service` 承载：简介/规格规则提取 → 预览与人工核对 → 同事务保存商品、参数及审计。Gateway 保留 `/api/admin/products/**` 路径并校验管理员身份；录入不经 Consumer、聊天 MQ/Router 或大模型。Product 推荐时读取已存事实，未知参数不猜测。FAQ 导入与维护仍在 Consumer，后续单独拆分。详见 [录入服务架构图](docs/architecture/data-intake-service.architecture.html)、[商品录入与推荐读取架构](docs/architecture/product-intake.md)、[本次发布与回滚](docs/data-intake-service-rollout.md)及[2026-09-28 生产验证](docs/data-intake-production-verification-20260928.md)；[2026-09-14 的部署验收](docs/product-intake-deployment-verification.md)仅对应拆分前实现。
+管理员商品录入由独立的 `data-intake-service` 承载：简介/规格规则提取 → 预览与人工核对 → 同事务保存商品、参数及审计。Gateway 保留 `/api/admin/products/**` 路径并校验管理员身份；录入不经 Consumer、聊天 MQ/Router 或大模型。Product 推荐时读取已存事实，未知参数不猜测。FAQ 导入与维护仍在 Consumer，后续单独拆分。详见 [在线录入服务架构图](https://yu-hk.github.io/SmartAssistant/architecture/data-intake-service.architecture.html)、[商品录入与推荐读取架构](docs/architecture/product-intake.md)、[本次发布与回滚](docs/data-intake-service-rollout.md)及[2026-09-28 生产验证](docs/data-intake-production-verification-20260928.md)；[2026-09-14 的部署验收](docs/product-intake-deployment-verification.md)仅对应拆分前实现。
 
-下单资料缺失时，Order 仅提出下单域必需字段；用户可手填，或主动从本人已确认的历史订单中选择收货信息。历史资料有差异、或本次填写与单笔历史订单不一致时必须核对，不能静默覆盖。补全资料不等于授权下单，写操作仍需最终审批。详见 [下单收货信息补全与确认流程图](docs/architecture/order-checkout-history.workflow.html)。
+下单资料缺失时，Order 仅提出下单域必需字段；用户可手填，或主动从本人已确认的历史订单中选择收货信息。历史资料有差异、或本次填写与单笔历史订单不一致时必须核对，不能静默覆盖。补全资料不等于授权下单，写操作仍需最终审批。详见 [在线下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)。
 
-管理员后台的“画像管理”提供跨用户的画像元数据、分析开关状态、清理任务与回执、代清理审计；不返回画像原文。管理员代用户清理前需选择原因并输入目标用户名确认，Consumer 独立验证访问令牌、撤销状态和数据库当前管理员角色，再锁定目标普通用户账号核对用户名；暂停分析、创建清理任务和写入审计在同一事务中完成，后续异步清理逐目标写回执。普通用户侧栏不再展示“画像与隐私”入口，原有本人身份校验的接口暂时保留以兼容旧客户端。数据库迁移见 `docs/database/migrations/20260928_add_profile_admin_cleanup_audit.sql`。详见[画像管理架构图](docs/architecture/profile-admin-management.architecture.html)、[首次生产验收](docs/profile-admin-production-verification-20260928.md)及[用户入口移除验收](docs/profile-customer-entry-removal-verification-20260928.md)。
+管理员后台的“画像管理”提供跨用户的画像元数据、分析开关状态、清理任务与回执、代清理审计；不返回画像原文。管理员代用户清理前需选择原因并输入目标用户名确认，Consumer 独立验证访问令牌、撤销状态和数据库当前管理员角色，再锁定目标普通用户账号核对用户名；暂停分析、创建清理任务和写入审计在同一事务中完成，后续异步清理逐目标写回执。普通用户侧栏不再展示“画像与隐私”入口，原有本人身份校验的接口暂时保留以兼容旧客户端。数据库迁移见 `docs/database/migrations/20260928_add_profile_admin_cleanup_audit.sql`。详见[在线画像管理架构图](https://yu-hk.github.io/SmartAssistant/architecture/profile-admin-management.architecture.html)、[管理员代清理流程](https://yu-hk.github.io/SmartAssistant/architecture/profile-admin-management.workflow.html)、[首次生产验收](docs/profile-admin-production-verification-20260928.md)及[用户入口移除验收](docs/profile-customer-entry-removal-verification-20260928.md)。
 
-会话深链按当前 `/chat/:sessionId` 验证，不能复用首次打开的旧 ID。列表暂未出现新会话时再查询会话详情；只有详情明确返回 403/404 才提示失效并回首页，网络或服务错误保留链接供重试。重新选择会话或新建会话会清除旧提示。流程见 [会话链接校验与恢复](docs/architecture/session-link-validation.workflow.html)。
+会话深链按当前 `/chat/:sessionId` 验证，不能复用首次打开的旧 ID。列表暂未出现新会话时再查询会话详情；只有详情明确返回 403/404 才提示失效并回首页，网络或服务错误保留链接供重试。重新选择会话或新建会话会清除旧提示。流程见 [在线会话链接校验与恢复](https://yu-hk.github.io/SmartAssistant/architecture/session-link-validation.workflow.html)。
 
-同一账号下的会话彼此独立：切换或新建会话不自动关闭其他活动会话；发送、处理中校验与恢复只针对目标会话。用户评分写入成功后，前端再请求关闭被评分的会话以释放服务端占用；若关闭失败，保留评分和真实会话状态并提示重试，不把它显示为已结束。前端入口页使用禁止缓存的响应头，避免旧版页面引用失效资源。详见 [独立会话与评分关闭流程](docs/architecture/independent-session-rating.workflow.html)。
+同一账号下的会话彼此独立：切换或新建会话不自动关闭其他活动会话；发送、处理中校验与恢复只针对目标会话。用户评分写入成功后，前端再请求关闭被评分的会话以释放服务端占用；若关闭失败，保留评分和真实会话状态并提示重试，不把它显示为已结束。前端入口页使用禁止缓存的响应头，避免旧版页面引用失效资源。详见 [在线独立会话与评分关闭流程](https://yu-hk.github.io/SmartAssistant/architecture/independent-session-rating.workflow.html)。
 
 语义答案缓存只覆盖短时效商品咨询和文档绑定的业务咨询，其他场景不进入缓存；完整边界见 [语义答案缓存策略](docs/semantic-cache-policy.md)。
 
@@ -156,12 +156,13 @@ GitHub Actions 会执行：
 
 ## 文档
 
-- [交互式运行时架构图](docs/architecture/smartassistant-runtime.architecture.html)
-- [下单收货信息补全与确认流程图](docs/architecture/order-checkout-history.workflow.html)
+- [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
+- [交互式运行时架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)
+- [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
 - [架构图生成与验证记录](docs/architecture/runtime-diagram-verification.md)
 - [商品录入与推荐读取架构](docs/architecture/product-intake.md)
-- [独立录入服务架构图](docs/architecture/data-intake-service.architecture.html)
+- [独立录入服务架构图](https://yu-hk.github.io/SmartAssistant/architecture/data-intake-service.architecture.html)
 - [系统设计](docs/system_design.md)
 - [架构演进路线](docs/architecture-roadmap.md)
 - [RAG 生产化设计](docs/rag-production/ARCHITECTURE.md)

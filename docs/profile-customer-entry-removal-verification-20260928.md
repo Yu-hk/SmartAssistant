@@ -9,7 +9,7 @@
 ## 本地与图表验证
 
 - `frontend/npm run test:scenarios`：11/11 通过，新增断言普通用户侧栏不出现画像入口；`frontend/npm run build` 通过。
-- [新架构图](architecture/profile-admin-management.architecture.html)采用 Archify `architecture` 类型，showcase 检查 9/9、0 错误、0 警告；浏览器自动检查 1440×900、1600×1000、1920×1080、2048×1320 均无溢出，明暗截图均已人工查看。
+- [新架构图源文件](architecture/profile-admin-management.architecture.html)采用 Archify `architecture` 类型，可[在线交互查看](https://yu-hk.github.io/SmartAssistant/architecture/profile-admin-management.architecture.html)；showcase 检查 9/9、0 错误、0 警告，浏览器自动检查 1440×900、1600×1000、1920×1080、2048×1320 均无溢出，明暗截图均已人工查看。
 
 ## 生产切换与验收
 
