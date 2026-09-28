@@ -1,6 +1,6 @@
 # 架构图与部署验证记录
 
-2026-09-28 更新：高层图已将管理员商品录入/参数维护标为独立 `Data Intake`，Consumer 只负责对话链；详细路径见 [独立录入服务架构图](data-intake-service.architecture.html)。新版高层 HTML 的 showcase 校验 9/9、0 错误、0 警告，浏览器视口/明暗主题检查通过。下方 2026-09-14 的线上结果是拆分前的历史记录，不是本次服务拆分的生产验收；本次发布步骤见 [发布与回滚](../data-intake-service-rollout.md)。
+2026-09-28 更新：高层图已将管理员商品录入/参数维护标为独立 `Data Intake`，Consumer 只负责对话链；详细路径见 [在线独立录入服务架构图](https://yu-hk.github.io/SmartAssistant/architecture/data-intake-service.architecture.html)。新版高层 HTML 的 showcase 校验 9/9、0 错误、0 警告，浏览器视口/明暗主题检查通过。下方 2026-09-14 的线上结果是拆分前的历史记录，不是本次服务拆分的生产验收；本次发布步骤见 [发布与回滚](../data-intake-service-rollout.md)。
 
 日期：2026-09-14。当前代码依据：`773401019a0cbd81f5ec2ff6135d1062923bc295`。
 
@@ -14,7 +14,7 @@
 
 - 类型：`architecture`；静态默认、中文、经典主题。
 - [JSON 规范](smartassistant-runtime.architecture.json) 是图的唯一拓扑来源。
-- [交互式 HTML](smartassistant-runtime.architecture.html) 通过 Archify `deliver` 生成；[README SVG](smartassistant-runtime.svg) 来自该 HTML 的标准 SVG 导出。
+- [交互式 HTML 源文件](smartassistant-runtime.architecture.html) 通过 Archify `deliver` 生成；可在[图表总览](https://yu-hk.github.io/SmartAssistant/)在线查看；[README SVG](smartassistant-runtime.svg) 来自该 HTML 的标准 SVG 导出。
 - 本地验证 24 条源码引用，固定到上述代码提交；主图只展示主要调用边，不代表完整部署或所有共享依赖。
 
 复现（`ARCHIFY_HOME` 为安装的技能目录，仓库根目录执行；PowerShell 使用相应变量语法）：

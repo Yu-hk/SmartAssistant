@@ -3,10 +3,102 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="0; url=architecture/smartassistant-runtime.architecture.html">
-  <title>SmartAssistant 系统架构</title>
+  <meta name="description" content="SmartAssistant 架构图与业务流程图统一入口">
+  <title>SmartAssistant 图表总览</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --bg: #f5f8fc;
+      --surface: #fff;
+      --ink: #142238;
+      --muted: #586b82;
+      --line: #dbe4ef;
+      --accent: #1677b8;
+      --focus: #2f87d9;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1728;
+        --surface: #142239;
+        --ink: #eef4fc;
+        --muted: #a9bad0;
+        --line: #29405c;
+        --accent: #6bc8f2;
+        --focus: #80c6ff;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.6; }
+    a { color: inherit; }
+    a:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; border-radius: 6px; }
+    .wrap { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+    header { padding: 58px 0 34px; border-bottom: 1px solid var(--line); }
+    .eyebrow { color: var(--accent); font-size: .82rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 10px 0 12px; font-size: clamp(2rem, 5vw, 3.25rem); line-height: 1.15; }
+    .intro { max-width: 720px; margin: 0; color: var(--muted); }
+    nav { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+    nav a { padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); text-decoration: none; font-size: .9rem; }
+    nav a:hover, .card:hover { border-color: var(--accent); }
+    main { padding: 20px 0 60px; }
+    section { margin-top: 36px; }
+    h2 { margin: 0 0 4px; font-size: 1.45rem; }
+    .section-note { margin: 0 0 18px; color: var(--muted); font-size: .92rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+    .card { display: block; min-height: 184px; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); text-decoration: none; transition: border-color .15s, transform .15s; }
+    .card:hover { transform: translateY(-2px); }
+    .card small { color: var(--accent); font-weight: 700; letter-spacing: .04em; }
+    .card h3 { margin: 16px 0 8px; font-size: 1.18rem; line-height: 1.35; }
+    .card p { margin: 0; color: var(--muted); font-size: .92rem; }
+    .card .open { display: inline-block; margin-top: 15px; color: var(--accent); font-size: .88rem; font-weight: 700; }
+    .reference .card { min-height: 150px; }
+    footer { padding: 24px 0 42px; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
+    footer a { color: var(--accent); }
+    @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
+  </style>
 </head>
 <body>
-  <p><a href="architecture/smartassistant-runtime.architecture.html">打开交互式系统架构图</a></p>
+  <header>
+    <div class="wrap">
+      <div class="eyebrow">SmartAssistant · Diagrams</div>
+      <h1>项目图表总览</h1>
+      <p class="intro">集中查看系统边界与业务流程。下方 7 张 Archify 图可直接在线切换主题、查看关系并导出；文档中的 Mermaid 方案图单独列为参考。</p>
+      <nav aria-label="图表分类">
+        <a href="#architecture">系统架构 · 3</a>
+        <a href="#workflow">业务流程 · 4</a>
+        <a href="#reference">方案参考 · 2</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <section id="architecture" aria-labelledby="architecture-title">
+      <h2 id="architecture-title">系统架构</h2>
+      <p class="section-note">组件边界、职责与依赖。</p>
+      <div class="grid">
+        <a class="card" href="architecture/smartassistant-runtime.architecture.html"><small>ARCHITECTURE · 总览</small><h3>SmartAssistant 系统架构</h3><p>Gateway、Consumer、消息队列、Router 与业务服务的运行时关系。</p><span class="open">打开交互图 →</span></a>
+        <a class="card" href="architecture/data-intake-service.architecture.html"><small>ARCHITECTURE · 商品</small><h3>商品数据录入服务边界</h3><p>管理员录入与参数维护独立于对话链，商品服务读取已存事实。</p><span class="open">打开交互图 →</span></a>
+        <a class="card" href="architecture/profile-admin-management.architecture.html"><small>ARCHITECTURE · 画像</small><h3>画像管理：管理员读取与代清理</h3><p>管理员权限、元数据读取、清理任务和审计之间的边界。</p><span class="open">打开交互图 →</span></a>
+      </div>
+    </section>
+    <section id="workflow" aria-labelledby="workflow-title">
+      <h2 id="workflow-title">业务流程</h2>
+      <p class="section-note">会话、下单与管理员操作的关键路径。</p>
+      <div class="grid">
+        <a class="card" href="architecture/order-checkout-history.workflow.html"><small>WORKFLOW · 下单</small><h3>下单收货信息补全与确认</h3><p>历史订单资料复用、差异核对与最终下单确认。</p><span class="open">打开交互图 →</span></a>
+        <a class="card" href="architecture/independent-session-rating.workflow.html"><small>WORKFLOW · 会话</small><h3>独立会话与评分关闭</h3><p>会话独立处理，评分保存后再尝试关闭目标会话。</p><span class="open">打开交互图 →</span></a>
+        <a class="card" href="architecture/session-link-validation.workflow.html"><small>WORKFLOW · 链接</small><h3>会话链接校验与恢复</h3><p>深链会话的权限检查、失效提示与可重试路径。</p><span class="open">打开交互图 →</span></a>
+        <a class="card" href="architecture/profile-admin-management.workflow.html"><small>WORKFLOW · 管理员</small><h3>管理员代用户清理画像</h3><p>目标确认、权限复核、审计与异步清理回执。</p><span class="open">打开交互图 →</span></a>
+      </div>
+    </section>
+    <section class="reference" id="reference" aria-labelledby="reference-title">
+      <h2 id="reference-title">文档中的方案图</h2>
+      <p class="section-note">以下为 Mermaid 内嵌图，保留在原设计文档中；它们不是上方的 Archify 交互版，也不代表当前线上拓扑。</p>
+      <div class="grid">
+        <a class="card" href="https://github.com/Yu-hk/SmartAssistant/blob/main/docs/architecture/agent-node-message-queue.md"><small>MERMAID · 方案参考</small><h3>LangGraph4j 节点消息队列</h3><p>READ 节点入 Redis 队列、WRITE 节点保持同步的方案链路。</p><span class="open">查看设计文档 →</span></a>
+        <a class="card" href="https://github.com/Yu-hk/SmartAssistant/blob/main/docs/system_design.md"><small>MERMAID · 任务规划</small><h3>ToolGateway 改造任务依赖</h3><p>公共基础层与 Hook、兼容性、CI 和指令手册任务之间的依赖。</p><span class="open">查看设计文档 →</span></a>
+      </div>
+    </section>
+  </main>
+  <footer><div class="wrap">交互图使用仓库中已提交的独立 HTML 文件。<a href="https://github.com/Yu-hk/SmartAssistant">返回项目仓库</a> · <a href="https://github.com/Yu-hk/SmartAssistant/tree/main/docs/architecture">查看图表源文件</a></div></footer>
 </body>
 </html>

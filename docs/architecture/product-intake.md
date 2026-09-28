@@ -1,6 +1,6 @@
 # 商品录入与推荐读取架构
 
-商品录入现由独立 `data-intake-service` 承载，推荐仍由 Product 服务读取共享 PostgreSQL。详细组件关系见 [独立录入服务架构图](data-intake-service.architecture.html)。
+商品录入现由独立 `data-intake-service` 承载，推荐仍由 Product 服务读取共享 PostgreSQL。详细组件关系见 [在线独立录入服务架构图](https://yu-hk.github.io/SmartAssistant/architecture/data-intake-service.architecture.html)。
 
 ## 管理录入路径
 
