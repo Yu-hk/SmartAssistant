@@ -6,6 +6,8 @@
 
 ## 执行链路
 
+[打开交互版方案图](https://yu-hk.github.io/SmartAssistant/architecture/agent-node-message-queue.workflow.html)（设计参考，非当前线上消息链路）。
+
 ```mermaid
 flowchart LR
     A[任务规划提示词] --> B[ExecutionPlan 校验]
