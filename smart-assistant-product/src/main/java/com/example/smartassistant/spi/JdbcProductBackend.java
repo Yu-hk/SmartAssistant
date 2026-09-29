@@ -38,9 +38,19 @@ public class JdbcProductBackend implements ProductBackend {
                    to_jsonb(p)->>'battery_life_scenario' AS battery_life_scenario,
                    NULLIF(to_jsonb(p)->>'noise_cancelling', '')::BOOLEAN AS noise_cancelling,
                    to_jsonb(p)->>'feature_source' AS feature_source,
-                   to_jsonb(p)->>'features_verified_at' AS features_verified_at
+                   to_jsonb(p)->>'features_verified_at' AS features_verified_at,
+                   %s
               FROM products p
-            """;
+            """.formatted(suitabilityColumns());
+    private static String suitabilityColumns() {
+        return """
+                COALESCE((SELECT string_agg(t.tag, '|' ORDER BY t.tag) FROM product_suitability_tags t
+                           WHERE t.product_code = p.product_code AND t.kind = 'audience'), '') AS audience_tags,
+                COALESCE((SELECT string_agg(t.tag, '|' ORDER BY t.tag) FROM product_suitability_tags t
+                           WHERE t.product_code = p.product_code AND t.kind = 'use_case'), '') AS use_case_tags,
+                p.suitability_source, p.suitability_reviewed_at
+                """;
+    }
     private static final String DISCOVERY_CATEGORY =
             "COALESCE(to_jsonb(p)->>'category', '')";
     private static final String DISCOVERY_SALES =
@@ -145,6 +155,9 @@ public class JdbcProductBackend implements ProductBackend {
                             WHERE (UPPER(product_code) LIKE ?
                                OR UPPER(product_name) LIKE ?
                                OR UPPER(COALESCE(spec, '')) LIKE ?
+                               OR (p.suitability_source IS NOT NULL AND p.suitability_reviewed_at IS NOT NULL
+                                   AND EXISTS (SELECT 1 FROM product_suitability_tags t
+                                                WHERE t.product_code = p.product_code AND UPPER(t.tag) LIKE ?))
                                OR ? LIKE '%' || UPPER(product_code) || '%'
                                OR ? LIKE '%' || UPPER(product_name) || '%')
                               AND __PRODUCTION_CATALOG_FILTER__
@@ -157,7 +170,7 @@ public class JdbcProductBackend implements ProductBackend {
                             """).replace("__PRODUCTION_CATALOG_FILTER__",
                             PRODUCTION_CATALOG_FILTER);
             products = jdbcTemplate.query(sql, this::mapProduct,
-                    like, like, like, query, query, query, query, SEARCH_LIMIT);
+                    like, like, like, like, query, query, query, query, SEARCH_LIMIT);
         } catch (RuntimeException e) {
             log.warn("[JdbcProduct] 商品搜索失败: {}", e.getClass().getSimpleName());
             return fallback.searchProduct(keyword);
@@ -178,13 +191,19 @@ public class JdbcProductBackend implements ProductBackend {
         if (jdbcTemplate == null) throw new ProductCatalogUnavailableException();
         try {
             return jdbcTemplate.query("""
-                    SELECT p.product_code, p.product_name, p.spec
+                    SELECT p.product_code, p.product_name, p.spec,
+                           COALESCE((SELECT string_agg(t.tag, ' ' ORDER BY t.tag)
+                                       FROM product_suitability_tags t
+                                      WHERE t.product_code = p.product_code
+                                        AND p.suitability_source IS NOT NULL
+                                        AND p.suitability_reviewed_at IS NOT NULL), '') AS suitability_terms
                       FROM products p
                      WHERE __PRODUCTION_CATALOG_FILTER__
                      ORDER BY p.product_code
                     """.replace("__PRODUCTION_CATALOG_FILTER__", PRODUCTION_CATALOG_FILTER),
                     (rs, rowNum) -> new ProductSearchDocument(
-                            rs.getString("product_code"), rs.getString("product_name"), rs.getString("spec")));
+                            rs.getString("product_code"), rs.getString("product_name"),
+                            searchText(rs.getString("spec"), rs.getString("suitability_terms"))));
         } catch (RuntimeException e) {
             throw new ProductCatalogUnavailableException(e);
         }
@@ -241,7 +260,8 @@ public class JdbcProductBackend implements ProductBackend {
                            to_jsonb(p)->>'battery_life_scenario' AS battery_life_scenario,
                            NULLIF(to_jsonb(p)->>'noise_cancelling', '')::BOOLEAN AS noise_cancelling,
                            to_jsonb(p)->>'feature_source' AS feature_source,
-                           to_jsonb(p)->>'features_verified_at' AS features_verified_at
+                           to_jsonb(p)->>'features_verified_at' AS features_verified_at,
+                           %s
                       FROM products p
                      WHERE %s
                            AND (CAST(? AS TEXT) = '' OR UPPER(%s) = CAST(? AS TEXT))
@@ -253,7 +273,7 @@ public class JdbcProductBackend implements ProductBackend {
                               p.product_code
                          LIMIT CAST(? AS INTEGER)
                     """).formatted(DISCOVERY_CATEGORY, DISCOVERY_MARKET_PRICE,
-                    DISCOVERY_SALES, DISCOVERY_RATING, DISCOVERY_REVIEW_COUNT,
+                    DISCOVERY_SALES, DISCOVERY_RATING, DISCOVERY_REVIEW_COUNT, suitabilityColumns(),
                     PRODUCTION_CATALOG_FILTER, DISCOVERY_CATEGORY);
             List<Object> parameters = new ArrayList<>(java.util.Arrays.asList(
                     category, category, maxPrice, maxPrice));
@@ -271,7 +291,7 @@ public class JdbcProductBackend implements ProductBackend {
                     rs.getBigDecimal("market_price"),
                     rs.getBigDecimal("rating"),
                     rs.getLong("review_count"),
-                    mapFeatures(rs)),
+                    mapFeatures(rs), mapSuitability(rs)),
                     parameters.toArray());
         } catch (RuntimeException e) {
             throw new ProductCatalogUnavailableException(e);
@@ -405,7 +425,7 @@ public class JdbcProductBackend implements ProductBackend {
                 rs.getBigDecimal("price"),
                 rs.getString("stock"),
                 rs.getString("spec"),
-                rs.getString("color"), mapFeatures(rs));
+                rs.getString("color"), mapFeatures(rs), mapSuitability(rs));
     }
 
     private static ProductFeatures mapFeatures(java.sql.ResultSet rs) throws java.sql.SQLException {
@@ -414,11 +434,22 @@ public class JdbcProductBackend implements ProductBackend {
                 rs.getString("feature_source"), rs.getString("features_verified_at"));
     }
 
+    private static ProductSuitability mapSuitability(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return ProductSuitability.fromCatalog(rs.getString("audience_tags"), rs.getString("use_case_tags"),
+                rs.getString("suitability_source"), rs.getString("suitability_reviewed_at"));
+    }
+
+    private static String searchText(String spec, String suitabilityTerms) {
+        String base = spec == null ? "" : spec;
+        return suitabilityTerms == null || suitabilityTerms.isBlank() ? base : base + " " + suitabilityTerms;
+    }
+
     private static String formatDetails(ProductRecord product) {
         return String.format("%s\n商品编码：%s\n价格：%s 元\n库存：%s\n规格：%s\n颜色：%s",
                 product.name(), product.code(), formatPrice(product.price()), product.stock(),
                 valueOrUnknown(product.spec()), valueOrUnknown(product.color()))
-                + (product.features().documented() ? "\n结构化参数：" + product.features().evidence() : "");
+                + (product.features().documented() ? "\n结构化参数：" + product.features().evidence() : "")
+                + (product.suitability().declared() ? "\n" + product.suitability().evidence() : "");
     }
 
     private static String formatPrice(BigDecimal price) {
@@ -434,6 +465,7 @@ public class JdbcProductBackend implements ProductBackend {
     }
 
     private record ProductRecord(String code, String name, BigDecimal price,
-                                 String stock, String spec, String color, ProductFeatures features) {
+                                 String stock, String spec, String color, ProductFeatures features,
+                                 ProductSuitability suitability) {
     }
 }

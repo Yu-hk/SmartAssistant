@@ -30,3 +30,13 @@ export function featureValues(draft: FeatureDraft): ProductFeatures {
 export function hasKnownFeatures(draft: FeatureDraft) {
   return !!(draft.weightGrams || draft.batteryLifeHours || draft.batteryLifeScenario || draft.noiseCancelling !== 'unknown');
 }
+
+/** Explicit admin labels only. Free-form prose is never inferred into suitability. */
+export function suitabilityTags(value: string): string[] {
+  const tags = value.split(/[,，、\n]/).map(tag => tag.trim()).filter(Boolean);
+  if (tags.length > 12 || tags.some(tag => !/^[\p{L}\p{N}][\p{L}\p{N}·_-]{0,39}$/u.test(tag))
+      || new Set(tags.map(tag => tag.toLocaleLowerCase())).size !== tags.length) {
+    throw new Error('每组最多 12 个不重复的简短标签；标签不能包含空格或句子');
+  }
+  return tags;
+}
