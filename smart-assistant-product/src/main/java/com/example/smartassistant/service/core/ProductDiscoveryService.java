@@ -161,13 +161,20 @@ public class ProductDiscoveryService {
         List<String> qualitativeLabels = ProductFeatureSchema.defaultSchema()
                 .preferenceLabels(featureRequest.qualitativePreferences());
         boolean scenarioEvidenceLimited = intent.scenarioSpecific() || !qualitativeLabels.isEmpty();
+        boolean hasSuitabilityDeclarations = products.stream().anyMatch(product -> product.suitability().declared());
         StringBuilder answer = new StringBuilder();
         if (!qualitativeLabels.isEmpty()) {
             answer.append("您提到的").append(String.join("、", qualitativeLabels))
-                    .append("属于选购偏好。当前目录没有可核实的对应偏好标签，")
+                    .append("属于选购偏好。")
+                    .append(hasSuitabilityDeclarations
+                            ? "部分候选有管理员确认的适用人群或用途目录标注，但标注不能证明具体性能；"
+                            : "当前目录没有可核实的对应偏好标签，")
                     .append("以下仅供同品类浏览，不能据此确认符合您的偏好：\n");
         } else if (scenarioEvidenceLimited) {
-            answer.append("以下仅是当前目录中的可售候选。目录没有可验证的场景适配字段，")
+            answer.append("以下仅是当前目录中的可售候选。")
+                    .append(hasSuitabilityDeclarations
+                            ? "部分候选有人群或用途目录标注，但仍缺少可验证的场景性能证据，"
+                            : "目录没有可验证的场景适配字段，")
                     .append("因此不能把热度直接等同于适合该办公或会议场景：\n");
         } else if (asksForPopularity && hasPopularityData) {
             answer.append("近期热门").append(category.isBlank() ? "商品" : category)
@@ -199,7 +206,7 @@ public class ProductDiscoveryService {
                 }
             }
             if (scenarioEvidenceLimited) {
-                answer.append("，场景适配：现有目录证据不足，需核实规格和实际需求");
+                answer.append("，场景性能：仍需核实规格和实际需求");
             }
             if (asksForPopularity && product.popularity() > 0) {
                 answer.append("。入选依据：目录记录的近30天销量；热销不等于适合个人用途");
@@ -207,6 +214,9 @@ public class ProductDiscoveryService {
             if (product.features().documented()) {
                 answer.append("。结构化证据：").append(product.features().evidence());
                 if (featureRequest.constraints().active()) answer.append("。上述记录满足本次明确的特征条件；实际体验可能不同");
+            }
+            if (product.suitability().declared()) {
+                answer.append("。").append(product.suitability().evidence());
             }
             answer.append('\n');
         }

@@ -8,13 +8,14 @@ import java.math.BigDecimal;
 import java.util.*;
 import java.util.regex.Pattern;
 import com.example.smartassistant.spi.ProductFeatures;
+import com.example.smartassistant.spi.ProductSuitability;
 
 /** Catalog-backed amounts and rendering. Models select evidence references, never write money. */
 public final class StructuredProductRecommendation {
     private static final ObjectMapper JSON = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
-    private static final Set<String> FIELDS = Set.of("spec", "rating", "reviewCount", "popularity", "features");
+    private static final Set<String> FIELDS = Set.of("spec", "rating", "reviewCount", "popularity", "features", "suitability");
     private static final Set<String> LIMITS = Set.of("SINGLE_CANDIDATE", "NO_COMPARABLE_SPEC",
             "NO_PHOTO_BENCHMARK", "MISSING_RATING", "NEEDS_VERIFICATION");
     private static final Pattern DETAILS = Pattern.compile("差额|剩余|还剩|余额|结余|算式|计算过程");
@@ -25,7 +26,8 @@ public final class StructuredProductRecommendation {
                     + "|只(?:关心|需要|想知道|说明|告诉我).*(?:超预算|超过预算|是否超)");
 
     public record Product(String code, String name, BigDecimal price, String stock, String spec,
-                          BigDecimal rating, Long reviewCount, Long popularity, ProductFeatures features) { }
+                          BigDecimal rating, Long reviewCount, Long popularity, ProductFeatures features,
+                          ProductSuitability suitability) { }
     public record Decision(boolean valid, String selectedCode, List<String> evidenceFields,
                            List<String> limitations, String correction) { }
     public static final class InvalidDecision extends IllegalArgumentException {
@@ -58,7 +60,7 @@ public final class StructuredProductRecommendation {
             if (code.isBlank() || name.isBlank() || !codes.add(code)) throw new IllegalArgumentException("Invalid or duplicate catalog identity");
             parsed.add(new Product(code, name, amount(item.get("price")), text(item.get("stock")),
                     text(item.get("spec")), amount(item.get("rating")), count(item.get("reviewCount")), count(item.get("popularity")),
-                    ProductFeatures.from(item.get("features"))));
+                    ProductFeatures.from(item.get("features")), ProductSuitability.from(item.get("suitability"))));
         }
         products = List.copyOf(parsed);
     }
@@ -132,7 +134,8 @@ public final class StructuredProductRecommendation {
                         || field.equals("rating") && selected.rating() == null
                         || field.equals("reviewCount") && selected.reviewCount() == null
                         || field.equals("popularity") && selected.popularity() == null
-                        || field.equals("features") && !selected.features().documented()) throw new IllegalArgumentException("Missing selected evidence");
+                        || field.equals("features") && !selected.features().documented()
+                        || field.equals("suitability") && !selected.suitability().declared()) throw new IllegalArgumentException("Missing selected evidence");
             }
             if (limits.contains("SINGLE_CANDIDATE") && products.size() != 1
                     || limits.contains("MISSING_RATING") && selected.rating() != null) throw new IllegalArgumentException("Unsupported limitation");
@@ -159,6 +162,7 @@ public final class StructuredProductRecommendation {
         if (p.reviewCount() != null) fields.add("reviewCount");
         if (p.popularity() != null) fields.add("popularity");
         if (p.features().documented()) fields.add("features");
+        if (p.suitability().declared()) fields.add("suitability");
         return List.copyOf(fields);
     }
 
@@ -191,6 +195,10 @@ public final class StructuredProductRecommendation {
             if (featureRequest.constraints().active()) {
                 out.append("这些记录满足你明确给出的特征条件；标称续航不保证实际使用时长。\n");
             }
+        }
+        if (decision.evidenceFields().contains("suitability")) {
+            out.append("\n").append(p.suitability().evidence())
+                    .append("。该标签仅供选择候选，不足以证明实际场景性能。");
         }
         List<String> relatedFeatures = ProductRecommendationAspectSchema.defaultSchema()
                 .relatedLabels(question, p.spec());

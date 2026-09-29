@@ -1,5 +1,7 @@
 # 商品录入独立服务发布与回滚
 
+> 2026-09-29 适用标签扩展会新增 `product_suitability_tags` 和商品行审计列，须先执行对应迁移并备份数据库，再发布 Data Intake、Product 和管理员前端。以下原始步骤只描述此前无表结构变更的拆分发布，不能直接用于本次扩展。
+
 本次仅迁出管理员商品录入、确定性参数提取和参数维护；FAQ 导入与维护仍由 Consumer 承载。对外路径 `/api/admin/products/**` 不变，Gateway 将其定向至 `data-intake-service`（8092，仅容器内网），Product 继续从共享 PostgreSQL 读取目录事实。无数据迁移或表结构变更。
 
 ## 发布前
