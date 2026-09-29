@@ -20,14 +20,14 @@ import java.util.function.Function;
  * 例如：扩展缩写、补充同义词、优化句式结构。
  *
  * <p>与 {@link com.example.smartassistant.common.rag.MultiQueryService} 不同，
- * MultiQuery 生成多个变体做扩展召回，而 QueryRewrite 直接改写 query 本身
- * 以提升单次检索的命中率。
+ * MultiQuery 生成多个变体做扩展召回，而 QueryRewrite 只生成一条改写，
+ * 与原问题共同参与支持变体的检索路径。
  *
  * <p>通过 {@link Function}{@code <String, String>} 注入 LLM 调用能力，
  * 不依赖具体 ChatClient/ChatModel 实现。
  *
  * <p>Order=2，在 MultiQueryHandler (Order=0) 之后执行，
- * 改写后的 query 会替换 {@link RagSearchContext#getQueryVariants()} 中的原始 query。
+ * 改写后的 query 会追加至 {@link RagSearchContext#getQueryVariants()}，不覆盖原问题。
  */
 public class QueryRewriteHandler implements RagSearchHandler {
 
@@ -105,11 +105,9 @@ public class QueryRewriteHandler implements RagSearchHandler {
                 rewritten = rewritten.substring(1, rewritten.length() - 1).trim();
             }
 
-            // 替换 context 中的原始 query（保持原有 variants）
-            // 用改写后的 query 替换 queryVariants 中的原始查询
-            if (!context.getQueryVariants().isEmpty()) {
-                context.getQueryVariants().set(0, rewritten);
-            }
+            // Preserve the user's exact model/SKU terms. Sparse retrievers search
+            // both the original and the single rewritten query, without duplicates.
+            context.addQueryVariant(rewritten);
 
             // 设置属性，方便下游 Handler 感知
             context.setAttribute("queryRewrite.original", originalQuery);

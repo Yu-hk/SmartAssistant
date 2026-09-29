@@ -11,12 +11,15 @@ import com.example.smartassistant.common.rag.Bm25Scorer;
 import com.example.smartassistant.common.rag.KnowledgeDocument;
 import com.example.smartassistant.common.rag.pipeline.RagSearchContext;
 import com.example.smartassistant.common.rag.pipeline.RagSearchHandler;
+import com.example.smartassistant.common.tokenizer.ChineseTokenizer;
 import com.example.smartassistant.spi.ProductBackend;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 /**
  * H03: BM25 语义评分检索 Handler。
@@ -32,38 +35,41 @@ public class Bm25SearchHandler implements RagSearchHandler {
     private static final int TOP_K = 5;
 
     private final ProductBackend productBackend;
-    private final Bm25Scorer bm25Scorer;
+    private final ChineseTokenizer tokenizer;
 
-    /** 产品文档缓存 */
-    private List<KnowledgeDocument> productDocs;
-    private boolean initialized = false;
+    /** Immutable scorer/documents pair; refresh atomically when catalog intake changes. */
+    private volatile ProductIndex index;
+    private volatile long nextRefreshNanos;
 
-    public Bm25SearchHandler(ProductBackend productBackend, Bm25Scorer bm25Scorer) {
+    @Value("${product.rag.bm25-refresh-ms:60000}")
+    private long refreshMillis = 60000;
+
+    public Bm25SearchHandler(ProductBackend productBackend, ChineseTokenizer tokenizer) {
         this.productBackend = productBackend;
-        this.bm25Scorer = bm25Scorer;
+        this.tokenizer = tokenizer;
     }
 
     @Override
     public void handle(RagSearchContext context) {
-        if (!initialized || productDocs == null || productDocs.isEmpty()) {
-            rebuildCache();
-        }
-        if (productDocs == null || productDocs.isEmpty()) {
+        ProductIndex current = currentIndex();
+        if (current == null || current.docs().isEmpty()) {
             context.addPathResult("BM25", List.of());
             return;
         }
 
-        List<String> allResults = new ArrayList<>();
+        Set<String> allResults = new LinkedHashSet<>();
 
         for (String variant : context.getQueryVariants()) {
             try {
-                var ranked = bm25Scorer.rerank(productDocs, variant, TOP_K);
+                var ranked = current.scorer().rerank(current.docs(), variant, TOP_K);
                 for (var entry : ranked) {
                     KnowledgeDocument doc = entry.getKey();
-                    String name = doc.getId();
+                    String code = doc.getId();
                     try {
-                        String info = productBackend.queryProductInfo(name);
-                        if (info != null && !info.contains("PRODUCT_NOT_FOUND")) {
+                        String info = productBackend.queryProductInfo(code);
+                        if (info != null && !info.contains("PRODUCT_NOT_FOUND")
+                                && !info.contains("TOOL_EXECUTION_ERROR")
+                                && !info.contains("TOOL_INVALID_ARGUMENT")) {
                             allResults.add(info);
                         }
                     } catch (Exception e) {
@@ -75,50 +81,42 @@ public class Bm25SearchHandler implements RagSearchHandler {
             }
         }
 
-        context.addPathResult("BM25", allResults);
+        context.addPathResult("BM25", List.copyOf(allResults));
         log.info("[RagHandler] BM25: {} results for {} variants", allResults.size(), context.getQueryVariants().size());
     }
 
-    private synchronized void rebuildCache() {
-        if (initialized && productDocs != null && !productDocs.isEmpty()) return;
-
+    private synchronized ProductIndex currentIndex() {
+        long now = System.nanoTime();
+        if (now - nextRefreshNanos < 0) return index;
+        // Retry a failed catalog read soon; a successful snapshot refreshes at
+        // the configured interval without mutating an in-flight scorer.
+        nextRefreshNanos = now + TimeUnit.SECONDS.toNanos(10);
         List<KnowledgeDocument> docs = new ArrayList<>();
-        String allProducts = productBackend.searchProduct("");
-
-        if (allProducts != null && !allProducts.contains("未找到")) {
-            for (String line : allProducts.split("\n")) {
-                if (line.startsWith("·")) {
-                    String name = line.replace("·", "").trim().split("—")[0].trim();
-                    try {
-                        String info = productBackend.queryProductInfo(name);
-                        if (info != null) {
-                            // 使用 KnowledgeDocument 构建，以 name 作为 id，info 同时作为 title 和 content
-                            docs.add(new KnowledgeDocument(
-                                    name,                   // id
-                                    name,                   // title
-                                    info,                   // content
-                                    "product",              // category
-                                    "",                     // keywords
-                                    -1L,                    // effectiveAt (永久)
-                                    -1L                     // expireAt (永不过期)
-                            ));
-                        }
-                    } catch (Exception e) {
-                        log.debug("[RagHandler] BM25 数据库索引重建失败: {}", e.getMessage());
-                    }
-                }
+        try {
+            for (ProductBackend.ProductSearchDocument product : productBackend.listProductSearchDocuments()) {
+                if (product.code() == null || product.code().isBlank()
+                        || product.name() == null || product.name().isBlank()) continue;
+                // Index stable catalog text; fetch live price and stock by code only after a hit.
+                docs.add(new KnowledgeDocument(product.code(), product.name(),
+                        product.code() + " " + product.name() + " " + Objects.toString(product.spec(), ""),
+                        "product", "", -1L, -1L));
             }
+        } catch (Exception e) {
+            log.warn("[RagHandler] BM25 商品目录读取失败: {}", e.getMessage());
+            return index;
         }
 
-        if (!docs.isEmpty()) {
-            productDocs = docs;
-            bm25Scorer.initialize(productDocs);
-            log.info("[RagHandler] BM25 索引重建完成: {} 个产品", productDocs.size());
-        } else {
-            productDocs = List.of();
-        }
-        initialized = true;
+        Bm25Scorer scorer = new Bm25Scorer(tokenizer);
+        List<KnowledgeDocument> snapshot = List.copyOf(docs);
+        scorer.initialize(snapshot);
+        index = new ProductIndex(snapshot, scorer);
+        nextRefreshNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
+                refreshMillis > 0 ? refreshMillis : 60000);
+        log.info("[RagHandler] BM25 索引重建完成: {} 个产品", snapshot.size());
+        return index;
     }
+
+    private record ProductIndex(List<KnowledgeDocument> docs, Bm25Scorer scorer) { }
 
     @Override
     public int getOrder() {

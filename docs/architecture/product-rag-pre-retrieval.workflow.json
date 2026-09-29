@@ -15,8 +15,8 @@
   "nodes": [
     { "id": "question", "lane": "request", "col": 0, "type": "frontend", "label": "用户问题", "sublabel": "商品咨询原文", "width": 144 },
     { "id": "scope", "lane": "retrieval", "col": 1, "type": "security", "label": "知识库选域", "sublabel": "仅已注册的商品库", "width": 158 },
-    { "id": "rewrite", "lane": "retrieval", "col": 2, "type": "backend", "label": "查询改写", "sublabel": "单条检索查询", "width": 148 },
-    { "id": "retrieve", "lane": "retrieval", "col": 3, "type": "database", "label": "多路召回", "sublabel": "精确 / 关键词 / BM25 / 知识库 / 图", "width": 192 },
+    { "id": "rewrite", "lane": "retrieval", "col": 2, "type": "backend", "label": "查询改写", "sublabel": "原问题 + 一条改写", "width": 158 },
+    { "id": "retrieve", "lane": "retrieval", "col": 3, "type": "database", "label": "多路召回", "sublabel": "精确 / 关键词 / 商品 BM25 / 知识库 / 图", "width": 202 },
     { "id": "weights", "lane": "fusion", "col": 2, "type": "backend", "label": "权重计算", "sublabel": "按问题特征调整稀疏 / 稠密", "width": 176 },
     { "id": "rrf", "lane": "fusion", "col": 4, "type": "backend", "label": "加权 RRF", "sublabel": "精确事实与图谱保持固定权重", "width": 174 },
     { "id": "evidence", "lane": "fusion", "col": 5, "type": "backend", "label": "证据质量", "sublabel": "不足时有界补检", "width": 150 }
@@ -32,6 +32,6 @@
   ],
   "cards": [
     { "dot": "emerald", "title": "选域边界", "items": ["商品 Agent 只查配置且已注册的商品知识库", "其他业务库不会因用户关键词混入"] },
-    { "dot": "cyan", "title": "当前策略", "items": ["Multi-Query 默认关闭", "证据不足时最多补检一次"] }
+    { "dot": "cyan", "title": "当前策略", "items": ["原问题保留；商品 BM25 从目录构建", "Multi-Query 默认关闭，证据不足时最多补检一次"] }
   ]
 }
