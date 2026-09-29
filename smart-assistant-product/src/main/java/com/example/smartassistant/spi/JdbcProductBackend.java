@@ -154,6 +154,8 @@ public class JdbcProductBackend implements ProductBackend {
             String sql = (SELECT_COLUMNS + """
                             WHERE (UPPER(product_code) LIKE ?
                                OR UPPER(product_name) LIKE ?
+                               OR EXISTS (SELECT 1 FROM product_aliases a WHERE a.product_code = p.product_code
+                                            AND (a.normalized_alias LIKE ? OR ? LIKE '%' || a.normalized_alias || '%'))
                                OR UPPER(COALESCE(spec, '')) LIKE ?
                                OR (p.suitability_source IS NOT NULL AND p.suitability_reviewed_at IS NOT NULL
                                    AND EXISTS (SELECT 1 FROM product_suitability_tags t
@@ -164,13 +166,15 @@ public class JdbcProductBackend implements ProductBackend {
                             ORDER BY CASE
                                 WHEN UPPER(product_code) = ? THEN 0
                                 WHEN UPPER(product_name) = ? THEN 1
-                                ELSE 2
+                                WHEN EXISTS (SELECT 1 FROM product_aliases a WHERE a.product_code = p.product_code
+                                              AND a.normalized_alias = ?) THEN 2
+                                ELSE 3
                             END, product_code
                             LIMIT ?
                             """).replace("__PRODUCTION_CATALOG_FILTER__",
                             PRODUCTION_CATALOG_FILTER);
             products = jdbcTemplate.query(sql, this::mapProduct,
-                    like, like, like, like, query, query, query, query, SEARCH_LIMIT);
+                    like, like, like, query, like, like, query, query, query, query, query, SEARCH_LIMIT);
         } catch (RuntimeException e) {
             log.warn("[JdbcProduct] 商品搜索失败: {}", e.getClass().getSimpleName());
             return fallback.searchProduct(keyword);
@@ -192,18 +196,28 @@ public class JdbcProductBackend implements ProductBackend {
         try {
             return jdbcTemplate.query("""
                     SELECT p.product_code, p.product_name, p.spec,
+                           COALESCE((SELECT string_agg(a.alias, chr(31) ORDER BY a.normalized_alias)
+                                       FROM product_aliases a WHERE a.product_code = p.product_code), '') AS alias_terms,
                            COALESCE((SELECT string_agg(t.tag, ' ' ORDER BY t.tag)
                                        FROM product_suitability_tags t
                                       WHERE t.product_code = p.product_code
                                         AND p.suitability_source IS NOT NULL
-                                        AND p.suitability_reviewed_at IS NOT NULL), '') AS suitability_terms
+                                        AND p.suitability_reviewed_at IS NOT NULL), '') AS suitability_terms,
+                           p.weight_grams, p.battery_life_hours, p.battery_life_scenario,
+                           p.noise_cancelling, p.feature_source, p.features_verified_at
                       FROM products p
                      WHERE __PRODUCTION_CATALOG_FILTER__
                      ORDER BY p.product_code
                     """.replace("__PRODUCTION_CATALOG_FILTER__", PRODUCTION_CATALOG_FILTER),
-                    (rs, rowNum) -> new ProductSearchDocument(
-                            rs.getString("product_code"), rs.getString("product_name"),
-                            searchText(rs.getString("spec"), rs.getString("suitability_terms"))));
+                    (rs, rowNum) -> {
+                        String aliases = java.util.Objects.toString(rs.getString("alias_terms"), "");
+                        String purposes = java.util.Objects.toString(rs.getString("suitability_terms"), "");
+                        String spec = rs.getString("spec");
+                        ProductFeatures features = mapFeatures(rs);
+                        return new ProductSearchDocument(rs.getString("product_code"), rs.getString("product_name"),
+                                searchText(searchText(spec, aliases.replace('\u001f', ' ')), purposes), aliases, purposes,
+                                searchText(spec, features.documented() ? features.evidence() : ""));
+                    });
         } catch (RuntimeException e) {
             throw new ProductCatalogUnavailableException(e);
         }
@@ -330,6 +344,14 @@ public class JdbcProductBackend implements ProductBackend {
         // A unique code wins over another product having the same display name.
         if (!products.isEmpty() && normalize(products.getFirst().code()).equals(normalized)) {
             return products.getFirst();
+        }
+        if (products.isEmpty()) {
+            products = jdbcTemplate.query(SELECT_COLUMNS + """
+                            WHERE EXISTS (SELECT 1 FROM product_aliases a
+                                           WHERE a.product_code = p.product_code AND a.normalized_alias = ?)
+                            ORDER BY product_code
+                            LIMIT 2
+                            """, this::mapProduct, normalized);
         }
         if (products.isEmpty()) {
             // Only omit a terminal parenthetical qualifier. No prefix/substring matching:

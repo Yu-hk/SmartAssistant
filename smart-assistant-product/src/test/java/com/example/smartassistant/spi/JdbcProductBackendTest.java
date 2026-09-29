@@ -137,12 +137,41 @@ class JdbcProductBackendTest {
             assertThat(new JdbcProductBackend(jdbc, fallback).queryProductInfo(input)).contains("PRODUCT_NOT_FOUND");
             ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
             ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
-            org.mockito.Mockito.verify(jdbc, org.mockito.Mockito.times(2))
+            org.mockito.Mockito.verify(jdbc, org.mockito.Mockito.times(3))
                     .query(sql.capture(), any(RowMapper.class), arguments.capture());
-            assertThat(sql.getAllValues().get(1)).contains("= ?", "LIMIT 2").doesNotContain("LIKE");
+            assertThat(sql.getAllValues().get(1)).contains("a.normalized_alias = ?", "LIMIT 2").doesNotContain("LIKE");
+            assertThat(sql.getAllValues().get(2)).contains("= ?", "LIMIT 2").doesNotContain("LIKE");
             assertThat(arguments.getAllValues().get(1)).containsExactly(input.toUpperCase(java.util.Locale.ROOT));
+            assertThat(arguments.getAllValues().get(2)).containsExactly(input.toUpperCase(java.util.Locale.ROOT));
             org.mockito.Mockito.verifyNoInteractions(fallback);
         }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void exactAliasResolvesOneProductButAmbiguousAliasesRequireClarification() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ResultSet first = airPodsRow("AIRPODS-PRO", "AirPods Pro（第二代）");
+        ResultSet second = airPodsRow("AIRPODS-OTHER", "AirPods 其他版本");
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    String sql = invocation.getArgument(0);
+                    RowMapper<Object> mapper = invocation.getArgument(1);
+                    if (!sql.contains("a.normalized_alias = ?")) return List.of();
+                    return List.of(mapper.mapRow(first, 0));
+                });
+        var backend = new JdbcProductBackend(jdbc);
+        assertThat(backend.queryProductInfo("苹果二代耳机"))
+                .contains("商品编码：AIRPODS-PRO", "价格：1999");
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    String sql = invocation.getArgument(0);
+                    RowMapper<Object> mapper = invocation.getArgument(1);
+                    if (!sql.contains("a.normalized_alias = ?")) return List.of();
+                    return List.of(mapper.mapRow(first, 0), mapper.mapRow(second, 1));
+                });
+        assertThat(backend.queryProductInfo("苹果二代耳机"))
+                .contains("匹配到多款商品").doesNotContain("价格：1999");
     }
 
     private static ResultSet airPodsRow(String code, String name) throws Exception {
@@ -216,7 +245,8 @@ class JdbcProductBackendTest {
         JdbcProductBackend backend = new JdbcProductBackend(jdbc);
         assertThat(backend.listProductSearchDocuments()).containsExactly(
                 new ProductBackend.ProductSearchDocument(
-                        "AIRPODS-PRO", "AirPods Pro（第二代）", "降噪、USB-C 充电"));
+                        "AIRPODS-PRO", "AirPods Pro（第二代）", "降噪、USB-C 充电",
+                        "", "", "降噪、USB-C 充电"));
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class));
         assertThat(sql.getValue()).contains("LOAD-PROD-%", "E2E-PROD-%", "ORDER BY p.product_code")
