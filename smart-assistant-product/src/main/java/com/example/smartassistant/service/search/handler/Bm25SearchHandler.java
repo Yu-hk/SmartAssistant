@@ -133,7 +133,22 @@ public class Bm25SearchHandler implements RagSearchHandler {
                 normalized.indexOf('（') < 0 ? normalized.length() : normalized.indexOf('（'),
                 normalized.indexOf('(') < 0 ? normalized.length() : normalized.indexOf('('));
         String baseName = normalized.substring(0, qualifier).trim();
-        return baseName.length() >= 3 && query.contains(baseName);
+        if (qualifier == normalized.length() || baseName.length() < 3) return false;
+        for (int start = query.indexOf(baseName); start >= 0;
+                start = query.indexOf(baseName, start + 1)) {
+            int end = start + baseName.length();
+            if (end == query.length()) return true;
+            char next = query.charAt(end);
+            if (Character.isLetterOrDigit(next) && next < 128) continue;
+            if (next == ' ') {
+                int following = end;
+                while (following < query.length() && query.charAt(following) == ' ') following++;
+                if (following < query.length() && query.charAt(following) < 128
+                        && Character.isLetterOrDigit(query.charAt(following))) continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     /** Field matches boost a candidate; the whole-catalog rank remains a soft recall fallback. */
@@ -141,6 +156,7 @@ public class Bm25SearchHandler implements RagSearchHandler {
         Map<String, Double> scores = new HashMap<>();
         for (ProductField field : selected) addRanks(scores, current.fields().get(field), query, 3.0);
         addRanks(scores, current.baseline(), query, selected.isEmpty() ? 1.0 : 0.25);
+        Set<String> explicitlyNamed = new LinkedHashSet<>();
         if (selected.contains(ProductField.IDENTITY)) {
             String normalized = query.toUpperCase(Locale.ROOT);
             for (var product : current.products()) {
@@ -148,10 +164,15 @@ public class Bm25SearchHandler implements RagSearchHandler {
                         || containsNamedProduct(normalized, product.name())
                         || Arrays.stream(Objects.toString(product.aliases(), "").split("\u001f"))
                             .anyMatch(alias -> containsNamedProduct(normalized, alias))) {
+                    explicitlyNamed.add(product.code());
                     scores.merge(product.code(), 1.0, Double::sum);
                 }
             }
         }
+        // A named product is a hard scope, not just a ranking preference. Keep all
+        // explicitly named products for comparisons, but do not inject unrelated
+        // catalog entries into a single-product fact answer.
+        if (!explicitlyNamed.isEmpty()) scores.keySet().retainAll(explicitlyNamed);
         return scores.entrySet().stream()
                 .sorted(Map.Entry.<String, Double>comparingByValue().reversed()
                         .thenComparing(Map.Entry::getKey))
