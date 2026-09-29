@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { createAdminProduct, extractProductFeatures, type ProductExtraction } from '../api/adminProducts';
+import { createAdminProduct, extractProductFeatures, getProductAliases, saveProductAliases, type ProductAliasState, type ProductExtraction } from '../api/adminProducts';
 import { AdminPageIntro } from './AdminState';
 import { getErrorMessage } from './adminFormat';
-import { featureDraft, featureValues, hasKnownFeatures, suitabilityTags, type FeatureDraft } from './productIntake';
+import { featureDraft, featureValues, hasKnownFeatures, productAliases, suitabilityTags, type FeatureDraft } from './productIntake';
 import './productIntake.css';
 
 const EMPTY_FORM = { productCode: '', productName: '', category: '', price: '', stock: '缺货', description: '', spec: '', color: '' };
@@ -18,6 +18,12 @@ export function AdminProductsPage() {
   const [useCases, setUseCases] = useState('');
   const [suitabilitySource, setSuitabilitySource] = useState('');
   const [suitabilityConfirmed, setSuitabilityConfirmed] = useState(false);
+  const [aliases, setAliases] = useState('');
+  const [editCode, setEditCode] = useState('');
+  const [existingAliases, setExistingAliases] = useState<ProductAliasState | null>(null);
+  const [editAliases, setEditAliases] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+  const [editMessage, setEditMessage] = useState('');
   const [busy, setBusy] = useState<'extract' | 'save' | null>(null);
   const [error, setError] = useState('');
   const [savedCode, setSavedCode] = useState('');
@@ -57,6 +63,10 @@ export function AdminProductsPage() {
     try {
       const audienceTags = suitabilityTags(audiences);
       const useCaseTags = suitabilityTags(useCases);
+      const aliasesList = productAliases(aliases);
+      if (aliasesList.some(alias => alias.toLocaleUpperCase() === form.productName.trim().toLocaleUpperCase())) {
+        throw new Error('别名不能与正式商品名称相同');
+      }
       if (!(audienceTags.length || useCaseTags.length) && suitabilitySource.trim()) {
         throw new Error('填写标注依据时也请填写适用人群或用途；未知请全部留空');
       }
@@ -65,6 +75,7 @@ export function AdminProductsPage() {
       }
       const result = await createAdminProduct({ ...form, price: Number(form.price),
         features: featureValues(draft), featuresConfirmed: confirmed,
+        ...(aliasesList.length ? { aliases: aliasesList } : {}),
         ...((audienceTags.length || useCaseTags.length) ? { suitability: {
           audiences: audienceTags, useCases: useCaseTags,
           source: suitabilitySource.trim(), confirmed: suitabilityConfirmed } } : {}) });
@@ -79,7 +90,29 @@ export function AdminProductsPage() {
     generation.current += 1;
     setForm(EMPTY_FORM); setPreview(null); setDraft(EMPTY_FEATURES);
     setConfirmed(false); setError(''); setSavedCode(''); setBusy(null);
-    setAudiences(''); setUseCases(''); setSuitabilitySource(''); setSuitabilityConfirmed(false);
+    setAudiences(''); setUseCases(''); setSuitabilitySource(''); setSuitabilityConfirmed(false); setAliases('');
+  };
+
+  const loadExistingAliases = async () => {
+    setEditBusy(true); setEditMessage(''); setExistingAliases(null);
+    try {
+      const state = await getProductAliases(editCode.trim());
+      setExistingAliases(state); setEditAliases(state.aliases.join('，'));
+    } catch (failure) { setEditMessage(getErrorMessage(failure, '读取别名失败')); }
+    finally { setEditBusy(false); }
+  };
+  const updateExistingAliases = async () => {
+    if (!existingAliases) return;
+    setEditBusy(true); setEditMessage('');
+    try {
+      const values = productAliases(editAliases);
+      if (values.some(alias => alias.toLocaleUpperCase() === existingAliases.productName.toLocaleUpperCase())) {
+        throw new Error('别名不能与正式商品名称相同');
+      }
+      const state = await saveProductAliases(existingAliases.productCode, existingAliases.revision, values);
+      setExistingAliases(state); setEditMessage('别名已保存；商品检索索引会在下一次刷新后更新。');
+    } catch (failure) { setEditMessage(getErrorMessage(failure, '保存失败，请重新读取商品别名后重试')); }
+    finally { setEditBusy(false); }
   };
 
   return <div className="admin-page product-intake-page">
@@ -96,6 +129,7 @@ export function AdminProductsPage() {
           <div className="product-intake-fields">
             <label className="admin-form-field"><span>商品编码 *</span><input required maxLength={50} pattern={'[A-Za-z0-9][A-Za-z0-9._\\-]{0,49}'} value={form.productCode} onChange={e => update('productCode', e.target.value)} placeholder="唯一编码，如 SKU-001" /></label>
             <label className="admin-form-field"><span>商品名称 *</span><input required maxLength={200} value={form.productName} onChange={e => update('productName', e.target.value)} /></label>
+            <label className="admin-form-field product-intake-wide"><span>商品别名（可选）</span><textarea aria-label="商品别名" value={aliases} onChange={e => setAliases(e.target.value)} placeholder="如：厂商明确使用的简称；逗号或换行分隔，不会从简介自动推断" /></label>
             <label className="admin-form-field"><span>品类 *</span><input required maxLength={50} value={form.category} onChange={e => update('category', e.target.value)} placeholder="如：笔记本电脑" /></label>
             <label className="admin-form-field"><span>售价（元）*</span><input required type="number" min="0" max="99999999.99" step="0.01" value={form.price} onChange={e => update('price', e.target.value)} /></label>
             <label className="admin-form-field"><span>目录库存状态 *</span><select value={form.stock} onChange={e => update('stock', e.target.value)}><option>缺货</option><option>充足</option><option>紧张</option></select></label>
@@ -137,5 +171,17 @@ export function AdminProductsPage() {
         </button>
       </div>
     </form>
+    <section className="admin-panel product-intake-panel" aria-label="已有商品别名维护">
+      <h2>维护已有商品别名</h2>
+      <p>按商品编码读取并替换别名。删除全部别名时清空列表再保存；并发修改会要求重新读取。</p>
+      <label className="admin-form-field"><span>商品编码</span><input aria-label="待维护商品编码" value={editCode} onChange={e => { setEditCode(e.target.value); setExistingAliases(null); setEditMessage(''); }} /></label>
+      <button type="button" className="admin-button secondary" disabled={editBusy || !editCode.trim()} onClick={() => void loadExistingAliases()}>读取商品别名</button>
+      {existingAliases && <>
+        <p>当前商品：{existingAliases.productName}（修订号 {existingAliases.revision}）</p>
+        <label className="admin-form-field"><span>别名列表</span><textarea aria-label="已有商品别名" value={editAliases} onChange={e => setEditAliases(e.target.value)} /></label>
+        <button type="button" className="admin-button primary" disabled={editBusy} onClick={() => void updateExistingAliases()}>保存别名</button>
+      </>}
+      {editMessage && <p role="status">{editMessage}</p>}
+    </section>
   </div>;
 }

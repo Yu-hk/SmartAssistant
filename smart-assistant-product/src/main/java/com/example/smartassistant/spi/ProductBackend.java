@@ -50,7 +50,13 @@ public interface ProductBackend {
     /** Stable catalog fields for the product BM25 index; never use an empty user search as a catalog scan. */
     default List<ProductSearchDocument> listProductSearchDocuments() { return List.of(); }
 
-    record ProductSearchDocument(String code, String name, String spec) { }
+    /** Stable, separately searchable catalog fields. Unknown fields stay blank. */
+    record ProductSearchDocument(String code, String name, String spec,
+                                 String aliases, String purposes, String features) {
+        public ProductSearchDocument(String code, String name, String spec) {
+            this(code, name, spec, "", "", "");
+        }
+    }
 
     /**
      * 返回可用于商品发现/推荐的目录摘要。
