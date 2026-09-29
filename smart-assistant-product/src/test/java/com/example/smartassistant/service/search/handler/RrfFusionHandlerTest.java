@@ -60,4 +60,17 @@ class RrfFusionHandlerTest {
         assertThat(context.getFusedResults()).allSatisfy(item ->
                 assertThat(item.getRrfScore()).isEqualTo(1.0 / 61));
     }
+
+    @Test
+    void repeatedVariantHitDoesNotDoubleCountWithinOnePath() {
+        RagSearchContext context = new RagSearchContext("商品咨询");
+        context.addPathResult("BM25", List.of("product A", "product A", "product B"));
+        context.addPathResult("知识库", List.of("product B"));
+
+        handler().handle(context);
+
+        assertThat(context.getFusedResults()).hasSize(2);
+        assertThat(context.getFusedResults().getFirst().getContent()).isEqualTo("product B");
+        assertThat(context.getQualityScore()).isBetween(0.0, 1.0);
+    }
 }

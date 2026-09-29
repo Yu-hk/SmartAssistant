@@ -47,6 +47,11 @@ public interface ProductBackend {
     /** 搜索商品（按关键词模糊匹配） */
     String searchProduct(String keyword);
 
+    /** Stable catalog fields for the product BM25 index; never use an empty user search as a catalog scan. */
+    default List<ProductSearchDocument> listProductSearchDocuments() { return List.of(); }
+
+    record ProductSearchDocument(String code, String name, String spec) { }
+
     /**
      * 返回可用于商品发现/推荐的目录摘要。
      *

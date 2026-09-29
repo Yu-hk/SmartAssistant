@@ -127,6 +127,15 @@ public class InMemoryProductBackend implements ProductBackend {
     }
 
     @Override
+    public List<ProductSearchDocument> listProductSearchDocuments() {
+        return PRODUCTS.entrySet().stream()
+                .map(entry -> new ProductSearchDocument(entry.getKey(),
+                        entry.getValue().get("name"), entry.getValue().get("spec")))
+                .sorted(java.util.Comparator.comparing(ProductSearchDocument::code))
+                .toList();
+    }
+
+    @Override
     public List<ProductSummary> listPopularProducts(int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 20));
         return PRODUCTS.entrySet().stream()
