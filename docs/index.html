@@ -62,7 +62,7 @@
     <div class="wrap">
       <div class="eyebrow">SmartAssistant · Diagrams</div>
       <h1>项目图表总览</h1>
-      <p class="intro">集中查看系统边界与业务流程。下方 7 张 Archify 图可直接在线切换主题、查看关系并导出；文档中的 Mermaid 方案图单独列为参考。</p>
+      <p class="intro">集中查看系统边界与业务流程。下方 9 张 Archify 图可直接在线切换主题、查看关系并导出；两张历史方案图单独标为设计参考。</p>
       <nav aria-label="图表分类">
         <a href="#architecture">系统架构 · 3</a>
         <a href="#workflow">业务流程 · 4</a>
@@ -92,10 +92,10 @@
     </section>
     <section class="reference" id="reference" aria-labelledby="reference-title">
       <h2 id="reference-title">文档中的方案图</h2>
-      <p class="section-note">以下为 Mermaid 内嵌图，保留在原设计文档中；它们不是上方的 Archify 交互版，也不代表当前线上拓扑。</p>
+      <p class="section-note">以下两张交互图根据历史 Mermaid 方案重绘，不代表当前线上拓扑。原始依据见<a href="https://github.com/Yu-hk/SmartAssistant/blob/main/docs/architecture/agent-node-message-queue.md">节点队列方案</a>与<a href="https://github.com/Yu-hk/SmartAssistant/blob/main/docs/system_design.md">系统设计文档</a>。</p>
       <div class="grid">
-        <a class="card" href="https://github.com/Yu-hk/SmartAssistant/blob/main/docs/architecture/agent-node-message-queue.md"><small>MERMAID · 方案参考</small><h3>LangGraph4j 节点消息队列</h3><p>READ 节点入 Redis 队列、WRITE 节点保持同步的方案链路。</p><span class="open">查看设计文档 →</span></a>
-        <a class="card" href="https://github.com/Yu-hk/SmartAssistant/blob/main/docs/system_design.md"><small>MERMAID · 任务规划</small><h3>ToolGateway 改造任务依赖</h3><p>公共基础层与 Hook、兼容性、CI 和指令手册任务之间的依赖。</p><span class="open">查看设计文档 →</span></a>
+        <a class="card" href="architecture/agent-node-message-queue.workflow.html"><small>WORKFLOW · 方案参考</small><h3>LangGraph4j 节点消息队列</h3><p>READ 节点入 Redis 队列、WRITE 节点保持同步的方案链路。</p><span class="open">打开交互图 →</span></a>
+        <a class="card" href="architecture/tool-gateway-task-dependencies.workflow.html"><small>WORKFLOW · 任务规划</small><h3>ToolGateway 改造任务依赖</h3><p>公共基础层与 Hook、兼容性、CI 和指令手册任务之间的依赖。</p><span class="open">打开交互图 →</span></a>
       </div>
     </section>
   </main>

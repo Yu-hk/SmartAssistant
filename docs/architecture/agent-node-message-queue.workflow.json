@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "LangGraph4j 节点消息队列方案（设计参考）",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "control", "label": "LangGraph4j 编排" },
+    { "id": "read", "label": "READ 节点队列执行" }
+  ],
+  "mainPath": ["plan", "dag", "mode", "queue", "worker", "merge"],
+  "nodes": [
+    { "id": "plan", "lane": "control", "col": 0, "type": "backend", "label": "任务规划与校验", "sublabel": "ExecutionPlan", "width": 160 },
+    { "id": "dag", "lane": "control", "col": 1, "type": "backend", "label": "LangGraph4j DAG", "sublabel": "依赖 · 检查点 · 审批", "width": 174 },
+    { "id": "mode", "lane": "control", "col": 2, "type": "security", "label": "检查 access_mode", "sublabel": "区分 READ / WRITE", "width": 166 },
+    { "id": "sync", "lane": "control", "col": 4, "type": "backend", "label": "同步领域 Agent", "sublabel": "WRITE 或队列关闭", "width": 178 },
+    { "id": "merge", "lane": "control", "col": 5, "type": "backend", "label": "图状态合并与回答", "sublabel": "保留依赖与结果", "width": 180 },
+    { "id": "queue", "lane": "read", "col": 3, "type": "messagebus", "label": "Redis 可靠队列", "sublabel": "tasks · processing", "width": 168, "yOffset": 65 },
+    { "id": "worker", "lane": "read", "col": 4, "type": "backend", "label": "Worker / 领域 Agent", "sublabel": "可重试的 READ", "width": 184, "yOffset": 65 }
+  ],
+  "edges": [
+    { "from": "plan", "to": "dag" },
+    { "from": "dag", "to": "mode" },
+    { "from": "mode", "to": "queue", "label": "READ 且队列开启", "role": "async" },
+    { "from": "queue", "to": "worker" },
+    { "from": "worker", "to": "merge", "label": "结果 / ACK 回写", "role": "return" },
+    { "from": "mode", "to": "sync", "label": "WRITE 或队列关闭", "role": "branch" },
+    { "from": "sync", "to": "merge", "label": "同步结果" }
+  ]
+}

@@ -159,6 +159,8 @@ GitHub Actions 会执行：
 - [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
 - [交互式运行时架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)
 - [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)
+- [节点消息队列方案图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/agent-node-message-queue.workflow.html)
+- [ToolGateway 任务依赖图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/tool-gateway-task-dependencies.workflow.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
 - [架构图生成与验证记录](docs/architecture/runtime-diagram-verification.md)
 - [商品录入与推荐读取架构](docs/architecture/product-intake.md)

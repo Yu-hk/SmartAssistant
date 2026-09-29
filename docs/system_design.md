@@ -329,6 +329,8 @@ Client → RegistryController POST /api/tools/register (ToolDefinition newDef)
 
 **任务依赖关系图**：
 
+[打开交互版任务依赖图](https://yu-hk.github.io/SmartAssistant/architecture/tool-gateway-task-dependencies.workflow.html)（历史设计参考，非当前线上拓扑）。
+
 ```mermaid
 graph LR
     T01[T01 公共基础类型层] --> T02[T02 Hook机制+ToolGateway]
