@@ -174,6 +174,23 @@ public class JdbcProductBackend implements ProductBackend {
     }
 
     @Override
+    public List<ProductSearchDocument> listProductSearchDocuments() {
+        if (jdbcTemplate == null) throw new ProductCatalogUnavailableException();
+        try {
+            return jdbcTemplate.query("""
+                    SELECT p.product_code, p.product_name, p.spec
+                      FROM products p
+                     WHERE __PRODUCTION_CATALOG_FILTER__
+                     ORDER BY p.product_code
+                    """.replace("__PRODUCTION_CATALOG_FILTER__", PRODUCTION_CATALOG_FILTER),
+                    (rs, rowNum) -> new ProductSearchDocument(
+                            rs.getString("product_code"), rs.getString("product_name"), rs.getString("spec")));
+        } catch (RuntimeException e) {
+            throw new ProductCatalogUnavailableException(e);
+        }
+    }
+
+    @Override
     public List<ProductSummary> listPopularProducts(int limit) {
         return listPopularProducts(new ProductDiscoveryCriteria("", "", limit));
     }

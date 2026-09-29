@@ -39,4 +39,11 @@ class InMemoryProductBackendTest {
                     assertThat(product.name()).isNotBlank();
                 });
     }
+
+    @Test
+    void exposesTypedDocumentsForLocalBm25Index() {
+        assertThat(backend.listProductSearchDocuments())
+                .extracting(ProductBackend.ProductSearchDocument::code)
+                .contains("AIRPODS-PRO", "MACBOOK-AIR-M3");
+    }
 }
