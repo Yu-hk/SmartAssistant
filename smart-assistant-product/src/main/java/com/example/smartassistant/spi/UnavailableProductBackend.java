@@ -13,6 +13,7 @@ public final class UnavailableProductBackend implements ProductBackend {
     @Override public String checkStock(String productCode) { return MESSAGE; }
     @Override public String getPrice(String productCode) { return MESSAGE; }
     @Override public String searchProduct(String keyword) { return MESSAGE; }
+    @Override public List<ProductSearchDocument> listProductSearchDocuments() { throw new ProductCatalogUnavailableException(); }
     @Override public List<ProductSummary> listPopularProducts(int limit) { throw new ProductCatalogUnavailableException(); }
     @Override public List<String> listProductCategories() { throw new ProductCatalogUnavailableException(); }
 }

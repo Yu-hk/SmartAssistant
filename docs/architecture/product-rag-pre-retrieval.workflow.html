@@ -5130,7 +5130,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / 图版 04">
-      <svg viewBox="0 0 1066 528" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+      <svg viewBox="0 0 1081 528" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">商品 RAG 检索准备与融合</title>
         <desc id="archify-diagram-description">由 Archify 生成的工作流图。</desc>
         <!-- Definitions -->
@@ -5156,13 +5156,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Swimlanes -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="1010" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="1025" height="104" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="74" class="t-dim" font-size="10" font-weight="600">01 / 商品咨询</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="1010" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="1025" height="104" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="198" class="t-dim" font-size="10" font-weight="600">02 / 检索准备与召回</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="1010" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="1025" height="104" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="322" class="t-dim" font-size="10" font-weight="600">03 / 融合与证据</text>
 
         <!-- Phase headers -->
@@ -5173,12 +5173,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
         <!-- Edge paths -->
         <path data-edge-from="question" data-edge-to="scope" data-edge-key="0" data-edge-id="ask-scope" data-composition-points="192,119;240,119;240,217" d="M 192 119 L 240 119 L 240 217" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="rrf" data-edge-to="evidence" data-edge-key="1" data-edge-id="fuse-evidence" data-composition-points="864,367;892,367" d="M 864 367 L 892 367" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="retrieve" data-edge-to="rrf" data-edge-label="候选结果" data-edge-key="2" data-edge-id="retrieve-fuse" data-composition-points="657,269;657,290;777,290;777,341" d="M 657 269 L 657 290 L 777 290 L 777 341" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="rewrite" data-edge-to="retrieve" data-edge-key="3" data-edge-id="rewrite-retrieve" data-composition-points="533,243;561,243" d="M 533 243 L 561 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="rrf" data-edge-to="evidence" data-edge-key="1" data-edge-id="fuse-evidence" data-composition-points="879,367;907,367" d="M 879 367 L 907 367" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="retrieve" data-edge-to="rrf" data-edge-label="候选结果" data-edge-key="2" data-edge-id="retrieve-fuse" data-composition-points="672,269;672,290;792,290;792,341" d="M 672 269 L 672 290 L 792 290 L 792 341" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="rewrite" data-edge-to="retrieve" data-edge-key="3" data-edge-id="rewrite-retrieve" data-composition-points="543,243;571,243" d="M 543 243 L 571 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <path data-edge-from="scope" data-edge-to="rewrite" data-edge-label="选定商品库" data-edge-key="4" data-edge-id="scope-rewrite" data-composition-points="319,243;385,243" d="M 319 243 L 385 243" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="weights" data-edge-to="rrf" data-edge-label="稀疏 / 稠密系数" data-edge-key="5" data-edge-id="weight-fuse" data-composition-points="459,393;459,409;777,409;777,393" d="M 459 393 L 459 409 L 777 409 L 777 393" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="rewrite" data-edge-to="weights" data-edge-key="6" data-edge-id="weight-input" data-composition-points="459,269;459,341" d="M 459 269 L 459 341" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="weights" data-edge-to="rrf" data-edge-label="稀疏 / 稠密系数" data-edge-key="5" data-edge-id="weight-fuse" data-composition-points="464,393;464,409;792,409;792,393" d="M 464 393 L 464 409 L 792 409 L 792 393" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="rewrite" data-edge-to="weights" data-edge-key="6" data-edge-id="weight-input" data-composition-points="464,269;464,341" d="M 464 269 L 464 341" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
 
         <!-- Nodes -->
         <g id="node-question" data-node-id="question" data-node-label="用户问题" tabindex="0" role="button" aria-label="聚焦用户问题，商品咨询原文, 商品咨询" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="商品咨询原文" data-node-context="商品咨询">
@@ -5207,68 +5207,68 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="240" y="255" class="t-muted" font-size="8" text-anchor="middle">仅已注册的商品库</text>
         </g>
 
-        <g id="node-rewrite" data-node-id="rewrite" data-node-label="查询改写" tabindex="0" role="button" aria-label="聚焦查询改写，单条检索查询, 检索准备与召回" aria-pressed="false" data-node-kind="backend" data-node-sublabel="单条检索查询" data-node-context="检索准备与召回">
-          <title>查询改写 · 单条检索查询 · 检索准备与召回</title>
-          <rect x="385" y="217" width="148" height="52" rx="6" class="c-mask"/>
-          <rect x="385" y="217" width="148" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+        <g id="node-rewrite" data-node-id="rewrite" data-node-label="查询改写" tabindex="0" role="button" aria-label="聚焦查询改写，原问题 + 一条改写, 检索准备与召回" aria-pressed="false" data-node-kind="backend" data-node-sublabel="原问题 + 一条改写" data-node-context="检索准备与召回">
+          <title>查询改写 · 原问题 + 一条改写 · 检索准备与召回</title>
+          <rect x="385" y="217" width="158" height="52" rx="6" class="c-mask"/>
+          <rect x="385" y="217" width="158" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(391 223) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="459" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">查询改写</text>
-          <text data-detail="context" x="459" y="255" class="t-muted" font-size="8" text-anchor="middle">单条检索查询</text>
+          <text data-node-label="" data-detail-anchor="" x="464" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">查询改写</text>
+          <text data-detail="context" x="464" y="255" class="t-muted" font-size="8" text-anchor="middle">原问题 + 一条改写</text>
         </g>
 
-        <g id="node-retrieve" data-node-id="retrieve" data-node-label="多路召回" tabindex="0" role="button" aria-label="聚焦多路召回，精确 / 关键词 / BM25 / 知识库 / 图, 检索准备与召回" aria-pressed="false" data-node-kind="database" data-node-sublabel="精确 / 关键词 / BM25 / 知识库 / 图" data-node-context="检索准备与召回">
-          <title>多路召回 · 精确 / 关键词 / BM25 / 知识库 / 图 · 检索准备与召回</title>
-          <rect x="561" y="217" width="192" height="52" rx="6" class="c-mask"/>
-          <rect x="561" y="217" width="192" height="52" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(567 223) scale(0.6875)">
+        <g id="node-retrieve" data-node-id="retrieve" data-node-label="多路召回" tabindex="0" role="button" aria-label="聚焦多路召回，精确 / 关键词 / 商品 BM25 / 知识库 / 图, 检索准备与召回" aria-pressed="false" data-node-kind="database" data-node-sublabel="精确 / 关键词 / 商品 BM25 / 知识库 / 图" data-node-context="检索准备与召回">
+          <title>多路召回 · 精确 / 关键词 / 商品 BM25 / 知识库 / 图 · 检索准备与召回</title>
+          <rect x="571" y="217" width="202" height="52" rx="6" class="c-mask"/>
+          <rect x="571" y="217" width="202" height="52" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(577 223) scale(0.6875)">
             <ellipse cx="8" cy="4" rx="5" ry="2"/>
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="657" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">多路召回</text>
-          <text data-detail="context" x="657" y="255" class="t-muted" font-size="8" text-anchor="middle">精确 / 关键词 / BM25 / 知识库 / 图</text>
+          <text data-node-label="" data-detail-anchor="" x="672" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">多路召回</text>
+          <text data-detail="context" x="672" y="255" class="t-muted" font-size="8" text-anchor="middle">精确 / 关键词 / 商品 BM25 / 知识库 / 图</text>
         </g>
 
         <g id="node-weights" data-node-id="weights" data-node-label="权重计算" tabindex="0" role="button" aria-label="聚焦权重计算，按问题特征调整稀疏 / 稠密, 融合与证据" aria-pressed="false" data-node-kind="backend" data-node-sublabel="按问题特征调整稀疏 / 稠密" data-node-context="融合与证据">
           <title>权重计算 · 按问题特征调整稀疏 / 稠密 · 融合与证据</title>
-          <rect x="371" y="341" width="176" height="52" rx="6" class="c-mask"/>
-          <rect x="371" y="341" width="176" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(377 347) scale(0.6875)">
+          <rect x="376" y="341" width="176" height="52" rx="6" class="c-mask"/>
+          <rect x="376" y="341" width="176" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(382 347) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="459" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">权重计算</text>
-          <text data-detail="context" x="459" y="379" class="t-muted" font-size="8" text-anchor="middle">按问题特征调整稀疏 / 稠密</text>
+          <text data-node-label="" data-detail-anchor="" x="464" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">权重计算</text>
+          <text data-detail="context" x="464" y="379" class="t-muted" font-size="8" text-anchor="middle">按问题特征调整稀疏 / 稠密</text>
         </g>
 
         <g id="node-rrf" data-node-id="rrf" data-node-label="加权 RRF" tabindex="0" role="button" aria-label="聚焦加权 RRF，精确事实与图谱保持固定权重, 融合与证据" aria-pressed="false" data-node-kind="backend" data-node-sublabel="精确事实与图谱保持固定权重" data-node-context="融合与证据">
           <title>加权 RRF · 精确事实与图谱保持固定权重 · 融合与证据</title>
-          <rect x="690" y="341" width="174" height="52" rx="6" class="c-mask"/>
-          <rect x="690" y="341" width="174" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(696 347) scale(0.6875)">
+          <rect x="705" y="341" width="174" height="52" rx="6" class="c-mask"/>
+          <rect x="705" y="341" width="174" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(711 347) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="777" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">加权 RRF</text>
-          <text data-detail="context" x="777" y="379" class="t-muted" font-size="8" text-anchor="middle">精确事实与图谱保持固定权重</text>
+          <text data-node-label="" data-detail-anchor="" x="792" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">加权 RRF</text>
+          <text data-detail="context" x="792" y="379" class="t-muted" font-size="8" text-anchor="middle">精确事实与图谱保持固定权重</text>
         </g>
 
         <g id="node-evidence" data-node-id="evidence" data-node-label="证据质量" tabindex="0" role="button" aria-label="聚焦证据质量，不足时有界补检, 融合与证据" aria-pressed="false" data-node-kind="backend" data-node-sublabel="不足时有界补检" data-node-context="融合与证据">
           <title>证据质量 · 不足时有界补检 · 融合与证据</title>
-          <rect x="892" y="341" width="150" height="52" rx="6" class="c-mask"/>
-          <rect x="892" y="341" width="150" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(898 347) scale(0.6875)">
+          <rect x="907" y="341" width="150" height="52" rx="6" class="c-mask"/>
+          <rect x="907" y="341" width="150" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(913 347) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="967" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">证据质量</text>
-          <text data-detail="context" x="967" y="379" class="t-muted" font-size="8" text-anchor="middle">不足时有界补检</text>
+          <text data-node-label="" data-detail-anchor="" x="982" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">证据质量</text>
+          <text data-detail="context" x="982" y="379" class="t-muted" font-size="8" text-anchor="middle">不足时有界补检</text>
         </g>
 
         <!-- Edge labels -->
 
 
         <g data-detail="context" data-edge-from="retrieve" data-edge-to="rrf" data-edge-label="候选结果" data-edge-key="2" data-edge-id="retrieve-fuse">
-          <rect x="692.8" y="270" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="717" y="280" class="t-muted" font-size="8" text-anchor="middle">候选结果</text>
+          <rect x="707.8" y="270" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="732" y="280" class="t-muted" font-size="8" text-anchor="middle">候选结果</text>
         </g>
 
         <g data-detail="context" data-edge-from="scope" data-edge-to="rewrite" data-edge-label="选定商品库" data-edge-key="4" data-edge-id="scope-rewrite">
@@ -5276,8 +5276,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text x="352" y="233" class="t-security" font-size="8" text-anchor="middle">选定商品库</text>
         </g>
         <g data-detail="context" data-edge-from="weights" data-edge-to="rrf" data-edge-label="稀疏 / 稠密系数" data-edge-key="5" data-edge-id="weight-fuse">
-          <rect x="577" y="389" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="618" y="399" class="t-backend" font-size="8" text-anchor="middle">稀疏 / 稠密系数</text>
+          <rect x="587" y="389" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="628" y="399" class="t-backend" font-size="8" text-anchor="middle">稀疏 / 稠密系数</text>
         </g>
 
 
@@ -5504,8 +5504,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>当前策略</h3>
         </div>
         <ul>
-          <li>&bull; Multi-Query 默认关闭</li>
-          <li>&bull; 证据不足时最多补检一次</li>
+          <li>&bull; 原问题保留；商品 BM25 从目录构建</li>
+          <li>&bull; Multi-Query 默认关闭，证据不足时最多补检一次</li>
         </ul>
       </div>
     </div>

@@ -59,7 +59,9 @@ public class RrfFusionHandler implements RagSearchHandler {
         // RRF 融合
         Map<String, RagSearchContext.RankedItem> fusedMap = new LinkedHashMap<>();
         for (RagSearchContext.RetrievalPathResult path : pathResults.values()) {
-            List<String> items = path.getItems();
+            // Two query variants can hit the same product on one path. A path
+            // contributes at most once per candidate to weighted RRF.
+            List<String> items = new ArrayList<>(new LinkedHashSet<>(path.getItems()));
             double pathWeight = pathWeight(context, path.getPathName());
             for (int i = 0; i < items.size(); i++) {
                 int rank = i + 1;

@@ -38,7 +38,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 管理员商品录入由独立的 `data-intake-service` 承载：简介/规格规则提取 → 预览与人工核对 → 同事务保存商品、参数及审计。Gateway 保留 `/api/admin/products/**` 路径并校验管理员身份；录入不经 Consumer、聊天 MQ/Router 或大模型。Product 推荐时读取已存事实，未知参数不猜测。FAQ 导入与维护仍在 Consumer，后续单独拆分。详见 [在线录入服务架构图](https://yu-hk.github.io/SmartAssistant/architecture/data-intake-service.architecture.html)、[商品录入与推荐读取架构](docs/architecture/product-intake.md)、[本次发布与回滚](docs/data-intake-service-rollout.md)及[2026-09-28 生产验证](docs/data-intake-production-verification-20260928.md)；[2026-09-14 的部署验收](docs/product-intake-deployment-verification.md)仅对应拆分前实现。
 
-商品 RAG 的知识库检索按 Product Agent 配置的知识库名称与运行时注册表取交集，不再遍历其他业务库；稀疏（关键词、BM25）和稠密（知识库）权重在 RRF 融合时实际生效，精确匹配及图谱保持固定权重。Multi-Query 仍默认关闭，证据不足时沿用有界补检。详见[检索准备与融合流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-rag-pre-retrieval.workflow.html)及[预检索策略与 Multi-Query 评估](docs/rag-production/PRE_RETRIEVAL.md)。
+商品 RAG 的知识库检索按 Product Agent 配置的知识库名称与运行时注册表取交集，不再遍历其他业务库；原问题与一条检索改写并行进入精确、关键词和商品 BM25 路径。商品 BM25 从结构化目录加载编码、名称与规格并定期刷新，不再用空关键词冒充全量查询；路径内重复命中只计一次。稀疏（关键词、BM25）和稠密（知识库）权重在 RRF 融合时实际生效，精确匹配及图谱保持固定权重。Multi-Query 仍默认关闭，证据不足时沿用有界补检。详见[检索准备与融合流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-rag-pre-retrieval.workflow.html)及[预检索策略与 Multi-Query 评估](docs/rag-production/PRE_RETRIEVAL.md)。
 
 下单资料缺失时，Order 仅提出下单域必需字段；用户可手填，或主动从本人已确认的历史订单中选择收货信息。历史资料有差异、或本次填写与单笔历史订单不一致时必须核对，不能静默覆盖。补全资料不等于授权下单，写操作仍需最终审批。详见 [在线下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)。
 

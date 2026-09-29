@@ -202,9 +202,35 @@ class JdbcProductBackendTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void suppliesFullFilteredCatalogForBm25WithoutAbusingBlankKeywordSearch() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ResultSet row = mock(ResultSet.class);
+        when(row.getString("product_code")).thenReturn("AIRPODS-PRO");
+        when(row.getString("product_name")).thenReturn("AirPods Pro（第二代）");
+        when(row.getString("spec")).thenReturn("降噪、USB-C 充电");
+        when(jdbc.query(anyString(), any(RowMapper.class))).thenAnswer(invocation -> {
+            RowMapper<Object> mapper = invocation.getArgument(1);
+            return List.of(mapper.mapRow(row, 0));
+        });
+
+        JdbcProductBackend backend = new JdbcProductBackend(jdbc);
+        assertThat(backend.listProductSearchDocuments()).containsExactly(
+                new ProductBackend.ProductSearchDocument(
+                        "AIRPODS-PRO", "AirPods Pro（第二代）", "降噪、USB-C 充电"));
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class));
+        assertThat(sql.getValue()).contains("LOAD-PROD-%", "E2E-PROD-%", "ORDER BY p.product_code")
+                .doesNotContain("LIMIT", "LIKE ?");
+        assertThat(backend.searchProduct("")).contains("未找到");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void neverReturnsDemoProductsWhenDatabaseIsUnavailable() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenThrow(new IllegalStateException("database unavailable"));
+        when(jdbc.query(anyString(), any(RowMapper.class)))
                 .thenThrow(new IllegalStateException("database unavailable"));
 
         JdbcProductBackend backend = new JdbcProductBackend(jdbc, new InMemoryProductBackend());
@@ -216,6 +242,8 @@ class JdbcProductBackendTest {
         assertThat(backend.checkStock("MACBOOK-AIR-M3")).contains("商品目录暂时不可用");
         assertThat(backend.searchProduct("MacBook")).contains("商品目录暂时不可用");
         assertThatThrownBy(() -> backend.listPopularProducts(5))
+                .isInstanceOf(ProductCatalogUnavailableException.class);
+        assertThatThrownBy(backend::listProductSearchDocuments)
                 .isInstanceOf(ProductCatalogUnavailableException.class);
     }
 
