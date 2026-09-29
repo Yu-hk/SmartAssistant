@@ -40,3 +40,14 @@ export function suitabilityTags(value: string): string[] {
   }
   return tags;
 }
+
+/** Human-reviewed alternative names, never inferred from descriptions or user queries. */
+export function productAliases(value: string): string[] {
+  const aliases = value.split(/[,，、\n]/).map(alias => alias.trim()).filter(Boolean);
+  if (aliases.length > 10 || aliases.some(alias => alias.length < 2 || alias.length > 200
+      || /[\u0000-\u001f\u007f]/.test(alias))
+      || new Set(aliases.map(alias => alias.toLocaleUpperCase())).size !== aliases.length) {
+    throw new Error('最多录入 10 个不重复的别名，每个别名需为 2–200 字');
+  }
+  return aliases;
+}
