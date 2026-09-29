@@ -16,7 +16,7 @@ public class ProductFactQueryService {
             "^(?:请|帮我|请帮我)?(?:查询|查一下|查下|看看)?(.{1,100}?)(?:的)?"
             + "(多少钱[？?，, ]*(?:有货吗[？?]?)?|价格(?:是多少|多少)?[？?，, ]*(?:有货吗[？?]?)?|"
             + "有货吗[？?]?|规格(?:是多少|有哪些|是什么|如何)?[？?]?|颜色(?:呢|是什么|有哪些)?[？?]?|"
-            + "规格和颜色(?:分别是什么|都告诉我)?[？?]?)$",
+            + "规格和颜色(?:分别是什么|都告诉我)?[？?]?|重量(?:是多少|多少|多重)?[？?]?)$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern UNSAFE = Pattern.compile(
             "订单|下单|购买|买一|退款|退货|支付|转账|删除|取消|然后|另外|顺便|忽略|指令|系统提示|知识库|资料|文档|[\\r\\n]");
@@ -74,6 +74,12 @@ public class ProductFactQueryService {
             parts.add("规格为" + known(product.spec()));
         }
         if (fields.contains("颜色")) parts.add("颜色为" + known(product.color()));
+        if (fields.startsWith("重量")) {
+            var features = product.features();
+            parts.add(features.documented() && features.weightGrams() != null
+                    ? "已核验的设备净重为 " + features.weightGrams().stripTrailingZeros().toPlainString() + " 克"
+                    : "重量资料尚未核实，无法确认");
+        }
         var response = handled(product.name() + "，" + String.join("；", parts) + "。",
                 List.of(Map.of("name", product.name())), false);
         Map<String, Object> data = new LinkedHashMap<>(response.data());

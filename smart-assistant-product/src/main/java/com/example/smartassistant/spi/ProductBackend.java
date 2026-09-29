@@ -32,7 +32,15 @@ public interface ProductBackend {
     /** Exact, typed catalog lookup. null means this backend does not support the fast path. */
     default FactLookup lookupFacts(String name) { return null; }
 
-    record ProductFact(String code, String name, BigDecimal price, String stock, String spec, String color) { }
+    record ProductFact(String code, String name, BigDecimal price, String stock, String spec,
+                       String color, ProductFeatures features) {
+        public ProductFact(String code, String name, BigDecimal price, String stock, String spec, String color) {
+            this(code, name, price, stock, spec, color, ProductFeatures.UNKNOWN);
+        }
+        public ProductFact {
+            features = features == null ? ProductFeatures.UNKNOWN : features;
+        }
+    }
     record FactLookup(List<ProductFact> products, boolean ambiguous) { }
 
     /** 查询商品详细信息 */

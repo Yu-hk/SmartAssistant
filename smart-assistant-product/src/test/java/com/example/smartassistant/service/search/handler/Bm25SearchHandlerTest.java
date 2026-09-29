@@ -98,6 +98,26 @@ class Bm25SearchHandlerTest {
     }
 
     @Test
+    void namedFeatureQuestionExcludesOtherCatalogProducts() {
+        ProductBackend backend = mock(ProductBackend.class);
+        when(backend.listProductSearchDocuments()).thenReturn(List.of(
+                new ProductBackend.ProductSearchDocument("AIRPODS-PRO", "AirPods Pro（第二代）", "降噪耳机"),
+                new ProductBackend.ProductSearchDocument("AIRPODS-MAX", "AirPods Pro Max", "耳机"),
+                new ProductBackend.ProductSearchDocument("SONY-XM6", "Sony XM6", "耳机")));
+        when(backend.queryProductInfo("AIRPODS-PRO")).thenReturn("AirPods Pro facts");
+        when(backend.queryProductInfo("AIRPODS-MAX")).thenReturn("AirPods Pro Max facts");
+        when(backend.queryProductInfo("SONY-XM6")).thenReturn("Sony facts");
+        Bm25SearchHandler handler = new Bm25SearchHandler(backend, tokenizer());
+
+        RagSearchContext context = new RagSearchContext("AirPods Pro的重量是多少？");
+        handler.handle(context);
+
+        assertThat(context.getPathResults().get("BM25").getItems()).containsExactly("AirPods Pro facts");
+        verify(backend, never()).queryProductInfo("AIRPODS-MAX");
+        verify(backend, never()).queryProductInfo("SONY-XM6");
+    }
+
+    @Test
     void uncertainQueryUsesJevMultiLabelHintAndPreservesBaselineOnFailure() {
         ProductBackend backend = mock(ProductBackend.class);
         when(backend.listProductSearchDocuments()).thenReturn(List.of(
