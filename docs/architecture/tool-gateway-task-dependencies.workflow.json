@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "ToolGateway 改造任务依赖（设计参考）",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "primary", "label": "基础与集成" },
+    { "id": "parallel", "label": "并行任务" }
+  ],
+  "mainPath": ["foundation", "gateway_registry", "integration"],
+  "nodes": [
+    { "id": "foundation", "lane": "primary", "col": 0, "type": "backend", "label": "T01 公共基础类型层", "sublabel": "接口 · 枚举 · 字段", "width": 190 },
+    { "id": "gateway_registry", "lane": "primary", "col": 2, "type": "backend", "label": "T02 Hook / T03 Registry", "sublabel": "工具执行 · 兼容性 · Manifest", "tag": "并行开发", "width": 230 },
+    { "id": "ci_prompt", "lane": "parallel", "col": 2, "type": "security", "label": "T04 CI / T05 Prompt", "sublabel": "安全扫描 · 项目指令", "tag": "并行开发", "width": 220, "yOffset": 27 },
+    { "id": "integration", "lane": "primary", "col": 5, "type": "external", "label": "T06 工程师集成", "sublabel": "汇合四项改造", "width": 180 }
+  ],
+  "edges": [
+    { "from": "foundation", "to": "gateway_registry", "label": "基础契约就绪" },
+    { "from": "foundation", "to": "ci_prompt", "label": "基础契约就绪", "role": "branch" },
+    { "from": "gateway_registry", "to": "integration", "label": "执行与注册改造" },
+    { "from": "ci_prompt", "to": "integration", "label": "安全与指令改造", "role": "branch" }
+  ]
+}
