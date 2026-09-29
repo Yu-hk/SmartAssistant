@@ -2,6 +2,8 @@ package com.example.smartassistant.service.core;
 
 import com.example.smartassistant.spi.InMemoryProductBackend;
 import com.example.smartassistant.spi.ProductBackend;
+import com.example.smartassistant.spi.ProductFeatures;
+import com.example.smartassistant.spi.ProductSuitability;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -51,6 +53,23 @@ class ProductDiscoveryServiceTest {
                 .doesNotContain("符合轻便", "适合商务");
         assertThat(ProductFeatureRequest.parse("便携商务笔记本").qualitativePreferences())
                 .containsExactlyInAnyOrder("portability", "business");
+    }
+
+    @Test
+    void declaredSuitabilityIsShownWithoutClaimingMeasuredScenePerformance() {
+        ProductBackend backend = new InMemoryProductBackend() {
+            @Override
+            public List<ProductSummary> listPopularProducts(ProductDiscoveryCriteria criteria) {
+                return List.of(new ProductSummary("QA-DECLARED", "目录声明测试笔记本",
+                        new BigDecimal("3999"), "充足", "规格待核实", 0L,
+                        "笔记本电脑", null, null, 0L, ProductFeatures.UNKNOWN,
+                        new ProductSuitability(List.of("学生"), List.of("学习"),
+                                "厂商目录", "2026-09-29T00:00:00Z")));
+            }
+        };
+        var result = new ProductDiscoveryService(backend).discover("推荐轻便商务笔记本", 3);
+        assertThat(result.answer()).contains("目录标注（非性能保证）", "学生", "学习", "部分候选有管理员确认")
+                .doesNotContain("当前目录没有可核实的对应偏好标签", "实测适合");
     }
 
     @Test
@@ -142,7 +161,7 @@ class ProductDiscoveryServiceTest {
         assertThat(result.scenarioEvidenceLimited()).isTrue();
         assertThat(result.answer())
                 .contains("不能把热度直接等同于适合")
-                .contains("场景适配：现有目录证据不足")
+                .contains("场景性能：仍需核实规格和实际需求")
                 .contains("摄像头、麦克风")
                 .contains("不应把上述候选表述为最终推荐");
     }

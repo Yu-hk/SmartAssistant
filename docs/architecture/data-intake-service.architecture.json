@@ -8,23 +8,23 @@
     "viewBox": [1370, 760]
   },
   "components": [
-    { "id": "adminUi", "type": "frontend", "label": "管理员页面", "sublabel": "商品录入 · 参数核对", "pos": [45, 270], "size": [160, 82] },
+    { "id": "adminUi", "type": "frontend", "label": "管理员页面", "sublabel": "参数核对 · 人群与用途标注", "pos": [45, 270], "size": [160, 82] },
     { "id": "gateway", "type": "security", "label": "API Gateway", "sublabel": "JWT 与 ROLE_ADMIN", "pos": [280, 270], "size": [175, 82] },
-    { "id": "intake", "type": "backend", "label": "Data Intake", "sublabel": "提取 · 确认 · 原子保存", "tag": "独立服务 :8092", "pos": [550, 270], "size": [205, 82] },
-    { "id": "catalog", "type": "database", "label": "PostgreSQL 商品目录", "sublabel": "商品 · 参数 · 审计", "pos": [860, 270], "size": [205, 82] },
-    { "id": "product", "type": "backend", "label": "Product 服务", "sublabel": "读取事实 · 推荐核实", "pos": [860, 470], "size": [205, 82] },
+    { "id": "intake", "type": "backend", "label": "Data Intake", "sublabel": "参数提取 · 标签确认 · 保存", "tag": "独立服务 :8092", "pos": [550, 270], "size": [205, 82] },
+    { "id": "catalog", "type": "database", "label": "PostgreSQL 商品目录", "sublabel": "客观参数 · 用途标签 · 审计", "pos": [860, 270], "size": [205, 82] },
+    { "id": "product", "type": "backend", "label": "Product 服务", "sublabel": "读取事实 · 标注来源提示", "pos": [860, 470], "size": [205, 82] },
     { "id": "consumer", "type": "backend", "label": "Consumer 服务", "sublabel": "对话与用户会话", "pos": [280, 470], "size": [175, 82] }
   ],
   "connections": [
     { "from": "adminUi", "to": "gateway", "label": "HTTPS 管理请求", "variant": "emphasis" },
     { "from": "gateway", "to": "intake", "label": "/api/admin/products/**", "variant": "security", "labelDy": 65 },
-    { "from": "intake", "to": "catalog", "label": "单事务写入商品与参数", "variant": "emphasis" },
+    { "from": "intake", "to": "catalog", "label": "单事务写入参数与标签", "variant": "emphasis" },
     { "from": "product", "to": "catalog", "label": "只读目录事实", "fromSide": "top", "toSide": "bottom" },
     { "from": "gateway", "to": "consumer", "label": "对话 API", "fromSide": "bottom", "toSide": "top", "labelDy": 24 }
   ],
   "cards": [
-    { "dot": "cyan", "title": "写入边界", "items": ["管理员预览规则提取结果并明确确认", "Intake 在同一事务内保存商品、参数与审计"] },
-    { "dot": "emerald", "title": "读取边界", "items": ["Product 只读取目录事实，不承担录入请求", "Consumer 不再托管商品录入接口"] },
+    { "dot": "cyan", "title": "写入边界", "items": ["客观参数由规则提取后确认；适用标签单独声明来源", "Intake 原子保存商品、参数、标签与审计"] },
+    { "dot": "emerald", "title": "读取边界", "items": ["Product 读取参数与目录标注，不把标签当性能保证", "Consumer 不再托管商品录入接口"] },
     { "dot": "amber", "title": "部署", "items": ["Gateway 通过 Nacos 发现 data-intake-service", "数据库仅通过容器内网连接，不开放新公网端口"] }
   ]
 }

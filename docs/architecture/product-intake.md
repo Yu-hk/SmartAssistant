@@ -8,9 +8,11 @@
 
 `POST /api/admin/products/extract-features` 只进行预览：根据简介、规格中的明确文本提取重量、续航及测试场景、主动降噪，附原文依据和告警，不写数据库。提取器属于 Data Intake 服务的确定性规则组件，不调用大模型；模糊、冲突或缺少场景的参数留空。
 
+适用人群与用途不是可测量参数，不参与自动提取。管理员可在录入时显式填写标签、标注依据并确认；也可通过 `GET/PUT /api/admin/products/{code}/suitability` 按版本维护现有商品。未知商品不自动补标签，适用声明不等于性能保证。
+
 用户核对或修正后调用 `POST /api/admin/products`。服务根据本次请求的原文重新提取，对已知参数要求显式确认；保存商品基础资料，再复用参数维护模块更新结构化字段与版本，整个过程在同一个 Spring 数据库事务内完成。异常回滚全部写入，重复编码返回 409，不覆盖已有商品。
 
-PostgreSQL `products` 表同时保存简介/规格、结构化参数、来源、确认时间、版本和录入审计 JSON。审计包含原文哈希、规则版本、提取依据、原始提取结果与人工修改；明确记录 `externalVerification=false`。管理员确认不等于系统完成了厂商事实核验。
+PostgreSQL `products` 表同时保存简介/规格、结构化参数、来源、确认时间、版本和录入审计 JSON；`product_suitability_tags` 分别保存人群与用途标签，商品行记录标签来源、确认时间、修改人和修订号。审计包含原文哈希、规则版本、提取依据、原始提取结果与人工修改；明确记录 `externalVerification=false`。管理员确认不等于系统完成了厂商事实核验。
 
 对应代码：
 
@@ -19,12 +21,15 @@ PostgreSQL `products` 表同时保存简介/规格、结构化参数、来源、
 - [录入事务](../../smart-assistant-data-intake/src/main/java/com/example/smartassistant/intake/service/admin/AdminProductIntakeService.java)
 - [参数提取器](../../smart-assistant-data-intake/src/main/java/com/example/smartassistant/intake/service/admin/ProductFeatureExtractor.java)
 - [参数维护模块](../../smart-assistant-data-intake/src/main/java/com/example/smartassistant/intake/service/admin/AdminProductFeatureService.java)
+- [适用标签维护](../../smart-assistant-data-intake/src/main/java/com/example/smartassistant/intake/service/admin/AdminProductSuitabilityService.java)
 
 ## 推荐读取路径
 
 用户对话仍经过 Consumer 的情绪/画像预处理、MQ 优先级调度和 Router 规划，再分配至 Product。录入不经过这条聊天任务链，也不依赖情绪分析或画像就绪。
 
 Product 的 `JdbcProductBackend` 直接读取共享目录中的参数。硬条件筛选要求参数有明确依据；未给品类且特征过于模糊时澄清需求，热门榜说明站内销量来源。`StructuredProductRecommendation` 让模型选择候选编码和证据字段，服务校验真实目录并确定性生成金额、预算状态与推荐依据；默认结论不包含差额，只有用户明确要求时单独计算。
+
+已确认的适用标签进入商品检索文本及推荐证据时，须标注为目录声明；不据此推断实测场景性能。
 
 没有匹配候选是正常业务结果；目录不可用不能冒充无匹配，也不回退到虚构商品。推荐阶段不临时抽取录入参数，既有缓存 TTL 不因本次新增录入接口而自动失效。
 

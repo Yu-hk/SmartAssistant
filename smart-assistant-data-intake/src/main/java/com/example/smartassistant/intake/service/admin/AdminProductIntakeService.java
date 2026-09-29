@@ -24,15 +24,22 @@ public class AdminProductIntakeService {
     private static final Set<String> FEATURE_KEYS = Set.of("weightGrams", "batteryLifeHours", "batteryLifeScenario", "noiseCancelling");
     private final JdbcTemplate jdbc;
     private final AdminProductFeatureService features;
+    private final AdminProductSuitabilityService suitability;
     private final ProductFeatureExtractor extractor;
     private final Clock clock;
 
     @Autowired
-    public AdminProductIntakeService(JdbcTemplate jdbc, AdminProductFeatureService features, ProductFeatureExtractor extractor) {
-        this(jdbc, features, extractor, Clock.systemUTC());
+    public AdminProductIntakeService(JdbcTemplate jdbc, AdminProductFeatureService features,
+                                     AdminProductSuitabilityService suitability, ProductFeatureExtractor extractor) {
+        this(jdbc, features, suitability, extractor, Clock.systemUTC());
     }
     AdminProductIntakeService(JdbcTemplate jdbc, AdminProductFeatureService features, ProductFeatureExtractor extractor, Clock clock) {
-        this.jdbc = jdbc; this.features = features; this.extractor = extractor; this.clock = clock;
+        this(jdbc, features, new AdminProductSuitabilityService(jdbc, clock), extractor, clock);
+    }
+    AdminProductIntakeService(JdbcTemplate jdbc, AdminProductFeatureService features,
+                              AdminProductSuitabilityService suitability, ProductFeatureExtractor extractor, Clock clock) {
+        this.jdbc = jdbc; this.features = features; this.suitability = suitability;
+        this.extractor = extractor; this.clock = clock;
     }
 
     public ProductFeatureExtractor.Extraction preview(JsonNode body) {
@@ -43,7 +50,7 @@ public class AdminProductIntakeService {
     @Transactional
     public Map<String, Object> create(JsonNode body, long actorId) {
         if (actorId <= 0) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要有效的管理员身份");
-        requireKeys(body, CORE, Set.of("features"));
+        requireKeys(body, CORE, Set.of("features", "suitability"));
         String code = text(body, "productCode", 50, true, false).toUpperCase(Locale.ROOT);
         if (!code.matches("[A-Z0-9][A-Z0-9._-]{0,49}")) throw bad("商品编码格式不正确");
         String name = text(body, "productName", 200, true, false);
@@ -83,6 +90,12 @@ public class AdminProductIntakeService {
         }
         write.set("features", persisted);
         ProductFeatureUpdate.parse(write, clock); // Validate before the first database write.
+        ObjectNode suitabilityWrite = null;
+        if (body.has("suitability")) {
+            suitabilityWrite = JSON.createObjectNode().put("expectedRevision", 0);
+            suitabilityWrite.set("suitability", body.get("suitability"));
+            ProductSuitabilityUpdate.parse(suitabilityWrite); // Same fail-before-write contract.
+        }
         Map<String, Object> audit = new LinkedHashMap<>();
         audit.put("version", extraction.version());
         audit.put("sourceTextSha256", hash(json(JSON.createObjectNode().put("description", description).put("spec", spec))));
@@ -104,6 +117,7 @@ public class AdminProductIntakeService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "商品编码已存在，请先核对已有商品，不能覆盖录入");
         }
         Map<String, Object> result = new LinkedHashMap<>(features.save(code, write, actorId));
+        if (suitabilityWrite != null) result.put("suitability", suitability.save(code, suitabilityWrite, actorId));
         result.put("productName", name);
         result.put("extraction", extraction);
         result.put("manualOverrides", overrides);
