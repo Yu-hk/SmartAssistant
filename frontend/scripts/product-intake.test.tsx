@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { AdminProductsPage } from '../src/admin/AdminProductsPage';
 import { AdminLayout } from '../src/admin/AdminLayout';
-import { featureDraft, featureValues, hasKnownFeatures, suitabilityTags } from '../src/admin/productIntake';
+import { featureDraft, featureValues, hasKnownFeatures, productAliases, suitabilityTags } from '../src/admin/productIntake';
 
 test('feature drafts preserve explicit false separately from unknown', () => {
   const known = { weightGrams: 1200, batteryLifeHours: 12, batteryLifeScenario: 'video_playback', noiseCancelling: false };
@@ -31,9 +31,16 @@ test('suitability tags are explicit, compact, unique admin declarations', () => 
   assert.throws(() => suitabilityTags('学生,学生'), /标签/);
 });
 
+test('product aliases retain names with spaces and reject duplicate or malformed entries', () => {
+  assert.deepEqual(productAliases('AirPods Pro 2，苹果耳机\n二代 Pro'),
+    ['AirPods Pro 2', '苹果耳机', '二代 Pro']);
+  assert.throws(() => productAliases('苹果耳机,苹果耳机'), /别名/);
+  assert.throws(() => productAliases('x'), /别名/);
+});
+
 test('intake starts with original-source fields and a preview action, never auto-publishes', () => {
   const html = renderToStaticMarkup(<AdminProductsPage />);
-  for (const label of ['商品简介', '规格说明', '商品编码', '提取参数并预览', '结构化参数核对', '适用人群与用途', '标注依据']) assert.ok(html.includes(label));
+  for (const label of ['商品简介', '规格说明', '商品编码', '商品别名', '维护已有商品别名', '提取参数并预览', '结构化参数核对', '适用人群与用途', '标注依据']) assert.ok(html.includes(label));
   assert.ok(html.includes('此步骤不会写入商品目录'));
   assert.ok(!html.includes('确认并录入商品'));
   assert.match(html, /<option selected="">缺货<\/option>/);

@@ -25,20 +25,28 @@ public class AdminProductIntakeService {
     private final JdbcTemplate jdbc;
     private final AdminProductFeatureService features;
     private final AdminProductSuitabilityService suitability;
+    private final AdminProductAliasService aliases;
     private final ProductFeatureExtractor extractor;
     private final Clock clock;
 
     @Autowired
     public AdminProductIntakeService(JdbcTemplate jdbc, AdminProductFeatureService features,
-                                     AdminProductSuitabilityService suitability, ProductFeatureExtractor extractor) {
-        this(jdbc, features, suitability, extractor, Clock.systemUTC());
+                                     AdminProductSuitabilityService suitability, AdminProductAliasService aliases,
+                                     ProductFeatureExtractor extractor) {
+        this(jdbc, features, suitability, aliases, extractor, Clock.systemUTC());
     }
     AdminProductIntakeService(JdbcTemplate jdbc, AdminProductFeatureService features, ProductFeatureExtractor extractor, Clock clock) {
-        this(jdbc, features, new AdminProductSuitabilityService(jdbc, clock), extractor, clock);
+        this(jdbc, features, new AdminProductSuitabilityService(jdbc, clock),
+                new AdminProductAliasService(jdbc, clock), extractor, clock);
     }
     AdminProductIntakeService(JdbcTemplate jdbc, AdminProductFeatureService features,
                               AdminProductSuitabilityService suitability, ProductFeatureExtractor extractor, Clock clock) {
-        this.jdbc = jdbc; this.features = features; this.suitability = suitability;
+        this(jdbc, features, suitability, new AdminProductAliasService(jdbc, clock), extractor, clock);
+    }
+    AdminProductIntakeService(JdbcTemplate jdbc, AdminProductFeatureService features,
+                              AdminProductSuitabilityService suitability, AdminProductAliasService aliases,
+                              ProductFeatureExtractor extractor, Clock clock) {
+        this.jdbc = jdbc; this.features = features; this.suitability = suitability; this.aliases = aliases;
         this.extractor = extractor; this.clock = clock;
     }
 
@@ -50,7 +58,7 @@ public class AdminProductIntakeService {
     @Transactional
     public Map<String, Object> create(JsonNode body, long actorId) {
         if (actorId <= 0) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要有效的管理员身份");
-        requireKeys(body, CORE, Set.of("features", "suitability"));
+        requireKeys(body, CORE, Set.of("features", "suitability", "aliases"));
         String code = text(body, "productCode", 50, true, false).toUpperCase(Locale.ROOT);
         if (!code.matches("[A-Z0-9][A-Z0-9._-]{0,49}")) throw bad("商品编码格式不正确");
         String name = text(body, "productName", 200, true, false);
@@ -96,6 +104,12 @@ public class AdminProductIntakeService {
             suitabilityWrite.set("suitability", body.get("suitability"));
             ProductSuitabilityUpdate.parse(suitabilityWrite); // Same fail-before-write contract.
         }
+        ObjectNode aliasesWrite = null;
+        if (body.has("aliases")) {
+            ProductAliasUpdate.aliases(body.get("aliases")); // Validate before the first database write.
+            aliasesWrite = JSON.createObjectNode().put("expectedRevision", 0);
+            aliasesWrite.set("aliases", body.get("aliases"));
+        }
         Map<String, Object> audit = new LinkedHashMap<>();
         audit.put("version", extraction.version());
         audit.put("sourceTextSha256", hash(json(JSON.createObjectNode().put("description", description).put("spec", spec))));
@@ -118,6 +132,7 @@ public class AdminProductIntakeService {
         }
         Map<String, Object> result = new LinkedHashMap<>(features.save(code, write, actorId));
         if (suitabilityWrite != null) result.put("suitability", suitability.save(code, suitabilityWrite, actorId));
+        if (aliasesWrite != null) result.put("aliases", aliases.save(code, aliasesWrite, actorId));
         result.put("productName", name);
         result.put("extraction", extraction);
         result.put("manualOverrides", overrides);

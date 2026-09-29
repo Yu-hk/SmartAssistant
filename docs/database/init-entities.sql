@@ -276,6 +276,9 @@ CREATE TABLE IF NOT EXISTS products (
     suitability_reviewed_at TIMESTAMP WITH TIME ZONE,
     suitability_updated_by BIGINT,
     suitability_updated_at TIMESTAMP WITH TIME ZONE,
+    aliases_revision BIGINT NOT NULL DEFAULT 0,
+    aliases_updated_by BIGINT,
+    aliases_updated_at TIMESTAMP WITH TIME ZONE,
     description TEXT,
     feature_ingestion_audit TEXT,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -290,6 +293,15 @@ CREATE TABLE IF NOT EXISTS product_suitability_tags (
 );
 CREATE INDEX IF NOT EXISTS idx_product_suitability_kind_tag
     ON product_suitability_tags(kind, tag, product_code);
+
+CREATE TABLE IF NOT EXISTS product_aliases (
+    product_code VARCHAR(50) NOT NULL REFERENCES products(product_code) ON DELETE CASCADE,
+    alias VARCHAR(200) NOT NULL CHECK (length(btrim(alias)) >= 2),
+    normalized_alias VARCHAR(200) NOT NULL,
+    PRIMARY KEY (product_code, normalized_alias)
+);
+CREATE INDEX IF NOT EXISTS idx_product_aliases_normalized
+    ON product_aliases(normalized_alias, product_code);
 
 -- Versioned e-commerce user profile snapshot.
 CREATE TABLE IF NOT EXISTS user_profile_snapshot (

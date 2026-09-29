@@ -2,6 +2,7 @@ package com.example.smartassistant.intake.service.admin;
 
 import com.example.smartassistant.intake.controller.AdminProductIntakeController;
 import com.example.smartassistant.intake.controller.AdminProductSuitabilityController;
+import com.example.smartassistant.intake.controller.AdminProductAliasController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ class AdminProductIntakeTest {
         migrate(jdbc, "20260914_add_product_structured_features.sql");
         migrate(jdbc, "20260914_add_product_intake.sql");
         migrate(jdbc, "20260929_add_product_suitability.sql");
+        migrate(jdbc, "20260929_add_product_aliases.sql");
         return jdbc;
     }
     private void migrate(JdbcTemplate jdbc, String file) {
@@ -157,6 +159,33 @@ class AdminProductIntakeTest {
         var result = service(jdbc).create(input, 8);
         assertThat(result.get("manualOverrides")).isEqualTo(java.util.List.of("weightGrams"));
         assertThat(jdbc.queryForObject("SELECT weight_grams FROM products", Integer.class)).isEqualTo(1250);
+    }
+
+    @Test void intakeAndMaintenancePersistAliasesWithRevisionAndAdminAudit() throws Exception {
+        var jdbc = initialize();
+        var input = body();
+        input.set("aliases", JSON.readTree("[\"学习本\",\"通勤电脑\"]"));
+        var result = service(jdbc).create(input, 7);
+        assertThat(((Map<?, ?>) result.get("aliases")).get("revision")).isEqualTo(1L);
+        var aliases = new AdminProductAliasService(jdbc, CLOCK);
+        assertThat(aliases.get("INTAKE-TEST-A").get("aliases"))
+                .isEqualTo(java.util.List.of("学习本", "通勤电脑"));
+        var mvc = MockMvcBuilders.standaloneSetup(new AdminProductAliasController(aliases)).build();
+        var path = "/api/admin/products/INTAKE-TEST-A/aliases";
+        mvc.perform(get(path).header("X-User-Role", "ROLE_USER").header("X-User-Id", "7"))
+                .andExpect(status().isForbidden());
+        var payload = """
+                {"expectedRevision":1,"aliases":["轻便笔记本"]}
+                """;
+        mvc.perform(put(path).header("X-User-Role", "ROLE_ADMIN").header("X-User-Id", "8")
+                        .contentType("application/json").content(payload))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(2))
+                .andExpect(jsonPath("$.productName").value("录入测试商品（虚构）"));
+        mvc.perform(put(path).header("X-User-Role", "ROLE_ADMIN").header("X-User-Id", "8")
+                        .contentType("application/json").content(payload))
+                .andExpect(status().isConflict());
+        assertThat(aliases.get("INTAKE-TEST-A")).containsEntry("updatedBy", 8L)
+                .containsEntry("aliases", java.util.List.of("轻便笔记本"));
     }
 
     @Test void confirmationRequiredForKnownFactsButUnknownCanRemainNull() throws Exception {
