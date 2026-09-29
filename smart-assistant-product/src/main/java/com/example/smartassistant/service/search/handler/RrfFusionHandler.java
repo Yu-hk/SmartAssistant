@@ -9,6 +9,7 @@ package com.example.smartassistant.service.search.handler;
 
 import com.example.smartassistant.common.rag.pipeline.RagSearchContext;
 import com.example.smartassistant.common.rag.pipeline.RagSearchHandler;
+import com.example.smartassistant.common.rag.pipeline.AdaptiveWeightHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,15 +48,8 @@ public class RrfFusionHandler implements RagSearchHandler {
     public void handle(RagSearchContext context) {
         context.setQualityThreshold(qualityThreshold);
 
-        // 收集所有 path 的结果进行 RRF 融合
-        List<String> allItems = new ArrayList<>();
         Map<String, RagSearchContext.RetrievalPathResult> pathResults = context.getPathResults();
-
-        for (RagSearchContext.RetrievalPathResult path : pathResults.values()) {
-            allItems.addAll(path.getItems());
-        }
-
-        if (allItems.isEmpty()) {
+        if (pathResults.values().stream().allMatch(RagSearchContext.RetrievalPathResult::isEmpty)) {
             context.setQualityScore(0.0);
             context.setFusedResults(List.of());
             log.warn("[RagHandler] RRF: 全部路径未召回, query={}", context.getOriginalQuery());
@@ -66,9 +60,10 @@ public class RrfFusionHandler implements RagSearchHandler {
         Map<String, RagSearchContext.RankedItem> fusedMap = new LinkedHashMap<>();
         for (RagSearchContext.RetrievalPathResult path : pathResults.values()) {
             List<String> items = path.getItems();
+            double pathWeight = pathWeight(context, path.getPathName());
             for (int i = 0; i < items.size(); i++) {
                 int rank = i + 1;
-                double rrfScore = 1.0 / (RRF_K + rank);
+                double rrfScore = pathWeight / (RRF_K + rank);
                 String content = items.get(i);
                 fusedMap.computeIfAbsent(content, k -> new RagSearchContext.RankedItem(content, 0.0))
                         .addScore(rrfScore);
@@ -89,7 +84,10 @@ public class RrfFusionHandler implements RagSearchHandler {
         // Normalize against paths that actually returned evidence. Counting empty
         // paths in the theoretical maximum makes a strong exact match look weak
         // merely because unrelated retrievers returned nothing.
-        double rrfMax = activePaths / (double)(RRF_K + 1);
+        double rrfMax = pathResults.values().stream()
+                .filter(path -> !path.isEmpty())
+                .mapToDouble(path -> pathWeight(context, path.getPathName()))
+                .sum() / (RRF_K + 1);
         double topRrf = fused.get(0).getRrfScore();
         double qualityScore = Math.min(1.0, topRrf / rrfMax);
         context.setQualityScore(qualityScore);
@@ -101,5 +99,27 @@ public class RrfFusionHandler implements RagSearchHandler {
     @Override
     public int getOrder() {
         return 100;
+    }
+
+    private static double pathWeight(RagSearchContext context, String pathName) {
+        Object sparseValue = context.getAttribute(AdaptiveWeightHandler.ATTR_SPARSE_WEIGHT);
+        Object denseValue = context.getAttribute(AdaptiveWeightHandler.ATTR_DENSE_WEIGHT);
+        if (!(sparseValue instanceof Number sparseNumber)
+                || !(denseValue instanceof Number denseNumber)) {
+            return 1.0; // Preserve legacy RRF when adaptive weighting is disabled.
+        }
+        double sparse = sparseNumber.doubleValue();
+        double dense = denseNumber.doubleValue();
+        if (!Double.isFinite(sparse) || !Double.isFinite(dense)
+                || sparse < 0 || dense < 0 || Math.abs(sparse + dense - 1.0) > 0.001) {
+            return 1.0;
+        }
+        return switch (pathName) {
+            case "关键词搜索", "BM25" -> 2.0 * sparse;
+            case "知识库" -> 2.0 * dense;
+            // Exact catalog facts and graph relations are neither fuzzy sparse nor
+            // dense retrieval; keep their authority independent of query style.
+            default -> 1.0;
+        };
     }
 }
