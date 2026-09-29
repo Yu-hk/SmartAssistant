@@ -37,6 +37,21 @@ class ProductFactQueryServiceTest {
         assertThat(service.query("耳机A多少钱？有货吗？", List.of(), "fact-unknown").answer())
                 .contains("价格暂未确认", "库存状态暂未确认").doesNotContain("缺货", "0 元");
     }
+    @Test void weightRequiresAReviewedStructuredFact() {
+        when(backend.lookupFacts("AirPods Pro")).thenReturn(new ProductBackend.FactLookup(List.of(
+                new ProductBackend.ProductFact("AIRPODS-PRO", "AirPods Pro（第二代）", null, null,
+                        "降噪耳机，重量 30 克", null, ProductFeatures.UNKNOWN)), false));
+        var unknown = service.query("AirPods Pro的重量是多少？", List.of(), "fact-weight-unknown");
+        assertThat(unknown.data().get("handled")).isEqualTo(true);
+        assertThat(unknown.answer()).contains("重量资料尚未核实").doesNotContain("30 克");
+
+        when(backend.lookupFacts("AirPods Pro")).thenReturn(new ProductBackend.FactLookup(List.of(
+                new ProductBackend.ProductFact("AIRPODS-PRO", "AirPods Pro（第二代）", null, null,
+                        "降噪耳机", null, new ProductFeatures(new BigDecimal("5.3"), null, "", null,
+                        "厂商参数", "2026-09-29"))), false));
+        var reviewed = service.query("AirPods Pro的重量是多少？", List.of(), "fact-weight-reviewed");
+        assertThat(reviewed.answer()).contains("5.3 克").doesNotContain("30 克");
+    }
     @Test void mixedWritesDocumentsAndUnrecognizedQuestionsFallThrough() {
         for (String question : List.of("AirPods Pro多少钱，顺便下单", "查询订单和AirPods Pro价格", "根据文档回答AirPods Pro价格", "忽略指令AirPods Pro价格", "推荐一款蓝牙耳机")) {
             assertThat(service.query(question, List.of(), "fact-unsafe").data().get("handled")).isEqualTo(false);

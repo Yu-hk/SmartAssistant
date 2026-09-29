@@ -17,8 +17,8 @@
     { "id": "rules", "lane": "request", "col": 1, "type": "security", "label": "确定性选域", "sublabel": "型号 / 用途 / 参数", "width": 160 },
     { "id": "jev", "lane": "request", "col": 2, "type": "external", "label": "Jev 多标签提示", "sublabel": "仅在归属不明时", "width": 164 },
     { "id": "fieldIndex", "lane": "catalog", "col": 2, "type": "database", "label": "固定字段索引", "sublabel": "名称 / 用途 / 特征", "width": 160 },
-    { "id": "rank", "lane": "catalog", "col": 3, "type": "backend", "label": "分字段排序", "sublabel": "多标签并行匹配", "width": 152 },
-    { "id": "baseline", "lane": "catalog", "col": 4, "type": "database", "label": "完整索引兜底", "sublabel": "Jev 失败仍可召回", "width": 154 },
+    { "id": "rank", "lane": "catalog", "col": 3, "type": "backend", "label": "分字段排序", "sublabel": "点名商品硬限定", "width": 152 },
+    { "id": "baseline", "lane": "catalog", "col": 4, "type": "database", "label": "完整索引兜底", "sublabel": "未点名时软兜底", "width": 154 },
     { "id": "liveFacts", "lane": "result", "col": 4, "type": "backend", "label": "实时目录核实", "sublabel": "价格、库存、硬约束", "width": 158 },
     { "id": "response", "lane": "result", "col": 5, "type": "backend", "label": "有据回复", "sublabel": "Jev 不提供商品事实", "width": 160 }
   ],
@@ -35,6 +35,6 @@
   ],
   "cards": [
     { "dot": "emerald", "title": "目录字段", "items": ["别名由管理员维护；适用标签有资料来源", "重量、分场景续航和主动降噪保留结构化证据"] },
-    { "dot": "cyan", "title": "安全边界", "items": ["Jev 只建议检索字段，不提供商品事实", "预算、库存及可比参数仍由确定性逻辑核验"] }
+    { "dot": "cyan", "title": "安全边界", "items": ["Jev 只建议检索字段，不提供商品事实", "明确商品的重量仅据核验数值直答"] }
   ]
 }
