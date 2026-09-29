@@ -62,10 +62,10 @@
     <div class="wrap">
       <div class="eyebrow">SmartAssistant · Diagrams</div>
       <h1>项目图表总览</h1>
-      <p class="intro">集中查看系统边界与业务流程。下方 9 张 Archify 图可直接在线切换主题、查看关系并导出；两张历史方案图单独标为设计参考。</p>
+      <p class="intro">集中查看系统边界与业务流程。下方 10 张 Archify 图可直接在线切换主题、查看关系并导出；两张历史方案图单独标为设计参考。</p>
       <nav aria-label="图表分类">
         <a href="#architecture">系统架构 · 3</a>
-        <a href="#workflow">业务流程 · 4</a>
+        <a href="#workflow">业务流程 · 5</a>
         <a href="#reference">方案参考 · 2</a>
       </nav>
     </div>
@@ -82,9 +82,10 @@
     </section>
     <section id="workflow" aria-labelledby="workflow-title">
       <h2 id="workflow-title">业务流程</h2>
-      <p class="section-note">会话、下单与管理员操作的关键路径。</p>
+      <p class="section-note">会话、下单、商品检索与管理员操作的关键路径。</p>
       <div class="grid">
         <a class="card" href="architecture/order-checkout-history.workflow.html"><small>WORKFLOW · 下单</small><h3>下单收货信息补全与确认</h3><p>历史订单资料复用、差异核对与最终下单确认。</p><span class="open">打开交互图 →</span></a>
+        <a class="card" href="architecture/product-rag-pre-retrieval.workflow.html"><small>WORKFLOW · 检索</small><h3>商品 RAG 检索准备与融合</h3><p>商品知识库选域、查询改写、稀疏/稠密加权与证据质量。</p><span class="open">打开交互图 →</span></a>
         <a class="card" href="architecture/independent-session-rating.workflow.html"><small>WORKFLOW · 会话</small><h3>独立会话与评分关闭</h3><p>会话独立处理，评分保存后再尝试关闭目标会话。</p><span class="open">打开交互图 →</span></a>
         <a class="card" href="architecture/session-link-validation.workflow.html"><small>WORKFLOW · 链接</small><h3>会话链接校验与恢复</h3><p>深链会话的权限检查、失效提示与可重试路径。</p><span class="open">打开交互图 →</span></a>
         <a class="card" href="architecture/profile-admin-management.workflow.html"><small>WORKFLOW · 管理员</small><h3>管理员代用户清理画像</h3><p>目标确认、权限复核、审计与异步清理回执。</p><span class="open">打开交互图 →</span></a>

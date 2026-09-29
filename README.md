@@ -38,6 +38,8 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 
 管理员商品录入由独立的 `data-intake-service` 承载：简介/规格规则提取 → 预览与人工核对 → 同事务保存商品、参数及审计。Gateway 保留 `/api/admin/products/**` 路径并校验管理员身份；录入不经 Consumer、聊天 MQ/Router 或大模型。Product 推荐时读取已存事实，未知参数不猜测。FAQ 导入与维护仍在 Consumer，后续单独拆分。详见 [在线录入服务架构图](https://yu-hk.github.io/SmartAssistant/architecture/data-intake-service.architecture.html)、[商品录入与推荐读取架构](docs/architecture/product-intake.md)、[本次发布与回滚](docs/data-intake-service-rollout.md)及[2026-09-28 生产验证](docs/data-intake-production-verification-20260928.md)；[2026-09-14 的部署验收](docs/product-intake-deployment-verification.md)仅对应拆分前实现。
 
+商品 RAG 的知识库检索按 Product Agent 配置的知识库名称与运行时注册表取交集，不再遍历其他业务库；稀疏（关键词、BM25）和稠密（知识库）权重在 RRF 融合时实际生效，精确匹配及图谱保持固定权重。Multi-Query 仍默认关闭，证据不足时沿用有界补检。详见[检索准备与融合流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-rag-pre-retrieval.workflow.html)及[预检索策略与 Multi-Query 评估](docs/rag-production/PRE_RETRIEVAL.md)。
+
 下单资料缺失时，Order 仅提出下单域必需字段；用户可手填，或主动从本人已确认的历史订单中选择收货信息。历史资料有差异、或本次填写与单笔历史订单不一致时必须核对，不能静默覆盖。补全资料不等于授权下单，写操作仍需最终审批。详见 [在线下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)。
 
 管理员后台的“画像管理”提供跨用户的画像元数据、分析开关状态、清理任务与回执、代清理审计；不返回画像原文。管理员代用户清理前需选择原因并输入目标用户名确认，Consumer 独立验证访问令牌、撤销状态和数据库当前管理员角色，再锁定目标普通用户账号核对用户名；暂停分析、创建清理任务和写入审计在同一事务中完成，后续异步清理逐目标写回执。普通用户侧栏不再展示“画像与隐私”入口，原有本人身份校验的接口暂时保留以兼容旧客户端。数据库迁移见 `docs/database/migrations/20260928_add_profile_admin_cleanup_audit.sql`。详见[在线画像管理架构图](https://yu-hk.github.io/SmartAssistant/architecture/profile-admin-management.architecture.html)、[管理员代清理流程](https://yu-hk.github.io/SmartAssistant/architecture/profile-admin-management.workflow.html)、[首次生产验收](docs/profile-admin-production-verification-20260928.md)及[用户入口移除验收](docs/profile-customer-entry-removal-verification-20260928.md)。
@@ -159,6 +161,7 @@ GitHub Actions 会执行：
 - [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
 - [交互式运行时架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)
 - [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)
+- [商品 RAG 检索准备与融合流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-rag-pre-retrieval.workflow.html)
 - [节点消息队列方案图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/agent-node-message-queue.workflow.html)
 - [ToolGateway 任务依赖图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/tool-gateway-task-dependencies.workflow.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
