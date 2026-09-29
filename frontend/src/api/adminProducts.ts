@@ -23,6 +23,13 @@ export interface ProductIntake {
   color: string;
   features: ProductFeatures;
   featuresConfirmed: boolean;
+  suitability?: ProductSuitabilityDraft;
+}
+export interface ProductSuitabilityDraft {
+  audiences: string[];
+  useCases: string[];
+  source: string;
+  confirmed: boolean;
 }
 export interface ProductCreated {
   productCode: string;

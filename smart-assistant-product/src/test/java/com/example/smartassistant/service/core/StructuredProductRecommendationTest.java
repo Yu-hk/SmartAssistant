@@ -27,6 +27,27 @@ class StructuredProductRecommendationTest {
         }
     }
 
+    @Test
+    void declaredSuitabilityIsAvailableButNeverTreatedAsMeasuredPerformance() {
+        var unconfirmed = new StructuredProductRecommendation("推荐给学生的耳机", List.of(Map.of(
+                "code", "EARPHONE", "name", "耳机", "price", 1999,
+                "suitability", Map.of("audiences", List.of("学生"), "useCases", List.of("学习"),
+                        "source", "", "reviewedAt", ""))));
+        assertThatThrownBy(() -> unconfirmed.parse("""
+                {"valid":true,"selected_code":"EARPHONE","evidence_fields":["suitability"],"limitations":[]}
+                """)).isInstanceOf(StructuredProductRecommendation.InvalidDecision.class);
+
+        var confirmed = new StructuredProductRecommendation("推荐给学生的耳机", List.of(Map.of(
+                "code", "EARPHONE", "name", "耳机", "price", 1999,
+                "suitability", Map.of("audiences", List.of("学生"), "useCases", List.of("学习"),
+                        "source", "厂商目录", "reviewedAt", "2026-09-29T00:00:00Z"))));
+        var decision = confirmed.parse("""
+                {"valid":true,"selected_code":"EARPHONE","evidence_fields":["suitability"],"limitations":[]}
+                """);
+        assertThat(confirmed.renderRecommendation(decision)).contains("目录标注（非性能保证）", "学生", "学习", "厂商目录")
+                .doesNotContain("实测适合");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"预算二千零五十元", "预算两千零五十元"})
     void formalChineseAmountIsExact(String question) {

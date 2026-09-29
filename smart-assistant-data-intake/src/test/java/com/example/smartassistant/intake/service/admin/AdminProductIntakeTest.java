@@ -1,6 +1,7 @@
 package com.example.smartassistant.intake.service.admin;
 
 import com.example.smartassistant.intake.controller.AdminProductIntakeController;
+import com.example.smartassistant.intake.controller.AdminProductSuitabilityController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,7 @@ class AdminProductIntakeTest {
         jdbc.execute("CREATE TABLE products(product_code VARCHAR(50) PRIMARY KEY, product_name VARCHAR(200),price NUMERIC(10,2),stock VARCHAR(20),category VARCHAR(50),spec TEXT,color VARCHAR(200))");
         migrate(jdbc, "20260914_add_product_structured_features.sql");
         migrate(jdbc, "20260914_add_product_intake.sql");
+        migrate(jdbc, "20260929_add_product_suitability.sql");
         return jdbc;
     }
     private void migrate(JdbcTemplate jdbc, String file) {
@@ -43,7 +45,8 @@ class AdminProductIntakeTest {
         new ResourceDatabasePopulator(new FileSystemResource(path)).execute(jdbc.getDataSource());
     }
     private AdminProductIntakeService service(JdbcTemplate jdbc, AdminProductFeatureService featureService) {
-        var service = new AdminProductIntakeService(jdbc, featureService, new ProductFeatureExtractor(), CLOCK);
+        var service = new AdminProductIntakeService(jdbc, featureService,
+                new AdminProductSuitabilityService(jdbc, CLOCK), new ProductFeatureExtractor(), CLOCK);
         var factory = new ProxyFactory(service);
         factory.setProxyTargetClass(true);
         factory.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(jdbc.getDataSource()), new AnnotationTransactionAttributeSource()));
@@ -85,6 +88,67 @@ class AdminProductIntakeTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM products", Integer.class)).isZero();
         service.create(body().put("description", "净重1300g"), 7);
         assertThat(jdbc.queryForObject("SELECT weight_grams FROM products", Integer.class)).isEqualTo(1300);
+    }
+
+    @Test void intakePersistsOnlyExplicitlyConfirmedSuitabilityWithSource() throws Exception {
+        var jdbc = initialize();
+        var input = body();
+        input.set("suitability", JSON.readTree("""
+            {"audiences":["学生","通勤人群"],"useCases":["学习","通勤"],
+             "source":"厂商商品说明书第 2 页","confirmed":true}
+            """));
+        var result = service(jdbc).create(input, 7);
+        assertThat(((Map<?, ?>) result.get("suitability")).get("audiences"))
+                .isEqualTo(java.util.List.of("学生", "通勤人群"));
+        jdbc.execute("SHUTDOWN");
+        var reopened = connect();
+        var saved = new AdminProductSuitabilityService(reopened, CLOCK).get("INTAKE-TEST-A");
+        assertThat(saved).containsEntry("revision", 1L).containsEntry("source", "厂商商品说明书第 2 页");
+        assertThat(saved.get("useCases")).isEqualTo(java.util.List.of("学习", "通勤"));
+        assertThat(saved.get("updatedBy")).isEqualTo(7L);
+        reopened.execute("SHUTDOWN");
+    }
+
+    @Test void unknownSuitabilityRemainsEmptyAndUnconfirmedLabelsDoNotCreateProduct() throws Exception {
+        var jdbc = initialize();
+        var input = body();
+        input.set("suitability", JSON.readTree("""
+            {"audiences":["学生"],"useCases":[],"source":"未经核对","confirmed":false}
+            """));
+        assertThatThrownBy(() -> service(jdbc).create(input, 7)).isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM products", Integer.class)).isZero();
+        service(jdbc).create(body(), 7);
+        assertThat(new AdminProductSuitabilityService(jdbc, CLOCK).get("INTAKE-TEST-A"))
+                .containsEntry("revision", 0L).containsEntry("audiences", java.util.List.of())
+                .containsEntry("source", null);
+    }
+
+    @Test void suitabilityMaintenanceRequiresAdminAndRejectsStaleRevision() throws Exception {
+        var jdbc = initialize(); service(jdbc).create(body(), 7);
+        var suitability = new AdminProductSuitabilityService(jdbc, CLOCK);
+        var mvc = MockMvcBuilders.standaloneSetup(new AdminProductSuitabilityController(suitability)).build();
+        var path = "/api/admin/products/INTAKE-TEST-A/suitability";
+        var payload = """
+            {"expectedRevision":0,"suitability":{"audiences":["学生"],
+             "useCases":["学习"],"source":"厂商资料","confirmed":true}}
+            """;
+        mvc.perform(get(path).header("X-User-Role", "ROLE_USER").header("X-User-Id", "7"))
+                .andExpect(status().isForbidden());
+        mvc.perform(put(path).header("X-User-Role", "ROLE_ADMIN").header("X-User-Id", "7")
+                .contentType("application/json").content(payload))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(1));
+        mvc.perform(put(path).header("X-User-Role", "ROLE_ADMIN").header("X-User-Id", "7")
+                .contentType("application/json").content(payload))
+                .andExpect(status().isConflict());
+        mvc.perform(get(path).header("X-User-Role", "ROLE_ADMIN").header("X-User-Id", "7"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.audiences[0]").value("学生"));
+        var clear = JSON.readTree("""
+            {"expectedRevision":1,"suitability":{"audiences":[],"useCases":[],"source":"","confirmed":false}}
+            """);
+        suitability.save("INTAKE-TEST-A", clear, 8);
+        assertThat(suitability.get("INTAKE-TEST-A")).containsEntry("revision", 2L)
+                .containsEntry("audiences", java.util.List.of()).containsEntry("source", null)
+                .containsEntry("updatedBy", 8L);
     }
 
     @Test void explicitlyConfirmedManualCorrectionsAreAudited() throws Exception {

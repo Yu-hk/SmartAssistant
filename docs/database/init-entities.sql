@@ -271,11 +271,25 @@ CREATE TABLE IF NOT EXISTS products (
     features_revision BIGINT NOT NULL DEFAULT 0,
     features_updated_by BIGINT,
     features_updated_at TIMESTAMPTZ,
+    suitability_revision BIGINT NOT NULL DEFAULT 0,
+    suitability_source TEXT,
+    suitability_reviewed_at TIMESTAMP WITH TIME ZONE,
+    suitability_updated_by BIGINT,
+    suitability_updated_at TIMESTAMP WITH TIME ZONE,
     description TEXT,
     feature_ingestion_audit TEXT,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_products_code ON products(product_code);
+
+CREATE TABLE IF NOT EXISTS product_suitability_tags (
+    product_code VARCHAR(50) NOT NULL REFERENCES products(product_code) ON DELETE CASCADE,
+    kind VARCHAR(16) NOT NULL CHECK (kind IN ('audience', 'use_case')),
+    tag VARCHAR(40) NOT NULL CHECK (length(btrim(tag)) > 0),
+    PRIMARY KEY (product_code, kind, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_product_suitability_kind_tag
+    ON product_suitability_tags(kind, tag, product_code);
 
 -- Versioned e-commerce user profile snapshot.
 CREATE TABLE IF NOT EXISTS user_profile_snapshot (

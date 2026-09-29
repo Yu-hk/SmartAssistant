@@ -5161,13 +5161,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <!-- Connection paths (before components for correct z-order) -->
         <path data-edge-from="adminUi" data-edge-to="gateway" data-edge-label="HTTPS 管理请求" data-edge-key="0" data-composition-points="205,311;280,311" d="M 205 311 L 280 311" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="gateway" data-edge-to="intake" data-edge-label="/api/admin/products/**" data-edge-key="1" data-composition-points="455,311;550,311" d="M 455 311 L 550 311" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="intake" data-edge-to="catalog" data-edge-label="单事务写入商品与参数" data-edge-key="2" data-composition-points="755,311;860,311" d="M 755 311 L 860 311" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="intake" data-edge-to="catalog" data-edge-label="单事务写入参数与标签" data-edge-key="2" data-composition-points="755,311;860,311" d="M 755 311 L 860 311" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="product" data-edge-to="catalog" data-edge-label="只读目录事实" data-edge-key="3" data-composition-points="962.5,470;962.5,352" d="M 962.5 470 L 962.5 352" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="gateway" data-edge-to="consumer" data-edge-label="对话 API" data-edge-key="4" data-composition-points="367.5,352;367.5,470" d="M 367.5 352 L 367.5 470" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- Components -->
-        <g id="node-adminUi" data-node-id="adminUi" data-node-label="管理员页面" tabindex="0" role="button" aria-label="聚焦管理员页面，商品录入 · 参数核对, 架构组件" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="商品录入 · 参数核对" data-node-context="架构组件">
-          <title>管理员页面 · 商品录入 · 参数核对 · 架构组件</title>
+        <g id="node-adminUi" data-node-id="adminUi" data-node-label="管理员页面" tabindex="0" role="button" aria-label="聚焦管理员页面，参数核对 · 人群与用途标注, 架构组件" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="参数核对 · 人群与用途标注" data-node-context="架构组件">
+          <title>管理员页面 · 参数核对 · 人群与用途标注 · 架构组件</title>
           <rect x="45" y="270" width="160" height="82" rx="6" class="c-mask"/>
           <rect x="45" y="270" width="160" height="82" rx="6" class="c-frontend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(51 276) scale(0.6875)">
@@ -5177,7 +5177,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="125" y="309" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">管理员页面</text>
-        <text data-detail="context" x="125" y="325" class="t-muted" font-size="9" text-anchor="middle">商品录入 · 参数核对</text>
+        <text data-detail="context" x="125" y="325" class="t-muted" font-size="9" text-anchor="middle">参数核对 · 人群与用途标注</text>
         </g>
 
         <g id="node-gateway" data-node-id="gateway" data-node-label="API Gateway" tabindex="0" role="button" aria-label="聚焦API Gateway，JWT 与 ROLE_ADMIN, 架构组件" aria-pressed="false" data-node-kind="security" data-node-sublabel="JWT 与 ROLE_ADMIN" data-node-context="架构组件">
@@ -5192,20 +5192,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="context" x="367.5" y="325" class="t-muted" font-size="9" text-anchor="middle">JWT 与 ROLE_ADMIN</text>
         </g>
 
-        <g id="node-intake" data-node-id="intake" data-node-label="Data Intake" tabindex="0" role="button" aria-label="聚焦Data Intake，提取 · 确认 · 原子保存, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="提取 · 确认 · 原子保存" data-node-tag="独立服务 :8092" data-node-context="架构组件">
-          <title>Data Intake · 提取 · 确认 · 原子保存 · 架构组件 · 独立服务 :8092</title>
+        <g id="node-intake" data-node-id="intake" data-node-label="Data Intake" tabindex="0" role="button" aria-label="聚焦Data Intake，参数提取 · 标签确认 · 保存, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="参数提取 · 标签确认 · 保存" data-node-tag="独立服务 :8092" data-node-context="架构组件">
+          <title>Data Intake · 参数提取 · 标签确认 · 保存 · 架构组件 · 独立服务 :8092</title>
           <rect x="550" y="270" width="205" height="82" rx="6" class="c-mask"/>
           <rect x="550" y="270" width="205" height="82" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(556 276) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="652.5" y="309" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Data Intake</text>
-        <text data-detail="context" x="652.5" y="325" class="t-muted" font-size="9" text-anchor="middle">提取 · 确认 · 原子保存</text>
+        <text data-detail="context" x="652.5" y="325" class="t-muted" font-size="9" text-anchor="middle">参数提取 · 标签确认 · 保存</text>
         <text data-detail="fine" x="652.5" y="344" class="t-backend" font-size="7" text-anchor="middle">独立服务 :8092</text>
         </g>
 
-        <g id="node-catalog" data-node-id="catalog" data-node-label="PostgreSQL 商品目录" tabindex="0" role="button" aria-label="聚焦PostgreSQL 商品目录，商品 · 参数 · 审计, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="商品 · 参数 · 审计" data-node-context="架构组件">
-          <title>PostgreSQL 商品目录 · 商品 · 参数 · 审计 · 架构组件</title>
+        <g id="node-catalog" data-node-id="catalog" data-node-label="PostgreSQL 商品目录" tabindex="0" role="button" aria-label="聚焦PostgreSQL 商品目录，客观参数 · 用途标签 · 审计, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="客观参数 · 用途标签 · 审计" data-node-context="架构组件">
+          <title>PostgreSQL 商品目录 · 客观参数 · 用途标签 · 审计 · 架构组件</title>
           <rect x="860" y="270" width="205" height="82" rx="6" class="c-mask"/>
           <rect x="860" y="270" width="205" height="82" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(866 276) scale(0.6875)">
@@ -5213,18 +5213,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="962.5" y="309" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">PostgreSQL 商品目录</text>
-        <text data-detail="context" x="962.5" y="325" class="t-muted" font-size="9" text-anchor="middle">商品 · 参数 · 审计</text>
+        <text data-detail="context" x="962.5" y="325" class="t-muted" font-size="9" text-anchor="middle">客观参数 · 用途标签 · 审计</text>
         </g>
 
-        <g id="node-product" data-node-id="product" data-node-label="Product 服务" tabindex="0" role="button" aria-label="聚焦Product 服务，读取事实 · 推荐核实, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="读取事实 · 推荐核实" data-node-context="架构组件">
-          <title>Product 服务 · 读取事实 · 推荐核实 · 架构组件</title>
+        <g id="node-product" data-node-id="product" data-node-label="Product 服务" tabindex="0" role="button" aria-label="聚焦Product 服务，读取事实 · 标注来源提示, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="读取事实 · 标注来源提示" data-node-context="架构组件">
+          <title>Product 服务 · 读取事实 · 标注来源提示 · 架构组件</title>
           <rect x="860" y="470" width="205" height="82" rx="6" class="c-mask"/>
           <rect x="860" y="470" width="205" height="82" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(866 476) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="962.5" y="509" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Product 服务</text>
-        <text data-detail="context" x="962.5" y="525" class="t-muted" font-size="9" text-anchor="middle">读取事实 · 推荐核实</text>
+        <text data-detail="context" x="962.5" y="525" class="t-muted" font-size="9" text-anchor="middle">读取事实 · 标注来源提示</text>
         </g>
 
         <g id="node-consumer" data-node-id="consumer" data-node-label="Consumer 服务" tabindex="0" role="button" aria-label="聚焦Consumer 服务，对话与用户会话, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="对话与用户会话" data-node-context="架构组件">
@@ -5247,9 +5247,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="444.7" y="356" width="115.6" height="14" rx="3" class="c-mask"/>
           <text x="502.5" y="366" class="t-security" font-size="8" text-anchor="middle">/api/admin/products/**</text>
         </g>
-        <g data-detail="context" data-edge-from="intake" data-edge-to="catalog" data-edge-label="单事务写入商品与参数" data-edge-key="2">
+        <g data-detail="context" data-edge-from="intake" data-edge-to="catalog" data-edge-label="单事务写入参数与标签" data-edge-key="2">
           <rect x="754.5" y="291" width="106" height="14" rx="3" class="c-mask"/>
-          <text x="807.5" y="301" class="t-backend" font-size="8" text-anchor="middle">单事务写入商品与参数</text>
+          <text x="807.5" y="301" class="t-backend" font-size="8" text-anchor="middle">单事务写入参数与标签</text>
         </g>
         <g data-detail="context" data-edge-from="product" data-edge-to="catalog" data-edge-label="只读目录事实" data-edge-key="3">
           <rect x="928.7" y="450" width="67.6" height="14" rx="3" class="c-mask"/>
@@ -5475,8 +5475,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>写入边界</h3>
         </div>
         <ul>
-          <li>&bull; 管理员预览规则提取结果并明确确认</li>
-          <li>&bull; Intake 在同一事务内保存商品、参数与审计</li>
+          <li>&bull; 客观参数由规则提取后确认；适用标签单独声明来源</li>
+          <li>&bull; Intake 原子保存商品、参数、标签与审计</li>
         </ul>
       </div>
 
@@ -5486,7 +5486,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>读取边界</h3>
         </div>
         <ul>
-          <li>&bull; Product 只读取目录事实，不承担录入请求</li>
+          <li>&bull; Product 读取参数与目录标注，不把标签当性能保证</li>
           <li>&bull; Consumer 不再托管商品录入接口</li>
         </ul>
       </div>

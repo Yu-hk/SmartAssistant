@@ -146,7 +146,8 @@ public interface ProductBackend {
             BigDecimal marketPrice,
             BigDecimal rating,
             long reviewCount,
-            ProductFeatures features
+            ProductFeatures features,
+            ProductSuitability suitability
     ) {
         public ProductSummary {
             code = code == null ? "" : code;
@@ -156,6 +157,14 @@ public interface ProductBackend {
             category = category == null ? "" : category;
             reviewCount = Math.max(0, reviewCount);
             features = features == null ? ProductFeatures.UNKNOWN : features;
+            suitability = suitability == null ? ProductSuitability.UNKNOWN : suitability;
+        }
+
+        public ProductSummary(String code, String name, BigDecimal price, String stock, String spec,
+                              long popularity, String category, BigDecimal marketPrice,
+                              BigDecimal rating, long reviewCount, ProductFeatures features) {
+            this(code, name, price, stock, spec, popularity, category, marketPrice,
+                    rating, reviewCount, features, ProductSuitability.UNKNOWN);
         }
 
         public ProductSummary(String code, String name, BigDecimal price, String stock, String spec,

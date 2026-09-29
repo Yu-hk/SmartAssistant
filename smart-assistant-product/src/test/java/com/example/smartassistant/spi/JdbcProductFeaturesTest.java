@@ -44,7 +44,8 @@ class JdbcProductFeaturesTest {
         var sql = ArgumentCaptor.forClass(String.class);
         var args = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), args.capture());
-        String conditions = sql.getValue().substring(sql.getValue().indexOf("WHERE"), sql.getValue().indexOf("ORDER BY"));
+        String conditions = sql.getValue().substring(sql.getValue().lastIndexOf("WHERE "),
+                sql.getValue().indexOf("ORDER BY popularity"));
         assertThat(conditions).contains("weight_grams", "battery_life_hours", "battery_life_scenario", "noise_cancelling", "feature_source", "features_verified_at");
         List<Object> expectedArgs = new ArrayList<>(List.of("耳机", "耳机", new BigDecimal("1000"),
                 new BigDecimal("1000"), true));
