@@ -37,9 +37,11 @@ def sha(path):
     return value.hexdigest()
 
 
-def container_command(folder,image,endpoint,label):
+def container_command(folder,image,endpoint,label,main_class='RetrievalCalibrationProbe'):
     if not re.fullmatch(r'(?:sha256:)?[a-f0-9]{64}',image) or not re.fullmatch(r'[a-f0-9]{32}',label):
         raise ValueError('Pinned runtime and owned label required')
+    if main_class not in ('RetrievalCalibrationProbe','NativeRetrievalCalibrationProbe'):
+        raise ValueError('Fixed probe class required')
     return ['docker','create','-i','--name','retrieval-calibration-'+label,'--network','smart-network',
             '--memory','1g','--cpus','1','--pids-limit','128','--read-only','--cap-drop','ALL',
             '--security-opt','no-new-privileges','--tmpfs','/tmp:rw,nosuid,size=134217728',
@@ -47,13 +49,14 @@ def container_command(folder,image,endpoint,label):
             '--mount','type=bind,source='+str(folder)+',target=/benchmark,readonly',
             '--env','RAG_EVAL_EMBEDDING_URL='+endpoint,'--entrypoint','java','-w','/benchmark',image,
             '-Xms64m','-Xmx640m','-XX:ActiveProcessorCount=1','-cp','.:BOOT-INF/classes:BOOT-INF/lib/*',
-            'RetrievalCalibrationProbe']
+            main_class]
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root',required=True,type=Path)
     parser.add_argument('--expected-product-sha256',required=True)
+    parser.add_argument('--profile',choices=('component','native'),default='component')
     args=parser.parse_args()
     root=args.root
     if (root.resolve()!=root or root.parent!=Path('/opt/smart-assistant/eval')
@@ -61,7 +64,11 @@ def main():
         raise ValueError('Dedicated confined evaluation directory required')
     if (root/'report.json').exists(): raise FileExistsError('Fresh experiment required')
     dataset=json.loads((root/'questions.json').read_text(encoding='utf-8'))
-    request=probe_request(dataset)
+    evaluator,request_builder,main_class=evaluate,probe_request,'RetrievalCalibrationProbe'
+    if args.profile=='native':
+        from native_retrieval_calibration import evaluate as native_evaluate, probe_request as native_request
+        evaluator,request_builder,main_class=native_evaluate,native_request,'NativeRetrievalCalibrationProbe'
+    request=request_builder(dataset)
     product,embedding=inspect('smart-product'),inspect('smart-embedding-service')
     if not product['State']['Running'] or not embedding['State']['Running']:
         raise ValueError('Services must already be healthy')
@@ -86,13 +93,13 @@ def main():
                 target.write_bytes(archive.read(item))
         with zipfile.ZipFile(str(root/'calibration-probe.zip')) as archive:
             for item in archive.infolist():
-                if not re.fullmatch(r'RetrievalCalibrationProbe(?:\$[A-Za-z0-9_]+)?\.class',item.filename):
+                if not re.fullmatch(r'(?:Native)?RetrievalCalibrationProbe(?:\$[A-Za-z0-9_]+)?\.class',item.filename):
                     raise ValueError('Unsafe probe entry')
                 (folder/item.filename).write_bytes(archive.read(item))
         for repeat in range(3):
             label=uuid.uuid4().hex; cid=None
             try:
-                cid=run(container_command(folder,product['Image'],endpoint,label)).decode().strip()
+                cid=run(container_command(folder,product['Image'],endpoint,label,main_class)).decode().strip()
                 state=inspect(cid); binds=[m for m in state['Mounts'] if m['Type']=='bind']
                 if len(binds)!=1 or binds[0]['Source']!=str(folder) or binds[0]['RW']:
                     raise ValueError('Read-only classpath isolation failed')
@@ -106,7 +113,7 @@ def main():
                     if owned['Id']!=cid or owned['Config']['Labels'].get('smartassistant.retrieval-calibration')!=label:
                         raise ValueError('Cleanup ownership mismatch')
                     run(['docker','rm','-f',cid]); removed+=1
-        report=evaluate(dataset,trials)
+        report=evaluator(dataset,trials)
         latest_product,latest_embedding=inspect('smart-product'),inspect('smart-embedding-service')
         if (latest_product['Id']!=product['Id'] or latest_embedding['Id']!=embedding['Id']
                 or not latest_product['State']['Running'] or not latest_embedding['State']['Running']
