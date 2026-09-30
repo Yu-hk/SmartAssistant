@@ -14,7 +14,7 @@ def fixture():
             'question':'开发问题','expected_doc_ids':['DEV']},
            {'id':'hold','split':'holdout','family':'hold-family','knowledge_base':'product_knowledge',
             'question':'留出问题','expected_doc_ids':['HOLD']}]
-    dataset={'schema_version':1,'synthetic_only':True,'reference_policy':'human_authored_frozen_before_collection',
+    dataset={'schema_version':1,'synthetic_only':True,'reference_policy':'curated_frozen_before_collection',
              'corpus':'public_knowledge_seed','top_k':2,'cases':cases}
     corpus={'product_knowledge':[{'id':item,'textSha256':'a'*64} for item in ('DEV','HOLD','NOISE')],
             'order_knowledge':[{'id':'ORD','textSha256':'b'*64}]}

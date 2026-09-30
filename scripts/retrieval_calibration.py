@@ -21,7 +21,7 @@ METRICS = ('id_recall_at_k', 'id_precision_at_k', 'id_ndcg_at_k', 'id_ap_at_k')
 
 def validate_questions(dataset):
     if (dataset.get('schema_version') != 1 or dataset.get('synthetic_only') is not True
-            or dataset.get('reference_policy') != 'human_authored_frozen_before_collection'
+            or dataset.get('reference_policy') != 'curated_frozen_before_collection'
             or dataset.get('corpus') != 'public_knowledge_seed'):
         raise ValueError('Frozen synthetic seed reference required')
     k = dataset.get('top_k')

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "synthetic_only": true,
-  "reference_policy": "human_authored_frozen_before_collection",
+  "reference_policy": "curated_frozen_before_collection",
   "corpus": "public_knowledge_seed",
   "top_k": 3,
   "cases": [

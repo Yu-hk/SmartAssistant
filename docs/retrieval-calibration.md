@@ -8,7 +8,7 @@
 
 ## 固定输入与策略
 
-`data/retrieval_calibration_questions.json` 包含 20 个新合成问题：8 个开发题、12 个留出题，涉及商品知识与订单政策，含 3 个双事实题。参考文档 ID 在调用前人工冻结，不从候选答案或检索输出生成。开发/留出之间禁止重复问题、相同问题族和相同参考文档；金标、split 和参考答案不发送给检索器。实际输出绑定问题 SHA-256、知识域及种子正文摘要，防止同 ID 的问题漂移。
+`data/retrieval_calibration_questions.json` 包含 20 个新合成问题：8 个开发题、12 个留出题，涉及商品知识与订单政策，含 3 个双事实题。参考文档 ID 由本轮开发预先标注并冻结，不从候选答案或检索输出生成；尚未经过业务专家的独立审核，不能声称是人工专家验收金标。开发/留出之间禁止重复问题、相同问题族和相同参考文档；金标、split 和参考答案不发送给检索器。实际输出绑定问题 SHA-256、知识域及种子正文摘要，防止同 ID 的问题漂移。
 
 固定策略网格为：自适应稀疏权重、固定 0.2 / 0.5 / 0.8，各搭配语义单独重排与融合贡献 0.35，共 8 种。稠密权重为 `1 - sparse`，生产实现的 RRF 常数和归一化保持不变。每题固定 Top-3，BM25 保留正分，稠密候选保留余弦相似度至少 0.30 的文档；候选最多 20 条。每轮用新 JVM 重新检索，向量仅在该进程内缓存，三轮输入与语料必须一致；不是把一次结果重复计算三次指标。
 
@@ -38,7 +38,7 @@ python scripts/prepare_retrieval_calibration.py --classpath-file smart-assistant
 服务器准备新的受限 `/opt/smart-assistant/eval/retrieval-calibration-<日期>` 目录，仅放 `questions.json`、`calibration-probe.zip` 和三个 Python 工具（`retrieval_calibration.py`、`ragas_feedback.py`、`run_retrieval_calibration_server.py`），再执行：
 
 ```sh
-python3 run_retrieval_calibration_server.py --root /opt/smart-assistant/eval/retrieval-calibration-20261001-2 --expected-product-sha256 <实际已部署Product摘要>
+python3 run_retrieval_calibration_server.py --root /opt/smart-assistant/eval/retrieval-calibration-20261001-3 --expected-product-sha256 <实际已部署Product摘要>
 ```
 
 工具读取固定摘要的已部署 Product JAR，提取类和依赖到本次拥有的 `/dev/shm` 临时目录。三轮短生命周期容器固定完整镜像摘要、1 CPU / 1 GiB、只读根文件系统、cap-drop ALL、无新权限、PID 上限 128，仅挂只读类路径；不挂生产数据库、业务卷、Docker socket 或模型凭证。只请求已存在的内网向量服务，前后核对 Product/Embedding 容器和工件未变。不重启业务服务，不保存真实问题或账号密码。
