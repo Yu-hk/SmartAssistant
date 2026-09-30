@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "synthetic_only": true,
+  "reference_policy": "curated_frozen_before_collection",
+  "corpus": "public_knowledge_seed",
+  "top_k": 3,
+  "cases": [
+    {"id":"dev-return","split":"development","family":"return-conditions","knowledge_base":"order_knowledge","question":"签收六天、配件齐全且商品完好，想退货需要哪些条件？","expected_doc_ids":["ORD-REFUND-001"]},
+    {"id":"dev-dispatch","split":"development","family":"dispatch","knowledge_base":"order_knowledge","question":"非预售商品一般多长时间发出，遇到节假日呢？","expected_doc_ids":["ORD-SHIP-001"]},
+    {"id":"dev-payment","split":"development","family":"payment","knowledge_base":"order_knowledge","question":"付款支持哪些渠道？一直不付款的订单会怎样？","expected_doc_ids":["ORD-PAY-001"]},
+    {"id":"dev-state","split":"development","family":"order-states","knowledge_base":"order_knowledge","question":"请解释一笔订单从创建直到收货完成的状态变化。","expected_doc_ids":["ORD-STATUS-001"]},
+    {"id":"dev-category","split":"development","family":"categories","knowledge_base":"product_knowledge","question":"商城的商品分类有哪些，能买到哪些种类？","expected_doc_ids":["PROD-CAT-001"]},
+    {"id":"dev-identify","split":"development","family":"identification","knowledge_base":"product_knowledge","question":"我想查一款商品的资料，应该先报名称、品牌还是型号？","expected_doc_ids":["PROD-QUERY-001"]},
+    {"id":"dev-price-policy","split":"development","family":"price-policy","knowledge_base":"product_knowledge","question":"刚买完就降价，平台有没有价格保护政策？","expected_doc_ids":["PROD-PRICE-001"]},
+    {"id":"dev-compare","split":"development","family":"comparison","knowledge_base":"product_knowledge","question":"挑两款同类商品做比较，哪些维度值得看？","expected_doc_ids":["PROD-COMPARE-001"]},
+    {"id":"hold-refund-timing","split":"holdout","family":"refund-timing","knowledge_base":"order_knowledge","question":"退款提交后商家多久审核，银行卡多久能收到钱？","expected_doc_ids":["ORD-REFUND-002"]},
+    {"id":"hold-tracking","split":"holdout","family":"tracking","knowledge_base":"order_knowledge","question":"包裹好几天没有新的物流轨迹，应如何处理？","expected_doc_ids":["ORD-SHIP-002"]},
+    {"id":"hold-cancel","split":"holdout","family":"cancellation","knowledge_base":"order_knowledge","question":"商家已发货，现在不想要了还能取消吗？","expected_doc_ids":["ORD-CANCEL-001"]},
+    {"id":"hold-coupon","split":"holdout","family":"coupons","knowledge_base":"order_knowledge","question":"同一个订单想用两张优惠券抵扣，规则允许吗？","expected_doc_ids":["ORD-COUPON-001"]},
+    {"id":"hold-contact","split":"holdout","family":"support-hours","knowledge_base":"order_knowledge","question":"星期六几点能联系到人工客服？","expected_doc_ids":["ORD-CONTACT-001"]},
+    {"id":"hold-return-freight","split":"holdout","family":"return-freight","knowledge_base":"order_knowledge","question":"卖家发错货需要退回，退件邮费由谁负责？","expected_doc_ids":["ORD-REFUND-003"]},
+    {"id":"hold-stock","split":"holdout","family":"stock-policy","knowledge_base":"product_knowledge","question":"库存显示采购中与库存紧张有什么区别？","expected_doc_ids":["PROD-STOCK-001"]},
+    {"id":"hold-reviews","split":"holdout","family":"review-policy","knowledge_base":"product_knowledge","question":"只想看晒图评价，评价可以筛选和排序吗？","expected_doc_ids":["PROD-EVAL-001"]},
+    {"id":"hold-warranty","split":"holdout","family":"warranty","knowledge_base":"product_knowledge","question":"保修期内正常使用发生故障，维修要额外付费吗？","expected_doc_ids":["PROD-AFTERSALE-001"]},
+    {"id":"hold-refund-logistics","split":"holdout","family":"multi-refund-logistics","knowledge_base":"order_knowledge","question":"银行卡退款什么时候到账？另外物流几天不更新怎么办？","expected_doc_ids":["ORD-REFUND-002","ORD-SHIP-002"]},
+    {"id":"hold-coupon-support","split":"holdout","family":"multi-coupon-support","knowledge_base":"order_knowledge","question":"订单能叠加优惠券吗？周末人工客服什么时候在线？","expected_doc_ids":["ORD-COUPON-001","ORD-CONTACT-001"]},
+    {"id":"hold-reviews-warranty","split":"holdout","family":"multi-reviews-warranty","knowledge_base":"product_knowledge","question":"怎样只看有图的商品评价？保修期内非人为损坏维修收费吗？","expected_doc_ids":["PROD-EVAL-001","PROD-AFTERSALE-001"]}
+  ]
+}
