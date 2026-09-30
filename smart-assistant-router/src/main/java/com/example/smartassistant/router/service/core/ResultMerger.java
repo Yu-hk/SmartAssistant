@@ -265,12 +265,20 @@ public class ResultMerger {
         SubTaskResult selected = null;
         for (var result : results) {
             Map<String, Object> data = result.getStructuredData();
-            if (!(data.get("multiProductQueryVersion") instanceof Number version) || version.intValue() != 1) continue;
+            boolean multiContract = data.get("multiProductQueryVersion") instanceof Number version && version.intValue() == 1;
+            // The Product protocol intentionally omits multiProductQueryVersion
+            // for single entities; use its actual entity-resolution contract.
+            boolean entityClarification = data.get("productEntityResolutionVersion") instanceof Number entityVersion
+                    && entityVersion.intValue() == 1 && Boolean.TRUE.equals(data.get("clarificationRequired"));
+            if (!multiContract && !entityClarification) continue;
             if (!"product".equals(AgentDiscoveryService.canonicalAgentName(result.getAgentName()))) return null;
             if (!result.getDomainQuality().isPass() || !Boolean.TRUE.equals(data.get("deterministic"))
                     || !(data.get("queryPlan") instanceof Map<?, ?> plan)
                     || !scope.equals(plan.get("originalQuestion"))
-                    || !(plan.get("products") instanceof List<?> products) || products.size() < 2 || products.size() > 4
+                    || !(plan.get("products") instanceof List<?> products) || products.isEmpty() || products.size() > 4
+                    // A single-product clarification is authoritative too: unstructured
+                    // model prose must not append an invalid-quantity total afterward.
+                    || (products.size() == 1 && !Boolean.TRUE.equals(data.get("clarificationRequired")))
                     || !(data.get("productEvidence") instanceof List<?> evidence) || evidence.size() != products.size()
                     || result.getResult() == null || result.getResult().isBlank()) return null;
             if (selected != null && (!Objects.equals(selected.getStructuredData().get("queryPlan"), plan)

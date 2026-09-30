@@ -64,6 +64,29 @@ def main():
     result = ask('AirPods Pro价格低于1999元？')
     expect('价格条件不符合' in result['answer'], 'strict price condition boundary')
     checked += 1
+    for quantity in ('0件', '0 件', '100件', '1.5件'):
+        result = ask('AirPods Pro ' + quantity + '合计多少钱？')
+        expect(result['data']['entityTasks'][0]['entity']['code'] == 'AIRPODS-PRO', 'invalid quantity retains explicit identity')
+        expect(result['data']['clarificationRequired'], 'invalid quantity requires clarification')
+        expect(result['data'].get('productEntityResolutionVersion') == 1, 'single entity carries its actual versioned protocol')
+        expect('1～99' in result['answer'] and '目录价格合计' not in result['answer'] and '合计：' not in result['answer'], 'invalid quantity never calculated')
+        expect('orderQuote' not in result['data'], 'invalid quantity creates no order quote')
+        checked += 1
+    result = ask('AirPods Pro价格不超过2000克？')
+    expect('价格条件符合' not in result['answer'], 'wrong price unit never satisfies price condition')
+    expect(result['data']['clarificationRequired'], 'wrong price unit requires clarification')
+    checked += 1
+    for question in ('AirPods Pro续航多少小时？', 'AirPods Pro续航几小时？'):
+        result = ask(question)
+        expect(not result['data']['unsupportedConditions'], 'open duration question is not an unsupported threshold')
+        expect(result['data']['entityTasks'][0]['fields'] == ['BATTERY'], 'duration binds battery field')
+        quote = result['data'].get('orderQuote')
+        # A complete, unambiguous single-item query may carry an internal catalog
+        # quote. This is not an order/payment write; unlike ambiguous totals it is
+        # part of the existing read-only response contract.
+        if quote:
+            expect(quote['amount'] == 1999 and 'AirPods Pro' in quote['productName'], 'optional single-item quote is catalog-derived')
+        checked += 1
     print('READ_ONLY_ENTITY_CHECKS_COMPLETE questions=' + str(checked), flush=True)
 
 
