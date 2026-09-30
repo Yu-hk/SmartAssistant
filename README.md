@@ -168,6 +168,8 @@ GitHub Actions 会执行：
 
 四维评估新增可重复运行的 Ragas 0.4.3 适配器：从线上商品只读调用采集实际答案及按序字段证据，使用预先冻结的合成参考答案重复评判上下文召回率、上下文精度、忠实度、答案相关性；完整保留失败与波动，输出检索/生成改进的影子建议。此阶段不读取真实用户会话、不自动重检索或改变线上权重，目录字段证据也不冒充完整向量检索轨迹。详见 [四维评测与反馈说明](docs/ragas-feedback.md)。
 
+商品字段覆盖独立于相似度：逐商品标记已知、资料未知、证据缺失、身份未确定，不能用一个高分候选代表全部需求。可完整解析的目录事实不再进入模糊重排；未知字段保留显式未知，超过证据预算或身份不明时不扩大到其他型号。RAG 管线记录各路候选、各阶段顺序和最终上下文指纹，并沿实际请求 ID 接入阶段追踪；新增轨迹不保存问题原文、历史或证据正文。离线评分校验答案/证据指纹，区分字段遗漏、生成问题、计算上下文和未知答案评分偏差。融合与语义重排的混合参数默认仍为 0，须同金标对照验证后再启用；本轮没有开启 Ragas 驱动的自动重检索。详见[覆盖与追踪实施说明](docs/retrieval-coverage.md)。
+
 - [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
 - [交互式运行时架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)
 - [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)

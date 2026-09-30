@@ -47,6 +47,7 @@ public class RerankHandler implements RagSearchHandler {
      * 为空时退化为固定 {@link #topK}。
      */
     private final Function<String, Integer> topKResolver;
+    private final double fusionWeight;
 
     public RerankHandler(BiFunction<String, String, Double> scorer, boolean enabled, int topK) {
         this(scorer, enabled, topK, null);
@@ -54,10 +55,20 @@ public class RerankHandler implements RagSearchHandler {
 
     public RerankHandler(BiFunction<String, String, Double> scorer, boolean enabled,
                          int topK, Function<String, Integer> topKResolver) {
+        this(scorer, enabled, topK, topKResolver, 0.0);
+    }
+
+    /** Fusion contribution is opt-in; semantic scores alone cannot erase lexical ranking. */
+    public RerankHandler(BiFunction<String, String, Double> scorer, boolean enabled,
+                         int topK, Function<String, Integer> topKResolver, double fusionWeight) {
+        if (!Double.isFinite(fusionWeight) || fusionWeight < 0 || fusionWeight > 1) {
+            throw new IllegalArgumentException("fusionWeight must be finite and within 0..1");
+        }
         this.scorer = scorer != null ? scorer : identity();
         this.enabled = enabled;
         this.topK = topK > 0 ? topK : 5;
         this.topKResolver = topKResolver;
+        this.fusionWeight = fusionWeight;
     }
 
     public RerankHandler(BiFunction<String, String, Double> scorer) {
@@ -81,16 +92,26 @@ public class RerankHandler implements RagSearchHandler {
 
         // 对所有结果重新评分
         List<ScoredItem> reScored = new ArrayList<>();
+        double maximum = fused.stream().mapToDouble(RagSearchContext.RankedItem::getRrfScore)
+                .filter(Double::isFinite).max().orElse(0);
         for (RagSearchContext.RankedItem item : fused) {
             try {
                 double score = scorer.apply(query, item.getContent());
+                if (!Double.isFinite(score)) throw new IllegalArgumentException("Non-finite rerank score");
+                if (fusionWeight > 0) {
+                    double fusion = maximum > 0 && Double.isFinite(item.getRrfScore())
+                            ? Math.max(0, Math.min(1, item.getRrfScore() / maximum)) : 0;
+                    score = fusionWeight * fusion + (1 - fusionWeight) * Math.max(0, Math.min(1, score));
+                }
                 reScored.add(new ScoredItem(item, score));
             } catch (com.example.smartassistant.common.error.AgentException e) {
                 // 嵌入类可重试错误 → 向上冒泡，由管线漏斗统一分级（保留其它异常的优雅降级）
                 throw e;
             } catch (Exception e) {
-                log.warn("[RerankHandler] 评分失败: {}", e.getMessage());
-                reScored.add(new ScoredItem(item, item.getRrfScore()));
+                // Do not compare raw RRF (~0.01) with semantic scores (~0.8).
+                // Preserve the complete fused ordering on a partial scorer failure.
+                context.addError("RerankHandler", "RERANK_SCORER_UNAVAILABLE", e.getClass().getSimpleName());
+                return;
             }
         }
 
@@ -120,6 +141,7 @@ public class RerankHandler implements RagSearchHandler {
         }
 
         context.setFusedResults(reranked);
+        context.setAttribute("rag.rerankFusionWeight", fusionWeight);
 
         long elapsed = System.currentTimeMillis() - start;
         log.info("[RerankHandler] 重排完成: {}→{} items, 耗时={}ms",

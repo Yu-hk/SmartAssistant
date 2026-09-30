@@ -21,6 +21,12 @@ def controls(dataset):
     missing.update(id='control-missing-evidence', source='negative_control',
                    retrieved_contexts=multiple['retrieved_contexts'][1:],
                    retrieved_context_ids=multiple['retrieved_context_ids'][1:])
+    for row in (wrong, unrelated, missing):
+        # Modified controls are not live responses. Never retain a manifest bound
+        # to the old answer/context or use its complete-coverage claim as current.
+        trace = row.pop('evidence_trace', None)
+        if trace is not None:
+            row['source_trace_sha256'] = digest(trace)
     result = {'schema_version': 1, 'synthetic_only': True, 'source_dataset_sha256': digest(dataset),
               'context_kind': 'intentionally_modified_negative_controls',
               'cases': [wrong, unrelated, missing]}
