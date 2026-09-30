@@ -30,6 +30,9 @@ public class RagSearchContext {
     /** 最终融合结果 */
     private final List<RankedItem> fusedResults;
 
+    /** Immutable stage snapshots; hashes correlate evidence without retaining user text. */
+    private final List<Map<String, Object>> stageSnapshots = new ArrayList<>();
+
     /** 是否已终止（后续 Handler 可检查并跳过） */
     private boolean terminated;
 
@@ -75,6 +78,26 @@ public class RagSearchContext {
     public double getQualityThreshold() { return qualityThreshold; }
     public long getElapsedMs() { return System.currentTimeMillis() - startTime; }
     public long getStartTime() { return startTime; }
+
+    public List<Map<String, Object>> getStageSnapshots() { return List.copyOf(stageSnapshots); }
+
+    public void snapshot(String stage) {
+        if (stageSnapshots.size() >= 32) return;
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (RankedItem item : fusedResults.stream().limit(64).toList()) {
+            items.add(Map.of("id", evidenceId(item.getContent()), "rank", items.size() + 1,
+                    "score", Double.isFinite(item.getRrfScore()) ? item.getRrfScore() : 0.0,
+                    "scoreAvailable", Double.isFinite(item.getRrfScore())));
+        }
+        stageSnapshots.add(Map.of("stage", stage, "items", List.copyOf(items), "degraded", degraded));
+    }
+
+    public static String evidenceId(String content) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(Objects.toString(content, "").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
 
     // ==================== Setters ====================
 

@@ -19,7 +19,7 @@
     { "id": "retrieve", "lane": "retrieval", "col": 3, "type": "database", "label": "多路召回", "sublabel": "精确 / 关键词 / 商品 BM25 / 知识库 / 图", "width": 202 },
     { "id": "weights", "lane": "fusion", "col": 2, "type": "backend", "label": "权重计算", "sublabel": "按问题特征调整稀疏 / 稠密", "width": 176 },
     { "id": "rrf", "lane": "fusion", "col": 4, "type": "backend", "label": "加权 RRF", "sublabel": "精确事实与图谱保持固定权重", "width": 174 },
-    { "id": "evidence", "lane": "fusion", "col": 5, "type": "backend", "label": "证据质量", "sublabel": "不足时有界补检", "width": 150 }
+    { "id": "evidence", "lane": "fusion", "col": 5, "type": "backend", "label": "重排与证据", "sublabel": "阶段指纹 / 安全降级", "width": 164 }
   ],
   "edges": [
     { "id": "ask-scope", "from": "question", "to": "scope", "variant": "default" },
@@ -32,6 +32,6 @@
   ],
   "cards": [
     { "dot": "emerald", "title": "选域边界", "items": ["商品 Agent 只查配置且已注册的商品知识库", "其他业务库不会因用户关键词混入"] },
-    { "dot": "cyan", "title": "当前策略", "items": ["原问题保留；商品 BM25 收录目录规格与已确认适用标签", "Multi-Query 默认关闭，证据不足时最多补检一次"] }
+    { "dot": "cyan", "title": "当前策略", "items": ["明确只读字段走目录覆盖核验，不走全局模糊改写", "RRF 不是召回率；阶段留痕，新混合权重默认关闭"] }
   ]
 }

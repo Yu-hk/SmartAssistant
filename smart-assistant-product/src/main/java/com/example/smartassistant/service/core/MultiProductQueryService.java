@@ -146,7 +146,15 @@ public final class MultiProductQueryService {
         data.put("queryPlan", Map.of("originalQuestion", plan.originalQuestion(), "products", plan.products(), "fields", plan.fields().stream().map(Enum::name).toList(),
                 "relation", plan.relation().name(), "purpose", plan.purpose(), "budgetScope", plan.budgetScope().name(),
                 "budget", plan.budget() == null ? "" : number(plan.budget())));
+        ProductFieldCoverage.Report fieldCoverage = ProductFieldCoverage.inspect(plan, semantic, evidence);
+        data.put("fieldCoverage", fieldCoverage.toMap());
+        if (fieldCoverage.missing() > 0) {
+            clarification = true;
+            lines.add("部分所需字段的查询证据未返回，请稍后核实；不能视为已经完整回答。");
+        }
+        data.put("clarificationRequired", clarification);
         data.put("productEvidence", evidence);
+        Map<String, Object> manifest = new LinkedHashMap<>(ProductEvidenceTrace.catalog(requestId, plan, evidence, fieldCoverage, quantities));
         data.put("products", products.stream().map(MultiProductQueryService::catalogData).toList());
         data.put("productCount", products.size());
         data.put("productCoverage", Map.of("requested", plan.products().size(), "resolved", products.size()));
@@ -156,7 +164,10 @@ public final class MultiProductQueryService {
                 data.put("orderQuote", Map.of("productName", product.name(), "amount", product.price()));
         }
         if (clarification) data.put("clarificationRequest", new ClarificationRequest("product", "QUERY_PRODUCT", List.of("product")).toMap());
-        return AgentExecutionResponse.success(String.join("\n", lines), data,
+        String answer = String.join("\n", lines);
+        manifest.put("responseSha256", ProductEvidenceTrace.hash(answer));
+        data.put("evidenceTrace", Collections.unmodifiableMap(manifest));
+        return AgentExecutionResponse.success(answer, data,
                 DomainQualityResult.pass(1, "MULTI_PRODUCT_CATALOG_FACTS"));
     }
 
