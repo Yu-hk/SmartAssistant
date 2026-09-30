@@ -21,7 +21,13 @@ public class ProductFactQueryService {
     private static final Pattern UNSAFE = Pattern.compile(
             "订单|下单|购买|买一|退款|退货|支付|转账|删除|取消|然后|另外|顺便|忽略|指令|系统提示|知识库|资料|文档|[\\r\\n]");
     private final ProductBackend backend;
-    public ProductFactQueryService(ProductBackend backend) { this.backend = backend; }
+    private final ProductEntityResolver entityResolver;
+    @org.springframework.beans.factory.annotation.Autowired
+    public ProductFactQueryService(ProductBackend backend, ProductEntityResolver entityResolver) {
+        this.backend = backend; this.entityResolver = entityResolver;
+    }
+    public ProductFactQueryService(ProductBackend backend) { this(backend, null); }
+    public static boolean maySupport(String question) { return ProductSemanticQueryPlan.maySupport(question); }
     private record Query(String name, String fields) { }
     private static Query parse(String value) {
         if (value == null || value.length() > 160 || UNSAFE.matcher(value).find()) return null;
@@ -29,6 +35,17 @@ public class ProductFactQueryService {
         return match.matches() ? new Query(match.group(1).trim(), match.group(2)) : null;
     }
     public AgentExecutionResponse query(String question, List<String> history, String requestId) {
+        if (entityResolver != null && maySupport(question)) {
+            try {
+                String current = ProductQueryContext.current(question);
+                var entities = entityResolver.resolve(current, history, requestId);
+                if (entities.size() > 4) return handled("一次最多核对四款商品，请拆成两次咨询。", List.of(), true);
+                var semantic = ProductSemanticQueryPlan.parse(current, entities);
+                if (semantic.isPresent()) return new MultiProductQueryService(backend).query(semantic.get(), requestId);
+            } catch (RuntimeException unavailable) {
+                return AgentExecutionResponse.failure("PRODUCT_CATALOG_UNAVAILABLE", "抱歉，商品身份或目录暂时无法查询，请稍后再试。", true);
+            }
+        }
         var multi = MultiProductQueryPlan.parse(question);
         if (multi.isPresent()) return new MultiProductQueryService(backend).query(multi.get(), requestId);
         Query query = parse(question);

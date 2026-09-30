@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {"title": "商品实体解析与逐项条件核验", "locale": "zh-CN", "quality_profile": "showcase"},
+  "lanes": [
+    {"id": "identify", "label": "当前问题与本会话上下文"},
+    {"id": "verify", "label": "实体关联与目录事实"},
+    {"id": "respond", "label": "条件、关系与可追溯回复"}
+  ],
+  "mainPath": ["input", "mentions", "link", "tasks", "facts", "conditions", "answer"],
+  "nodes": [
+    {"id": "input", "lane": "identify", "col": 0, "type": "backend", "label": "只读能力确认", "sublabel": "模型规划 / Product 探针", "width": 165},
+    {"id": "mentions", "lane": "identify", "col": 1, "type": "backend", "label": "商品提及与指代", "sublabel": "名称 / 别名 / 展示顺序", "width": 165},
+    {"id": "link", "lane": "verify", "col": 1, "type": "security", "label": "目录身份关联", "sublabel": "规范化 / 型号代际", "width": 165},
+    {"id": "suggest", "lane": "verify", "col": 2, "type": "external", "label": "候选与 Jev 建议", "sublabel": "最多 5 项 / 仍需核实", "width": 165},
+    {"id": "tasks", "lane": "respond", "col": 2, "type": "backend", "label": "逐商品查询任务", "sublabel": "字段 / 条件 / 数量", "width": 165},
+    {"id": "facts", "lane": "respond", "col": 3, "type": "database", "label": "编码读取实时事实", "sublabel": "来源与身份再校验", "width": 165},
+    {"id": "conditions", "lane": "respond", "col": 4, "type": "security", "label": "核验条件与合计", "sublabel": "未知项不可算作满足", "width": 165},
+    {"id": "answer", "lane": "respond", "col": 5, "type": "frontend", "label": "事实与待核实项", "sublabel": "解析状态 / 字段证据", "width": 160}
+  ],
+  "edges": [
+    {"from": "input", "to": "mentions"},
+    {"from": "mentions", "to": "link", "label": "目录锚定", "variant": "security"},
+    {"from": "link", "to": "tasks", "label": "准确身份", "variant": "emphasis"},
+    {"from": "link", "to": "suggest", "label": "陌生或歧义", "role": "branch", "variant": "dashed"},
+    {"from": "suggest", "to": "tasks", "label": "待核实状态", "role": "branch", "variant": "dashed"},
+    {"from": "tasks", "to": "facts"},
+    {"from": "facts", "to": "conditions"},
+    {"from": "conditions", "to": "answer"}
+  ],
+  "cards": [
+    {"dot": "rose", "title": "身份与数据边界", "items": ["模型先规划，商品认领后固定读取节点", "品牌、代际与版本由管理员注明来源并审计", "本会话外或话题切换前的身份不得用于指代"]},
+    {"dot": "cyan", "title": "安全与评估边界", "items": ["未知条件显式核实；缺项不得伪造总价", "实体与条件金标独立于 Ragas 答案质量评估"]}
+  ]
+}

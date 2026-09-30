@@ -10,6 +10,30 @@ permissions:
   contents: read
 
 jobs:
+  product-entity-contract:
+    name: Product entity and constraint golden contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - run: >-
+          mvn -B -pl smart-assistant-product,smart-assistant-data-intake -am test
+          -Dtest=ProductEntityResolverTest,ProductEntityEvaluationTest,ProductConversationHistoryTest,JevProductEntityAdvisorTest,JdbcProductIdentityTest,ProductIdentityUpdateTest,AdminProductIdentityControllerTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: product-entity-golden-contract
+          path: |
+            smart-assistant-product/target/product-entity-metrics.json
+            smart-assistant-product/target/surefire-reports/TEST-*Entity*.xml
+            smart-assistant-data-intake/target/surefire-reports/TEST-*Identity*.xml
+          if-no-files-found: error
+
   database-bootstrap-restore:
     name: PG16 bootstrap and logical restore
     runs-on: ubuntu-latest
@@ -219,6 +243,10 @@ jobs:
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.GovernedEntityProfileIntegrationTest.xml --minimum 10
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.ProfileAdmissionIntegrationTest.xml --minimum 9
           python3 scripts/verify_integration_reports.py smart-assistant-consumer/target/surefire-reports/TEST-com.example.smartassistant.consumer.service.recommendation.GovernedAgentMemoryIntegrationTest.xml --minimum 10
+      - name: Verify identity metadata transactions against PostgreSQL
+        run: |
+          mvn -B -pl smart-assistant-data-intake -am test -Dtest=AdminProductIdentityPgIntegrationTest -Didentity.pg.integration=true -Dsurefire.failIfNoSpecifiedTests=false
+          python3 scripts/verify_integration_reports.py smart-assistant-data-intake/target/surefire-reports/TEST-com.example.smartassistant.intake.service.admin.AdminProductIdentityPgIntegrationTest.xml --minimum 4
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -428,7 +456,7 @@ jobs:
       - name: Run router end-to-end test
         run: |
           mvn -B -pl smart-assistant-router -am -DskipTests install
-          mvn -B -pl smart-assistant-router clean test -Dtest="RouterCancellationRecoveryTest,InterruptedLeaseCleanupTest,RouterControllerIdentityTest,RouterControllerTokenUsageTest,RouterSingleIntentFastPathTest,BgeOnnxEmbeddingServiceTest,RouteLangGraphExecutionTest,RouterCachedRouteHintTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest"
+          mvn -B -pl smart-assistant-router clean test -Dtest="RouterCancellationRecoveryTest,InterruptedLeaseCleanupTest,RouterControllerIdentityTest,RouterControllerTokenUsageTest,RouterSingleIntentFastPathTest,BgeOnnxEmbeddingServiceTest,RouteLangGraphExecutionTest,RouterCachedRouteHintTest,RouterConversationContextTest,TaskAnalysisPromptTest,ProductEntityReferencePlanGuardTest,RouteFinalizerTest,ReflectionServiceTest,QualityEvaluationServiceTest,LangGraphRouteExecutionServiceTest,GraphNodeExecutionServiceTest,LangGraphRedisCheckpointSaverTest"
       - name: Upload surefire report
         if: always()
         uses: actions/upload-artifact@v4

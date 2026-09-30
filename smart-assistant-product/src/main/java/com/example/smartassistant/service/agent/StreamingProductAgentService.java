@@ -184,8 +184,10 @@ public class StreamingProductAgentService {
         String originalUserMessage = userMessage;
         String rid = (requestId != null && !requestId.isBlank()) ? requestId : ("prod-" + System.nanoTime());
         // The direct sync/SSE entry must use the same bounded decomposition as protocol requests.
-        if (factQueryService != null && com.example.smartassistant.service.core.MultiProductQueryPlan.parse(userMessage).isPresent()) {
-            var multi = factQueryService.query(userMessage, List.of(), rid);
+        String currentEntityQuestion = com.example.smartassistant.service.core.ProductConversationHistory.currentQuestion(userMessage);
+        if (factQueryService != null && com.example.smartassistant.service.core.ProductFactQueryService.maySupport(currentEntityQuestion)) {
+            var multi = factQueryService.query(currentEntityQuestion,
+                    com.example.smartassistant.service.core.ProductConversationHistory.read(Map.of(), userMessage), rid);
             if (Boolean.TRUE.equals(multi.data().get("handled"))) return DomainAgentResponse.of(multi.answer(), multi.quality().toDomainQuality());
             if (multi.error() != null) return DomainAgentResponse.of(multi.error().message(), multi.quality().toDomainQuality());
         }

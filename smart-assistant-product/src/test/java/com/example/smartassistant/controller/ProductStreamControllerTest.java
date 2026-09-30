@@ -29,6 +29,23 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ProductStreamControllerTest {
+    @Test void legacyNodeEnvelopePassesRoleHistoryToSemanticResolver() {
+        var agent = mock(StreamingProductAgentService.class);
+        var facts = mock(com.example.smartassistant.service.core.ProductFactQueryService.class);
+        var controller = new ProductStreamController(agent);
+        org.springframework.test.util.ReflectionTestUtils.setField(controller, "factQueryService", facts);
+        String envelope = "第二款价格？\n[对话上下文]\n[商品实体历史]\n用户：AirPods和MacBook\n助手：MacBook、AirPods\n[商品实体历史结束]";
+        List<String> history = List.of("用户：AirPods和MacBook", "助手：MacBook、AirPods");
+        when(facts.query(eq("第二款价格？"), eq(history), anyString())).thenReturn(
+                AgentExecutionResponse.success("1999", Map.of("handled", true), DomainQualityResult.pass(1, "FACT")));
+        for (String operation : List.of("ANSWER", "QUERY_PRODUCT")) {
+            var request = new AgentExecutionRequest("1.0", "legacy-entity-" + operation, "query", "12", operation,
+                    envelope, Map.of(), List.of(), List.of(), null, null);
+            assertEquals("1999", controller.execute(request, null).getBody().answer());
+        }
+        org.mockito.Mockito.verify(facts, org.mockito.Mockito.times(2)).query(eq("第二款价格？"), eq(history), anyString());
+        org.mockito.Mockito.verifyNoInteractions(agent);
+    }
     @Test
     void normalMultiProductRequestUsesCatalogWithoutModelFailureAndRetainsOriginalScope() {
         var agent = mock(StreamingProductAgentService.class);
@@ -106,7 +123,7 @@ class ProductStreamControllerTest {
     }
 
     @Test
-    void modelIsPreferredAndOnlyModelFailureEnablesFactFallback() {
+    void unsupportedCatalogQuestionFallsThroughToModelAndExactFactsSkipModel() {
         var agent = mock(StreamingProductAgentService.class);
         var facts = mock(com.example.smartassistant.service.core.ProductFactQueryService.class);
         var controller = new ProductStreamController(agent);
@@ -115,14 +132,17 @@ class ProductStreamControllerTest {
                 "AirPods Pro多少钱？有货吗？", Map.of(), List.of(), List.of(), null, null);
         when(agent.executeWithQuality(anyString(), eq("model-first"))).thenReturn(
                 DomainAgentResponse.of("已为您查询：售价1999元，有货。", DomainQualityResult.pass(1, "VERIFIED")));
+        when(facts.query(anyString(), anyList(), eq("model-first"))).thenReturn(
+                AgentExecutionResponse.success("", Map.of("handled", false), DomainQualityResult.unknown()));
         assertEquals("已为您查询：售价1999元，有货。", controller.execute(request, null).getBody().answer());
-        org.mockito.Mockito.verifyNoInteractions(facts);
+        verify(facts).query(anyString(), anyList(), eq("model-first"));
         when(agent.executeWithQuality(anyString(), eq("model-first"))).thenReturn(
                 DomainAgentResponse.of("服务不可用", DomainQualityResult.fail("MODEL_BILLING_UNAVAILABLE")));
         when(facts.query(anyString(), anyList(), eq("model-first"))).thenReturn(
                 AgentExecutionResponse.success("售价1999元，库存充足。", Map.of("handled", true), DomainQualityResult.pass(1, "FACT")));
         assertEquals("售价1999元，库存充足。", controller.execute(request, null).getBody().answer());
-        verify(facts).query(anyString(), anyList(), eq("model-first"));
+        verify(facts, org.mockito.Mockito.times(2)).query(anyString(), anyList(), eq("model-first"));
+        verify(agent).executeWithQuality(anyString(), eq("model-first"));
     }
 
     @Test
