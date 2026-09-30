@@ -273,7 +273,7 @@ public class StreamingProductAgentService {
             if (productRagService != null) {
                 try {
                     long retrievalStart = System.currentTimeMillis();
-                    RetrievalQualityResult qr = productRagService.retrieveWithQualityResult(userMessage);
+                    RetrievalQualityResult qr = productRagService.retrieveWithQualityResult(userMessage, rid);
                     retrieval = qr;
                     long retrievalMs = System.currentTimeMillis() - retrievalStart;
 
@@ -285,7 +285,8 @@ public class StreamingProductAgentService {
                             stageTraceRecorder.getOrCreate(rid, userMessage, "product_agent")
                                     .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
                                             Map.of("qualityScore", qr.getNormalizedScore(),
-                                                    "rejectionCode", qr.getRejectionCode())));
+                                                    "rejectionCode", qr.getRejectionCode(), "evidenceTrace", qr.getDiagnostics(),
+                                                    "promptEvidenceInjected", false)));
                             stageTraceRecorder.markRejection(rid, qr.getRejectionCode(), qr.getRejectionMessage());
                             stageTraceRecorder.recordStage(rid, RagStage.GENERATION, StageSpan.STATUS_SKIPPED, 0,
                                     Map.of("reason", "no-evidence"));
@@ -302,7 +303,8 @@ public class StreamingProductAgentService {
                         stageTraceRecorder.getOrCreate(rid, userMessage, "product_agent")
                                 .addStage(StageSpan.of(RagStage.RETRIEVAL, retrievalMs, StageSpan.STATUS_OK,
                                         Map.of("qualityScore", qr.getNormalizedScore(),
-                                                "highQuality", qr.isHighQuality())));
+                                                "highQuality", qr.isHighQuality(), "evidenceTrace", qr.getDiagnostics(),
+                                                "promptEvidenceInjected", qr.isHighQuality() && !qr.getContent().isBlank())));
                     }
                     if (qr.isHighQuality() && qr.getContent() != null && !qr.getContent().isBlank()) {
                         userMessage = "[系统已检索到以下商品证据]\n" + qr.getContent()

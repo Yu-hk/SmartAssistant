@@ -12,6 +12,37 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class RerankHandlerTest {
 
+    @Test void blendedRankPreservesFusionContribution() {
+        var ctx = new RagSearchContext("query");
+        ctx.setFusedResults(List.of(new RagSearchContext.RankedItem("exact", .03),
+                new RagSearchContext.RankedItem("similar", .003)));
+        new RerankHandler((q,d) -> d.equals("exact") ? .6 : .9, true, 2, null, .35).handle(ctx);
+        assertEquals("exact", ctx.getFusedResults().getFirst().getContent());
+        assertEquals(.35, ctx.getAttribute("rag.rerankFusionWeight"));
+    }
+
+    @Test void partialFailurePreservesWholeOriginalOrder() {
+        var ctx = new RagSearchContext("query");
+        var original = List.of(new RagSearchContext.RankedItem("first", .03),
+                new RagSearchContext.RankedItem("broken", .02));
+        ctx.setFusedResults(original);
+        new RerankHandler((q,d) -> { if (d.equals("broken")) throw new IllegalStateException(); return .1; },
+                true, 1, null, .35).handle(ctx);
+        assertEquals(original, ctx.getFusedResults()); assertTrue(ctx.isDegraded());
+    }
+
+    @Test void nonFiniteScoreCannotChangeOrdering() {
+        var ctx = new RagSearchContext("query");
+        ctx.setFusedResults(List.of(new RagSearchContext.RankedItem("first", .01)));
+        new RerankHandler((q,d) -> Double.NaN, true, 1).handle(ctx);
+        assertEquals(.01, ctx.getFusedResults().getFirst().getRrfScore()); assertTrue(ctx.isDegraded());
+    }
+
+    @Test void invalidFusionWeightIsRejected() {
+        for (double value : new double[]{Double.NaN, -1, 2})
+            assertThrows(IllegalArgumentException.class, () -> new RerankHandler(null, true, 1, null, value));
+    }
+
     @Test
     @DisplayName("禁用时不应修改结果")
     void disabledShouldNotChange() {

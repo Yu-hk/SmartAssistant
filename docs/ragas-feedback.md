@@ -37,7 +37,7 @@ python scripts/ragas_feedback.py --dataset dataset.json --output fresh-report.js
 python scripts/ragas_feedback.py --dataset dataset.json --output fresh-report.json --repeats 3
 ```
 
-适配器仅接受 Ragas 0.4.3。四维运行须依赖模型与向量服务；CI 的 40 项契约测试使用注入评分器，不安装 ML 依赖、不调用模型，不能算模型质量通过。上下文 ID 与文本必须一一对应，评分异常、NaN/无穷或缺失不以 0 或默认高分掩盖；报告拒绝覆盖并以受限权限保存，不写 API 响应正文或密钥。向量非空、非零、数值有限且维度一致；报告记录实际依赖版本供复现。
+适配器仅接受 Ragas 0.4.3。四维运行须依赖模型与向量服务；CI 的 48 项契约测试使用注入评分器，不安装 ML 依赖、不调用模型，不能算模型质量通过。上下文 ID 与文本必须一一对应，评分异常、NaN/无穷或缺失不以 0 或默认高分掩盖；报告拒绝覆盖并以受限权限保存，不写 API 响应正文或密钥。向量非空、非零、数值有限且维度一致；报告记录实际依赖版本供复现。
 
 评判配置显式使用 `thinking.type=disabled`、最多 4096 输出 Token；不继承当前 DeepSeek 的默认思考模式和 Ragas 的 1024 Token 默认限额。模式依据 [DeepSeek 官方说明](https://api-docs.deepseek.com/guides/thinking_mode/)，本轮还实测复现了默认配置下的截断。可用 `--judge-thinking enabled --judge-max-tokens 1024 --case-id different-fields --repeats 1` 聚焦重现旧配置；新旧报告分别保存，不能覆盖失败证据。聚焦选择保留父数据集摘要，不改问题、答案或参考标签。报告保留结束原因计数、推理 Token 计数与重试异常类型，不复制异常消息或模型思考正文。
 
@@ -47,6 +47,8 @@ python scripts/ragas_feedback.py --dataset dataset.json --output fresh-report.js
 
 ## 后续闭环
 
-下一阶段应先采集脱敏、有权限与来源记录的真正检索轨迹，冻结独立留出集；在同一金标下比较原权重与候选权重/字段过滤。确认有稳定增益，再接在线只读、有超时/次数上限的重检索，保持 ACL、选域、事实检查、不可写业务边界不变。没有参考答案时不能伪造 ContextRecall；线上代理指标必须另名，不能与 Ragas 混报。
+本次接入请求级字段覆盖和阶段轨迹，详见[检索覆盖与证据追踪](retrieval-coverage.md)。线上采集必须绑定回复、证据顺序与文本摘要；反例移除原始完整轨迹，不能沿用旧摘要冒充真实调用。`KNOWN`、`UNKNOWN`、`MISSING`、`UNRESOLVED` 分开诊断；未知导致的相关性低分、数量合计导致的忠实度低分先进入专门复核，不立即重检索。
 
-交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `15c5df0c1610897ebb3e83c06b7a3c0d41c36de3872dbf34fc23f65d2b98b3a1`（2379 bytes），HTML SHA-256 `e5d78f3a3b6c558655687264795d38ab575dcb3970b1bec6552bbde328e9f0e0`（805316 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；修正一轮宽度后冻结。
+下一阶段应冻结独立留出集，在同一金标下比较原权重与候选权重/字段过滤。确认有稳定增益，再接在线只读、有超时/次数上限的重检索，保持 ACL、选域、事实检查、不可写业务边界不变。没有参考答案时不能伪造 ContextRecall；线上代理指标必须另名，不能与 Ragas 混报。
+
+交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `006fb74026c832eace0772d44190ce9e803794e74b1e6aa17962408ade7f8b57`（2403 bytes），HTML SHA-256 `08a29f6d60896c148932e257f58800beae3634bc1b572c2e5bdf3f531106e29f`（805299 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；本次修正零轮后冻结。

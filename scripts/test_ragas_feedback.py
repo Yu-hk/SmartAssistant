@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ragas_feedback import METRICS, diagnose, digest, embedding_values, error_metadata, evaluate_cases, id_metrics, judge_options, select_case, summarize, validate_dataset, write_new
+from ragas_feedback import METRICS, diagnose, digest, embedding_values, error_metadata, evaluate_cases, id_metrics, judge_options, select_case, summarize, stage_diagnosis, text_hash, validate_dataset, write_new
 from collect_ragas_product import sample, validate_questions
 from make_ragas_controls import controls
 from run_ragas_feedback_server import container_command
@@ -25,7 +25,72 @@ def summary(value=1, count=3, spread=0):
     return {name: {'median': value, 'range': spread, 'complete': True, 'valid_runs': count} for name in METRICS}
 
 
+def traced_dataset():
+    data = dataset()
+    row = data['cases'][0]
+    row.update(source='live_catalog_readonly', retrieved_contexts=['甲10元', '乙价格未知'],
+               retrieved_context_ids=['a:PRICE', 'b:PRICE:UNVERIFIED'])
+    row['evidence_trace'] = {'version': 1, 'route': 'CATALOG_FIELDS', 'contextKind': 'catalog_field_evidence',
+        'modelCalled': False, 'executeRetry': False, 'responseSha256': text_hash(row['response']),
+        'finalEvidence': [{'id': identifier, 'sha256': text_hash(text), 'rank': rank} for rank, (identifier, text)
+                          in enumerate(zip(row['retrieved_context_ids'], row['retrieved_contexts']), 1)],
+        'coverage': {'version': 1, 'requested': 2, 'known': 1, 'unknown': 1, 'missing': 0, 'unresolved': 0,
+                     'complete': True, 'slots': [{'productCode': 'a', 'field': 'PRICE', 'state': 'KNOWN'},
+                                                {'productCode': 'b', 'field': 'PRICE', 'state': 'UNKNOWN'}]}}
+    return data
+
+
 class FeedbackContract(unittest.TestCase):
+    def test_trace_validates_current_answer_and_context_hashes(self):
+        data = traced_dataset(); validate_dataset(data)
+        for key in ('response', 'retrieved_contexts', 'retrieved_context_ids'):
+            changed = copy.deepcopy(data)
+            row = changed['cases'][0]
+            if key == 'response': row[key] += 'changed'
+            else: row[key].reverse()
+            with self.assertRaises(ValueError): validate_dataset(changed)
+
+    def test_trace_coverage_cannot_invent_completeness(self):
+        data = traced_dataset()
+        coverage = data['cases'][0]['evidence_trace']['coverage']
+        coverage['known'] = 2
+        with self.assertRaises(ValueError): validate_dataset(data)
+
+    def test_trace_cannot_claim_missing_fact_as_known(self):
+        data = traced_dataset()
+        coverage = data['cases'][0]['evidence_trace']['coverage']
+        coverage['slots'][1]['state'] = 'KNOWN'; coverage.update(known=2, unknown=0)
+        with self.assertRaises(ValueError): validate_dataset(data)
+
+    def test_truthful_unknown_routes_to_judge_review_not_retrieval(self):
+        scores = summary(); scores['answer_relevancy']['median'] = .5
+        result = stage_diagnosis(scores, traced_dataset()['cases'][0])
+        self.assertEqual(result['action'], 'ANSWERABILITY_JUDGE_REVIEW')
+        self.assertFalse(result['execute_retry'])
+
+    def test_arithmetic_keeps_context_scope_separate(self):
+        row = traced_dataset()['cases'][0]
+        row['evidence_trace']['arithmetic'] = {'relation': 'TOTAL'}
+        scores = summary(); scores['faithfulness']['median'] = .5
+        self.assertEqual(stage_diagnosis(scores, row)['action'], 'ARITHMETIC_AND_CONTEXT_REVIEW')
+
+    def test_trace_does_not_override_unstable_judge(self):
+        self.assertEqual(stage_diagnosis(summary(spread=.4), traced_dataset()['cases'][0])['action'],
+                         'JUDGE_CALIBRATION_REQUIRED')
+
+    def test_missing_slot_is_targeted_advice_only(self):
+        data = traced_dataset(); row = data['cases'][0]
+        coverage = row['evidence_trace']['coverage']
+        coverage['slots'].append({'productCode': 'a', 'field': 'WEIGHT', 'state': 'MISSING'})
+        coverage.update(requested=3, missing=1, complete=False)
+        validate_dataset(data)
+        result = stage_diagnosis(summary(), row)
+        self.assertEqual(result['action'], 'TARGETED_EVIDENCE_REVIEW')
+        self.assertFalse(result['execute_retry'])
+
+    def test_mutated_negative_control_cannot_retain_live_manifest(self):
+        data = traced_dataset(); data['cases'][0]['source'] = 'negative_control'
+        with self.assertRaises(ValueError): validate_dataset(data)
     def test_valid_dataset(self):
         self.assertEqual(len(validate_dataset(dataset())), 1)
 

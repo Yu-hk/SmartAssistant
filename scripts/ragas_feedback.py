@@ -93,7 +93,70 @@ def validate_dataset(dataset):
             raise ValueError('Independent reference context IDs are required')
         if not all(isinstance(identifier, str) and identifier for identifier in ids + reference_ids):
             raise ValueError('Invalid context ID')
+        validate_trace(row)
     return cases
+
+
+def text_hash(value):
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()
+
+
+def validate_trace(row):
+    trace = row.get('evidence_trace')
+    if trace is None:
+        return  # Old fixtures remain valid but have no stage-level diagnosis.
+    if row['source'] == 'negative_control':
+        raise ValueError('Mutated controls cannot claim a live trace')
+    if not isinstance(trace, dict) or trace.get('version') != 1 or trace.get('route') != 'CATALOG_FIELDS':
+        raise ValueError('Unsupported trace contract')
+    if trace.get('contextKind') != 'catalog_field_evidence' or trace.get('modelCalled') is not False or trace.get('executeRetry') is not False:
+        raise ValueError('Unexpected evidence route or execution mode')
+    if trace.get('responseSha256') != text_hash(row['response']):
+        raise ValueError('Trace response drift')
+    expected = [{'id': identifier, 'sha256': text_hash(text)} for identifier, text in
+                zip(row['retrieved_context_ids'], row['retrieved_contexts'])]
+    actual = trace.get('finalEvidence')
+    if not isinstance(actual, list) or len(actual) != len(expected):
+        raise ValueError('Trace evidence count drift')
+    for rank, (wanted, got) in enumerate(zip(expected, actual), 1):
+        if not isinstance(got, dict) or any(got.get(key) != value for key, value in wanted.items()) or got.get('rank') != rank:
+            raise ValueError('Trace evidence text/ID/order drift')
+    coverage = trace.get('coverage', {})
+    slots = coverage.get('slots')
+    if coverage.get('version') != 1 or not isinstance(slots, list) or not 1 <= len(slots) <= 32:
+        raise ValueError('Invalid request-derived coverage')
+    counts = {state: 0 for state in ('KNOWN', 'UNKNOWN', 'MISSING', 'UNRESOLVED')}
+    for slot in slots:
+        if not isinstance(slot, dict) or slot.get('state') not in counts:
+            raise ValueError('Invalid coverage state')
+        counts[slot['state']] += 1
+        if slot['state'] in ('KNOWN', 'UNKNOWN'):
+            identifier = slot.get('productCode', '') + ':' + slot.get('field', '')
+            if slot['state'] == 'UNKNOWN': identifier += ':UNVERIFIED'
+            if identifier not in row['retrieved_context_ids']:
+                raise ValueError('Coverage claim has no materialized evidence')
+    if coverage.get('requested') != len(slots) or any(coverage.get(state.lower()) != count for state, count in counts.items()):
+        raise ValueError('Coverage count drift')
+    if coverage.get('complete') is not (counts['MISSING'] == counts['UNRESOLVED'] == 0):
+        raise ValueError('Coverage completeness drift')
+
+
+def stage_diagnosis(summary, row):
+    """Evidence-aware advisory. No missing gold, unknown value or score creates a write/retry."""
+    result = diagnose(summary)
+    trace = row.get('evidence_trace')
+    if not trace or result['action'] in ('EVALUATION_UNAVAILABLE', 'MORE_REPEATS_REQUIRED', 'JUDGE_CALIBRATION_REQUIRED'):
+        return result
+    coverage = trace['coverage']
+    if coverage['unresolved']:
+        return {**result, 'action': 'ENTITY_CLARIFICATION_REQUIRED', 'suggestion': 'Clarify the exact catalog identity; do not widen to other models.'}
+    if coverage['missing']:
+        return {**result, 'action': 'TARGETED_EVIDENCE_REVIEW', 'suggestion': 'Inspect only missing product/field slots; preserve verified and explicit unknown slots.'}
+    if result['action'] == 'GENERATION_GROUNDING_REVIEW' and trace.get('arithmetic', {}).get('relation') == 'TOTAL':
+        return {**result, 'action': 'ARITHMETIC_AND_CONTEXT_REVIEW', 'suggestion': 'Check deterministic arithmetic and actual policy context; do not invent supporting evidence.'}
+    if result['action'] == 'ANSWER_SCOPE_REVIEW' and coverage['unknown']:
+        return {**result, 'action': 'ANSWERABILITY_JUDGE_REVIEW', 'suggestion': 'Calibrate truthful unknown answers separately; never synthesize the missing value.'}
+    return {**result, 'evidence_route': trace['route'], 'request_slots_complete': coverage['complete']}
 
 
 def select_case(dataset, identifier):
@@ -181,7 +244,7 @@ async def evaluate_cases(dataset, scorer, repeats):
         summary = summarize(runs, repeats)
         results.append({'id': row['id'], 'source': row['source'], 'input_sha256': digest(row),
                         'id_metrics': id_metrics(row), 'runs': runs, 'summary': summary,
-                        'feedback': diagnose(summary)})
+                        'feedback': stage_diagnosis(summary, row)})
     return {'schema_version': 1, 'timestamp_utc': datetime.now(timezone.utc).isoformat(),
             'dataset_sha256': digest(dataset), 'synthetic_only': True,
             'live_user_conversations_evaluated': False, 'retries_executed': 0,

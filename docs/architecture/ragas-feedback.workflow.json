@@ -6,8 +6,8 @@
   "mainPath": ["questions", "live", "contract", "metrics", "stability", "diagnosis"],
   "nodes": [
     {"id": "questions", "lane": "capture", "col": 0, "type": "frontend", "label": "冻结问题与金标", "sublabel": "独立参考答案"},
-    {"id": "live", "lane": "capture", "col": 1, "type": "backend", "label": "线上商品只读调用", "width": 140, "sublabel": "实际答案与字段证据"},
-    {"id": "contract", "lane": "capture", "col": 2, "type": "security", "label": "样本完整性检查", "sublabel": "片段 ID 与文本一一对应"},
+    {"id": "live", "lane": "capture", "col": 1, "type": "backend", "label": "商品只读证据采集", "width": 140, "sublabel": "字段覆盖与来源追踪"},
+    {"id": "contract", "lane": "capture", "col": 2, "type": "security", "label": "证据完整性检查", "sublabel": "缺失与未知分别标记"},
     {"id": "metrics", "lane": "judge", "col": 2, "type": "backend", "label": "Ragas 四维评测", "sublabel": "固定输入重复评分"},
     {"id": "stability", "lane": "judge", "col": 3, "type": "database", "label": "保留各轮原始分数", "width": 140, "sublabel": "中位数与波动范围"},
     {"id": "diagnosis", "lane": "review", "col": 3, "type": "backend", "label": "生成改进建议", "sublabel": "检索或生成问题分流"},
@@ -23,7 +23,7 @@
   ],
   "cards": [
     {"dot": "cyan", "title": "四项指标", "items": ["上下文召回率、上下文精度", "忠实度、答案相关性"]},
-    {"dot": "amber", "title": "证据与波动", "items": ["目录证据不冒充向量检索轨迹", "无参考答案不伪造召回率"]},
+    {"dot": "amber", "title": "证据与波动", "items": ["目录事实与 RAG 轨迹分别记录", "缺失补检索，未知不编造"]},
     {"dot": "rose", "title": "执行边界", "items": ["不读取真实用户会话，不执行订单", "建议不自动修改线上检索权重"]}
   ]
 }

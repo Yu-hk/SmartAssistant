@@ -5130,7 +5130,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / 图版 04">
-      <svg viewBox="0 0 1081 528" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+      <svg viewBox="0 0 1095 528" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">商品 RAG 检索准备与融合</title>
         <desc id="archify-diagram-description">由 Archify 生成的工作流图。</desc>
         <!-- Definitions -->
@@ -5156,13 +5156,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Swimlanes -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="1025" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="1039" height="104" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="74" class="t-dim" font-size="10" font-weight="600">01 / 商品咨询</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="1025" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="1039" height="104" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="198" class="t-dim" font-size="10" font-weight="600">02 / 检索准备与召回</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="1025" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="1039" height="104" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="322" class="t-dim" font-size="10" font-weight="600">03 / 融合与证据</text>
 
         <!-- Phase headers -->
@@ -5252,15 +5252,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="792" y="379" class="t-muted" font-size="8" text-anchor="middle">精确事实与图谱保持固定权重</text>
         </g>
 
-        <g id="node-evidence" data-node-id="evidence" data-node-label="证据质量" tabindex="0" role="button" aria-label="聚焦证据质量，不足时有界补检, 融合与证据" aria-pressed="false" data-node-kind="backend" data-node-sublabel="不足时有界补检" data-node-context="融合与证据">
-          <title>证据质量 · 不足时有界补检 · 融合与证据</title>
-          <rect x="907" y="341" width="150" height="52" rx="6" class="c-mask"/>
-          <rect x="907" y="341" width="150" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+        <g id="node-evidence" data-node-id="evidence" data-node-label="重排与证据" tabindex="0" role="button" aria-label="聚焦重排与证据，阶段指纹 / 安全降级, 融合与证据" aria-pressed="false" data-node-kind="backend" data-node-sublabel="阶段指纹 / 安全降级" data-node-context="融合与证据">
+          <title>重排与证据 · 阶段指纹 / 安全降级 · 融合与证据</title>
+          <rect x="907" y="341" width="164" height="52" rx="6" class="c-mask"/>
+          <rect x="907" y="341" width="164" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(913 347) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="982" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">证据质量</text>
-          <text data-detail="context" x="982" y="379" class="t-muted" font-size="8" text-anchor="middle">不足时有界补检</text>
+          <text data-node-label="" data-detail-anchor="" x="989" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">重排与证据</text>
+          <text data-detail="context" x="989" y="379" class="t-muted" font-size="8" text-anchor="middle">阶段指纹 / 安全降级</text>
         </g>
 
         <!-- Edge labels -->
@@ -5504,8 +5504,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>当前策略</h3>
         </div>
         <ul>
-          <li>&bull; 原问题保留；商品 BM25 收录目录规格与已确认适用标签</li>
-          <li>&bull; Multi-Query 默认关闭，证据不足时最多补检一次</li>
+          <li>&bull; 明确只读字段走目录覆盖核验，不走全局模糊改写</li>
+          <li>&bull; RRF 不是召回率；阶段留痕，新混合权重默认关闭</li>
         </ul>
       </div>
     </div>

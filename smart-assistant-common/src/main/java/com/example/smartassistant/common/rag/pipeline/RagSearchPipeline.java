@@ -86,6 +86,8 @@ public class RagSearchPipeline {
                 // ⭐ 异常分级：未携带标准错误码的裸异常 → 归一为 UNCLASSIFIED 记录
                 context.addError(handler.getClass().getSimpleName(), "UNCLASSIFIED", e.getMessage());
                 log.warn("[RagPipeline] Handler {} 未分类异常: {}", handler.getClass().getSimpleName(), e.getMessage());
+            } finally {
+                context.snapshot(handler.getClass().getSimpleName());
             }
         }
 

@@ -66,8 +66,13 @@ def sample(case, result):
             evidence = value['evidence'] if value['known'] else field + '：known=false，资料未核实，无具体数值证据'
             contexts.append(entity['productName'] + '，本问题数量 ' + str(entity['quantity'])
                             + ' 件；' + evidence)
-    return {**case, 'source': 'live_catalog_readonly', 'response': result.get('answer'),
-            'retrieved_contexts': contexts, 'retrieved_context_ids': ids}
+    row = {**case, 'source': 'live_catalog_readonly', 'response': result.get('answer'),
+           'retrieved_contexts': contexts, 'retrieved_context_ids': ids}
+    if 'evidenceTrace' in data:
+        row['evidence_trace'] = data['evidenceTrace']
+    # Contract validation happens before saving, not after a model scores stale texts.
+    validate_dataset({'schema_version': 1, 'synthetic_only': True, 'cases': [row]})
+    return row
 
 
 def validate_questions(questions):
@@ -131,6 +136,8 @@ def main():
         with OPENER.open(req, timeout=30) as response:
             result = json.load(response)
         samples.append(sample(case, result))
+        if 'evidence_trace' not in samples[-1]:
+            raise ValueError('Product artifact has no evidence trace; use the verified trace release')
     if artifact() != before:
         raise ValueError('Product artifact changed during collection')
     dataset = {'schema_version': 1, 'synthetic_only': True, 'product_sha256': before,

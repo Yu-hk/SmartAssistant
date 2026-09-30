@@ -50,6 +50,10 @@ public class ProductRagPipelineConfig {
     @Value("${product.rag.rerank.enabled:true}")
     private boolean rerankEnabled;
 
+    /** Candidate blend is disabled until same-gold A/B shows a stable gain. */
+    @Value("${product.rag.rerank.fusion-weight:0.0}")
+    private double rerankFusionWeight;
+
     @Value("${product.rag.rerank.top-k:5}")
     private int rerankTopK;
 
@@ -155,7 +159,7 @@ public class ProductRagPipelineConfig {
                         "查询嵌入失败: " + snippet, e);
             }
         });
-        return new RerankHandler(scorer, rerankEnabled, rerankTopK, adaptiveRerankTopK().asResolver());
+        return new RerankHandler(scorer, rerankEnabled, rerankTopK, adaptiveRerankTopK().asResolver(), rerankFusionWeight);
     }
 
     /**

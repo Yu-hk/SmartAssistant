@@ -39,6 +39,13 @@ public class RetrievalQualityResult {
     /** 给用户的拒绝消息 */
     private String rejectionMessage;
 
+    private java.util.Map<String, Object> diagnostics = java.util.Map.of();
+
+    public java.util.Map<String, Object> getDiagnostics() { return diagnostics; }
+    public void setDiagnostics(java.util.Map<String, Object> diagnostics) {
+        this.diagnostics = diagnostics == null ? java.util.Map.of() : java.util.Map.copyOf(diagnostics);
+    }
+
     public RetrievalQualityResult() {
         this.content = "";
         this.normalizedScore = 0.0;

@@ -32,7 +32,7 @@ jobs:
           cache: 'maven'
       - run: >-
           mvn -B -pl smart-assistant-product,smart-assistant-data-intake -am test
-          -Dtest=ProductEntityResolverTest,ProductEntityEvaluationTest,ProductEntityCoverageTest,ProductConversationHistoryTest,JevProductEntityAdvisorTest,JdbcProductIdentityTest,ProductIdentityUpdateTest,AdminProductIdentityControllerTest
+          -Dtest=ProductEntityResolverTest,ProductEntityEvaluationTest,ProductEntityCoverageTest,ProductFieldCoverageTest,ProductRetrievalDiagnosticsTest,RerankHandlerTest,StreamingProductAgentServiceTest,ProductConversationHistoryTest,JevProductEntityAdvisorTest,JdbcProductIdentityTest,ProductIdentityUpdateTest,AdminProductIdentityControllerTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - uses: actions/upload-artifact@v4
         if: always()

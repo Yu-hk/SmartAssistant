@@ -50,6 +50,12 @@ public class ProductRagService {
     private final KnowledgeScopeSelector scopeSelector;
     private final SupplementalQueryPlanner supplementalQueryPlanner;
     private final NativeRagProperties properties;
+    private com.example.smartassistant.service.core.ProductFactQueryService factQueryService;
+
+    @Autowired(required = false)
+    public void setFactQueryService(com.example.smartassistant.service.core.ProductFactQueryService service) {
+        this.factQueryService = service;
+    }
 
     /** Backward-compatible constructor used by focused tests and embedded consumers. */
     public ProductRagService(RagSearchPipeline pipeline,
@@ -128,8 +134,23 @@ public class ProductRagService {
      * @return 结构化检索质量结果
      */
     public RetrievalQualityResult retrieveWithQualityResult(String query) {
+        return retrieveWithQualityResult(query, org.slf4j.MDC.get("requestId"));
+    }
+
+    public RetrievalQualityResult retrieveWithQualityResult(String query, String requestId) {
         if (query == null || query.isBlank()) {
             return RetrievalQualityResult.noData("空查询");
+        }
+
+        if (factQueryService != null && com.example.smartassistant.service.core.ProductFactQueryService.maySupport(query)) {
+            var facts = factQueryService.query(query, List.of(), requestId);
+            if (facts.error() != null) return RetrievalQualityResult.noData("目录身份暂不可核实");
+            if (Boolean.TRUE.equals(facts.data().get("handled"))) {
+                RetrievalQualityResult scoped = ProductRetrievalDiagnostics.catalog(facts, properties.getMaxEvidenceItems());
+                if (scoped != null) return scoped;
+                if (Boolean.TRUE.equals(facts.data().get("clarificationRequired")))
+                    return RetrievalQualityResult.insufficientEvidence("", 0, "商品身份需要核实");
+            }
         }
 
         KnowledgeScopeSelector.KnowledgeScope scope = scopeSelector.select(
@@ -137,12 +158,14 @@ public class ProductRagService {
         Attempt best = null;
         String currentQuery = query.strip();
         int attemptsExecuted = 0;
+        List<RagSearchContext> attemptContexts = new ArrayList<>();
         int maxAttempts = properties.isEnabled() && supplementalQueryPlanner != null
                 ? properties.getMaxAttempts() : 1;
 
         for (int attemptNo = 1; attemptNo <= maxAttempts; attemptNo++) {
             attemptsExecuted = attemptNo;
             RagSearchContext context = executeAttempt(currentQuery, query, scope, attemptNo);
+            attemptContexts.add(context);
             Attempt candidate = new Attempt(currentQuery, context);
             if (best == null || isBetter(candidate.context(), best.context())) {
                 best = candidate;
@@ -167,7 +190,9 @@ public class ProductRagService {
         if (fused.isEmpty()) {
             log.warn("[ProductRAG] ⚠️ Pipeline 全部路径未召回: query={}, 耗时={}ms",
                     query, ctx.getElapsedMs());
-            return RetrievalQualityResult.noData(query);
+            RetrievalQualityResult result = RetrievalQualityResult.noData(query);
+            result.setDiagnostics(ProductRetrievalDiagnostics.pipeline(requestId, attemptContexts, ctx, "", properties.getMaxEvidenceItems()));
+            return result;
         }
 
         boolean highQuality = qualityScore >= ctx.getQualityThreshold();
@@ -181,9 +206,11 @@ public class ProductRagService {
                     query, String.format("%.4f", qualityScore),
                     ctx.getQualityThreshold(), ctx.getElapsedMs());
 
-            return RetrievalQualityResult.insufficientEvidence(
+            RetrievalQualityResult result = RetrievalQualityResult.insufficientEvidence(
                     content, qualityScore,
                     "知识库中未找到与「" + query + "」相关的足够依据。");
+            result.setDiagnostics(ProductRetrievalDiagnostics.pipeline(requestId, attemptContexts, ctx, content, properties.getMaxEvidenceItems()));
+            return result;
         }
 
         int activePaths = (int) ctx.getPathResults().values()
@@ -192,7 +219,9 @@ public class ProductRagService {
                 query, String.format("%.4f", qualityScore),
                 activePaths, fused.size(), ctx.getElapsedMs());
 
-        return RetrievalQualityResult.highQuality(content, qualityScore);
+        RetrievalQualityResult result = RetrievalQualityResult.highQuality(content, qualityScore);
+        result.setDiagnostics(ProductRetrievalDiagnostics.pipeline(requestId, attemptContexts, ctx, content, properties.getMaxEvidenceItems()));
+        return result;
     }
 
     private RagSearchContext executeAttempt(String retrievalQuery,

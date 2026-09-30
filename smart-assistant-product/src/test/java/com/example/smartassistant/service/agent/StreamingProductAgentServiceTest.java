@@ -230,7 +230,7 @@ class StreamingProductAgentServiceTest {
         var tools = new com.example.smartassistant.product.tool.ProductTools(backend, null);
         when(backend.getPrice("AIRPODS-PRO")).thenReturn("AirPods Pro 售价 1999 元");
         when(backend.checkStock("AIRPODS-PRO")).thenReturn("AirPods Pro 库存充足");
-        when(ragService.retrieveWithQualityResult(anyString()))
+        when(ragService.retrieveWithQualityResult(anyString(), nullable(String.class)))
                 .thenReturn(RetrievalQualityResult.highQuality("耳机使用与保养说明", .9));
         when(agent.execute(anyString())).thenAnswer(invocation -> {
             tools.getPrice("AIRPODS-PRO"); tools.checkStock("AIRPODS-PRO");
@@ -258,7 +258,7 @@ class StreamingProductAgentServiceTest {
 
     @Test
     void unsupportedClaimsRemainWarningsEvenWhenOtherToolFactsExist() {
-        when(ragService.retrieveWithQualityResult(anyString()))
+        when(ragService.retrieveWithQualityResult(anyString(), nullable(String.class)))
                 .thenReturn(RetrievalQualityResult.highQuality("商品保养说明", .9));
         when(agent.execute(anyString())).thenAnswer(invocation -> {
             com.example.smartassistant.service.quality.ProductToolEvidenceScope.record("售价 1999 元");
@@ -309,7 +309,7 @@ class StreamingProductAgentServiceTest {
     @Test
     @DisplayName("无证据拒答：RAG 拒绝时应返回拒答消息且不调用 LLM")
     void noEvidence_shouldRejectWithoutCallingAgent() {
-        when(ragService.retrieveWithQualityResult(anyString()))
+        when(ragService.retrieveWithQualityResult(anyString(), nullable(String.class)))
                 .thenReturn(RetrievalQualityResult.noData("无线耳机"));
 
         String result = service.execute("推荐无线耳机", "req-p-reject");
@@ -412,7 +412,7 @@ class StreamingProductAgentServiceTest {
     @Test
     @DisplayName("高质量：应把检索知识注入上下文再调用 LLM")
     void highQuality_shouldInjectContext() {
-        when(ragService.retrieveWithQualityResult(anyString()))
+        when(ragService.retrieveWithQualityResult(anyString(), nullable(String.class)))
                 .thenReturn(RetrievalQualityResult.highQuality("【商品检索结果】iPhone 15", 0.92));
         when(agent.execute(anyString())).thenReturn("iPhone 15 详情如下");
 
@@ -433,7 +433,7 @@ class StreamingProductAgentServiceTest {
     @Test
     @DisplayName("忠实度失败：应只修正一次并隐藏思考过程")
     void faithfulnessFailure_shouldReviseOnceAndHideThinking() {
-        when(ragService.retrieveWithQualityResult(anyString()))
+        when(ragService.retrieveWithQualityResult(anyString(), nullable(String.class)))
                 .thenReturn(RetrievalQualityResult.highQuality(
                         "【商品检索证据】\n[E1] [CID:PROD-1] 商品支持一年保修", 0.9));
         when(agent.execute(anyString())).thenReturn(
@@ -481,7 +481,7 @@ class StreamingProductAgentServiceTest {
     @Test
     @DisplayName("RAG 检索异常：应降级为无上下文直接生成，不阻断主流程")
     void ragFailure_shouldFallbackToNoContext() {
-        when(ragService.retrieveWithQualityResult(anyString())).thenThrow(new RuntimeException("embedding down"));
+        when(ragService.retrieveWithQualityResult(anyString(), nullable(String.class))).thenThrow(new RuntimeException("embedding down"));
 
         String result = service.execute("任意商品咨询", "req-p-fallback");
 
