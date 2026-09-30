@@ -11,6 +11,61 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ResultMergerTest {
+    private static SubTaskResult multiResult(String id, String question, String answer) {
+        var result = new SubTaskResult(id, "只读商品查询", "product", answer, true);
+        result.setDomainQuality(DomainQualityResult.pass(1, "MULTI_PRODUCT_CATALOG_FACTS"));
+        result.setStructuredData(Map.of("multiProductQueryVersion", 1, "deterministic", true,
+                "queryPlan", Map.of("originalQuestion", question, "products", List.of("A", "B")),
+                "productEvidence", List.of(Map.of("requestedProduct", "A"), Map.of("requestedProduct", "B"))));
+        return result;
+    }
+
+    @Test
+    void completeMultiProductEvidenceAppearsOnceWithoutModelParaphrase() {
+        String question = "A和B分别多少钱？";
+        var first = multiResult("first", question, "A售价10元；B资料未知");
+        var second = multiResult("second", question, first.getResult());
+        var prose = new SubTaskResult("summary", "总结", "general", "模型改写的结果", true);
+        var ai = org.mockito.Mockito.mock(com.example.smartassistant.common.rag.advisor.AiChatService.class);
+        var merger = new ResultMerger(org.mockito.Mockito.mock(org.springframework.ai.chat.model.ChatModel.class), ai);
+        assertThat(merger.merge(question, List.of(first, second, prose))).isEqualTo(first.getResult());
+        prose.setAgentName("router_fallback"); // GraphNodeExecutionService's actual in-process general result.
+        assertThat(merger.merge(question, List.of(first, second, prose))).isEqualTo(first.getResult());
+        assertThat(List.of(first, second, prose)).hasSize(3);
+    }
+
+    @Test
+    void genericSummaryCannotHideFailureOrStructuredFacts() {
+        String question = "A和B分别多少钱？";
+        var product = multiResult("product", question, "已核实价格");
+        var general = new SubTaskResult("summary", "总结", "general", "总结", false);
+        assertThat(ResultMerger.completeMultiProductReply(question, List.of(product, general))).isNull();
+        general.setSuccess(true);
+        general.setStructuredData(Map.of("otherFact", "new evidence"));
+        assertThat(ResultMerger.completeMultiProductReply(question, List.of(product, general))).isNull();
+        general.setStructuredData(Map.of());
+        general.setDomainQuality(DomainQualityResult.fail("FAILED"));
+        assertThat(ResultMerger.completeMultiProductReply(question, List.of(product, general))).isNull();
+    }
+
+    @Test
+    void multiProductScopeCannotHideOtherDomainsOrDifferentQuestions() {
+        var result = multiResult("first", "A和B分别多少钱？", "已核实价格");
+        assertThat(ResultMerger.completeMultiProductReply("A和B有货吗？", List.of(result))).isNull();
+        assertThat(ResultMerger.completeMultiProductReply("A和B分别多少钱？", List.of(result,
+                new SubTaskResult("order", "订单", "order", "订单结果", true)))).isNull();
+        result.setDomainQuality(DomainQualityResult.fail("FAILED"));
+        assertThat(ResultMerger.completeMultiProductReply("A和B分别多少钱？", List.of(result))).isNull();
+    }
+
+    @Test
+    void contradictoryMultiProductRepliesAreNotSilentlyDeduplicated() {
+        String question = "A和B分别多少钱？";
+        assertThat(ResultMerger.completeMultiProductReply(question, List.of(
+                multiResult("one", question, "价格10元"), multiResult("two", question, "价格20元"))))
+                .contains("不一致");
+    }
+
     @Test
     void identicalForwardedBrowseRepliesAppearOnceWithoutHidingOtherResults() {
         var browse = new SubTaskResult("discover", "热门商品", "product", "已核实的商品列表", true);

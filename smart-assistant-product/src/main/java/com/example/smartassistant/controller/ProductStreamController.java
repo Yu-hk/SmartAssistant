@@ -193,6 +193,22 @@ public class ProductStreamController {
             question = UserQuestionNormalizer.normalize(original);
         }
         ToolUsageCache.start(requestId);
+        // Keep named multi-product queries intact even when a planner rewrites a node description.
+        String multiQuestion = original.isBlank() ? question : original;
+        int historyMarker = multiQuestion.indexOf("[对话上下文]");
+        if (historyMarker >= 0) multiQuestion = multiQuestion.substring(0, historyMarker).trim();
+        if (factQueryService != null && java.util.Set.of("ANSWER", "QUERY_PRODUCT", "DISCOVER_PRODUCTS",
+                "QUERY_HOT_PRODUCTS", "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT").contains(request.operation())
+                && com.example.smartassistant.service.core.MultiProductQueryPlan.parse(multiQuestion).isPresent()) {
+            var multiResponse = factQueryService.query(multiQuestion, List.of(), requestId);
+            if (multiResponse.error() != null || Boolean.TRUE.equals(multiResponse.data().get("handled"))) {
+                Map<String, Object> multiData = new LinkedHashMap<>(multiResponse.data());
+                if ("ANALYZE_PRODUCT_DATA".equals(request.operation())) multiData.put("analysis", multiResponse.answer());
+                if ("RECOMMEND_PRODUCT".equals(request.operation())) multiData.put("recommendation", multiResponse.answer());
+                return executionResponse(requestId, multiResponse.error() != null ? multiResponse
+                        : AgentExecutionResponse.success(multiResponse.answer(), multiData, multiResponse.quality().toDomainQuality()), true);
+            }
+        }
         if ("RESOLVE_READ_ONLY_PRODUCT".equals(request.operation())) {
             var history = request.input().get("conversationHistory") instanceof List<?> values
                     ? values.stream().filter(String.class::isInstance).map(String.class::cast).toList()
