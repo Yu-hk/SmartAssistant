@@ -524,7 +524,8 @@ public class RouterService {
     /** 保留有界用户历史以解析连续追问，避免上一轮也只有代词时丢失商品。 */
     static String addConversationContextIfNeeded(String question, List<String> history) {
         if (question == null || history == null || history.isEmpty()) return question;
-        boolean contextDependent = question.matches("(?s).*(如果|它|这个|那个|继续|还有|上面|前面|更看重|优先关注|呢[？?]?$).*" )
+        boolean orderedProductReference = question.matches("(?s).*(第[一二三四1-4]款|[这前面]*[两二2]款|它们|不是.+[，,].*(?:是|而是)).*");
+        boolean contextDependent = orderedProductReference || question.matches("(?s).*(如果|它|这个|那个|继续|还有|上面|前面|更看重|优先关注|呢[？?]?$).*" )
                 || question.matches("(?s)^\\s*(?:补充信息：|重量上[限线]|预算(?:改为|调整为|为|是|[0-9零一二两三四五六七八九十])|金额|确认按.*条件|按.*条件).*" );
         if (!contextDependent) return question;
         StringBuilder userHistory = new StringBuilder();
@@ -536,7 +537,18 @@ public class RouterService {
             }
         }
         if (userHistory.isEmpty()) return question;
-        return question + "\n\n[对话上下文]\n最近用户问题（按时间顺序，仅供解析指代）：\n" + userHistory
+        // Preserve display order for explicit ordinal/plural references. Product extracts identities
+        // only and re-queries current facts; assistant prose never authorizes writes or supplies prices.
+        StringBuilder entityHistory = new StringBuilder();
+        if (orderedProductReference) {
+            entityHistory.append("\n[商品实体历史]\n");
+            for (String message : history.subList(Math.max(0, history.size() - 10), history.size())) {
+                if (message != null && (message.startsWith("用户：") || message.startsWith("助手：")))
+                    entityHistory.append(QuestionExtractor.truncate(message, 1000).replace('\n', ' ').replace('\r', ' ')).append('\n');
+            }
+            entityHistory.append("[商品实体历史结束]\n");
+        }
+        return question + "\n\n[对话上下文]\n最近用户问题（按时间顺序，仅供解析指代）：\n" + userHistory + entityHistory
                 + "\n请延续上一轮讨论的对象回答当前问题，不要再次要求用户说明产品类型。"
                 + "历史仅用于解析商品指代和用户明确保留的约束，回答维度以本轮用户问题为准；"
                 + "同一条件以最近一轮用户明确提供的值为准，未修改的筛选条件继续保留，不要重复追问已给出的值。"

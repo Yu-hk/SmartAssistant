@@ -160,7 +160,7 @@ GitHub Actions 会执行：
 
 评测数据保存在 `docs/eval/` 和模块测试资源中。一次性联调数据、生成报告及运行时用户数据不进入版本控制。
 
-多商品只读查询支持将 2～4 款商品拆成独立目录核验，按商品保留价格、库存、重量、分场景续航、降噪、用途等证据，再统一回答。总预算与单款预算分别计算；型号歧义、重复别名和未知资料显式提示。当前闭合语法覆盖分别查询、同字段对比和简单共同预算，未覆盖的数量或复杂条件完整交回原有规划链。详见[实现与验收说明](docs/multi-product-query.md)及[交互流程图](https://yu-hk.github.io/SmartAssistant/architecture/multi-product-query.workflow.html)。
+商品只读查询通过统一目录身份识别 1～4 款商品，再分别核验事实：名称/别名规范化、同会话指代、经人工核对的系列/变体关系、逐商品字段和数量、总预算与单款条件。模型规划后，商品域确认能处理的只读指代固定生成携带历史的商品读取节点，避免落到通用回答节点。不确定型号保留为候选并请用户核实；Jev 只提供目录候选建议，不能生成 SKU 或代替用户确认。支持简单价格/重量/降噪条件；复杂残余条件和缺少续航场景会明确提示，不能当作已满足。管理员身份元数据维护 API 带版本控制与审计，尚未提供新的后台表单，也不自动回填历史商品。详见[商品实体识别说明](docs/product-entity-resolution.md)、[本次验证记录](docs/product-entity-verification-20260930.md)及[交互流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-entity-resolution.workflow.html)；[多商品初版说明](docs/multi-product-query.md)保留为历史基线。
 
 ## 文档
 
@@ -170,6 +170,7 @@ GitHub Actions 会执行：
 - [商品 RAG 检索准备与融合流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-rag-pre-retrieval.workflow.html)
 - [商品固定字段检索流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-field-routing.workflow.html)
 - [多商品查询与证据汇总流程图](https://yu-hk.github.io/SmartAssistant/architecture/multi-product-query.workflow.html)
+- [商品实体识别与字段绑定流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-entity-resolution.workflow.html)
 - [节点消息队列方案图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/agent-node-message-queue.workflow.html)
 - [ToolGateway 任务依赖图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/tool-gateway-task-dependencies.workflow.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)

@@ -8,7 +8,7 @@ class UpgradeContractTests(unittest.TestCase):
     def test_inventory_complete_and_explicit_dependencies(self):
         repo = pathlib.Path(__file__).resolve().parents[1]
         inputs = contract.load_inputs(repo)
-        self.assertEqual(len(inputs), 32)
+        self.assertEqual(len(inputs), 33)
         for before, after in [('20260914_add_product_structured_features', '20260914_add_product_intake'),
                               ('20260914_add_product_intake', '20260929_add_product_suitability'),
                               ('20260929_add_product_suitability', '20260929_add_product_aliases'),

@@ -16,15 +16,37 @@ public final class MultiProductQueryService {
     public MultiProductQueryService(ProductBackend backend) { this.backend = backend; }
 
     public AgentExecutionResponse query(MultiProductQueryPlan plan, String requestId) {
+        return query(plan, null, requestId);
+    }
+
+    public AgentExecutionResponse query(ProductSemanticQueryPlan semantic, String requestId) {
+        return query(semantic.aggregate(), semantic, requestId);
+    }
+
+    private AgentExecutionResponse query(MultiProductQueryPlan plan, ProductSemanticQueryPlan semantic, String requestId) {
+        boolean strictBudget = semantic != null && plan.originalQuestion().matches(".*(?:合计|总价|总预算|加起来|每款|每件)(?:预算|价格)?\\s*低于.*");
         List<String> lines = new ArrayList<>();
         List<Map<String, Object>> evidence = new ArrayList<>();
         List<ProductBackend.ProductFact> products = new ArrayList<>();
-        boolean clarification = false;
-        for (String name : plan.products()) {
+        boolean clarification = semantic != null && !semantic.unsupported().isBlank();
+        List<Integer> quantities = new ArrayList<>();
+        for (int index = 0; index < plan.products().size(); index++) {
+            String name = plan.products().get(index);
+            var task = semantic == null ? null : semantic.tasks().get(index);
+            if (task != null && task.entity().status() != ProductEntityResolver.Status.RESOLVED) {
+                clarification = true;
+                String options = task.entity().candidates().stream().map(c -> c.name() + " [" + c.code() + "]")
+                        .reduce((a, b) -> a + "、" + b).orElse("");
+                lines.add(name + "：" + (task.entity().status() == ProductEntityResolver.Status.NOT_FOUND
+                        ? "未找到准确匹配，请核实名称或型号。" : "需要核实具体商品，不能自动选定型号。")
+                        + (options.isBlank() ? "" : "候选：" + options));
+                evidence.add(Map.of("requestedProduct", name, "status", task.entity().status().name(), "fields", Map.of()));
+                continue;
+            }
             long started = System.nanoTime();
             ProductBackend.FactLookup lookup;
             try {
-                lookup = backend.lookupFacts(name);
+                lookup = backend.lookupFacts(task == null ? name : task.entity().code());
                 ToolUsageCache.record(requestId, "queryProductInfo", lookup != null,
                         (System.nanoTime() - started) / 1_000_000);
             } catch (RuntimeException unavailable) {
@@ -40,6 +62,12 @@ public final class MultiProductQueryService {
                 continue;
             }
             var product = lookup.products().getFirst();
+            if (task != null && !Objects.equals(task.entity().code(), product.code())) {
+                clarification = true;
+                lines.add(name + "：目录身份发生变化，请重新核实型号。");
+                evidence.add(Map.of("requestedProduct", name, "status", "IDENTITY_CHANGED", "fields", Map.of()));
+                continue;
+            }
             if (products.stream().anyMatch(p -> Objects.equals(p.code(), product.code()))) {
                 clarification = true;
                 lines.add(name + "：与前面的名称指向同一商品，请确认是比较不同型号，还是需要多件数量。");
@@ -47,28 +75,45 @@ public final class MultiProductQueryService {
                 continue;
             }
             products.add(product);
+            quantities.add(task == null ? 1 : task.quantity());
             Map<String, Object> facts = new LinkedHashMap<>();
             List<String> statements = new ArrayList<>();
-            for (Field field : plan.fields()) {
+            for (Field field : Field.values()) {
+                if (!(task == null ? plan.fields() : task.fields()).contains(field)) continue;
                 String value = value(product, field);
                 facts.put(field.name(), Map.of("known", value != null, "evidence", value == null ? "" : value));
                 statements.add(value == null ? label(field) + "资料尚未核实" : value);
             }
+            if (task != null) for (var condition : task.conditions()) {
+                Boolean satisfied = satisfies(product, condition);
+                if (satisfied == null) clarification = true;
+                facts.put("CONDITION_" + condition.field(), Map.of("known", satisfied != null,
+                        "satisfied", satisfied == null ? "UNKNOWN" : satisfied,
+                        "operator", condition.operator(), "number", Objects.toString(condition.number(), ""), "unit", condition.unit()));
+                statements.add(label(condition.field()) + "条件" + (satisfied == null ? "尚无法核实" : satisfied ? "符合" : "不符合"));
+            }
             lines.add(product.name() + "：" + String.join("；", statements) + "。");
-            evidence.add(Map.of("requestedProduct", name, "productName", product.name(), "status", "RESOLVED", "fields", facts));
+            evidence.add(Map.of("requestedProduct", name, "productName", product.name(), "productCode", product.code(),
+                    "quantity", task == null ? 1 : task.quantity(), "status", "RESOLVED", "fields", facts));
         }
-        boolean complete = products.size() == plan.products().size();
+        boolean complete = products.size() == plan.products().size() && (semantic == null || semantic.unsupported().isBlank());
         if (plan.relation() == Relation.TOTAL || plan.budgetScope() == BudgetScope.TOTAL) {
             if (complete && products.stream().allMatch(MultiProductQueryService::priced)) {
-                BigDecimal total = products.stream().map(ProductBackend.ProductFact::price).reduce(BigDecimal.ZERO, BigDecimal::add);
-                lines.add("按每款各 1 件计算，目录价格合计 " + number(total) + " 元（未包含未核实的运费或优惠）"
-                        + (plan.budget() == null ? "。" : "，" + (total.compareTo(plan.budget()) <= 0 ? "未超过" : "超过")
+                BigDecimal total = BigDecimal.ZERO;
+                for (int i = 0; i < products.size(); i++) total = total.add(products.get(i).price().multiply(BigDecimal.valueOf(quantities.get(i))));
+                String quantityText = quantities.stream().allMatch(n -> n == 1) ? "每款各 1 件" : "您明确给出的数量（"
+                        + java.util.stream.IntStream.range(0, products.size()).mapToObj(i -> products.get(i).name() + " " + quantities.get(i) + " 件")
+                            .reduce((a, b) -> a + "、" + b).orElse("") + "）";
+                lines.add("按" + quantityText + "计算，目录价格合计 " + number(total) + " 元（未包含未核实的运费或优惠）"
+                        + (plan.budget() == null ? "。" : "，" + (strictBudget ? (total.compareTo(plan.budget()) < 0 ? "符合" : "不符合低于")
+                            : (total.compareTo(plan.budget()) <= 0 ? "未超过" : "超过"))
                         + "总预算 " + number(plan.budget()) + " 元。"));
             } else lines.add("商品型号或价格尚未全部确认，暂不能核算总价和总预算。");
         }
         if (plan.budgetScope() == BudgetScope.EACH) {
             for (var p : products) lines.add(p.name() + (priced(p)
-                    ? "：" + (p.price().compareTo(plan.budget()) <= 0 ? "符合" : "超过") + "每款 " + number(plan.budget()) + " 元的预算。"
+                    ? "：" + ((strictBudget ? p.price().compareTo(plan.budget()) < 0 : p.price().compareTo(plan.budget()) <= 0) ? "符合" : strictBudget ? "不符合" : "超过")
+                        + "每款 " + number(plan.budget()) + " 元的预算" + (strictBudget ? "（严格低于）" : "") + "。"
                     : "：价格未知，无法核对单款预算。"));
         }
         if (plan.relation() == Relation.COMPARISON) {
@@ -89,7 +134,14 @@ public final class MultiProductQueryService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("handled", true);
         data.put("deterministic", true);
-        data.put("multiProductQueryVersion", 1);
+        if (plan.products().size() > 1) data.put("multiProductQueryVersion", 1);
+        if (semantic != null) {
+            data.put("productEntityResolutionVersion", 1);
+            data.put("entityResolutions", semantic.tasks().stream().map(ProductSemanticQueryPlan.Task::entity).toList());
+            data.put("entityTasks", semantic.tasks());
+            data.put("unsupportedConditions", semantic.unsupported());
+            if (!semantic.unsupported().isBlank()) lines.add(semantic.unsupported() + "。以上仅列出已核实字段，不代表满足全部要求。");
+        }
         data.put("clarificationRequired", clarification);
         data.put("queryPlan", Map.of("originalQuestion", plan.originalQuestion(), "products", plan.products(), "fields", plan.fields().stream().map(Enum::name).toList(),
                 "relation", plan.relation().name(), "purpose", plan.purpose(), "budgetScope", plan.budgetScope().name(),
@@ -98,9 +150,35 @@ public final class MultiProductQueryService {
         data.put("products", products.stream().map(MultiProductQueryService::catalogData).toList());
         data.put("productCount", products.size());
         data.put("productCoverage", Map.of("requested", plan.products().size(), "resolved", products.size()));
+        if (semantic != null && !clarification && products.size() == 1 && semantic.tasks().getFirst().quantity() == 1) {
+            var product = products.getFirst();
+            if (priced(product) && Set.of("充足", "紧张").contains(Objects.toString(product.stock(), "")))
+                data.put("orderQuote", Map.of("productName", product.name(), "amount", product.price()));
+        }
         if (clarification) data.put("clarificationRequest", new ClarificationRequest("product", "QUERY_PRODUCT", List.of("product")).toMap());
         return AgentExecutionResponse.success(String.join("\n", lines), data,
                 DomainQualityResult.pass(1, "MULTI_PRODUCT_CATALOG_FACTS"));
+    }
+
+    private static Boolean satisfies(ProductBackend.ProductFact p, ProductSemanticQueryPlan.Condition c) {
+        if (c.field() == Field.ANC) return p.features().documented() && p.features().noiseCancelling() != null
+                ? Objects.equals(p.features().noiseCancelling(), c.flag()) : null;
+        BigDecimal fact = switch (c.field()) {
+            case PRICE -> priced(p) ? p.price() : null;
+            case WEIGHT -> p.features().documented() ? p.features().weightGrams() : null;
+            // An unspecified test scenario cannot turn a battery claim into a filter.
+            case BATTERY -> null;
+            default -> null;
+        };
+        if (fact == null || c.number() == null) return null;
+        int comparison = fact.compareTo(c.number());
+        return switch (c.operator()) {
+            case "不超过", "不高于" -> comparison <= 0;
+            case "低于", "少于" -> comparison < 0;
+            case "至少", "不低于" -> comparison >= 0;
+            case "超过", "大于" -> comparison > 0;
+            default -> null;
+        };
     }
 
     private static boolean priced(ProductBackend.ProductFact p) { return p.price() != null && p.price().signum() > 0; }

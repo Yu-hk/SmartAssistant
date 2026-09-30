@@ -23,6 +23,25 @@ import static org.mockito.ArgumentMatchers.eq;
 import org.mockito.ArgumentCaptor;
 
 class TaskAnalysisPromptTest {
+    @Test void entityReferenceGuardRunsAfterActualModelAnalysis() {
+        var model = mock(ModelRoutingService.class);
+        when(model.callForIntent(anyString(), anyString(), anyString()))
+                .thenReturn(new ModelRoutingService.IntentModelResponse("{}", "test", "LIGHT", 1, 1));
+        var guard = mock(ProductEntityReferencePlanGuard.class);
+        var provider = mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(guard);
+        var service = new TaskAnalysisService(model, null, null, new RouterStageAwareService(), null);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "enabled", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "maxEntityEntries", 20);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "productEntityReferencePlanGuard", provider);
+        List<String> history = List.of("用户：A和B多少钱？", "助手：B、A");
+        var repaired = com.example.smartassistant.router.model.TaskAnalysisResult.empty();
+        when(guard.repair(eq("第二款价格？"), eq(history), org.mockito.ArgumentMatchers.any())).thenReturn(repaired);
+        org.junit.jupiter.api.Assertions.assertSame(repaired, service.analyze("第二款价格？", history));
+        var order = org.mockito.Mockito.inOrder(model, guard);
+        order.verify(model).callForIntent(anyString(), anyString(), eq("第二款价格？"));
+        order.verify(guard).repair(eq("第二款价格？"), eq(history), org.mockito.ArgumentMatchers.any());
+    }
     @Test
     void intentAnalysisUsesTypedProcessingStageForEveryTurn() {
         ModelRoutingService model = mock(ModelRoutingService.class);

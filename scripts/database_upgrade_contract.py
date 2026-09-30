@@ -37,10 +37,11 @@ ORDER = '''20260809_add_admin_console_state
 20260926_allow_independent_conversations
 20260928_add_profile_admin_cleanup_audit
 20260929_add_product_suitability
-20260929_add_product_aliases'''.splitlines()
+20260929_add_product_aliases
+20260930_add_product_identity'''.splitlines()
 WRAPPED = frozenset(('20260831_expand_product_catalog', '20260914_add_product_structured_features',
                      '20260914_add_product_intake', '20260919_add_profile_control_archive',
-                     '20260929_add_product_suitability', '20260929_add_product_aliases'))
+                     '20260929_add_product_suitability', '20260929_add_product_aliases', '20260930_add_product_identity'))
 
 
 def load_inputs(repo):

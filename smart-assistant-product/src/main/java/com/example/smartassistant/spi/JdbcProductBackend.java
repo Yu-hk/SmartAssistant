@@ -224,6 +224,35 @@ public class JdbcProductBackend implements ProductBackend {
     }
 
     @Override
+    public List<ProductIdentity> listProductIdentities() {
+        if (jdbcTemplate == null) throw new ProductCatalogUnavailableException();
+        try {
+            return jdbcTemplate.query("""
+                    SELECT p.product_code, p.product_name,
+                           COALESCE((SELECT string_agg(a.alias, chr(31) ORDER BY a.normalized_alias)
+                                       FROM product_aliases a WHERE a.product_code=p.product_code),'') aliases,
+                           COALESCE(to_jsonb(p)->'identity_metadata', '{}'::jsonb) AS identity_metadata
+                      FROM products p WHERE __PRODUCTION_CATALOG_FILTER__ ORDER BY p.product_code
+                    """.replace("__PRODUCTION_CATALOG_FILTER__", PRODUCTION_CATALOG_FILTER), (rs, row) -> {
+                com.fasterxml.jackson.databind.JsonNode metadata;
+                try { metadata = new com.fasterxml.jackson.databind.ObjectMapper().readTree(rs.getString("identity_metadata")); }
+                catch (java.io.IOException invalid) { throw new ProductCatalogUnavailableException(invalid); }
+                boolean reviewed = !metadata.path("source").asText("").isBlank()
+                        && !metadata.path("reviewedAt").asText("").isBlank();
+                return new ProductIdentity(rs.getString("product_code"), rs.getString("product_name"),
+                        java.util.Arrays.stream(rs.getString("aliases").split("\u001f")).filter(s -> !s.isBlank()).toList(),
+                        reviewed ? metadata.path("brand").asText("") : "",
+                        reviewed ? metadata.path("family").asText("") : "",
+                        reviewed ? metadata.path("model").asText("") : "",
+                        reviewed ? metadata.path("generation").asText("") : "",
+                        reviewed ? metadata.path("variant").asText("") : "",
+                        reviewed ? metadata.path("parentCode").asText("") : "",
+                        reviewed ? metadata.path("source").asText("") : "catalog");
+            });
+        } catch (RuntimeException e) { throw new ProductCatalogUnavailableException(e); }
+    }
+
+    @Override
     public List<ProductSummary> listPopularProducts(int limit) {
         return listPopularProducts(new ProductDiscoveryCriteria("", "", limit));
     }
