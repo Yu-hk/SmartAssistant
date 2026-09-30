@@ -11,7 +11,7 @@
     {"id": "metrics", "lane": "judge", "col": 2, "type": "backend", "label": "Ragas 四维评测", "sublabel": "固定输入重复评分"},
     {"id": "stability", "lane": "judge", "col": 3, "type": "database", "label": "保留各轮原始分数", "width": 140, "sublabel": "中位数与波动范围"},
     {"id": "diagnosis", "lane": "review", "col": 3, "type": "backend", "label": "生成改进建议", "sublabel": "检索或生成问题分流"},
-    {"id": "manual", "lane": "review", "col": 4, "type": "security", "label": "开发集选择策略", "sublabel": "相同金标对照排序"},
+    {"id": "manual", "lane": "review", "col": 4, "type": "security", "label": "开发集选择策略", "sublabel": "原生召回与片段对照"},
     {"id": "holdout", "lane": "review", "col": 5, "type": "security", "label": "冻结留出集验证", "sublabel": "不自动更新生产权重"}
   ],
   "edges": [
@@ -25,7 +25,7 @@
   ],
   "cards": [
     {"dot": "cyan", "title": "四项指标", "items": ["上下文召回率、上下文精度", "忠实度、答案相关性"]},
-    {"dot": "amber", "title": "证据与波动", "items": ["目录事实与检索排序分别评估", "未知与合计不凭低分补造证据"]},
+    {"dot": "amber", "title": "证据与波动", "items": ["文档召回与聚合片段分别核对", "未知与合计不凭低分补造证据"]},
     {"dot": "rose", "title": "执行边界", "items": ["不读取真实用户会话，不执行订单", "建议不自动修改线上检索权重"]}
   ]
 }

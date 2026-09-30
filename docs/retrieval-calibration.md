@@ -45,4 +45,4 @@ python3 run_retrieval_calibration_server.py --root /opt/smart-assistant/eval/ret
 
 报告和逐轮证据按 600 权限新建，拒绝覆盖；只清理核验标签/身份属于本轮的临时容器和准确临时目录。依赖不重新安装，业务服务不引入评测代码。CI 编译独立探针并跑契约，不调用生产或模型；模拟输出仅用于契约测试，不作为效果证据。
 
-本轮结果见[验证记录](retrieval-calibration-verification-20261001.md)。经典交互图：[四维反馈](https://yu-hk.github.io/SmartAssistant/architecture/ragas-feedback.workflow.html)。
+本轮结果见[验证记录](retrieval-calibration-verification-20261001.md)。后续已增加[原生知识库子链路校准](native-retrieval-calibration.md)，补充实际 ACL、选域、内部多路召回与文档/聚合片段粒度对照；仍不等于完整生产 RAG 或 Ragas 四维验收。经典交互图：[四维反馈](https://yu-hk.github.io/SmartAssistant/architecture/ragas-feedback.workflow.html)。

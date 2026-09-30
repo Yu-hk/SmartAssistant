@@ -23,9 +23,11 @@ def main():
     jar=args.output/'classpath.jar'
     with zipfile.ZipFile(jar,'w') as archive: archive.writestr('META-INF/MANIFEST.MF',manifest+'\r\n')
     subprocess.run([args.javac,'-proc:none','-encoding','UTF-8','-cp',str(jar),'-d',str(args.output),
-                    'scripts/java/RetrievalCalibrationProbe.java'],check=True)
+                    'scripts/java/RetrievalCalibrationProbe.java',
+                    'scripts/java/NativeRetrievalCalibrationProbe.java'],check=True)
     with zipfile.ZipFile(args.output/'calibration-probe.zip','w',zipfile.ZIP_DEFLATED) as archive:
-        for path in args.output.glob('RetrievalCalibrationProbe*.class'): archive.write(path,path.name)
+        for pattern in ('RetrievalCalibrationProbe*.class','NativeRetrievalCalibrationProbe*.class'):
+            for path in args.output.glob(pattern): archive.write(path,path.name)
 
 
 if __name__=='__main__': main()

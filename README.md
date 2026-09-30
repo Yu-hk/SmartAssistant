@@ -172,6 +172,8 @@ GitHub Actions 会执行：
 
 同金标对照工具将策略选择限定在开发集，再用冻结留出集复核；真实公共种子 BM25/BGE、Product RRF/重排探针已在生产隔离容器执行三轮。20 题、8 种策略的本轮结果没有支持替换基线，线上参数保持不变；ID 排序指标不能冒充 Ragas 四维评分或全流程验收。详见[校准方法](docs/retrieval-calibration.md)与[本轮验证记录](docs/retrieval-calibration-verification-20261001.md)。
 
+进一步的[原生知识库子链路验证](docs/native-retrieval-calibration.md)覆盖实际选域、公开 ACL、内部召回和文档/聚合片段粒度：52 个合成问题、4 策略、三轮一致，但分号拆分再做多路 RRF 在两道开发题丢失资料，已通过逐路轨迹定位到合并竞争。开发/留出各只有 8 个独立问题族，且仅 memory-KB 知识子链路，不包含 PG/目录/Router/生成；本轮没有启用拆分、在线自动重检索或修改生产权重。
+
 - [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
 - [交互式运行时架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)
 - [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)
