@@ -44,3 +44,5 @@
 所有 `execute_retry=false`，无订单、余额、物流、商品或权限写入重试。缺少独立金标不能计算真实 ContextRecall。
 
 本轮结果与限制见[验证记录](retrieval-coverage-verification-20260930.md)。流程图保持 Archify classic 风格：[四维反馈](https://yu-hk.github.io/SmartAssistant/architecture/ragas-feedback.workflow.html)。
+
+2026-10-01 新增[独立开发/留出同金标对照](retrieval-calibration.md)，真实公共种子组件实验已完成；本轮没有足够证据替换生产基线，代表性完整管线的留出集、未知/算术评判器校准和自动限定补检仍未完成。

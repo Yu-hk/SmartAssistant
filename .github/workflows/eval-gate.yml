@@ -19,6 +19,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s scripts -p test_ragas_feedback.py -v
+      - run: python -m unittest discover -s scripts -p test_retrieval_calibration.py -v
 
   product-entity-contract:
     name: Product entity and constraint golden contract
@@ -34,6 +35,10 @@ jobs:
           mvn -B -pl smart-assistant-product,smart-assistant-data-intake -am test
           -Dtest=ProductEntityResolverTest,ProductEntityEvaluationTest,ProductEntityCoverageTest,ProductFieldCoverageTest,ProductRetrievalDiagnosticsTest,RerankHandlerTest,StreamingProductAgentServiceTest,ProductConversationHistoryTest,JevProductEntityAdvisorTest,JdbcProductIdentityTest,ProductIdentityUpdateTest,AdminProductIdentityControllerTest
           -Dsurefire.failIfNoSpecifiedTests=false
+      - name: Compile standalone retrieval calibration probe
+        run: |
+          mvn -B -pl smart-assistant-common dependency:build-classpath -Dmdep.outputFile=target/calibration-classpath.txt
+          python3 scripts/prepare_retrieval_calibration.py --classpath-file smart-assistant-common/target/calibration-classpath.txt --common-classes smart-assistant-common/target/classes --product-classes smart-assistant-product/target/classes --output smart-assistant-common/target/retrieval-calibration
       - uses: actions/upload-artifact@v4
         if: always()
         with:

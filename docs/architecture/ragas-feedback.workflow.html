@@ -5130,7 +5130,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / 图版 04">
-      <svg viewBox="0 0 973 528" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+      <svg viewBox="0 0 1021 528" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">SmartAssistant 四维评测与检索反馈</title>
         <desc id="archify-diagram-description">由 Archify 生成的工作流图。</desc>
         <!-- Definitions -->
@@ -5156,13 +5156,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Swimlanes -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="917" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="965" height="104" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="74" class="t-dim" font-size="10" font-weight="600">01 / 合成只读样本</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="917" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="965" height="104" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="198" class="t-dim" font-size="10" font-weight="600">02 / 离线质量评估</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="917" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="965" height="104" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="322" class="t-dim" font-size="10" font-weight="600">03 / 反馈与人工复核</text>
 
         <!-- Phase headers -->
@@ -5175,9 +5175,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <path data-edge-from="contract" data-edge-to="metrics" data-edge-label="有效样本" data-edge-key="0" data-composition-points="504,119;520,119;520,166;458,166;458,217" d="M 504 119 L 520 119 L 520 166 L 458 166 L 458 217" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <path data-edge-from="diagnosis" data-edge-to="manual" data-edge-label="影子建议" data-edge-key="1" data-composition-points="676.4,367;732.8,367" d="M 676.4 367 L 732.8 367" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="live" data-edge-to="contract" data-edge-label="有序证据" data-edge-key="2" data-composition-points="355.6,119;412,119" d="M 355.6 119 L 412 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="metrics" data-edge-to="stability" data-edge-label="四项分数" data-edge-key="3" data-composition-points="504,243;560.4,243" d="M 504 243 L 560.4 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="questions" data-edge-to="live" data-edge-label="固定只读问题" data-edge-key="4" data-composition-points="140,119;215.60000000000002,119" d="M 140 119 L 215.60000000000002 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="stability" data-edge-to="diagnosis" data-edge-label="重复观测" data-edge-key="5" data-composition-points="700.4,243;716.4,243;716.4,290;630.4,290;630.4,341" d="M 700.4 243 L 716.4 243 L 716.4 290 L 630.4 290 L 630.4 341" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="manual" data-edge-to="holdout" data-edge-label="固定候选策略" data-edge-key="3" data-composition-points="824.8,367;900.4,367" d="M 824.8 367 L 900.4 367" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="metrics" data-edge-to="stability" data-edge-label="四项分数" data-edge-key="4" data-composition-points="504,243;560.4,243" d="M 504 243 L 560.4 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="questions" data-edge-to="live" data-edge-label="固定只读问题" data-edge-key="5" data-composition-points="140,119;215.60000000000002,119" d="M 140 119 L 215.60000000000002 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="stability" data-edge-to="diagnosis" data-edge-label="重复观测" data-edge-key="6" data-composition-points="700.4,243;716.4,243;716.4,290;630.4,290;630.4,341" d="M 700.4 243 L 716.4 243 L 716.4 290 L 630.4 290 L 630.4 341" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
 
         <!-- Nodes -->
         <g id="node-questions" data-node-id="questions" data-node-label="冻结问题与金标" tabindex="0" role="button" aria-label="聚焦冻结问题与金标，独立参考答案, 合成只读样本" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="独立参考答案" data-node-context="合成只读样本">
@@ -5251,16 +5252,28 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="630.4" y="379" class="t-muted" font-size="7.7" text-anchor="middle">检索或生成问题分流</text>
         </g>
 
-        <g id="node-manual" data-node-id="manual" data-node-label="人工校准与复核" tabindex="0" role="button" aria-label="聚焦人工校准与复核，不直接重跑业务操作, 反馈与人工复核" aria-pressed="false" data-node-kind="security" data-node-sublabel="不直接重跑业务操作" data-node-context="反馈与人工复核">
-          <title>人工校准与复核 · 不直接重跑业务操作 · 反馈与人工复核</title>
+        <g id="node-manual" data-node-id="manual" data-node-label="开发集选择策略" tabindex="0" role="button" aria-label="聚焦开发集选择策略，相同金标对照排序, 反馈与人工复核" aria-pressed="false" data-node-kind="security" data-node-sublabel="相同金标对照排序" data-node-context="反馈与人工复核">
+          <title>开发集选择策略 · 相同金标对照排序 · 反馈与人工复核</title>
           <rect x="732.8" y="341" width="92" height="52" rx="6" class="c-mask"/>
           <rect x="732.8" y="341" width="92" height="52" rx="6" class="c-security" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(738.8 347) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="778.8" y="362" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">人工校准与复核</text>
-          <text data-detail="context" x="778.8" y="379" class="t-muted" font-size="7.7" text-anchor="middle">不直接重跑业务操作</text>
+          <text data-node-label="" data-detail-anchor="" x="778.8" y="362" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">开发集选择策略</text>
+          <text data-detail="context" x="778.8" y="379" class="t-muted" font-size="8" text-anchor="middle">相同金标对照排序</text>
+        </g>
+
+        <g id="node-holdout" data-node-id="holdout" data-node-label="冻结留出集验证" tabindex="0" role="button" aria-label="聚焦冻结留出集验证，不自动更新生产权重, 反馈与人工复核" aria-pressed="false" data-node-kind="security" data-node-sublabel="不自动更新生产权重" data-node-context="反馈与人工复核">
+          <title>冻结留出集验证 · 不自动更新生产权重 · 反馈与人工复核</title>
+          <rect x="900.4" y="341" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="900.4" y="341" width="92" height="52" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(906.4 347) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="946.4" y="362" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">冻结留出集验证</text>
+          <text data-detail="context" x="946.4" y="379" class="t-muted" font-size="7.7" text-anchor="middle">不自动更新生产权重</text>
         </g>
 
         <!-- Edge labels -->
@@ -5276,15 +5289,19 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="359.6" y="99" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="383.8" y="109" class="t-muted" font-size="8" text-anchor="middle">有序证据</text>
         </g>
-        <g data-detail="context" data-edge-from="metrics" data-edge-to="stability" data-edge-label="四项分数" data-edge-key="3">
+        <g data-detail="context" data-edge-from="manual" data-edge-to="holdout" data-edge-label="固定候选策略" data-edge-key="3">
+          <rect x="828.8" y="347" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="862.5999999999999" y="357" class="t-muted" font-size="8" text-anchor="middle">固定候选策略</text>
+        </g>
+        <g data-detail="context" data-edge-from="metrics" data-edge-to="stability" data-edge-label="四项分数" data-edge-key="4">
           <rect x="508.00000000000006" y="223" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="532.2" y="233" class="t-muted" font-size="8" text-anchor="middle">四项分数</text>
         </g>
-        <g data-detail="context" data-edge-from="questions" data-edge-to="live" data-edge-label="固定只读问题" data-edge-key="4">
+        <g data-detail="context" data-edge-from="questions" data-edge-to="live" data-edge-label="固定只读问题" data-edge-key="5">
           <rect x="144" y="99" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="177.8" y="109" class="t-muted" font-size="8" text-anchor="middle">固定只读问题</text>
         </g>
-        <g data-detail="context" data-edge-from="stability" data-edge-to="diagnosis" data-edge-label="重复观测" data-edge-key="5">
+        <g data-detail="context" data-edge-from="stability" data-edge-to="diagnosis" data-edge-label="重复观测" data-edge-key="6">
           <rect x="649.1999999999999" y="270" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="673.4" y="280" class="t-muted" font-size="8" text-anchor="middle">重复观测</text>
         </g>
@@ -5512,8 +5529,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>证据与波动</h3>
         </div>
         <ul>
-          <li>&bull; 目录事实与 RAG 轨迹分别记录</li>
-          <li>&bull; 缺失补检索，未知不编造</li>
+          <li>&bull; 目录事实与检索排序分别评估</li>
+          <li>&bull; 未知与合计不凭低分补造证据</li>
         </ul>
       </div>
 

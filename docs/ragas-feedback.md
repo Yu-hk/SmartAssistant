@@ -51,4 +51,6 @@ python scripts/ragas_feedback.py --dataset dataset.json --output fresh-report.js
 
 下一阶段应冻结独立留出集，在同一金标下比较原权重与候选权重/字段过滤。确认有稳定增益，再接在线只读、有超时/次数上限的重检索，保持 ACL、选域、事实检查、不可写业务边界不变。没有参考答案时不能伪造 ContextRecall；线上代理指标必须另名，不能与 Ragas 混报。
 
-交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `006fb74026c832eace0772d44190ce9e803794e74b1e6aa17962408ade7f8b57`（2403 bytes），HTML SHA-256 `08a29f6d60896c148932e257f58800beae3634bc1b572c2e5bdf3f531106e29f`（805299 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；本次修正零轮后冻结。
+2026-10-01 已新增[开发集选择、留出集验证工具](retrieval-calibration.md)。20 个公共知识种子问题、8 个固定策略、三轮真实 BM25/BGE/RRF/重排的组件实验没有支持替换生产基线，因此仍不调整线上参数。该实验未调用 LLM 评判器，不代替上述四维或完整 Product/Router 流程；详情见[校准验证记录](retrieval-calibration-verification-20261001.md)。
+
+交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `d94e5b781392935e01b8ef7b4de9068bfbbf76a76547ff72edaf644be545f2fb`（2629 bytes），HTML SHA-256 `7b46dac18f54849bfea4af5838b6c905da7c470405bd719fb82197cc7c941b72`（807166 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；本次修正零轮后冻结。

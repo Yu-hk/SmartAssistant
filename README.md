@@ -170,6 +170,8 @@ GitHub Actions 会执行：
 
 商品字段覆盖独立于相似度：逐商品标记已知、资料未知、证据缺失、身份未确定，不能用一个高分候选代表全部需求。可完整解析的目录事实不再进入模糊重排；未知字段保留显式未知，超过证据预算或身份不明时不扩大到其他型号。RAG 管线记录各路候选、各阶段顺序和最终上下文指纹，并沿实际请求 ID 接入阶段追踪；新增轨迹不保存问题原文、历史或证据正文。离线评分校验答案/证据指纹，区分字段遗漏、生成问题、计算上下文和未知答案评分偏差。融合与语义重排的混合参数默认仍为 0，须同金标对照验证后再启用；本轮没有开启 Ragas 驱动的自动重检索。详见[覆盖与追踪实施说明](docs/retrieval-coverage.md)。
 
+同金标对照工具将策略选择限定在开发集，再用冻结留出集复核；真实公共种子 BM25/BGE、Product RRF/重排探针已在生产隔离容器执行三轮。20 题、8 种策略的本轮结果没有支持替换基线，线上参数保持不变；ID 排序指标不能冒充 Ragas 四维评分或全流程验收。详见[校准方法](docs/retrieval-calibration.md)与[本轮验证记录](docs/retrieval-calibration-verification-20261001.md)。
+
 - [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
 - [交互式运行时架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)
 - [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)
