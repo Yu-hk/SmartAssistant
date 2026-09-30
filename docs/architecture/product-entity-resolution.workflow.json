@@ -16,7 +16,7 @@
     {"id": "tasks", "lane": "respond", "col": 2, "type": "backend", "label": "逐商品查询任务", "sublabel": "字段 / 条件 / 数量", "width": 165},
     {"id": "facts", "lane": "respond", "col": 3, "type": "database", "label": "编码读取实时事实", "sublabel": "来源与身份再校验", "width": 165},
     {"id": "conditions", "lane": "respond", "col": 4, "type": "security", "label": "核验条件与合计", "sublabel": "未知项不可算作满足", "width": 165},
-    {"id": "answer", "lane": "respond", "col": 5, "type": "frontend", "label": "事实与待核实项", "sublabel": "解析状态 / 字段证据", "width": 160}
+    {"id": "answer", "lane": "respond", "col": 5, "type": "frontend", "label": "事实与待核实项", "sublabel": "澄清结果禁止追加折算", "width": 160}
   ],
   "edges": [
     {"from": "input", "to": "mentions"},
@@ -30,6 +30,6 @@
   ],
   "cards": [
     {"dot": "rose", "title": "身份与数据边界", "items": ["模型先规划，商品认领后固定读取节点", "品牌、代际与版本由管理员注明来源并审计", "本会话外或话题切换前的身份不得用于指代"]},
-    {"dot": "cyan", "title": "安全与评估边界", "items": ["未知条件显式核实；缺项不得伪造总价", "实体与条件金标独立于 Ragas 答案质量评估"]}
+    {"dot": "cyan", "title": "安全与评估边界", "items": ["同问题单商品澄清优先于通用模型推算", "实体与条件金标独立于 Ragas 答案质量评估"]}
   ]
 }

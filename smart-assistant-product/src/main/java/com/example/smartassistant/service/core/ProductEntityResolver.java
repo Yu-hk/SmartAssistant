@@ -20,7 +20,8 @@ public class ProductEntityResolver {
     private record Snapshot(List<ProductIdentity> identities, Map<String, List<ProductIdentity>> names, long expires) { }
     private static final Pattern REFERENCE = Pattern.compile("前面[两二2]款|这[两二2]款|它们|第[一二三四1-4]款|这款|这个|那款|那个|(?<![\\p{IsHan}])它(?!们)");
     private static final Pattern UNKNOWN = Pattern.compile("(?:(?<=^)|(?<=[和与、，,；;：:]))\\s*(?:请帮我|帮我|查询|查一下|查下|看看|请|对比|比较|那)?\\s*([^，,；;？?和与、：:]{2,65}?)(?:的)?(?=价格|多少钱|售价|重量|多重|续航|降噪|颜色|规格|库存|有货|合计|总价|每款)");
-    private static final Pattern QUANTITY_TAIL = Pattern.compile("^\\s*[1-9][0-9]?[件个台副]");
+    // Detect the numeric boundary even when the value is invalid; the planner must clarify it.
+    private static final Pattern QUANTITY_TAIL = Pattern.compile("^\\s*[0-9]+(?:\\.[0-9]+)?\\s*[件个台副]");
     private static final Pattern UNKNOWN_LIST = Pattern.compile("(?:^|[和与、])\\s*(?:请帮我|帮我|查询|查一下|查下|看看|请|对比|比较)?\\s*([^，,；;？?和与、：:]{2,65}?)(?=\\s*[和与、])");
     private final ProductBackend backend;
     private final JevProductEntityAdvisor advisor;

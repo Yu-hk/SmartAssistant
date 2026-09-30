@@ -41,6 +41,11 @@ async function main() {
       ['missing', true, 'QA不存在的耳机XYZ和AirPods Pro合计多少钱？', ['未找到准确匹配', '暂不能核算总价'], []],
       ['isolated-reference', true, '第二款价格？', ['需要核实具体商品'], ['目录售价']],
       ['unknown-suffix', true, 'AirPods Pro Max价格？', ['不能自动选定型号'], ['目录售价']],
+      ['zero-quantity', true, 'AirPods Pro 0件合计多少钱？', ['1～99'], ['合计：', '目录价格合计', '合计金额是 0', '合计金额为 0']],
+      ['oversize-quantity', true, 'AirPods Pro 100件合计多少钱？', ['1～99'], ['合计：', '目录价格合计', '199900', '199,900']],
+      ['fractional-quantity', true, 'AirPods Pro 1.5件合计多少钱？', ['1～99'], ['合计：', '目录价格合计', '2998.5']],
+      ['wrong-price-unit', true, 'AirPods Pro价格不超过2000克？', ['单位'], ['价格条件符合']],
+      ['open-battery', true, 'AirPods Pro续航多少小时？', ['续航'], ['未知条件', '不支持的条件']],
     ];
     for (const [label, fresh, question, expected, forbidden] of cases) {
       if (fresh) await newChat.click();
@@ -54,6 +59,9 @@ async function main() {
       console.log(JSON.stringify({ channel, label, path: new URL(page.url()).pathname, answer }));
       for (const word of expected) assert(answer.includes(word), label + ': missing ' + word);
       for (const word of forbidden) assert(!answer.includes(word), label + ': unexpected ' + word);
+      if (['zero-quantity', 'oversize-quantity', 'fractional-quantity'].includes(label)) {
+        assert(!answer.includes('\n\n'), label + ': generic prose appended to authoritative clarification');
+      }
       if (process.env.QA_SCREENSHOT_DIR) await page.screenshot({
         path: path.join(process.env.QA_SCREENSHOT_DIR, 'product-entity-' + channel + '-' + label + '.png'), animations: 'disabled', fullPage: true,
       });

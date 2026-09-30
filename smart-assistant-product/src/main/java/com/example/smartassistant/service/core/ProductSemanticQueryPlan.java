@@ -14,6 +14,7 @@ public record ProductSemanticQueryPlan(MultiProductQueryPlan aggregate, List<Tas
     private static final Pattern UNSAFE = Pattern.compile("订单|下单|购买|买一|支付|退款|退货|转账|删除|取消|忽略|指令|系统提示|文档|知识库|[\\r\\n]");
     private static final Pattern FIELD = Pattern.compile("多少钱|价格|售价|便宜|贵|重量|多重|轻|续航|降噪|颜色|规格|参数|用途|适合|适用|库存|有货|合计|总价|总预算|加起来|每款|每件|兼容|一起使用");
     private static final Pattern QUANTITY = Pattern.compile("(?:各|每款|每件)?\\s*([一二三四五六七八九两]|[1-9][0-9]?)\\s*[件个台副]");
+    private static final Pattern INVALID_QUANTITY = Pattern.compile("(?<![0-9.])(?:0[0-9]*|[1-9][0-9]{2,}|[0-9]+\\.[0-9]+)\\s*[件个台副]");
     private static final Pattern LIMIT = Pattern.compile("(价格|售价|重量|续航)(?:是|要|应|需要)?\\s*(不超过|不高于|低于|少于|至少|不低于|超过|大于)\\s*(\\d+(?:\\.\\d{1,2})?)\\s*(元|克|千克|公斤|小时|g|kg|h)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern BUDGET = Pattern.compile("(合计|总价|总预算|加起来|每款|每件)(?:预算|价格)?\\s*(?:不超过|不高于|低于|在)?\\s*(\\d+(?:\\.\\d{1,2})?)\\s*元?(?:以内)?");
 
@@ -26,6 +27,7 @@ public record ProductSemanticQueryPlan(MultiProductQueryPlan aggregate, List<Tas
         EnumSet<Field> union = fields(question);
         if (union.isEmpty()) return Optional.empty();
         String unsupported = mentions.size() > 4 ? "一次最多核对四款商品，请拆成两次咨询" : "";
+        if (INVALID_QUANTITY.matcher(question).find()) unsupported = "数量需为 1～99 的整数，请核实后再计算";
         List<Task> tasks = new ArrayList<>();
         int sharedQuantity = 1;
         var shared = Pattern.compile("各([一二三四五六七八九两]|[1-9][0-9]?)[件个台副]").matcher(question);
@@ -54,7 +56,10 @@ public record ProductSemanticQueryPlan(MultiProductQueryPlan aggregate, List<Tas
                     case BATTERY -> Set.of("小时", "h").contains(unit);
                     default -> false;
                 };
-                if (!validUnit) unsupported = "条件的单位尚不明确，请补充元、克或小时";
+                if (!validUnit) {
+                    unsupported = "条件的单位尚不明确，请补充元、克或小时";
+                    number = null; // Invalid dimensions cannot produce a numeric satisfied verdict.
+                }
                 conditions.add(new Condition(field, limits.group(2), number, unit, null));
             }
             if (clause.contains("支持主动降噪") || clause.contains("支持降噪"))
@@ -89,10 +94,13 @@ public record ProductSemanticQueryPlan(MultiProductQueryPlan aggregate, List<Tas
         residual = BUDGET.matcher(residual).replaceAll("");
         residual = LIMIT.matcher(residual).replaceAll("");
         residual = QUANTITY.matcher(residual).replaceAll("");
+        // An open battery duration question is not a threshold without a numeric operator.
+        if (union.contains(Field.BATTERY)) residual = residual.replaceAll("多少小时|几小时", "");
         residual = FIELD.matcher(residual).replaceAll("")
                 .replaceAll("请帮我|帮我|查一下|查询|查下|想了解|了解一下|了解|想知道|告诉我|分别|各自|一起使用|主动|支持|每款|每件|通勤|办公|学习|旅行|运动|游戏|哪款|哪个|差多少|比较|对比|至少|不超过|不高于|合计|总价|总预算|加起来|以内|是多少|是什么|多少|有哪些|怎么样|如何|看看|不支持|能不能|能否|是否|可以", "")
                 .replaceAll("[的我请想要是有无不和与及各都最更呢吗好长短轻贵第款两它这那前面，,。？?；;：:、\\s]", "");
-        if (!residual.isBlank()) unsupported = "还有未能可靠解析的条件，请核实：" + residual.substring(0, Math.min(40, residual.length()));
+        if (!residual.isBlank()) unsupported = (unsupported.isBlank() ? "" : unsupported + "；")
+                + "还有未能可靠解析的条件，请核实：" + residual.substring(0, Math.min(40, residual.length()));
         return Optional.of(new ProductSemanticQueryPlan(new MultiProductQueryPlan(question,
                 mentions.stream().map(ProductEntityResolver.Mention::surface).toList(), union, relation, purpose, budget, scope), tasks, unsupported));
     }
