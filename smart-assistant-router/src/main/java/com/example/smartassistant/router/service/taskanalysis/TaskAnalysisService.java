@@ -84,6 +84,9 @@ public class TaskAnalysisService {
     @Autowired(required = false)
     private SkillPackageManager skillPackageManager;
 
+    @Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<ProductEntityReferencePlanGuard> productEntityReferencePlanGuard;
+
     /**
      * 任务分析 prompt，支持通过 Nacos Config 动态刷新（@RefreshScope）。
      * 可将此属性配置到 Nacos 配置中心，修改后立即生效，无需重启。
@@ -230,6 +233,11 @@ public class TaskAnalysisService {
             // 规则层后处理：实体归一化、词槽状态、澄清判断、输入鲁棒性
             if (result.isMeaningful() && intentEvaluationService != null) {
                 result = intentEvaluationService.postProcess(question, result);
+            }
+
+            if (productEntityReferencePlanGuard != null) {
+                var guard = productEntityReferencePlanGuard.getIfAvailable();
+                if (guard != null) result = guard.repair(modelSelectionQuestion, conversationHistory, result);
             }
 
             long elapsed = System.currentTimeMillis() - start;

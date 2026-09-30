@@ -8,6 +8,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RouterConversationContextTest {
+    @Test void ordinalAndPluralProductReferencesPreserveDisplayOrder() {
+        for (String question : List.of("第二款价格？", "前面两款合计多少钱？", "这两款多少钱？")) {
+            String enriched = RouterService.addConversationContextIfNeeded(question, List.of(
+                    "用户：AirPods Pro和MacBook Air M3多少钱？", "助手：MacBook Air M3：8999元。AirPods Pro：1999元。"));
+            assertTrue(enriched.startsWith(question));
+            assertTrue(enriched.contains("[商品实体历史]"));
+            assertTrue(enriched.contains("助手：MacBook Air M3：8999元。AirPods Pro：1999元。"));
+        }
+    }
 
     @Test
     void parameterAnswersKeepContextWithoutAuthorizingHistoricalOrderIntent() {

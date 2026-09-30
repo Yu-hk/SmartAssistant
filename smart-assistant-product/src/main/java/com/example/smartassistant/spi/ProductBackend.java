@@ -63,6 +63,13 @@ public interface ProductBackend {
     /** Stable catalog fields for the product BM25 index; never use an empty user search as a catalog scan. */
     default List<ProductSearchDocument> listProductSearchDocuments() { return List.of(); }
 
+    /** Identity-only catalog snapshot. Integrations may override with verified model metadata. */
+    default List<ProductIdentity> listProductIdentities() {
+        return listProductSearchDocuments().stream().map(p -> new ProductIdentity(p.code(), p.name(),
+                java.util.Arrays.stream(Objects.toString(p.aliases(), "").split("\u001f"))
+                        .filter(s -> !s.isBlank()).toList())).toList();
+    }
+
     /** Stable, separately searchable catalog fields. Unknown fields stay blank. */
     record ProductSearchDocument(String code, String name, String spec,
                                  String aliases, String purposes, String features) {

@@ -199,8 +199,10 @@ public class ProductStreamController {
         if (historyMarker >= 0) multiQuestion = multiQuestion.substring(0, historyMarker).trim();
         if (factQueryService != null && java.util.Set.of("ANSWER", "QUERY_PRODUCT", "DISCOVER_PRODUCTS",
                 "QUERY_HOT_PRODUCTS", "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT").contains(request.operation())
-                && com.example.smartassistant.service.core.MultiProductQueryPlan.parse(multiQuestion).isPresent()) {
-            var multiResponse = factQueryService.query(multiQuestion, List.of(), requestId);
+                && com.example.smartassistant.service.core.ProductFactQueryService.maySupport(multiQuestion)) {
+            var semanticHistory = com.example.smartassistant.service.core.ProductConversationHistory.read(request.input(),
+                    original.isBlank() ? request.question() : original);
+            var multiResponse = factQueryService.query(multiQuestion, semanticHistory, requestId);
             if (multiResponse.error() != null || Boolean.TRUE.equals(multiResponse.data().get("handled"))) {
                 Map<String, Object> multiData = new LinkedHashMap<>(multiResponse.data());
                 if ("ANALYZE_PRODUCT_DATA".equals(request.operation())) multiData.put("analysis", multiResponse.answer());
