@@ -82,6 +82,8 @@ public class ResultMerger {
         if (!conflicts.isEmpty()) {
             return appendWarning(conflictReply(conflicts), optionalWarning);
         }
+        String multiProductReply = completeMultiProductReply(question, mergeable);
+        if (multiProductReply != null) return appendWarning(multiProductReply, optionalWarning);
         mergeable = deduplicateBrowseReplies(mergeable);
         if (mergeable.size() == 1) return appendWarning(mergeable.getFirst().getResult(), optionalWarning);
 
@@ -238,6 +240,45 @@ public class ResultMerger {
         if (results == null) return List.of();
         return results.stream().filter(result -> result != null
                 && result.isRequired() && !result.isSuccess()).toList();
+    }
+
+    /** A versioned domain result covers the complete original read-only question. Preserve
+     * that evidence-backed answer instead of repeating intermediate nodes or paraphrasing it.
+     * Mixed domains, mismatched scopes, failures and contradictory evidence are never hidden. */
+    static String completeMultiProductReply(String question, List<SubTaskResult> results) {
+        if (results == null || results.isEmpty()) return null;
+        for (var result : results) {
+            if (result == null || !result.isSuccess() || result.getDomainQuality().isFail()
+                    || result.hasHandoff()) return null;
+            String agent = AgentDiscoveryService.canonicalAgentName(result.getAgentName());
+            // A closed-grammar product result must cover the exact original question below.
+            // Only unstructured general prose may accompany it; business-domain outputs,
+            // system nodes and structured general results still use normal merge semantics.
+            if (!"product".equals(agent) && !(("general".equals(agent) || "router-fallback".equals(agent))
+                    && result.getStructuredData().isEmpty()
+                    && (result.getOutputSchema() == null || result.getOutputSchema().isBlank()))) return null;
+        }
+        String scope = com.example.smartassistant.common.util.UserQuestionNormalizer.normalize(question);
+        if (scope == null) return null;
+        int history = scope.indexOf("[对话上下文]");
+        if (history >= 0) scope = scope.substring(0, history).trim();
+        SubTaskResult selected = null;
+        for (var result : results) {
+            Map<String, Object> data = result.getStructuredData();
+            if (!(data.get("multiProductQueryVersion") instanceof Number version) || version.intValue() != 1) continue;
+            if (!"product".equals(AgentDiscoveryService.canonicalAgentName(result.getAgentName()))) return null;
+            if (!result.getDomainQuality().isPass() || !Boolean.TRUE.equals(data.get("deterministic"))
+                    || !(data.get("queryPlan") instanceof Map<?, ?> plan)
+                    || !scope.equals(plan.get("originalQuestion"))
+                    || !(plan.get("products") instanceof List<?> products) || products.size() < 2 || products.size() > 4
+                    || !(data.get("productEvidence") instanceof List<?> evidence) || evidence.size() != products.size()
+                    || result.getResult() == null || result.getResult().isBlank()) return null;
+            if (selected != null && (!Objects.equals(selected.getStructuredData().get("queryPlan"), plan)
+                    || !Objects.equals(selected.getStructuredData().get("productEvidence"), evidence)
+                    || !selected.getResult().equals(result.getResult()))) return conflictReply(List.of("multi-product"));
+            selected = result;
+        }
+        return selected == null ? null : selected.getResult();
     }
 
     /** Discovery browse results can be forwarded unchanged by analysis/recommendation nodes.

@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": { "title": "多商品结构化查询与证据汇总", "locale": "zh-CN", "quality_profile": "showcase" },
+  "lanes": [
+    { "id": "plan", "label": "原问题与结构化计划" },
+    { "id": "facts", "label": "逐商品目录核实" },
+    { "id": "answer", "label": "关系计算与统一回复" }
+  ],
+  "mainPath": ["question", "split", "lookup", "evidence", "aggregate", "reply"],
+  "nodes": [
+    { "id": "question", "lane": "plan", "col": 0, "type": "frontend", "label": "多商品提问", "sublabel": "比较 / 预算关系", "width": 145 },
+    { "id": "split", "lane": "plan", "col": 1, "type": "security", "label": "结构化拆分", "sublabel": "2 至 4 款 / 固定字段", "width": 150 },
+    { "id": "fallback", "lane": "plan", "col": 2, "type": "backend", "label": "原有规划检索", "sublabel": "完整传递原问题", "width": 150 },
+    { "id": "lookup", "lane": "facts", "col": 2, "type": "database", "label": "逐商品核对", "sublabel": "名称 / 别名 / 型号", "width": 150 },
+    { "id": "evidence", "lane": "facts", "col": 3, "type": "backend", "label": "逐字段证据", "sublabel": "已知 / 未知 / 歧义", "width": 150 },
+    { "id": "clarify", "lane": "facts", "col": 4, "type": "security", "label": "保留待核实项", "sublabel": "禁止跨商品补事实", "width": 150 },
+    { "id": "aggregate", "lane": "answer", "col": 4, "type": "backend", "label": "汇总与比较", "sublabel": "总预算 / 单款预算", "width": 150 },
+    { "id": "reply", "lane": "answer", "col": 5, "type": "frontend", "label": "回复与覆盖记录", "sublabel": "逐商品展示证据", "width": 152 }
+  ],
+  "edges": [
+    { "from": "question", "to": "split" },
+    { "from": "split", "to": "lookup", "label": "可识别只读问题", "variant": "security" },
+    { "from": "split", "to": "fallback", "label": "未覆盖表达", "role": "branch", "variant": "dashed" },
+    { "from": "lookup", "to": "evidence" },
+    { "from": "evidence", "to": "clarify", "label": "缺失或歧义", "role": "branch", "variant": "dashed" },
+    { "from": "evidence", "to": "aggregate", "label": "核验事实", "variant": "emphasis" },
+    { "from": "clarify", "to": "aggregate", "label": "显式未知", "role": "branch", "variant": "dashed" },
+    { "from": "aggregate", "to": "reply" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "证据边界", "items": ["重量、续航与主动降噪要求来源及核验记录", "用途标签不等于性能保证；兼容性须另有证据"] },
+    { "dot": "cyan", "title": "评估依据", "items": ["记录每个商品的解析状态及逐字段证据", "缺少任何商品价格时不计算完整总价"] }
+  ]
+}

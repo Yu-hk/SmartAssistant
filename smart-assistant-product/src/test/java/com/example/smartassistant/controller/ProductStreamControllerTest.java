@@ -30,6 +30,27 @@ import static org.mockito.Mockito.when;
 
 class ProductStreamControllerTest {
     @Test
+    void normalMultiProductRequestUsesCatalogWithoutModelFailureAndRetainsOriginalScope() {
+        var agent = mock(StreamingProductAgentService.class);
+        var backend = mock(ProductBackend.class);
+        var facts = new com.example.smartassistant.service.core.ProductFactQueryService(backend);
+        for (String name : List.of("耳机A", "耳机B")) when(backend.lookupFacts(name)).thenReturn(
+                new ProductBackend.FactLookup(List.of(new ProductBackend.ProductFact(name, name,
+                        new BigDecimal("100"), "充足", "", "")), false));
+        var controller = new ProductStreamController(agent);
+        org.springframework.test.util.ReflectionTestUtils.setField(controller, "factQueryService", facts);
+        for (String operation : List.of("ANSWER", "QUERY_PRODUCT", "DISCOVER_PRODUCTS", "ANALYZE_PRODUCT_DATA", "RECOMMEND_PRODUCT")) {
+            var request = new AgentExecutionRequest("1.0", "multi-" + operation, "query", "12", operation,
+                    "查询耳机A", Map.of("_replyScopeQuestion", "耳机A和耳机B合计不超过150元可以吗？"), List.of(), List.of(), null, null);
+            var response = controller.execute(request, null);
+            org.junit.jupiter.api.Assertions.assertTrue(response.getBody().answer().contains("合计 200 元"));
+            org.junit.jupiter.api.Assertions.assertTrue(response.getBody().answer().contains("超过总预算 150 元"));
+            assertEquals("0", response.getHeaders().getFirst(TokenUsageHeaders.TOTAL_TOKENS));
+            org.junit.jupiter.api.Assertions.assertTrue(response.getBody().data().containsKey("productEvidence"));
+        }
+        org.mockito.Mockito.verifyNoInteractions(agent);
+    }
+    @Test
     void specificationFollowUpDoesNotBecomeDiscoveryBecauseHistoryRecommendedLaptop() {
         var agent = mock(StreamingProductAgentService.class);
         var discovery = new ProductDiscoveryService(new com.example.smartassistant.spi.InMemoryProductBackend());
