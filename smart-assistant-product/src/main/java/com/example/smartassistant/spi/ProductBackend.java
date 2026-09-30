@@ -33,12 +33,17 @@ public interface ProductBackend {
     default FactLookup lookupFacts(String name) { return null; }
 
     record ProductFact(String code, String name, BigDecimal price, String stock, String spec,
-                       String color, ProductFeatures features) {
+                       String color, ProductFeatures features, ProductSuitability suitability) {
+        public ProductFact(String code, String name, BigDecimal price, String stock, String spec,
+                           String color, ProductFeatures features) {
+            this(code, name, price, stock, spec, color, features, ProductSuitability.UNKNOWN);
+        }
         public ProductFact(String code, String name, BigDecimal price, String stock, String spec, String color) {
             this(code, name, price, stock, spec, color, ProductFeatures.UNKNOWN);
         }
         public ProductFact {
             features = features == null ? ProductFeatures.UNKNOWN : features;
+            suitability = suitability == null ? ProductSuitability.UNKNOWN : suitability;
         }
     }
     record FactLookup(List<ProductFact> products, boolean ambiguous) { }

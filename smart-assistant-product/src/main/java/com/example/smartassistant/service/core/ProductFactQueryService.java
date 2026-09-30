@@ -29,6 +29,8 @@ public class ProductFactQueryService {
         return match.matches() ? new Query(match.group(1).trim(), match.group(2)) : null;
     }
     public AgentExecutionResponse query(String question, List<String> history, String requestId) {
+        var multi = MultiProductQueryPlan.parse(question);
+        if (multi.isPresent()) return new MultiProductQueryService(backend).query(multi.get(), requestId);
         Query query = parse(question);
         if (query == null) return unhandled();
         String name = query.name();

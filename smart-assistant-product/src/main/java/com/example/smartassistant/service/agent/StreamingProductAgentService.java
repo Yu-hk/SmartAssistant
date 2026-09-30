@@ -65,6 +65,9 @@ public class StreamingProductAgentService {
     @Autowired
     private com.example.smartassistant.common.rag.source.UserDocumentQaService userDocumentQaService;
 
+    @Autowired(required = false)
+    private com.example.smartassistant.service.core.ProductFactQueryService factQueryService;
+
     /** ⭐ P1 全阶段 trace 记录器（可选，null 时跳过 trace） */
     @Autowired(required = false)
     private StageTraceRecorder stageTraceRecorder;
@@ -180,6 +183,12 @@ public class StreamingProductAgentService {
         }
         String originalUserMessage = userMessage;
         String rid = (requestId != null && !requestId.isBlank()) ? requestId : ("prod-" + System.nanoTime());
+        // The direct sync/SSE entry must use the same bounded decomposition as protocol requests.
+        if (factQueryService != null && com.example.smartassistant.service.core.MultiProductQueryPlan.parse(userMessage).isPresent()) {
+            var multi = factQueryService.query(userMessage, List.of(), rid);
+            if (Boolean.TRUE.equals(multi.data().get("handled"))) return DomainAgentResponse.of(multi.answer(), multi.quality().toDomainQuality());
+            if (multi.error() != null) return DomainAgentResponse.of(multi.error().message(), multi.quality().toDomainQuality());
+        }
         // ⭐ G4 运营指标：记录一次商品域应答（无答案率分母）
         opsMetrics.recordAnswer("product", "product");
         try (var toolEvidence = com.example.smartassistant.service.quality.ProductToolEvidenceScope.open()) {

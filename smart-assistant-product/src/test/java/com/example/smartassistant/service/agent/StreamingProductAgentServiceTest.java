@@ -42,6 +42,24 @@ import static org.mockito.Mockito.*;
  */
 class StreamingProductAgentServiceTest {
     @Test
+    void namedMultiProductQuestionUsesCatalogBeforeRagOrModel() {
+        var backend = mock(com.example.smartassistant.spi.ProductBackend.class);
+        when(backend.lookupFacts(anyString())).thenAnswer(invocation -> {
+            String name = invocation.getArgument(0);
+            return new com.example.smartassistant.spi.ProductBackend.FactLookup(List.of(
+                    new com.example.smartassistant.spi.ProductBackend.ProductFact(name, name,
+                            java.math.BigDecimal.TEN, "充足", "", "")), false);
+        });
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "factQueryService",
+                new com.example.smartassistant.service.core.ProductFactQueryService(backend));
+        var result = service.executeWithQuality("耳机A和耳机B分别多少钱？", "multi-direct");
+        assertTrue(result.quality().isPass());
+        assertTrue(result.answer().contains("耳机A：目录售价 10 元"));
+        assertTrue(result.answer().contains("耳机B：目录售价 10 元"));
+        verifyNoInteractions(agent);
+    }
+
+    @Test
     void modelBillingFailureRemainsTypedInsteadOfBecomingAnAnswer() {
         when(agent.execute(anyString())).thenThrow(
                 com.example.smartassistant.common.error.ModelCallFailure.from(new RuntimeException("402: Insufficient Balance")));
