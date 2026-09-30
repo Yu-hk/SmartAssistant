@@ -53,4 +53,6 @@ PUT 为完整替换这些固定字段；未提供字段保存为空，不推断�
 
 增加独立金标指标：提及精确率、召回率、F1、实体链接准确率和字段归属准确率。当前合成小集为 10 个问题/14 次提及，不能据此声称线上泛化、Jev 准确率或 Ragas 四维质量为 100%。Ragas 的上下文召回/精度、忠实度、答案相关性仍是不同层级的指标，本次未重跑其真实模型评测。
 
+原提及金标之外，后续新增独立的 [64 场景覆盖契约](product-entity-coverage-20260930.md)，按直答、合理核实/证据不足、错误 SKU、闭合链未认领统计；合成场景不是线上流量覆盖率。本轮修复等待生产 SSH 认证恢复后发布，不能把本地结果标成线上已验收。
+
 验证过程和上线限制见[2026-09-30 验证记录](product-entity-verification-20260930.md)。[经典 Archify 交互流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-entity-resolution.workflow.html)纳入[图表总览](https://yu-hk.github.io/SmartAssistant/)。
