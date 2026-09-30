@@ -35,6 +35,30 @@ class ResultMergerTest {
     }
 
     @Test
+    void singleProductClarificationCannotBeContradictedByGenericArithmetic() {
+        String question = "AirPods Pro 1.5件合计多少钱？";
+        var product = multiResult("product", question, "数量需为1～99的整数，暂不能核算总价。");
+        // Match the real Product single-entity protocol: no multiProductQueryVersion.
+        product.setStructuredData(Map.of("productEntityResolutionVersion", 1, "deterministic", true,
+                "clarificationRequired", true,
+                "queryPlan", Map.of("originalQuestion", question, "products", List.of("AP")),
+                "productEvidence", List.of(Map.of("requestedProduct", "AP"))));
+        var general = new SubTaskResult("summary", "总结", "router_fallback", "折算合计2998.5元", true);
+        var ai = org.mockito.Mockito.mock(com.example.smartassistant.common.rag.advisor.AiChatService.class);
+        var merger = new ResultMerger(org.mockito.Mockito.mock(org.springframework.ai.chat.model.ChatModel.class), ai);
+        org.mockito.Mockito.clearInvocations(ai);
+        assertThat(merger.merge(question, List.of(product, general))).isEqualTo(product.getResult());
+        org.mockito.Mockito.verifyNoInteractions(ai);
+        assertThat(ResultMerger.completeMultiProductReply("另一问题", List.of(product, general))).isNull();
+        assertThat(ResultMerger.completeMultiProductReply(question, List.of(product,
+                new SubTaskResult("order", "订单", "order", "订单结果", true)))).isNull();
+        var changed = new java.util.HashMap<>(product.getStructuredData());
+        changed.put("clarificationRequired", false);
+        product.setStructuredData(changed);
+        assertThat(ResultMerger.completeMultiProductReply(question, List.of(product, general))).isNull();
+    }
+
+    @Test
     void genericSummaryCannotHideFailureOrStructuredFacts() {
         String question = "A和B分别多少钱？";
         var product = multiResult("product", question, "已核实价格");
