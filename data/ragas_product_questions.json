@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "origin": "synthetic_public_catalog",
+  "reference_policy": "human_authored_frozen_before_collection",
+  "catalog_prices": {"AIRPODS-PRO": "1999.00", "MACBOOK-AIR-M3": "8999.00"},
+  "cases": [
+    {"id": "price-single", "question": "AirPods Pro多少钱？", "reference": "AirPods Pro（第二代）的目录售价为1999元。", "reference_context_ids": ["AIRPODS-PRO:PRICE"]},
+    {"id": "price-multiple", "question": "AirPods Pro和MacBook Air M3分别多少钱？", "reference": "AirPods Pro（第二代）售价1999元，MacBook Air M3售价8999元。", "reference_context_ids": ["AIRPODS-PRO:PRICE", "MACBOOK-AIR-M3:PRICE"]},
+    {"id": "quantity-total", "question": "AirPods Pro 2件和MacBook Air M3 1台合计多少钱？", "reference": "AirPods Pro单价1999元，2件小计3998元；MacBook Air M3单价8999元，1台小计8999元；合计12997元。", "reference_context_ids": ["AIRPODS-PRO:PRICE", "MACBOOK-AIR-M3:PRICE"]},
+    {"id": "different-fields", "question": "想了解AirPods Pro重量和MacBook Air M3价格？", "reference": "AirPods Pro的重量尚未核实，不能提供具体克数。MacBook Air M3的目录售价是8999元。", "reference_context_ids": ["AIRPODS-PRO:WEIGHT:UNVERIFIED", "MACBOOK-AIR-M3:PRICE"]}
+  ]
+}

@@ -10,6 +10,16 @@ permissions:
   contents: read
 
 jobs:
+  ragas-feedback-contract:
+    name: Ragas four-metric and shadow-feedback contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s scripts -p test_ragas_feedback.py -v
+
   product-entity-contract:
     name: Product entity and constraint golden contract
     runs-on: ubuntu-latest

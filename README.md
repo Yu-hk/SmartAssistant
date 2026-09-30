@@ -166,6 +166,8 @@ GitHub Actions 会执行：
 
 ## 文档
 
+四维评估新增可重复运行的 Ragas 0.4.3 适配器：从线上商品只读调用采集实际答案及按序字段证据，使用预先冻结的合成参考答案重复评判上下文召回率、上下文精度、忠实度、答案相关性；完整保留失败与波动，输出检索/生成改进的影子建议。此阶段不读取真实用户会话、不自动重检索或改变线上权重，目录字段证据也不冒充完整向量检索轨迹。详见 [四维评测与反馈说明](docs/ragas-feedback.md)。
+
 - [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
 - [交互式运行时架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)
 - [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)
@@ -173,6 +175,7 @@ GitHub Actions 会执行：
 - [商品固定字段检索流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-field-routing.workflow.html)
 - [多商品查询与证据汇总流程图](https://yu-hk.github.io/SmartAssistant/architecture/multi-product-query.workflow.html)
 - [商品实体识别与字段绑定流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-entity-resolution.workflow.html)
+- [四维评测与检索反馈流程图](https://yu-hk.github.io/SmartAssistant/architecture/ragas-feedback.workflow.html)
 - [节点消息队列方案图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/agent-node-message-queue.workflow.html)
 - [ToolGateway 任务依赖图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/tool-gateway-task-dependencies.workflow.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
