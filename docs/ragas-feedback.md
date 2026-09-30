@@ -53,4 +53,6 @@ python scripts/ragas_feedback.py --dataset dataset.json --output fresh-report.js
 
 2026-10-01 已新增[开发集选择、留出集验证工具](retrieval-calibration.md)。20 个公共知识种子问题、8 个固定策略、三轮真实 BM25/BGE/RRF/重排的组件实验没有支持替换生产基线，因此仍不调整线上参数。该实验未调用 LLM 评判器，不代替上述四维或完整 Product/Router 流程；详情见[校准验证记录](retrieval-calibration-verification-20261001.md)。
 
-交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `d94e5b781392935e01b8ef7b4de9068bfbbf76a76547ff72edaf644be545f2fb`（2629 bytes），HTML SHA-256 `7b46dac18f54849bfea4af5838b6c905da7c470405bd719fb82197cc7c941b72`（807166 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；本次修正零轮后冻结。
+随后增加[原生知识库子链路验证](native-retrieval-calibration.md)：52 个冻结合成问题、4 策略、三轮一致，补充公开 ACL、实际选域及文档/聚合片段粒度检查。简单拆分在两道开发题丢失参考资料，逐路记录确认是 RRF 合并竞争而非未召回；没有支持启用在线拆分或重检索。开发/留出各仅 8 个独立问题族，范围为 memory-KB / Product 知识子链路，不包括 PG、目录、Router、生成或新的 Ragas 四维分数。
+
+交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `d5f4cbceb0fc8c8b297f3759202d0f94dbe201d8ca2edd17aa6dcd0c21906544`（2632 bytes），HTML SHA-256 `a67daf1a6df6e21ee7b138b203f1792ef3d3f26d51949f77827abbab401fe3dd`（807180 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；本次修正零轮后冻结。完整交付回执见原生验证说明。

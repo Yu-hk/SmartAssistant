@@ -1,0 +1,915 @@
+{
+  "schema_version": 1,
+  "synthetic_only": true,
+  "reference_policy": "curated_frozen_before_collection",
+  "corpus": "synthetic_product_manuals_v1",
+  "leaf_top_k": 5,
+  "strategies": [
+    "hybrid-semantic",
+    "dense-semantic",
+    "hybrid-blend035",
+    "hybrid-facet-rrf"
+  ],
+  "documents": [
+    {
+      "id": "DEV-EAR-A",
+      "family": "dev-ear",
+      "knowledge_base": "product_knowledge",
+      "title": "静音豆耳机降噪麦克风清洁",
+      "content": "清洁降噪麦克风时使用干燥软刷，不可用水冲洗。",
+      "category": "静音豆耳机",
+      "keywords": "降噪麦克风清洁",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-EAR-B",
+      "family": "dev-ear",
+      "knowledge_base": "product_knowledge",
+      "title": "静音豆耳机航空使用",
+      "content": "飞机起飞和降落阶段应遵守机组电子设备指引，飞行模式下可使用离线音频。",
+      "category": "静音豆耳机",
+      "keywords": "航空使用",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-CAMERA-A",
+      "family": "dev-camera",
+      "knowledge_base": "product_knowledge",
+      "title": "旅拍微型相机镜头防结露",
+      "content": "从低温环境进入室内前将相机放入密封袋，适应室温后取出，防止镜头结露。",
+      "category": "旅拍微型相机",
+      "keywords": "镜头防结露",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-CAMERA-B",
+      "family": "dev-camera",
+      "knowledge_base": "product_knowledge",
+      "title": "旅拍微型相机存储卡格式",
+      "content": "存储卡首次使用前在相机菜单中格式化，格式化前备份照片。",
+      "category": "旅拍微型相机",
+      "keywords": "存储卡格式",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-PRINTER-A",
+      "family": "dev-printer",
+      "knowledge_base": "product_knowledge",
+      "title": "便携热敏打印机热敏纸保存",
+      "content": "打印后的热敏纸应避光干燥保存，避免高温和酒精接触。",
+      "category": "便携热敏打印机",
+      "keywords": "热敏纸保存",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-PRINTER-B",
+      "family": "dev-printer",
+      "knowledge_base": "product_knowledge",
+      "title": "便携热敏打印机打印头清洁",
+      "content": "关闭便携打印机并等待打印头冷却后，用专用清洁笔擦拭。",
+      "category": "便携热敏打印机",
+      "keywords": "打印头清洁",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-WATCH-A",
+      "family": "dev-watch",
+      "knowledge_base": "product_knowledge",
+      "title": "悠行运动手表表带护理",
+      "content": "硅胶表带清洁后擦干，皮革表带避免浸泡。",
+      "category": "悠行运动手表",
+      "keywords": "表带护理",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-WATCH-B",
+      "family": "dev-watch",
+      "knowledge_base": "product_knowledge",
+      "title": "悠行运动手表运动定位",
+      "content": "户外运动开始前在开阔位置等待定位完成，室内定位会受建筑遮挡。",
+      "category": "悠行运动手表",
+      "keywords": "运动定位",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-LAPTOP-A",
+      "family": "dev-laptop",
+      "knowledge_base": "product_knowledge",
+      "title": "轻旅笔记本运输包装",
+      "content": "运输轻旅笔记本时先关机，使用保护套，并避免重物挤压屏幕。",
+      "category": "轻旅笔记本",
+      "keywords": "运输包装",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-LAPTOP-B",
+      "family": "dev-laptop",
+      "knowledge_base": "product_knowledge",
+      "title": "轻旅笔记本散热空间",
+      "content": "使用笔记本时保持进出风口无遮挡，不要放在被褥上运行。",
+      "category": "轻旅笔记本",
+      "keywords": "散热空间",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-MIC-A",
+      "family": "dev-mic",
+      "knowledge_base": "product_knowledge",
+      "title": "桌面会议麦克风拾音摆位",
+      "content": "将会议麦克风置于参会者之间，避开扬声器正前方，以降低啸叫。",
+      "category": "桌面会议麦克风",
+      "keywords": "拾音摆位",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-MIC-B",
+      "family": "dev-mic",
+      "knowledge_base": "product_knowledge",
+      "title": "桌面会议麦克风静音指示",
+      "content": "桌面会议麦克风红灯表示静音，蓝灯表示拾音，会议前应检查指示灯。",
+      "category": "桌面会议麦克风",
+      "keywords": "静音指示",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-PURIFIER-A",
+      "family": "dev-purifier",
+      "knowledge_base": "product_knowledge",
+      "title": "净风空气净化器滤芯更换",
+      "content": "空气净化器提示滤芯到期后按说明更换，不可水洗复合滤芯。",
+      "category": "净风空气净化器",
+      "keywords": "滤芯更换",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-PURIFIER-B",
+      "family": "dev-purifier",
+      "knowledge_base": "product_knowledge",
+      "title": "净风空气净化器空气循环",
+      "content": "关闭门窗并让空气净化器远离墙面二十厘米以上，有利于空气循环。",
+      "category": "净风空气净化器",
+      "keywords": "空气循环",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-CONTROLLER-A",
+      "family": "dev-controller",
+      "knowledge_base": "product_knowledge",
+      "title": "星游游戏手柄摇杆校准",
+      "content": "手柄摇杆漂移时先在系统设置中校准；持续漂移应联系售后。",
+      "category": "星游游戏手柄",
+      "keywords": "摇杆校准",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-CONTROLLER-B",
+      "family": "dev-controller",
+      "knowledge_base": "product_knowledge",
+      "title": "星游游戏手柄连接模式",
+      "content": "有线模式使用数据线连接主机，无线模式先按配对键后在主机添加设备。",
+      "category": "星游游戏手柄",
+      "keywords": "连接模式",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-BUDS-A",
+      "family": "hold-buds",
+      "knowledge_base": "product_knowledge",
+      "title": "跑客开放耳机佩戴固定",
+      "content": "开放式运动耳机应让耳挂贴合耳廓，剧烈运动前轻摇头检查固定程度。",
+      "category": "跑客开放耳机",
+      "keywords": "佩戴固定",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-BUDS-B",
+      "family": "hold-buds",
+      "knowledge_base": "product_knowledge",
+      "title": "跑客开放耳机汗液处理",
+      "content": "运动结束后用软布擦去耳机汗液，待充电触点干燥再充电。",
+      "category": "跑客开放耳机",
+      "keywords": "汗液处理",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-DOCK-A",
+      "family": "hold-dock",
+      "knowledge_base": "product_knowledge",
+      "title": "桌联扩展坞外接显示",
+      "content": "扩展坞连接外接显示器时使用支持视频传输的数据线，并确认电脑端口支持视频输出。",
+      "category": "桌联扩展坞",
+      "keywords": "外接显示",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-DOCK-B",
+      "family": "hold-dock",
+      "knowledge_base": "product_knowledge",
+      "title": "桌联扩展坞供电分配",
+      "content": "扩展坞的输入电力会分配给外设，电脑实际充电功率低于适配器标称值。",
+      "category": "桌联扩展坞",
+      "keywords": "供电分配",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-PROJECTOR-A",
+      "family": "hold-projector",
+      "knowledge_base": "product_knowledge",
+      "title": "口袋投影仪对焦调整",
+      "content": "便携投影仪移动后应重新对焦，自动对焦失败时使用遥控器手动调整。",
+      "category": "口袋投影仪",
+      "keywords": "对焦调整",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-PROJECTOR-B",
+      "family": "hold-projector",
+      "knowledge_base": "product_knowledge",
+      "title": "口袋投影仪幕布选择",
+      "content": "浅色平整墙面可临时投影，正式观影使用专用幕布并降低环境光。",
+      "category": "口袋投影仪",
+      "keywords": "幕布选择",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-ROBOT-A",
+      "family": "hold-robot",
+      "knowledge_base": "product_knowledge",
+      "title": "巡洁扫地机器人地面准备",
+      "content": "扫地机器人运行前收起地面的线缆和小物件，避免缠绕滚刷。",
+      "category": "巡洁扫地机器人",
+      "keywords": "地面准备",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-ROBOT-B",
+      "family": "hold-robot",
+      "knowledge_base": "product_knowledge",
+      "title": "巡洁扫地机器人地图恢复",
+      "content": "改变大型家具位置后应重新建图，禁止在建图中途搬动机器人。",
+      "category": "巡洁扫地机器人",
+      "keywords": "地图恢复",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-READER-A",
+      "family": "hold-reader",
+      "knowledge_base": "product_knowledge",
+      "title": "墨页电子阅读器电子墨水刷新",
+      "content": "电子墨水屏偶尔出现残影时执行全屏刷新，频繁翻页时黑闪是刷新现象。",
+      "category": "墨页电子阅读器",
+      "keywords": "电子墨水刷新",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-READER-B",
+      "family": "hold-reader",
+      "knowledge_base": "product_knowledge",
+      "title": "墨页电子阅读器夜间照明",
+      "content": "夜间阅读可调低前光亮度并提高暖光比例，前光不等同于屏幕后背发光。",
+      "category": "墨页电子阅读器",
+      "keywords": "夜间照明",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-ROUTER-A",
+      "family": "hold-router",
+      "knowledge_base": "product_knowledge",
+      "title": "织网无线路由器覆盖位置",
+      "content": "无线路由器应放在开阔居中位置，避开金属柜体和大功率电器。",
+      "category": "织网无线路由器",
+      "keywords": "覆盖位置",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-ROUTER-B",
+      "family": "hold-router",
+      "knowledge_base": "product_knowledge",
+      "title": "织网无线路由器访客隔离",
+      "content": "访客网络应使用独立密码并开启内网隔离，避免访客访问家庭存储设备。",
+      "category": "织网无线路由器",
+      "keywords": "访客隔离",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-KEYBOARD-A",
+      "family": "hold-keyboard",
+      "knowledge_base": "product_knowledge",
+      "title": "轻敲机械键盘键帽清洁",
+      "content": "清洁机械键盘先断电，拆下键帽后分别清洁，键帽彻底干燥后装回。",
+      "category": "轻敲机械键盘",
+      "keywords": "键帽清洁",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-KEYBOARD-B",
+      "family": "hold-keyboard",
+      "knowledge_base": "product_knowledge",
+      "title": "轻敲机械键盘轴体兼容",
+      "content": "热插拔键盘更换轴体前核对针脚和板型兼容，非热插拔型号不应强拔轴体。",
+      "category": "轻敲机械键盘",
+      "keywords": "轴体兼容",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-MONITOR-A",
+      "family": "hold-monitor",
+      "knowledge_base": "product_knowledge",
+      "title": "广视显示器色彩校准",
+      "content": "显示器预热三十分钟后再进行色彩校准，重要设计工作使用校色仪。",
+      "category": "广视显示器",
+      "keywords": "色彩校准",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-MONITOR-B",
+      "family": "hold-monitor",
+      "knowledge_base": "product_knowledge",
+      "title": "广视显示器接口带宽",
+      "content": "高分辨率高刷新率需要显示接口和线缆同时满足带宽要求，不能只看显示器规格。",
+      "category": "广视显示器",
+      "keywords": "接口带宽",
+      "visibility": "public"
+    },
+    {
+      "id": "DENY-TENANT",
+      "family": "acl-tenant",
+      "knowledge_base": "product_knowledge",
+      "title": "测试租户内部折扣验证码",
+      "content": "测试租户内部折扣验证码仅用于隔离评测。不得输出给无权限的公开查询。",
+      "category": "隔离测试",
+      "keywords": "测试租户内部折扣验证码",
+      "visibility": "tenant"
+    },
+    {
+      "id": "DENY-ROLE",
+      "family": "acl-role",
+      "knowledge_base": "product_knowledge",
+      "title": "管理员维护专用口令",
+      "content": "管理员维护专用口令仅用于隔离评测。不得输出给无权限的公开查询。",
+      "category": "隔离测试",
+      "keywords": "管理员维护专用口令",
+      "visibility": "role"
+    },
+    {
+      "id": "DENY-USER",
+      "family": "acl-user",
+      "knowledge_base": "product_knowledge",
+      "title": "另一个测试用户的私人维修备注",
+      "content": "另一个测试用户的私人维修备注仅用于隔离评测。不得输出给无权限的公开查询。",
+      "category": "隔离测试",
+      "keywords": "另一个测试用户的私人维修备注",
+      "visibility": "user"
+    },
+    {
+      "id": "DENY-CLEARANCE",
+      "family": "acl-clearance",
+      "knowledge_base": "product_knowledge",
+      "title": "三级保密测试固件地址",
+      "content": "三级保密测试固件地址仅用于隔离评测。不得输出给无权限的公开查询。",
+      "category": "隔离测试",
+      "keywords": "三级保密测试固件地址",
+      "visibility": "clearance"
+    },
+    {
+      "id": "ORDER-DECOY",
+      "family": "cross-domain",
+      "knowledge_base": "order_knowledge",
+      "title": "测试商品内部折扣",
+      "content": "这是订单域合成诱饵，不应进入商品知识域检索。",
+      "category": "订单",
+      "keywords": "价格优惠折扣",
+      "visibility": "public"
+    }
+  ],
+  "cases": [
+    {
+      "id": "dev-ear-0",
+      "split": "development",
+      "family": "dev-ear",
+      "kind": "named",
+      "question": "静音豆耳机的降噪麦克风清洁有什么注意事项？",
+      "expected_doc_ids": [
+        "DEV-EAR-A"
+      ]
+    },
+    {
+      "id": "dev-ear-1",
+      "split": "development",
+      "family": "dev-ear",
+      "kind": "paraphrase",
+      "question": "耳机降噪孔脏了该怎么清理？",
+      "expected_doc_ids": [
+        "DEV-EAR-A"
+      ]
+    },
+    {
+      "id": "dev-ear-2",
+      "split": "development",
+      "family": "dev-ear",
+      "kind": "multi_fact",
+      "question": "坐飞机时，静音豆耳机的麦克风怎么清理；它在飞机上怎么用？",
+      "expected_doc_ids": [
+        "DEV-EAR-A",
+        "DEV-EAR-B"
+      ]
+    },
+    {
+      "id": "dev-camera-0",
+      "split": "development",
+      "family": "dev-camera",
+      "kind": "named",
+      "question": "旅拍微型相机的镜头防结露有什么注意事项？",
+      "expected_doc_ids": [
+        "DEV-CAMERA-A"
+      ]
+    },
+    {
+      "id": "dev-camera-1",
+      "split": "development",
+      "family": "dev-camera",
+      "kind": "paraphrase",
+      "question": "小相机从寒冷室外拿进暖屋如何防止镜头起雾？",
+      "expected_doc_ids": [
+        "DEV-CAMERA-A"
+      ]
+    },
+    {
+      "id": "dev-camera-2",
+      "split": "development",
+      "family": "dev-camera",
+      "kind": "multi_fact",
+      "question": "旅拍微型相机从室外进屋如何防结露；新存储卡首次使用应怎么处理？",
+      "expected_doc_ids": [
+        "DEV-CAMERA-A",
+        "DEV-CAMERA-B"
+      ]
+    },
+    {
+      "id": "dev-printer-0",
+      "split": "development",
+      "family": "dev-printer",
+      "kind": "named",
+      "question": "便携热敏打印机的热敏纸保存有什么注意事项？",
+      "expected_doc_ids": [
+        "DEV-PRINTER-A"
+      ]
+    },
+    {
+      "id": "dev-printer-1",
+      "split": "development",
+      "family": "dev-printer",
+      "kind": "paraphrase",
+      "question": "便携打印机打印的热敏小票怎样保存？",
+      "expected_doc_ids": [
+        "DEV-PRINTER-A"
+      ]
+    },
+    {
+      "id": "dev-printer-2",
+      "split": "development",
+      "family": "dev-printer",
+      "kind": "multi_fact",
+      "question": "便携热敏打印机的小票如何保存；打印头脏了要怎么清洁？",
+      "expected_doc_ids": [
+        "DEV-PRINTER-A",
+        "DEV-PRINTER-B"
+      ]
+    },
+    {
+      "id": "dev-watch-0",
+      "split": "development",
+      "family": "dev-watch",
+      "kind": "named",
+      "question": "悠行运动手表的表带护理有什么注意事项？",
+      "expected_doc_ids": [
+        "DEV-WATCH-A"
+      ]
+    },
+    {
+      "id": "dev-watch-1",
+      "split": "development",
+      "family": "dev-watch",
+      "kind": "paraphrase",
+      "question": "运动手表的不同材质表带怎么护理？",
+      "expected_doc_ids": [
+        "DEV-WATCH-A"
+      ]
+    },
+    {
+      "id": "dev-watch-2",
+      "split": "development",
+      "family": "dev-watch",
+      "kind": "multi_fact",
+      "question": "悠行运动手表的表带如何护理；开始户外跑步前怎么保证定位？",
+      "expected_doc_ids": [
+        "DEV-WATCH-A",
+        "DEV-WATCH-B"
+      ]
+    },
+    {
+      "id": "dev-laptop-0",
+      "split": "development",
+      "family": "dev-laptop",
+      "kind": "named",
+      "question": "轻旅笔记本的运输包装有什么注意事项？",
+      "expected_doc_ids": [
+        "DEV-LAPTOP-A"
+      ]
+    },
+    {
+      "id": "dev-laptop-1",
+      "split": "development",
+      "family": "dev-laptop",
+      "kind": "paraphrase",
+      "question": "出差携带轻薄笔记本要注意怎么包装？",
+      "expected_doc_ids": [
+        "DEV-LAPTOP-A"
+      ]
+    },
+    {
+      "id": "dev-laptop-2",
+      "split": "development",
+      "family": "dev-laptop",
+      "kind": "multi_fact",
+      "question": "轻旅笔记本出差携带如何包装；使用时应怎样留出散热空间？",
+      "expected_doc_ids": [
+        "DEV-LAPTOP-A",
+        "DEV-LAPTOP-B"
+      ]
+    },
+    {
+      "id": "dev-mic-0",
+      "split": "development",
+      "family": "dev-mic",
+      "kind": "named",
+      "question": "桌面会议麦克风的拾音摆位有什么注意事项？",
+      "expected_doc_ids": [
+        "DEV-MIC-A"
+      ]
+    },
+    {
+      "id": "dev-mic-1",
+      "split": "development",
+      "family": "dev-mic",
+      "kind": "paraphrase",
+      "question": "会议桌上的话筒摆哪里比较不容易啸叫？",
+      "expected_doc_ids": [
+        "DEV-MIC-A"
+      ]
+    },
+    {
+      "id": "dev-mic-2",
+      "split": "development",
+      "family": "dev-mic",
+      "kind": "multi_fact",
+      "question": "桌面会议麦克风如何摆放降低啸叫；红色和蓝色指示灯分别表示什么？",
+      "expected_doc_ids": [
+        "DEV-MIC-A",
+        "DEV-MIC-B"
+      ]
+    },
+    {
+      "id": "dev-purifier-0",
+      "split": "development",
+      "family": "dev-purifier",
+      "kind": "named",
+      "question": "净风空气净化器的滤芯更换有什么注意事项？",
+      "expected_doc_ids": [
+        "DEV-PURIFIER-A"
+      ]
+    },
+    {
+      "id": "dev-purifier-1",
+      "split": "development",
+      "family": "dev-purifier",
+      "kind": "paraphrase",
+      "question": "空气净化器滤芯到期了能不能水洗继续用？",
+      "expected_doc_ids": [
+        "DEV-PURIFIER-A"
+      ]
+    },
+    {
+      "id": "dev-purifier-2",
+      "split": "development",
+      "family": "dev-purifier",
+      "kind": "multi_fact",
+      "question": "净风空气净化器到期滤芯怎样处理；摆放和门窗状态有什么要求？",
+      "expected_doc_ids": [
+        "DEV-PURIFIER-A",
+        "DEV-PURIFIER-B"
+      ]
+    },
+    {
+      "id": "dev-controller-0",
+      "split": "development",
+      "family": "dev-controller",
+      "kind": "named",
+      "question": "星游游戏手柄的摇杆校准有什么注意事项？",
+      "expected_doc_ids": [
+        "DEV-CONTROLLER-A"
+      ]
+    },
+    {
+      "id": "dev-controller-1",
+      "split": "development",
+      "family": "dev-controller",
+      "kind": "paraphrase",
+      "question": "游戏手柄摇杆自己动时先做什么？",
+      "expected_doc_ids": [
+        "DEV-CONTROLLER-A"
+      ]
+    },
+    {
+      "id": "dev-controller-2",
+      "split": "development",
+      "family": "dev-controller",
+      "kind": "multi_fact",
+      "question": "星游游戏手柄摇杆漂移应怎么处理；有线和无线连接步骤有何区别？",
+      "expected_doc_ids": [
+        "DEV-CONTROLLER-A",
+        "DEV-CONTROLLER-B"
+      ]
+    },
+    {
+      "id": "hold-buds-0",
+      "split": "holdout",
+      "family": "hold-buds",
+      "kind": "named",
+      "question": "跑客开放耳机的佩戴固定有什么注意事项？",
+      "expected_doc_ids": [
+        "HOLD-BUDS-A"
+      ]
+    },
+    {
+      "id": "hold-buds-1",
+      "split": "holdout",
+      "family": "hold-buds",
+      "kind": "paraphrase",
+      "question": "开放式跑步耳机怎么戴才不容易掉？",
+      "expected_doc_ids": [
+        "HOLD-BUDS-A"
+      ]
+    },
+    {
+      "id": "hold-buds-2",
+      "split": "holdout",
+      "family": "hold-buds",
+      "kind": "multi_fact",
+      "question": "跑客开放耳机如何确认戴牢；跑完步有汗时充电前要做什么？",
+      "expected_doc_ids": [
+        "HOLD-BUDS-A",
+        "HOLD-BUDS-B"
+      ]
+    },
+    {
+      "id": "hold-dock-0",
+      "split": "holdout",
+      "family": "hold-dock",
+      "kind": "named",
+      "question": "桌联扩展坞的外接显示有什么注意事项？",
+      "expected_doc_ids": [
+        "HOLD-DOCK-A"
+      ]
+    },
+    {
+      "id": "hold-dock-1",
+      "split": "holdout",
+      "family": "hold-dock",
+      "kind": "paraphrase",
+      "question": "通过扩展坞接显示器没有图像要核对什么？",
+      "expected_doc_ids": [
+        "HOLD-DOCK-A"
+      ]
+    },
+    {
+      "id": "hold-dock-2",
+      "split": "holdout",
+      "family": "hold-dock",
+      "kind": "multi_fact",
+      "question": "桌联扩展坞外接屏幕要核对哪些接口条件；电脑实际充电功率为何低于充电器标称？",
+      "expected_doc_ids": [
+        "HOLD-DOCK-A",
+        "HOLD-DOCK-B"
+      ]
+    },
+    {
+      "id": "hold-projector-0",
+      "split": "holdout",
+      "family": "hold-projector",
+      "kind": "named",
+      "question": "口袋投影仪的对焦调整有什么注意事项？",
+      "expected_doc_ids": [
+        "HOLD-PROJECTOR-A"
+      ]
+    },
+    {
+      "id": "hold-projector-1",
+      "split": "holdout",
+      "family": "hold-projector",
+      "kind": "paraphrase",
+      "question": "口袋投影仪换了位置后画面模糊怎么办？",
+      "expected_doc_ids": [
+        "HOLD-PROJECTOR-A"
+      ]
+    },
+    {
+      "id": "hold-projector-2",
+      "split": "holdout",
+      "family": "hold-projector",
+      "kind": "multi_fact",
+      "question": "口袋投影仪移动后怎样对焦；墙面和幕布以及环境光如何选择？",
+      "expected_doc_ids": [
+        "HOLD-PROJECTOR-A",
+        "HOLD-PROJECTOR-B"
+      ]
+    },
+    {
+      "id": "hold-robot-0",
+      "split": "holdout",
+      "family": "hold-robot",
+      "kind": "named",
+      "question": "巡洁扫地机器人的地面准备有什么注意事项？",
+      "expected_doc_ids": [
+        "HOLD-ROBOT-A"
+      ]
+    },
+    {
+      "id": "hold-robot-1",
+      "split": "holdout",
+      "family": "hold-robot",
+      "kind": "paraphrase",
+      "question": "扫地机器人启动前地上电线和小东西要如何处理？",
+      "expected_doc_ids": [
+        "HOLD-ROBOT-A"
+      ]
+    },
+    {
+      "id": "hold-robot-2",
+      "split": "holdout",
+      "family": "hold-robot",
+      "kind": "multi_fact",
+      "question": "巡洁扫地机器人启动前地面要收拾什么；家具布局改变后怎样恢复地图？",
+      "expected_doc_ids": [
+        "HOLD-ROBOT-A",
+        "HOLD-ROBOT-B"
+      ]
+    },
+    {
+      "id": "hold-reader-0",
+      "split": "holdout",
+      "family": "hold-reader",
+      "kind": "named",
+      "question": "墨页电子阅读器的电子墨水刷新有什么注意事项？",
+      "expected_doc_ids": [
+        "HOLD-READER-A"
+      ]
+    },
+    {
+      "id": "hold-reader-1",
+      "split": "holdout",
+      "family": "hold-reader",
+      "kind": "paraphrase",
+      "question": "电子阅读器翻页后留下字影和偶尔黑一下是怎么回事？",
+      "expected_doc_ids": [
+        "HOLD-READER-A"
+      ]
+    },
+    {
+      "id": "hold-reader-2",
+      "split": "holdout",
+      "family": "hold-reader",
+      "kind": "multi_fact",
+      "question": "墨页电子阅读器有残影时怎么处理；夜间阅读前光应如何调整？",
+      "expected_doc_ids": [
+        "HOLD-READER-A",
+        "HOLD-READER-B"
+      ]
+    },
+    {
+      "id": "hold-router-0",
+      "split": "holdout",
+      "family": "hold-router",
+      "kind": "named",
+      "question": "织网无线路由器的覆盖位置有什么注意事项？",
+      "expected_doc_ids": [
+        "HOLD-ROUTER-A"
+      ]
+    },
+    {
+      "id": "hold-router-1",
+      "split": "holdout",
+      "family": "hold-router",
+      "kind": "paraphrase",
+      "question": "家用路由器摆在什么位置覆盖比较好？",
+      "expected_doc_ids": [
+        "HOLD-ROUTER-A"
+      ]
+    },
+    {
+      "id": "hold-router-2",
+      "split": "holdout",
+      "family": "hold-router",
+      "kind": "multi_fact",
+      "question": "织网无线路由器该放在哪里；访客上网怎样避免访问家中存储设备？",
+      "expected_doc_ids": [
+        "HOLD-ROUTER-A",
+        "HOLD-ROUTER-B"
+      ]
+    },
+    {
+      "id": "hold-keyboard-0",
+      "split": "holdout",
+      "family": "hold-keyboard",
+      "kind": "named",
+      "question": "轻敲机械键盘的键帽清洁有什么注意事项？",
+      "expected_doc_ids": [
+        "HOLD-KEYBOARD-A"
+      ]
+    },
+    {
+      "id": "hold-keyboard-1",
+      "split": "holdout",
+      "family": "hold-keyboard",
+      "kind": "paraphrase",
+      "question": "机械键盘洗完键帽能马上装回吗？",
+      "expected_doc_ids": [
+        "HOLD-KEYBOARD-A"
+      ]
+    },
+    {
+      "id": "hold-keyboard-2",
+      "split": "holdout",
+      "family": "hold-keyboard",
+      "kind": "multi_fact",
+      "question": "轻敲机械键盘的键帽如何清洁；换轴前要核对哪些兼容条件？",
+      "expected_doc_ids": [
+        "HOLD-KEYBOARD-A",
+        "HOLD-KEYBOARD-B"
+      ]
+    },
+    {
+      "id": "hold-monitor-0",
+      "split": "holdout",
+      "family": "hold-monitor",
+      "kind": "named",
+      "question": "广视显示器的色彩校准有什么注意事项？",
+      "expected_doc_ids": [
+        "HOLD-MONITOR-A"
+      ]
+    },
+    {
+      "id": "hold-monitor-1",
+      "split": "holdout",
+      "family": "hold-monitor",
+      "kind": "paraphrase",
+      "question": "做设计之前显示器要怎么校色？",
+      "expected_doc_ids": [
+        "HOLD-MONITOR-A"
+      ]
+    },
+    {
+      "id": "hold-monitor-2",
+      "split": "holdout",
+      "family": "hold-monitor",
+      "kind": "multi_fact",
+      "question": "广视显示器进行设计前如何校准色彩；高分辨率高刷需要核对什么带宽条件？",
+      "expected_doc_ids": [
+        "HOLD-MONITOR-A",
+        "HOLD-MONITOR-B"
+      ]
+    },
+    {
+      "id": "guard-tenant",
+      "split": "holdout",
+      "family": "guard-tenant",
+      "kind": "acl_guard",
+      "question": "测试租户内部折扣验证码是什么？",
+      "expected_doc_ids": []
+    },
+    {
+      "id": "guard-role",
+      "split": "holdout",
+      "family": "guard-role",
+      "kind": "acl_guard",
+      "question": "管理员维护专用口令是什么？",
+      "expected_doc_ids": []
+    },
+    {
+      "id": "guard-user",
+      "split": "holdout",
+      "family": "guard-user",
+      "kind": "acl_guard",
+      "question": "另一个测试用户的私人维修备注是什么？",
+      "expected_doc_ids": []
+    },
+    {
+      "id": "guard-clearance",
+      "split": "holdout",
+      "family": "guard-clearance",
+      "kind": "acl_guard",
+      "question": "三级保密测试固件地址是什么？",
+      "expected_doc_ids": []
+    }
+  ]
+}
