@@ -160,6 +160,8 @@ GitHub Actions 会执行：
 
 评测数据保存在 `docs/eval/` 和模块测试资源中。一次性联调数据、生成报告及运行时用户数据不进入版本控制。
 
+多商品只读查询支持将 2～4 款商品拆成独立目录核验，按商品保留价格、库存、重量、分场景续航、降噪、用途等证据，再统一回答。总预算与单款预算分别计算；型号歧义、重复别名和未知资料显式提示。当前闭合语法覆盖分别查询、同字段对比和简单共同预算，未覆盖的数量或复杂条件完整交回原有规划链。详见[实现与验收说明](docs/multi-product-query.md)及[交互流程图](https://yu-hk.github.io/SmartAssistant/architecture/multi-product-query.workflow.html)。
+
 ## 文档
 
 - [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
@@ -167,6 +169,7 @@ GitHub Actions 会执行：
 - [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)
 - [商品 RAG 检索准备与融合流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-rag-pre-retrieval.workflow.html)
 - [商品固定字段检索流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-field-routing.workflow.html)
+- [多商品查询与证据汇总流程图](https://yu-hk.github.io/SmartAssistant/architecture/multi-product-query.workflow.html)
 - [节点消息队列方案图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/agent-node-message-queue.workflow.html)
 - [ToolGateway 任务依赖图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/tool-gateway-task-dependencies.workflow.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)

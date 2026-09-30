@@ -319,7 +319,7 @@ public class JdbcProductBackend implements ProductBackend {
         try {
             ProductRecord row = findProduct(name);
             return new FactLookup(row == null ? List.of() : List.of(new ProductFact(
-                    row.code(), row.name(), row.price(), row.stock(), row.spec(), row.color(), row.features())), false);
+                    row.code(), row.name(), row.price(), row.stock(), row.spec(), row.color(), row.features(), row.suitability())), false);
         } catch (AmbiguousProductException ambiguous) {
             // Never select an arbitrary version or return its price.
             return new FactLookup(List.of(), true);

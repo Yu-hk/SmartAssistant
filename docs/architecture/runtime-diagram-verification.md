@@ -29,6 +29,24 @@ node "$ARCHIFY_HOME/bin/archify.mjs" visual-check docs/architecture/smartassista
 
 ## 图形验收
 
+### 多商品结构化查询子图（2026-09-30）
+
+新增 `multi-product-query.workflow.json/html`，保留 Archify classic 风格，与其他流程图集中在文档导航中。
+
+```text
+diagram_type: workflow
+specification_sha256: 8d73d597f02f5e3a7fbd7797ea563ded311801354c597144e42d559e65830ae3
+artifact_sha256: 16a66d3c1561b3c792e270836cdb2455052a5abe5c8b7e2186aac93b57ba418f
+validation: 9/9 showcase, 0 errors, 0 warnings
+browser_evidence: passed
+visual_review: passed (1440x900 light screenshot)
+correction_rounds: 1
+```
+
+自动浏览器检查覆盖 1440×900、1600×1000、1920×1080、2048×1320；浅/深主题没有页面溢出。人工图片审查确认主流程、回退分支与说明卡片无重叠。此图形证据不等于商品服务生产验收。
+
+### 系统总图
+
 ```text
 diagram_type: architecture
 specification_sha256: 040b11fdbb6a2072b410022fcad567ec6a6327c3180c92689a0c03af748cca1e
