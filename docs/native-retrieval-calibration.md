@@ -94,4 +94,4 @@ visual_review: passed
 correction_rounds: 0
 ```
 
-规范 2632 bytes，HTML 807180 bytes。自动证据覆盖四个桌面视口及亮/暗端点；已实际检查 2048×1320 亮/暗截图，图、标签和结论卡片可读且无溢出。冻结后未编辑 HTML。在线经典图：[四维评测流程](https://yu-hk.github.io/SmartAssistant/architecture/ragas-feedback.workflow.html)。
+规范 2632 bytes，HTML 807180 bytes。通过仅针对这两个工件的 Git 换行规则保留冻结规范及 HTML 字节，避免 Windows 换行归一化导致交付摘要漂移。自动证据覆盖四个桌面视口及亮/暗端点；已实际检查 2048×1320 亮/暗截图，图、标签和结论卡片可读且无溢出。冻结后未编辑 HTML。在线经典图：[四维评测流程](https://yu-hk.github.io/SmartAssistant/architecture/ragas-feedback.workflow.html)。
