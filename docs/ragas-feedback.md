@@ -35,6 +35,8 @@ python -m pip install -r scripts/requirements-ragas.txt
 python scripts/ragas_feedback.py --dataset dataset.json --output fresh-report.json --repeats 3 --dry-run
 # 通过环境配置 DEEPSEEK_API_KEY / RAGAS_EMBEDDING_URL，不写入仓库或终端输出。
 python scripts/ragas_feedback.py --dataset dataset.json --output fresh-report.json --repeats 3
+# 复放同一完整报告，只重新分类，不安装模型依赖、不再次调用模型。
+python scripts/ragas_feedback.py --dataset dataset.json --replay-report fresh-report.json --output fresh-replay.json
 ```
 
 适配器仅接受 Ragas 0.4.3。四维运行须依赖模型与向量服务；CI 的 48 项契约测试使用注入评分器，不安装 ML 依赖、不调用模型，不能算模型质量通过。上下文 ID 与文本必须一一对应，评分异常、NaN/无穷或缺失不以 0 或默认高分掩盖；报告拒绝覆盖并以受限权限保存，不写 API 响应正文或密钥。向量非空、非零、数值有限且维度一致；报告记录实际依赖版本供复现。
@@ -57,4 +59,12 @@ python scripts/ragas_feedback.py --dataset dataset.json --output fresh-report.js
 
 继续完成[实体约束与证据保留对照](anchored-retrieval-calibration.md)：保留原问题、名称绑定子句、每路候选有界席位；全新 64 题、65 文档、5 策略，三轮稳定。40 道留出正例的文档 ID Recall@5 从简单拆分的 0.975 回到 1.000，保住两题遗漏资料，但与原始检索基线没有增益，开发选择仍为基线。仅新增隔离探针策略，不改变生产参数、开启在线重试或新增四维评判；名称规则和候选席位不冒充完整实体语义识别及事实支撑证明。
 
-交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `d1ae5ee20158e31d3151d6acb1d914940303e982273cb7b721d3f23da50a6380`（2632 bytes），HTML SHA-256 `a02bf769741dbf61e793d238c04979a0eea4fe58f4bdf5062819b17bfeb7d096`（807180 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；本次修正零轮后冻结。完整交付回执见实体约束验证说明，上一轮原生文档保留其历史回执。
+## 线上影子诊断与评分复放
+
+2026-10-01 使用 `data/ragas_online_shadow_questions.json` 的 8 道冻结合成题，在生产只读字段链上采集，隔离容器内完成三轮、96 项真实四维评分。新增四题是针对已知风险的诊断探针，不是独立留出集；没有重复执行业务请求或开启自动闭环。详见[本轮线上结果与修正](ragas-online-shadow-verification-20261001.md)。
+
+未知字段、确定性数量合计、多商品回答现在作为正交 `review_flags` 保存；即使评分缺失或波动，这些线索也不会丢失，优先行动仍保持评测不可用/补充重复/校准。完整多商品低相关性改为逐商品相关性复核，不能仅凭槽位齐全证明答案正确，也不改写评分。忠实度失败仍保留生成或计算上下文复核，不因存在未知标记自动放行。
+
+`--replay-report` 校验完整数据集摘要、案例及顺序、逐项输入摘要、ID 指标、逐轮评分/错误/耗时和重新计算的汇总；拒绝缺项、NaN、布尔评分、原文错误消息或摘要漂移。原始报告保留，输出另存、拒绝覆盖；`new_model_calls=0`、`ragas_scores_adjusted=false`、`retries_executed=0`。摘要绑定用于完整性核对，不是防伪签名，报告来源仍须可信。
+
+交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `586bf5823adc2921a39294dfa06dc2d2b3a75fbce8d6b4470e43ee5b7cf1aef3`（2629 bytes），HTML SHA-256 `998b65a0e333cc5c7e1ca506aacb5bb43b5da938bee927ed27567119dc7f8e94`（807166 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；缩短过长标签一轮后冻结。完整交付回执见本轮线上验证说明，此前文档保留历史回执。
