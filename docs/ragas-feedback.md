@@ -55,4 +55,6 @@ python scripts/ragas_feedback.py --dataset dataset.json --output fresh-report.js
 
 随后增加[原生知识库子链路验证](native-retrieval-calibration.md)：52 个冻结合成问题、4 策略、三轮一致，补充公开 ACL、实际选域及文档/聚合片段粒度检查。简单拆分在两道开发题丢失参考资料，逐路记录确认是 RRF 合并竞争而非未召回；没有支持启用在线拆分或重检索。开发/留出各仅 8 个独立问题族，范围为 memory-KB / Product 知识子链路，不包括 PG、目录、Router、生成或新的 Ragas 四维分数。
 
-交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `d5f4cbceb0fc8c8b297f3759202d0f94dbe201d8ca2edd17aa6dcd0c21906544`（2632 bytes），HTML SHA-256 `a67daf1a6df6e21ee7b138b203f1792ef3d3f26d51949f77827abbab401fe3dd`（807180 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；本次修正零轮后冻结。完整交付回执见原生验证说明。
+继续完成[实体约束与证据保留对照](anchored-retrieval-calibration.md)：保留原问题、名称绑定子句、每路候选有界席位；全新 64 题、65 文档、5 策略，三轮稳定。40 道留出正例的文档 ID Recall@5 从简单拆分的 0.975 回到 1.000，保住两题遗漏资料，但与原始检索基线没有增益，开发选择仍为基线。仅新增隔离探针策略，不改变生产参数、开启在线重试或新增四维评判；名称规则和候选席位不冒充完整实体语义识别及事实支撑证明。
+
+交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `d1ae5ee20158e31d3151d6acb1d914940303e982273cb7b721d3f23da50a6380`（2632 bytes），HTML SHA-256 `a02bf769741dbf61e793d238c04979a0eea4fe58f4bdf5062819b17bfeb7d096`（807180 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；本次修正零轮后冻结。完整交付回执见实体约束验证说明，上一轮原生文档保留其历史回执。
