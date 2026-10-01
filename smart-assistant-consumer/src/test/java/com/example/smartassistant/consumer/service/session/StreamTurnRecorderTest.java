@@ -8,6 +8,15 @@ import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.*;
 
 class StreamTurnRecorderTest {
+    @Test void sourceIsPersistedWithoutCopyingOriginalGenerationCost() {
+        for (boolean cached : new boolean[]{true, false}) {
+            recorder.record(null, "42", "s", cached ? "cache" : "live", "商品价格", "product", "回复",
+                    System.currentTimeMillis(), "SUCCESS", new TokenUsageExtractor.TokenUsage(0L, 0L, 0L), null, cached);
+            verify(logs).saveLog(eq(42L), eq("s"), eq(cached ? "cache" : "live"), eq("商品价格"),
+                    eq("product"), eq(cached ? "STREAM_CACHE" : "STREAM_LIVE"), anyLong(),
+                    eq("SUCCESS"), eq("回复"), eq(0L), eq(0L), eq(0L), eq("商品价格"), isNull());
+        }
+    }
     private final RoutingCallLogService logs = mock(RoutingCallLogService.class);
     private final UserProfileService profiles = mock(UserProfileService.class);
     private final StreamTurnRecorder recorder = new StreamTurnRecorder(logs);

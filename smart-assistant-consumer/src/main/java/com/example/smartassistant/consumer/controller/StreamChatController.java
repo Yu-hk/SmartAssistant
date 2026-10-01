@@ -265,6 +265,7 @@ public class StreamChatController {
             return;
         }
 
+        Boolean fromCache = com.example.smartassistant.consumer.service.infrastructure.ReplyOrigin.fromDecision(decision);
         String agentName = (String) decision.get("agentName");
         String executionMode = Objects.toString(decision.get("executionMode"), null);
         List<String> participatingAgents = stringList(decision.get("participatingAgents"));
@@ -275,11 +276,13 @@ public class StreamChatController {
         logger.info("[StreamChat] 路由: agentName={}, confidence={}", agentName, confidence);
         // init 同时返回稳定会话 ID 与本轮独立执行 ID，禁止将二者混用。
         try {
-            String initJson = objectMapper.writeValueAsString(Map.of(
+            Map<String, Object> initPayload = new LinkedHashMap<>(Map.of(
                     "type", "init",
                     "sessionId", effectiveSessionId(sessionId, decisionKey),
                     "requestId", decisionKey != null ? decisionKey : "",
                     "intent", decision.getOrDefault("intentTag", "unknown")));
+            if (fromCache != null) initPayload.put("fromCache", fromCache);
+            String initJson = objectMapper.writeValueAsString(initPayload);
             bus.send(SseEvent.raw("init", initJson));
         } catch (Exception ignored) {
         }
@@ -297,6 +300,7 @@ public class StreamChatController {
                 Map<String, Object> responsePayload = new LinkedHashMap<>();
                 responsePayload.put("type", "response");
                 responsePayload.put("content", result);
+                if (fromCache != null) responsePayload.put("fromCache", fromCache);
                 if (clarificationService != null) {
                     var issued = clarificationService.issue(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                             decisionKey, decision.get("clarificationRequest"), decision.get("error") != null ? "FAILED"
@@ -318,7 +322,7 @@ public class StreamChatController {
                 injectTokenUsageEvent(bus, tokenUsage);
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                         decisionKey, message, agentName, result, startedAt,
-                        decision.get("error") != null ? "FAILED" : "SUCCESS", tokenUsage, toolUsage);
+                        decision.get("error") != null ? "FAILED" : "SUCCESS", tokenUsage, toolUsage, fromCache);
                 bus.sendDone();
             } catch (Exception e) {
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
@@ -339,7 +343,7 @@ public class StreamChatController {
                 String visibleReply = progressCursor.replyText();
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                         decisionKey, message, agentName, visibleReply.isBlank() ? null : visibleReply,
-                        startedAt, visibleReply.isBlank() ? "FAILED" : "SUCCESS", tokenUsage, toolUsage);
+                        startedAt, visibleReply.isBlank() ? "FAILED" : "SUCCESS", tokenUsage, toolUsage, fromCache);
                 if (visibleReply.isBlank()) {
                     bus.sendError("本次处理没有返回可展示的回复，请先核实原请求状态，避免重复提交。");
                 } else {
@@ -356,7 +360,7 @@ public class StreamChatController {
                 persistStreamLog(resolveUserId(), effectiveSessionId(sessionId, decisionKey),
                         decisionKey, message, agentName, visibleReply.isBlank() ? null : visibleReply,
                         startedAt, forwarded && !visibleReply.isBlank() ? "SUCCESS" : "FAILED",
-                        tokenUsage, toolUsage);
+                        tokenUsage, toolUsage, fromCache);
                 if (forwarded && !visibleReply.isBlank()) bus.sendDone();
                 else bus.sendError("本次处理没有返回可展示的回复，请先核实原请求状态，避免重复提交。");
                 return;
@@ -402,7 +406,7 @@ public class StreamChatController {
                     decisionKey, message, agentName,
                     forwardResult.responseSummary().isBlank() ? null : forwardResult.responseSummary(),
                     startedAt, forwardResult.success() && !forwardResult.responseSummary().isBlank()
-                            ? "SUCCESS" : "FAILED", combinedUsage, toolUsage);
+                            ? "SUCCESS" : "FAILED", combinedUsage, toolUsage, fromCache);
             if (forwardResult.success() && !forwardResult.responseSummary().isBlank()) bus.sendDone();
             else bus.sendError("本次回复未完整送达，请先核实原请求状态，避免重复提交。");
         } finally {
@@ -729,8 +733,16 @@ public class StreamChatController {
                                   long startedAt, String status,
                                   TokenUsageExtractor.TokenUsage tokenUsage,
                                   ToolUsageCache.ToolUsage toolUsage) {
+        persistStreamLog(rawUserId, sessionId, requestId, message, agentName, responseSummary,
+                startedAt, status, tokenUsage, toolUsage, null);
+    }
+
+    private void persistStreamLog(String rawUserId, String sessionId, String requestId, String message,
+                                 String agentName, String responseSummary, long startedAt, String status,
+                                 TokenUsageExtractor.TokenUsage tokenUsage,
+                                 ToolUsageCache.ToolUsage toolUsage, Boolean fromCache) {
         turnRecorder.record(userProfileService, rawUserId, sessionId, requestId, message,
-                agentName, responseSummary, startedAt, status, tokenUsage, toolUsage);
+                agentName, responseSummary, startedAt, status, tokenUsage, toolUsage, fromCache);
     }
 
     private String effectiveSessionId(String requestedSessionId, String decisionKey) {

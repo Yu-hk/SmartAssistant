@@ -22,6 +22,8 @@ export function normalizeTelemetry(raw: Payload): Partial<Message> {
   const completionTokens = tokenNumber(raw.completionTokens ?? raw.completion_tokens);
   return {
     promptTokens, completionTokens,
+    fromCache: typeof (raw.fromCache ?? raw.from_cache) === 'boolean'
+      ? raw.fromCache ?? raw.from_cache : null,
     tokenUsageComplete: typeof (raw.tokenUsageComplete ?? raw.token_usage_complete) === 'boolean'
       ? raw.tokenUsageComplete ?? raw.token_usage_complete : null,
     totalTokens: tokenNumber(raw.totalTokens ?? raw.total_tokens)
@@ -77,7 +79,8 @@ export function summarizeTelemetry(messages: Message[]) {
   const calls = turns.flatMap((turn, index) => (turn.toolCalls ?? []).map(tool => ({
     ...tool, key: `${turn.id}:${tool.id}`, turn: index + 1,
   })));
-  return { calls, totalTokens: sum('totalTokens'), promptTokens: sum('promptTokens'),
+  return { calls, latestFromCache: turns[turns.length - 1]?.fromCache ?? null,
+    totalTokens: sum('totalTokens'), promptTokens: sum('promptTokens'),
     completionTokens: sum('completionTokens'), streaming: turns.some(turn => turn.isStreaming),
     tokensComplete: turns.length > 0 && turns.every(turn => tokenNumber(turn.totalTokens) !== null
       && turn.tokenUsageComplete !== false),

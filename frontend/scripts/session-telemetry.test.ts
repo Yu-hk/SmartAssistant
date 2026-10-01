@@ -8,6 +8,21 @@ const assistant = (id: string, patch: Partial<Message> = {}): Message => ({
   id, role: 'assistant', content: '', timestamp: new Date(), ...patch,
 });
 
+test('explicit cache provenance survives history without inferring source from zero', () => {
+  assert.equal(normalizeTelemetry({ fromCache: true, totalTokens: 0 }).fromCache, true);
+  assert.equal(normalizeTelemetry({ from_cache: false, total_tokens: 0 }).fromCache, false);
+  for (const fromCache of [null, undefined, 'true', 1]) {
+    assert.equal(normalizeTelemetry({ fromCache, totalTokens: 0 }).fromCache, null);
+  }
+  const cached = assistant('cache', { ...normalizeTelemetry({ fromCache: true, totalTokens: 0 }) });
+  const live = assistant('live', { ...normalizeTelemetry({ fromCache: false, totalTokens: 50 }) });
+  assert.equal(summarizeTelemetry([live, cached]).latestFromCache, true);
+  assert.equal(summarizeTelemetry([cached, live]).latestFromCache, false);
+  assert.equal(summarizeTelemetry([cached, assistant('legacy')]).latestFromCache, null);
+  assert.equal(summarizeTelemetry([]).latestFromCache, null);
+  assert.equal(summarizeTelemetry([live, cached]).totalTokens, 50);
+});
+
 test('token snapshots replace instead of accumulating duplicate events', () => {
   const event = { type: 'token_usage', promptTokens: 100, completionTokens: 20, totalTokens: 120 };
   let message = assistant('a');

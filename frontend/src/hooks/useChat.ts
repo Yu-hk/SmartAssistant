@@ -314,6 +314,9 @@ export function useChat(options: UseChatOptions) {
           }
 
           if (data.type === 'init') {
+            if (typeof data.fromCache === 'boolean') {
+              updateAssistantMessage(current => ({ ...current, fromCache: data.fromCache }));
+            }
             activeRequestIdRef.current = data.requestId || requestId;
             setProgressMessage('正在了解您的问题…');
             realSessionId = data.sessionId || sessionId;
@@ -370,6 +373,7 @@ export function useChat(options: UseChatOptions) {
             updateAssistantMessage(current => ({
               ...current,
               content: fullContent,
+              fromCache: typeof data.fromCache === 'boolean' ? data.fromCache : current.fromCache,
               clarificationForm: data.type === 'response'
                 ? normalizeClarificationForm(data.clarificationForm) : current.clarificationForm,
               toolCalls: [...currentToolCalls],

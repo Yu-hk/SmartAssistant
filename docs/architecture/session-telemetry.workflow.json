@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {"title": "回复来源与统计回放", "locale": "zh-CN", "quality_profile": "showcase"},
+  "lanes": [
+    {"id": "request", "label": "本轮处理"},
+    {"id": "history", "label": "保存与回放"}
+  ],
+  "mainPath": ["turn", "origin", "snapshot", "audit", "reload", "display"],
+  "nodes": [
+    {"id": "turn", "lane": "request", "col": 0, "type": "frontend", "label": "独立请求", "sublabel": "账号与会话校验"},
+    {"id": "origin", "lane": "request", "col": 1, "type": "backend", "label": "读取明确来源", "sublabel": "fromCache 布尔值"},
+    {"id": "snapshot", "lane": "request", "col": 2, "type": "backend", "label": "本轮统计快照", "sublabel": "不叠加原答案用量"},
+    {"id": "audit", "lane": "history", "col": 3, "type": "database", "label": "记录调用审计", "sublabel": "route_method 标记"},
+    {"id": "reload", "lane": "history", "col": 4, "type": "security", "label": "授权历史读取", "sublabel": "严格按会话所有者"},
+    {"id": "display", "lane": "history", "col": 5, "type": "frontend", "label": "统一来源显示", "sublabel": "两浏览器读取同一轮"},
+    {"id": "stream", "lane": "request", "col": 5, "type": "frontend", "label": "实时回复显示", "sublabel": "SSE 来源与统计"}
+  ],
+  "edges": [
+    {"from": "turn", "to": "origin", "role": "main"},
+    {"from": "origin", "to": "snapshot", "role": "main"},
+    {"from": "snapshot", "to": "audit", "role": "main", "label": "保存"},
+    {"from": "audit", "to": "reload", "role": "main"},
+    {"from": "reload", "to": "display", "role": "main"},
+    {"from": "snapshot", "to": "stream", "role": "branch", "label": "实时回传"}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "来源与用量分开", "items": ["true：缓存复用；false：实时处理。缺少标记：未记录。", "不能根据零 Token 推断缓存；缓存校验仍可能产生调用。"]},
+    {"dot": "amber", "title": "回放边界", "items": ["旧审计保留未知，不批量猜测回填。", "不同新请求的用量可以不同；同一轮历史应一致。"]}
+  ]
+}
