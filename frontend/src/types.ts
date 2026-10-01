@@ -134,6 +134,8 @@ export interface Message {
   completionTokens?: number | null;
   totalTokens?: number | null;
   tokenUsageComplete?: boolean | null;
+  /** Explicit server provenance; null/absent is unknown, never inferred from zero usage. */
+  fromCache?: boolean | null;
   contentBlocks?: ContentBlock[];
   /** Independent Router/LangGraph execution ID for this conversation turn. */
   requestId?: string;

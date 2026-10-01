@@ -35,6 +35,27 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AdminServiceSessionIsolationTest {
+    @Test void historyPreservesExplicitSourceAndLeavesLegacyZeroUnknown() {
+        List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (String method : List.of("STREAM_CACHE", "ROUTER_LIVE", "STREAM_ROUTER_SERVICE")) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", rows.size() + 1L);
+            row.put("user_input", "synthetic");
+            row.put("response_summary", "answer");
+            row.put("route_method", method);
+            row.put("total_tokens", 0L);
+            rows.add(row);
+        }
+        when(jdbcTemplate.queryForList(startsWith("SELECT id, request_id"), eq("s"), eq(7L)))
+                .thenReturn(rows);
+        var messages = adminService.getAdminSessionDetail("s", 7L).orElseThrow().messages();
+        assertNull(messages.get(0).fromCache());
+        assertEquals(true, messages.get(1).fromCache());
+        assertEquals(false, messages.get(3).fromCache());
+        assertNull(messages.get(5).fromCache());
+        assertEquals(0L, messages.get(1).totalTokens());
+        verify(jdbcTemplate).queryForList(contains("route_method"), eq("s"), eq(7L));
+    }
 
     @Mock
     private JdbcTemplate jdbcTemplate;

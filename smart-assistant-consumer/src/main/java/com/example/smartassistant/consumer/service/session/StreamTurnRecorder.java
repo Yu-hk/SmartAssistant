@@ -3,6 +3,7 @@ package com.example.smartassistant.consumer.service.session;
 import com.example.smartassistant.common.audit.ToolUsageCache;
 import com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogService;
 import com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractor;
+import com.example.smartassistant.consumer.service.infrastructure.ReplyOrigin;
 import com.example.smartassistant.consumer.service.recommendation.UserProfileService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,11 +21,19 @@ public final class StreamTurnRecorder {
                        String requestId, String message, String agentName, String responseSummary,
                        long startedAt, String status, TokenUsageExtractor.TokenUsage tokenUsage,
                        ToolUsageCache.ToolUsage toolUsage) {
+        record(profileService, rawUserId, sessionId, requestId, message, agentName, responseSummary,
+                startedAt, status, tokenUsage, toolUsage, null);
+    }
+
+    public void record(UserProfileService profileService, String rawUserId, String sessionId,
+                       String requestId, String message, String agentName, String responseSummary,
+                       long startedAt, String status, TokenUsageExtractor.TokenUsage tokenUsage,
+                       ToolUsageCache.ToolUsage toolUsage, Boolean fromCache) {
         Long userId = parseUserId(rawUserId);
         callLogService.saveLog(
                 userId, sessionId, requestId, message,
                 agentName == null || agentName.isBlank() ? "unknown" : agentName,
-                "STREAM_ROUTER_SERVICE", System.currentTimeMillis() - startedAt,
+                ReplyOrigin.auditMethod(true, fromCache), System.currentTimeMillis() - startedAt,
                 status, responseSummary,
                 tokenUsage.promptTokens(), tokenUsage.completionTokens(), tokenUsage.totalTokens(),
                 message, toolUsage);

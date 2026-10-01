@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "test:telemetry": "node --import tsx --test scripts/session-telemetry.test.ts scripts/session-insight.test.tsx",
     "test:visits": "node scripts/run-visits-tests.mjs",
     "test:service-entry": "node scripts/run-service-entry-tests.mjs",
     "test:session-rating": "node --import tsx --test scripts/session-rating.test.tsx",

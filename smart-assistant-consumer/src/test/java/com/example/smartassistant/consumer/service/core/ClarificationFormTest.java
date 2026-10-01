@@ -43,7 +43,7 @@ class ClarificationFormTest {
     @Test void historyDoesNotReconstructUnsignedLegacyForms() throws Exception {
         var message = new com.example.smartassistant.consumer.service.admin.AdminService.SessionMessage(
                 "a", "assistant", "请提供城市。", "", "r", "fallback", "SUCCESS", null,
-                null, null, null, null, null, java.util.List.of());
+                null, null, null, null, null, java.util.List.of(), null);
         var json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(
                 new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(message));
         assertTrue(json.path("clarificationForm").isNull());
