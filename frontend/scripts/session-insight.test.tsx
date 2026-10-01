@@ -14,6 +14,15 @@ function render(current: Session) {
   return renderToStaticMarkup(<SessionInsightPanel sessions={[current]} currentSession={current}
     onCloseSession={() => {}} onRateSession={() => {}} />);
 }
+
+test('sidebar explains explicit cached replies and never treats live or legacy zero as cache', () => {
+  for (const [fromCache, label] of [[true, '缓存复用'], [false, '实时处理'], [null, '未记录']] as const) {
+    const html = render(session({ messages: [{ id: 'a', role: 'assistant', content: '答复',
+      timestamp: new Date(), fromCache, totalTokens: 0, toolUsageComplete: true }] }));
+    assert.ok(html.includes(label));
+    assert.equal(html.includes('缓存校验仍可能产生调用'), fromCache === true);
+  }
+});
 test('sidebar renders real totals and friendly tool outcome/duration labels', () => {
   const html = render(session({ messages: [{ id: 'reply', role: 'assistant', timestamp: new Date(),
     content: '结果', totalTokens: 1250, promptTokens: 1000, completionTokens: 250, toolUsageComplete: true,

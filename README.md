@@ -186,6 +186,9 @@ GitHub Actions 会执行：
 - [多商品查询与证据汇总流程图](https://yu-hk.github.io/SmartAssistant/architecture/multi-product-query.workflow.html)
 - [商品实体识别与字段绑定流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-entity-resolution.workflow.html)
 - [四维评测与检索反馈流程图](https://yu-hk.github.io/SmartAssistant/architecture/ragas-feedback.workflow.html)
+- [回复来源与统计回放流程图](https://yu-hk.github.io/SmartAssistant/architecture/session-telemetry.workflow.html)
+
+会话洞察将回复来源与用量分开：仅明确的 `fromCache` 布尔值显示“缓存复用”或“实时处理”，缺少来源显示“未记录”，不根据零 Token 推断缓存。SSE 与历史读取都保留来源；新审计通过已有 `route_method` 写入 `STREAM_CACHE` / `STREAM_LIVE` 或 `ROUTER_CACHE` / `ROUTER_LIVE`，旧审计保持未知，不批量回填。累计统计只叠加本会话各轮已知快照，不重复计入缓存原答案生成用量；缓存校验仍可能产生调用，不等于整条链路免费。详见[来源与统计说明](docs/session-telemetry.md)。
 - [节点消息队列方案图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/agent-node-message-queue.workflow.html)
 - [ToolGateway 任务依赖图（设计参考）](https://yu-hk.github.io/SmartAssistant/architecture/tool-gateway-task-dependencies.workflow.html)
 - [运行时架构规范](docs/architecture/smartassistant-runtime.architecture.json)
