@@ -95,6 +95,45 @@ class SmartReActAgentBehaviorBaselineTest {
         assertThat(events).containsExactly("iteration:1", "inference", "tokens:10:2", "stop");
     }
 
+    @Test void missingKnowledgeAnswerIsPreservedWithoutExtraModelOrToolCalls() {
+        String answer = "知识库只说明库存状态，未提供可售库存的计算规则。"
+                + "暂时无法确定锁定库存和质检库存如何处理，不能凭空给出公式。";
+        var reply = response(answer, false, 10, 2);
+        when(model.call(any(Prompt.class))).thenReturn(reply);
+        ToolCallback tool = tool();
+
+        assertThat(agent().execute("请根据知识库回答：可售库存的计算规则是什么？"
+                + "锁定库存和质检库存分别如何处理？", "sys", List.of(tool))).isEqualTo(answer);
+        verify(model).call(any(Prompt.class));
+        verify(tool, never()).call(anyString());
+        assertThat(events).containsExactly("iteration:1", "inference", "tokens:10:2");
+    }
+
+    @Test void knowledgeGapDoesNotAllowCredentialBlockedToolExecution() {
+        String answer = "知识库未提供库存公式。另外，缺少访问凭据，暂时无法调用数据库查询工具。";
+        var reply = response(answer, true, 10, 2);
+        when(model.call(any(Prompt.class))).thenReturn(reply);
+        ToolCallback tool = tool();
+
+        assertThat(agent().execute("查库存规则", "sys", List.of(tool)))
+                .isEqualTo("检测到 Agent 报告被阻塞，无法继续。请提供更多信息或重新描述需求。");
+        verify(model).call(any(Prompt.class));
+        verify(tool, never()).call(anyString());
+        assertThat(events).containsExactly("iteration:1", "inference", "tokens:10:2", "stop");
+    }
+
+    @Test void knowledgeGapWithOrderConfirmationStillStopsBeforeToolExecution() {
+        String answer = "资料不足，暂时无法核实地址。请确认是否继续创建订单。";
+        var reply = response(answer, true, 10, 2);
+        when(model.call(any(Prompt.class))).thenReturn(reply);
+        ToolCallback tool = tool();
+
+        assertThat(agent().execute("查订单", "sys", List.of(tool))).isEqualTo(answer);
+        verify(model).call(any(Prompt.class));
+        verify(tool, never()).call(anyString());
+        assertThat(events).containsExactly("iteration:1", "inference", "tokens:10:2", "stop");
+    }
+
     @Test void modelInfrastructureFailureRemainsTypedAndIsNotRetriedAsBusiness() {
         RuntimeException cause = new IllegalStateException("402 fixture balance failure");
         when(model.call(any(Prompt.class))).thenThrow(cause);
