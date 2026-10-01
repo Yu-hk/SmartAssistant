@@ -11,6 +11,9 @@ from retrieval_calibration import id_metrics
 
 BASELINE = 'hybrid-semantic'
 STRATEGIES = ('hybrid-semantic', 'dense-semantic', 'hybrid-blend035', 'hybrid-facet-rrf')
+COVERAGE = 'hybrid-anchored-coverage'
+PROFILES = {'native-v1': ('synthetic_product_manuals_v1', STRATEGIES),
+            'anchored-coverage-v1': ('synthetic_anchored_manuals_v1', STRATEGIES + (COVERAGE,))}
 VISIBILITY = ('public', 'tenant', 'role', 'user', 'clearance')
 METRICS = ('id_recall_at_k', 'id_precision_at_k', 'id_ndcg_at_k', 'id_ap_at_k')
 
@@ -21,11 +24,42 @@ def facets(query):
     return parts if 1 < len(parts) <= 3 and all(len(p) >= 4 for p in parts) else [query]
 
 
+def entities_in(query, entities):
+    rest=query.lower(); found=[]
+    for entity in sorted(entities,key=lambda e:(-len(e),e)):
+        name=entity.lower()
+        if name in rest: found.append(entity); rest=rest.replace(name,'')
+    return found
+
+
+def anchored_plan(query, entities):
+    parts,whole=facets(query),entities_in(query,entities)
+    if len(parts)==1 or not whole: return [query],['']
+    queries,bindings=[query],['']
+    for part in parts:
+        explicit=entities_in(part,entities)
+        entity=explicit[0] if len(explicit)==1 else whole[0] if not explicit and len(whole)==1 else None
+        if entity is None: return [query],['']
+        queries.append(part if explicit else entity+'：'+part); bindings.append(entity)
+    return queries,bindings
+
+
+def coverage_merge(original, scoped, k=5):
+    seats=list(dict.fromkeys([r[0] for r in scoped if r]+original[:1]))
+    scores={}
+    for ranking in [original]+scoped:
+        for rank,doc in enumerate(ranking,1): scores[doc]=scores.get(doc,0)+1/(60+rank)
+    return list(dict.fromkeys(seats+sorted(scores,key=lambda d:-scores[d])))[:k]
+
+
 def validate_questions(data):
+    profile=data.get('profile','native-v1')
+    if profile not in PROFILES: raise ValueError('Frozen profile required')
+    corpus,strategies=PROFILES[profile]
     if (data.get('schema_version') != 1 or data.get('synthetic_only') is not True
             or data.get('reference_policy') != 'curated_frozen_before_collection'
-            or data.get('corpus') != 'synthetic_product_manuals_v1'
-            or data.get('leaf_top_k') != 5 or data.get('strategies') != list(STRATEGIES)):
+            or data.get('corpus') != corpus
+            or data.get('leaf_top_k') != 5 or data.get('strategies') != list(strategies)):
         raise ValueError('Frozen synthetic native profile required')
     documents, rows = data.get('documents'), data.get('cases')
     if not isinstance(documents, list) or not 2 <= len(documents) <= 128:
@@ -36,7 +70,7 @@ def validate_questions(data):
                 or any(not isinstance(v, str) or not v.strip() or len(v) > 4000 for v in row.values())
                 or row['knowledge_base'] not in ('product_knowledge', 'order_knowledge')
                 or row['visibility'] not in VISIBILITY or row['id'] in docs
-                or '[CID:' in row['title'] + row['content']):
+                or any('[CID:' in value for value in row.values())):
             raise ValueError('Invalid synthetic document/ACL')
         docs[row['id']] = row
     if not isinstance(rows, list) or not 2 <= len(rows) <= 64:
@@ -70,12 +104,15 @@ def validate_questions(data):
 def probe_request(data):
     rows, _ = validate_questions(data)
     # Entire corpus is indexed, but references/families/split/kind never enter retrieval.
-    return {'queries': [{k: row[k] for k in ('id', 'question')} for row in rows],
-            'documents': [{k: v for k, v in row.items() if k != 'family'} for row in data['documents']]}
+    request={'queries': [{k: row[k] for k in ('id', 'question')} for row in rows],
+             'documents': [{k: v for k, v in row.items() if k != 'family'} for row in data['documents']]}
+    if data.get('profile'): request['profile']=data['profile']
+    return request
 
 
 def validate_trial(data, trial):
     rows, docs = validate_questions(data)
+    strategies=PROFILES[data.get('profile','native-v1')][1]
     if (trial.get('schema_version') != 1 or trial.get('backend') != 'native-memory-product-knowledge-subchain'
             or trial.get('embedding_verified') is not True or trial.get('leaf_top_k') != 5):
         raise ValueError('Actual native embedding probe required')
@@ -87,15 +124,18 @@ def validate_trial(data, trial):
     if trial.get('corpus') != expected: raise ValueError('Corpus content/identity drift')
     found = trial.get('results')
     if not isinstance(found, list) or len(found) != len(rows): raise ValueError('Missing cases')
+    if any(not isinstance(r,dict) or not isinstance(r.get('id'),str) for r in found): raise ValueError('Malformed case')
     actual = {r['id']: r for r in found}
     if len(actual) != len(found) or set(actual) != {r['id'] for r in rows}: raise ValueError('Case identity drift')
     allowed = {i for i, r in docs.items() if r['visibility'] == 'public' and r['knowledge_base'] == 'product_knowledge'}
+    entities={docs[i]['category'] for i in allowed}
     for row in rows:
         result = actual[row['id']]
         if result.get('question_sha256') != text_hash(row['question']): raise ValueError('Question drift')
         ranks = result.get('rankings')
-        if not isinstance(ranks, dict) or set(ranks) != set(STRATEGIES): raise ValueError('Fixed grid drift')
+        if not isinstance(ranks, dict) or set(ranks) != set(strategies): raise ValueError('Fixed grid drift')
         for strategy, rank in ranks.items():
+            if not isinstance(rank,dict): raise ValueError('Malformed rank')
             ids = rank.get('doc_ids')
             if (not isinstance(ids, list) or len(ids) > 5 or any(not isinstance(i, str) for i in ids)
                     or len(set(ids)) != len(ids) or not set(ids) <= allowed):
@@ -106,6 +146,8 @@ def validate_trial(data, trial):
                     or rank.get('selected_domains') != ['product_knowledge'] or rank.get('scope_reason') != 'product-agent-capability'):
                 raise ValueError('Native subchain/single-attempt contract drift')
             pieces = facets(row['question']) if strategy == 'hybrid-facet-rrf' else [row['question']]
+            bindings=[]
+            if strategy==COVERAGE: pieces,bindings=anchored_plan(row['question'],entities)
             if (type(rank.get('facet_count')) is not int or rank['facet_count'] != len(pieces)
                     or type(rank.get('native_query_count')) is not int or rank['native_query_count'] != len(pieces)
                     or rank.get('facet_sha256') != [text_hash(q) for q in pieces]):
@@ -113,14 +155,24 @@ def validate_trial(data, trial):
             native_ranks = rank.get('native_rankings')
             if not isinstance(native_ranks, list) or len(native_ranks) != len(pieces):
                 raise ValueError('Actual per-query native rankings required')
-            for query, found in zip(pieces, native_ranks):
-                limit = 10 if len(pieces) > 1 else 5
+            for index,(query, found) in enumerate(zip(pieces, native_ranks)):
+                if not isinstance(found,dict): raise ValueError('Malformed native trace')
+                limit = (5 if index==0 else 10) if strategy==COVERAGE else 10 if len(pieces)>1 else 5
                 candidates = found.get('doc_ids')
                 if (found.get('question_sha256') != text_hash(query) or found.get('top_k') != limit
                         or not isinstance(candidates, list) or len(candidates) > limit
                         or any(not isinstance(i, str) for i in candidates) or len(set(candidates)) != len(candidates)
                         or not set(candidates) <= allowed):
                     raise ValueError('Native per-query trace/ACL drift')
+            if strategy==COVERAGE:
+                original=native_ranks[0]['doc_ids']
+                scoped=[[i for i in r['doc_ids'] if docs[i]['category']==entity]
+                        for r,entity in zip(native_ranks[1:],bindings[1:])]
+                reserved=list(dict.fromkeys(r[0] for r in scoped if r))
+                if (rank.get('entity_sha256') != [text_hash(e) for e in bindings]
+                        or rank.get('protected_original_doc_ids') != original[:1]
+                        or rank.get('reserved_doc_ids') != reserved or ids != coverage_merge(original,scoped)):
+                    raise ValueError('Original/facet coverage or entity binding drift')
             sparse, dense, blend = (rank.get(k) for k in ('sparse_weight', 'dense_weight', 'fusion_weight'))
             if (any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or not 0 <= v <= 1 for v in (sparse, dense, blend))
                     or abs(sparse + dense - 1) > 1e-9 or blend != (.35 if strategy == 'hybrid-blend035' else 0)):
@@ -135,21 +187,22 @@ def validate_trial(data, trial):
 
 def evaluate(data, trials):
     rows, docs = validate_questions(data)
+    strategies=PROFILES[data.get('profile','native-v1')][1]
     if not isinstance(trials, list) or not 3 <= len(trials) <= 5: raise ValueError('3..5 actual trials required')
     maps = [validate_trial(data, t) for t in trials]
     stable = len({digest(t['results']) for t in trials}) == 1
     positive = [r for r in rows if r['kind'] != 'acl_guard']
     scores = {r['id']: {s: {m: statistics.median(id_metrics(t[r['id']]['rankings'][s]['doc_ids'],r['expected_doc_ids'],5)[m]
-                 for t in maps) for m in METRICS} for s in STRATEGIES} for r in positive}
+                 for t in maps) for m in METRICS} for s in strategies} for r in positive}
     summary = {split: {} for split in ('development', 'holdout')}
     family_counts = {}
     for split in summary:
         groups = sorted({r['family'] for r in positive if r['split'] == split}); family_counts[split] = len(groups)
-        for s in STRATEGIES:
+        for s in strategies:
             summary[split][s] = {m: statistics.mean(statistics.mean(scores[r['id']][s][m]
                  for r in positive if r['family'] == group) for group in groups) for m in METRICS}
     development = [r for r in positive if r['split'] == 'development']
-    eligible = [s for s in STRATEGIES if all(scores[r['id']][s]['id_recall_at_k'] + 1e-9 >= scores[r['id']][BASELINE]['id_recall_at_k'] for r in development)]
+    eligible = [s for s in strategies if all(scores[r['id']][s]['id_recall_at_k'] + 1e-9 >= scores[r['id']][BASELINE]['id_recall_at_k'] for r in development)]
     selected = max(eligible, key=lambda s: summary['development'][s]['id_ndcg_at_k'])
     holdout = [r for r in positive if r['split'] == 'holdout']
     regression = [r['id'] for r in holdout if any(scores[r['id']][selected][m] + 1e-9 < scores[r['id']][BASELINE][m]
@@ -160,7 +213,7 @@ def evaluate(data, trials):
     if selected == BASELINE or gain < .02: reasons.append('NO_CLEAR_DEVELOPMENT_SELECTED_GAIN')
     if regression: reasons.append('HOLDOUT_CASE_REGRESSION')
     if not stable: reasons.append('UNSTABLE_RETRIEVAL')
-    return {'schema_version':1, 'synthetic_only':True, 'experiment_scope':'native_memory_product_knowledge_subchain',
+    report={'schema_version':1, 'synthetic_only':True, 'experiment_scope':'native_memory_product_knowledge_subchain',
             'question_set_sha256':digest(data),'corpus_sha256':digest(trials[0]['corpus']),
             'trial_sha256':[digest(t) for t in trials],'repeats':len(trials),'stable_rankings':stable,
             'baseline':BASELINE,'selected_on_development':selected,'selection_uses_holdout':False,
@@ -180,3 +233,10 @@ def evaluate(data, trials):
                               for r in positive if set(r['expected_doc_ids']) & set(maps[0][r['id']]['rankings'][BASELINE]['doc_ids'])
                               - set(maps[0][r['id']]['rankings']['hybrid-facet-rrf']['doc_ids'])],
             'ragas_scores_computed':False,'parameters_applied':False,'online_retries_executed':0,'business_writes':0}
+    if COVERAGE in strategies:
+        report['coverage_comparison']={s:{'recall_regression_ids':[r['id'] for r in positive
+              if scores[r['id']][COVERAGE]['id_recall_at_k']+1e-9 < scores[r['id']][s]['id_recall_at_k']],
+              'recall_improved_ids':[r['id'] for r in positive if scores[r['id']][COVERAGE]['id_recall_at_k'] > scores[r['id']][s]['id_recall_at_k']+1e-9]}
+              for s in (BASELINE,'hybrid-facet-rrf')}
+        report['coverage_active_cases']=sum(len(maps[0][r['id']]['rankings'][COVERAGE]['native_rankings'])>1 for r in rows)
+    return report
