@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import statistics
 import time
 from datetime import datetime, timezone
@@ -145,9 +146,22 @@ def stage_diagnosis(summary, row):
     """Evidence-aware advisory. No missing gold, unknown value or score creates a write/retry."""
     result = diagnose(summary)
     trace = row.get('evidence_trace')
-    if not trace or result['action'] in ('EVALUATION_UNAVAILABLE', 'MORE_REPEATS_REQUIRED', 'JUDGE_CALIBRATION_REQUIRED'):
+    if not trace:
         return result
     coverage = trace['coverage']
+    products = {slot.get('productCode') for slot in coverage['slots'] if slot.get('productCode')}
+    flags = []
+    if coverage['unknown']: flags.append('EXPLICIT_UNKNOWN_EVIDENCE')
+    if trace.get('arithmetic', {}).get('relation') == 'TOTAL': flags.append('DETERMINISTIC_TOTAL_CONTEXT_REVIEW')
+    if len(products) > 1: flags.append('MULTI_PRODUCT_RELEVANCY_REVIEW')
+    # Orthogonal observations remain visible even when a model score is unstable.
+    # Metadata presence does not prove the answer is truthful or arithmetic correct.
+    result = {**result, 'score_trigger_action': result['action'], 'review_flags': flags,
+              'evidence_route': trace['route'], 'request_slots_complete': coverage['complete'],
+              'requested_slot_counts': {key: coverage[key] for key in ('requested', 'known', 'unknown', 'missing', 'unresolved')},
+              'resolved_product_count': len(products), 'ragas_scores_adjusted': False}
+    if result['action'] in ('EVALUATION_UNAVAILABLE', 'MORE_REPEATS_REQUIRED', 'JUDGE_CALIBRATION_REQUIRED'):
+        return result
     if coverage['unresolved']:
         return {**result, 'action': 'ENTITY_CLARIFICATION_REQUIRED', 'suggestion': 'Clarify the exact catalog identity; do not widen to other models.'}
     if coverage['missing']:
@@ -156,7 +170,59 @@ def stage_diagnosis(summary, row):
         return {**result, 'action': 'ARITHMETIC_AND_CONTEXT_REVIEW', 'suggestion': 'Check deterministic arithmetic and actual policy context; do not invent supporting evidence.'}
     if result['action'] == 'ANSWER_SCOPE_REVIEW' and coverage['unknown']:
         return {**result, 'action': 'ANSWERABILITY_JUDGE_REVIEW', 'suggestion': 'Calibrate truthful unknown answers separately; never synthesize the missing value.'}
+    if result['action'] == 'ANSWER_SCOPE_REVIEW' and coverage['complete'] and len(products) > 1:
+        return {**result, 'action': 'MULTI_PRODUCT_RELEVANCY_REVIEW',
+                'suggestion': 'Review relevance per product before changing retrieval; complete slot metadata alone does not prove answer correctness.'}
     return {**result, 'evidence_route': trace['route'], 'request_slots_complete': coverage['complete']}
+
+
+def replay_diagnostics(dataset, prior):
+    """Reclassify immutable score runs, with strict input/provenance checks and zero model calls."""
+    rows = validate_dataset(dataset)
+    if (not isinstance(prior, dict) or prior.get('schema_version') != 1 or prior.get('synthetic_only') is not True
+            or prior.get('dataset_sha256') != digest(dataset) or prior.get('live_user_conversations_evaluated') is not False
+            or prior.get('retries_executed') != 0 or prior.get('thresholds_calibrated') is not False):
+        raise ValueError('Matching synthetic shadow report required')
+    cases = prior.get('cases')
+    if (not isinstance(cases, list) or len(cases) != len(rows) or any(not isinstance(c, dict) for c in cases)
+            or [c.get('id') for c in cases] != [r['id'] for r in rows]):
+        raise ValueError('Replay case identity/order drift')
+    results = []
+    for row, case in zip(rows, cases):
+        if case.get('input_sha256') != digest(row) or case.get('source') != row['source'] or case.get('id_metrics') != id_metrics(row):
+            raise ValueError('Replay input/evidence drift')
+        runs = case.get('runs')
+        if not isinstance(runs, list) or not 1 <= len(runs) <= 10:
+            raise ValueError('Bounded original score runs required')
+        for repeat, run in enumerate(runs, 1):
+            if not isinstance(run, dict) or set(run) != {'repeat', 'scores', 'errors', 'duration_ms'} or type(run['repeat']) is not int or run['repeat'] != repeat:
+                raise ValueError('Original run identity drift')
+            scores, errors, durations = run['scores'], run['errors'], run['duration_ms']
+            if (not all(isinstance(v, dict) for v in (scores, errors, durations)) or set(scores) & set(errors)
+                    or set(scores) | set(errors) != set(METRICS) or set(durations) != set(METRICS)):
+                raise ValueError('Original metric coverage required')
+            for name, value in scores.items():
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not (-1 if name == 'answer_relevancy' else 0) <= value <= 1:
+                    raise ValueError('Invalid original metric value')
+            for error in errors.values():
+                if (not isinstance(error, dict) or not {'type'} <= set(error) <= {'type', 'attempt_error_types'}
+                        or not isinstance(error['type'], str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,99}', error['type'])):
+                    raise ValueError('Sanitized original error type required')
+                attempts = error.get('attempt_error_types', [])
+                if not isinstance(attempts, list) or len(attempts) > 10 or any(not isinstance(t, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,99}', t) for t in attempts):
+                    raise ValueError('Sanitized original retry types required')
+            if any(type(v) is not int or not 0 <= v <= 86400000 for v in durations.values()):
+                raise ValueError('Bounded original durations required')
+        summary = summarize(runs, len(runs))
+        if case.get('summary') != summary:
+            raise ValueError('Original summary drift')
+        results.append({'id': row['id'], 'source': row['source'], 'input_sha256': digest(row),
+                        'id_metrics': id_metrics(row), 'runs': runs, 'summary': summary,
+                        'feedback': stage_diagnosis(summary, row)})
+    return {'schema_version': 1, 'timestamp_utc': datetime.now(timezone.utc).isoformat(),
+            'mode': 'DIAGNOSTIC_REPLAY', 'dataset_sha256': digest(dataset), 'source_report_sha256': digest(prior),
+            'synthetic_only': True, 'live_user_conversations_evaluated': False, 'retries_executed': 0,
+            'thresholds_calibrated': False, 'new_model_calls': 0, 'ragas_scores_adjusted': False, 'cases': results}
 
 
 def select_case(dataset, identifier):
@@ -340,6 +406,7 @@ async def main():
     parser.add_argument('--judge-max-tokens', type=int, choices=(1024, 4096), default=4096)
     parser.add_argument('--judge-thinking', choices=('disabled', 'enabled'), default='disabled')
     parser.add_argument('--case-id', help='Optional frozen case ID for focused reproduction')
+    parser.add_argument('--replay-report', type=Path, help='Reclassify matching original runs without model calls')
     parser.add_argument('--embedding-url', default=os.environ.get('RAGAS_EMBEDDING_URL', ''))
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
@@ -351,6 +418,15 @@ async def main():
         raise ValueError('repeats must be 1..10')
     if args.output.exists():
         raise FileExistsError('Report already exists')
+    if args.replay_report:
+        if args.case_id or args.dry_run or args.replay_report.stat().st_size > 4194304:
+            raise ValueError('Full bounded report required for diagnostic replay')
+        prior = json.loads(args.replay_report.read_text(encoding='utf-8'))
+        report = replay_diagnostics(dataset, prior)
+        write_new(args.output, report)
+        print(json.dumps({'replayed_cases': len(report['cases']), 'new_model_calls': 0,
+                          'ragas_scores_adjusted': False}), flush=True)
+        return
     if args.dry_run:
         print(json.dumps({'cases': len(cases), 'metric_scores_requested': len(cases) * 4 * args.repeats,
                           'dataset_sha256': digest(dataset), 'network_calls': 0}))
