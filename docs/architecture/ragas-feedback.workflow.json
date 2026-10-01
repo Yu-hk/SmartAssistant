@@ -10,7 +10,8 @@
     {"id": "contract", "lane": "capture", "col": 2, "type": "security", "label": "证据完整性检查", "sublabel": "缺失与未知分别标记"},
     {"id": "metrics", "lane": "judge", "col": 2, "type": "backend", "label": "Ragas 四维评测", "sublabel": "固定输入重复评分"},
     {"id": "stability", "lane": "judge", "col": 3, "type": "database", "label": "保留各轮原始分数", "width": 140, "sublabel": "中位数与波动范围"},
-    {"id": "diagnosis", "lane": "review", "col": 3, "type": "backend", "label": "证据影子诊断", "sublabel": "原分数复放与分类"},
+    {"id": "audit", "lane": "judge", "col": 0, "type": "security", "label": "独立事实核验", "sublabel": "金额、未知与商品绑定"},
+    {"id": "diagnosis", "lane": "review", "col": 3, "type": "backend", "label": "证据影子诊断", "sublabel": "核验不改原评分"},
     {"id": "manual", "lane": "review", "col": 4, "type": "security", "label": "开发集选择策略", "sublabel": "实体约束与证据保留"},
     {"id": "holdout", "lane": "review", "col": 5, "type": "security", "label": "冻结留出集验证", "sublabel": "不自动更新生产权重"}
   ],
@@ -20,12 +21,14 @@
     {"from": "contract", "to": "metrics", "label": "有效样本"},
     {"from": "metrics", "to": "stability", "label": "四项分数"},
     {"from": "stability", "to": "diagnosis", "label": "重复观测"},
+    {"from": "questions", "to": "audit", "label": "冻结断言"},
+    {"from": "audit", "to": "diagnosis", "label": "只读核验"},
     {"from": "diagnosis", "to": "manual", "label": "影子建议", "variant": "dashed"},
     {"from": "manual", "to": "holdout", "label": "固定候选策略"}
   ],
   "cards": [
     {"dot": "cyan", "title": "四项指标", "items": ["上下文召回率、上下文精度", "忠实度、答案相关性"]},
-    {"dot": "amber", "title": "证据与波动", "items": ["保留原问题与子问题证据席位", "未知与合计不凭低分补造证据"]},
+    {"dot": "amber", "title": "独立对照", "items": ["冻结事实金标与故意答错样本", "未知与合计不凭低分补造证据"]},
     {"dot": "rose", "title": "执行边界", "items": ["不读取真实用户会话，不执行订单", "建议不自动修改线上检索权重"]}
   ]
 }

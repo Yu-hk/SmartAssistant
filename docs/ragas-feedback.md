@@ -61,10 +61,12 @@ python scripts/ragas_feedback.py --dataset dataset.json --replay-report fresh-re
 
 ## 线上影子诊断与评分复放
 
+后续增加[独立回答核验](ragas-answer-audit.md)，在三轮原始模型分数旁保留金额、未知字段、逐商品绑定及材料证据检查。当前模板外表述不会被判通过；不把核验结果转换为四维分数，也不继承原分数给变异反例。本轮线上重新采集、历史分数原样对照及页面回归见[验证记录](ragas-answer-audit-verification-20261001.md)。
+
 2026-10-01 使用 `data/ragas_online_shadow_questions.json` 的 8 道冻结合成题，在生产只读字段链上采集，隔离容器内完成三轮、96 项真实四维评分。新增四题是针对已知风险的诊断探针，不是独立留出集；没有重复执行业务请求或开启自动闭环。详见[本轮线上结果与修正](ragas-online-shadow-verification-20261001.md)。
 
 未知字段、确定性数量合计、多商品回答现在作为正交 `review_flags` 保存；即使评分缺失或波动，这些线索也不会丢失，优先行动仍保持评测不可用/补充重复/校准。完整多商品低相关性改为逐商品相关性复核，不能仅凭槽位齐全证明答案正确，也不改写评分。忠实度失败仍保留生成或计算上下文复核，不因存在未知标记自动放行。
 
 `--replay-report` 校验完整数据集摘要、案例及顺序、逐项输入摘要、ID 指标、逐轮评分/错误/耗时和重新计算的汇总；拒绝缺项、NaN、布尔评分、原文错误消息或摘要漂移。原始报告保留，输出另存、拒绝覆盖；`new_model_calls=0`、`ragas_scores_adjusted=false`、`retries_executed=0`。摘要绑定用于完整性核对，不是防伪签名，报告来源仍须可信。
 
-交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。当前规范 SHA-256 `586bf5823adc2921a39294dfa06dc2d2b3a75fbce8d6b4470e43ee5b7cf1aef3`（2629 bytes），HTML SHA-256 `998b65a0e333cc5c7e1ca506aacb5bb43b5da938bee927ed27567119dc7f8e94`（807166 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`；缩短过长标签一轮后冻结。完整交付回执见本轮线上验证说明，此前文档保留历史回执。
+交互图保持 Archify 经典风格并放入图表总览：[四维评测流程](architecture/ragas-feedback.workflow.html)。后续增加独立核验支线，当前规范 SHA-256 `12b35d9e142f355e081ce0fd24a8fa64a62633de631f874f5f38dcfd07d06ead`（2905 bytes），HTML SHA-256 `06b1d37cc4a6ac9a0d9896ec172c72acb9e9e533813bfbc6b774851b3e0f5625`（809623 bytes）；showcase 9/9，0 错误/警告。四个桌面视口及亮/暗端点自动浏览器证据通过，已实际检查 2048×1320 亮/暗截图，`visual_review=passed`。完整回执见[独立核验验证记录](ragas-answer-audit-verification-20261001.md)，此前文档保留历史回执。
