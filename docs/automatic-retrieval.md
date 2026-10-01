@@ -71,4 +71,8 @@ Playwright 使用独立 Chrome/Edge、同一新建合成 QA 账号：知识库�
 
 本地有界重试 Java 契约覆盖权限传递、超时取消、容量限制、错误回退、同实体增益、原证据保留、误召回排除和实际轮次；Python 契约覆盖工件边界、参考答案隔离、轨迹认证/关联、配置保留和完整门禁。
 
-流程图保持 Archify classic 风格：[交互图](https://yu-hk.github.io/SmartAssistant/architecture/automatic-retrieval.workflow.html)、[冻结规格](architecture/automatic-retrieval.workflow.json)。最终布局校验 9/9、零错误/警告，四个桌面宽度视觉检查与浅/深色检查通过；一轮几何修正后交付。规格摘要 `da736442f09098269be403b1be3cb177f578465f4289f1faa5012d967717c42a`，HTML 摘要 `c2f880971e610f18d858db72cc2f996e4e6dd0e6510563d698c123f4d1a7a3f3`。
+流程图保持 Archify classic 风格：[交互图](https://yu-hk.github.io/SmartAssistant/architecture/automatic-retrieval.workflow.html)、[冻结规格](architecture/automatic-retrieval.workflow.json)。初版经一轮几何修正交付；后续守卫修复仅补充“资料不足 ≠ 执行阻塞”与执行失败不可标 PASS 的说明，检索拓扑未变。当前交付布局校验 9/9、零错误/警告，四个桌面宽度与浅/深色自动证据及实际截图审查通过，本次几何修正 0 次。规格摘要 `d2d6053436bdd8c5dbbedfc712eb3ec79118b566dc3feb4c0b75144ac3a0080d`，HTML 摘要 `b4cfee445343d849e7f4af19fbb257b903f1d57f9cd03237cf050687a4a3f58f`。
+
+## 后续：资料不足误判修复
+
+上面的首次浏览器失败保留为历史记录。随后已单独修复循环守卫与商品执行失败质检，详见[原因、固定旧/新对照及上线验收](knowledge-refusal-guard.md)。本次生产 Product 工件摘要为 `29f3c588b76abeee855c10334a9e26e6ac5f9bf474a11652f66485b1cecb723b`；补检开关和等待上限不变，其他服务未随之更新 Common。新 QA 账号在 Chrome/Edge 各四轮通过，六次实时、两次缓存复用，八次刷新与跨浏览器恢复通过；未知规则明确告知缺失，不再替换为通用阻塞提示。这不是补充缺失规则，也不是证明所有自然语言或四维评测问题已解决。

@@ -71,6 +71,61 @@ class StreamingProductAgentServiceTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {
+            "检测到 Agent 报告被阻塞，无法继续。请提供更多信息或重新描述需求。",
+            "检测到基础设施故障，已暂停以避免持续重试。请稍后再试。",
+            "循环守卫暂停"})
+    void guardRecoveryRemainsFailureWithoutReplayingProductTools(String recoveryReply) {
+        var backend = mock(com.example.smartassistant.common.tool.spi.ProductDataProvider.class);
+        var tools = new com.example.smartassistant.product.tool.ProductTools(backend, null);
+        when(backend.getPrice("QA-PRODUCT")).thenReturn("QA 商品售价 10 元");
+        when(ragService.retrieveWithQualityResult(anyString(), nullable(String.class)))
+                .thenReturn(RetrievalQualityResult.highQuality("[E1] 库存状态包括可售和锁定。", .9));
+        when(agent.execute(anyString())).thenAnswer(invocation -> {
+            tools.getPrice("QA-PRODUCT");
+            return recoveryReply;
+        });
+        var guard = mock(com.example.smartassistant.common.rag.eval.FaithfulnessGuard.class);
+        when(guard.check(anyString(), anyString())).thenReturn(
+                new com.example.smartassistant.common.rag.eval.FaithfulnessGuard.FaithfulnessVerdict(
+                        true, false, 0, List.of(), null));
+        service.setFaithfulnessGuard(guard);
+
+        var result = service.executeWithQuality(
+                "请根据知识库回答：可售库存的计算规则是什么？", "guard-recovery-quality");
+
+        assertTrue(result.quality().isFail());
+        assertTrue(result.quality().getReasonCodes().contains("PRODUCT_EXECUTION_FAILURE"));
+        assertEquals("抱歉，暂时无法生成可靠的商品答复，请稍后重试。", result.answer());
+        verify(agent, times(1)).execute(anyString());
+        verify(backend, times(1)).getPrice("QA-PRODUCT");
+        verify(ragService, times(1)).retrieveWithQualityResult(anyString(), nullable(String.class));
+        verify(guard, times(1)).check(anyString(), anyString());
+    }
+
+    @Test
+    void knowledgeInsufficiencyPreservesTheAnswerAndDoesNotReplayTheAgent() {
+        String answer = "知识库仅列出库存状态，暂时无法确定可售库存计算公式；"
+                + "未说明锁定库存和质检库存如何处理。";
+        when(ragService.retrieveWithQualityResult(anyString(), nullable(String.class)))
+                .thenReturn(RetrievalQualityResult.highQuality("[E1] 库存状态包括可售和锁定。", .9));
+        when(agent.execute(anyString())).thenReturn(answer);
+        var guard = mock(com.example.smartassistant.common.rag.eval.FaithfulnessGuard.class);
+        when(guard.check(anyString(), anyString())).thenReturn(
+                new com.example.smartassistant.common.rag.eval.FaithfulnessGuard.FaithfulnessVerdict(
+                        true, false, 0, List.of(), null));
+        service.setFaithfulnessGuard(guard);
+
+        var result = service.executeWithQuality(
+                "请根据知识库回答：可售库存的计算规则是什么？", "knowledge-insufficient-quality");
+
+        assertTrue(result.quality().isPass());
+        assertEquals(answer, result.answer());
+        verify(agent, times(1)).execute(anyString());
+        verify(ragService, times(1)).retrieveWithQualityResult(anyString(), nullable(String.class));
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"这个规格是多少", "颜色呢", "规格和颜色都告诉我", "只问规格，不要介绍颜色"})
     void followUpScopeUsesCurrentQuestionWithoutLosingProductContext(String current) {
         String original = current + "\n\n[对话上下文]\n上一轮用户问题：AirPods Pro多少钱？有货吗？";

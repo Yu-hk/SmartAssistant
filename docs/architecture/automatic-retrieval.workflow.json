@@ -11,7 +11,7 @@
     {"id": "second", "lane": "retry", "col": 2, "type": "database", "label": "一次知识库重检索", "sublabel": "同权限同域 · 候选 5→8", "width": 144},
     {"id": "compare", "lane": "retry", "col": 3, "type": "security", "label": "候选安全比较", "sublabel": "同名称补缺 · 保留原文"},
     {"id": "fallback", "lane": "retry", "col": 4, "type": "backend", "label": "保留首轮结果", "sublabel": "超时或无可靠改进"},
-    {"id": "answer", "lane": "online", "col": 5, "type": "backend", "label": "回答或明确拒答", "sublabel": "记录实际重试与选用轮次"},
+    {"id": "answer", "lane": "online", "col": 5, "type": "backend", "label": "回答或明确拒答", "sublabel": "资料不足 ≠ 执行阻塞"},
     {"id": "gold", "lane": "offline", "col": 0, "type": "database", "label": "冻结样本与断言", "sublabel": "参考事实 · 负例 · 权限"},
     {"id": "ragas", "lane": "offline", "col": 2, "type": "external", "label": "Ragas 四维评测", "sublabel": "召回 · 精度 · 忠实 · 相关", "width": 144},
     {"id": "release", "lane": "offline", "col": 4, "type": "security", "label": "上线验证门禁", "sublabel": "隔离对照 · 浏览器验收"}
@@ -31,6 +31,6 @@
   "cards": [
     {"dot": "cyan", "title": "在线边界", "items": ["最多重试一次 · 两个并发席位 · 无排队", "默认额外时限 1500 ms · 不改写实体或全局权重"]},
     {"dot": "rose", "title": "不触发业务写操作", "items": ["下单、支付、退款与资料变更排除", "目录 UNKNOWN 不靠模糊检索填值"]},
-    {"dot": "violet", "title": "指标边界", "items": ["在线词项覆盖只是缺口代理", "四维 Ragas 结果不直接驱动无限重试"]}
+    {"dot": "violet", "title": "回答与状态边界", "items": ["资料未知保留答复 · 执行失败不可标 PASS", "四维 Ragas 结果不直接驱动无限重试"]}
   ]
 }
