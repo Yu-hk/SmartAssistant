@@ -25,6 +25,7 @@ jobs:
       - run: python -m unittest discover -s scripts -p test_native_retrieval_calibration.py -v
       - run: python -m unittest discover -s scripts -p test_anchored_retrieval_calibration.py -v
       - run: python -m unittest discover -s scripts -p 'test_bounded_feedback*.py' -v
+      - run: python -m unittest discover -s scripts -p 'test_knowledge_guard_*.py' -v
 
   product-entity-contract:
     name: Product entity and constraint golden contract
@@ -205,9 +206,10 @@ jobs:
           cache: 'maven'
       - run: >-
           mvn -B -pl smart-assistant-common -am test
-          -Dtest=SmartReActAgentBehaviorBaselineTest,SmartReActAgentToolCallbackTest,SmartReActAgentChatClientTest,SmartReActAgentPhaseGateTest,SmartReActAgentGradingTest,AgentLoopDecisionTest,AgentExecutionBudgetTest,AgentToolExecutorTest,AgentToolExecutorConcurrencyTest,ModelCallFailureTest
+          -Dtest=LoopGuardServiceTest,SmartReActAgentBehaviorBaselineTest,SmartReActAgentToolCallbackTest,SmartReActAgentChatClientTest,SmartReActAgentPhaseGateTest,SmartReActAgentGradingTest,AgentLoopDecisionTest,AgentExecutionBudgetTest,AgentToolExecutorTest,AgentToolExecutorConcurrencyTest,ModelCallFailureTest
           -Dsurefire.failIfNoSpecifiedTests=false
-      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.SmartReActAgentBehaviorBaselineTest.xml --minimum 15
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.SmartReActAgentBehaviorBaselineTest.xml --minimum 18
+      - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.LoopGuardServiceTest.xml --minimum 54
       - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.AgentToolExecutorConcurrencyTest.xml --minimum 11
       - run: python3 scripts/verify_integration_reports.py smart-assistant-common/target/surefire-reports/TEST-com.example.smartassistant.common.agent.AgentExecutionBudgetTest.xml --minimum 10
       - run: python3 -m unittest discover -s scripts -p test_customer_acceptance.py -v
