@@ -38,7 +38,9 @@ public class EmbeddingApplication {
     @Value("${bge.vocab.path:models/tokenizer.json}")
     private String vocabPath;
 
-    @Bean
+    // Application.cleanup owns the model lifetime; disable Spring's inferred
+    // AutoCloseable destroy callback so the same native session is not closed twice.
+    @Bean(destroyMethod = "")
     public BgeEmbeddingModel bgeEmbeddingModel() {
         log.info("[EmbeddingService] 正在加载 BGE 模型...");
         long start = System.currentTimeMillis();

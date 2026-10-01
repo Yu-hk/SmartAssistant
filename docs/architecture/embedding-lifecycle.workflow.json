@@ -1,0 +1,34 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {"title": "Embedding 模型生命周期", "locale": "zh-CN", "quality_profile": "showcase", "animation": "none"},
+  "lanes": [
+    {"id": "spring", "label": "Spring 容器"},
+    {"id": "model", "label": "共享模型"},
+    {"id": "fallback", "label": "降级契约", "variant": "exception"}
+  ],
+  "mainPath": ["startup", "initialize", "available", "closing", "cleanup", "released"],
+  "semanticChecks": {"allowedRoots": ["startup"], "allowedTerminals": ["released"], "requiredPaths": [{"from": "degraded", "to": "released"}]},
+  "nodes": [
+    {"id": "startup", "lane": "spring", "col": 0, "type": "backend", "label": "应用启动", "sublabel": "创建一个模型 Bean", "width": 184},
+    {"id": "initialize", "lane": "model", "col": 1, "type": "backend", "label": "初始化模型", "sublabel": "加载本地 ONNX 会话", "width": 184},
+    {"id": "available", "lane": "model", "col": 2, "type": "backend", "label": "模型可用", "sublabel": "HTTP 请求共享模型", "width": 184},
+    {"id": "degraded", "lane": "fallback", "col": 2, "type": "external", "label": "初始化失败", "sublabel": "可用状态为 false", "width": 184},
+    {"id": "closing", "lane": "spring", "col": 3, "type": "backend", "label": "容器关闭", "sublabel": "触发生命周期销毁", "width": 184},
+    {"id": "cleanup", "lane": "model", "col": 4, "type": "backend", "label": "唯一释放入口", "sublabel": "Application.cleanup", "width": 184},
+    {"id": "released", "lane": "model", "col": 5, "type": "backend", "label": "模型释放一次", "sublabel": "关闭已创建的原生会话", "width": 184}
+  ],
+  "edges": [
+    {"from": "startup", "to": "initialize", "role": "main"},
+    {"from": "initialize", "to": "available", "role": "main", "label": "成功"},
+    {"from": "initialize", "to": "degraded", "role": "error", "label": "失败", "variant": "dashed"},
+    {"from": "available", "to": "closing", "role": "main", "label": "关闭事件"},
+    {"from": "degraded", "to": "cleanup", "role": "branch", "label": "仍执行清理", "variant": "dashed"},
+    {"from": "closing", "to": "cleanup", "role": "main"},
+    {"from": "cleanup", "to": "released", "role": "main"}
+  ],
+  "cards": [
+    {"dot": "emerald", "title": "明确资源所有者", "items": ["禁用模型 Bean 的推断 destroyMethod；保留 @PreDestroy。", "正常与降级启动均验证 close 恰好一次。"]},
+    {"dot": "amber", "title": "验证边界", "items": ["HTTP 契约验证可用性、维度与错误响应，不代表语义质量。", "本图不证明全系统 SSE、MQ 与执行器已安全排空。"]}
+  ]
+}
