@@ -174,6 +174,8 @@ GitHub Actions 会执行：
 
 进一步的[原生知识库子链路验证](docs/native-retrieval-calibration.md)覆盖实际选域、公开 ACL、内部召回和文档/聚合片段粒度：52 个合成问题、4 策略、三轮一致，但分号拆分再做多路 RRF 在两道开发题丢失资料，已通过逐路轨迹定位到合并竞争。开发/留出各只有 8 个独立问题族，且仅 memory-KB 知识子链路，不包含 PG/目录/Router/生成；本轮没有启用拆分、在线自动重检索或修改生产权重。
 
+后续新增[实体约束与证据保留对照](docs/anchored-retrieval-calibration.md)：原问题参与、明确名称绑定子句、候选席位有界保留，仅在隔离探针启用。全新 64 题、65 文档、5 策略、三轮一致；40 道留出正例的 ID 召回从简单拆分的 0.975 回到 1.000，但原问题基线同样为 1.000，因此仍不替换线上策略。Chrome/Edge 同账号只读页面回归通过；席位不等于事实支撑，不声称已接入在线闭环或获得新的 Ragas 四维分数。
+
 - [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
 - [交互式运行时架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)
 - [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)

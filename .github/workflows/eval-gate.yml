@@ -21,6 +21,7 @@ jobs:
       - run: python -m unittest discover -s scripts -p test_ragas_feedback.py -v
       - run: python -m unittest discover -s scripts -p test_retrieval_calibration.py -v
       - run: python -m unittest discover -s scripts -p test_native_retrieval_calibration.py -v
+      - run: python -m unittest discover -s scripts -p test_anchored_retrieval_calibration.py -v
 
   product-entity-contract:
     name: Product entity and constraint golden contract
@@ -40,6 +41,7 @@ jobs:
         run: |
           mvn -B -pl smart-assistant-common dependency:build-classpath -Dmdep.outputFile=target/calibration-classpath.txt
           python3 scripts/prepare_retrieval_calibration.py --classpath-file smart-assistant-common/target/calibration-classpath.txt --common-classes smart-assistant-common/target/classes --product-classes smart-assistant-product/target/classes --output smart-assistant-common/target/retrieval-calibration
+          java -cp 'smart-assistant-common/target/retrieval-calibration:smart-assistant-common/target/retrieval-calibration/classpath.jar' NativeRetrievalCalibrationProbe --coverage-contract
       - uses: actions/upload-artifact@v4
         if: always()
         with:
