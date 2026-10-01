@@ -5172,13 +5172,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 
         <!-- Edge paths -->
-        <path data-edge-from="contract" data-edge-to="metrics" data-edge-label="有效样本" data-edge-key="0" data-composition-points="504,119;520,119;520,166;458,166;458,217" d="M 504 119 L 520 119 L 520 166 L 458 166 L 458 217" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="diagnosis" data-edge-to="manual" data-edge-label="影子建议" data-edge-key="1" data-composition-points="676.4,367;732.8,367" d="M 676.4 367 L 732.8 367" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="live" data-edge-to="contract" data-edge-label="有序证据" data-edge-key="2" data-composition-points="355.6,119;412,119" d="M 355.6 119 L 412 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="manual" data-edge-to="holdout" data-edge-label="固定候选策略" data-edge-key="3" data-composition-points="824.8,367;900.4,367" d="M 824.8 367 L 900.4 367" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="metrics" data-edge-to="stability" data-edge-label="四项分数" data-edge-key="4" data-composition-points="504,243;560.4,243" d="M 504 243 L 560.4 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="questions" data-edge-to="live" data-edge-label="固定只读问题" data-edge-key="5" data-composition-points="140,119;215.60000000000002,119" d="M 140 119 L 215.60000000000002 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="stability" data-edge-to="diagnosis" data-edge-label="重复观测" data-edge-key="6" data-composition-points="700.4,243;716.4,243;716.4,290;630.4,290;630.4,341" d="M 700.4 243 L 716.4 243 L 716.4 290 L 630.4 290 L 630.4 341" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="audit" data-edge-to="diagnosis" data-edge-label="只读核验" data-edge-key="0" data-composition-points="140,243;362.2,243;362.2,367;584.4,367" d="M 140 243 L 362.2 243 L 362.2 367 L 584.4 367" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="contract" data-edge-to="metrics" data-edge-label="有效样本" data-edge-key="1" data-composition-points="504,119;520,119;520,166;458,166;458,217" d="M 504 119 L 520 119 L 520 166 L 458 166 L 458 217" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="diagnosis" data-edge-to="manual" data-edge-label="影子建议" data-edge-key="2" data-composition-points="676.4,367;732.8,367" d="M 676.4 367 L 732.8 367" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="live" data-edge-to="contract" data-edge-label="有序证据" data-edge-key="3" data-composition-points="355.6,119;412,119" d="M 355.6 119 L 412 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="manual" data-edge-to="holdout" data-edge-label="固定候选策略" data-edge-key="4" data-composition-points="824.8,367;900.4,367" d="M 824.8 367 L 900.4 367" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="metrics" data-edge-to="stability" data-edge-label="四项分数" data-edge-key="5" data-composition-points="504,243;560.4,243" d="M 504 243 L 560.4 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="questions" data-edge-to="audit" data-edge-label="冻结断言" data-edge-key="6" data-composition-points="94,145;94,166;32,166;32,243;48,243" d="M 94 145 L 94 166 L 32 166 L 32 243 L 48 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="questions" data-edge-to="live" data-edge-label="固定只读问题" data-edge-key="7" data-composition-points="140,119;215.60000000000002,119" d="M 140 119 L 215.60000000000002 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="stability" data-edge-to="diagnosis" data-edge-label="重复观测" data-edge-key="8" data-composition-points="700.4,243;716.4,243;716.4,290;630.4,290;630.4,341" d="M 700.4 243 L 716.4 243 L 716.4 290 L 630.4 290 L 630.4 341" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
 
         <!-- Nodes -->
         <g id="node-questions" data-node-id="questions" data-node-label="冻结问题与金标" tabindex="0" role="button" aria-label="聚焦冻结问题与金标，独立参考答案, 合成只读样本" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="独立参考答案" data-node-context="合成只读样本">
@@ -5218,6 +5220,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="458" y="131" class="t-muted" font-size="7.7" text-anchor="middle">缺失与未知分别标记</text>
         </g>
 
+        <g id="node-audit" data-node-id="audit" data-node-label="独立事实核验" tabindex="0" role="button" aria-label="聚焦独立事实核验，金额、未知与商品绑定, 离线质量评估" aria-pressed="false" data-node-kind="security" data-node-sublabel="金额、未知与商品绑定" data-node-context="离线质量评估">
+          <title>独立事实核验 · 金额、未知与商品绑定 · 离线质量评估</title>
+          <rect x="48" y="217" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="48" y="217" width="92" height="52" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(54 223) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="94" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">独立事实核验</text>
+          <text data-detail="context" x="94" y="255" class="t-muted" font-size="7" text-anchor="middle">金额、未知与商品绑定</text>
+        </g>
+
         <g id="node-metrics" data-node-id="metrics" data-node-label="Ragas 四维评测" tabindex="0" role="button" aria-label="聚焦Ragas 四维评测，固定输入重复评分, 离线质量评估" aria-pressed="false" data-node-kind="backend" data-node-sublabel="固定输入重复评分" data-node-context="离线质量评估">
           <title>Ragas 四维评测 · 固定输入重复评分 · 离线质量评估</title>
           <rect x="412" y="217" width="92" height="52" rx="6" class="c-mask"/>
@@ -5241,15 +5255,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-detail="context" x="630.4" y="255" class="t-muted" font-size="8" text-anchor="middle">中位数与波动范围</text>
         </g>
 
-        <g id="node-diagnosis" data-node-id="diagnosis" data-node-label="证据影子诊断" tabindex="0" role="button" aria-label="聚焦证据影子诊断，原分数复放与分类, 反馈与人工复核" aria-pressed="false" data-node-kind="backend" data-node-sublabel="原分数复放与分类" data-node-context="反馈与人工复核">
-          <title>证据影子诊断 · 原分数复放与分类 · 反馈与人工复核</title>
+        <g id="node-diagnosis" data-node-id="diagnosis" data-node-label="证据影子诊断" tabindex="0" role="button" aria-label="聚焦证据影子诊断，核验不改原评分, 反馈与人工复核" aria-pressed="false" data-node-kind="backend" data-node-sublabel="核验不改原评分" data-node-context="反馈与人工复核">
+          <title>证据影子诊断 · 核验不改原评分 · 反馈与人工复核</title>
           <rect x="584.4" y="341" width="92" height="52" rx="6" class="c-mask"/>
           <rect x="584.4" y="341" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(590.4 347) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="630.4" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">证据影子诊断</text>
-          <text data-detail="context" x="630.4" y="379" class="t-muted" font-size="8" text-anchor="middle">原分数复放与分类</text>
+          <text data-detail="context" x="630.4" y="379" class="t-muted" font-size="8" text-anchor="middle">核验不改原评分</text>
         </g>
 
         <g id="node-manual" data-node-id="manual" data-node-label="开发集选择策略" tabindex="0" role="button" aria-label="聚焦开发集选择策略，实体约束与证据保留, 反馈与人工复核" aria-pressed="false" data-node-kind="security" data-node-sublabel="实体约束与证据保留" data-node-context="反馈与人工复核">
@@ -5277,31 +5291,39 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
 
         <!-- Edge labels -->
-        <g data-detail="context" data-edge-from="contract" data-edge-to="metrics" data-edge-label="有效样本" data-edge-key="0">
+        <g data-detail="context" data-edge-from="audit" data-edge-to="diagnosis" data-edge-label="只读核验" data-edge-key="0">
+          <rect x="226.9" y="223" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="251.1" y="233" class="t-muted" font-size="8" text-anchor="middle">只读核验</text>
+        </g>
+        <g data-detail="context" data-edge-from="contract" data-edge-to="metrics" data-edge-label="有效样本" data-edge-key="1">
           <rect x="464.8" y="146" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="489" y="156" class="t-muted" font-size="8" text-anchor="middle">有效样本</text>
         </g>
-        <g data-detail="context" data-edge-from="diagnosis" data-edge-to="manual" data-edge-label="影子建议" data-edge-key="1">
+        <g data-detail="context" data-edge-from="diagnosis" data-edge-to="manual" data-edge-label="影子建议" data-edge-key="2">
           <rect x="680.3999999999999" y="347" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="704.5999999999999" y="357" class="t-database" font-size="8" text-anchor="middle">影子建议</text>
         </g>
-        <g data-detail="context" data-edge-from="live" data-edge-to="contract" data-edge-label="有序证据" data-edge-key="2">
+        <g data-detail="context" data-edge-from="live" data-edge-to="contract" data-edge-label="有序证据" data-edge-key="3">
           <rect x="359.6" y="99" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="383.8" y="109" class="t-muted" font-size="8" text-anchor="middle">有序证据</text>
         </g>
-        <g data-detail="context" data-edge-from="manual" data-edge-to="holdout" data-edge-label="固定候选策略" data-edge-key="3">
+        <g data-detail="context" data-edge-from="manual" data-edge-to="holdout" data-edge-label="固定候选策略" data-edge-key="4">
           <rect x="828.8" y="347" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="862.5999999999999" y="357" class="t-muted" font-size="8" text-anchor="middle">固定候选策略</text>
         </g>
-        <g data-detail="context" data-edge-from="metrics" data-edge-to="stability" data-edge-label="四项分数" data-edge-key="4">
+        <g data-detail="context" data-edge-from="metrics" data-edge-to="stability" data-edge-label="四项分数" data-edge-key="5">
           <rect x="508.00000000000006" y="223" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="532.2" y="233" class="t-muted" font-size="8" text-anchor="middle">四项分数</text>
         </g>
-        <g data-detail="context" data-edge-from="questions" data-edge-to="live" data-edge-label="固定只读问题" data-edge-key="5">
+        <g data-detail="context" data-edge-from="questions" data-edge-to="audit" data-edge-label="冻结断言" data-edge-key="6">
+          <rect x="38.8" y="146" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="63" y="156" class="t-muted" font-size="8" text-anchor="middle">冻结断言</text>
+        </g>
+        <g data-detail="context" data-edge-from="questions" data-edge-to="live" data-edge-label="固定只读问题" data-edge-key="7">
           <rect x="144" y="99" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="177.8" y="109" class="t-muted" font-size="8" text-anchor="middle">固定只读问题</text>
         </g>
-        <g data-detail="context" data-edge-from="stability" data-edge-to="diagnosis" data-edge-label="重复观测" data-edge-key="6">
+        <g data-detail="context" data-edge-from="stability" data-edge-to="diagnosis" data-edge-label="重复观测" data-edge-key="8">
           <rect x="649.1999999999999" y="270" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="673.4" y="280" class="t-muted" font-size="8" text-anchor="middle">重复观测</text>
         </g>
@@ -5526,10 +5548,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="card">
         <div class="card-header">
           <div class="card-dot amber"></div>
-          <h3>证据与波动</h3>
+          <h3>独立对照</h3>
         </div>
         <ul>
-          <li>&bull; 保留原问题与子问题证据席位</li>
+          <li>&bull; 冻结事实金标与故意答错样本</li>
           <li>&bull; 未知与合计不凭低分补造证据</li>
         </ul>
       </div>

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "synthetic_only": true,
+  "policy": "independent_frozen_catalog_assertions",
+  "grammar": "catalog-renderer-v1",
+  "products": {
+    "AIRPODS-PRO": {"name": "AirPods Pro（第二代）", "price": "1999.00", "weight_known": false},
+    "MACBOOK-AIR-M3": {"name": "MacBook Air M3", "price": "8999.00", "weight_known": false}
+  },
+  "cases": [
+    {"id": "price-single", "question": "AirPods Pro多少钱？", "total": false, "slots": [{"product_code": "AIRPODS-PRO", "field": "PRICE", "quantity": 1}]},
+    {"id": "price-multiple", "question": "AirPods Pro和MacBook Air M3分别多少钱？", "total": false, "slots": [{"product_code": "AIRPODS-PRO", "field": "PRICE", "quantity": 1}, {"product_code": "MACBOOK-AIR-M3", "field": "PRICE", "quantity": 1}]},
+    {"id": "quantity-total", "question": "AirPods Pro 2件和MacBook Air M3 1台合计多少钱？", "total": true, "slots": [{"product_code": "AIRPODS-PRO", "field": "PRICE", "quantity": 2}, {"product_code": "MACBOOK-AIR-M3", "field": "PRICE", "quantity": 1}]},
+    {"id": "different-fields", "question": "想了解AirPods Pro重量和MacBook Air M3价格？", "total": false, "slots": [{"product_code": "AIRPODS-PRO", "field": "WEIGHT", "quantity": 1}, {"product_code": "MACBOOK-AIR-M3", "field": "PRICE", "quantity": 1}]},
+    {"id": "weight-single", "question": "AirPods Pro重量是多少？", "total": false, "slots": [{"product_code": "AIRPODS-PRO", "field": "WEIGHT", "quantity": 1}]},
+    {"id": "reverse-price", "question": "MacBook Air M3和AirPods Pro分别多少钱？", "total": false, "slots": [{"product_code": "MACBOOK-AIR-M3", "field": "PRICE", "quantity": 1}, {"product_code": "AIRPODS-PRO", "field": "PRICE", "quantity": 1}]},
+    {"id": "quantity-single", "question": "AirPods Pro 3件合计多少钱？", "total": true, "slots": [{"product_code": "AIRPODS-PRO", "field": "PRICE", "quantity": 3}]},
+    {"id": "quantity-mixed-total", "question": "MacBook Air M3 2台和AirPods Pro 1件合计多少钱？", "total": true, "slots": [{"product_code": "MACBOOK-AIR-M3", "field": "PRICE", "quantity": 2}, {"product_code": "AIRPODS-PRO", "field": "PRICE", "quantity": 1}]}
+  ]
+}
