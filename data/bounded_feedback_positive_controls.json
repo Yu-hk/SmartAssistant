@@ -1,0 +1,20 @@
+{
+  "synthetic_only": true,
+  "reference_policy": "curated_frozen_before_collection",
+  "documents": [
+    {"id":"CTRL-SELLABLE","knowledge_base":"product_knowledge","title":"试验仓可售规则","content":"可售量等于实物数量扣除锁定量、质检量和退货待验量。","category":"试验仓","keywords":"可售 实物","visibility":"public"},
+    {"id":"CTRL-LOCKED","knowledge_base":"product_knowledge","title":"试验仓锁定规则","content":"锁定量是为待付款订单预留的数量，不得重复出售。","category":"试验仓","keywords":"锁定 预留","visibility":"public"},
+    {"id":"CTRL-INSPECTION","knowledge_base":"product_knowledge","title":"试验仓质检规则","content":"质检量在验收通过前不进入可售量。","category":"试验仓","keywords":"质检 验收","visibility":"public"},
+    {"id":"CTRL-PRESALE","knowledge_base":"product_knowledge","title":"试验仓预售规则","content":"预售量只代表未来供应承诺，不能记入现货可售量。","category":"试验仓","keywords":"预售 现货","visibility":"public"},
+    {"id":"CTRL-RETURN","knowledge_base":"product_knowledge","title":"试验仓退货规则","content":"退货量须在检验合格并完成入库后才能恢复为可售量。","category":"试验仓","keywords":"退货 检验","visibility":"public"},
+    {"id":"CTRL-TRANSIT","knowledge_base":"product_knowledge","title":"试验仓在途规则","content":"在途量未完成签收验收，不属于本仓可售量。","category":"试验仓","keywords":"在途 签收","visibility":"public"},
+    {"id":"CTRL-PRIVATE","knowledge_base":"product_knowledge","title":"试验仓内部处理","content":"内部权限专用文档，不得对公开查询返回。","category":"试验仓","keywords":"内部","visibility":"role"},
+    {"id":"CTRL-ORDER","knowledge_base":"order_knowledge","title":"试验订单规则","content":"这是订单知识域，不应出现在商品知识域检索结果中。","category":"试验订单","keywords":"试验订单","visibility":"public"}
+  ],
+  "queries": [
+    {"id":"six-inventory-facts","question":"请根据知识库说明试验仓可售、锁定、质检、预售、退货、在途分别是什么规则？"},
+    {"id":"six-inventory-reversed","question":"试验仓在途、退货、预售、质检、锁定、可售量的规则如何？"}
+  ],
+  "reference_ids":["CTRL-SELLABLE","CTRL-LOCKED","CTRL-INSPECTION","CTRL-PRESALE","CTRL-RETURN","CTRL-TRANSIT"],
+  "reference":"可售量等于实物数量扣除锁定量、质检量和退货待验量。锁定量是为待付款订单预留的数量，不得重复出售。质检量在验收通过前不进入可售量。预售量只代表未来供应承诺，不能记入现货可售量。退货量须在检验合格并完成入库后才能恢复为可售量。在途量未完成签收验收，不属于本仓可售量。"
+}

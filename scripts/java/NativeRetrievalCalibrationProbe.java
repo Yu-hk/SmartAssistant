@@ -172,9 +172,10 @@ public class NativeRetrievalCalibrationProbe {
         if(bytes.length>524288) throw new IllegalArgumentException("Bounded synthetic input");
         var input=mapper.readTree(bytes); var queries=input.path("queries"); var docs=input.path("documents");
         String profile=input.path("profile").asText("native-v1");
-        if(!Set.of("native-v1","anchored-coverage-v1").contains(profile)) throw new IllegalArgumentException("Frozen profile required");
+        if(!Set.of("native-v1","anchored-coverage-v1","bounded-feedback-v1").contains(profile)) throw new IllegalArgumentException("Frozen profile required");
         var strategies=new ArrayList<String>(STRATEGIES);
         if(profile.equals("anchored-coverage-v1")) strategies.add(COVERAGE);
+        if(profile.equals("bounded-feedback-v1")) strategies=new ArrayList<>(List.of("hybrid-semantic", "hybrid-bounded-feedback"));
         if(!queries.isArray() || queries.size()<2 || queries.size()>64 || !docs.isArray() || docs.size()<2 || docs.size()>128)
             throw new IllegalArgumentException("Bounded corpus/query count");
         String endpoint=System.getenv("RAG_EVAL_EMBEDDING_URL");
@@ -221,16 +222,19 @@ public class NativeRetrievalCalibrationProbe {
                         new RrfFusionHandler(),new DedupHandler(true,DedupHandler.DedupMode.AGGRESSIVE,.85),
                         new RerankHandler(new EmbeddingScorer(model::embedding),true,3,null,strategy.equals("hybrid-blend035")?.35:0),capture));
                 var settings=new NativeRagProperties(); settings.setEnabled(false); settings.setMaxAttempts(1);
+                settings.setAutomaticRetryEnabled(strategy.equals("hybrid-bounded-feedback"));
                 var service=new ProductRagService(pipeline,scope,beans.getBeanProvider(SupplementalQueryPlanner.class),settings);
                 var result=service.retrieveWithQualityResult(question,"synthetic-native-calibration");
+                service.closeFeedback();
                 var ctx=capture.context;
-                if(ctx==null || ctx.isDegraded() || model.failed || kb.calls-before!=1)
+                if(ctx==null || ctx.isDegraded() || model.failed || kb.calls-before<1 || kb.calls-before>2)
                     throw new IllegalStateException("Invalid degraded or repeated attempt");
                 List<String> leaves=kb.last.stream().map(h->h.getDocument().getId()).toList();
                 List<String> finalIds=cids(result.getContent());
-                if(!leaves.equals(finalIds)) throw new IllegalStateException("Leaf/context mismatch");
+                if(!profile.equals("bounded-feedback-v1") && !leaves.equals(finalIds)) throw new IllegalStateException("Leaf/context mismatch");
                 var rank=new LinkedHashMap<String,Object>(); rank.put("doc_ids",leaves); rank.put("context_doc_ids",finalIds);
-                rank.put("fragments",ctx.getFusedResults().size()); rank.put("kb_service_calls",1);
+                rank.put("fragments",ctx.getFusedResults().size()); rank.put("kb_service_calls",kb.calls-before);
+                if(profile.equals("bounded-feedback-v1")) { rank.put("feedback", result.getDiagnostics().get("feedback")); rank.put("context",result.getContent()); }
                 rank.put("native_query_count",kb.nativeRankings.size()); rank.put("native_rankings",List.copyOf(kb.nativeRankings));
                 rank.put("facet_count",kb.lastFacets.size()); rank.put("facet_sha256",kb.lastFacets.stream().map(RagSearchContext::evidenceId).toList());
                 rank.put("selected_domains",ctx.getAttribute("rag.knowledgeBases")); rank.put("scope_reason",ctx.getAttribute("rag.scopeReason"));
