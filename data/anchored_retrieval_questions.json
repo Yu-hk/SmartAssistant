@@ -1,0 +1,1331 @@
+{
+  "schema_version": 1,
+  "profile": "anchored-coverage-v1",
+  "synthetic_only": true,
+  "reference_policy": "curated_frozen_before_collection",
+  "corpus": "synthetic_anchored_manuals_v1",
+  "leaf_top_k": 5,
+  "strategies": [
+    "hybrid-semantic",
+    "dense-semantic",
+    "hybrid-blend035",
+    "hybrid-facet-rrf",
+    "hybrid-anchored-coverage"
+  ],
+  "documents": [
+    {
+      "id": "DEV-CAPSULE-A",
+      "family": "dev-capsule",
+      "knowledge_base": "product_knowledge",
+      "title": "霁光胶囊相机防潮收纳",
+      "content": "潮湿天气结束拍摄后，将机身放入带干燥包的收纳盒，镜头盖保持打开十分钟。",
+      "category": "霁光胶囊相机",
+      "keywords": "防潮收纳 干燥包",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-CAPSULE-B",
+      "family": "dev-capsule",
+      "knowledge_base": "product_knowledge",
+      "title": "霁光胶囊相机新卡初始化",
+      "content": "新存储卡先备份，再在设备内执行初始化，不能直接拔出正在写入的卡。",
+      "category": "霁光胶囊相机",
+      "keywords": "新卡初始化 存储卡",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-TRACKER-A",
+      "family": "dev-tracker",
+      "knowledge_base": "product_knowledge",
+      "title": "漾步腕带表带清洁",
+      "content": "拆下织物腕带，使用冷水轻柔漂洗并自然晾干，避免烘干机。",
+      "category": "漾步腕带",
+      "keywords": "表带清洁 织物",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-TRACKER-B",
+      "family": "dev-tracker",
+      "knowledge_base": "product_knowledge",
+      "title": "漾步腕带运动定位",
+      "content": "开始户外训练前，在开阔处等待定位图标常亮后再记录轨迹。",
+      "category": "漾步腕带",
+      "keywords": "运动定位 户外",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-LABEL-A",
+      "family": "dev-label",
+      "knowledge_base": "product_knowledge",
+      "title": "墨格标签机耗材保存",
+      "content": "标签卷应放在密封袋内，远离油污及潮湿表面。",
+      "category": "墨格标签机",
+      "keywords": "耗材保存 标签卷",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-LABEL-B",
+      "family": "dev-label",
+      "knowledge_base": "product_knowledge",
+      "title": "墨格标签机走纸校准",
+      "content": "更换标签宽度后执行一次走纸校准，完成后再开始批量打印。",
+      "category": "墨格标签机",
+      "keywords": "走纸校准 标签宽度",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-LANTERN-A",
+      "family": "dev-lantern",
+      "knowledge_base": "product_knowledge",
+      "title": "岚野营灯运输锁",
+      "content": "长途运输前按住锁键三秒，面板出现锁形图标后收纳。",
+      "category": "岚野营灯",
+      "keywords": "运输锁 锁键",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-LANTERN-B",
+      "family": "dev-lantern",
+      "knowledge_base": "product_knowledge",
+      "title": "岚野营灯灯罩清洁",
+      "content": "拆下外层灯罩，用微湿软布擦拭后完全晾干再装回。",
+      "category": "岚野营灯",
+      "keywords": "灯罩清洁 软布",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-AUDIO-A",
+      "family": "dev-audio",
+      "knowledge_base": "product_knowledge",
+      "title": "和声采音器风罩护理",
+      "content": "毛绒防风罩用软刷清理，不能喷洒清洁剂或热风吹干。",
+      "category": "和声采音器",
+      "keywords": "风罩护理 防风罩",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-AUDIO-B",
+      "family": "dev-audio",
+      "knowledge_base": "product_knowledge",
+      "title": "和声采音器录音备份",
+      "content": "录音结束后通过有线接口导出文件，确认校验通过再释放本机空间。",
+      "category": "和声采音器",
+      "keywords": "录音备份 校验",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-READERLIGHT-A",
+      "family": "dev-readerlight",
+      "knowledge_base": "product_knowledge",
+      "title": "晨页阅读灯底座安装",
+      "content": "将夹座固定在平整桌边并旋紧后，才可装上灯臂。",
+      "category": "晨页阅读灯",
+      "keywords": "底座安装 夹座",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-READERLIGHT-B",
+      "family": "dev-readerlight",
+      "knowledge_base": "product_knowledge",
+      "title": "晨页阅读灯亮度记忆",
+      "content": "断电前保持当前亮度五秒，下一次开启会恢复该档位。",
+      "category": "晨页阅读灯",
+      "keywords": "亮度记忆 档位",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-BALANCE-A",
+      "family": "dev-balance",
+      "knowledge_base": "product_knowledge",
+      "title": "衡风便携秤零点恢复",
+      "content": "秤盘空载并保持水平时点击归零，再放入待测物。",
+      "category": "衡风便携秤",
+      "keywords": "零点恢复 归零",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-BALANCE-B",
+      "family": "dev-balance",
+      "knowledge_base": "product_knowledge",
+      "title": "衡风便携秤电池更换",
+      "content": "电池仓使用同批次碱性电池，更换前关闭屏幕电源。",
+      "category": "衡风便携秤",
+      "keywords": "电池更换 电池仓",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-FRAME-A",
+      "family": "dev-frame",
+      "knowledge_base": "product_knowledge",
+      "title": "拾影电子相框照片导入",
+      "content": "先将照片复制到专用导入目录，设备扫描完成后可安全移除介质。",
+      "category": "拾影电子相框",
+      "keywords": "照片导入 介质",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-FRAME-B",
+      "family": "dev-frame",
+      "knowledge_base": "product_knowledge",
+      "title": "拾影电子相框休眠计划",
+      "content": "休眠计划以设备本地时区计算，调整时区后需重新核对开始时间。",
+      "category": "拾影电子相框",
+      "keywords": "休眠计划 时区",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-HUMIDOR-A",
+      "family": "dev-humidor",
+      "knowledge_base": "product_knowledge",
+      "title": "润木储物盒湿度传感",
+      "content": "首次启用后保持盒盖关闭二十分钟，再读取稳定湿度数值。",
+      "category": "润木储物盒",
+      "keywords": "湿度传感 稳定",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-HUMIDOR-B",
+      "family": "dev-humidor",
+      "knowledge_base": "product_knowledge",
+      "title": "润木储物盒密封条维护",
+      "content": "密封条只用清水软布擦净，不得涂油，晾干后再合盖。",
+      "category": "润木储物盒",
+      "keywords": "密封条维护 合盖",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-WHEEL-A",
+      "family": "dev-wheel",
+      "knowledge_base": "product_knowledge",
+      "title": "行迹测距轮折叠收纳",
+      "content": "先按下折叠释放钮再收短杆身，收纳时锁紧关节扣。",
+      "category": "行迹测距轮",
+      "keywords": "折叠收纳 关节扣",
+      "visibility": "public"
+    },
+    {
+      "id": "DEV-WHEEL-B",
+      "family": "dev-wheel",
+      "knowledge_base": "product_knowledge",
+      "title": "行迹测距轮长度校验",
+      "content": "在已知长度的直线段做两次往返校验，误差超标时重新标定。",
+      "category": "行迹测距轮",
+      "keywords": "长度校验 标定",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-COFFEE-A",
+      "family": "hold-coffee",
+      "knowledge_base": "product_knowledge",
+      "title": "云萃咖啡器水箱装配",
+      "content": "水箱插入到底后应听到定位声，注水不超过刻线。",
+      "category": "云萃咖啡器",
+      "keywords": "水箱装配 定位声",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-COFFEE-B",
+      "family": "hold-coffee",
+      "knowledge_base": "product_knowledge",
+      "title": "云萃咖啡器冲煮预热",
+      "content": "冲煮前先运行空载预热循环，预热指示熄灭后加入咖啡。",
+      "category": "云萃咖啡器",
+      "keywords": "冲煮预热 空载",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-DOORBELL-A",
+      "family": "hold-doorbell",
+      "knowledge_base": "product_knowledge",
+      "title": "栖门门铃访客提示",
+      "content": "访客提示可在面板上选择短铃或长铃，保存后进行一次试听。",
+      "category": "栖门门铃",
+      "keywords": "访客提示 短铃",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-DOORBELL-B",
+      "family": "hold-doorbell",
+      "knowledge_base": "product_knowledge",
+      "title": "栖门门铃夜间指示",
+      "content": "夜间指示灯可独立关闭，但不会关闭访客通知。",
+      "category": "栖门门铃",
+      "keywords": "夜间指示 通知",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-SAIL-A",
+      "family": "hold-sail",
+      "knowledge_base": "product_knowledge",
+      "title": "晴幕投影屏幕布展开",
+      "content": "缓慢拉出幕布至停止标线，不得拉过保护线。",
+      "category": "晴幕投影屏",
+      "keywords": "幕布展开 保护线",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-SAIL-B",
+      "family": "hold-sail",
+      "knowledge_base": "product_knowledge",
+      "title": "晴幕投影屏背面清洁",
+      "content": "幕布背面可用柔软干布清理，正面不得使用酒精。",
+      "category": "晴幕投影屏",
+      "keywords": "背面清洁 正面",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-SKATE-A",
+      "family": "hold-skate",
+      "knowledge_base": "product_knowledge",
+      "title": "轻驰滑行板车轮紧固",
+      "content": "紧固轮轴后确认车轮仍能自由转动，不可压紧轴承。",
+      "category": "轻驰滑行板",
+      "keywords": "车轮紧固 轴承",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-SKATE-B",
+      "family": "hold-skate",
+      "knowledge_base": "product_knowledge",
+      "title": "轻驰滑行板控制器配对",
+      "content": "长按配对键至蓝灯闪烁，再在控制器上确认配对。",
+      "category": "轻驰滑行板",
+      "keywords": "控制器配对 蓝灯",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-KETTLE-A",
+      "family": "hold-kettle",
+      "knowledge_base": "product_knowledge",
+      "title": "简煮水壶壶盖闭合",
+      "content": "壶盖的两个定位点对齐后下压，确认盖沿贴合再加热。",
+      "category": "简煮水壶",
+      "keywords": "壶盖闭合 定位点",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-KETTLE-B",
+      "family": "hold-kettle",
+      "knowledge_base": "product_knowledge",
+      "title": "简煮水壶底盘擦拭",
+      "content": "清洁底盘前拔掉电源，用干布擦拭接触区域并保持干燥。",
+      "category": "简煮水壶",
+      "keywords": "底盘擦拭 接触",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-BRUSH-A",
+      "family": "hold-brush",
+      "knowledge_base": "product_knowledge",
+      "title": "清弧电动刷刷头拆装",
+      "content": "刷头沿轴向拔出，不可左右撬动；安装时压至定位槽。",
+      "category": "清弧电动刷",
+      "keywords": "刷头拆装 定位槽",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-BRUSH-B",
+      "family": "hold-brush",
+      "knowledge_base": "product_knowledge",
+      "title": "清弧电动刷旅行收纳",
+      "content": "出行时开启旅行锁，刷头和机身分别放在通风隔层。",
+      "category": "清弧电动刷",
+      "keywords": "旅行收纳 旅行锁",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-SCANNER-A",
+      "family": "hold-scanner",
+      "knowledge_base": "product_knowledge",
+      "title": "页迹扫描台参考条校准",
+      "content": "将参考条平放在扫描区域，执行校准后移除参考条。",
+      "category": "页迹扫描台",
+      "keywords": "参考条校准 扫描区域",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-SCANNER-B",
+      "family": "hold-scanner",
+      "knowledge_base": "product_knowledge",
+      "title": "页迹扫描台文件命名",
+      "content": "批量扫描可设置固定前缀，序号按照扫描顺序增加。",
+      "category": "页迹扫描台",
+      "keywords": "文件命名 固定前缀",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-CUP-A",
+      "family": "hold-cup",
+      "knowledge_base": "product_knowledge",
+      "title": "恒茶保温杯座杯型适配",
+      "content": "仅使用平底杯，杯底必须覆盖感应区，凹底杯不会启动。",
+      "category": "恒茶保温杯座",
+      "keywords": "杯型适配 感应区",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-CUP-B",
+      "family": "hold-cup",
+      "knowledge_base": "product_knowledge",
+      "title": "恒茶保温杯座档位切换",
+      "content": "短按档位键逐档切换，拔掉电源后恢复默认档。",
+      "category": "恒茶保温杯座",
+      "keywords": "档位切换 默认档",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-POT-A",
+      "family": "hold-pot",
+      "knowledge_base": "product_knowledge",
+      "title": "芽序智能花盆储水观察",
+      "content": "储水刻线仅用于观察余量，补水前先检查根区是否干燥。",
+      "category": "芽序智能花盆",
+      "keywords": "储水观察 根区",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-POT-B",
+      "family": "hold-pot",
+      "knowledge_base": "product_knowledge",
+      "title": "芽序智能花盆传感探针",
+      "content": "探针插入种植基质到标线，不能让金属部分悬空。",
+      "category": "芽序智能花盆",
+      "keywords": "传感探针 标线",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-FILTER-A",
+      "family": "hold-filter",
+      "knowledge_base": "product_knowledge",
+      "title": "澄流滤水器滤芯冲洗",
+      "content": "新滤芯装入后完成三次排水循环，再开启日常出水。",
+      "category": "澄流滤水器",
+      "keywords": "滤芯冲洗 排水循环",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-FILTER-B",
+      "family": "hold-filter",
+      "knowledge_base": "product_knowledge",
+      "title": "澄流滤水器寿命复位",
+      "content": "实际更换滤芯后长按复位键五秒，不应在未更换时清零。",
+      "category": "澄流滤水器",
+      "keywords": "寿命复位 更换滤芯",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-SEALER-A",
+      "family": "hold-sealer",
+      "knowledge_base": "product_knowledge",
+      "title": "封存热封台压条检查",
+      "content": "开机前检查压条表面完整且无异物，损伤时不得继续封装。",
+      "category": "封存热封台",
+      "keywords": "压条检查 异物",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-SEALER-B",
+      "family": "hold-sealer",
+      "knowledge_base": "product_knowledge",
+      "title": "封存热封台冷却取袋",
+      "content": "封口完成后等待冷却提示消失，再松开压臂取袋。",
+      "category": "封存热封台",
+      "keywords": "冷却取袋 压臂",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-DIFFUSER-A",
+      "family": "hold-diffuser",
+      "knowledge_base": "product_knowledge",
+      "title": "木息香氛器水位限制",
+      "content": "加水不能超过内胆标记，放置时保持机身水平。",
+      "category": "木息香氛器",
+      "keywords": "水位限制 内胆",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-DIFFUSER-B",
+      "family": "hold-diffuser",
+      "knowledge_base": "product_knowledge",
+      "title": "木息香氛器振片维护",
+      "content": "断电排空后用湿棉签轻擦振片，不可使用金属器具刮擦。",
+      "category": "木息香氛器",
+      "keywords": "振片维护 棉签",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-CLOCK-A",
+      "family": "hold-clock",
+      "knowledge_base": "product_knowledge",
+      "title": "点刻翻页钟机械翻页",
+      "content": "调整时间时仅向规定方向推进翻页拨盘，避免倒转。",
+      "category": "点刻翻页钟",
+      "keywords": "机械翻页 拨盘",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-CLOCK-B",
+      "family": "hold-clock",
+      "knowledge_base": "product_knowledge",
+      "title": "点刻翻页钟支架平衡",
+      "content": "支架两端必须落在同一平面，若晃动先调整支脚再摆放。",
+      "category": "点刻翻页钟",
+      "keywords": "支架平衡 支脚",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-FAN-A",
+      "family": "hold-fan",
+      "knowledge_base": "product_knowledge",
+      "title": "素风循环扇网罩解锁",
+      "content": "停机断电后旋开网罩锁扣，拆卸叶片前确认停止转动。",
+      "category": "素风循环扇",
+      "keywords": "网罩解锁 锁扣",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-FAN-B",
+      "family": "hold-fan",
+      "knowledge_base": "product_knowledge",
+      "title": "素风循环扇摆头归位",
+      "content": "摆头功能关闭后等待回中指示，不能手动扭转摆头机构。",
+      "category": "素风循环扇",
+      "keywords": "摆头归位 回中",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-TRACKER-A",
+      "family": "hold-tracker",
+      "knowledge_base": "product_knowledge",
+      "title": "寻物定位牌蜂鸣触发",
+      "content": "定位牌与终端保持连接时可触发蜂鸣，离线时只显示最后位置。",
+      "category": "寻物定位牌",
+      "keywords": "蜂鸣触发 离线",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-TRACKER-B",
+      "family": "hold-tracker",
+      "knowledge_base": "product_knowledge",
+      "title": "寻物定位牌绑定迁移",
+      "content": "迁移到新终端前先解除旧绑定，再扫描配对码重新登记。",
+      "category": "寻物定位牌",
+      "keywords": "绑定迁移 配对码",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-REEL-A",
+      "family": "hold-reel",
+      "knowledge_base": "product_knowledge",
+      "title": "卷途电缆盘卷绕整理",
+      "content": "线缆卷回时保持松弛并均匀铺排，不可用力拉扯出口。",
+      "category": "卷途电缆盘",
+      "keywords": "卷绕整理 出口",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-REEL-B",
+      "family": "hold-reel",
+      "knowledge_base": "product_knowledge",
+      "title": "卷途电缆盘出线限位",
+      "content": "出口限位标记出现后停止放线，保留盘内安全余量。",
+      "category": "卷途电缆盘",
+      "keywords": "出线限位 余量",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-MAGNIFIER-A",
+      "family": "hold-magnifier",
+      "knowledge_base": "product_knowledge",
+      "title": "细观放大台焦距调节",
+      "content": "先固定观察物再调节焦距，清晰后锁定升降旋钮。",
+      "category": "细观放大台",
+      "keywords": "焦距调节 升降",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-MAGNIFIER-B",
+      "family": "hold-magnifier",
+      "knowledge_base": "product_knowledge",
+      "title": "细观放大台透镜保存",
+      "content": "不用时盖上防尘罩，透镜只用专用纸轻擦。",
+      "category": "细观放大台",
+      "keywords": "透镜保存 防尘",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-CUTTER-A",
+      "family": "hold-cutter",
+      "knowledge_base": "product_knowledge",
+      "title": "裁点切纸台定位挡板",
+      "content": "推紧定位挡板并锁定后再放下切刀，手指不得进入刀槽。",
+      "category": "裁点切纸台",
+      "keywords": "定位挡板 刀槽",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-CUTTER-B",
+      "family": "hold-cutter",
+      "knowledge_base": "product_knowledge",
+      "title": "裁点切纸台刀片更换",
+      "content": "更换刀片前锁住刀臂，并使用工具拆卸固定螺钉。",
+      "category": "裁点切纸台",
+      "keywords": "刀片更换 刀臂",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-GAUGE-A",
+      "family": "hold-gauge",
+      "knowledge_base": "product_knowledge",
+      "title": "声度记录仪采样间隔",
+      "content": "记录间隔可选择一秒或五秒，切换间隔会开启新的记录段。",
+      "category": "声度记录仪",
+      "keywords": "采样间隔 记录段",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-GAUGE-B",
+      "family": "hold-gauge",
+      "knowledge_base": "product_knowledge",
+      "title": "声度记录仪数据导出",
+      "content": "导出采用只读模式，确认文件数量一致后再清空本机记录。",
+      "category": "声度记录仪",
+      "keywords": "数据导出 只读",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-TURNTABLE-A",
+      "family": "hold-turntable",
+      "knowledge_base": "product_knowledge",
+      "title": "旋景展示台转盘承载",
+      "content": "展示物应放在转盘中心，偏心摆放时先调整重心。",
+      "category": "旋景展示台",
+      "keywords": "转盘承载 重心",
+      "visibility": "public"
+    },
+    {
+      "id": "HOLD-TURNTABLE-B",
+      "family": "hold-turntable",
+      "knowledge_base": "product_knowledge",
+      "title": "旋景展示台方向反转",
+      "content": "反转前先停止转动，待转盘静止后再按方向键。",
+      "category": "旋景展示台",
+      "keywords": "方向反转 静止",
+      "visibility": "public"
+    },
+    {
+      "id": "BOUND-DENY-TENANT",
+      "family": "guard-tenant",
+      "knowledge_base": "product_knowledge",
+      "title": "合成受限tenant规则",
+      "content": "这是受限测试文档，含验证口令标记，仅用于检查权限，不允许公开检索。",
+      "category": "受限设备tenant",
+      "keywords": "受限规则 验证口令",
+      "visibility": "tenant"
+    },
+    {
+      "id": "BOUND-DENY-ROLE",
+      "family": "guard-role",
+      "knowledge_base": "product_knowledge",
+      "title": "合成受限role规则",
+      "content": "这是受限测试文档，含验证口令标记，仅用于检查权限，不允许公开检索。",
+      "category": "受限设备role",
+      "keywords": "受限规则 验证口令",
+      "visibility": "role"
+    },
+    {
+      "id": "BOUND-DENY-USER",
+      "family": "guard-user",
+      "knowledge_base": "product_knowledge",
+      "title": "合成受限user规则",
+      "content": "这是受限测试文档，含验证口令标记，仅用于检查权限，不允许公开检索。",
+      "category": "受限设备user",
+      "keywords": "受限规则 验证口令",
+      "visibility": "user"
+    },
+    {
+      "id": "BOUND-DENY-CLEARANCE",
+      "family": "guard-clearance",
+      "knowledge_base": "product_knowledge",
+      "title": "合成受限clearance规则",
+      "content": "这是受限测试文档，含验证口令标记，仅用于检查权限，不允许公开检索。",
+      "category": "受限设备clearance",
+      "keywords": "受限规则 验证口令",
+      "visibility": "clearance"
+    },
+    {
+      "id": "OTHER-DOMAIN",
+      "family": "order-decoy",
+      "knowledge_base": "order_knowledge",
+      "title": "云萃咖啡器退款政策",
+      "content": "仅用于其他知识域诱饵，不是商品说明书证据。",
+      "category": "云萃咖啡器",
+      "keywords": "水箱装配 预热",
+      "visibility": "public"
+    }
+  ],
+  "cases": [
+    {
+      "id": "dev-capsule-named",
+      "split": "development",
+      "family": "dev-capsule",
+      "kind": "named",
+      "question": "霁光胶囊相机的在潮湿天气拍摄后如何收纳？",
+      "expected_doc_ids": [
+        "DEV-CAPSULE-A"
+      ]
+    },
+    {
+      "id": "dev-capsule-compound",
+      "split": "development",
+      "family": "dev-capsule",
+      "kind": "multi_fact",
+      "question": "霁光胶囊相机的在潮湿天气拍摄后如何收纳；新存储卡投入使用前应做什么？",
+      "expected_doc_ids": [
+        "DEV-CAPSULE-A",
+        "DEV-CAPSULE-B"
+      ]
+    },
+    {
+      "id": "dev-tracker-named",
+      "split": "development",
+      "family": "dev-tracker",
+      "kind": "named",
+      "question": "漾步腕带的织物表带沾汗后怎么处理？",
+      "expected_doc_ids": [
+        "DEV-TRACKER-A"
+      ]
+    },
+    {
+      "id": "dev-tracker-compound",
+      "split": "development",
+      "family": "dev-tracker",
+      "kind": "multi_fact",
+      "question": "漾步腕带的织物表带沾汗后怎么处理；户外训练前怎样确定定位完成？",
+      "expected_doc_ids": [
+        "DEV-TRACKER-A",
+        "DEV-TRACKER-B"
+      ]
+    },
+    {
+      "id": "dev-label-named",
+      "split": "development",
+      "family": "dev-label",
+      "kind": "named",
+      "question": "墨格标签机的未用完的标签卷怎么保存？",
+      "expected_doc_ids": [
+        "DEV-LABEL-A"
+      ]
+    },
+    {
+      "id": "dev-label-compound",
+      "split": "development",
+      "family": "dev-label",
+      "kind": "multi_fact",
+      "question": "墨格标签机的未用完的标签卷怎么保存；换了标签宽度后还需要做什么？",
+      "expected_doc_ids": [
+        "DEV-LABEL-A",
+        "DEV-LABEL-B"
+      ]
+    },
+    {
+      "id": "dev-lantern-named",
+      "split": "development",
+      "family": "dev-lantern",
+      "kind": "named",
+      "question": "岚野营灯的长途携带前如何锁住控制面板？",
+      "expected_doc_ids": [
+        "DEV-LANTERN-A"
+      ]
+    },
+    {
+      "id": "dev-lantern-compound",
+      "split": "development",
+      "family": "dev-lantern",
+      "kind": "multi_fact",
+      "question": "岚野营灯的长途携带前如何锁住控制面板；外层灯罩脏了怎么处理？",
+      "expected_doc_ids": [
+        "DEV-LANTERN-A",
+        "DEV-LANTERN-B"
+      ]
+    },
+    {
+      "id": "dev-audio-named",
+      "split": "development",
+      "family": "dev-audio",
+      "kind": "named",
+      "question": "和声采音器的毛绒防风罩如何清理？",
+      "expected_doc_ids": [
+        "DEV-AUDIO-A"
+      ]
+    },
+    {
+      "id": "dev-audio-compound",
+      "split": "development",
+      "family": "dev-audio",
+      "kind": "multi_fact",
+      "question": "和声采音器的毛绒防风罩如何清理；怎样安全导出录音并释放空间？",
+      "expected_doc_ids": [
+        "DEV-AUDIO-A",
+        "DEV-AUDIO-B"
+      ]
+    },
+    {
+      "id": "dev-readerlight-named",
+      "split": "development",
+      "family": "dev-readerlight",
+      "kind": "named",
+      "question": "晨页阅读灯的灯臂安装前夹座要怎么固定？",
+      "expected_doc_ids": [
+        "DEV-READERLIGHT-A"
+      ]
+    },
+    {
+      "id": "dev-readerlight-compound",
+      "split": "development",
+      "family": "dev-readerlight",
+      "kind": "multi_fact",
+      "question": "晨页阅读灯的灯臂安装前夹座要怎么固定；下次开启时如何保留亮度档位？",
+      "expected_doc_ids": [
+        "DEV-READERLIGHT-A",
+        "DEV-READERLIGHT-B"
+      ]
+    },
+    {
+      "id": "dev-balance-named",
+      "split": "development",
+      "family": "dev-balance",
+      "kind": "named",
+      "question": "衡风便携秤的空秤显示不为零应怎样处理？",
+      "expected_doc_ids": [
+        "DEV-BALANCE-A"
+      ]
+    },
+    {
+      "id": "dev-balance-compound",
+      "split": "development",
+      "family": "dev-balance",
+      "kind": "multi_fact",
+      "question": "衡风便携秤的空秤显示不为零应怎样处理；换电池有哪些步骤？",
+      "expected_doc_ids": [
+        "DEV-BALANCE-A",
+        "DEV-BALANCE-B"
+      ]
+    },
+    {
+      "id": "dev-frame-named",
+      "split": "development",
+      "family": "dev-frame",
+      "kind": "named",
+      "question": "拾影电子相框的如何从移动介质导入照片？",
+      "expected_doc_ids": [
+        "DEV-FRAME-A"
+      ]
+    },
+    {
+      "id": "dev-frame-compound",
+      "split": "development",
+      "family": "dev-frame",
+      "kind": "multi_fact",
+      "question": "拾影电子相框的如何从移动介质导入照片；换时区后休眠时间怎样核实？",
+      "expected_doc_ids": [
+        "DEV-FRAME-A",
+        "DEV-FRAME-B"
+      ]
+    },
+    {
+      "id": "dev-humidor-named",
+      "split": "development",
+      "family": "dev-humidor",
+      "kind": "named",
+      "question": "润木储物盒的第一次启用怎样得到稳定湿度？",
+      "expected_doc_ids": [
+        "DEV-HUMIDOR-A"
+      ]
+    },
+    {
+      "id": "dev-humidor-compound",
+      "split": "development",
+      "family": "dev-humidor",
+      "kind": "multi_fact",
+      "question": "润木储物盒的第一次启用怎样得到稳定湿度；密封条如何保养？",
+      "expected_doc_ids": [
+        "DEV-HUMIDOR-A",
+        "DEV-HUMIDOR-B"
+      ]
+    },
+    {
+      "id": "dev-wheel-named",
+      "split": "development",
+      "family": "dev-wheel",
+      "kind": "named",
+      "question": "行迹测距轮的杆身怎么折叠并锁紧？",
+      "expected_doc_ids": [
+        "DEV-WHEEL-A"
+      ]
+    },
+    {
+      "id": "dev-wheel-compound",
+      "split": "development",
+      "family": "dev-wheel",
+      "kind": "multi_fact",
+      "question": "行迹测距轮的杆身怎么折叠并锁紧；怎样检查测距长度是否准确？",
+      "expected_doc_ids": [
+        "DEV-WHEEL-A",
+        "DEV-WHEEL-B"
+      ]
+    },
+    {
+      "id": "hold-coffee-named",
+      "split": "holdout",
+      "family": "hold-coffee",
+      "kind": "named",
+      "question": "云萃咖啡器的水箱装回时怎样确定到位？",
+      "expected_doc_ids": [
+        "HOLD-COFFEE-A"
+      ]
+    },
+    {
+      "id": "hold-coffee-compound",
+      "split": "holdout",
+      "family": "hold-coffee",
+      "kind": "multi_fact",
+      "question": "云萃咖啡器的水箱装回时怎样确定到位；开始冲煮前怎样进行预热？",
+      "expected_doc_ids": [
+        "HOLD-COFFEE-A",
+        "HOLD-COFFEE-B"
+      ]
+    },
+    {
+      "id": "hold-doorbell-named",
+      "split": "holdout",
+      "family": "hold-doorbell",
+      "kind": "named",
+      "question": "栖门门铃的怎样更改访客铃声？",
+      "expected_doc_ids": [
+        "HOLD-DOORBELL-A"
+      ]
+    },
+    {
+      "id": "hold-doorbell-compound",
+      "split": "holdout",
+      "family": "hold-doorbell",
+      "kind": "multi_fact",
+      "question": "栖门门铃的怎样更改访客铃声；关闭夜间灯会影响访客通知吗？",
+      "expected_doc_ids": [
+        "HOLD-DOORBELL-A",
+        "HOLD-DOORBELL-B"
+      ]
+    },
+    {
+      "id": "hold-sail-named",
+      "split": "holdout",
+      "family": "hold-sail",
+      "kind": "named",
+      "question": "晴幕投影屏的幕布应拉到什么位置？",
+      "expected_doc_ids": [
+        "HOLD-SAIL-A"
+      ]
+    },
+    {
+      "id": "hold-sail-compound",
+      "split": "holdout",
+      "family": "hold-sail",
+      "kind": "multi_fact",
+      "question": "晴幕投影屏的幕布应拉到什么位置；清洁时正反面有哪些区别？",
+      "expected_doc_ids": [
+        "HOLD-SAIL-A",
+        "HOLD-SAIL-B"
+      ]
+    },
+    {
+      "id": "hold-skate-named",
+      "split": "holdout",
+      "family": "hold-skate",
+      "kind": "named",
+      "question": "轻驰滑行板的紧固轮轴后要检查什么？",
+      "expected_doc_ids": [
+        "HOLD-SKATE-A"
+      ]
+    },
+    {
+      "id": "hold-skate-compound",
+      "split": "holdout",
+      "family": "hold-skate",
+      "kind": "multi_fact",
+      "question": "轻驰滑行板的紧固轮轴后要检查什么；控制器如何完成配对？",
+      "expected_doc_ids": [
+        "HOLD-SKATE-A",
+        "HOLD-SKATE-B"
+      ]
+    },
+    {
+      "id": "hold-kettle-named",
+      "split": "holdout",
+      "family": "hold-kettle",
+      "kind": "named",
+      "question": "简煮水壶的加热前壶盖要怎样盖好？",
+      "expected_doc_ids": [
+        "HOLD-KETTLE-A"
+      ]
+    },
+    {
+      "id": "hold-kettle-compound",
+      "split": "holdout",
+      "family": "hold-kettle",
+      "kind": "multi_fact",
+      "question": "简煮水壶的加热前壶盖要怎样盖好；底盘接触区域怎么清洁？",
+      "expected_doc_ids": [
+        "HOLD-KETTLE-A",
+        "HOLD-KETTLE-B"
+      ]
+    },
+    {
+      "id": "hold-brush-named",
+      "split": "holdout",
+      "family": "hold-brush",
+      "kind": "named",
+      "question": "清弧电动刷的刷头应该怎样拆装？",
+      "expected_doc_ids": [
+        "HOLD-BRUSH-A"
+      ]
+    },
+    {
+      "id": "hold-brush-compound",
+      "split": "holdout",
+      "family": "hold-brush",
+      "kind": "multi_fact",
+      "question": "清弧电动刷的刷头应该怎样拆装；携带出行时怎么收纳？",
+      "expected_doc_ids": [
+        "HOLD-BRUSH-A",
+        "HOLD-BRUSH-B"
+      ]
+    },
+    {
+      "id": "hold-scanner-named",
+      "split": "holdout",
+      "family": "hold-scanner",
+      "kind": "named",
+      "question": "页迹扫描台的参考条如何用于校准？",
+      "expected_doc_ids": [
+        "HOLD-SCANNER-A"
+      ]
+    },
+    {
+      "id": "hold-scanner-compound",
+      "split": "holdout",
+      "family": "hold-scanner",
+      "kind": "multi_fact",
+      "question": "页迹扫描台的参考条如何用于校准；批量扫描文件名如何编号？",
+      "expected_doc_ids": [
+        "HOLD-SCANNER-A",
+        "HOLD-SCANNER-B"
+      ]
+    },
+    {
+      "id": "hold-cup-named",
+      "split": "holdout",
+      "family": "hold-cup",
+      "kind": "named",
+      "question": "恒茶保温杯座的什么杯底形状可以启动？",
+      "expected_doc_ids": [
+        "HOLD-CUP-A"
+      ]
+    },
+    {
+      "id": "hold-cup-compound",
+      "split": "holdout",
+      "family": "hold-cup",
+      "kind": "multi_fact",
+      "question": "恒茶保温杯座的什么杯底形状可以启动；断电以后会记住档位吗？",
+      "expected_doc_ids": [
+        "HOLD-CUP-A",
+        "HOLD-CUP-B"
+      ]
+    },
+    {
+      "id": "hold-pot-named",
+      "split": "holdout",
+      "family": "hold-pot",
+      "kind": "named",
+      "question": "芽序智能花盆的补水前除了余量还要检查什么？",
+      "expected_doc_ids": [
+        "HOLD-POT-A"
+      ]
+    },
+    {
+      "id": "hold-pot-compound",
+      "split": "holdout",
+      "family": "hold-pot",
+      "kind": "multi_fact",
+      "question": "芽序智能花盆的补水前除了余量还要检查什么；传感探针应该插到什么位置？",
+      "expected_doc_ids": [
+        "HOLD-POT-A",
+        "HOLD-POT-B"
+      ]
+    },
+    {
+      "id": "hold-filter-named",
+      "split": "holdout",
+      "family": "hold-filter",
+      "kind": "named",
+      "question": "澄流滤水器的新滤芯首次使用需要哪些步骤？",
+      "expected_doc_ids": [
+        "HOLD-FILTER-A"
+      ]
+    },
+    {
+      "id": "hold-filter-compound",
+      "split": "holdout",
+      "family": "hold-filter",
+      "kind": "multi_fact",
+      "question": "澄流滤水器的新滤芯首次使用需要哪些步骤；寿命计数什么时候可以复位？",
+      "expected_doc_ids": [
+        "HOLD-FILTER-A",
+        "HOLD-FILTER-B"
+      ]
+    },
+    {
+      "id": "hold-sealer-named",
+      "split": "holdout",
+      "family": "hold-sealer",
+      "kind": "named",
+      "question": "封存热封台的开始封装前要检查压条什么？",
+      "expected_doc_ids": [
+        "HOLD-SEALER-A"
+      ]
+    },
+    {
+      "id": "hold-sealer-compound",
+      "split": "holdout",
+      "family": "hold-sealer",
+      "kind": "multi_fact",
+      "question": "封存热封台的开始封装前要检查压条什么；封口完成后何时可以取袋？",
+      "expected_doc_ids": [
+        "HOLD-SEALER-A",
+        "HOLD-SEALER-B"
+      ]
+    },
+    {
+      "id": "hold-diffuser-named",
+      "split": "holdout",
+      "family": "hold-diffuser",
+      "kind": "named",
+      "question": "木息香氛器的水应该加到什么位置？",
+      "expected_doc_ids": [
+        "HOLD-DIFFUSER-A"
+      ]
+    },
+    {
+      "id": "hold-diffuser-compound",
+      "split": "holdout",
+      "family": "hold-diffuser",
+      "kind": "multi_fact",
+      "question": "木息香氛器的水应该加到什么位置；振片应该用什么工具清理？",
+      "expected_doc_ids": [
+        "HOLD-DIFFUSER-A",
+        "HOLD-DIFFUSER-B"
+      ]
+    },
+    {
+      "id": "hold-clock-named",
+      "split": "holdout",
+      "family": "hold-clock",
+      "kind": "named",
+      "question": "点刻翻页钟的调节翻页拨盘时方向有什么要求？",
+      "expected_doc_ids": [
+        "HOLD-CLOCK-A"
+      ]
+    },
+    {
+      "id": "hold-clock-compound",
+      "split": "holdout",
+      "family": "hold-clock",
+      "kind": "multi_fact",
+      "question": "点刻翻页钟的调节翻页拨盘时方向有什么要求；放置后晃动应该先调哪里？",
+      "expected_doc_ids": [
+        "HOLD-CLOCK-A",
+        "HOLD-CLOCK-B"
+      ]
+    },
+    {
+      "id": "hold-fan-named",
+      "split": "holdout",
+      "family": "hold-fan",
+      "kind": "named",
+      "question": "素风循环扇的拆卸网罩之前要做什么？",
+      "expected_doc_ids": [
+        "HOLD-FAN-A"
+      ]
+    },
+    {
+      "id": "hold-fan-compound",
+      "split": "holdout",
+      "family": "hold-fan",
+      "kind": "multi_fact",
+      "question": "素风循环扇的拆卸网罩之前要做什么；关闭摆头后怎样恢复中心位置？",
+      "expected_doc_ids": [
+        "HOLD-FAN-A",
+        "HOLD-FAN-B"
+      ]
+    },
+    {
+      "id": "hold-tracker-named",
+      "split": "holdout",
+      "family": "hold-tracker",
+      "kind": "named",
+      "question": "寻物定位牌的离线状态下能否发出蜂鸣？",
+      "expected_doc_ids": [
+        "HOLD-TRACKER-A"
+      ]
+    },
+    {
+      "id": "hold-tracker-compound",
+      "split": "holdout",
+      "family": "hold-tracker",
+      "kind": "multi_fact",
+      "question": "寻物定位牌的离线状态下能否发出蜂鸣；更换终端需要怎样处理旧绑定？",
+      "expected_doc_ids": [
+        "HOLD-TRACKER-A",
+        "HOLD-TRACKER-B"
+      ]
+    },
+    {
+      "id": "hold-reel-named",
+      "split": "holdout",
+      "family": "hold-reel",
+      "kind": "named",
+      "question": "卷途电缆盘的线缆怎样卷回才能整齐？",
+      "expected_doc_ids": [
+        "HOLD-REEL-A"
+      ]
+    },
+    {
+      "id": "hold-reel-compound",
+      "split": "holdout",
+      "family": "hold-reel",
+      "kind": "multi_fact",
+      "question": "卷途电缆盘的线缆怎样卷回才能整齐；看到出口限位标记后还能放线吗？",
+      "expected_doc_ids": [
+        "HOLD-REEL-A",
+        "HOLD-REEL-B"
+      ]
+    },
+    {
+      "id": "hold-magnifier-named",
+      "split": "holdout",
+      "family": "hold-magnifier",
+      "kind": "named",
+      "question": "细观放大台的怎样调焦并防止焦距变化？",
+      "expected_doc_ids": [
+        "HOLD-MAGNIFIER-A"
+      ]
+    },
+    {
+      "id": "hold-magnifier-compound",
+      "split": "holdout",
+      "family": "hold-magnifier",
+      "kind": "multi_fact",
+      "question": "细观放大台的怎样调焦并防止焦距变化；不用时如何保护透镜？",
+      "expected_doc_ids": [
+        "HOLD-MAGNIFIER-A",
+        "HOLD-MAGNIFIER-B"
+      ]
+    },
+    {
+      "id": "hold-cutter-named",
+      "split": "holdout",
+      "family": "hold-cutter",
+      "kind": "named",
+      "question": "裁点切纸台的切纸前挡板应该如何固定？",
+      "expected_doc_ids": [
+        "HOLD-CUTTER-A"
+      ]
+    },
+    {
+      "id": "hold-cutter-compound",
+      "split": "holdout",
+      "family": "hold-cutter",
+      "kind": "multi_fact",
+      "question": "裁点切纸台的切纸前挡板应该如何固定；换刀片之前必须锁住哪一部分？",
+      "expected_doc_ids": [
+        "HOLD-CUTTER-A",
+        "HOLD-CUTTER-B"
+      ]
+    },
+    {
+      "id": "hold-gauge-named",
+      "split": "holdout",
+      "family": "hold-gauge",
+      "kind": "named",
+      "question": "声度记录仪的切换采样间隔会怎样影响记录？",
+      "expected_doc_ids": [
+        "HOLD-GAUGE-A"
+      ]
+    },
+    {
+      "id": "hold-gauge-compound",
+      "split": "holdout",
+      "family": "hold-gauge",
+      "kind": "multi_fact",
+      "question": "声度记录仪的切换采样间隔会怎样影响记录；清空记录前应该怎样核对导出？",
+      "expected_doc_ids": [
+        "HOLD-GAUGE-A",
+        "HOLD-GAUGE-B"
+      ]
+    },
+    {
+      "id": "hold-turntable-named",
+      "split": "holdout",
+      "family": "hold-turntable",
+      "kind": "named",
+      "question": "旋景展示台的展示物偏离中心应怎么处理？",
+      "expected_doc_ids": [
+        "HOLD-TURNTABLE-A"
+      ]
+    },
+    {
+      "id": "hold-turntable-compound",
+      "split": "holdout",
+      "family": "hold-turntable",
+      "kind": "multi_fact",
+      "question": "旋景展示台的展示物偏离中心应怎么处理；什么时候可以切换旋转方向？",
+      "expected_doc_ids": [
+        "HOLD-TURNTABLE-A",
+        "HOLD-TURNTABLE-B"
+      ]
+    },
+    {
+      "id": "guard-tenant",
+      "split": "holdout",
+      "family": "guard-tenant",
+      "kind": "acl_guard",
+      "question": "合成受限tenant规则中的验证口令是什么？",
+      "expected_doc_ids": []
+    },
+    {
+      "id": "guard-role",
+      "split": "holdout",
+      "family": "guard-role",
+      "kind": "acl_guard",
+      "question": "合成受限role规则中的验证口令是什么？",
+      "expected_doc_ids": []
+    },
+    {
+      "id": "guard-user",
+      "split": "holdout",
+      "family": "guard-user",
+      "kind": "acl_guard",
+      "question": "合成受限user规则中的验证口令是什么？",
+      "expected_doc_ids": []
+    },
+    {
+      "id": "guard-clearance",
+      "split": "holdout",
+      "family": "guard-clearance",
+      "kind": "acl_guard",
+      "question": "合成受限clearance规则中的验证口令是什么？",
+      "expected_doc_ids": []
+    }
+  ]
+}
