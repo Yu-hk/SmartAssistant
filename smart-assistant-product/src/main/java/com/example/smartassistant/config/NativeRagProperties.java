@@ -25,6 +25,15 @@ public class NativeRagProperties {
     /** Avoid retrying when the best result already reaches this score. */
     private double sufficientScore = 0.5;
 
+    /** Opt-in replacement for the legacy LLM supplemental-query loop. */
+    private boolean automaticRetryEnabled;
+    private long retryTimeoutMs = 1500;
+
+    public boolean isAutomaticRetryEnabled() { return automaticRetryEnabled; }
+    public void setAutomaticRetryEnabled(boolean value) { automaticRetryEnabled = value; }
+    public long getRetryTimeoutMs() { return Math.max(100, Math.min(3000, retryTimeoutMs)); }
+    public void setRetryTimeoutMs(long value) { retryTimeoutMs = value; }
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -50,7 +59,7 @@ public class NativeRagProperties {
     }
 
     public double getSufficientScore() {
-        return Math.max(0.0, Math.min(1.0, sufficientScore));
+        return Double.isFinite(sufficientScore) ? Math.max(0.0, Math.min(1.0, sufficientScore)) : 0.5;
     }
 
     public void setSufficientScore(double sufficientScore) {

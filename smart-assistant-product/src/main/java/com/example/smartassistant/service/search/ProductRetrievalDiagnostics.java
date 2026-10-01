@@ -69,9 +69,14 @@ public final class ProductRetrievalDiagnostics {
         for (var item : selected.getFusedResults().stream().limit(maxItems).toList()) {
             finalItems.add(Map.of("id", RagSearchContext.evidenceId(item.getContent()), "rank", finalItems.size() + 1));
         }
-        return Map.of("version", 1, "requestId", ProductEvidenceTrace.safeId(requestId),
+        Map<String, Object> diagnostic = new LinkedHashMap<>(Map.of("version", 1, "requestId", ProductEvidenceTrace.safeId(requestId),
                 "route", "RAG_PIPELINE", "contextKind", "rag_formatted_context", "attempts", rounds,
                 "selectedAttempt", attempts.indexOf(selected) + 1, "finalEvidence", finalItems,
-                "contextSha256", ProductEvidenceTrace.hash(content), "executeRetry", false);
+                "contextSha256", ProductEvidenceTrace.hash(content), "executeRetry", attempts.size() > 1));
+        if (selected.getAttribute("rag.feedback") instanceof Map<?, ?> feedback) {
+            diagnostic.put("feedback", feedback);
+            diagnostic.put("executeRetry", attempts.size() > 1 || Boolean.TRUE.equals(feedback.get("attempted")));
+        }
+        return diagnostic;
     }
 }
