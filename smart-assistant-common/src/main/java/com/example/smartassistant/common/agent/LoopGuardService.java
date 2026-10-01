@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
  *
  * <p>在 Agent 输出后、LLM 评估前，用纯代码检测三类状态：</p>
  * <ul>
- *   <li><b>阻塞标记</b>：Agent 自称无法继续（blocked/无法继续/需要授权）</li>
+ *   <li><b>阻塞标记</b>：Agent 报告当前执行受阻或缺少操作凭据；资料不足不是执行阻塞</li>
  *   <li><b>用户决策请求</b>：Agent 在请求用户选择（请选择/是否继续/确认）</li>
  *   <li><b>基础设施错误</b>：Agent 报告 LLM 超时/服务错误等</li>
  * </ul>
@@ -26,13 +26,40 @@ import java.util.regex.Pattern;
 public class LoopGuardService {
 
     // ═══════════════════════════════
-    // 阻塞标记
+    // 阻塞标记：只识别当前执行状态，不能把“暂时无法确定 / 信息不足”这类
+    // 忠实的知识边界答复改写成系统错误。按句首/当前执行主体限定，而不是为整段
+    // 包含知识不足的回答开白名单；后续句子里的真实权限或工具阻塞仍必须拦截。
     // ═══════════════════════════════
+    private static final String STATUS_PREFIX = "(?i)(?:^|[。！？!?；;\\r\\n])\\s*"
+            + "(?:(?:很?抱歉|另外|同时)[，,：:]\\s*)?(?:(?:目前|现在)\\s*)?";
+    private static final String EXECUTION_SUBJECT = "(?:(?:我|我们|Agent|代理)(?:当前|目前|现在|暂时)?\\s*"
+            + "|(?:当前|本次)(?:账号|用户|请求|任务|执行|数据库|工具|操作)?(?:的)?(?:访问)?\\s*)?";
+    private static final String CREDENTIAL = "(?:(?:访问|登录|数据库|管理员)(?:的)?)?"
+            + "(?:凭据|授权|权限|密码|密钥|令牌|API\\s*Key)";
     private static final List<Pattern> BLOCKED_PATTERNS = List.of(
-            Pattern.compile("(?i)(blocked|无法继续|不能继续|被阻塞|卡住|停滞|无法完成|无法处理)"),
-            Pattern.compile("(?i)(需要你提供|需要您提供|需要凭据|需要授权|没有权限|权限不足)"),
-            Pattern.compile("(?i)(缺少必要信息|信息不足|无法确定|不确定怎么)"),
-            Pattern.compile("(?i)(请稍后再试|过一会儿再|暂时无法)")
+            // Bare execution status or explicit agent/task status, not "blocked stock" in documentation.
+            Pattern.compile(STATUS_PREFIX + EXECUTION_SUBJECT
+                    + "(?:(?:任务|请求|执行|操作|流程)\\s*)?"
+                    + "(?:blocked|无法继续|不能继续|被阻塞|卡住|停滞)(?:了)?"
+                    + "\\s*(?=[，,。！？.!?；;]|$)"),
+            Pattern.compile(STATUS_PREFIX + "(?:\\[blocked\\]|\\b(?:I|we|agent|task|execution|tool)\\s+"
+                    + "(?:(?:am|are|is|has been)\\s+)?(?:(?:currently|now)\\s+)?blocked\\b)"),
+            Pattern.compile(STATUS_PREFIX + "(?:当前|本次)?(?:任务|请求|执行|操作|流程|Agent|代理)"
+                    + "(?:由于|因为|因)[^。！？!?；;\\r\\n]{0,24}(?:被阻塞|卡住|停滞|无法继续|不能继续)"),
+            // Requests for documents, addresses or product names are business follow-up, not credentials.
+            Pattern.compile(STATUS_PREFIX + EXECUTION_SUBJECT + "(?<!不)(?:需要|缺少|缺乏|未提供|未配置|没有)"
+                    + "(?:有效的?|必要的?)?" + CREDENTIAL),
+            Pattern.compile(STATUS_PREFIX + EXECUTION_SUBJECT + "(?:(?:由于|因为|因)\\s*)?"
+                    + "(?:(?:数据库|工具|接口|API)(?:访问)?)?(?:没有权限|权限不足)"),
+            Pattern.compile(STATUS_PREFIX + EXECUTION_SUBJECT + "需要(?:你|您)提供"
+                    + "[^。！？!?；;\\r\\n]{0,20}" + CREDENTIAL),
+            // Operational verbs/targets distinguish inability to execute from inability to establish a fact.
+            Pattern.compile(STATUS_PREFIX + EXECUTION_SUBJECT + "(?:暂时)?(?:无法|不能)"
+                    + "[^。！？!?；;\\r\\n]{0,8}(?:执行|调用|连接|登录|访问|继续(?:执行|操作|处理|办理|查询))"),
+            Pattern.compile(STATUS_PREFIX + EXECUTION_SUBJECT + "(?:暂时)?(?:无法|不能)"
+                    + "(?:处理|完成)(?:当前|本次|该)?(?:请求|任务|操作|流程)"),
+            Pattern.compile(STATUS_PREFIX + "(?:当前|所需|必要的?|查询|检索)?(?:工具|数据库|API|接口|服务)"
+                    + "[^。！？!?；;\\r\\n]{0,16}(?:未配置|未授权|不可用|无法使用|无法访问)")
     );
 
     // ═══════════════════════════════
