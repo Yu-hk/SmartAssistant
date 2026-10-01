@@ -24,6 +24,7 @@ jobs:
       - run: python -m unittest discover -s scripts -p test_retrieval_calibration.py -v
       - run: python -m unittest discover -s scripts -p test_native_retrieval_calibration.py -v
       - run: python -m unittest discover -s scripts -p test_anchored_retrieval_calibration.py -v
+      - run: python -m unittest discover -s scripts -p 'test_bounded_feedback*.py' -v
 
   product-entity-contract:
     name: Product entity and constraint golden contract
@@ -37,7 +38,7 @@ jobs:
           cache: 'maven'
       - run: >-
           mvn -B -pl smart-assistant-product,smart-assistant-data-intake -am test
-          -Dtest=ProductEntityResolverTest,ProductEntityEvaluationTest,ProductEntityCoverageTest,ProductFieldCoverageTest,ProductRetrievalDiagnosticsTest,RerankHandlerTest,StreamingProductAgentServiceTest,ProductConversationHistoryTest,JevProductEntityAdvisorTest,JdbcProductIdentityTest,ProductIdentityUpdateTest,AdminProductIdentityControllerTest
+          -Dtest=BoundedRetrievalFeedbackTest,ProductRagServiceAgenticTest,KnowledgeSearchHandlerScopeTest,ProductEntityResolverTest,ProductEntityEvaluationTest,ProductEntityCoverageTest,ProductFieldCoverageTest,ProductRetrievalDiagnosticsTest,RerankHandlerTest,StreamingProductAgentServiceTest,ProductConversationHistoryTest,JevProductEntityAdvisorTest,JdbcProductIdentityTest,ProductIdentityUpdateTest,AdminProductIdentityControllerTest
           -Dsurefire.failIfNoSpecifiedTests=false
       - name: Compile standalone retrieval calibration probe
         run: |

@@ -38,18 +38,22 @@ public class KnowledgeSearchHandler implements RagSearchHandler {
     @Override
     public void handle(RagSearchContext context) {
         List<String> results = new ArrayList<>();
+        int topK = context.getAttribute("rag.retryKnowledgeTopK") instanceof Number value
+                ? Math.max(5, Math.min(8, value.intValue())) : 5;
 
         for (String knowledgeBase : selectedKnowledgeBases(context)) {
             try {
                 String knowledge = retrievalService.search(
-                        knowledgeBase, context.getOriginalQuery(), 5, AclContext.fromMdc());
+                        knowledgeBase, context.getOriginalQuery(), topK, AclContext.fromMdc());
                 if (knowledge != null && !knowledge.isBlank()
                         && !knowledge.contains("未找到")
                         && !knowledge.contains("INSUFFICIENT_EVIDENCE")
+                        && !knowledge.contains("不存在")
                         && !knowledge.contains("PRODUCT_NOT_FOUND")) {
                     results.add(knowledge);
                 }
             } catch (Exception e) {
+                context.addError("KnowledgeSearchHandler", "KNOWLEDGE_SEARCH_UNAVAILABLE", e.getClass().getSimpleName());
                 log.warn("[RagHandler] KnowledgeSearch 失败 (kb={}): {}", knowledgeBase, e.getMessage());
             }
         }

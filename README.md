@@ -180,6 +180,8 @@ GitHub Actions 会执行：
 
 后续新增[实体约束与证据保留对照](docs/anchored-retrieval-calibration.md)：原问题参与、明确名称绑定子句、候选席位有界保留，仅在隔离探针启用。全新 64 题、65 文档、5 策略、三轮一致；40 道留出正例的 ID 召回从简单拆分的 0.975 回到 1.000，但原问题基线同样为 1.000，因此仍不替换线上策略。Chrome/Edge 同账号只读页面回归通过；席位不等于事实支撑，不声称已接入在线闭环或获得新的 Ragas 四维分数。
 
+2026-10-01 已上线[有界自动重检索](docs/automatic-retrieval.md)：知识类只读请求发现词项证据缺口时，同权限同选域最多增加一次知识库召回，等待上限 1500 ms；只接受明确名称一致、补足缺词且保留首轮原文与引用的候选，超时、忙碌或无安全增益保留原结果。生产轨迹已确认真实执行，Chrome/Edge 六次咨询及刷新、跨浏览器恢复通过。64 道冻结对照无新增非金标证据，两个六事实控制从 5/6 补到 6/6；四维 Ragas 仍用于隔离校准，不是每个线上请求的触发器，答案相关性并非全部改善。既有一次模型“暂时无法”被循环守卫误判为阻塞的页面失败另行记录，不能把重跑通过解释为该问题已修复。上述未开启说明均为此前阶段记录。
+
 - [架构图与流程图总览](https://yu-hk.github.io/SmartAssistant/)
 - [交互式运行时架构图](https://yu-hk.github.io/SmartAssistant/architecture/smartassistant-runtime.architecture.html)
 - [下单收货信息补全与确认流程图](https://yu-hk.github.io/SmartAssistant/architecture/order-checkout-history.workflow.html)
@@ -188,6 +190,7 @@ GitHub Actions 会执行：
 - [多商品查询与证据汇总流程图](https://yu-hk.github.io/SmartAssistant/architecture/multi-product-query.workflow.html)
 - [商品实体识别与字段绑定流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-entity-resolution.workflow.html)
 - [四维评测与检索反馈流程图](https://yu-hk.github.io/SmartAssistant/architecture/ragas-feedback.workflow.html)
+- [有界自动重检索流程图](https://yu-hk.github.io/SmartAssistant/architecture/automatic-retrieval.workflow.html)
 - [回复来源与统计回放流程图](https://yu-hk.github.io/SmartAssistant/architecture/session-telemetry.workflow.html)
 
 会话洞察将回复来源与用量分开：仅明确的 `fromCache` 布尔值显示“缓存复用”或“实时处理”，缺少来源显示“未记录”，不根据零 Token 推断缓存。SSE 与历史读取都保留来源；新审计通过已有 `route_method` 写入 `STREAM_CACHE` / `STREAM_LIVE` 或 `ROUTER_CACHE` / `ROUTER_LIVE`，旧审计保持未知，不批量回填。累计统计只叠加本会话各轮已知快照，不重复计入缓存原答案生成用量；缓存校验仍可能产生调用，不等于整条链路免费。详见[来源与统计说明](docs/session-telemetry.md)。
