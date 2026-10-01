@@ -474,12 +474,12 @@ public class AdminService {
         List<Map<String, Object>> logs = userId == null
                 ? jdbcTemplate.queryForList(
                         "SELECT id, request_id, user_input, llm_received_question, response_summary, routed_agent, status, latency_ms, " +
-                                "prompt_tokens, completion_tokens, total_tokens, tool_calls, created_at " +
+                                "prompt_tokens, completion_tokens, total_tokens, tool_calls, route_method, created_at " +
                                 "FROM routing_call_log WHERE session_id = ? AND " + ownership +
                                 " ORDER BY created_at, id", sessionId)
                 : jdbcTemplate.queryForList(
                         "SELECT id, request_id, user_input, llm_received_question, response_summary, routed_agent, status, latency_ms, " +
-                                "prompt_tokens, completion_tokens, total_tokens, tool_calls, created_at " +
+                                "prompt_tokens, completion_tokens, total_tokens, tool_calls, route_method, created_at " +
                                 "FROM routing_call_log WHERE session_id = ? AND " + ownership +
                                 " ORDER BY created_at, id", sessionId, userId);
         if (logs.isEmpty()) {
@@ -561,7 +561,7 @@ public class AdminService {
             messages.add(new SessionMessage(
                     id + "-user", "user", Objects.toString(row.get("user_input"), ""),
                     createdAt, requestId, null, null, null, null, null, null,
-                    null, null, List.of()));
+                    null, null, List.of(), null));
             String response = Objects.toString(row.get("response_summary"), "");
             boolean hasInvocationAudit = promptSnapshot != null || toolUsage != null
                     || promptTokens != null || completionTokens != null || totalTokens != null;
@@ -576,7 +576,9 @@ public class AdminService {
                         promptTokens, completionTokens, totalTokens,
                         promptSnapshot,
                         toolUsage != null ? toolUsage.complete() : null,
-                        toolUsage != null ? toolUsage.calls() : List.of()));
+                        toolUsage != null ? toolUsage.calls() : List.of(),
+                        com.example.smartassistant.consumer.service.infrastructure.ReplyOrigin.fromAuditMethod(
+                                nullableString(row.get("route_method")))));
             }
         }
         int totalTurns = logs.size();
@@ -1117,7 +1119,8 @@ public class AdminService {
             Long totalTokens,
             String promptSnapshot,
             Boolean toolUsageComplete,
-            List<ToolUsageCache.ToolCall> toolCalls) {
+            List<ToolUsageCache.ToolCall> toolCalls,
+            Boolean fromCache) {
         /** Signed current-turn forms are restored separately after an authorized history read. */
         @com.fasterxml.jackson.annotation.JsonProperty("clarificationForm")
         public com.example.smartassistant.consumer.service.core.ClarificationForm clarificationForm() {

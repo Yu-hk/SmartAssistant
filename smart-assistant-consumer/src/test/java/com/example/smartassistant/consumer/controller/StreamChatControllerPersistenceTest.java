@@ -42,6 +42,25 @@ import static org.mockito.Mockito.doAnswer;
 
 @ExtendWith(MockitoExtension.class)
 class StreamChatControllerPersistenceTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void replyAndAuditKeepExplicitSourceEvenWithZeroTokens(boolean cached) throws Exception {
+        var request = new MockHttpServletRequest();
+        request.addHeader("X-User-Id", "42");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        when(routerClient.waitForDecisionFromRedis(eq("origin"), eq(60_000L), any(Runnable.class)))
+                .thenReturn(Map.of("agentName", "product", "result", "synthetic answer", "fromCache", cached,
+                        "totalTokens", 0, "promptTokens", 0, "completionTokens", 0));
+        var controller = new StreamChatController(routerClient, agentStreamClient,
+                requestQueueService, routingCallLogService, null);
+        var response = new MockHttpServletResponse();
+        controller.streamChatPost(Map.of("message", "synthetic", "requestId", "origin", "sessionId", "s"), response);
+        assertTrue(response.getContentAsString().contains("\"fromCache\":" + cached));
+        assertTrue(response.getContentAsString().contains("\"totalTokens\":0"));
+        verify(routingCallLogService).saveLog(eq(42L), eq("s"), eq("origin"), eq("synthetic"),
+                eq("product"), eq(cached ? "STREAM_CACHE" : "STREAM_LIVE"), anyLong(), eq("SUCCESS"),
+                eq("synthetic answer"), eq(0L), eq(0L), eq(0L), eq("synthetic"), isNull());
+    }
 
     @Test
     void sendsStructuredMissingInformationAlongsideNormalReply() throws Exception {

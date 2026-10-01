@@ -108,6 +108,11 @@ export function SessionInsightPanel({
                 ? '已结束' : '等待提问'}</strong>
             </div>
             <div className="insight-kv">
+              <span>回复来源</span>
+              <strong>{telemetry.streaming ? '处理中' : telemetry.latestFromCache === true
+                ? '缓存复用' : telemetry.latestFromCache === false ? '实时处理' : '未记录'}</strong>
+            </div>
+            <div className="insight-kv">
               <span>创建时间</span>
               <strong>{formatTime(currentSession.createdAt)}</strong>
             </div>
@@ -137,6 +142,9 @@ export function SessionInsightPanel({
                   : telemetry.totalTokens === null ? '服务端尚未提供用量，不代表消耗为 0'
                   : telemetry.tokensComplete ? '已采集各轮用量' : '部分轮次未采集，当前为已知用量'}
               </p>
+              {telemetry.latestFromCache === true && (
+                <p className="insight-telemetry-note">本轮复用了缓存答案，统计不重复计入原答案生成用量；缓存校验仍可能产生调用。</p>
+              )}
             </div>
             <SessionExecutionSteps key={currentSession.id} messages={currentSession.messages} />
           </section>
