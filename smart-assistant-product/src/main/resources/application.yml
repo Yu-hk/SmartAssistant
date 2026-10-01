@@ -252,6 +252,8 @@ product:
       max-attempts: ${PRODUCT_RAG_AGENTIC_MAX_ATTEMPTS:2}
       max-evidence-items: ${PRODUCT_RAG_AGENTIC_MAX_EVIDENCE_ITEMS:8}
       sufficient-score: ${PRODUCT_RAG_AGENTIC_SUFFICIENT_SCORE:0.5}
+      automatic-retry-enabled: ${PRODUCT_RAG_AGENTIC_AUTOMATIC_RETRY_ENABLED:false}
+      retry-timeout-ms: ${PRODUCT_RAG_AGENTIC_RETRY_TIMEOUT_MS:1500}
     answer-verification:
       max-retries: ${PRODUCT_RAG_ANSWER_VERIFICATION_MAX_RETRIES:1}
     lightrag:

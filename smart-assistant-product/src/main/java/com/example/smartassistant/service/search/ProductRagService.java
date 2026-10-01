@@ -50,6 +50,7 @@ public class ProductRagService {
     private final KnowledgeScopeSelector scopeSelector;
     private final SupplementalQueryPlanner supplementalQueryPlanner;
     private final NativeRagProperties properties;
+    private final BoundedRetrievalFeedback feedback;
     private com.example.smartassistant.service.core.ProductFactQueryService factQueryService;
 
     @Autowired(required = false)
@@ -84,7 +85,11 @@ public class ProductRagService {
         this.scopeSelector = scopeSelector;
         this.supplementalQueryPlanner = supplementalQueryPlanner;
         this.properties = properties;
+        this.feedback = new BoundedRetrievalFeedback(pipeline, properties);
     }
+
+    @jakarta.annotation.PreDestroy
+    public void closeFeedback() { feedback.close(); }
 
     /**
      * 多路 RAG 检索 + RRF 融合（兼容旧调用，无质量评估）。
@@ -159,7 +164,7 @@ public class ProductRagService {
         String currentQuery = query.strip();
         int attemptsExecuted = 0;
         List<RagSearchContext> attemptContexts = new ArrayList<>();
-        int maxAttempts = properties.isEnabled() && supplementalQueryPlanner != null
+        int maxAttempts = !properties.isAutomaticRetryEnabled() && properties.isEnabled() && supplementalQueryPlanner != null
                 ? properties.getMaxAttempts() : 1;
 
         for (int attemptNo = 1; attemptNo <= maxAttempts; attemptNo++) {
@@ -182,6 +187,14 @@ public class ProductRagService {
         }
 
         RagSearchContext ctx = best != null ? best.context() : executeAttempt(query, query, scope, 1);
+        var retry = feedback.apply(query, ctx, properties.getMaxEvidenceItems());
+        if (retry.candidate() != null) attemptContexts.add(retry.candidate());
+        ctx = retry.selected();
+        ctx.setAttribute("rag.feedback", retry.diagnostics());
+        attemptsExecuted = attemptContexts.size();
+        if (properties.isAutomaticRetryEnabled()) log.info("[RetrievalFeedback] requestId={}, status={}, attempted={}, accepted={}",
+                com.example.smartassistant.service.core.ProductEvidenceTrace.safeId(requestId),
+                retry.diagnostics().get("status"), retry.diagnostics().get("attempted"), retry.diagnostics().get("accepted"));
 
         // 从 Pipeline 结果构建返回
         List<RagSearchContext.RankedItem> fused = ctx.getFusedResults();
