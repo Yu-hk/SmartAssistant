@@ -67,7 +67,7 @@ python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/
 python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/second --compare .codex-output/offline-baseline/first/baseline.json
 ```
 
-必须使用新目录；入口不删除既有回执。依赖未缓存时会失败，不自行联网下载模型或启用生产配置。新增 CI 作业先以 `-DskipTests clean install` 缓存清理插件与构建依赖，再用本机 HTTP 替身的 EmbeddingClientTest 缓存 Surefire 动态选择的 JUnit provider，然后在无模型/存储凭证环境中独立运行两轮。预热的单例不重复计入基线；两轮各自 clean，旧报告不可混用。此作业是测量和报告完整性门禁，不是新设的全局覆盖硬门槛。最终远端结论以对应提交的 Actions 为准。
+必须使用新目录；入口不删除既有回执。依赖未缓存时会失败，不自行联网下载模型或启用生产配置。新增 CI 作业先以 `-DskipTests clean install` 缓存清理插件与构建依赖，再用 common 的本机 HTTP 替身 EmbeddingClientTest 和 routing-contract 的纯键名断言 RoutingKeysTest 缓存 Surefire 动态选择的 JUnit provider/launcher，分别覆盖 common 额外仓库及其余模块父级仓库上下文，然后在无模型/存储凭证环境中独立运行两轮。预热用例不重复计入基线；两轮各自 clean，旧报告不可混用。此作业是测量和报告完整性门禁，不是新设的全局覆盖硬门槛。最终远端结论以对应提交的 Actions 为准。
 
 ### 首次 Linux CI 的排序兼容修复
 
@@ -76,6 +76,8 @@ python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/
 策略核对现在按原样字符串统一排序后逐项比较；名称、路径、选择和排除原因仍须完全一致，双方的重复名称或路径明确拒绝，不使用会丢掉重复项的集合比较。审查清单字节和上述历史回执不改写。新增跨平台顺序与双方重复项回归，基线脚本合同合计 28 项。本次修改不改变 Java 源码或测试选择；远端双轮实跑须重新通过，不能把首轮预检失败算成测量通过。
 
 [第二轮远端运行](https://github.com/Yu-hk/SmartAssistant/actions/runs/36960212906)已通过清单预检，但 Maven 在父模块的 clean 阶段发现 `maven-clean-plugin:3.5.0` 未缓存，约 1.2 秒退出，12 个模块均未执行测试；不是业务测试失败，也不计入 2,495 项的执行证据。失败 JSON、日志与当时报告已保留为 Actions 产物。本机已有此插件，CI 新环境只有先前 install 预热，因此修正预热为 `clean install`，不移除后续离线模式或 clean 要求。
+
+[第三轮远端运行](https://github.com/Yu-hk/SmartAssistant/actions/runs/36960615711)common 的 878 项测试零失败/错误/跳过，之后多个模块无法解析 JUnit Platform Launcher 6.0.3：该文件已在 common 的额外仓库上下文缓存，但 Maven 不允许直接在未含该仓库的其余模块离线复用。约 44.9 秒失败，不视为完整基线通过。补充 routing-contract 的纯本地预热，使启动器也在父级仓库上下文完成正常依赖解析；不修改仓库地址、不手工篡改下载来源元数据，也不取消 `-o`。
 
 ## 停机演练状态
 

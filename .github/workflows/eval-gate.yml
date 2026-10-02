@@ -30,7 +30,9 @@ jobs:
         run: |
           # Cache the clean lifecycle plugin as well as compile/install plugins.
           mvn -B -DskipTests clean install
-          mvn -B -pl smart-assistant-common -Dtest=EmbeddingClientTest test
+          # Common adds a repository; also cache the launcher in the root-only
+          # repository context instead of assuming a downloaded file is usable.
+          mvn -B -pl smart-assistant-common,smart-assistant-routing-contract -Dtest=EmbeddingClientTest,RoutingKeysTest test
       - name: First clean measurement (no model or storage credentials)
         run: python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/first
       - name: Independent clean repeat and counter comparison
