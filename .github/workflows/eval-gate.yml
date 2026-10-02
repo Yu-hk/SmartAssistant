@@ -45,6 +45,56 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+  dispatch-component-shutdown:
+    name: Tool runtime and isolated dispatch shutdown (exec control)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate receipt and owned-resource cleanup contracts
+        run: python3 -m unittest discover -s scripts -p 'test_dispatch_shutdown_probe.py' -v
+      - name: Build component fixture and its dependency classpath
+        run: |
+          mvn -B -pl smart-assistant-consumer -am -DskipTests install
+          mvn -B -pl smart-assistant-consumer dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=target/shutdown-classpath.txt
+      - name: Measure tool runtime behavior without model or storage credentials
+        run: |
+          mvn -B -pl smart-assistant-tool-runtime clean test
+          python3 scripts/verify_integration_reports.py smart-assistant-tool-runtime/target/surefire-reports/TEST-com.example.smartassistant.toolregistry.general.tool.GeneralToolsTest.xml --minimum 43
+          python3 scripts/verify_integration_reports.py smart-assistant-tool-runtime/target/surefire-reports/TEST-com.example.smartassistant.toolregistry.general.sandbox.ScriptSandboxTest.xml --minimum 28
+          python3 scripts/verify_integration_reports.py smart-assistant-tool-runtime/target/surefire-reports/TEST-com.example.smartassistant.toolregistry.general.spi.impl.GeneralDataProviderImplTest.xml --minimum 5
+          python3 scripts/verify_integration_reports.py smart-assistant-tool-runtime/target/surefire-reports/TEST-com.example.smartassistant.toolregistry.general.GeneralToolCatalogRegistrarTest.xml --minimum 3
+          python3 scripts/verify_jacoco_class.py smart-assistant-tool-runtime/target/site/jacoco/jacoco.xml com/example/smartassistant/toolregistry/general/sandbox/ScriptSandbox --instruction-minimum 0.95 --branch-minimum 0.85
+          python3 scripts/verify_jacoco_class.py smart-assistant-tool-runtime/target/site/jacoco/jacoco.xml com/example/smartassistant/toolregistry/general/spi/impl/GeneralDataProviderImpl --instruction-minimum 0.95 --branch-minimum 0.95
+      - name: Prepare test images (dependency downloads only)
+        run: |
+          docker pull bellsoft/liberica-openjdk-debian:21-cds
+          docker pull redis:7.2.4
+          docker pull rabbitmq:4.1-management-alpine
+      - name: Exercise real dispatch processes on an internal disposable network
+        # The explicit exec fixture is a control, not the actual Boot production entrypoint.
+        # No published ports, production credentials, shared volumes, orders or wallet operations.
+        run: python3 scripts/run_dispatch_shutdown_probe.py --classpath-file smart-assistant-consumer/target/shutdown-classpath.txt --output .codex-output/dispatch-shutdown/ci --entrypoint-form exec
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dispatch-component-shutdown
+          path: |
+            .codex-output/dispatch-shutdown/ci/*.json
+            .codex-output/dispatch-shutdown/ci/*.log
+            smart-assistant-tool-runtime/target/surefire-reports/
+            smart-assistant-tool-runtime/target/site/jacoco/jacoco.xml
+          include-hidden-files: true
+          if-no-files-found: error
+
   ragas-feedback-contract:
     name: Ragas four-metric and shadow-feedback contracts
     runs-on: ubuntu-latest

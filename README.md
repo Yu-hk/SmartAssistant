@@ -166,6 +166,8 @@ Embedding 新契约使用真实本机 HTTP / Spring 容器及受控模型替身�
 
 [离线基线说明](docs/offline-baseline-20261002.md)记录每个模块的实测计数、完整测试清单和未覆盖边界。测试入口拒绝工作区真实 `.env`、清理模型/存储凭证及 JVM 覆盖变量，保留两轮原始报告；Maven `-o` 仅限制依赖下载，不是 JVM 网络隔离。此次仅调整测试与门禁，不改变业务流程或生产架构。
 
+[工具执行层与隔离停机验收](docs/runtime-assessment-20261002.md)补齐沙箱、单位换算、错误传递和目录风险标记的测试，并单列真实 Redis/RabbitMQ 消费进程的停机/重投回执。显式 `exec` 测试入口只是对照；不代表现有生产入口、全量 SSE、Router 租约或画像尾任务已完成停机验收。
+
 商品只读查询通过统一目录身份识别 1～4 款商品，再分别核验事实：名称/别名规范化、同会话指代、经人工核对的系列/变体关系、逐商品字段和数量、总预算与单款条件。模型规划后，商品域确认能处理的只读指代固定生成携带历史的商品读取节点，避免落到通用回答节点。不确定型号保留为候选并请用户核实；Jev 只提供目录候选建议，不能生成 SKU 或代替用户确认。支持简单价格/重量/降噪条件；复杂残余条件和缺少续航场景会明确提示，不能当作已满足。管理员身份元数据维护 API 带版本控制与审计，尚未提供新的后台表单，也不自动回填历史商品。详见[商品实体识别说明](docs/product-entity-resolution.md)、[本次验证记录](docs/product-entity-verification-20260930.md)及[交互流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-entity-resolution.workflow.html)；[多商品初版说明](docs/multi-product-query.md)保留为历史基线。
 
 新增 [64 场景商品覆盖契约](docs/product-entity-coverage-20260930.md)，把正确直答、合理核实/证据不足、错误 SKU 和闭合链未认领分开统计，CI 上传逐例报告；这不是线上真实覆盖率。SSH 恢复后已发布数量边界、错误单位与续航口语修复，并补充 Router 单商品澄清保护，避免通用模型追加无效数量的折算价。流程图保持 Archify 经典风格；生产协议与 Chrome/Edge 验收证据见上述报告。
