@@ -152,6 +152,7 @@ SmartAssistant 是一个基于 Spring Boot、Spring AI 和 React 的多智能体
 GitHub Actions 会执行：
 
 - 全模块编译
+- 固定离线测试清单的全模块干净基线及重复运行核对；外部集成、真实模型、Linux 权限和长耗时负载验证分别列示，不把排除/跳过计作通过
 - Maven Enforcer 与 JaCoCo 质量检查
 - Router E2E 测试
 - Embedding 服务 HTTP、Spring 装配与唯一模型释放契约；按套件检查执行数量/失败/跳过，并校验 Controller / Application 类级覆盖门槛
@@ -162,6 +163,8 @@ GitHub Actions 会执行：
 评测数据保存在 `docs/eval/` 和模块测试资源中。一次性联调数据、生成报告及运行时用户数据不进入版本控制。
 
 Embedding 新契约使用真实本机 HTTP / Spring 容器及受控模型替身，不读取生产配置；线上只读探针另行核对实际向量和协议，不等同于语义质量、容器 SIGTERM 或多副本故障演练。JaCoCo 门槛按指定类或选定测试集合生效，不能外推为全模块覆盖率。当前整改与验证状态见 [2026-10-01 契约整改记录](docs/assessment-contracts-20261001.md)；新增 CI 配置不等于远端作业已经通过。
+
+[离线基线说明](docs/offline-baseline-20261002.md)记录每个模块的实测计数、完整测试清单和未覆盖边界。测试入口拒绝工作区真实 `.env`、清理模型/存储凭证及 JVM 覆盖变量，保留两轮原始报告；Maven `-o` 仅限制依赖下载，不是 JVM 网络隔离。此次仅调整测试与门禁，不改变业务流程或生产架构。
 
 商品只读查询通过统一目录身份识别 1～4 款商品，再分别核验事实：名称/别名规范化、同会话指代、经人工核对的系列/变体关系、逐商品字段和数量、总预算与单款条件。模型规划后，商品域确认能处理的只读指代固定生成携带历史的商品读取节点，避免落到通用回答节点。不确定型号保留为候选并请用户核实；Jev 只提供目录候选建议，不能生成 SKU 或代替用户确认。支持简单价格/重量/降噪条件；复杂残余条件和缺少续航场景会明确提示，不能当作已满足。管理员身份元数据维护 API 带版本控制与审计，尚未提供新的后台表单，也不自动回填历史商品。详见[商品实体识别说明](docs/product-entity-resolution.md)、[本次验证记录](docs/product-entity-verification-20260930.md)及[交互流程图](https://yu-hk.github.io/SmartAssistant/architecture/product-entity-resolution.workflow.html)；[多商品初版说明](docs/multi-product-query.md)保留为历史基线。
 

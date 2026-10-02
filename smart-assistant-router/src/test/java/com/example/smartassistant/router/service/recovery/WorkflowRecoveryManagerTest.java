@@ -3,6 +3,7 @@ package com.example.smartassistant.router.service.recovery;
 import com.example.smartassistant.router.service.checkpoint.LangGraphRedisCheckpointSaver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -29,7 +30,6 @@ class WorkflowRecoveryManagerTest {
         when(queue.poll()).thenReturn(Optional.empty());
         manager = new WorkflowRecoveryManager(checkpointSaver, queue, recoveryService,
                 1_000L, Duration.ofSeconds(2), 10, 2, 1, 10L);
-        manager.afterPropertiesSet();
     }
 
     @AfterEach
@@ -44,18 +44,21 @@ class WorkflowRecoveryManagerTest {
                 org.mockito.ArgumentMatchers.anyInt())).thenReturn(List.of(
                 new LangGraphRedisCheckpointSaver.StaleCheckpoint("stale-request", updatedAt)));
         when(recoveryService.requestAutomaticRecovery("stale-request", updatedAt)).thenReturn(true);
+        // Finish every stub before the background worker can touch shared mocks.
+        manager.afterPropertiesSet();
 
         assertThat(manager.scanAndPublish()).isEqualTo(1);
         verify(recoveryService).requestAutomaticRecovery("stale-request", updatedAt);
     }
 
-    @Test
+    @RepeatedTest(20)
     void transientRecoveryFailureUsesBrokerDelayInsteadOfBlockingWorker() {
         var message = command("retry-request", 0);
         when(recoveryService.recover(message)).thenThrow(new IllegalStateException("temporary"));
         when(queue.retry(org.mockito.ArgumentMatchers.eq(message),
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.any(Duration.class))).thenReturn(true);
+        manager.afterPropertiesSet();
 
         manager.handle(message);
 

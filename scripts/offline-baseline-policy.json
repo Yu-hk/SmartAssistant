@@ -1,0 +1,2760 @@
+{
+  "schema_version": 1,
+  "reviewed_baseline": "e36bdcc6daae78584c022d46aa5f4fe69efbaddb",
+  "modules": [
+    {
+      "module": "smart-assistant-common",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.common.agent.AgentExecutionBudgetTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/AgentExecutionBudgetTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.AgentLoopDecisionTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/AgentLoopDecisionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.AgentSafetyServiceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/AgentSafetyServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.AgentToolExecutorConcurrencyTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/AgentToolExecutorConcurrencyTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.AgentToolExecutorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/AgentToolExecutorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.ExecutionTraceStoreTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/ExecutionTraceStoreTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.FeedbackLogTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/FeedbackLogTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.LoopGuardServiceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/LoopGuardServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.PhaseGateTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/PhaseGateTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.protocol.AgentProtocolTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/protocol/AgentProtocolTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.ReActProfileAutoConfigurationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/ReActProfileAutoConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.SmartReActAgentBehaviorBaselineTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/SmartReActAgentBehaviorBaselineTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.SmartReActAgentChatClientTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/SmartReActAgentChatClientTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.SmartReActAgentGradingTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/SmartReActAgentGradingTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.SmartReActAgentPhaseGateTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/SmartReActAgentPhaseGateTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.SmartReActAgentToolCallbackTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/SmartReActAgentToolCallbackTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.agent.ToolPromptFormatterTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/agent/ToolPromptFormatterTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.audit.TokenUsageCacheTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/audit/TokenUsageCacheTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.audit.ToolUsageCacheTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/audit/ToolUsageCacheTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.cache.CacheVersionManagerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/cache/CacheVersionManagerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.cache.KnowledgeVersionManagerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/cache/KnowledgeVersionManagerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.embedding.EmbeddingClientTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/embedding/EmbeddingClientTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.embedding.RemoteBgeEmbeddingModelTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/embedding/RemoteBgeEmbeddingModelTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.error.ErrorRecoveryServiceBeanTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/error/ErrorRecoveryServiceBeanTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.error.ModelCallFailureTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/error/ModelCallFailureTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.eval.AgentEvaluationResultOverrideTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/eval/AgentEvaluationResultOverrideTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.eval.AgentEvaluationResultTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/eval/AgentEvaluationResultTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.eval.EvalGapsDesignTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/eval/EvalGapsDesignTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.eval.EvalGateTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/eval/EvalGateTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.eval.GoldenSuiteEvalGateDefaultTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/eval/GoldenSuiteEvalGateDefaultTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.eval.GoldenSuiteEvalGateTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/eval/GoldenSuiteEvalGateTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.eval.GoldenSuiteEvalGateTrialTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/eval/GoldenSuiteEvalGateTrialTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.exception.ExceptionHandlerSupportTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/exception/ExceptionHandlerSupportTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.exception.GlobalExceptionHandlerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/exception/GlobalExceptionHandlerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.llm.AgentLLMGatewayTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/llm/AgentLLMGatewayTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.hook.ApprovalHookTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/hook/ApprovalHookTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.hook.SanitizeHookTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/hook/SanitizeHookTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.hook.ToolStatusHookTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/hook/ToolStatusHookTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.mcp.McpBackendToolExecutorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/mcp/McpBackendToolExecutorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.mcp.McpDiscoveryAutoConfigurationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/mcp/McpDiscoveryAutoConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.mcp.McpRegistryDiscoveryClientTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/mcp/McpRegistryDiscoveryClientTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.mcp.McpToolCallbackFactoryTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/mcp/McpToolCallbackFactoryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsHelperTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/meta/DiscoverToolsHelperTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsToolSchemaTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/meta/DiscoverToolsToolSchemaTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.meta.DiscoverToolsToolTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/meta/DiscoverToolsToolTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.meta.GapClarificationServiceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/meta/GapClarificationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.ToolDefinitionFunctionalCapabilityTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/ToolDefinitionFunctionalCapabilityTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.ToolDefinitionTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/ToolDefinitionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.ToolFunctionalCapabilityTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/ToolFunctionalCapabilityTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.ToolGatewayBudgetTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/ToolGatewayBudgetTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.gateway.tool.ToolGatewayTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/gateway/tool/ToolGatewayTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.governance.GovernanceInfrastructureConfigurationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/governance/GovernanceInfrastructureConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.governance.ToolCallLimitEnvironmentPostProcessorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/governance/ToolCallLimitEnvironmentPostProcessorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.interceptor.ServiceInterceptorPointcutContextTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/interceptor/ServiceInterceptorPointcutContextTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.jev.JevDecisionClientTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/jev/JevDecisionClientTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.json.Jackson2CompatibilityAutoConfigurationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/json/Jackson2CompatibilityAutoConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.load.ConcurrencyLoadTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/load/ConcurrencyLoadTest.java",
+          "selected": false,
+          "exclusion": "separate_synthetic_load"
+        },
+        {
+          "name": "com.example.smartassistant.common.memory.AgentMemoryFileConcurrencyTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/memory/AgentMemoryFileConcurrencyTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.memory.AgentMemoryServiceIntegrationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/memory/AgentMemoryServiceIntegrationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.memory.EntityProfileGenerationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/memory/EntityProfileGenerationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.memory.EntityProfileServiceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/memory/EntityProfileServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.memory.GovernedAgentMemoryTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/memory/GovernedAgentMemoryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.memory.MemoryExtractorOptionalModelTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/memory/MemoryExtractorOptionalModelTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.memory.ProfileGovernanceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/memory/ProfileGovernanceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.model.tier.ChatOptionsMergeTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/model/tier/ChatOptionsMergeTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.model.tier.TieredModelRouterTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/model/tier/TieredModelRouterTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.model.tier.TierModelAutoConfigurationContextTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/model/tier/TierModelAutoConfigurationContextTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.observability.ChatModelCompletionContentObservationFilterContextTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/observability/ChatModelCompletionContentObservationFilterContextTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.observability.OpsMetricsBeanTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/observability/OpsMetricsBeanTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.observability.OpsMetricsTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/observability/OpsMetricsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.prompt.CustomerReplyStyleTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/prompt/CustomerReplyStyleTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.prompt.PromptBuilderTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/prompt/PromptBuilderTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.prompt.PromptManagerDataAnalysisTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/prompt/PromptManagerDataAnalysisTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.quality.DomainQualityResultTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/quality/DomainQualityResultTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.AdvisorChainAutoConfigurationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/AdvisorChainAutoConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.AdvisorRuntimeBehaviorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/AdvisorRuntimeBehaviorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.AiChatServiceEntityTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/AiChatServiceEntityTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.ModelCallLimitAdvisorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/ModelCallLimitAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.PiiAdvisorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/PiiAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.PostGenerationComplianceAdvisorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/PostGenerationComplianceAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.PromptAuditAdvisorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/PromptAuditAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.SafeGuardAdvisorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/SafeGuardAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.SummarizationAdvisorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/SummarizationAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.TokenUsageAdvisorAuditTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/TokenUsageAdvisorAuditTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.advisor.TokenUsageAdvisorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/advisor/TokenUsageAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.BgeRerankerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/BgeRerankerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.chunking.ParentChildDocumentChunkerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/chunking/ParentChildDocumentChunkerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.compliance.ComplianceGoldenSuiteTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/compliance/ComplianceGoldenSuiteTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.compliance.ComplianceGuardGraderTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/compliance/ComplianceGuardGraderTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.config.KnowledgeBaseConfigBgeBeanTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/config/KnowledgeBaseConfigBgeBeanTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.config.KnowledgeBaseConfigBm25BeanTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/config/KnowledgeBaseConfigBm25BeanTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.document.PdfParserTableTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/document/PdfParserTableTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.document.TesseractOcrStrategyTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/document/TesseractOcrStrategyTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.eval.ContextFaithfulnessCheckerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/eval/ContextFaithfulnessCheckerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.eval.FaithfulnessGuardTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/eval/FaithfulnessGuardTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.eval.HallucinationDetectorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/eval/HallucinationDetectorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.eval.ProductPriceFaithfulnessTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/eval/ProductPriceFaithfulnessTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.eval.RAGEvaluatorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/eval/RAGEvaluatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.eval.RetrievalMetricsTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/eval/RetrievalMetricsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.GovernanceFieldTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/GovernanceFieldTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.graph.LlmEntityExtractorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/graph/LlmEntityExtractorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.ChunkQualityScorerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/ChunkQualityScorerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.ContentHashCacheChunkTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/ContentHashCacheChunkTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.ContentHashCacheTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/ContentHashCacheTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.DocumentMetadataEnricherTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/DocumentMetadataEnricherTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.DocumentValidatorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/DocumentValidatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.job.IngestionJobControllerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/job/IngestionJobControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.job.IngestionJobManagerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/job/IngestionJobManagerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.job.InMemoryIngestionJobRepositoryTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/job/InMemoryIngestionJobRepositoryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.KnowledgeIngestionComplianceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/KnowledgeIngestionComplianceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.ingestion.PiiScrubberTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/ingestion/PiiScrubberTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.InMemoryKnowledgeBaseAclTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/InMemoryKnowledgeBaseAclTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.InMemoryKnowledgeBaseBulkIndexTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/InMemoryKnowledgeBaseBulkIndexTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.KnowledgeBaseConflictResolverTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/KnowledgeBaseConflictResolverTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.KnowledgeDocumentAclTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/KnowledgeDocumentAclTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.KnowledgeIngestionVersioningTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/KnowledgeIngestionVersioningTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.KnowledgeSeedDataValidityTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/KnowledgeSeedDataValidityTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.KnowledgeVersioningTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/KnowledgeVersioningTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.multimodal.MultimodalIngestorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/multimodal/MultimodalIngestorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.multimodal.OllamaVisionImageCaptionerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/multimodal/OllamaVisionImageCaptionerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.MultiQueryServiceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/MultiQueryServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.PgIntegrationSettingsTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/PgIntegrationSettingsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.PgVectorBuildAclClauseTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/PgVectorBuildAclClauseTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.PgVectorKnowledgeBaseDefectTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/PgVectorKnowledgeBaseDefectTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.PgVectorKnowledgeBaseIntegrationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/PgVectorKnowledgeBaseIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.pipeline.AdaptiveRerankTopKTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/pipeline/AdaptiveRerankTopKTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.pipeline.DedupHandlerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/pipeline/DedupHandlerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.pipeline.QueryRewriteHandlerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/pipeline/QueryRewriteHandlerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.pipeline.RagSearchContextTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/pipeline/RagSearchContextTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.pipeline.RagSearchPipelineGradingTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/pipeline/RagSearchPipelineGradingTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.pipeline.RagSearchPipelineTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/pipeline/RagSearchPipelineTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.pipeline.RerankHandlerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/pipeline/RerankHandlerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.retrieval.CrossDocumentConflictResolverTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/retrieval/CrossDocumentConflictResolverTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.source.UserDocumentContextTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/source/UserDocumentContextTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.source.UserDocumentQaServiceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/source/UserDocumentQaServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.store.KnowledgeIndexMetaServiceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/store/KnowledgeIndexMetaServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.store.ResilientKnowledgeBaseTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/store/ResilientKnowledgeBaseTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.TestRecordingKnowledgeBase",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/TestRecordingKnowledgeBase.java",
+          "selected": false,
+          "exclusion": "helper_source"
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.trace.RetrievalTraceTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/trace/RetrievalTraceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.trace.StageTraceRecorderTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/trace/StageTraceRecorderTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.util.AlgorithmComparisonTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/util/AlgorithmComparisonTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.util.HashUtilAndContentHashCacheTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/util/HashUtilAndContentHashCacheTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.rag.util.HashUtilTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/rag/util/HashUtilTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.security.PiiMessageConverterTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/security/PiiMessageConverterTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.security.PiiPolicyConfigurationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/security/PiiPolicyConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.skill.SkillPackageAutoConfigurationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/skill/SkillPackageAutoConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.skill.SkillPackageTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/skill/SkillPackageTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.sql.SqlSecurityValidatorTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/sql/SqlSecurityValidatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.tokenizer.ChineseTokenizerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/tokenizer/ChineseTokenizerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.tool.client.ToolRegistryAutoConfigurationTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/tool/client/ToolRegistryAutoConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.tool.client.ToolRegistryClientMcpFallbackTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/tool/client/ToolRegistryClientMcpFallbackTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.tool.ToolLogAspectAuditTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/tool/ToolLogAspectAuditTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.tool.ToolLogAspectConditionalTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/tool/ToolLogAspectConditionalTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.common.util.UserQuestionNormalizerTest",
+          "source": "smart-assistant-common/src/test/java/com/example/smartassistant/common/util/UserQuestionNormalizerTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-routing-contract",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.routing.contract.RoutingKeysTest",
+          "source": "smart-assistant-routing-contract/src/test/java/com/example/smartassistant/routing/contract/RoutingKeysTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.routing.contract.WorkflowOperationTest",
+          "source": "smart-assistant-routing-contract/src/test/java/com/example/smartassistant/routing/contract/WorkflowOperationTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-tool-runtime",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.toolregistry.general.sandbox.ScriptSandboxTest",
+          "source": "smart-assistant-tool-runtime/src/test/java/com/example/smartassistant/toolregistry/general/sandbox/ScriptSandboxTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.toolregistry.general.tool.GeneralToolsTest",
+          "source": "smart-assistant-tool-runtime/src/test/java/com/example/smartassistant/toolregistry/general/tool/GeneralToolsTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-embedding-service",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.embedding.EmbeddingApplicationContextTest",
+          "source": "smart-assistant-embedding-service/src/test/java/com/example/smartassistant/embedding/EmbeddingApplicationContextTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.embedding.EmbeddingApplicationLifecycleTest",
+          "source": "smart-assistant-embedding-service/src/test/java/com/example/smartassistant/embedding/EmbeddingApplicationLifecycleTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.embedding.EmbeddingControllerContractTest",
+          "source": "smart-assistant-embedding-service/src/test/java/com/example/smartassistant/embedding/EmbeddingControllerContractTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-consumer",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.consumer.controller.ChatIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/a2a/consumer/controller/ChatIntegrationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.client.RouterClientCacheTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/client/RouterClientCacheTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.client.RouterClientDnsRetryTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/client/RouterClientDnsRetryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.client.RouterClientRedisDecisionTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/client/RouterClientRedisDecisionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.client.RouterClientResponseTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/client/RouterClientResponseTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.config.ApplicationYamlTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/config/ApplicationYamlTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.config.ChatDispatchRabbitConfigTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/config/ChatDispatchRabbitConfigTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.config.DatabaseDialectConfigurationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/config/DatabaseDialectConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.config.LightChatModelConfigTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/config/LightChatModelConfigTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.config.ProfileExecutionConfigTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/config/ProfileExecutionConfigTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.config.SentimentExecutionConfigTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/config/SentimentExecutionConfigTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.AdminControllerSessionAuthorizationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/AdminControllerSessionAuthorizationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.ChatControllerAnonymousSessionTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/ChatControllerAnonymousSessionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.InsightControllerTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/InsightControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.ProfileAdminAuthenticationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/ProfileAdminAuthenticationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.ProfileAdminControllerTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/ProfileAdminControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.ProfilePrivacyAuthenticationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/ProfilePrivacyAuthenticationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.ProfilePrivacyControllerTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/ProfilePrivacyControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.SpeechControllerTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/SpeechControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.SpeechOutputControllerTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/SpeechOutputControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.SseEventFormatTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/SseEventFormatTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.controller.StreamChatControllerPersistenceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/controller/StreamChatControllerPersistenceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.health.RouterConnectivityHealthIndicatorTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/health/RouterConnectivityHealthIndicatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.admin.AdminFaqServicePersistenceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/admin/AdminFaqServicePersistenceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.admin.AdminServiceFaqImportTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/admin/AdminServiceFaqImportTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.admin.AdminServiceSessionIsolationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/admin/AdminServiceSessionIsolationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.admin.AdminServiceStatsTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/admin/AdminServiceStatsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.admin.AdminServiceStorageInitializationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/admin/AdminServiceStorageInitializationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.admin.VisitRecordServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/admin/VisitRecordServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.agent.McpAgentServiceDataAnalysisPromptTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/agent/McpAgentServiceDataAnalysisPromptTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.cache.AnswerPersonalizationPrivacyTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/cache/AnswerPersonalizationPrivacyTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.cache.SelectiveSemanticAnswerCacheTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/cache/SelectiveSemanticAnswerCacheTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.cache.UserGroupingServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/cache/UserGroupingServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.core.ChatConsumerServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/core/ChatConsumerServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.core.ClarificationFormTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/core/ClarificationFormTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.core.ClarificationV2Test",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/core/ClarificationV2Test.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.core.ConversationPreprocessingServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/core/ConversationPreprocessingServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.core.RequestQueueServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/core/RequestQueueServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.dispatch.ChatDispatchBrokerIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/dispatch/ChatDispatchBrokerIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.dispatch.ChatDispatchListenerTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/dispatch/ChatDispatchListenerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.dispatch.ChatDispatchPublisherTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/dispatch/ChatDispatchPublisherTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.dispatch.ChatDispatchRedisIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/dispatch/ChatDispatchRedisIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.dispatch.PriorityRoutingDispatcherTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/dispatch/PriorityRoutingDispatcherTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.feedback.UserFeedbackServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/feedback/UserFeedbackServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.infrastructure.PromptAuditSanitizerTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/infrastructure/PromptAuditSanitizerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.infrastructure.ReplyOriginTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/infrastructure/ReplyOriginTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.infrastructure.RoutingCallLogServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/infrastructure/RoutingCallLogServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.infrastructure.TokenUsageExtractorTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/infrastructure/TokenUsageExtractorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.memory.MemoryVersionStoreTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/memory/MemoryVersionStoreTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.notification.UserNotificationStoreTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/notification/UserNotificationStoreTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.notification.WorkflowRecoveryNotificationListenerTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/notification/WorkflowRecoveryNotificationListenerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.prompt.StageAwarePromptServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/prompt/StageAwarePromptServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.GovernedAgentMemoryIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/GovernedAgentMemoryIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.GovernedEntityProfileIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/GovernedEntityProfileIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.LLMPreferenceExtractorTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/LLMPreferenceExtractorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileAdmissionCoordinatorTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileAdmissionCoordinatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileAdmissionIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileAdmissionIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileCleanupIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileCleanupIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileCleanupServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileCleanupServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileCommitBrokerIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileCommitBrokerIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileCommitCandidateIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileCommitCandidateIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileCommitReferenceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileCommitReferenceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileControlArchiveIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileControlArchiveIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileControlJournalTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileControlJournalTest.java",
+          "selected": false,
+          "exclusion": "separate_linux_posix"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileCrossStoreRecoveryIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileCrossStoreRecoveryIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileDerivedCleanupTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileDerivedCleanupTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileGenerationFenceIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileGenerationFenceIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileGenerationFenceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileGenerationFenceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileGenerationServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileGenerationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileLegacyFilesTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileLegacyFilesTest.java",
+          "selected": false,
+          "exclusion": "separate_linux_posix"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileRedisPublicationIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileRedisPublicationIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileRequestRedisIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileRequestRedisIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.ProfileRequestRedisStoreTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/ProfileRequestRedisStoreTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.UserProfileCommitMessagingTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/UserProfileCommitMessagingTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.UserProfilePrefetchTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/UserProfilePrefetchTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.UserProfileQueryServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/UserProfileQueryServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.recommendation.UserProfileSnapshotStoreTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/recommendation/UserProfileSnapshotStoreTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.sentiment.JevPrequeueAdvisorTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/sentiment/JevPrequeueAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.sentiment.SentimentAnalysisServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/sentiment/SentimentAnalysisServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.sentiment.SentimentSnapshotStoreTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/sentiment/SentimentSnapshotStoreTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.sentiment.TurnInsightTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/sentiment/TurnInsightTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.session.ConversationDocumentServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/session/ConversationDocumentServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.session.ConversationGateRedisIntegrationTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/session/ConversationGateRedisIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.session.ConversationGateServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/session/ConversationGateServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.session.ConversationSummarizationServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/session/ConversationSummarizationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.session.StreamTurnRecorderTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/session/StreamTurnRecorderTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.speech.SpeechRecognitionServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/speech/SpeechRecognitionServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.service.speech.SpeechSynthesisServiceTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/service/speech/SpeechSynthesisServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.streaming.RedisSseProgressForwarderTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/streaming/RedisSseProgressForwarderTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.streaming.SseEventBusTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/streaming/SseEventBusTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.streaming.SseEventTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/streaming/SseEventTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.streaming.VisibleReplyAccumulatorTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/streaming/VisibleReplyAccumulatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.consumer.tool.DataGifToolTest",
+          "source": "smart-assistant-consumer/src/test/java/com/example/smartassistant/consumer/tool/DataGifToolTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-data-intake",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.intake.controller.AdminProductFeatureControllerTest",
+          "source": "smart-assistant-data-intake/src/test/java/com/example/smartassistant/intake/controller/AdminProductFeatureControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.intake.controller.AdminProductIdentityControllerTest",
+          "source": "smart-assistant-data-intake/src/test/java/com/example/smartassistant/intake/controller/AdminProductIdentityControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.intake.DataIntakeApplicationTest",
+          "source": "smart-assistant-data-intake/src/test/java/com/example/smartassistant/intake/DataIntakeApplicationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.intake.service.admin.AdminProductFeaturePersistenceTest",
+          "source": "smart-assistant-data-intake/src/test/java/com/example/smartassistant/intake/service/admin/AdminProductFeaturePersistenceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.intake.service.admin.AdminProductIdentityPgIntegrationTest",
+          "source": "smart-assistant-data-intake/src/test/java/com/example/smartassistant/intake/service/admin/AdminProductIdentityPgIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.intake.service.admin.AdminProductIntakeTest",
+          "source": "smart-assistant-data-intake/src/test/java/com/example/smartassistant/intake/service/admin/AdminProductIntakeTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.intake.service.admin.ProductFeatureExtractorTest",
+          "source": "smart-assistant-data-intake/src/test/java/com/example/smartassistant/intake/service/admin/ProductFeatureExtractorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.intake.service.admin.ProductIdentityUpdateTest",
+          "source": "smart-assistant-data-intake/src/test/java/com/example/smartassistant/intake/service/admin/ProductIdentityUpdateTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-router",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.router.benchmark.BadCaseMinerBenchmarkTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/benchmark/BadCaseMinerBenchmarkTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.config.RabbitWorkflowRecoveryQueueIntegrationTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/config/RabbitWorkflowRecoveryQueueIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.router.config.RouterManagementConfigurationTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/config/RouterManagementConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.config.RouterThreadPoolConfigTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/config/RouterThreadPoolConfigTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.config.SchedulerConfigTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/config/SchedulerConfigTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.config.WorkflowRecoveryRabbitTopologyTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/config/WorkflowRecoveryRabbitTopologyTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.controller.RouterCancellationRecoveryTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/controller/RouterCancellationRecoveryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.controller.RouterControllerIdentityTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/controller/RouterControllerIdentityTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.controller.RouterControllerTokenUsageTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/controller/RouterControllerTokenUsageTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.exception.GlobalExceptionHandlerBeanNameTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/exception/GlobalExceptionHandlerBeanNameTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.model.ExecutionPlanTransportMetadataTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/model/ExecutionPlanTransportMetadataTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.model.HandoffCommandTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/model/HandoffCommandTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.model.IntentGraphConditionalDependencyTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/model/IntentGraphConditionalDependencyTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.model.TaskAnalysisResultTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/model/TaskAnalysisResultTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.scheduler.AgentTaskProtocolSerializationTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/scheduler/AgentTaskProtocolSerializationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.scheduler.AgentTaskQueueReliabilityTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/scheduler/AgentTaskQueueReliabilityTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.agent.AgentCallerPreparationBoundaryTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/agent/AgentCallerPreparationBoundaryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.agent.AgentCallerProductUriTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/agent/AgentCallerProductUriTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.agent.AgentCallerTitleExtractionTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/agent/AgentCallerTitleExtractionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.agent.AgentCallerTokenUsageTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/agent/AgentCallerTokenUsageTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.agent.AgentMessageDispatcherTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/agent/AgentMessageDispatcherTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.agent.AgentPromptCatalogServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/agent/AgentPromptCatalogServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.AgentCallerServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/AgentCallerServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.cache.BgeModelComparisonDiagnosticTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/cache/BgeModelComparisonDiagnosticTest.java",
+          "selected": false,
+          "exclusion": "real_onnx_model"
+        },
+        {
+          "name": "com.example.smartassistant.router.service.cache.BgeOnnxEmbeddingServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/cache/BgeOnnxEmbeddingServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.cache.ProductNodeResultCacheTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/cache/ProductNodeResultCacheTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.cache.RagRerankTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/cache/RagRerankTest.java",
+          "selected": false,
+          "exclusion": "real_onnx_model"
+        },
+        {
+          "name": "com.example.smartassistant.router.service.cache.SemanticAnswerCachePolicyTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/cache/SemanticAnswerCachePolicyTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.checkpoint.LangGraphRedisCheckpointSaverTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/checkpoint/LangGraphRedisCheckpointSaverTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.BusinessFallbackParserTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/BusinessFallbackParserTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.DeepSeekPlanningClientTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/DeepSeekPlanningClientTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.DomainClarificationRelayTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/DomainClarificationRelayTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.ExecutionPlanValidatorTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/ExecutionPlanValidatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.GraphNodeExecutionServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/GraphNodeExecutionServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.LangGraphNodeLifecycleMiddlewareTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/LangGraphNodeLifecycleMiddlewareTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.LangGraphRedisRecoveryIntegrationTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/LangGraphRedisRecoveryIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.LangGraphRouteExecutionServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/LangGraphRouteExecutionServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.ModelRoutingServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/ModelRoutingServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.ModelUnavailableWorkflowServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/ModelUnavailableWorkflowServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.ProductEntityReferencePlanGuardTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/ProductEntityReferencePlanGuardTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.ProductReadOnlyDispatcherTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/ProductReadOnlyDispatcherTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.ProfileProjectionReaderIntegrationTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/ProfileProjectionReaderIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.PurchasePrerequisiteGuardTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/PurchasePrerequisiteGuardTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.ReflectionServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/ReflectionServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.ResultMergerTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/ResultMergerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.RouteContextHelperTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/RouteContextHelperTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.RouteExecutionPreplannedGraphTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/RouteExecutionPreplannedGraphTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.RouteFinalizerTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/RouteFinalizerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.RouteLangGraphExecutionTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/RouteLangGraphExecutionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.RouterClarificationPolicyTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/RouterClarificationPolicyTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.RouterConversationContextTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/RouterConversationContextTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.RouterUserDocumentTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/RouterUserDocumentTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.RoutingDecisionPublisherTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/RoutingDecisionPublisherTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.TaskPlannerServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/TaskPlannerServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.UserProfileContextAwaiterTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/UserProfileContextAwaiterTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.core.WorkflowCancellationServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/core/WorkflowCancellationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.evaluation.BadCaseMinerServiceCorrectionTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/evaluation/BadCaseMinerServiceCorrectionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.evaluation.ClarificationServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/evaluation/ClarificationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.evaluation.CorrectionSignalDetectorTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/evaluation/CorrectionSignalDetectorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.evaluation.EntityNormalizerTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/evaluation/EntityNormalizerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.evaluation.IntentEvaluationServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/evaluation/IntentEvaluationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.evaluation.IntentGuidedQueryRewriterTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/evaluation/IntentGuidedQueryRewriterTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.evaluation.SlotStateMachineTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/evaluation/SlotStateMachineTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.evaluation.TestSlotSchemas",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/evaluation/TestSlotSchemas.java",
+          "selected": false,
+          "exclusion": "helper_source"
+        },
+        {
+          "name": "com.example.smartassistant.router.service.experience.ExperienceServiceBgeTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/experience/ExperienceServiceBgeTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.experience.ExperienceServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/experience/ExperienceServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.experience.ExperienceValidatorTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/experience/ExperienceValidatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.guardrail.GuardrailServiceEmotionTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/guardrail/GuardrailServiceEmotionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.quality.QualityEvaluationServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/quality/QualityEvaluationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.rag.RouterRagServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/rag/RouterRagServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.recovery.InterruptedLeaseCleanupTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/recovery/InterruptedLeaseCleanupTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.recovery.WorkflowExecutionLeaseRedisIntegrationTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/recovery/WorkflowExecutionLeaseRedisIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.router.service.recovery.WorkflowRecoveryApplicationServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/recovery/WorkflowRecoveryApplicationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.recovery.WorkflowRecoveryManagerTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/recovery/WorkflowRecoveryManagerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.recovery.WorkflowRecoveryNotificationOutboxPublisherTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/recovery/WorkflowRecoveryNotificationOutboxPublisherTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.recovery.WorkflowRecoveryQueueRedisIntegrationTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/recovery/WorkflowRecoveryQueueRedisIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.router.service.taskanalysis.IntentDefTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/taskanalysis/IntentDefTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.taskanalysis.IntentRetrieverTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/taskanalysis/IntentRetrieverTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.taskanalysis.PolicyPlanGuardTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/taskanalysis/PolicyPlanGuardTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.taskanalysis.RouterSkillPackageConfigurationTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/taskanalysis/RouterSkillPackageConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.taskanalysis.TaskAnalysisPromptTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/taskanalysis/TaskAnalysisPromptTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.tool.RoutingToolCheckerTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/tool/RoutingToolCheckerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.service.trace.AgentFlowTraceRedisIntegrationTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/trace/AgentFlowTraceRedisIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.router.service.trace.AgentFlowTraceStoreTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/service/trace/AgentFlowTraceStoreTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.workflow.WorkflowGraphCompilerTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/workflow/WorkflowGraphCompilerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.workflow.WorkflowPublishServiceTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/workflow/WorkflowPublishServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.router.workflow.WorkflowValidatorTest",
+          "source": "smart-assistant-router/src/test/java/com/example/smartassistant/router/workflow/WorkflowValidatorTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-order",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.benchmark.ApprovalStateMachineBenchmarkTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/benchmark/ApprovalStateMachineBenchmarkTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.NacosAgentCardBindingTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/config/NacosAgentCardBindingTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.OrderKnowledgeConfigQualifierTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/config/OrderKnowledgeConfigQualifierTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.OrderSkillPackageConfigurationTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/config/OrderSkillPackageConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.controller.OrderAgentControllerTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/controller/OrderAgentControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.controller.OrderCheckoutHistoryControllerTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/controller/OrderCheckoutHistoryControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.order.infrastructure.idempotency.TaskLogServiceRedisIntegrationTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/order/infrastructure/idempotency/TaskLogServiceRedisIntegrationTest.java",
+          "selected": false,
+          "exclusion": "external_storage_or_broker"
+        },
+        {
+          "name": "com.example.smartassistant.order.infrastructure.idempotency.TaskLogServiceSpringContextTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/order/infrastructure/idempotency/TaskLogServiceSpringContextTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.order.model.OrderStatusTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/order/model/OrderStatusTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.OrderApplicationScanBoundaryTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/OrderApplicationScanBoundaryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.JevOrderIntentAdvisorTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/service/core/JevOrderIntentAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.OrderCheckoutHistoryServiceTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/service/core/OrderCheckoutHistoryServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.OrderClarificationServiceTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/service/core/OrderClarificationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.OrderDeterministicExecutionServiceTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/service/core/OrderDeterministicExecutionServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.OrderFallbackPreparationServiceTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/service/core/OrderFallbackPreparationServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.OrderIntentServiceTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/service/core/OrderIntentServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.OrderRagServiceTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/service/core/OrderRagServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.quality.OrderDomainQualityValidatorTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/service/quality/OrderDomainQualityValidatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.spi.impl.OrderDataProviderImplTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/spi/impl/OrderDataProviderImplTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.ApprovalServiceTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/tools/ApprovalServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.tools.CouponToolsTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/tools/CouponToolsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.tools.OrderToolsTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/tools/OrderToolsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.tools.TextToSqlToolTest",
+          "source": "smart-assistant-order/src/test/java/com/example/smartassistant/tools/TextToSqlToolTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-product",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.benchmark.ProductGraphBenchmarkTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/benchmark/ProductGraphBenchmarkTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.benchmark.ProductRagQualityBenchmarkTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/benchmark/ProductRagQualityBenchmarkTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.NacosMetadataConfigurerConditionTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/config/NacosMetadataConfigurerConditionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.ProductCustomerServicePromptTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/config/ProductCustomerServicePromptTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.ProductJdbcStartupTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/config/ProductJdbcStartupTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.ProductOpenAiModelContextTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/config/ProductOpenAiModelContextTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.ProductOwnedRagConfigurationTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/config/ProductOwnedRagConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.ProductSkillPackageConfigurationTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/config/ProductSkillPackageConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.config.RagProductionAutoConfigurationPrimaryTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/config/RagProductionAutoConfigurationPrimaryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.controller.ProductStreamControllerTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/controller/ProductStreamControllerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.product.tool.ProductToolsTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/product/tool/ProductToolsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.ProductApplicationScanBoundaryTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/ProductApplicationScanBoundaryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.agent.StreamingProductAgentServiceTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/agent/StreamingProductAgentServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.JevProductDiscoveryAdvisorTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/JevProductDiscoveryAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.JevProductEntityAdvisorTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/JevProductEntityAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.MultiProductQueryServiceTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/MultiProductQueryServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductBudgetRevisionTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductBudgetRevisionTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductClarificationScopeTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductClarificationScopeTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductConversationHistoryTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductConversationHistoryTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductDiscoveryServiceTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductDiscoveryServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductEntityCoverageTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductEntityCoverageTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductEntityEvaluationTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductEntityEvaluationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductEntityResolverTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductEntityResolverTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductFactQueryServiceTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductFactQueryServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductFeatureIntentArchitectureTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductFeatureIntentArchitectureTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductFieldCoverageTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductFieldCoverageTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductFollowUpConstraintsTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductFollowUpConstraintsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductPublicAnswerTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductPublicAnswerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductRecommendationAspectSchemaTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductRecommendationAspectSchemaTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductRecommendationSafetyTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductRecommendationSafetyTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.ProductStructuredFeaturesTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/ProductStructuredFeaturesTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.core.StructuredProductRecommendationTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/core/StructuredProductRecommendationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.quality.ProductBudgetClaimVerifierTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/quality/ProductBudgetClaimVerifierTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.quality.ProductBudgetDerivationVerifierTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/quality/ProductBudgetDerivationVerifierTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.quality.ProductDomainQualityValidatorTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/quality/ProductDomainQualityValidatorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.quality.ProductToolEvidenceScopeTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/quality/ProductToolEvidenceScopeTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.search.BoundedRetrievalFeedbackTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/search/BoundedRetrievalFeedbackTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.search.handler.Bm25SearchHandlerTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/search/handler/Bm25SearchHandlerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.search.handler.JevProductFieldAdvisorTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/search/handler/JevProductFieldAdvisorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.search.handler.KnowledgeSearchHandlerScopeTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/search/handler/KnowledgeSearchHandlerScopeTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.search.handler.LightRagSearchHandlerTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/search/handler/LightRagSearchHandlerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.search.handler.RrfFusionHandlerTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/search/handler/RrfFusionHandlerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.search.ProductKnowledgeScopeSelectorTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/search/ProductKnowledgeScopeSelectorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.search.ProductRagServiceAgenticTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/search/ProductRagServiceAgenticTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.service.search.ProductRetrievalDiagnosticsTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/service/search/ProductRetrievalDiagnosticsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.spi.InMemoryProductBackendTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/spi/InMemoryProductBackendTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.spi.JdbcProductBackendTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/spi/JdbcProductBackendTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.spi.JdbcProductFeaturesTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/spi/JdbcProductFeaturesTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.spi.JdbcProductIdentityTest",
+          "source": "smart-assistant-product/src/test/java/com/example/smartassistant/spi/JdbcProductIdentityTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-gateway",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.gateway.config.DataIntakeRouteConfigurationTest",
+          "source": "smart-assistant-gateway/src/test/java/com/example/smartassistant/gateway/config/DataIntakeRouteConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.gateway.config.InsightRouteConfigurationTest",
+          "source": "smart-assistant-gateway/src/test/java/com/example/smartassistant/gateway/config/InsightRouteConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.gateway.config.UserRouteConfigurationTest",
+          "source": "smart-assistant-gateway/src/test/java/com/example/smartassistant/gateway/config/UserRouteConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.gateway.config.WorkflowRecoveryRouteConfigurationTest",
+          "source": "smart-assistant-gateway/src/test/java/com/example/smartassistant/gateway/config/WorkflowRecoveryRouteConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.gateway.exception.GlobalExceptionHandlerTest",
+          "source": "smart-assistant-gateway/src/test/java/com/example/smartassistant/gateway/exception/GlobalExceptionHandlerTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.gateway.filter.GlobalJwtAuthFilterIntegrationTest",
+          "source": "smart-assistant-gateway/src/test/java/com/example/smartassistant/gateway/filter/GlobalJwtAuthFilterIntegrationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.gateway.filter.GlobalJwtAuthFilterTest",
+          "source": "smart-assistant-gateway/src/test/java/com/example/smartassistant/gateway/filter/GlobalJwtAuthFilterTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.gateway.filter.TracingGlobalFilterTest",
+          "source": "smart-assistant-gateway/src/test/java/com/example/smartassistant/gateway/filter/TracingGlobalFilterTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.gateway.util.JwtUtilTest",
+          "source": "smart-assistant-gateway/src/test/java/com/example/smartassistant/gateway/util/JwtUtilTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-user",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.user.config.SecurityConfigCorsTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/config/SecurityConfigCorsTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.mapper.UserMapperConfigurationTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/mapper/UserMapperConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.model.dto.AuthenticationDtoTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/model/dto/AuthenticationDtoTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.oauth.OAuthHttpClientConfigurationTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/oauth/OAuthHttpClientConfigurationTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.oauth.OAuthLoginServiceTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/oauth/OAuthLoginServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.oauth.OAuthProviderGatewayTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/oauth/OAuthProviderGatewayTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.service.AuthServiceTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/service/AuthServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.service.CustomUserDetailsServiceTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/service/CustomUserDetailsServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.service.ExternalAccountServiceTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/service/ExternalAccountServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.service.JwtServiceTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/service/JwtServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.service.SessionServiceTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/service/SessionServiceTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.user.UserServiceApplicationComponentScanTest",
+          "source": "smart-assistant-user/src/test/java/com/example/smartassistant/user/UserServiceApplicationComponentScanTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    },
+    {
+      "module": "smart-assistant-tool-registry",
+      "suites": [
+        {
+          "name": "com.example.smartassistant.toolregistry.general.GeneralToolCatalogRegistrarTest",
+          "source": "smart-assistant-tool-registry/src/test/java/com/example/smartassistant/toolregistry/general/GeneralToolCatalogRegistrarTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.toolregistry.mcp.McpServerConfigBeanNameTest",
+          "source": "smart-assistant-tool-registry/src/test/java/com/example/smartassistant/toolregistry/mcp/McpServerConfigBeanNameTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.toolregistry.mcp.McpToolRegistryAdapterTest",
+          "source": "smart-assistant-tool-registry/src/test/java/com/example/smartassistant/toolregistry/mcp/McpToolRegistryAdapterTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.toolregistry.mcp.McpToolSourceIngestorTest",
+          "source": "smart-assistant-tool-registry/src/test/java/com/example/smartassistant/toolregistry/mcp/McpToolSourceIngestorTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.toolregistry.service.RegistryServiceSearchTest",
+          "source": "smart-assistant-tool-registry/src/test/java/com/example/smartassistant/toolregistry/service/RegistryServiceSearchTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.toolregistry.service.ToolCompatibilityCheckerImplTest",
+          "source": "smart-assistant-tool-registry/src/test/java/com/example/smartassistant/toolregistry/service/ToolCompatibilityCheckerImplTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.toolregistry.service.ToolManifestValidatorTest",
+          "source": "smart-assistant-tool-registry/src/test/java/com/example/smartassistant/toolregistry/service/ToolManifestValidatorTest.java",
+          "selected": true,
+          "exclusion": null
+        }
+      ]
+    }
+  ]
+}
