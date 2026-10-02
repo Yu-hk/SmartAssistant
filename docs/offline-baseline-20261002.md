@@ -67,7 +67,7 @@ python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/
 python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/second --compare .codex-output/offline-baseline/first/baseline.json
 ```
 
-必须使用新目录；入口不删除既有回执。依赖未缓存时会失败，不自行联网下载模型或启用生产配置。新增 CI 作业先以 `-DskipTests clean install` 缓存清理插件与构建依赖，再用 common 的本机 HTTP 替身 EmbeddingClientTest 和 routing-contract 的纯键名断言 RoutingKeysTest 缓存 Surefire 动态选择的 JUnit provider/launcher，分别覆盖 common 额外仓库及其余模块父级仓库上下文，然后在无模型/存储凭证环境中独立运行两轮。预热用例不重复计入基线；两轮各自 clean，旧报告不可混用。此作业是测量和报告完整性门禁，不是新设的全局覆盖硬门槛。最终远端结论以对应提交的 Actions 为准。
+必须使用新目录；入口不删除既有回执。依赖未缓存时会失败，不自行联网下载模型或启用生产配置。新增 CI 作业先以 `-DskipTests clean install` 缓存清理插件与构建依赖，再用 common 的客户端构造断言 EmbeddingClientTest（不发起 HTTP 请求）和 routing-contract 的纯键名断言 RoutingKeysTest 缓存 Surefire 动态选择的 JUnit provider/launcher，分别覆盖 common 额外仓库及其余模块父级仓库上下文，然后在无模型/存储凭证环境中独立运行两轮。预热用例不重复计入基线；两轮各自 clean，旧报告不可混用。此作业是测量和报告完整性门禁，不是新设的全局覆盖硬门槛。最终远端结论以对应提交的 Actions 为准。
 
 ### 首次 Linux CI 的排序兼容修复
 
