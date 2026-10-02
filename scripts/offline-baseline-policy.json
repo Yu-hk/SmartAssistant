@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_baseline": "e36bdcc6daae78584c022d46aa5f4fe69efbaddb",
+  "reviewed_baseline": "353170af738b6325f6ae75673601ad0d9e981af8",
   "modules": [
     {
       "module": "smart-assistant-common",
@@ -952,8 +952,20 @@
       "module": "smart-assistant-tool-runtime",
       "suites": [
         {
+          "name": "com.example.smartassistant.toolregistry.general.GeneralToolCatalogRegistrarTest",
+          "source": "smart-assistant-tool-runtime/src/test/java/com/example/smartassistant/toolregistry/general/GeneralToolCatalogRegistrarTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
           "name": "com.example.smartassistant.toolregistry.general.sandbox.ScriptSandboxTest",
           "source": "smart-assistant-tool-runtime/src/test/java/com/example/smartassistant/toolregistry/general/sandbox/ScriptSandboxTest.java",
+          "selected": true,
+          "exclusion": null
+        },
+        {
+          "name": "com.example.smartassistant.toolregistry.general.spi.impl.GeneralDataProviderImplTest",
+          "source": "smart-assistant-tool-runtime/src/test/java/com/example/smartassistant/toolregistry/general/spi/impl/GeneralDataProviderImplTest.java",
           "selected": true,
           "exclusion": null
         },
