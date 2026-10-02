@@ -195,6 +195,40 @@ class OfflineBaselineTest(unittest.TestCase):
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'inventory changed'):
                 baseline.verify_policy(changed, policy)
 
+    def test_policy_accepts_windows_and_linux_order_but_not_changed_entries(self):
+        from pathlib import PurePosixPath, PureWindowsPath
+        suites = [
+            {'name': 'example.RootTest', 'source': 'module/RootTest.java',
+             'selected': True, 'exclusion': None},
+            {'name': 'example.nested.ChildTest', 'source': 'module/nested/ChildTest.java',
+             'selected': True, 'exclusion': None},
+            {'name': 'example.external.ExternalIntegrationTest', 'source': 'module/external/ExternalIntegrationTest.java',
+             'selected': False, 'exclusion': 'external_storage_or_broker'}]
+        windows = sorted(suites, key=lambda suite: PureWindowsPath(suite['source']))
+        linux = sorted(suites, key=lambda suite: PurePosixPath(suite['source']))
+        self.assertNotEqual(windows, linux)
+        policy = {'schema_version': 1, 'modules': [{'module': 'module', 'suites': windows}]}
+        items = [{'module': 'module', 'suites': linux}]
+        baseline.verify_policy(items, policy)
+        changed = copy.deepcopy(items)
+        changed[0]['suites'][0]['source'] = 'module/renamed/RootTest.java'
+        with self.assertRaisesRegex(ValueError, 'inventory changed'):
+            baseline.verify_policy(changed, policy)
+
+    def test_policy_rejects_duplicate_name_or_source_in_actual_and_policy(self):
+        original = [{'module': 'module', 'suites': [dict(self.item['suites'][0],
+                    source='module/SampleTest.java', exclusion=None)]}]
+        for side in ('actual', 'policy'):
+            for duplicate_key in ('name', 'source'):
+                actual = copy.deepcopy(original)
+                policy = {'schema_version': 1, 'modules': copy.deepcopy(original)}
+                target = actual if side == 'actual' else policy['modules']
+                duplicate = dict(target[0]['suites'][0], name='example.OtherTest', source='module/OtherTest.java')
+                duplicate[duplicate_key] = target[0]['suites'][0][duplicate_key]
+                target[0]['suites'].append(duplicate)
+                with self.subTest(side=side, key=duplicate_key), self.assertRaisesRegex(ValueError, 'duplicate'):
+                    baseline.verify_policy(actual, policy)
+
     def test_new_output_only_within_dedicated_root(self):
         with self.assertRaisesRegex(ValueError, 'NEW directory'):
             baseline.run(self.repo, self.repo / 'elsewhere', 'unused')
