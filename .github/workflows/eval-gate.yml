@@ -28,7 +28,8 @@ jobs:
         run: python3 -m unittest discover -s scripts -p 'test_offline*.py' -v
       - name: Populate dependencies and the dynamically resolved JUnit provider
         run: |
-          mvn -B -DskipTests install
+          # Cache the clean lifecycle plugin as well as compile/install plugins.
+          mvn -B -DskipTests clean install
           mvn -B -pl smart-assistant-common -Dtest=EmbeddingClientTest test
       - name: First clean measurement (no model or storage credentials)
         run: python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/first
