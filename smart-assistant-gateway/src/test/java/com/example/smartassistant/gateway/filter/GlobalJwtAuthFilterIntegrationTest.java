@@ -29,10 +29,15 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
+                // Synthetic test-only signing value; never load an operator's .env.
+                "spring.config.import=",
+                "jwt.secret=offline-gateway-contract-signing-value-not-for-production",
                 "spring.autoconfigure.exclude="
                         + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
                 "spring.cloud.nacos.discovery.enabled=false",
+                "spring.cloud.nacos.config.enabled=false",
                 "spring.cloud.service-registry.auto-registration.enabled=false",
+                "management.tracing.enabled=false",
                 "management.health.redis.enabled=false"
         })
 @AutoConfigureWebTestClient

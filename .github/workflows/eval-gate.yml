@@ -10,6 +10,41 @@ permissions:
   contents: read
 
 jobs:
+  offline-reactor-baseline:
+    name: Audited offline reactor baseline (two clean runs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check inventory, report and process cleanup contracts
+        run: python3 -m unittest discover -s scripts -p 'test_offline*.py' -v
+      - name: Populate dependencies and the dynamically resolved JUnit provider
+        run: |
+          # Cache the clean lifecycle plugin as well as compile/install plugins.
+          mvn -B -DskipTests clean install
+          # Common adds a repository; also cache the launcher in the root-only
+          # repository context instead of assuming a downloaded file is usable.
+          mvn -B -pl smart-assistant-common,smart-assistant-routing-contract -Dtest=EmbeddingClientTest,RoutingKeysTest test
+      - name: First clean measurement (no model or storage credentials)
+        run: python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/first
+      - name: Independent clean repeat and counter comparison
+        run: python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/second --compare .codex-output/offline-baseline/first/baseline.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-reactor-baseline
+          path: .codex-output/offline-baseline/
+          include-hidden-files: true
+          if-no-files-found: error
+
   ragas-feedback-contract:
     name: Ragas four-metric and shadow-feedback contracts
     runs-on: ubuntu-latest
