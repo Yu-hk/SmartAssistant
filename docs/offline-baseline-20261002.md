@@ -69,6 +69,12 @@ python3 scripts/run_offline_baseline.py --output .codex-output/offline-baseline/
 
 必须使用新目录；入口不删除既有回执。依赖未缓存时会失败，不自行联网下载模型或启用生产配置。新增 CI 作业先以 `-DskipTests install` 缓存构建依赖，再用本机 HTTP 替身的 EmbeddingClientTest 缓存 Surefire 动态选择的 JUnit provider，然后在无模型/存储凭证环境中独立运行两轮。预热的单例不重复计入基线；两轮各自 clean，旧报告不可混用。此作业是测量和报告完整性门禁，不是新设的全局覆盖硬门槛。最终远端结论以对应提交的 Actions 为准。
 
+### 首次 Linux CI 的排序兼容修复
+
+[首轮远端运行](https://github.com/Yu-hk/SmartAssistant/actions/runs/36959509335)在测试清单预检阶段失败，未开始基线 Maven 测量；其余既有验收作业通过。实际复现确认六个模块的文件列表仅顺序不同：Windows 的 `Path` 比较忽略大小写，Linux 区分大小写，因此目录名和大写类名的相对顺序不同，449 个条目及选择分类本身没有变化。
+
+策略核对现在按原样字符串统一排序后逐项比较；名称、路径、选择和排除原因仍须完全一致，双方的重复名称或路径明确拒绝，不使用会丢掉重复项的集合比较。审查清单字节和上述历史回执不改写。新增跨平台顺序与双方重复项回归，基线脚本合同合计 28 项。本次修改不改变 Java 源码或测试选择；远端双轮实跑须重新通过，不能把首轮预检失败算成测量通过。
+
 ## 停机演练状态
 
 本机仅 Docker CLI 可用，Linux engine pipe 不存在；没有执行进程级停机演练，也没有停止线上 Consumer / Router。已有 JVM/Spring 销毁回归不能替代 SIGTERM/SIGKILL、SSE 排空或 MQ 重投。

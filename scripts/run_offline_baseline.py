@@ -107,7 +107,21 @@ def verify_policy(items, policy):
         raise ValueError('invalid reviewed suite policy')
     actual = [{'module': item['module'], 'suites': [{key: suite[key] for key in
               ('name', 'source', 'selected', 'exclusion')} for suite in item['suites']]} for item in items]
-    if actual != policy.get('modules'):
+
+    def canonical_modules(modules):
+        # Native Path ordering folds case on Windows, but not on Linux. Suite
+        # order is not part of selection; retain exact names/paths/classification
+        # and duplicate counts instead of weakening this gate to a set comparison.
+        result = []
+        for item in modules:
+            suites = item['suites']
+            if any(len({suite[key] for suite in suites}) != len(suites)
+                   for key in ('name', 'source')):
+                raise ValueError('suite inventory changed: duplicate suite name or source')
+            result.append(dict(item, suites=sorted(suites, key=lambda suite: (suite['source'], suite['name']))))
+        return result
+
+    if canonical_modules(actual) != canonical_modules(policy.get('modules', [])):
         raise ValueError('suite inventory changed; explicitly review/update offline-baseline-policy.json')
 
 
