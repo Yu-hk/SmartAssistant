@@ -19,7 +19,7 @@
 | react (声明范围) | `^18.2.0` |
 | react-router-dom (声明范围) | `^7.18.2` |
 | tdesign-react (声明范围) | `^1.12.0` |
-| vite (声明范围) | `^5.0.10` |
+| vite (声明范围) | `^6.4.4` |
 | tailwindcss (声明范围) | `^3.4.17` |
 
 Maven 模块共 12 个；以下端口来自各模块 application.yml 默认声明。
